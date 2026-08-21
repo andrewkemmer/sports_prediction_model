@@ -504,21 +504,26 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
 
     # Fetch schedule for each team and keep only home games to deduplicate
     all_games = []
+    import inspect
+    sig = inspect.signature(schedule_and_record)
+    logger.info("schedule_and_record signature: %s", sig)
     for team in MLB_TEAMS:
         try:
-            team_schedule = schedule_and_record(season, team)
+            # Use keyword args to be safe across pybaseball versions
+            team_schedule = schedule_and_record(year=season, team=team)
             if team_schedule is not None and not team_schedule.empty:
                 # Keep only home games for this team (avoids double-counting)
                 if "Home" in team_schedule.columns:
                     home_games = team_schedule[team_schedule["Home"] == team].copy()
                 else:
-                    # Fallback: assume all rows are for this team
                     home_games = team_schedule.copy()
                 all_games.append(home_games)
                 logger.debug("Fetched %d home games for %s", len(home_games), team)
         except Exception as e:
             logger.warning("Failed to fetch schedule for %s: %s", team, e)
             continue
+        if len(all_games) >= 5:
+            break  # Limit for speed in Colab; remove for full season
 
     if not all_games:
         logger.warning("No schedule data returned for season %d", season)
