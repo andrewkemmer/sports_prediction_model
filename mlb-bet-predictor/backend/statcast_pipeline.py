@@ -360,8 +360,8 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
     # Sort for rolling computation
     pitcher_game_stats = pitcher_game_stats.sort_values(["pitcher", "game_date"])
 
-    # Rolling ERA (earned runs / IP * 9) over last ROLLING_WINDOW_PITCHER games
-    for stat_col in ["runs", "ks", "bbs", "hits_allowed", "hbps"]:
+    # Shift all stat columns for PIT compliance
+    for stat_col in ["runs", "ks", "bbs", "hits_allowed", "hbps", "hrs_allowed", "xwoba", "barrel_rate", "hard_contact_rate"]:
         # Use shift(1) to ensure strict PIT: stats from game T appear only after game T
         pitcher_game_stats[f"_shifted_{stat_col}"] = (
             pitcher_game_stats.groupby("pitcher")[stat_col]
@@ -411,7 +411,7 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     # FIP ≈ (13*HR + 3*(BB+HBP) - 2*K) / IP
     pitcher_game_stats["sp_fip_30g"] = (
-        (13 * pitcher_game_stats.groupby("pitcher")["_shifted_runs"]
+        (13 * pitcher_game_stats.groupby("pitcher")["_shifted_hrs_allowed"]
          .transform(lambda x: x.rolling(window=ROLLING_WINDOW_PITCHER, min_periods=3).sum())
          + 3 * (pitcher_game_stats.groupby("pitcher")["_shifted_bbs"]
                 .transform(lambda x: x.rolling(window=ROLLING_WINDOW_PITCHER, min_periods=3).sum())
