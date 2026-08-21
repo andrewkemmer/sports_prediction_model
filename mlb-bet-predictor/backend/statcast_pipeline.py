@@ -1559,12 +1559,14 @@ def run_statcast_pipeline(
     checkpoint_dir: Optional[str | Path] = None,
     resume: bool = True,
     validate: bool = True,
+    chunk_games: int = 20,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run the full Statcast feature pipeline with chunked memory processing.
+    """Run the full Statcast feature pipeline with game-level chunked processing.
 
-    Each feature tier (pitcher, batter, bullpen, team offense) is computed
-    in a separate pass: reload pitches from disk → compute → save → free.
-    Peak RAM stays near raw-pitches size (~30 MB) regardless of date range.
+    Processes games in chronological chunks of `chunk_games` games, with a
+    30-game warm-up period for rolling features.  Each chunk is written to
+    disk immediately and freed from RAM.  Final outputs are built by
+    concatenating Parquet files — never all rows in RAM at once.
 
     Args:
         start_date: Start date (YYYY-MM-DD or date object).
@@ -1572,21 +1574,22 @@ def run_statcast_pipeline(
         checkpoint_dir: Directory for checkpoint/output files.
         resume: If True, resume from existing Statcast checkpoints.
         validate: If True, run validation suite on output.
+        chunk_games: Number of games per processing chunk (default 20).
 
     Returns:
         (game_level, pnp_level) tuple of DataFrames.
     """
     logger.info("=== Statcast Pipeline (chunked): %s to %s ===", start_date, end_date)
 
-    # Working directory for intermediate tier files
+    import gc
+
     work_dir = Path(checkpoint_dir) if checkpoint_dir else Path("/content/mlb_tmp")
     work_dir.mkdir(parents=True, exist_ok=True)
     RAW = work_dir / "raw_pitches.parquet"
-    TIER_PITCHER = work_dir / "tier_pitcher.parquet"
-    TIER_BATTER  = work_dir / "tier_batter.parquet"
-    TIER_BULLPEN = work_dir / "tier_bullpen.parquet"
-    TIER_TEAM    = work_dir / "tier_team_offense.parquet"
-    TIER_META    = work_dir / "tier_game_meta.parquet"
+    GAMES_DIR = work_dir / "game_chunks"
+    PBPS_DIR  = work_dir / "pbp_chunks"
+    GAMES_DIR.mkdir(exist_ok=True)
+    PBPS_DIR.mkdir(exist_ok=True)
 
     # ── 1. Pull raw Statcast data → save to disk ──────────────────────
     pitches = pull_statcast_data(start_date, end_date,
@@ -1600,134 +1603,214 @@ def run_statcast_pipeline(
                 len(pitches), RAW.stat().st_size / 1e6)
     del pitches; gc.collect()
 
-    # ── 2. Pitcher features (pass 1) ─────────────────────────────────
-    logger.info("Pass 1/6: Pitcher features ...")
-    _p = pd.read_parquet(RAW)
-    pitcher_feats = _compute_rolling_pitcher_features(_p)
-    del _p; gc.collect()
-    pitcher_feats.to_parquet(TIER_PITCHER, index=False)
-    del pitcher_feats; gc.collect()
+    # ── 2. Determine game chunks ──────────────────────────────────────
+    _meta = pd.read_parquet(RAW, columns=["game_pk", "game_date"])
+    _meta["game_date"] = pd.to_datetime(_meta["game_date"])
+    game_order = (
+        _meta.groupby("game_pk")["game_date"]
+        .min().reset_index()
+        .sort_values(["game_date", "game_pk"])
+    )
+    all_game_pks = game_order["game_pk"].tolist()
+    all_game_dates = game_order.set_index("game_pk")["game_date"].to_dict()
+    del _meta, game_order; gc.collect()
 
-    # ── 3. Batter features (pass 2) ──────────────────────────────────
-    logger.info("Pass 2/6: Batter features ...")
-    _p = pd.read_parquet(RAW)
-    batter_feats = _compute_rolling_batter_features(_p)
-    del _p; gc.collect()
-    if not batter_feats.empty:
-        batter_feats.to_parquet(TIER_BATTER, index=False)
-    del batter_feats; gc.collect()
+    n_games = len(all_game_pks)
+    warmup = 30  # games of history for rolling windows
+    chunks = []
+    i = 0
+    while i < n_games:
+        chunk_start = max(0, i - warmup)  # include warm-up games
+        chunk_end = min(i + chunk_games, n_games)
+        chunk_pks = all_game_pks[chunk_start:chunk_end]
+        target_pks = all_game_pks[i:chunk_end]  # only write these
+        chunks.append((chunk_pks, target_pks))
+        i = chunk_end
 
-    # ── 4. Bullpen features (pass 3) ─────────────────────────────────
-    logger.info("Pass 3/6: Bullpen features ...")
-    _p = pd.read_parquet(RAW)
-    bullpen_feats = _compute_rolling_bullpen_features(_p)
-    del _p; gc.collect()
-    if not bullpen_feats.empty:
-        bullpen_feats.to_parquet(TIER_BULLPEN, index=False)
-    del bullpen_feats; gc.collect()
+    logger.info("Split %d games into %d chunks (warm-up=%d, chunk_size=%d)",
+                n_games, len(chunks), warmup, chunk_games)
 
-    # ── 5. Team offense features (pass 4) ────────────────────────────
-    logger.info("Pass 4/6: Team offense features ...")
-    _p = pd.read_parquet(RAW)
-    team_off = _compute_team_offense_features(_p)
-    del _p; gc.collect()
-    if not team_off.empty:
-        team_off.to_parquet(TIER_TEAM, index=False)
-    del team_off; gc.collect()
+    # ── 3. Process each game chunk ────────────────────────────────────
+    for ci, (chunk_pks, target_pks) in enumerate(chunks):
+        logger.info("Chunk %d/%d: %d games (%d warm-up + %d target)",
+                     ci + 1, len(chunks), len(chunk_pks),
+                     len(chunk_pks) - len(target_pks), len(target_pks))
 
-    # ── 6. Game metadata (pass 5) ────────────────────────────────────
-    logger.info("Pass 5/6: Game metadata ...")
-    _p = pd.read_parquet(RAW)
+        # Load only pitches for these games
+        _p = pd.read_parquet(RAW)
+        _p = _p[_p["game_pk"].isin(chunk_pks)].copy()
+        gc.collect()
 
-    winners = _determine_winners(_p)
-    starters = _get_starter_info(_p)
-    venues = _attach_venue_info(_p)
-    rest = _compute_rest_days(_p)
-    del _p; gc.collect()
+        # ── Game-level features for this chunk ────────────────────────
+        game_level = _build_chunk_game_features(_p, target_pks)
 
-    game_meta = winners[["game_pk", "game_date", "home_team", "away_team",
-                         "home_score", "away_score", "home_win", "total_runs"]].copy()
-    del winners
-    game_meta = game_meta.merge(
+        # Write chunk game-level features to parquet
+        chunk_path = GAMES_DIR / f"game_chunk_{ci:03d}.parquet"
+        game_level.to_parquet(chunk_path, index=False)
+
+        # ── PBP features for this chunk ───────────────────────────────
+        pbp = _build_chunk_pbp_features(_p, game_level, target_pks)
+        chunk_pbp_path = PBPS_DIR / f"pbp_chunk_{ci:03d}.parquet"
+        pbp.to_parquet(chunk_pbp_path, index=False, compression="snappy")
+
+        del _p, game_level, pbp
+        gc.collect()
+
+    # ── 4. Concatenate all chunks from disk ───────────────────────────
+    logger.info("Concatenating game-level chunks from disk...")
+    game_parts = sorted(GAMES_DIR.glob("game_chunk_*.parquet"))
+    game_level = pd.concat([pd.read_parquet(f) for f in game_parts], ignore_index=True)
+    game_level = game_level.drop_duplicates(subset=["game_pk"], keep="last")
+    game_level = game_level.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
+
+    logger.info("Concatenating PBP chunks from disk...")
+    pbp_parts = sorted(PBPS_DIR.glob("pbp_chunk_*.parquet"))
+    pnp_level = pd.concat([pd.read_parquet(f) for f in pbp_parts], ignore_index=True)
+    pnp_level = pnp_level.drop_duplicates(
+        subset=["game_pk", "at_bat_number", "pitch_number"], keep="last")
+    pnp_level = pnp_level.sort_values(
+        ["game_date", "game_pk", "inning", "at_bat_number", "pitch_number"]
+    ).reset_index(drop=True)
+
+    # Downcast final outputs
+    for df in [game_level, pnp_level]:
+        for col in df.select_dtypes(include=["float64"]).columns:
+            df[col] = df[col].astype("float32")
+        for col in df.select_dtypes(include=["int64"]).columns:
+            if df[col].max() < 32767 and df[col].min() >= -32768:
+                df[col] = df[col].astype("int16")
+
+    # ── 5. Validate ──────────────────────────────────────────────────
+    if validate:
+        validate_datasets(game_level, pnp_level, pnp_level)
+
+    # ── 6. Save final outputs ────────────────────────────────────────
+    if checkpoint_dir:
+        out_dir = Path(checkpoint_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        game_level.to_parquet(out_dir / "game_level_features.parquet", index=False)
+        pnp_level.to_parquet(out_dir / "pbp_level_features.parquet", index=False)
+
+    # Clean up temp files
+    for f in game_parts + pbp_parts:
+        f.unlink(missing_ok=True)
+    GAMES_DIR.rmdir()
+    PBPS_DIR.rmdir()
+    if RAW.exists(): RAW.unlink()
+
+    logger.info("=== Pipeline complete: %d games, %d pitches ===",
+                len(game_level), len(pnp_level))
+    return game_level, pnp_level
+
+
+def _build_chunk_game_features(pitches: pd.DataFrame, target_pks: list) -> pd.DataFrame:
+    """Build game-level features for one chunk.  Only target_pks are kept."""
+    import gc
+
+    # Ensure core columns exist
+    for col in ["game_pk", "game_date", "home_team", "away_team",
+                "home_score", "away_score", "events", "pitcher", "batter"]:
+        if col not in pitches.columns:
+            pitches[col] = np.nan
+
+    # Winners
+    winners = _determine_winners(pitches)
+    if "game_pk" not in winners.columns and winners.index.name == "game_pk":
+        winners = winners.reset_index()
+    winners = winners[winners["game_pk"].isin(target_pks)]
+
+    # Starters
+    starters = _get_starter_info(pitches)
+    if "game_pk" not in starters.columns and starters.index.name == "game_pk":
+        starters = starters.reset_index()
+
+    # Venues
+    venues = _attach_venue_info(pitches)
+    if "game_pk" not in venues.columns and venues.index.name == "game_pk":
+        venues = venues.reset_index()
+
+    # Base
+    base = pitches[["game_pk", "game_date", "home_team", "away_team"]].drop_duplicates()
+    base = base[base["game_pk"].isin(target_pks)]
+    if "game_pk" not in base.columns and base.index.name == "game_pk":
+        base = base.reset_index()
+
+    # Merge winners
+    gl = base.merge(
+        winners[["game_pk", "home_score", "away_score", "home_win", "total_runs"]],
+        on="game_pk", how="left")
+    del winners; gc.collect()
+
+    # Merge starters
+    gl = gl.merge(
         starters[["game_pk", "home_starter_id", "away_starter_id"]],
         on="game_pk", how="left")
-    del starters
-    game_meta = game_meta.merge(
-        venues[["game_pk", "venue"]], on="game_pk", how="left")
-    del venues
+    del starters; gc.collect()
+
+    # Merge venues
+    gl = gl.merge(venues[["game_pk", "venue"]], on="game_pk", how="left")
+    del venues; gc.collect()
+
+    # Rest days
+    rest = _compute_rest_days(pitches)
     _hr = rest[["game_pk"]].copy(); _hr["rest_days_home"] = rest["rest_days"].values
-    game_meta = game_meta.merge(_hr, on="game_pk", how="left"); del _hr
+    gl = gl.merge(_hr, on="game_pk", how="left"); del _hr
     _ar = rest[["game_pk"]].copy(); _ar["rest_days_away"] = rest["rest_days"].values
-    game_meta = game_meta.merge(_ar, on="game_pk", how="left"); del _ar, rest
+    gl = gl.merge(_ar, on="game_pk", how="left"); del _ar, rest
     gc.collect()
 
-    game_meta.to_parquet(TIER_META, index=False)
-    del game_meta; gc.collect()
+    # Pitcher features (computed on full pitches for correct rolling, filtered to targets)
+    pitcher_feats = _compute_rolling_pitcher_features(pitches)
+    if not pitcher_feats.empty:
+        home_p = pitcher_feats.rename(columns={
+            "pitcher": "home_starter_id",
+            "sp_era_30g": "sp_era_home", "sp_k9_30g": "sp_k9_home",
+            "sp_bb9_30g": "sp_bb9_home", "sp_whip_30g": "sp_whip_home",
+            "sp_fip_30g": "sp_fip_home", "sp_xwoba_30g": "sp_xwoba_home"})
+        gl = gl.merge(home_p[["game_pk", "home_starter_id", "sp_era_home", "sp_k9_home",
+                               "sp_bb9_home", "sp_whip_home", "sp_fip_home", "sp_xwoba_home"]],
+                       on=["game_pk", "home_starter_id"], how="left")
+        away_p = pitcher_feats.rename(columns={
+            "pitcher": "away_starter_id",
+            "sp_era_30g": "sp_era_away", "sp_k9_30g": "sp_k9_away",
+            "sp_bb9_30g": "sp_bb9_away", "sp_whip_30g": "sp_whip_away",
+            "sp_fip_30g": "sp_fip_away", "sp_xwoba_30g": "sp_xwoba_away"})
+        gl = gl.merge(away_p[["game_pk", "away_starter_id", "sp_era_away", "sp_k9_away",
+                               "sp_bb9_away", "sp_whip_away", "sp_fip_away", "sp_xwoba_away"]],
+                       on=["game_pk", "away_starter_id"], how="left")
+    del pitcher_feats; gc.collect()
 
-    # ── 7. Assemble game_level from saved tiers (pass 6) ─────────────
-    logger.info("Pass 6/6: Assembling game-level features ...")
-    game_level = pd.read_parquet(TIER_META)
-
-    # Pitcher features → home + away
-    pfeats = pd.read_parquet(TIER_PITCHER)
-    home_p = pfeats.rename(columns={
-        "pitcher": "home_starter_id",
-        "sp_era_30g": "sp_era_home", "sp_k9_30g": "sp_k9_home",
-        "sp_bb9_30g": "sp_bb9_home", "sp_whip_30g": "sp_whip_home",
-        "sp_fip_30g": "sp_fip_home", "sp_xwoba_30g": "sp_xwoba_home",
-    })
-    game_level = game_level.merge(
-        home_p[["game_pk", "home_starter_id", "sp_era_home", "sp_k9_home",
-                "sp_bb9_home", "sp_whip_home", "sp_fip_home", "sp_xwoba_home"]],
-        on=["game_pk", "home_starter_id"], how="left")
-    away_p = pfeats.rename(columns={
-        "pitcher": "away_starter_id",
-        "sp_era_30g": "sp_era_away", "sp_k9_30g": "sp_k9_away",
-        "sp_bb9_30g": "sp_bb9_away", "sp_whip_30g": "sp_whip_away",
-        "sp_fip_30g": "sp_fip_away", "sp_xwoba_30g": "sp_xwoba_away",
-    })
-    game_level = game_level.merge(
-        away_p[["game_pk", "away_starter_id", "sp_era_away", "sp_k9_away",
-                "sp_bb9_away", "sp_whip_away", "sp_fip_away", "sp_xwoba_away"]],
-        on=["game_pk", "away_starter_id"], how="left")
-    del pfeats, home_p, away_p; gc.collect()
-
-    # Team offense → home + away
-    if TIER_TEAM.exists():
-        toff = pd.read_parquet(TIER_TEAM)
-        h_off = toff.rename(columns={"team": "home_team",
+    # Team offense
+    team_off = _compute_team_offense_features(pitches)
+    if not team_off.empty:
+        h_off = team_off.rename(columns={"team": "home_team",
             "team_woba_30g": "team_woba_30g_home", "team_iso_30g": "team_iso_30g_home",
             "team_k_rate_30g": "team_k_rate_30g_home", "team_bb_rate_30g": "team_bb_rate_30g_home"})
-        game_level = game_level.merge(
-            h_off[["game_pk", "team_woba_30g_home", "team_iso_30g_home",
-                    "team_k_rate_30g_home", "team_bb_rate_30g_home"]],
-            on="game_pk", how="left")
-        a_off = toff.rename(columns={"team": "away_team",
+        gl = gl.merge(h_off[["game_pk", "team_woba_30g_home", "team_iso_30g_home",
+                              "team_k_rate_30g_home", "team_bb_rate_30g_home"]],
+                       on="game_pk", how="left")
+        a_off = team_off.rename(columns={"team": "away_team",
             "team_woba_30g": "team_woba_30g_away", "team_iso_30g": "team_iso_30g_away",
             "team_k_rate_30g": "team_k_rate_30g_away", "team_bb_rate_30g": "team_bb_rate_30g_away"})
-        game_level = game_level.merge(
-            a_off[["game_pk", "team_woba_30g_away", "team_iso_30g_away",
-                    "team_k_rate_30g_away", "team_bb_rate_30g_away"]],
-            on="game_pk", how="left")
-        del toff, h_off, a_off; gc.collect()
+        gl = gl.merge(a_off[["game_pk", "team_woba_30g_away", "team_iso_30g_away",
+                              "team_k_rate_30g_away", "team_bb_rate_30g_away"]],
+                       on="game_pk", how="left")
+    del team_off; gc.collect()
 
-    # Bullpen → home + away
-    if TIER_BULLPEN.exists():
-        bpen = pd.read_parquet(TIER_BULLPEN)
-        if not bpen.empty and "game_pk" in bpen.columns:
-            h_bp = bpen.rename(columns={"team": "home_team",
-                "bullpen_whip_10g": "bullpen_whip_10g_home", "bullpen_era_10g": "bullpen_era_10g_home"})
-            game_level = game_level.merge(
-                h_bp[["game_pk", "bullpen_whip_10g_home", "bullpen_era_10g_home"]],
-                on="game_pk", how="left")
-            a_bp = bpen.rename(columns={"team": "away_team",
-                "bullpen_whip_10g": "bullpen_whip_10g_away", "bullpen_era_10g": "bullpen_era_10g_away"})
-            game_level = game_level.merge(
-                a_bp[["game_pk", "bullpen_whip_10g_away", "bullpen_era_10g_away"]],
-                on="game_pk", how="left")
-        del bpen; gc.collect()
+    # Bullpen
+    bullpen_feats = _compute_rolling_bullpen_features(pitches)
+    if not bullpen_feats.empty and "game_pk" in bullpen_feats.columns:
+        h_bp = bullpen_feats.rename(columns={"team": "home_team",
+            "bullpen_whip_10g": "bullpen_whip_10g_home", "bullpen_era_10g": "bullpen_era_10g_home"})
+        gl = gl.merge(h_bp[["game_pk", "bullpen_whip_10g_home", "bullpen_era_10g_home"]],
+                       on="game_pk", how="left")
+        a_bp = bullpen_feats.rename(columns={"team": "away_team",
+            "bullpen_whip_10g": "bullpen_whip_10g_away", "bullpen_era_10g": "bullpen_era_10g_away"})
+        gl = gl.merge(a_bp[["game_pk", "bullpen_whip_10g_away", "bullpen_era_10g_away"]],
+                       on="game_pk", how="left")
+    del bullpen_feats; gc.collect()
 
-    # Fill missing columns
+    # Fill missing
     for c in ["sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
               "sp_fip_home", "sp_fip_away", "sp_xwoba_home", "sp_xwoba_away",
               "sp_whip_home", "sp_whip_away", "sp_bb9_home", "sp_bb9_away",
@@ -1737,66 +1820,105 @@ def run_statcast_pipeline(
               "team_bb_rate_30g_home", "team_bb_rate_30g_away",
               "bullpen_whip_10g_home", "bullpen_whip_10g_away",
               "bullpen_era_10g_home", "bullpen_era_10g_away",
-              "rest_days_home", "rest_days_away"]:
-        if c not in game_level.columns:
-            game_level[c] = np.nan
+              "rest_days_home", "rest_days_away",
+              "moneyline_home", "moneyline_away", "total_line"]:
+        if c not in gl.columns:
+            gl[c] = np.nan
 
     # Market lines
-    markets = _compute_markets_stub(game_level)
-    game_level = game_level.merge(
-        markets[["game_pk", "moneyline_home", "moneyline_away",
-                  "total_line", "run_line_home", "juice"]],
-        on="game_pk", how="left")
+    markets = _compute_markets_stub(gl)
+    gl = gl.merge(markets[["game_pk", "moneyline_home", "moneyline_away",
+                            "total_line", "run_line_home", "juice"]],
+                   on="game_pk", how="left")
     del markets
 
     # Game ID
-    game_level["game_id"] = (
-        pd.to_datetime(game_level["game_date"]).dt.strftime("%Y%m%d")
-        + "_" + game_level["away_team"].astype(str)
-        + "@" + game_level["home_team"].astype(str)
-    )
-    game_level = game_level.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
+    gl["game_id"] = (
+        pd.to_datetime(gl["game_date"]).dt.strftime("%Y%m%d")
+        + "_" + gl["away_team"].astype(str)
+        + "@" + gl["home_team"].astype(str))
+    gl = gl.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
 
     # Downcast
-    for col in game_level.select_dtypes(include=["float64"]).columns:
-        game_level[col] = game_level[col].astype("float32")
-    for col in game_level.select_dtypes(include=["int64"]).columns:
-        if game_level[col].max() < 32767 and game_level[col].min() >= -32768:
-            game_level[col] = game_level[col].astype("int16")
+    for col in gl.select_dtypes(include=["float64"]).columns:
+        gl[col] = gl[col].astype("float32")
+    for col in gl.select_dtypes(include=["int64"]).columns:
+        if gl[col].max() < 32767 and gl[col].min() >= -32768:
+            gl[col] = gl[col].astype("int16")
     for col in ["venue", "home_team", "away_team"]:
-        if col in game_level.columns and game_level[col].dtype == "object":
-            game_level[col] = game_level[col].astype("category")
+        if col in gl.columns and gl[col].dtype == "object":
+            gl[col] = gl[col].astype("category")
 
-    logger.info("Game-level: %d games, %d cols", len(game_level), len(game_level.columns))
-
-    # ── 8. Build PBP features (reload pitches) ────────────────────────
-    logger.info("Building PBP-level features ...")
-    _p = pd.read_parquet(RAW)
-    pnp_level = build_pbp_level_features(_p, game_level)
-    del _p; gc.collect()
-
-    # ── 9. Validate ──────────────────────────────────────────────────
-    if validate:
-        validate_datasets(game_level, pnp_level, pnp_level)
-
-    # ── 10. Save final outputs ────────────────────────────────────────
-    if checkpoint_dir:
-        out_dir = Path(checkpoint_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        game_level.to_parquet(out_dir / "game_level_features.parquet", index=False)
-        pnp_level.to_parquet(out_dir / "pbp_level_features.parquet", index=False)
-
-    # Clean up temp tier files
-    for f in [RAW, TIER_PITCHER, TIER_BATTER, TIER_BULLPEN, TIER_TEAM, TIER_META]:
-        if f.exists():
-            f.unlink()
-
-    logger.info("=== Pipeline complete ===")
-    return game_level, pnp_level
+    return gl
 
 
+def _build_chunk_pbp_features(pitches: pd.DataFrame, game_level: pd.DataFrame,
+                               target_pks: list) -> pd.DataFrame:
+    """Build PBP features for one chunk.  Only target_pks are kept."""
+    import gc
 
-# ── CLI ──────────────────────────────────────────────────────────────────────
+    _pbp_needed = ["game_pk", "game_date", "inning", "at_bat_number", "pitch_number",
+                   "home_team", "away_team", "home_score", "away_score",
+                   "on_1b", "on_2b", "on_3b", "inning_topbot", "outs_when_up",
+                   "balls", "strikes", "stand", "p_throws", "pitch_type",
+                   "description", "events", "barrel", "hard_contact",
+                   "launch_speed", "launch_angle", "estimated_woba_using_speedangle",
+                   "zone"]
+    _pbp_needed = [c for c in _pbp_needed if c in pitches.columns]
+    pbp = pitches[_pbp_needed].copy(deep=False)
+
+    # Filter to target games only
+    pbp = pbp[pbp["game_pk"].isin(target_pks)].copy()
+
+    # Situational features
+    pbp["bases_loaded"] = (
+        pbp["on_1b"].notna().astype(int) +
+        pbp["on_2b"].notna().astype(int) +
+        pbp["on_3b"].notna().astype(int)).clip(lower=0)
+    pbp["runners_in_scoring_position"] = (
+        pbp["on_2b"].notna().astype(int) +
+        pbp["on_3b"].notna().astype(int))
+    pbp["is_risp"] = pbp["runners_in_scoring_position"] > 0
+    pbp["score_diff"] = pbp["home_score"].fillna(0) - pbp["away_score"].fillna(0)
+    pbp["batting_team"] = np.where(pbp["inning_topbot"] == "Top",
+                                    pbp["away_team"], pbp["home_team"])
+    pbp["ab_pitch_count"] = pbp.groupby(["game_pk", "at_bat_number"]).cumcount() + 1
+    pbp["times_through_order"] = np.ceil(pbp["at_bat_number"] / 9.0).astype(int)
+    pbp["lr_matchup"] = np.where(pbp["stand"] == pbp["p_throws"], "same", "opposite")
+
+    # Contact quality
+    pbp["is_barrel"] = pbp.get("barrel", pd.Series(np.nan, index=pbp.index)).astype("float32")
+    pbp["is_hard_hit"] = pbp.get("hard_contact", pd.Series(np.nan, index=pbp.index)).astype("float32")
+    pbp["exit_velocity"] = pbp.get("launch_speed", pd.Series(np.nan, index=pbp.index)).astype("float32")
+    pbp["launch_angle_f"] = pbp.get("launch_angle", pd.Series(np.nan, index=pbp.index)).astype("float32")
+
+    # Pitch category
+    fastballs = ["FF", "FT", "SI", "FC", "FS", "FO"]
+    breaking = ["SL", "CU", "KC", "CS", "SV", "WR"]
+    offspeed = ["CH", "EP", "SC", "KN", "UN", "PO"]
+    pbp["pitch_category"] = np.select(
+        [pbp["pitch_type"].isin(fastballs), pbp["pitch_type"].isin(breaking),
+         pbp["pitch_type"].isin(offspeed)],
+        ["fastball", "breaking", "offspeed"], default="unknown")
+
+    # Merge game-level features
+    gl_feats = game_level.drop(columns=["home_team", "away_team", "game_date"], errors="ignore")
+    pbp = pbp.merge(gl_feats, on="game_pk", how="left")
+
+    pbp = pbp.sort_values(["game_date", "game_pk", "inning", "at_bat_number", "pitch_number"])
+    pbp = pbp.reset_index(drop=True)
+
+    # Downcast
+    for col in pbp.select_dtypes(include=["float64"]).columns:
+        pbp[col] = pbp[col].astype("float32")
+    for col in pbp.select_dtypes(include=["int64"]).columns:
+        if pbp[col].max() < 32767 and pbp[col].min() >= -32768:
+            pbp[col] = pbp[col].astype("int16")
+    for col in ["home_team", "away_team", "batting_team", "pitch_category", "lr_matchup"]:
+        if col in pbp.columns and pbp[col].dtype == "object":
+            pbp[col] = pbp[col].astype("category")
+
+    return pbp
 
 
 def main():
