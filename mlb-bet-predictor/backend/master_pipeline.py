@@ -58,37 +58,28 @@ for mod in list(sys.modules.keys()):
     if any(x in mod for x in ['statcast', 'pipeline', 'data_ingestion', 'config', 'training', 'explainability']):
         del sys.modules[mod]
 
-_banner("PHASE 1", "Statcast Data Ingestion")
-from tqdm.auto import tqdm
-from statcast_pipeline import pull_statcast_data, build_game_level_features, build_pbp_level_features, validate_datasets
+_banner("PHASE 1-3", "Chunked Pipeline (pull + features + validate)")
+from statcast_pipeline import run_statcast_pipeline
+import gc
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
-print(f"📅 {start} → {end} ({((end-start).days // 6) + 1} API calls)")
+print(f"📅 {start} → {end}")
+print("  Each feature tier computed in a separate pass (~40 MB peak)")
 
-pitches = pull_statcast_data(start_date=start, end_date=end, checkpoint_dir=CONFIG.get("checkpoint_dir"), resume=True)
-if pitches.empty:
-    print("❌ No data pulled."); sys.exit(1)
-print(f"✅ {len(pitches):,} pitches, {pitches['game_pk'].nunique()} games")
+out_dir = CONFIG.get("output_dir", "/content/mlb_clean_data")
+game_df, pbp_df = run_statcast_pipeline(
+    start_date=start,
+    end_date=end,
+    checkpoint_dir=out_dir,
+    validate=True,
+)
 
-import gc
-
-_banner("PHASE 2", "Feature Engineering")
-game_df = build_game_level_features(pitches)
 print(f"  ✅ Game: {game_df.shape}")
-
-pbp_df = build_pbp_level_features(pitches, game_df)
 print(f"  ✅ PBP:  {pbp_df.shape}")
-
-# Free raw pitches — no longer needed
-del pitches
 gc.collect()
 
-_banner("PHASE 3", "Validation")
-validation = validate_datasets(game_df, pbp_df, pbp_df)
-
-gc.collect()
-
+_banner("PHASE 4", "Compression")
 _banner("PHASE 4", "Compression")
 output_dir = Path(CONFIG["output_dir"]); output_dir.mkdir(parents=True, exist_ok=True)
 game_df.fillna(game_df.median(numeric_only=True), inplace=True)
