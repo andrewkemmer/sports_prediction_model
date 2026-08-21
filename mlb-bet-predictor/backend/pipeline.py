@@ -425,19 +425,19 @@ def main():
     target = datetime.strptime(args.date, DATE_FMT).date()
 
     if args.statcast:
-        # Run comprehensive Statcast pipeline
-        from statcast_pipeline import run_statcast_pipeline
+        # Run Statcast pipeline via ingestion + features modules
+        from ingestion import pull_statcast
+        from features import build_features
+        import tempfile
 
         start = args.statcast_start or (target - timedelta(days=120)).strftime("%Y-%m-%d")
         end = args.statcast_end or target.strftime("%Y-%m-%d")
-        ckpt = args.statcast_checkpoint_dir
+        ckpt = Path(args.statcast_checkpoint_dir) if args.statcast_checkpoint_dir else Path(tempfile.mkdtemp())
+        ckpt.mkdir(parents=True, exist_ok=True)
 
-        game_df, pbp_df = run_statcast_pipeline(
-            start_date=start,
-            end_date=end,
-            checkpoint_dir=ckpt,
-            validate=True,
-        )
+        pitches_path = ckpt / "pitches.parquet"
+        pull_statcast(start, end, out_path=pitches_path, resume=True)
+        game_df, pbp_df = build_features(pitches_path, ckpt)
 
         print(f"\nStatcast pipeline complete:")
         print(f"  Game-level: {game_df.shape}")
