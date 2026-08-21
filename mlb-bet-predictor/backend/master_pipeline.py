@@ -1,3 +1,4 @@
+
 import os
 
 CONFIG = {
@@ -116,12 +117,12 @@ else:
         repo = git.Repo.clone_from(auth_url, str(sync_dir), branch=CONFIG["github_branch"], depth=1)
         if CONFIG["git_email"]: repo.config_writer().set_value("user","email",CONFIG["git_email"]).release()
         if CONFIG["git_name"]: repo.config_writer().set_value("user","name",CONFIG["git_name"]).release()
-        data_delivery_dir = sync_dir / "data_delivery"; data_delivery_dir.mkdir(exist_ok=True)
-        staged = []
+        data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"; data_delivery_dir.mkdir(exist_ok=True)
+        staged = [] # Initialize staged list
         for f in [csv_path, parquet_path]:
             if f.exists(): 
                 shutil.copy2(f, data_delivery_dir / f.name)
-                staged.append(f"data_delivery/{f.name}") # Corrected path for staging
+                staged.append(f"mlb-bet-predictor/data_delivery/{f.name}") # Corrected path for staging
         repo.index.add(staged)
         if repo.index.diff("HEAD"):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
