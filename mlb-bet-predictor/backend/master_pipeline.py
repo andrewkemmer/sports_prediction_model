@@ -1,5 +1,10 @@
 """
 MLB Master Pipeline — Single-Script End-to-End for Google Colab.
+
+Uses:
+  ingestion.py  → pulls Statcast, saves pitches.parquet
+  features.py   → pure DuckDB SQL feature engineering
+  pipeline.py   → daily training + predictions
 """
 from __future__ import annotations
 
@@ -14,14 +19,13 @@ CONFIG = {
     "git_name":        "",
     "output_dir":      "/content/mlb_clean_data",
     "data_subdir":     "data",
-    "statcast_chunk_days": 6,
+    "statcast_chunk_days": 7,
     "statcast_pause_sec":  2,
-    "checkpoint_dir":      None,
 }
 
 import warnings
 warnings.filterwarnings("ignore")
-import os, sys, subprocess, shutil, time
+import os, sys, subprocess, shutil, time, gc
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -53,43 +57,58 @@ sys.path.insert(0, str(repo_dir / "mlb-bet-predictor" / "backend"))
 os.chdir(str(repo_dir / "mlb-bet-predictor"))
 print(f"  📁 {os.getcwd()}")
 
-# Clear any stale Python module caches
+# Clear stale module caches
 for mod in list(sys.modules.keys()):
-    if any(x in mod for x in ['statcast', 'pipeline', 'data_ingestion', 'config', 'training', 'explainability']):
+    if any(x in mod for x in ['statcast', 'pipeline', 'duckdb_features', 'ingestion', 'features', 'data_ingestion', 'config', 'training', 'explainability']):
         del sys.modules[mod]
 
-_banner("PHASE 1-3", "DuckDB Pipeline (SQL on disk, <2 GB RAM)")
-from duckdb_features import run_duckdb_pipeline
-import gc
+# ── Phase 1: Pull Statcast ──────────────────────────────────────────────────
+_banner("PHASE 1", "Statcast Data Ingestion")
+from ingestion import pull_statcast
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
-print(f"📅 {start} → {end}")
-print("  All rolling windows, shifts, groupbys, and joins via DuckDB SQL")
-print("  RAM stays under 2 GB regardless of dataset size")
-
 out_dir = CONFIG.get("output_dir", "/content/mlb_clean_data")
-game_df, pbp_df = run_duckdb_pipeline(
+work_dir = Path(out_dir)
+work_dir.mkdir(parents=True, exist_ok=True)
+pitches_path = work_dir / "pitches.parquet"
+
+print(f"📅 {start} → {end}")
+pull_statcast(
     start_date=start,
     end_date=end,
-    checkpoint_dir=out_dir,
+    out_path=pitches_path,
+    chunk_days=CONFIG.get("statcast_chunk_days", 7),
+    pause_sec=CONFIG.get("statcast_pause_sec", 2),
+    resume=True,
+)
+print(f"  ✅ Raw pitches saved: {pitches_path}")
+
+# ── Phase 2-3: DuckDB Feature Engineering ────────────────────────────────────
+_banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL, <2 GB RAM)")
+from features import build_features
+
+game_df, pbp_df = build_features(
+    pitches_path=pitches_path,
+    output_dir=work_dir,
     validate=True,
 )
-
 print(f"  ✅ Game: {game_df.shape}")
 print(f"  ✅ PBP:  {pbp_df.shape}")
 gc.collect()
 
+# ── Phase 4: Compression ─────────────────────────────────────────────────────
 _banner("PHASE 4", "Compression")
-_banner("PHASE 4", "Compression")
-output_dir = Path(CONFIG["output_dir"]); output_dir.mkdir(parents=True, exist_ok=True)
 game_df.fillna(game_df.median(numeric_only=True), inplace=True)
 pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
-csv_path = output_dir / "game_level_features.csv"; game_df.to_csv(csv_path, index=False)
-parquet_path = output_dir / "pbp_level_features.parquet"; pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
+csv_path = work_dir / "game_level_features.csv"
+parquet_path = work_dir / "pbp_level_features.parquet"
+game_df.to_csv(csv_path, index=False)
+pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
 print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
 print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
 
+# ── Phase 5: GitHub Sync ─────────────────────────────────────────────────────
 _banner("PHASE 5", "GitHub Sync")
 token = CONFIG.get("github_token", "")
 if not token:
