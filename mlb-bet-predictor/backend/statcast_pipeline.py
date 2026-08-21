@@ -271,15 +271,15 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
         runs = hits + bbs + hbp - hrs  # baserunners
 
         # xwOBA (if available)
-        xwoba_vals = group["estimated_woba_using_speedangle"].dropna()
+        xwoba_vals = group.get("estimated_woba_using_speedangle", pd.Series(dtype=float)).dropna()
         xwoba = xwoba_vals.mean() if not xwoba_vals.empty else None
 
         # Barrel rate
-        barrel_vals = group["barrel"].dropna()
+        barrel_vals = group.get("barrel", pd.Series(dtype=float)).dropna()
         barrel_rate = barrel_vals.mean() if not barrel_vals.empty else None
 
         # Hard contact rate
-        hard_vals = group["hard_contact"].dropna()
+        hard_vals = group.get("hard_contact", pd.Series(dtype=float)).dropna()
         hard_rate = hard_vals.mean() if not hard_vals.empty else None
 
         return pd.Series({
@@ -1138,10 +1138,10 @@ def build_pbp_level_features(
     pbp["lr_matchup"] = np.where(pbp["stand"] == pbp["p_throws"], "same", "opposite")
 
     # Contact quality features (from pitch-level Statcast data)
-    pbp["is_barrel"] = pbp["barrel"].fillna(0).astype(float)
-    pbp["is_hard_hit"] = pbp["hard_contact"].fillna(0).astype(float)
-    pbp["exit_velocity"] = pbp["launch_speed"].fillna(np.nan)
-    pbp["launch_angle"] = pbp["launch_angle"].fillna(np.nan)
+    pbp["is_barrel"] = pbp.get("barrel", pd.Series(0, index=pbp.index)).fillna(0).astype(float)
+    pbp["is_hard_hit"] = pbp.get("hard_contact", pd.Series(0, index=pbp.index)).fillna(0).astype(float)
+    pbp["exit_velocity"] = pbp.get("launch_speed", pd.Series(np.nan, index=pbp.index)).fillna(np.nan)
+    pbp["launch_angle"] = pbp.get("launch_angle", pd.Series(np.nan, index=pbp.index)).fillna(np.nan)
 
     # Pitch type simplified
     fastballs = ["FF", "FT", "SI", "FC", "FS", "FO", "SI"]
