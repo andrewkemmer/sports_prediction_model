@@ -484,33 +484,54 @@ def attach_market_lines(games: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFram
 def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame:
     """Load real MLB game events via pybaseball.
 
-    This is a production scaffold. Because live sports APIs are rate-limited
-    and flaky in Colab, this function is provided for reference. The pipeline
-    defaults to synthetic mode.
+    Iterates over all MLB teams to fetch each team's schedule, deduplicates
+    games (keeping only home games to avoid double-counting), and normalizes
+    to our internal schema.
+
+    Note: SP ERA/K9 and team wOBA should be joined from
+    pitching_stats_range / batting_stats_range as-of game_date - 1
+    for full PIT compliance (TODO).
     """
-    logger.warning(
-        "load_real_game_events: pybaseball path is a production scaffold. "
-        "SP ERA/K9 and team wOBA should be joined from pitching_stats_range / "
-        "batting_stats_range as-of game_date - 1 for full PIT compliance."
-    )
+    logger.info("Loading real MLB schedule for season %d...", season)
 
     try:
-        from pybaseball import schedule_and_record, statcast_batter, statcast_pitcher
+        from pybaseball import schedule_and_record
     except ImportError:
         raise ImportError(
             "pybaseball is required for real data. "
             "Install with: pip install pybaseball"
         )
 
-    # Fetch schedule
-    schedule = schedule_and_record(season)
-    if schedule is None or schedule.empty:
+    # Fetch schedule for each team and keep only home games to deduplicate
+    all_games = []
+    for team in MLB_TEAMS:
+        try:
+            team_schedule = schedule_and_record(season, team)
+            if team_schedule is not None and not team_schedule.empty:
+                # Keep only home games for this team (avoids double-counting)
+                if "Home" in team_schedule.columns:
+                    home_games = team_schedule[team_schedule["Home"] == team].copy()
+                else:
+                    # Fallback: assume all rows are for this team
+                    home_games = team_schedule.copy()
+                all_games.append(home_games)
+                logger.debug("Fetched %d home games for %s", len(home_games), team)
+        except Exception as e:
+            logger.warning("Failed to fetch schedule for %s: %s", team, e)
+            continue
+
+    if not all_games:
         logger.warning("No schedule data returned for season %d", season)
         return pd.DataFrame()
+
+    schedule = pd.concat(all_games, ignore_index=True)
 
     # Filter to games up to target_date
     schedule["Date"] = pd.to_datetime(schedule["Date"])
     schedule = schedule[schedule["Date"].dt.date <= target_date].copy()
+
+    # Deduplicate by date + home + away
+    schedule = schedule.drop_duplicates(subset=["Date", "Home", "Away"]).copy()
 
     # Basic normalization to our schema
     rows = []
@@ -518,8 +539,8 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
         home = game.get("Home", "")
         away = game.get("Away", "")
         game_date = game["Date"].date()
-        home_score = game.get("Home Starter Runs", None)
-        away_score = game.get("Away Starter Runs", None)
+        home_score = game.get("R", game.get("Home Starter Runs", None))
+        away_score = game.get("RA", game.get("Away Starter Runs", None))
         home_win = None
         if pd.notna(home_score) and pd.notna(away_score):
             home_win = float(int(home_score) > int(away_score))
@@ -533,17 +554,17 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
             "home_team": home,
             "away_team": away,
             "home_win": home_win,
-            "total_runs": (int(home_score) + int(away_score)) if pd.notna(home_score) else None,
+            "total_runs": (int(home_score) + int(away_score)) if pd.notna(home_score) and pd.notna(away_score) else None,
             "sp_name_home": game.get("Home Starter", "TBD"),
             "sp_name_away": game.get("Away Starter", "TBD"),
-            "sp_era_home": None,  # TODO: join from pitching_stats_range as-of game_date - 1
+            "sp_era_home": None,
             "sp_k9_home": None,
             "sp_era_away": None,
             "sp_k9_away": None,
-            "venue": game.get("Stadium", "Unknown"),
+            "venue": game.get("Stadium", game.get("field", "Unknown")),
             "rest_days_home": None,
             "rest_days_away": None,
-            "woba_30g_home": None,  # TODO: join from batting_stats_range as-of game_date - 1
+            "woba_30g_home": None,
             "woba_30g_away": None,
             "bullpen_whip_10g_home": None,
             "bullpen_whip_10g_away": None,
@@ -566,6 +587,7 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
         df["away_win_pct"] = 0.5
         df["home_run_diff"] = 0
         df["away_run_diff"] = 0
+        logger.info("Loaded %d real games from pybaseball", len(df))
 
     return df
 
