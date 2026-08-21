@@ -88,13 +88,14 @@ _deps = (
 _run(f"pip install -q {_deps}", check=False)
 print("  ✅ Dependencies installed")
 
-# Clone repo (if not already present)
+# Always clone fresh to pick up latest code from GitHub
+import shutil as _shutil
 _repo_dir = Path(f"/content/{CONFIG['github_repo']}")
-if not _repo_dir.exists():
-    print(f"📥 Cloning {CONFIG['github_repo']}...")
-    _run(f"git clone -q https://github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git /content/{CONFIG['github_repo']}")
-else:
-    print(f"  ℹ️  Repo already cloned at {_repo_dir}")
+if _repo_dir.exists():
+    print(f"  🔄 Removing old clone...")
+    _shutil.rmtree(_repo_dir, ignore_errors=True)
+print(f"📥 Cloning {CONFIG['github_repo']}...")
+_run(f"git clone -q https://github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git /content/{CONFIG['github_repo']}")
 
 # Add backend to Python path
 sys.path.insert(0, str(_repo_dir / "mlb-bet-predictor" / "backend"))
