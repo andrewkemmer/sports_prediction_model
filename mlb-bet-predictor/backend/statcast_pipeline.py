@@ -245,6 +245,7 @@ def pull_statcast_data(
         return pd.DataFrame()
 
     df = pd.concat(all_chunks, ignore_index=True)
+    del all_chunks
 
     # Normalize column names (aliases) and ensure all expected columns exist
     df = _normalize_columns(df)
@@ -258,6 +259,15 @@ def pull_statcast_data(
 
     df["game_date"] = pd.to_datetime(df["game_date"]).dt.date
     df = df.sort_values(["game_date", "game_pk", "inning", "at_bat_number", "pitch_number"]).reset_index(drop=True)
+
+    # Memory optimization: downcast floats to float32, use category for low-cardinality strings
+    _float_cols = df.select_dtypes(include=["float64"]).columns
+    df[_float_cols] = df[_float_cols].astype("float32")
+    _int_cols = df.select_dtypes(include=["int64"]).columns
+    df[_int_cols] = df[_int_cols].astype("int32", errors="ignore")
+    for col in df.select_dtypes(include=["object"]).columns:
+        if df[col].nunique() < 100:  # Low-cardinality strings → category
+            df[col] = df[col].astype("category")
 
     logger.info("Final Statcast dataset: %d pitches across %d games, %d dates",
                 len(df), df["game_pk"].nunique(), df["game_date"].nunique())
@@ -1227,6 +1237,10 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     logger.info("Game-level features: %d games, %d columns", len(game_level), len(game_level.columns))
 
+    # Memory optimization before return
+    for col in game_level.select_dtypes(include=["float64"]).columns:
+        game_level[col] = game_level[col].astype("float32")
+
     return game_level
 
 
@@ -1329,6 +1343,10 @@ def build_pbp_level_features(
             logger.warning("Expected PBP column '%s' was missing — filled with NaN", col)
 
     logger.info("PBP-level features: %d pitches, %d columns", len(pbp), len(pbp.columns))
+
+    # Memory optimization before return
+    for col in pbp.select_dtypes(include=["float64"]).columns:
+        pbp[col] = pbp[col].astype("float32")
 
     return pbp
 
