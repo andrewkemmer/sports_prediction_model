@@ -502,28 +502,37 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
             "Install with: pip install pybaseball"
         )
 
-    # Fetch schedule for each team and keep only home games to deduplicate
+    # Try the requested season, then fall back to recent seasons if unavailable
+    working_season = None
     all_games = []
-    for team in MLB_TEAMS:
-        try:
-            team_schedule = schedule_and_record(season, team)
-            if team_schedule is not None and not team_schedule.empty:
-                # Keep only home games for this team (avoids double-counting)
-                if "Home" in team_schedule.columns:
-                    home_games = team_schedule[team_schedule["Home"] == team].copy()
-                else:
-                    home_games = team_schedule.copy()
-                all_games.append(home_games)
-                logger.debug("Fetched %d home games for %s", len(home_games), team)
-        except Exception as e:
-            logger.warning("Failed to fetch schedule for %s: %s", team, e)
-            continue
-        if len(all_games) >= 5:
-            break  # Limit for speed in Colab; remove for full season
+    for attempt_season in [season, season - 1, season - 2]:
+        if attempt_season < 2015:
+            break
+        logger.info("Trying season %d...", attempt_season)
+        all_games = []
+        for team in MLB_TEAMS:
+            try:
+                team_schedule = schedule_and_record(attempt_season, team)
+                if team_schedule is not None and not team_schedule.empty:
+                    if "Home" in team_schedule.columns:
+                        home_games = team_schedule[team_schedule["Home"] == team].copy()
+                    else:
+                        home_games = team_schedule.copy()
+                    all_games.append(home_games)
+            except Exception as e:
+                logger.debug("Failed to fetch schedule for %s/%d: %s", team, attempt_season, e)
+                continue
+        if len(all_games) >= 10:  # Got a decent chunk of teams
+            working_season = attempt_season
+            break
+        logger.warning("Season %d returned only %d teams, trying next year...", attempt_season, len(all_games))
 
     if not all_games:
-        logger.warning("No schedule data returned for season %d", season)
+        logger.warning("No schedule data returned for seasons %d-%d", season - 2, season)
         return pd.DataFrame()
+
+    if working_season and working_season != season:
+        logger.info("Using season %d data (requested %d not yet available)", working_season, season)
 
     schedule = pd.concat(all_games, ignore_index=True)
 
