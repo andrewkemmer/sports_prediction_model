@@ -39,7 +39,7 @@ def _run(cmd, check=True):
 
 _banner("PHASE 0", "Environment Setup")
 print("📦 Installing dependencies...")
-_run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitpython pybaseball requests tqdm pyarrow", check=False)
+_run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
 print("  ✅ Done")
 
 # Always clone fresh

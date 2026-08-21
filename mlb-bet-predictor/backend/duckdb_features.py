@@ -95,9 +95,20 @@ VENUE_MAP = {
 
 # ── Helper: create DuckDB connection and load pitches ────────────────────────
 
-def _connect_and_load(pitches_path: Path) -> duckdb.DuckDBPyConnection:
-    """Open an in-memory DuckDB connection and register the pitches parquet."""
-    con = duckdb.connect(database=":memory:")
+def _connect_and_load(pitches_path: Path, db_path: Optional[Path] = None) -> duckdb.DuckDBPyConnection:
+    """Open a DuckDB connection and register the pitches parquet.
+
+    If db_path is given, uses a persistent file so intermediate tables spill
+    to disk instead of consuming RAM.  Falls back to in-memory if None.
+    """
+    db = str(db_path) if db_path else ":memory:"
+    con = duckdb.connect(database=db)
+
+    # Tune DuckDB for low-RAM environments (critical for Colab 12GB)
+    con.execute("SET threads = 1")
+    con.execute("SET preserve_insertion_order = false")
+    # Allow generous temp space for spilling to disk
+    con.execute("SET max_temp_directory_size = '10GB'")
 
     # Register the parquet file as a table
     con.execute(f"CREATE TABLE pitches AS SELECT * FROM '{pitches_path}'")
@@ -479,6 +490,17 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
 
     logger.info("game_level built: %d games", con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0])
 
+    # Drop intermediate tables to free RAM — no longer needed after assembly
+    for _tbl in (
+        "game_winners", "starters", "venues", "rest_days",
+        "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
+        "team_offense_raw", "team_off_shifted", "team_offense_rolling",
+        "bullpen_raw", "bullpen_team", "bullpen_shifted", "bullpen_rolling",
+    ):
+        con.execute(f"DROP TABLE IF EXISTS {_tbl}")
+    gc.collect()
+    logger.info("Intermediate tables dropped (15 tables freed)")
+
 
 def _create_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
     """Build pbp_df via DuckDB SQL and register as 'pbp_level' table."""
@@ -500,7 +522,18 @@ def _create_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM game_level
         )
         SELECT
-            p.*,
+            p.game_pk, p.game_date, p.game_type, p.home_team, p.away_team,
+            p.inning, p.inning_topbot, p.outs_when_up, p.balls, p.strikes,
+            p.on_1b, p.on_2b, p.on_3b, p.at_bat_number, p.pitch_number,
+            p.pitcher, p.batter, p.p_throws, p.stand,
+            p.pitch_type, p.release_speed, p.description, p.events,
+            p.barrel, p.hard_contact, p.launch_speed, p.launch_angle,
+            p.estimated_woba_using_speedangle, p.estimated_ba_using_speedangle,
+            p.zone, p.home_score, p.away_score, p.spin_rate,
+            p.woba_value, p.babip_value, p.iso_value,
+            p.delta_home_win_exp, p.delta_run_exp, p.player_name,
+            p.hit_distance_sc, p.release_pos_x, p.release_pos_z,
+            p.release_spin_rate, p.release_extension, p.pfx_x, p.pfx_z,
             -- Situational features
             (COALESCE(p.on_1b IS NOT NULL, FALSE)::INT
              + COALESCE(p.on_2b IS NOT NULL, FALSE)::INT
@@ -549,8 +582,27 @@ def _create_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
 
     logger.info("pbp_level built: %d pitches", con.execute("SELECT COUNT(*) FROM pbp_level").fetchone()[0])
 
+    # Drop pitches and game_level after pbp_level is assembled — no longer needed
+    con.execute("DROP TABLE IF EXISTS pitches")
+    con.execute("DROP TABLE IF EXISTS game_level")
+    gc.collect()
+    logger.info("Dropped pitches + game_level tables after PBP assembly")
+
 
 # ── Public API ──────────────────────────────────────────────────────────────
+
+def _mem_mb() -> float:
+    """Return current process RSS in MB (Linux/macOS)."""
+    try:
+        import resource
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        try:
+            import psutil
+            return psutil.Process().memory_info().rss / 1024 / 1024
+        except Exception:
+            return 0.0
+
 
 def run_duckdb_pipeline(
     start_date: str | date,
@@ -564,6 +616,9 @@ def run_duckdb_pipeline(
 
     All rolling windows, shifted features, groupby aggregations, and merges
     are SQL window functions operating on Parquet on disk.  RAM stays < 2 GB.
+
+    Uses a *persistent* DuckDB file so intermediate tables spill to disk
+    instead of consuming RAM.
 
     Args:
         start_date: Start date.
@@ -599,18 +654,25 @@ def run_duckdb_pipeline(
     else:
         logger.info("Resuming from existing parquet: %s", RAW)
 
+    logger.info("[MEM] After Phase 1: %.0f MB", _mem_mb())
+
     # ── Phase 2: DuckDB SQL feature engineering ───────────────────────
     # Remove old DuckDB file to start fresh
     if DUCKDB_DB.exists():
         DUCKDB_DB.unlink()
 
-    con = _connect_and_load(RAW)
+    # Use persistent DuckDB file — intermediate tables spill to disk
+    con = _connect_and_load(RAW, db_path=DUCKDB_DB)
     logger.info("DuckDB loaded pitches: %d rows",
                 con.execute("SELECT COUNT(*) FROM pitches").fetchone()[0])
+    logger.info("[MEM] After DuckDB load: %.0f MB", _mem_mb())
 
     try:
         _create_game_level(con)
+        logger.info("[MEM] After game_level: %.0f MB", _mem_mb())
+
         _create_pbp_level(con)
+        logger.info("[MEM] After pbp_level: %.0f MB", _mem_mb())
 
         # ── Export to Parquet ─────────────────────────────────────────
         game_out = work_dir / "game_level_features.parquet"
@@ -623,6 +685,13 @@ def run_duckdb_pipeline(
                      game_out, game_out.stat().st_size / 1e6)
         logger.info("Exported pbp_level: %s (%.0f MB)",
                      pbp_out, pbp_out.stat().st_size / 1e6)
+        logger.info("[MEM] After export: %.0f MB", _mem_mb())
+
+        # ── Drop DuckDB tables before loading into pandas ─────────────
+        con.execute("DROP TABLE IF EXISTS game_level")
+        con.execute("DROP TABLE IF EXISTS pbp_level")
+        con.execute("DROP TABLE IF EXISTS pitches")
+        gc.collect()
 
         # ── Phase 3: Load into pandas (model-ready) ──────────────────
         game_level = pd.read_parquet(game_out)
@@ -635,6 +704,8 @@ def run_duckdb_pipeline(
             for col in df.select_dtypes(include=["int64"]).columns:
                 if df[col].max() < 32767 and df[col].min() >= -32768:
                     df[col] = df[col].astype("int16")
+
+        logger.info("[MEM] After pandas load: %.0f MB", _mem_mb())
 
         # Validate
         if validate:
