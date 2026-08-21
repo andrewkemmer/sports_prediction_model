@@ -9,9 +9,9 @@ Architecture:
     pitches.parquet → DuckDB SQL → game_df.parquet + pbp_df.parquet
 
 PIT compliance:
-    All rolling metrics use ROWS BETWEEN N PRECEDING AND 1 PRECEDING
-    (shifted rolling = no data leakage).  LAG() for previous-game context.
-    ORDER BY game_date ensures chronological processing.
+    All rolling metrics use LAG() first (shift), then ROWS BETWEEN N
+    PRECEDING AND CURRENT ROW (rolling over shifted values).  This ensures
+    no data leakage — Game T features use only data from games < T.
 """
 from __future__ import annotations
 
@@ -53,24 +53,20 @@ PA_END_EVENTS = (
 )
 
 
-# ── Connection helper ───────────────────────────────────────────────────────
-
 def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
-    """Open DuckDB, load pitches from Parquet, tune for low RAM."""
+    """Open DuckDB in-memory, load pitches from Parquet, tune for low RAM."""
     con = duckdb.connect(database=":memory:")
     con.execute("SET threads = 1")
     con.execute("SET preserve_insertion_order = false")
 
     con.execute(f"CREATE TABLE pitches AS SELECT * FROM '{pitches_path}'")
 
-    # Ensure game_date is DATE type
     con.execute("""
         ALTER TABLE pitches
         ALTER COLUMN game_date TYPE DATE
         USING CAST(game_date AS DATE)
     """)
 
-    # Drop unused columns
     existing = {r[0] for r in con.execute("DESCRIBE pitches").fetchall()}
     for col in [
         "fielder_2", "fielder_3", "fielder_4", "fielder_5",
@@ -88,11 +84,12 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
 # ── Game-level features ─────────────────────────────────────────────────────
 
 def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
-    """Build game_level table via pure DuckDB SQL."""
+    """Build game_level table via pure DuckDB SQL.  All intermediate tables
+    are dropped after assembly to free RAM."""
 
-    logger.info("Building game-level features via DuckDB SQL...")
+    logger.info("Building game-level features...")
 
-    # 1. Game winners
+    # 1. Game winners (last pitch of each game)
     con.execute("""
         CREATE TABLE game_winners AS
         WITH last_pitch AS (
@@ -113,7 +110,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM last_pitch WHERE rn = 1
     """)
 
-    # 2. Starting pitchers
+    # 2. Starting pitchers (first PA in inning 1)
     con.execute("""
         CREATE TABLE starters AS
         WITH first_pa_top AS (
@@ -147,7 +144,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM pitches
     """)
 
-    # 4. Rest days
+    # 4. Rest days (days since each team's previous game)
     con.execute("""
         CREATE TABLE rest_days AS
         WITH team_games AS (
@@ -164,15 +161,14 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM with_prev
     """)
 
-    # 5. Pitcher rolling features (PIT-compliant: LAG first, then rolling)
+    # 5. Pitcher rolling features (PIT-compliant: LAG first, then rolling SUM)
     con.execute(f"""
         CREATE TABLE pitcher_game_stats AS
         WITH pa_events AS (
             SELECT game_date, game_pk, pitcher, events,
                    estimated_woba_using_speedangle AS xwoba_val,
                    barrel AS barrel_val, hard_contact AS hard_val
-            FROM pitches
-            WHERE events IN ({PA_END_EVENTS})
+            FROM pitches WHERE events IN ({PA_END_EVENTS})
         ),
         game_agg AS (
             SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
@@ -189,11 +185,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM pa_events
             GROUP BY CAST(game_date AS DATE), game_pk, pitcher
         )
-        SELECT *, hits_allowed + bbs + hbps - hrs_allowed AS runs
-        FROM game_agg
+        SELECT *, hits_allowed + bbs + hbps - hrs_allowed AS runs FROM game_agg
     """)
 
-    # 5a. LAG all stats
     con.execute("""
         CREATE TABLE pitcher_shifted AS
         SELECT *,
@@ -208,7 +202,6 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM pitcher_game_stats
     """)
 
-    # 5b. Rolling SUM/AVG over lagged columns
     con.execute("""
         CREATE TABLE pitcher_rolling AS
         SELECT game_date, game_pk, pitcher,
@@ -225,7 +218,6 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                      ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)
     """)
 
-    # 5c. Derive pitcher features
     con.execute("""
         CREATE TABLE pitcher_features AS
         SELECT game_date, game_pk, pitcher,
@@ -261,10 +253,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM pa_events GROUP BY game_date, game_pk, batting_team
         )
         SELECT *,
-            (0.690 * bb + 0.722 * hbp + 0.878 * singles + 1.242 * doubles
-             + 1.568 * triples + 2.007 * hrs) / NULLIF(n_pa - bb - hbp + bb + hbp, 0) AS team_woba_game,
-            (doubles + 2 * triples + 3 * hrs) / NULLIF(n_pa - bb - hbp, 0) AS team_iso_game,
-            ks::DOUBLE / NULLIF(n_pa - bb - hbp, 0) AS team_k_rate_game,
+            (0.690*bb + 0.722*hbp + 0.878*singles + 1.242*doubles
+             + 1.568*triples + 2.007*hrs) / NULLIF(n_pa, 0) AS team_woba_game,
+            (doubles + 2*triples + 3*hrs) / NULLIF(n_pa - bb - hbp, 0) AS team_iso_game,
+            ks::DOUBLE / NULLIF(n_pa, 0) AS team_k_rate_game,
             bb::DOUBLE / NULLIF(n_pa, 0) AS team_bb_rate_game
         FROM game_agg
     """)
@@ -306,20 +298,20 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM pitches p
             JOIN first_pitchers fp ON p.game_pk = fp.game_pk
             WHERE p.pitcher != fp.starter_id
-              AND p.events IN ('single', 'double', 'triple', 'home_run',
-                  'strikeout', 'strikeout_double_play', 'walk', 'hit_by_pitch',
-                  'field_out', 'field_error', 'fielders_choice', 'fielders_choice_out',
-                  'grounded_into_double_play', 'double_play', 'triple_play',
-                  'sac_fly', 'sac_bunt', 'sac_fly_double_play',
-                  'catcher_interf', 'batter_interference',
-                  'force_out', 'sacrifice_bunt_double_play')
+              AND p.events IN ('single','double','triple','home_run',
+                  'strikeout','strikeout_double_play','walk','hit_by_pitch',
+                  'field_out','field_error','fielders_choice','fielders_choice_out',
+                  'grounded_into_double_play','double_play','triple_play',
+                  'sac_fly','sac_bunt','sac_fly_double_play',
+                  'catcher_interf','batter_interference',
+                  'force_out','sacrifice_bunt_double_play')
         )
         SELECT game_date, game_pk, home_team, away_team,
             COUNT(*) / 3.0 AS bullpen_ip,
-            SUM(CASE WHEN events IN ('strikeout', 'strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
+            SUM(CASE WHEN events IN ('strikeout','strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
             SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
-            SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
-            SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run', 'walk', 'hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
+            SUM(CASE WHEN events IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
+            SUM(CASE WHEN events IN ('single','double','triple','home_run','walk','hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
         FROM reliever_events
         GROUP BY game_date, game_pk, home_team, away_team
     """)
@@ -354,7 +346,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                      ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
     """)
 
-    # 8. Assemble game_level
+    # 8. Assemble game_level via LEFT JOINs
     con.execute("""
         CREATE TABLE game_level AS
         SELECT
@@ -387,9 +379,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN bullpen_rolling ba ON w.game_pk = ba.game_pk AND w.away_team = ba.team
     """)
 
-    logger.info("game_level built: %d games", con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0])
+    n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
+    logger.info("game_level built: %d games", n)
 
-    # Drop intermediate tables
     for tbl in (
         "game_winners", "starters", "venues", "rest_days",
         "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
@@ -405,7 +397,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
 def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
     """Build pbp_level table via pure DuckDB SQL."""
 
-    logger.info("Building PBP-level features via DuckDB SQL...")
+    logger.info("Building PBP-level features...")
 
     con.execute("""
         CREATE TABLE pbp_level AS
@@ -434,7 +426,7 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             p.delta_home_win_exp, p.delta_run_exp, p.player_name,
             p.hit_distance_sc, p.release_pos_x, p.release_pos_z,
             p.release_spin_rate, p.release_extension, p.pfx_x, p.pfx_z,
-            -- Situational features
+            -- Situational
             (COALESCE(p.on_1b IS NOT NULL, FALSE)::INT
              + COALESCE(p.on_2b IS NOT NULL, FALSE)::INT
              + COALESCE(p.on_3b IS NOT NULL, FALSE)::INT) AS bases_loaded,
@@ -455,9 +447,9 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             p.launch_speed AS exit_velocity,
             p.launch_angle AS launch_angle_f,
             CASE
-                WHEN p.pitch_type IN ('FF', 'FT', 'SI', 'FC', 'FS', 'FO') THEN 'fastball'
-                WHEN p.pitch_type IN ('SL', 'CU', 'KC', 'CS', 'SV', 'WR') THEN 'breaking'
-                WHEN p.pitch_type IN ('CH', 'EP', 'SC', 'KN', 'UN', 'PO') THEN 'offspeed'
+                WHEN p.pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 'fastball'
+                WHEN p.pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
+                WHEN p.pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
                 ELSE 'unknown'
             END AS pitch_category,
             -- Game-level features
@@ -474,9 +466,9 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
         ORDER BY p.game_date, p.game_pk, p.inning, p.at_bat_number, p.pitch_number
     """)
 
-    logger.info("pbp_level built: %d pitches", con.execute("SELECT COUNT(*) FROM pbp_level").fetchone()[0])
+    n = con.execute("SELECT COUNT(*) FROM pbp_level").fetchone()[0]
+    logger.info("pbp_level built: %d pitches", n)
 
-    # Free pitches + game_level
     con.execute("DROP TABLE IF EXISTS pitches")
     con.execute("DROP TABLE IF EXISTS game_level")
     gc.collect()
@@ -498,13 +490,13 @@ def build_features(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run pure-DuckDB feature engineering on a pitches Parquet file.
 
-    Phase 2 only — reads pitches.parquet, builds game_df + pbp_df via SQL,
-    writes them to disk, and loads into pandas ONLY for model training.
+    Reads pitches.parquet, builds game_df + pbp_df via SQL, writes them to
+    disk, and loads into pandas ONLY for model training.
 
     Args:
         pitches_path: Path to pitches.parquet (from ingestion.py).
-        output_dir:   Where to write game_df.parquet and pbp_df.parquet.
-        validate:     Run validation checks.
+        output_dir:   Where to write output Parquet files.
+        validate:     Reserved for future validation checks.
 
     Returns:
         (game_df, pbp_df) as pandas DataFrames.
@@ -519,7 +511,6 @@ def build_features(
     logger.info("=== DuckDB Feature Engineering ===")
     logger.info("[MEM] Start: %.0f MB", _mem_mb())
 
-    # Phase 2: Pure DuckDB SQL
     con = _connect(pitches_path)
     logger.info("[MEM] After DuckDB load: %.0f MB", _mem_mb())
 
@@ -530,13 +521,11 @@ def build_features(
         _build_pbp_level(con)
         logger.info("[MEM] After pbp_level: %.0f MB", _mem_mb())
 
-        # Export to Parquet
         con.execute(f"COPY (SELECT * FROM game_level) TO '{game_out}' (FORMAT PARQUET)")
         con.execute(f"COPY (SELECT * FROM pbp_level) TO '{pbp_out}' (FORMAT PARQUET)")
         logger.info("Exported game_level: %.1f MB", game_out.stat().st_size / 1e6)
         logger.info("Exported pbp_level: %.1f MB", pbp_out.stat().st_size / 1e6)
 
-        # Drop DuckDB tables before loading into pandas
         con.execute("DROP TABLE IF EXISTS game_level")
         con.execute("DROP TABLE IF EXISTS pbp_level")
         gc.collect()
@@ -549,7 +538,6 @@ def build_features(
     game_df = pd.read_parquet(game_out)
     pbp_df = pd.read_parquet(pbp_out)
 
-    # Downcast for memory
     for df in [game_df, pbp_df]:
         for col in df.select_dtypes(include=["float64"]).columns:
             df[col] = df[col].astype("float32")
@@ -558,7 +546,6 @@ def build_features(
                 df[col] = df[col].astype("int16")
 
     logger.info("[MEM] After pandas load: %.0f MB", _mem_mb())
-    logger.info("=== Feature Engineering complete: %d games, %d pitches ===",
-                len(game_df), len(pbp_df))
+    logger.info("=== Complete: %d games, %d pitches ===", len(game_df), len(pbp_df))
 
     return game_df, pbp_df

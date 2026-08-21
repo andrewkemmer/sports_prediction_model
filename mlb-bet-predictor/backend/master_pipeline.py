@@ -1,7 +1,7 @@
 """
 MLB Master Pipeline — Single-Script End-to-End for Google Colab.
 
-Uses:
+Modules:
   ingestion.py  → pulls Statcast, saves pitches.parquet
   features.py   → pure DuckDB SQL feature engineering
   pipeline.py   → daily training + predictions
@@ -25,7 +25,7 @@ CONFIG = {
 
 import warnings
 warnings.filterwarnings("ignore")
-import os, sys, subprocess, shutil, time, gc
+import os, sys, subprocess, shutil, gc
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -46,7 +46,7 @@ print("📦 Installing dependencies...")
 _run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
 print("  ✅ Done")
 
-# Always clone fresh
+# Clone fresh
 repo_dir = Path(f"/content/{CONFIG['github_repo']}")
 if repo_dir.exists():
     print("  🔄 Removing old clone...")
@@ -57,58 +57,54 @@ sys.path.insert(0, str(repo_dir / "mlb-bet-predictor" / "backend"))
 os.chdir(str(repo_dir / "mlb-bet-predictor"))
 print(f"  📁 {os.getcwd()}")
 
-# Clear stale module caches
 for mod in list(sys.modules.keys()):
-    if any(x in mod for x in ['statcast', 'pipeline', 'duckdb_features', 'ingestion', 'features', 'data_ingestion', 'config', 'training', 'explainability']):
+    if any(x in mod for x in ['ingestion', 'features', 'statcast', 'duckdb']):
         del sys.modules[mod]
 
-# ── Phase 1: Pull Statcast ──────────────────────────────────────────────────
+# ── Phase 1: Ingestion ──────────────────────────────────────────────────────
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
-out_dir = CONFIG.get("output_dir", "/content/mlb_clean_data")
-work_dir = Path(out_dir)
-work_dir.mkdir(parents=True, exist_ok=True)
-pitches_path = work_dir / "pitches.parquet"
+out_dir = Path(CONFIG.get("output_dir", "/content/mlb_clean_data"))
+out_dir.mkdir(parents=True, exist_ok=True)
+pitches_path = out_dir / "pitches.parquet"
 
 print(f"📅 {start} → {end}")
 pull_statcast(
-    start_date=start,
-    end_date=end,
-    out_path=pitches_path,
+    start_date=start, end_date=end, out_path=pitches_path,
     chunk_days=CONFIG.get("statcast_chunk_days", 7),
     pause_sec=CONFIG.get("statcast_pause_sec", 2),
     resume=True,
 )
-print(f"  ✅ Raw pitches saved: {pitches_path}")
+print(f"  ✅ Raw pitches: {pitches_path}")
 
-# ── Phase 2-3: DuckDB Feature Engineering ────────────────────────────────────
-_banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL, <2 GB RAM)")
+# ── Phase 2-3: Feature Engineering ──────────────────────────────────────────
+_banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL)")
 from features import build_features
 
 game_df, pbp_df = build_features(
     pitches_path=pitches_path,
-    output_dir=work_dir,
+    output_dir=out_dir,
     validate=True,
 )
 print(f"  ✅ Game: {game_df.shape}")
 print(f"  ✅ PBP:  {pbp_df.shape}")
 gc.collect()
 
-# ── Phase 4: Compression ─────────────────────────────────────────────────────
-_banner("PHASE 4", "Compression")
+# ── Phase 4: Output ─────────────────────────────────────────────────────────
+_banner("PHASE 4", "Output")
 game_df.fillna(game_df.median(numeric_only=True), inplace=True)
 pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
-csv_path = work_dir / "game_level_features.csv"
-parquet_path = work_dir / "pbp_level_features.parquet"
+csv_path = out_dir / "game_level_features.csv"
+parquet_path = out_dir / "pbp_level_features.parquet"
 game_df.to_csv(csv_path, index=False)
 pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
 print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
 print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
 
-# ── Phase 5: GitHub Sync ─────────────────────────────────────────────────────
+# ── Phase 5: GitHub Sync ────────────────────────────────────────────────────
 _banner("PHASE 5", "GitHub Sync")
 token = CONFIG.get("github_token", "")
 if not token:

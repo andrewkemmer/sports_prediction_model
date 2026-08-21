@@ -1,10 +1,11 @@
 """
-Statcast data ingestion — pulls raw pitch-by-pitch data from pybaseball,
-normalizes columns for schema drift, and saves to Parquet on disk.
+Statcast data ingestion.
 
-No feature engineering happens here.  This module's only job is to produce
-a clean ``pitches.parquet`` file that DuckDB (in ``features.py``) reads
-directly.
+Pulls raw pitch-by-pitch data via pybaseball, normalizes columns for schema
+drift, downcasts for memory, and saves to Parquet on disk.
+
+No feature engineering — this module's only job is to produce a clean
+``pitches.parquet`` file.
 
 Usage:
     from ingestion import pull_statcast
@@ -23,7 +24,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ── Statcast column schema ──────────────────────────────────────────────────
-# Every column we expect from pybaseball.  Missing columns are filled with NaN.
+
 STATCAST_COLS = [
     "game_date", "game_pk", "game_type", "home_team", "away_team",
     "inning", "inning_topbot", "outs_when_up", "balls", "strikes",
@@ -45,11 +46,9 @@ STATCAST_COLS = [
     "delta_home_win_exp", "delta_run_exp",
 ]
 
-# Column aliases: Statcast has renamed columns across seasons.
-# Map any known variant → canonical name.
 COLUMN_ALIASES = {
-    "barrel百分比": "barrel", "barrel_pct": "barrel", "is_barrel": "barrel",
-    "hardhit": "hard_contact", "hard_hit": "hard_contact", "hardhit百分比": "hard_contact",
+    "barrel_pct": "barrel", "is_barrel": "barrel",
+    "hardhit": "hard_contact", "hard_hit": "hard_contact",
     "exit_velocity": "launch_speed", "exit_velo": "launch_speed",
     "la": "launch_angle",
     "xwoba": "estimated_woba_using_speedangle",
@@ -59,7 +58,6 @@ COLUMN_ALIASES = {
     "event": "events",
 }
 
-# Columns genuinely unused by any downstream feature or model.
 UNUSED_COLS = [
     "fielder_2", "fielder_3", "fielder_4", "fielder_5",
     "fielder_6", "fielder_7", "fielder_8", "fielder_9",
@@ -91,6 +89,9 @@ def pull_statcast(
 
     Returns:
         Path to the written Parquet file.
+
+    Raises:
+        ValueError: If no data is returned by pybaseball.
     """
     out = Path(out_path)
 
@@ -122,25 +123,19 @@ def pull_statcast(
             time.sleep(pause_sec)
 
     if not chunks:
-        logger.error("No data pulled for %s → %s", start, end)
         raise ValueError(f"No Statcast data for {start} to {end}")
 
     raw = pd.concat(chunks, ignore_index=True)
     del chunks
     logger.info("Total raw pitches: %d", len(raw))
 
-    # Normalize columns
     raw = _normalize_columns(raw)
-
-    # Downcast for memory
     raw = _downcast(raw)
 
-    # Drop unused columns
     for col in UNUSED_COLS:
         if col in raw.columns:
             raw.drop(columns=[col], inplace=True)
 
-    # Save
     out.parent.mkdir(parents=True, exist_ok=True)
     raw.to_parquet(out, index=False)
     logger.info("Saved %d pitches → %s (%.1f MB)", len(raw), out, out.stat().st_size / 1e6)
@@ -168,20 +163,16 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         logger.info("Renamed aliased columns: %s", rename_map)
         df = df.rename(columns=rename_map)
 
-    # Add missing expected columns as NaN
     for col in STATCAST_COLS:
         if col not in df.columns:
             df[col] = np.nan
 
-    # Ensure game_date is datetime
     df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
-
     return df
 
 
 def _downcast(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggressively downcast numeric columns and convert low-cardinality strings."""
-    # Numeric downcast
+    """Downcast numerics and convert low-cardinality strings to category."""
     for col in df.select_dtypes(include=["float64"]).columns:
         df[col] = df[col].astype("float32")
     for col in df.select_dtypes(include=["int64"]).columns:
@@ -190,16 +181,12 @@ def _downcast(df: pd.DataFrame) -> pd.DataFrame:
         else:
             df[col] = df[col].astype("int32")
 
-    # Low-cardinality string → category
     _cat_cols = [
         "game_type", "home_team", "away_team", "inning_topbot",
         "pitch_type", "description", "events", "p_throws", "stand",
-        "venue", "pitch_category", "lr_matchup",
     ]
     for col in _cat_cols:
-        if col in df.columns and df[col].dtype == "object":
-            nuniq = df[col].nunique()
-            if nuniq < 100:
-                df[col] = df[col].astype("category")
+        if col in df.columns and df[col].dtype == "object" and df[col].nunique() < 100:
+            df[col] = df[col].astype("category")
 
     return df
