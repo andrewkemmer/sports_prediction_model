@@ -176,12 +176,12 @@ def _downcast(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.select_dtypes(include=["float64"]).columns:
         df[col] = df[col].astype("float32")
     for col in df.select_dtypes(include=["int64"]).columns:
-        col_max = df[col].max()
-        col_min = df[col].min()
-        # Skip all-NaN columns (pd.isna check handles NA comparison)
-        if pd.isna(col_max) or pd.isna(col_min):
+        # Cannot downcast int64 to int16/int32 if ANY value is NaN
+        # (pandas raises ValueError: cannot convert NA to integer)
+        if df[col].isna().any():
             continue
-        if col_max < 32767 and col_min >= -32768:
+        col_max = df[col].max()
+        if col_max < 32767 and df[col].min() >= -32768:
             df[col] = df[col].astype("int16")
         else:
             df[col] = df[col].astype("int32")
