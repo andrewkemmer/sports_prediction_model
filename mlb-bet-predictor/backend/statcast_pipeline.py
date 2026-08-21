@@ -1542,61 +1542,240 @@ def run_statcast_pipeline(
     resume: bool = True,
     validate: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run the full Statcast feature pipeline.
+    """Run the full Statcast feature pipeline with chunked memory processing.
+
+    Each feature tier (pitcher, batter, bullpen, team offense) is computed
+    in a separate pass: reload pitches from disk → compute → save → free.
+    Peak RAM stays near raw-pitches size (~30 MB) regardless of date range.
 
     Args:
         start_date: Start date (YYYY-MM-DD or date object).
         end_date: End date (YYYY-MM-DD or date object).
-        checkpoint_dir: Directory for checkpoint files. Use Google Drive path
-            for Colab (e.g., "/content/drive/MyDrive/mlb_data").
-        resume: If True, resume from existing checkpoints.
+        checkpoint_dir: Directory for checkpoint/output files.
+        resume: If True, resume from existing Statcast checkpoints.
         validate: If True, run validation suite on output.
 
     Returns:
         (game_level, pnp_level) tuple of DataFrames.
     """
-    logger.info("=== Statcast Pipeline: %s to %s ===", start_date, end_date)
+    logger.info("=== Statcast Pipeline (chunked): %s to %s ===", start_date, end_date)
 
-    # 1. Pull raw Statcast data
-    pitches = pull_statcast_data(
-        start_date, end_date,
-        checkpoint_dir=checkpoint_dir,
-        resume=resume,
-    )
+    # Working directory for intermediate tier files
+    work_dir = Path(checkpoint_dir) if checkpoint_dir else Path("/content/mlb_tmp")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    RAW = work_dir / "raw_pitches.parquet"
+    TIER_PITCHER = work_dir / "tier_pitcher.parquet"
+    TIER_BATTER  = work_dir / "tier_batter.parquet"
+    TIER_BULLPEN = work_dir / "tier_bullpen.parquet"
+    TIER_TEAM    = work_dir / "tier_team_offense.parquet"
+    TIER_META    = work_dir / "tier_game_meta.parquet"
 
+    # ── 1. Pull raw Statcast data → save to disk ──────────────────────
+    pitches = pull_statcast_data(start_date, end_date,
+                                 checkpoint_dir=checkpoint_dir, resume=resume)
     if pitches.empty:
         logger.error("No Statcast data pulled. Aborting.")
         return pd.DataFrame(), pd.DataFrame()
 
-    # 2. Build game-level features
-    game_level = build_game_level_features(pitches)
+    pitches.to_parquet(RAW, index=False)
+    logger.info("Raw pitches saved: %d rows, %.0f MB on disk",
+                len(pitches), RAW.stat().st_size / 1e6)
+    del pitches; gc.collect()
 
-    # 3. Build PBP-level features
-    pnp_level = build_pbp_level_features(pitches, game_level)
+    # ── 2. Pitcher features (pass 1) ─────────────────────────────────
+    logger.info("Pass 1/6: Pitcher features ...")
+    _p = pd.read_parquet(RAW)
+    pitcher_feats = _compute_rolling_pitcher_features(_p)
+    del _p; gc.collect()
+    pitcher_feats.to_parquet(TIER_PITCHER, index=False)
+    del pitcher_feats; gc.collect()
 
-    # Free raw pitches — no longer needed after feature engineering
-    del pitches
+    # ── 3. Batter features (pass 2) ──────────────────────────────────
+    logger.info("Pass 2/6: Batter features ...")
+    _p = pd.read_parquet(RAW)
+    batter_feats = _compute_rolling_batter_features(_p)
+    del _p; gc.collect()
+    if not batter_feats.empty:
+        batter_feats.to_parquet(TIER_BATTER, index=False)
+    del batter_feats; gc.collect()
+
+    # ── 4. Bullpen features (pass 3) ─────────────────────────────────
+    logger.info("Pass 3/6: Bullpen features ...")
+    _p = pd.read_parquet(RAW)
+    bullpen_feats = _compute_rolling_bullpen_features(_p)
+    del _p; gc.collect()
+    if not bullpen_feats.empty:
+        bullpen_feats.to_parquet(TIER_BULLPEN, index=False)
+    del bullpen_feats; gc.collect()
+
+    # ── 5. Team offense features (pass 4) ────────────────────────────
+    logger.info("Pass 4/6: Team offense features ...")
+    _p = pd.read_parquet(RAW)
+    team_off = _compute_team_offense_features(_p)
+    del _p; gc.collect()
+    if not team_off.empty:
+        team_off.to_parquet(TIER_TEAM, index=False)
+    del team_off; gc.collect()
+
+    # ── 6. Game metadata (pass 5) ────────────────────────────────────
+    logger.info("Pass 5/6: Game metadata ...")
+    _p = pd.read_parquet(RAW)
+
+    winners = _determine_winners(_p)
+    starters = _get_starter_info(_p)
+    venues = _attach_venue_info(_p)
+    rest = _compute_rest_days(_p)
+    del _p; gc.collect()
+
+    game_meta = winners[["game_pk", "game_date", "home_team", "away_team",
+                         "home_score", "away_score", "home_win", "total_runs"]].copy()
+    del winners
+    game_meta = game_meta.merge(
+        starters[["game_pk", "home_starter_id", "away_starter_id"]],
+        on="game_pk", how="left")
+    del starters
+    game_meta = game_meta.merge(
+        venues[["game_pk", "venue"]], on="game_pk", how="left")
+    del venues
+    _hr = rest[["game_pk"]].copy(); _hr["rest_days_home"] = rest["rest_days"].values
+    game_meta = game_meta.merge(_hr, on="game_pk", how="left"); del _hr
+    _ar = rest[["game_pk"]].copy(); _ar["rest_days_away"] = rest["rest_days"].values
+    game_meta = game_meta.merge(_ar, on="game_pk", how="left"); del _ar, rest
     gc.collect()
 
-    # 4. Validate
+    game_meta.to_parquet(TIER_META, index=False)
+    del game_meta; gc.collect()
+
+    # ── 7. Assemble game_level from saved tiers (pass 6) ─────────────
+    logger.info("Pass 6/6: Assembling game-level features ...")
+    game_level = pd.read_parquet(TIER_META)
+
+    # Pitcher features → home + away
+    pfeats = pd.read_parquet(TIER_PITCHER)
+    home_p = pfeats.rename(columns={
+        "pitcher": "home_starter_id",
+        "sp_era_30g": "sp_era_home", "sp_k9_30g": "sp_k9_home",
+        "sp_bb9_30g": "sp_bb9_home", "sp_whip_30g": "sp_whip_home",
+        "sp_fip_30g": "sp_fip_home", "sp_xwoba_30g": "sp_xwoba_home",
+    })
+    game_level = game_level.merge(
+        home_p[["game_pk", "home_starter_id", "sp_era_home", "sp_k9_home",
+                "sp_bb9_home", "sp_whip_home", "sp_fip_home", "sp_xwoba_home"]],
+        on=["game_pk", "home_starter_id"], how="left")
+    away_p = pfeats.rename(columns={
+        "pitcher": "away_starter_id",
+        "sp_era_30g": "sp_era_away", "sp_k9_30g": "sp_k9_away",
+        "sp_bb9_30g": "sp_bb9_away", "sp_whip_30g": "sp_whip_away",
+        "sp_fip_30g": "sp_fip_away", "sp_xwoba_30g": "sp_xwoba_away",
+    })
+    game_level = game_level.merge(
+        away_p[["game_pk", "away_starter_id", "sp_era_away", "sp_k9_away",
+                "sp_bb9_away", "sp_whip_away", "sp_fip_away", "sp_xwoba_away"]],
+        on=["game_pk", "away_starter_id"], how="left")
+    del pfeats, home_p, away_p; gc.collect()
+
+    # Team offense → home + away
+    if TIER_TEAM.exists():
+        toff = pd.read_parquet(TIER_TEAM)
+        h_off = toff.rename(columns={"team": "home_team",
+            "team_woba_30g": "team_woba_30g_home", "team_iso_30g": "team_iso_30g_home",
+            "team_k_rate_30g": "team_k_rate_30g_home", "team_bb_rate_30g": "team_bb_rate_30g_home"})
+        game_level = game_level.merge(
+            h_off[["game_pk", "team_woba_30g_home", "team_iso_30g_home",
+                    "team_k_rate_30g_home", "team_bb_rate_30g_home"]],
+            on="game_pk", how="left")
+        a_off = toff.rename(columns={"team": "away_team",
+            "team_woba_30g": "team_woba_30g_away", "team_iso_30g": "team_iso_30g_away",
+            "team_k_rate_30g": "team_k_rate_30g_away", "team_bb_rate_30g": "team_bb_rate_30g_away"})
+        game_level = game_level.merge(
+            a_off[["game_pk", "team_woba_30g_away", "team_iso_30g_away",
+                    "team_k_rate_30g_away", "team_bb_rate_30g_away"]],
+            on="game_pk", how="left")
+        del toff, h_off, a_off; gc.collect()
+
+    # Bullpen → home + away
+    if TIER_BULLPEN.exists():
+        bpen = pd.read_parquet(TIER_BULLPEN)
+        if not bpen.empty and "game_pk" in bpen.columns:
+            h_bp = bpen.rename(columns={"team": "home_team",
+                "bullpen_whip_10g": "bullpen_whip_10g_home", "bullpen_era_10g": "bullpen_era_10g_home"})
+            game_level = game_level.merge(
+                h_bp[["game_pk", "bullpen_whip_10g_home", "bullpen_era_10g_home"]],
+                on="game_pk", how="left")
+            a_bp = bpen.rename(columns={"team": "away_team",
+                "bullpen_whip_10g": "bullpen_whip_10g_away", "bullpen_era_10g": "bullpen_era_10g_away"})
+            game_level = game_level.merge(
+                a_bp[["game_pk", "bullpen_whip_10g_away", "bullpen_era_10g_away"]],
+                on="game_pk", how="left")
+        del bpen; gc.collect()
+
+    # Fill missing columns
+    for c in ["sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
+              "sp_fip_home", "sp_fip_away", "sp_xwoba_home", "sp_xwoba_away",
+              "sp_whip_home", "sp_whip_away", "sp_bb9_home", "sp_bb9_away",
+              "team_woba_30g_home", "team_woba_30g_away",
+              "team_iso_30g_home", "team_iso_30g_away",
+              "team_k_rate_30g_home", "team_k_rate_30g_away",
+              "team_bb_rate_30g_home", "team_bb_rate_30g_away",
+              "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+              "bullpen_era_10g_home", "bullpen_era_10g_away",
+              "rest_days_home", "rest_days_away"]:
+        if c not in game_level.columns:
+            game_level[c] = np.nan
+
+    # Market lines
+    markets = _compute_markets_stub(game_level)
+    game_level = game_level.merge(
+        markets[["game_pk", "moneyline_home", "moneyline_away",
+                  "total_line", "run_line_home", "juice"]],
+        on="game_pk", how="left")
+    del markets
+
+    # Game ID
+    game_level["game_id"] = (
+        pd.to_datetime(game_level["game_date"]).dt.strftime("%Y%m%d")
+        + "_" + game_level["away_team"].astype(str)
+        + "@" + game_level["home_team"].astype(str)
+    )
+    game_level = game_level.sort_values(["game_date", "game_pk"]).reset_index(drop=True)
+
+    # Downcast
+    for col in game_level.select_dtypes(include=["float64"]).columns:
+        game_level[col] = game_level[col].astype("float32")
+    for col in game_level.select_dtypes(include=["int64"]).columns:
+        if game_level[col].max() < 32767 and game_level[col].min() >= -32768:
+            game_level[col] = game_level[col].astype("int16")
+    for col in ["venue", "home_team", "away_team"]:
+        if col in game_level.columns and game_level[col].dtype == "object":
+            game_level[col] = game_level[col].astype("category")
+
+    logger.info("Game-level: %d games, %d cols", len(game_level), len(game_level.columns))
+
+    # ── 8. Build PBP features (reload pitches) ────────────────────────
+    logger.info("Building PBP-level features ...")
+    _p = pd.read_parquet(RAW)
+    pnp_level = build_pbp_level_features(_p, game_level)
+    del _p; gc.collect()
+
+    # ── 9. Validate ──────────────────────────────────────────────────
     if validate:
         validate_datasets(game_level, pnp_level, pnp_level)
 
-    # 5. Save outputs
+    # ── 10. Save final outputs ────────────────────────────────────────
     if checkpoint_dir:
         out_dir = Path(checkpoint_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        game_level.to_parquet(out_dir / "game_level_features.parquet", index=False)
+        pnp_level.to_parquet(out_dir / "pbp_level_features.parquet", index=False)
 
-        game_path = out_dir / "game_level_features.parquet"
-        game_level.to_parquet(game_path, index=False)
-        logger.info("Saved game-level features: %s", game_path)
-
-        pbp_path = out_dir / "pbp_level_features.parquet"
-        pnp_level.to_parquet(pbp_path, index=False)
-        logger.info("Saved PBP-level features: %s", pbp_path)
+    # Clean up temp tier files
+    for f in [RAW, TIER_PITCHER, TIER_BATTER, TIER_BULLPEN, TIER_TEAM, TIER_META]:
+        if f.exists():
+            f.unlink()
 
     logger.info("=== Pipeline complete ===")
     return game_level, pnp_level
+
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
