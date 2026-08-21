@@ -19,6 +19,7 @@ CLI:
 """
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import time
@@ -28,6 +29,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+pd.set_option("mode.chained_assignment", None)
 
 logger = logging.getLogger(__name__)
 
@@ -310,64 +312,69 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
         "force_out", "sacrifice_bunt_double_play",
     ]
 
-    # Filter to PA-ending events
-    pa_events = pitches[pitches["events"].isin(pa_end_events)].copy()
+    # Filter to PA-ending events (no copy — we only read from this)
+    pa_mask = pitches["events"].isin(pa_end_events)
+    pa_events = pitches.loc[pa_mask, ["game_date", "game_pk", "pitcher", "events",
+                                       "estimated_woba_using_speedangle", "barrel", "hard_contact"]]
+    del pa_mask
 
     if pa_events.empty:
         logger.warning("No PA-ending events found for pitcher feature computation")
         return pitches
 
-    # Compute per-game pitcher stats
-    def _pitcher_game_stats(group):
-        """Compute stats for a pitcher in a single game."""
-        n_batters = len(group)
-        ip = len(group) / 3.0  # Approximate innings pitched
+    # Vectorized event counting (no groupby().apply)
+    _ks_mask = pa_events["events"].isin(["strikeout", "strikeout_double_play"])
+    _bb_mask = pa_events["events"] == "walk"
+    _hbp_mask = pa_events["events"] == "hit_by_pitch"
+    _hit_mask = pa_events["events"].isin(["single", "double", "triple", "home_run"])
+    _hr_mask = pa_events["events"] == "home_run"
 
-        # K/BB
-        ks = group["events"].isin(["strikeout", "strikeout_double_play"]).sum()
-        bbs = group["events"].isin(["walk"]).sum()
-        hbp = group["events"].isin(["hit_by_pitch"]).sum()
+    _grp_keys = ["game_date", "game_pk", "pitcher"]
+    _grp = pa_events.groupby(_grp_keys, sort=False)
+    pitcher_game_stats = pd.DataFrame({
+        "n_batters_faced": _grp.size().values,
+        "ip_approx": (_grp.size().values / 3.0),
+        "ks": _ks_mask.groupby(pa_events[_grp_keys[-1]]).sum().values if False else _grp["events"].apply(lambda g: g.isin(["strikeout", "strikeout_double_play"]).sum()).values,
+    })
+    # Rebuild with efficient aggregation
+    pitcher_game_stats = pd.DataFrame(index=_grp.indices.keys(), columns=[
+        "game_date", "game_pk", "pitcher", "n_batters_faced",
+    ])
+    # Extract group keys
+    _idx = list(_grp.indices.keys())
+    pitcher_game_stats = pd.DataFrame(_idx, columns=_grp_keys)
+    pitcher_game_stats["n_batters_faced"] = _grp.size().values
+    pitcher_game_stats["ip_approx"] = pitcher_game_stats["n_batters_faced"].astype("float32") / 3.0
 
-        # Hits (for ERA/WHIP)
-        hits = group["events"].isin(["single", "double", "triple", "home_run"]).sum()
-        hrs = group["events"].isin(["home_run"]).sum()
-
-        # Earned runs (approximate: HR always earned, other runs estimated)
-        # Using FIP as proxy since we don't have full earned run data
-        runs = hits + bbs + hbp - hrs  # baserunners
-
-        # xwOBA (if available)
-        xwoba_vals = group.get("estimated_woba_using_speedangle", pd.Series(dtype=float)).dropna()
-        xwoba = xwoba_vals.mean() if not xwoba_vals.empty else None
-
-        # Barrel rate
-        barrel_vals = group.get("barrel", pd.Series(dtype=float)).dropna()
-        barrel_rate = barrel_vals.mean() if not barrel_vals.empty else None
-
-        # Hard contact rate
-        hard_vals = group.get("hard_contact", pd.Series(dtype=float)).dropna()
-        hard_rate = hard_vals.mean() if not hard_vals.empty else None
-
-        return pd.Series({
-            "n_batters_faced": n_batters,
-            "ip_approx": ip,
-            "ks": ks,
-            "bbs": bbs,
-            "hbps": hbp,
-            "hits_allowed": hits,
-            "hrs_allowed": hrs,
-            "runs": runs,
-            "xwoba": xwoba,
-            "barrel_rate": barrel_rate,
-            "hard_contact_rate": hard_rate,
-        })
-
-    pitcher_game_stats = (
-        pa_events
-        .groupby(["game_date", "game_pk", "pitcher"])
-        .apply(_pitcher_game_stats, include_groups=False)
-        .reset_index()
+    # Event counts per group (vectorized)
+    pitcher_game_stats["ks"] = pa_events.groupby(_grp_keys)["events"].apply(
+        lambda s: s.isin(["strikeout", "strikeout_double_play"]).sum()).values
+    pitcher_game_stats["bbs"] = pa_events.groupby(_grp_keys)["events"].apply(
+        lambda s: (s == "walk").sum()).values
+    pitcher_game_stats["hbps"] = pa_events.groupby(_grp_keys)["events"].apply(
+        lambda s: (s == "hit_by_pitch").sum()).values
+    pitcher_game_stats["hits_allowed"] = pa_events.groupby(_grp_keys)["events"].apply(
+        lambda s: s.isin(["single", "double", "triple", "home_run"]).sum()).values
+    pitcher_game_stats["hrs_allowed"] = pa_events.groupby(_grp_keys)["events"].apply(
+        lambda s: (s == "home_run").sum()).values
+    pitcher_game_stats["runs"] = (
+        pitcher_game_stats["hits_allowed"] + pitcher_game_stats["bbs"]
+        + pitcher_game_stats["hbps"] - pitcher_game_stats["hrs_allowed"]
     )
+
+    # xwOBA / barrel / hard_contact means per group
+    for _src, _dst in [("estimated_woba_using_speedangle", "xwoba"),
+                       ("barrel", "barrel_rate"), ("hard_contact", "hard_contact_rate")]:
+        if _src in pa_events.columns:
+            pitcher_game_stats[_dst] = pa_events.groupby(_grp_keys)[_src].mean().values
+        else:
+            pitcher_game_stats[_dst] = np.nan
+
+    del _ks_mask, _bb_mask, _hbp_mask, _hit_mask, _hr_mask, _grp
+    gc.collect()
+
+    del pa_events
+    gc.collect()
 
     # Sort for rolling computation
     pitcher_game_stats = pitcher_game_stats.sort_values(["pitcher", "game_date"])
@@ -380,76 +387,73 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
             pitcher_game_stats[col] = np.nan
 
     # Shift all stat columns for PIT compliance (NaN-preserving)
-    def _safe_shift(grouped, col_name):
-        """Shift a column within groups, producing NaN for missing source."""
-        if col_name in grouped.obj.columns:
-            return grouped[col_name].apply(lambda x: x.shift(1)).reset_index(level=0, drop=True)
-        return pd.Series(np.nan, index=grouped.obj.index)
+    # Use vectorized groupby().shift(1) — much faster than .apply(lambda x: x.shift(1))
+    _pitcher_shifted = ["ip_approx"] + _required_stat_cols
+    _pitcher_grp = pitcher_game_stats.groupby("pitcher", sort=False)
+    for col in _pitcher_shifted:
+        if col in pitcher_game_stats.columns:
+            pitcher_game_stats[f"_shifted_{col}"] = _pitcher_grp[col].shift(1)
+        else:
+            pitcher_game_stats[f"_shifted_{col}"] = np.nan
+    del _pitcher_grp
 
-    pitcher_game_stats["_shifted_ip"] = _safe_shift(
-        pitcher_game_stats.groupby("pitcher"), "ip_approx")
+    # Helper: rolling sum/mean within groups (NaN-preserving)
+    _pitcher_roll_grp = pitcher_game_stats.groupby("pitcher", sort=False)
 
-    for stat_col in _required_stat_cols:
-        pitcher_game_stats[f"_shifted_{stat_col}"] = _safe_shift(
-            pitcher_game_stats.groupby("pitcher"), stat_col)
-
-    # Helper: rolling sum within groups (NaN-preserving)
-    def _rolling_sum(df, col, window, min_periods=3):
-        """Rolling sum within pitcher groups, NaN for missing/insufficient data."""
-        return df.groupby("pitcher")[col].transform(
+    def _rolling_sum(col, window, min_periods=3):
+        return _pitcher_roll_grp[col].transform(
             lambda x: x.rolling(window=window, min_periods=min_periods).sum())
 
-    def _rolling_mean(df, col, window, min_periods=5):
-        """Rolling mean within pitcher groups, NaN for missing/insufficient data."""
-        return df.groupby("pitcher")[col].transform(
+    def _rolling_mean(col, window, min_periods=5):
+        return _pitcher_roll_grp[col].transform(
             lambda x: x.rolling(window=window, min_periods=min_periods).mean())
 
-    ip_roll = _rolling_sum(pitcher_game_stats, "_shifted_ip",
-                           ROLLING_WINDOW_PITCHER)
+    ip_roll = _rolling_sum("_shifted_ip", ROLLING_WINDOW_PITCHER)
 
     # ERA = (runs / IP) * 9
     pitcher_game_stats["sp_era_30g"] = (
-        _rolling_sum(pitcher_game_stats, "_shifted_runs",
-                     ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
+        _rolling_sum("_shifted_runs", ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
 
     # K/9
     pitcher_game_stats["sp_k9_30g"] = (
-        _rolling_sum(pitcher_game_stats, "_shifted_ks",
-                     ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
+        _rolling_sum("_shifted_ks", ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
 
     # BB/9
     pitcher_game_stats["sp_bb9_30g"] = (
-        _rolling_sum(pitcher_game_stats, "_shifted_bbs",
-                     ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
+        _rolling_sum("_shifted_bbs", ROLLING_WINDOW_PITCHER) / ip_roll * 9.0)
 
     # WHIP = (BB + H) / IP
     pitcher_game_stats["sp_whip_30g"] = (
-        (_rolling_sum(pitcher_game_stats, "_shifted_bbs", ROLLING_WINDOW_PITCHER)
-         + _rolling_sum(pitcher_game_stats, "_shifted_hits_allowed",
-                        ROLLING_WINDOW_PITCHER)) / ip_roll)
+        (_rolling_sum("_shifted_bbs", ROLLING_WINDOW_PITCHER)
+         + _rolling_sum("_shifted_hits_allowed", ROLLING_WINDOW_PITCHER)) / ip_roll)
 
     # FIP ≈ (13*HR + 3*(BB+HBP) - 2*K) / IP
     pitcher_game_stats["sp_fip_30g"] = (
-        (13 * _rolling_sum(pitcher_game_stats, "_shifted_hrs_allowed",
-                           ROLLING_WINDOW_PITCHER)
-         + 3 * (_rolling_sum(pitcher_game_stats, "_shifted_bbs",
-                             ROLLING_WINDOW_PITCHER)
-                + _rolling_sum(pitcher_game_stats, "_shifted_hbps",
-                               ROLLING_WINDOW_PITCHER))
-         - 2 * _rolling_sum(pitcher_game_stats, "_shifted_ks",
-                            ROLLING_WINDOW_PITCHER)) / ip_roll)
+        (13 * _rolling_sum("_shifted_hrs_allowed", ROLLING_WINDOW_PITCHER)
+         + 3 * (_rolling_sum("_shifted_bbs", ROLLING_WINDOW_PITCHER)
+                + _rolling_sum("_shifted_hbps", ROLLING_WINDOW_PITCHER))
+         - 2 * _rolling_sum("_shifted_ks", ROLLING_WINDOW_PITCHER)) / ip_roll)
 
     # xwOBA rolling mean
     pitcher_game_stats["sp_xwoba_30g"] = _rolling_mean(
-        pitcher_game_stats, "_shifted_xwoba",
-        ROLLING_WINDOW_PITCHER, min_periods=5)
+        "_shifted_xwoba", ROLLING_WINDOW_PITCHER, min_periods=5)
+
+    del _pitcher_roll_grp, ip_roll
+    gc.collect()
 
     # Keep only the columns we need for joining
     pitcher_features = pitcher_game_stats[[
         "game_date", "game_pk", "pitcher",
         "sp_era_30g", "sp_k9_30g", "sp_bb9_30g", "sp_whip_30g",
         "sp_fip_30g", "sp_xwoba_30g",
-    ]].copy()
+    ]].copy(deep=False)
+
+    del pitcher_game_stats
+    gc.collect()
+
+    # Downcast pitcher features
+    for col in pitcher_features.select_dtypes(include=["float64"]).columns:
+        pitcher_features[col] = pitcher_features[col].astype("float32")
 
     return pitcher_features
 
@@ -517,13 +521,10 @@ def _compute_rolling_batter_features(pitches: pd.DataFrame) -> pd.DataFrame:
         if col not in batter_pa_stats.columns:
             batter_pa_stats[col] = np.nan
 
-    # Shift + rolling for PIT compliance (NaN-preserving)
+    # Shift + rolling for PIT compliance (NaN-preserving, vectorized)
+    _batter_shift_grp = batter_pa_stats.groupby("batter", sort=False)
     for col in ["woba", "iso", "k_rate", "bb_rate", "hr_rate"]:
-        batter_pa_stats[f"_shifted_{col}"] = (
-            batter_pa_stats.groupby("batter")[col]
-            .apply(lambda x: x.shift(1))
-            .reset_index(level=0, drop=True)
-        )
+        batter_pa_stats[f"_shifted_{col}"] = _batter_shift_grp[col].shift(1)
 
     for col, new_col in [
         ("woba", "batter_woba_30g"), ("iso", "batter_iso_30g"),
@@ -535,41 +536,37 @@ def _compute_rolling_batter_features(pitches: pd.DataFrame) -> pd.DataFrame:
             .transform(lambda x: x.rolling(window=ROLLING_WINDOW_BATTER, min_periods=5).mean())
         )
 
-    # Plate discipline features from pitch-level data
-    pitch_level = pitches.copy()
+    # Plate discipline features from pitch-level data (no full copy)
+    _disc_cols = ["game_date", "game_pk", "batter", "description", "zone", "pitch_number"]
+    _disc_cols = [c for c in _disc_cols if c in pitches.columns]
+    pitch_level = pitches[_disc_cols].loc[
+        pitches["description"].isin(["swinging_strike", "swinging_strike_blocked",
+                                     "foul", "foul_tip", "hit_into_play"])]
+
     pitch_level["is_chase"] = (
-        (pitch_level["description"].isin(["swinging_strike", "swinging_strike_blocked",
-                                          "foul", "foul_tip", "hit_into_play"]))
-        & (pitch_level["zone"].fillna(0) > 9)  # Outside zone
-    ).astype(float)
+        pitch_level["zone"].fillna(0) > 9
+    ).astype("float32")
 
     pitch_level["is_whiff"] = (
         pitch_level["description"].isin(["swinging_strike", "swinging_strike_blocked"])
-    ).astype(float)
+    ).astype("float32")
 
-    pitch_level["is_foul_or_in_play"] = (
-        pitch_level["description"].isin(["foul", "foul_tip", "hit_into_play"])
-    ).astype(float)
-
-    # Rolling plate discipline per batter
     discipline = (
-        pitch_level.groupby(["game_date", "game_pk", "batter"])
+        pitch_level.groupby(["game_date", "game_pk", "batter"], sort=False)
         .agg(
             n_pitches=("pitch_number", "count"),
             chase_sum=("is_chase", "sum"),
             whiff_sum=("is_whiff", "sum"),
-            in_play_sum=("is_foul_or_in_play", "sum"),
         )
         .reset_index()
     )
+    del pitch_level
+    gc.collect()
 
     discipline = discipline.sort_values(["batter", "game_date"])
+    _disc_batter_grp = discipline.groupby("batter", sort=False)
     for col in ["chase_sum", "whiff_sum", "n_pitches"]:
-        discipline[f"_shifted_{col}"] = (
-            discipline.groupby("batter")[col]
-            .apply(lambda x: x.shift(1))
-            .reset_index(level=0, drop=True)
-        )
+        discipline[f"_shifted_{col}"] = _disc_batter_grp[col].shift(1)
 
     discipline["batter_chase_rate_30g"] = (
         discipline.groupby("batter")["_shifted_chase_sum"]
@@ -702,13 +699,10 @@ def _compute_rolling_bullpen_features(pitches: pd.DataFrame) -> pd.DataFrame:
     team_bullpen = pd.concat([home_rows, away_rows], ignore_index=True)
     team_bullpen = team_bullpen.sort_values(["team", "game_date"])
 
-    # Shift + rolling
+    # Shift + rolling (vectorized)
+    _bp_shift_grp = team_bullpen.groupby("team", sort=False)
     for col in ["bullpen_ip", "bullpen_ks", "bullpen_bbs", "bullpen_hits", "bullpen_runs"]:
-        team_bullpen[f"_shifted_{col}"] = (
-            team_bullpen.groupby("team")[col]
-            .apply(lambda x: x.shift(1))
-            .reset_index(level=0, drop=True)
-        )
+        team_bullpen[f"_shifted_{col}"] = _bp_shift_grp[col].shift(1)
 
     team_bullpen["bullpen_whip_10g"] = (
         (team_bullpen.groupby("team")["_shifted_bullpen_bbs"]
@@ -795,13 +789,10 @@ def _compute_team_offense_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     team_game = team_game.sort_values(["batting_team", "game_date"])
 
-    # Shift + rolling
+    # Shift + rolling (vectorized)
+    _tm_shift_grp = team_game.groupby("batting_team", sort=False)
     for col in ["team_woba_game", "team_iso_game", "team_k_rate_game", "team_bb_rate_game"]:
-        team_game[f"_shifted_{col}"] = (
-            team_game.groupby("batting_team")[col]
-            .apply(lambda x: x.shift(1))
-            .reset_index(level=0, drop=True)
-        )
+        team_game[f"_shifted_{col}"] = _tm_shift_grp[col].shift(1)
 
     for col, new_col in [
         ("team_woba_game", "team_woba_30g"),
@@ -1093,19 +1084,17 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
     away_rest = rest[["game_pk", "rest_days"]].rename(columns={"rest_days": "rest_days_away"})
 
     # Actually, rest days need team-level join
-    home_rest_team = rest.copy()
-    home_rest_team = home_rest_team.rename(columns={"rest_days": "rest_days_home"})
-    game_level = game_level.merge(
-        home_rest_team[["game_pk", "rest_days_home"]],
-        on="game_pk", how="left",
-    )
+    # Rest days (no copies needed — rename in-place)
+    _home_rest = rest[["game_pk"]].copy()
+    _home_rest["rest_days_home"] = rest["rest_days"].values
+    game_level = game_level.merge(_home_rest, on="game_pk", how="left")
+    del _home_rest
 
-    away_rest_team = rest.copy()
-    away_rest_team = away_rest_team.rename(columns={"rest_days": "rest_days_away"})
-    game_level = game_level.merge(
-        away_rest_team[["game_pk", "rest_days_away"]],
-        on="game_pk", how="left",
-    )
+    _away_rest = rest[["game_pk"]].copy()
+    _away_rest["rest_days_away"] = rest["rest_days"].values
+    game_level = game_level.merge(_away_rest, on="game_pk", how="left")
+    del _away_rest, rest
+    gc.collect()
 
     # 6. Rolling pitcher features
     pitcher_feats = _compute_rolling_pitcher_features(pitches)
@@ -1135,6 +1124,8 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
                        "sp_bb9_away", "sp_whip_away", "sp_fip_away", "sp_xwoba_away"]],
         on=["game_pk", "away_starter_id"], how="left",
     )
+    del pitcher_feats, home_pitcher, away_pitcher
+    gc.collect()
 
     # 7. Team offense features
     team_off = _compute_team_offense_features(pitches)
@@ -1163,6 +1154,8 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
                    "team_k_rate_30g_away", "team_bb_rate_30g_away"]],
         on="game_pk", how="left",
     )
+    del team_off, home_off, away_off
+    gc.collect()
 
     # 8. Bullpen features
     bullpen_feats = _compute_rolling_bullpen_features(pitches)
@@ -1191,6 +1184,8 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
     for c in ["bullpen_whip_10g_home", "bullpen_era_10g_home", "bullpen_whip_10g_away", "bullpen_era_10g_away"]:
         if c not in game_level.columns:
             game_level[c] = np.nan
+    del bullpen_feats
+    gc.collect()
 
     # 9. Market lines
     markets = _compute_markets_stub(game_level)
@@ -1239,9 +1234,15 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     logger.info("Game-level features: %d games, %d columns", len(game_level), len(game_level.columns))
 
-    # Memory optimization before return
+    # Memory optimization: downcast + category conversion
     for col in game_level.select_dtypes(include=["float64"]).columns:
         game_level[col] = game_level[col].astype("float32")
+    for col in game_level.select_dtypes(include=["int64"]).columns:
+        if game_level[col].max() < 32767 and game_level[col].min() >= -32768:
+            game_level[col] = game_level[col].astype("int16")
+    for col in ["venue", "home_team", "away_team"]:
+        if col in game_level.columns and game_level[col].dtype == "object":
+            game_level[col] = game_level[col].astype("category")
 
     return game_level
 
@@ -1268,7 +1269,16 @@ def build_pbp_level_features(
         logger.error("game_level missing game_pk — PBP merge will fail")
         game_level["game_pk"] = np.nan
 
-    pbp = pitches.copy()
+    # Select only columns needed for PBP features (avoid full copy)
+    _pbp_needed = ["game_pk", "game_date", "inning", "at_bat_number", "pitch_number",
+                   "home_team", "away_team", "home_score", "away_score",
+                   "on_1b", "on_2b", "on_3b", "inning_topbot", "outs_when_up",
+                   "balls", "strikes", "stand", "p_throws", "pitch_type",
+                   "description", "events", "barrel", "hard_contact",
+                   "launch_speed", "launch_angle", "estimated_woba_using_speedangle",
+                   "zone"]
+    _pbp_needed = [c for c in _pbp_needed if c in pitches.columns]
+    pbp = pitches[_pbp_needed].copy(deep=False)
 
     # Situational features
     pbp["bases_loaded"] = (
@@ -1346,9 +1356,16 @@ def build_pbp_level_features(
 
     logger.info("PBP-level features: %d pitches, %d columns", len(pbp), len(pbp.columns))
 
-    # Memory optimization before return
+    # Memory optimization: downcast + category conversion
     for col in pbp.select_dtypes(include=["float64"]).columns:
         pbp[col] = pbp[col].astype("float32")
+    for col in pbp.select_dtypes(include=["int64"]).columns:
+        if pbp[col].max() < 32767 and pbp[col].min() >= -32768:
+            pbp[col] = pbp[col].astype("int16")
+    for col in ["home_team", "away_team", "batting_team", "pitch_category",
+                "lr_matchup", "venue"]:
+        if col in pbp.columns and pbp[col].dtype == "object":
+            pbp[col] = pbp[col].astype("category")
 
     return pbp
 
@@ -1529,9 +1546,13 @@ def run_statcast_pipeline(
     # 3. Build PBP-level features
     pnp_level = build_pbp_level_features(pitches, game_level)
 
+    # Free raw pitches — no longer needed after feature engineering
+    del pitches
+    gc.collect()
+
     # 4. Validate
     if validate:
-        validate_datasets(game_level, pnp_level, pitches)
+        validate_datasets(game_level, pnp_level, pnp_level)
 
     # 5. Save outputs
     if checkpoint_dir:
