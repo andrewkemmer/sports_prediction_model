@@ -47,6 +47,7 @@ _run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitp
 print("  ✅ Done")
 
 # Clone fresh
+os.chdir("/content")  # escape cwd if it's inside the old clone
 repo_dir = Path(f"/content/{CONFIG['github_repo']}")
 if repo_dir.exists():
     print("  🔄 Removing old clone...")
