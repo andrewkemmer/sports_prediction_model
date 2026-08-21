@@ -388,9 +388,14 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     # Shift all stat columns for PIT compliance (NaN-preserving)
     # Use vectorized groupby().shift(1) — much faster than .apply(lambda x: x.shift(1))
-    _pitcher_shifted = ["ip_approx"] + _required_stat_cols
     _pitcher_grp = pitcher_game_stats.groupby("pitcher", sort=False)
-    for col in _pitcher_shifted:
+    # IP shift — explicitly named _shifted_ip (rolling formulas reference this name)
+    if "ip_approx" in pitcher_game_stats.columns:
+        pitcher_game_stats["_shifted_ip"] = _pitcher_grp["ip_approx"].shift(1)
+    else:
+        pitcher_game_stats["_shifted_ip"] = np.nan
+    # Shift all stat columns for PIT compliance
+    for col in _required_stat_cols:
         if col in pitcher_game_stats.columns:
             pitcher_game_stats[f"_shifted_{col}"] = _pitcher_grp[col].shift(1)
         else:
