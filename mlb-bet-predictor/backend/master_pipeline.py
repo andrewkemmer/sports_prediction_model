@@ -124,7 +124,7 @@ else:
         repo = git.Repo.clone_from(auth_url, str(sync_dir), branch=CONFIG["github_branch"], depth=1)
         if CONFIG["git_email"]: repo.config_writer().set_value("user","email",CONFIG["git_email"]).release()
         if CONFIG["git_name"]: repo.config_writer().set_value("user","name",CONFIG["git_name"]).release()
-        data_dir = sync_dir / CONFIG["data_subdir"]; data_dir.mkdir(exist_ok=True)
+        data_dir = sync_dir / "data_delivery"; data_dir.mkdir(exist_ok=True)
         staged = []
         for f in [csv_path, parquet_path]:
             if f.exists(): shutil.copy2(f, data_dir / f.name); staged.append(f"{CONFIG['data_subdir']}/{f.name}")
