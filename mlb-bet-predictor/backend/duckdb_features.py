@@ -106,11 +106,7 @@ def _connect_and_load(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     con.execute("""
         ALTER TABLE pitches
         ALTER COLUMN game_date TYPE DATE
-        USING CASE
-            WHEN typeof(game_date) = 'VARCHAR' THEN CAST(game_date AS DATE)
-            WHEN typeof(game_date) = 'BIGINT' THEN CAST(epoch_ms(game_date) AS DATE)
-            ELSE game_date
-        END
+        USING CAST(game_date AS DATE)
     """)
 
     # Drop unused columns
@@ -154,26 +150,17 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
     # ── Step 2: Starting pitchers ─────────────────────────────────────
     con.execute("""
         CREATE OR REPLACE TABLE starters AS
-        WITH first_pa AS (
-            SELECT game_pk, pitcher,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY game_pk ORDER BY at_bat_number, pitch_number
-                   ) AS rn
-            FROM pitches
-        ),
-        top_first AS (
-            SELECT game_pk, pitcher AS away_starter_id
+        WITH first_pa_top AS (
+            SELECT game_pk, pitcher AS away_starter_id,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches
             WHERE inning = 1 AND inning_topbot = 'Top'
-            GROUP BY game_pk, pitcher
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) = 1
         ),
-        bot_first AS (
-            SELECT game_pk, pitcher AS home_starter_id
+        first_pa_bot AS (
+            SELECT game_pk, pitcher AS home_starter_id,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches
             WHERE inning = 1 AND inning_topbot = 'Bot'
-            GROUP BY game_pk, pitcher
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) = 1
         )
         SELECT DISTINCT
             p.game_pk,
@@ -183,8 +170,8 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
             t.away_starter_id,
             b.home_starter_id
         FROM (SELECT DISTINCT game_pk, game_date, home_team, away_team FROM pitches) p
-        LEFT JOIN top_first t ON p.game_pk = t.game_pk
-        LEFT JOIN bot_first b ON p.game_pk = b.game_pk
+        LEFT JOIN first_pa_top t ON p.game_pk = t.game_pk AND t.rn = 1
+        LEFT JOIN first_pa_bot b ON p.game_pk = b.game_pk AND b.rn = 1
     """)
 
     # ── Step 3: Venue info ────────────────────────────────────────────
@@ -254,46 +241,36 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM game_agg
     """)
 
-    # Rolling pitcher features with PIT-compliant shifted windows
-    con.execute(f"""
-        CREATE OR REPLACE TABLE pitcher_rolling AS
+    # Step 5a: LAG all stats (CTE1)
+    con.execute("""
+        CREATE OR REPLACE TABLE pitcher_shifted AS
         SELECT *,
-            -- Shifted IP (previous game's IP)
-            LAG(ip_approx, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_ip,
-            -- Shifted stats for PIT compliance
-            LAG(runs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_runs,
-            LAG(ks, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_ks,
-            LAG(bbs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_bbs,
-            LAG(hits_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_hits,
-            LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_hrs,
-            LAG(hbps, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_hbps,
-            LAG(xwoba, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _shifted_xwoba,
-            -- Rolling sums over last {ROLLING_WINDOW_PITCHER_GAMES} games (shifted)
-            SUM(LAG(runs, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_runs,
-            SUM(LAG(ks, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_ks,
-            SUM(LAG(bbs, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_bbs,
-            SUM(LAG(hits_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_hits,
-            SUM(LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_hrs,
-            SUM(LAG(hbps, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_hbps,
-            SUM(LAG(ip_approx, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_ip,
-            AVG(LAG(xwoba, 1) OVER (PARTITION BY pitcher ORDER BY game_date))
-                OVER (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_PITCHER_GAMES - 1} PRECEDING AND CURRENT ROW) AS _roll_xwoba
+            LAG(ip_approx, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ip,
+            LAG(runs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_runs,
+            LAG(ks, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ks,
+            LAG(bbs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_bbs,
+            LAG(hits_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hits,
+            LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hrs,
+            LAG(hbps, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_hbps,
+            LAG(xwoba, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_xwoba
         FROM pitcher_game_stats
+    """)
+    # Step 5b: Rolling SUM/AVG over lagged columns (CTE2)
+    con.execute("""
+        CREATE OR REPLACE TABLE pitcher_rolling AS
+        SELECT
+            game_date, game_pk, pitcher,
+            SUM(_s_runs) OVER w AS _roll_runs,
+            SUM(_s_ks) OVER w AS _roll_ks,
+            SUM(_s_bbs) OVER w AS _roll_bbs,
+            SUM(_s_hits) OVER w AS _roll_hits,
+            SUM(_s_hrs) OVER w AS _roll_hrs,
+            SUM(_s_hbps) OVER w AS _roll_hbps,
+            SUM(_s_ip) OVER w AS _roll_ip,
+            AVG(_s_xwoba) OVER w AS _roll_xwoba
+        FROM pitcher_shifted
+        WINDOW w AS (PARTITION BY pitcher ORDER BY game_date
+                     ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)
     """)
 
     # Derive final pitcher features
@@ -350,28 +327,31 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM game_agg
     """)
 
-    # Rolling team offense with PIT shift
-    con.execute(f"""
+    # Team offense: LAG first (CTE1), then rolling AVG (CTE2)
+    con.execute("""
+        CREATE OR REPLACE TABLE team_off_shifted AS
+        SELECT *,
+            LAG(team_woba_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date) AS _s_woba,
+            LAG(team_iso_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date) AS _s_iso,
+            LAG(team_k_rate_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date) AS _s_krate,
+            LAG(team_bb_rate_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date) AS _s_bbrate
+        FROM team_offense_raw
+    """)
+    con.execute("""
         CREATE OR REPLACE TABLE team_offense_rolling AS
         SELECT
             game_date, game_pk, batting_team,
-            AVG(LAG(team_woba_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date))
-                OVER (PARTITION BY batting_team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_TEAM_GAMES - 1} PRECEDING AND CURRENT ROW) AS team_woba_30g,
-            AVG(LAG(team_iso_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date))
-                OVER (PARTITION BY batting_team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_TEAM_GAMES - 1} PRECEDING AND CURRENT ROW) AS team_iso_30g,
-            AVG(LAG(team_k_rate_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date))
-                OVER (PARTITION BY batting_team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_TEAM_GAMES - 1} PRECEDING AND CURRENT ROW) AS team_k_rate_30g,
-            AVG(LAG(team_bb_rate_game, 1) OVER (PARTITION BY batting_team ORDER BY game_date))
-                OVER (PARTITION BY batting_team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_TEAM_GAMES - 1} PRECEDING AND CURRENT ROW) AS team_bb_rate_30g
-        FROM team_offense_raw
+            AVG(_s_woba) OVER w AS team_woba_30g,
+            AVG(_s_iso) OVER w AS team_iso_30g,
+            AVG(_s_krate) OVER w AS team_k_rate_30g,
+            AVG(_s_bbrate) OVER w AS team_bb_rate_30g
+        FROM team_off_shifted
+        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date
+                     ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
     """)
 
-    # ── Step 7: Bullpen rolling features ──────────────────────────────
-    con.execute(f"""
+    # Step 7: Bullpen rolling features
+    con.execute("""
         CREATE OR REPLACE TABLE bullpen_raw AS
         WITH first_pitchers AS (
             SELECT game_pk,
@@ -387,54 +367,54 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM pitches p
             JOIN first_pitchers fp ON p.game_pk = fp.game_pk
             WHERE p.pitcher != fp.starter_id
-              AND p.events IN ({PA_END_EVENTS})
-        ),
-        game_bullpen AS (
-            SELECT
-                game_date, game_pk, home_team, away_team,
-                COUNT(*) / 3.0 AS bullpen_ip,
-                SUM(CASE WHEN events IN ('strikeout', 'strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
-                SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
-                SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
-                SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run', 'walk', 'hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
-            FROM reliever_events
-            GROUP BY game_date, game_pk, home_team, away_team
-        )
-        SELECT * FROM game_bullpen
-    """)
-
-    # Explode into team rows and compute rolling bullpen
-    con.execute(f"""
-        CREATE OR REPLACE TABLE bullpen_rolling AS
-        WITH team_rows AS (
-            SELECT game_date, game_pk, home_team AS team,
-                   bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
-            FROM bullpen_raw
-            UNION ALL
-            SELECT game_date, game_pk, away_team AS team,
-                   bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
-            FROM bullpen_raw
+              AND p.events IN ('single', 'double', 'triple', 'home_run',
+                  'strikeout', 'strikeout_double_play', 'walk', 'hit_by_pitch',
+                  'field_out', 'field_error', 'fielders_choice', 'fielders_choice_out',
+                  'grounded_into_double_play', 'double_play', 'triple_play',
+                  'sac_fly', 'sac_bunt', 'sac_fly_double_play',
+                  'catcher_interf', 'batter_interference',
+                  'force_out', 'sacrifice_bunt_double_play')
         )
         SELECT
+            game_date, game_pk, home_team, away_team,
+            COUNT(*) / 3.0 AS bullpen_ip,
+            SUM(CASE WHEN events IN ('strikeout', 'strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
+            SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
+            SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
+            SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run', 'walk', 'hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
+        FROM reliever_events
+        GROUP BY game_date, game_pk, home_team, away_team
+    """)
+    # Bullpen: explode to team rows, LAG, then rolling
+    con.execute("""
+        CREATE OR REPLACE TABLE bullpen_team AS
+        SELECT game_date, game_pk, home_team AS team,
+               bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
+        FROM bullpen_raw
+        UNION ALL
+        SELECT game_date, game_pk, away_team AS team,
+               bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
+        FROM bullpen_raw
+    """)
+    con.execute("""
+        CREATE OR REPLACE TABLE bullpen_shifted AS
+        SELECT *,
+            LAG(bullpen_bbs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_bbs,
+            LAG(bullpen_hits, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_hits,
+            LAG(bullpen_ip, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_ip,
+            LAG(bullpen_runs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_runs
+        FROM bullpen_team
+    """)
+    con.execute("""
+        CREATE OR REPLACE TABLE bullpen_rolling AS
+        SELECT
             game_date, game_pk, team,
-            (SUM(LAG(bullpen_bbs, 1) OVER (PARTITION BY team ORDER BY game_date))
-                OVER (PARTITION BY team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_BULLPEN_GAMES - 1} PRECEDING AND CURRENT ROW)
-             + SUM(LAG(bullpen_hits, 1) OVER (PARTITION BY team ORDER BY game_date))
-                OVER (PARTITION BY team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_BULLPEN_GAMES - 1} PRECEDING AND CURRENT ROW))
-            / NULLIF(SUM(LAG(bullpen_ip, 1) OVER (PARTITION BY team ORDER BY game_date))
-                OVER (PARTITION BY team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_BULLPEN_GAMES - 1} PRECEDING AND CURRENT ROW), 0)
-            AS bullpen_whip_10g,
-            SUM(LAG(bullpen_runs, 1) OVER (PARTITION BY team ORDER BY game_date))
-                OVER (PARTITION BY team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_BULLPEN_GAMES - 1} PRECEDING AND CURRENT ROW)
-            / NULLIF(SUM(LAG(bullpen_ip, 1) OVER (PARTITION BY team ORDER BY game_date))
-                OVER (PARTITION BY team ORDER BY game_date
-                      ROWS BETWEEN {ROLLING_WINDOW_BULLPEN_GAMES - 1} PRECEDING AND CURRENT ROW), 0)
-            * 9.0 AS bullpen_era_10g
-        FROM team_rows
+            (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
+                / NULLIF(SUM(_s_ip) OVER w, 0) AS bullpen_whip_10g,
+            SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 AS bullpen_era_10g
+        FROM bullpen_shifted
+        WINDOW w AS (PARTITION BY team ORDER BY game_date
+                     ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
     """)
 
     # ── Step 8: Assemble game_level ───────────────────────────────────
@@ -489,7 +469,7 @@ def _create_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN venues v ON w.game_pk = v.game_pk
         LEFT JOIN rest_days rh ON w.game_pk = rh.game_pk AND w.home_team = rh.team
         LEFT JOIN rest_days ra ON w.game_pk = ra.game_pk AND w.away_team = ra.team
-        LEFT JOIN pitcher_features ph ON w.game_pk = ph.game_pk AND w.home_team = (SELECT home_team FROM pitches WHERE game_pk = w.game_pk LIMIT 1) AND ph.pitcher = s.home_starter_id
+        LEFT JOIN pitcher_features ph ON w.game_pk = ph.game_pk AND ph.pitcher = s.home_starter_id
         LEFT JOIN pitcher_features pa ON w.game_pk = pa.game_pk AND pa.pitcher = s.away_starter_id
         LEFT JOIN team_offense_rolling th ON w.game_pk = th.game_pk AND w.home_team = th.batting_team
         LEFT JOIN team_offense_rolling ta ON w.game_pk = ta.game_pk AND w.away_team = ta.batting_team
