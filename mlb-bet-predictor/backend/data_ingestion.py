@@ -479,126 +479,157 @@ def attach_market_lines(games: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFram
     return pd.DataFrame(merged)
 
 
-# ── Real data (pybaseball scaffold) ─────────────────────────────────────────
+# ── Real data (ESPN API) ───────────────────────────────────────────────────
 
-def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame:
-    """Load real MLB game events via pybaseball.
+# ESPN abbreviation → our internal team key
+ESPN_ABBREV_TO_KEY = {
+    "ARI": "ARI", "ATL": "ATL", "BAL": "BAL", "BOS": "BOS",
+    "CHC": "CHC", "CWS": "CWS", "CIN": "CIN", "CLE": "CLE",
+    "COL": "COL", "DET": "DET", "HOU": "HOU", "KC": "KC",
+    "LAA": "LAA", "LAD": "LAD", "MIA": "MIA", "MIL": "MIL",
+    "MIN": "MIN", "NYM": "NYM", "NYY": "NYY", "OAK": "OAK",
+    "PHI": "PHI", "PIT": "PIT", "SD": "SD", "SF": "SF",
+    "SEA": "SEA", "STL": "STL", "TB": "TB", "TEX": "TEX",
+    "TOR": "TOR", "WSH": "WSH",
+}
 
-    Iterates over all MLB teams to fetch each team's schedule, deduplicates
-    games (keeping only home games to avoid double-counting), and normalizes
-    to our internal schema.
 
-    Note: SP ERA/K9 and team wOBA should be joined from
-    pitching_stats_range / batting_stats_range as-of game_date - 1
-    for full PIT compliance (TODO).
-    """
-    logger.info("Loading real MLB schedule for season %d...", season)
+def _espn_date_key(d: date) -> str:
+    return d.strftime("%Y%m%d")
 
+
+def _fetch_espn_scoreboard(target_date: date) -> list[dict]:
+    """Fetch all MLB games for a given date from ESPN's public API."""
+    import requests
+
+    url = (
+        "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
+        f"?dates={_espn_date_key(target_date)}"
+    )
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("events", [])
+
+
+def _parse_espn_event(event: dict) -> dict | None:
+    """Parse a single ESPN event into our internal game dict."""
+    competition = event.get("competitions", [{}])[0]
+    competitors = competition.get("competitors", [])
+    if len(competitors) != 2:
+        return None
+
+    home_comp = next((c for c in competitors if c.get("homeAway") == "home"), None)
+    away_comp = next((c for c in competitors if c.get("homeAway") == "away"), None)
+    if not home_comp or not away_comp:
+        return None
+
+    home_abbr = home_comp.get("team", {}).get("abbreviation", "")
+    away_abbr = away_comp.get("team", {}).get("abbreviation", "")
+    home_key = ESPN_ABBREV_TO_KEY.get(home_abbr, home_abbr)
+    away_key = ESPN_ABBREV_TO_KEY.get(away_abbr, away_abbr)
+
+    # Parse date
+    date_str = event.get("date", "")
     try:
-        from pybaseball import schedule_and_record
-    except ImportError:
-        raise ImportError(
-            "pybaseball is required for real data. "
-            "Install with: pip install pybaseball"
-        )
+        game_dt = pd.Timestamp(date_str)
+    except Exception:
+        return None
+    game_date = game_dt.date()
 
-    # Try the requested season, then fall back to recent seasons if unavailable
-    working_season = None
-    all_games = []
-    for attempt_season in [season, season - 1, season - 2]:
-        if attempt_season < 2015:
-            break
-        logger.info("Trying season %d...", attempt_season)
-        all_games = []
-        for team in MLB_TEAMS:
-            try:
-                team_schedule = schedule_and_record(attempt_season, team)
-                if team_schedule is not None and not team_schedule.empty:
-                    if "Home" in team_schedule.columns:
-                        home_games = team_schedule[team_schedule["Home"] == team].copy()
-                    else:
-                        home_games = team_schedule.copy()
-                    all_games.append(home_games)
-            except Exception as e:
-                logger.debug("Failed to fetch schedule for %s/%d: %s", team, attempt_season, e)
-                continue
-        if len(all_games) >= 10:  # Got a decent chunk of teams
-            working_season = attempt_season
-            break
-        logger.warning("Season %d returned only %d teams, trying next year...", attempt_season, len(all_games))
+    # Scores (may be None if game hasn't started/finished)
+    home_score_str = home_comp.get("score", "")
+    away_score_str = away_comp.get("score", "")
+    home_score = int(home_score_str) if home_score_str.isdigit() else None
+    away_score = int(away_score_str) if away_score_str.isdigit() else None
 
-    if not all_games:
-        logger.warning("No schedule data returned for seasons %d-%d", season - 2, season)
+    home_win = None
+    if home_score is not None and away_score is not None:
+        home_win = float(home_score > away_score)
+
+    # Starting pitchers from ESPN projectedStats or probablePitcher
+    sp_home = "TBD"
+    sp_away = "TBD"
+    for comp in competitors:
+        pitcher = comp.get("probablePitcher", {})
+        if pitcher and pitcher.get("fullName"):
+            if comp.get("homeAway") == "home":
+                sp_home = pitcher["fullName"]
+            else:
+                sp_away = pitcher["fullName"]
+
+    venue = competition.get("venue", {}).get("fullName", "Unknown")
+    game_id = f"{game_date.strftime('%Y%m%d')}_{away_key}@{home_key}"
+
+    return {
+        "game_id": game_id,
+        "game_date": game_date,
+        "start_time_utc": game_dt,
+        "home_team": home_key,
+        "away_team": away_key,
+        "home_win": home_win,
+        "total_runs": (home_score + away_score) if home_score is not None and away_score is not None else None,
+        "sp_name_home": sp_home,
+        "sp_name_away": sp_away,
+        "sp_era_home": None,
+        "sp_k9_home": None,
+        "sp_era_away": None,
+        "sp_k9_away": None,
+        "venue": venue,
+        "rest_days_home": None,
+        "rest_days_away": None,
+        "woba_30g_home": None,
+        "woba_30g_away": None,
+        "bullpen_whip_10g_home": None,
+        "bullpen_whip_10g_away": None,
+        "sp_era_30g_home": None,
+        "sp_era_30g_away": None,
+        "sp_k9_30g_home": None,
+        "sp_k9_30g_away": None,
+    }
+
+
+def load_real_game_events(target_date: date, season: int | None = None) -> pd.DataFrame:
+    """Load real MLB game events for a single date via ESPN API.
+
+    Fetches all games for `target_date` in one HTTP call. If no games are
+    found (off-season), walks backwards up to 7 days to find the most recent
+    game day.
+    """
+    logger.info("Loading real MLB schedule for %s via ESPN API...", target_date)
+
+    # Try the target date, then walk backwards up to 7 days to find games
+    for offset in range(8):
+        try_date = date.fromordinal(target_date.toordinal() - offset)
+        events = _fetch_espn_scoreboard(try_date)
+        games = []
+        for ev in events:
+            parsed = _parse_espn_event(ev)
+            if parsed:
+                games.append(parsed)
+        if games:
+            if offset > 0:
+                logger.info("No games on %s, using %s instead (%d games)",
+                            target_date, try_date, len(games))
+            break
+
+    if not games:
+        logger.warning("No MLB games found in the last 7 days around %s", target_date)
         return pd.DataFrame()
 
-    if working_season and working_season != season:
-        logger.info("Using season %d data (requested %d not yet available)", working_season, season)
-
-    schedule = pd.concat(all_games, ignore_index=True)
-
-    # Filter to games up to target_date
-    schedule["Date"] = pd.to_datetime(schedule["Date"])
-    schedule = schedule[schedule["Date"].dt.date <= target_date].copy()
-
-    # Deduplicate by date + home + away
-    schedule = schedule.drop_duplicates(subset=["Date", "Home", "Away"]).copy()
-
-    # Basic normalization to our schema
-    rows = []
-    for _, game in schedule.iterrows():
-        home = game.get("Home", "")
-        away = game.get("Away", "")
-        game_date = game["Date"].date()
-        home_score = game.get("R", game.get("Home Starter Runs", None))
-        away_score = game.get("RA", game.get("Away Starter Runs", None))
-        home_win = None
-        if pd.notna(home_score) and pd.notna(away_score):
-            home_win = float(int(home_score) > int(away_score))
-
-        game_id = f"{game_date.strftime('%Y%m%d')}_{away}@{home}"
-
-        rows.append({
-            "game_id": game_id,
-            "game_date": game_date,
-            "start_time_utc": game["Date"],
-            "home_team": home,
-            "away_team": away,
-            "home_win": home_win,
-            "total_runs": (int(home_score) + int(away_score)) if pd.notna(home_score) and pd.notna(away_score) else None,
-            "sp_name_home": game.get("Home Starter", "TBD"),
-            "sp_name_away": game.get("Away Starter", "TBD"),
-            "sp_era_home": None,
-            "sp_k9_home": None,
-            "sp_era_away": None,
-            "sp_k9_away": None,
-            "venue": game.get("Stadium", game.get("field", "Unknown")),
-            "rest_days_home": None,
-            "rest_days_away": None,
-            "woba_30g_home": None,
-            "woba_30g_away": None,
-            "bullpen_whip_10g_home": None,
-            "bullpen_whip_10g_away": None,
-            "sp_era_30g_home": None,
-            "sp_era_30g_away": None,
-            "sp_k9_30g_home": None,
-            "sp_k9_30g_away": None,
-        })
-
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["home_wins"] = 0
-        df["away_wins"] = 0
-        df["home_losses"] = 0
-        df["away_losses"] = 0
-        df["home_elo"] = 1500.0
-        df["home_record"] = "0-0"
-        df["away_record"] = "0-0"
-        df["home_win_pct"] = 0.5
-        df["away_win_pct"] = 0.5
-        df["home_run_diff"] = 0
-        df["away_run_diff"] = 0
-        logger.info("Loaded %d real games from pybaseball", len(df))
-
+    df = pd.DataFrame(games)
+    df["home_wins"] = 0
+    df["away_wins"] = 0
+    df["home_losses"] = 0
+    df["away_losses"] = 0
+    df["home_elo"] = 1500.0
+    df["home_record"] = "0-0"
+    df["away_record"] = "0-0"
+    df["home_win_pct"] = 0.5
+    df["away_win_pct"] = 0.5
+    df["home_run_diff"] = 0
+    df["away_run_diff"] = 0
+    logger.info("Loaded %d real games from ESPN for %s", len(df), try_date)
     return df
 
 
