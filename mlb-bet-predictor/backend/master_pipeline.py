@@ -41,13 +41,19 @@ def _run(cmd, check=True, cwd="/content"):
         print(f"  ⚠️  {cmd}\n      {r.stderr[:300]}")
     return r
 
+# CRITICAL: escape to a known-good directory FIRST, before anything else.
+# If a previous run deleted the cwd, every subprocess will fail with getcwd().
+try:
+    os.chdir("/content")
+except OSError:
+    pass  # already there or doesn't exist yet
+
 _banner("PHASE 0", "Environment Setup")
 print("📦 Installing dependencies...")
 _run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
 print("  ✅ Done")
 
 # Clone fresh
-os.chdir("/content")  # escape cwd if it's inside the old clone
 repo_dir = Path(f"/content/{CONFIG['github_repo']}")
 if repo_dir.exists():
     print("  🔄 Removing old clone...")
