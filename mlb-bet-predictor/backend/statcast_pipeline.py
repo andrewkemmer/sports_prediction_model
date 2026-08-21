@@ -65,6 +65,57 @@ PITCH_COLS = [
     "delta_home_win_exp", "delta_run_exp",
 ]
 
+# Column aliases: map known Statcast name variants to canonical names.
+# If Statcast renames a column in a future season, add the old name here.
+COLUMN_ALIASES = {
+    # Contact quality
+    "barrel": "barrel",
+    "barrel百分比": "barrel",
+    "barrel_pct": "barrel",
+    "is_barrel": "barrel",
+    "hard_contact": "hard_contact",
+    "hardhit": "hard_contact",
+    "hard_hit": "hard_contact",
+    "hardhit百分比": "hard_contact",
+    "launch_speed": "launch_speed",
+    "exit_velocity": "launch_speed",
+    "exit_velo": "launch_speed",
+    "launch_angle": "launch_angle",
+    "la": "launch_angle",
+    # Expected stats
+    "estimated_woba_using_speedangle": "estimated_woba_using_speedangle",
+    "xwoba": "estimated_woba_using_speedangle",
+    "xwOBA": "estimated_woba_using_speedangle",
+    "estimated_ba_using_speedangle": "estimated_ba_using_speedangle",
+    "xba": "estimated_ba_using_speedangle",
+    # Pitcher identity
+    "player_name": "player_name",
+    "pitcher_name": "player_name",
+    # Event description
+    "events": "events",
+    "event": "events",
+}
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename any aliased columns to canonical names, then add missing expected columns as NaN."""
+    rename_map = {}
+    for col in df.columns:
+        canonical = COLUMN_ALIASES.get(col)
+        if canonical and canonical != col:
+            rename_map[col] = canonical
+    if rename_map:
+        logger.info("Renaming aliased columns: %s", rename_map)
+        df = df.rename(columns=rename_map)
+
+    # Ensure all PITCH_COLS exist (missing → NaN)
+    for col in PITCH_COLS:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    return df
+
+
 ROLLING_WINDOW_PITCHER = 100  # Pitches (≈ 5-6 starts)
 ROLLING_WINDOW_BATTER = 80    # Pitches (≈ 2 weeks of PA)
 ROLLING_WINDOW_TEAM = 30      # Games
@@ -194,6 +245,9 @@ def pull_statcast_data(
         return pd.DataFrame()
 
     df = pd.concat(all_chunks, ignore_index=True)
+
+    # Normalize column names (aliases) and ensure all expected columns exist
+    df = _normalize_columns(df)
 
     # Deduplicate (same pitch can appear in overlapping batches)
     before = len(df)
