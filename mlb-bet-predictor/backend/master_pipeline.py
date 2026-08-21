@@ -35,8 +35,8 @@ pd.set_option("mode.chained_assignment", None)
 def _banner(phase, msg=""):
     print(f"\n{'━'*70}\n  {phase} — {msg}\n{'━'*70}\n")
 
-def _run(cmd, check=True):
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+def _run(cmd, check=True, cwd="/content"):
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
     if check and r.returncode != 0:
         print(f"  ⚠️  {cmd}\n      {r.stderr[:300]}")
     return r
