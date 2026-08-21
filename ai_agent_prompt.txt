@@ -1,0 +1,230 @@
+You are an expert full‑stack machine learning engineer and UI designer specializing in sports analytics. Build a production‑grade MLB sports prediction and betting model application exactly as specified below. Do not create any Node/React/Vite/Tailwind/Convex stacks, package.json, or src directory. The repository must be a pure Python project with a Colab backend and a Streamlit frontend. Use GitHub /data_delivery as the canonical artifact sink.
+
+High level constraints
+
+Repo type: Pure Python only.
+
+Backend: Google Colab compatible Python scripts in /backend.
+
+Frontend: Streamlit multi‑page app in /frontend.
+
+Data registry: /data_delivery folder in the repo (artifacts pushed by Colab via GitPython).
+
+No heavy ML on frontend: Streamlit must not require scikit‑learn, xgboost, lightgbm, or shap.
+
+Sports scope: Primary implementation for MLB. Scaffold hooks for NBA, NHL, NFL, College Football, Men’s College Basketball, and Tennis.
+
+Strict point‑in‑time: All features and market lines must be computed using only data available prior to each game’s scheduled start time.
+
+Multi‑target: Support Moneyline (win probability), Totals (projected total runs), Run Line (cover probability).
+
+Repository tree to produce (exact file names)
+
+Code
+/mlb-bet-predictor
+├── backend
+│   ├── config.py
+│   ├── data_ingestion.py
+│   ├── training.py
+│   ├── explainability.py
+│   ├── github_sync.py
+│   ├── pipeline.py
+│   └── requirements.txt
+├── frontend
+│   ├── Home.py
+│   ├── todays_games.py
+│   ├── power_rankings.py
+│   ├── model_calibration.py
+│   ├── model_monitor.py
+│   ├── utils.py
+│   └── streamlit_theme.toml
+├── data_delivery
+│   ├── todays_games_YYYYMMDD.csv
+│   ├── power_rankings_YYYYMMDD.csv
+│   ├── calibration_YYYYMMDD.json
+│   └── model_monitor_YYYYMMDD.json
+└── README.md
+Backend implementation requirements
+
+config.py: Use pathlib.Path. Include global paths, hyperparameters, retrain cadence, PSI thresholds, and tracking strings (e.g., FEATURE_DRIFT = 'feature_drift.csv'). Include reproducibility seeds and model version metadata keys.
+
+data_ingestion.py:
+
+Use pybaseball for schedules and historical stats.
+
+Implement strict point‑in‑time feature construction: for each game (with exact scheduled start timestamp), compute rolling team/pitcher aggregates (e.g., rolling wOBA, bullpen WHIP 10g, pitcher ERA 30g), ELO, rest days, and attach bookmaker lines with their timestamp. All aggregations must use only data strictly prior to the game start.
+
+Output data_delivery/todays_games_YYYYMMDD.csv with one row per game including: game_id, game_date, start_time_utc, home_team, away_team, home_record, away_record, home_win_prob_model, away_win_prob_model, moneyline_home, moneyline_away, total_line, run_line, juice, edge_home, edge_away, starting_pitcher_home, starting_pitcher_away, sp_home_era, sp_home_k9, sp_away_era, sp_away_k9, and a pointer to shap_game_<gameid>.csv.
+
+training.py:
+
+Implement an expanding‑window walk‑forward training loop across chronological games. Retrain cadence configurable (e.g., weekly) and must never use future outcomes.
+
+Train separate heads:
+
+Moneyline: classification for home win probability (ensemble of XGBoost, LightGBM, Logistic Regression).
+
+Totals: regression for total runs (XGBoostRegressor / LGBMRegressor).
+
+Run Line: classification/regression for cover probability and expected margin.
+
+Ensemble by averaging probabilities or stacking; persist latest ensemble to data_delivery/models/ensemble_latest.joblib.
+
+Persist training metrics per retrain: AUC, Brier, LogLoss, Calibration Error, and training metadata (VERSION, TRAINED_AT, DATA_CUTOFF).
+
+explainability.py:
+
+Compute SHAP attributions per game for the ensemble and save data_delivery/shap_game_<gameid>.csv with columns feature, shap_value, signed_effect.
+
+Implement PSI computation for numeric features and persist data_delivery/feature_drift_YYYYMMDD.csv with feature, current_mean, baseline_mean, psi, status (OK/WARN).
+
+github_sync.py:
+
+Use GitPython to clone the repo in Colab, copy artifacts into /data_delivery, commit with clear messages, and push. Provide robust error handling and instructions for Colab credentials (SSH key or PAT).
+
+pipeline.py:
+
+Orchestrate ingestion, training, explainability, and GitHub sync. Expose run_daily_pipeline(target_date: date) that produces and pushes artifacts.
+
+Backend dependencies
+
+Provide backend/requirements.txt with case‑sensitive package names including at minimum:
+
+GitPython>=3.3.0
+
+pybaseball>=2.2.0
+
+xgboost
+
+lightgbm
+
+scikit-learn
+
+shap
+
+pandas
+
+numpy
+
+joblib
+
+requests
+
+altair
+
+Frontend exact UI and behavior (match images and copy precisely)
+
+Theme: Dark theme with backgroundColor = #0A1128 (or #0F172A), secondaryBackgroundColor = #1E293B, primary accent #10B981. Provide streamlit_theme.toml.
+
+Navigation: Tabs or sidebar with exactly these pages: Today's Games, Power Rankings, Calibration, Model Monitor.
+
+Page 1 Today's Games:
+
+Header: show date string (e.g., Sunday, August 9, 2026) and an interactive date ribbon with filter pills: [All Games (8)] [Final (7)] [Live (1)]. Show a green badge chip: ✓ 5-2 Today · 71.4% accuracy. Subheader note: X evening games begin 7 PM ET+.
+
+Two‑column game cards: For each game render:
+
+Top badge strip: left side metadata tags (examples: Day Game, ✦ UPSET, ● COIN FLIP); right side grading outcomes (examples: ✓ CORRECT PICK FINAL, X MISS FINAL, FINAL (F/10)).
+
+Team rows: vertically stacked Home vs Away. Show Team Name, Abbreviation, Record. Render a horizontal probability fill bar showing win percentage (e.g., 78% vs 22%). Bold the model pick and show a PICK badge and a push‑pin icon next to it.
+
+Matchup boxes: grid showing starting pitcher stats (Name, ERA, K/9), stadium/venue, and footer with Moneyline odds and calculated betting edges (format: ML: BOS -310 ATH +250 Edge: -0.09).
+
+SHAP Dropdown Accordion: collapsible labeled SHAP Features. When expanded, render a horizontal bar chart of feature attributions. Use green bars for positive attributions and red dots or bars for negative attributions. Example features and ordering: Away team record, Pitcher ERA diff, Rest days, Home field, Market vig.
+
+Outcome grading strip: colored footer declaring outcome and model correctness (e.g., ✓ WSH Won — Model Correct, X ATH Won — Upset! Model picked BOS).
+
+The page must be responsive and visually match the images (badges, strips, and card layout).
+
+Page 2 Power Rankings:
+
+Full‑width table showing Top 15 teams sorted by model strength.
+
+Columns in exact order: RANK | TEAM | ELO | W-L | PCT | RUN DIFF | L10 | HOME% | AWAY%.
+
+Add a thin vertical team color accent line immediately to the left of each team name cell.
+
+Include team logo/abbreviation + full name in the TEAM column.
+
+Page 3 Model Calibration:
+
+Header: Model Calibration Dashboard with timestamp line: As of [Date] · n = 2,891 games · Trained [Date/Time] and description: Assessing prediction reliability and accuracy across probability buckets.
+
+Performance summary box: show Today’s Record: 5–2 and list upsets (e.g., ATH 22% upset, NYM 35% upset).
+
+KPI cards: AUC-ROC, BRIER SCORE, LOG-LOSS, CAL. ERROR with numeric values.
+
+Calibration Curve: plot binned predicted probability (x) vs mean actual win rate (y) for the model (blue points/line) and a dotted diagonal Perfect Calibration baseline.
+
+Prediction Confidence & Accuracy Chart: dual‑axis combo chart — vertical blue bars for Game Count per probability bucket (left axis) and a bright green line for Actual Accuracy % (right axis).
+
+Reliability Diagram Table: columns BUCKET | MEAN PREDICTED | MEAN ACTUAL | COUNT | GAP. Color code GAP values green for positive (overconfident) and red for negative (underconfident). Use bucket ranges similar to the images (e.g., 50–55%, 55–60%, …).
+
+Page 4 Model Monitor:
+
+Top alert boxes: three boxes showing:
+
+Last Retrained (e.g., Aug 4, 2026 — Model healthy — 5 days ago).
+
+Next Retrain (e.g., Aug 10, 2026 — Sunday nightly schedule — tonight).
+
+Drift Alerts (e.g., 1 Warning — bullpen_whip_10g — elevated PSI).
+
+Upset Monitoring Note: orange‑border callout with text like: 2 upsets today (ATH over BOS at 22%, NYM over PIT at 35%) — monitoring for regime shift. Model went 5-2 overall but high-confidence picks (>65%) showed vulnerability. Will assess after tonight’s retrain.
+
+Feature Drift Analysis matrix with columns FEATURE | CURRENT MEAN | BASELINE MEAN | PSI | STATUS and status pills (OK green, WARN orange).
+
+Rolling 30‑day Brier Score timeline chart vs a fixed baseline (e.g., v3.2.0).
+
+Model Version History table with VERSION | DATE | AUC | BRIER | NOTES and rows for recent versions (e.g., v3.2.1, v3.2.0, v3.1.0, v3.0.0).
+
+Frontend implementation notes:
+
+Use st.columns, st.expander, st.metric, st.table, and Altair for charts.
+
+Use minimal inline CSS only where Streamlit supports it (for thin vertical accents and badges).
+
+All numeric formatting must be consistent (percent formatting, two decimal places where appropriate).
+
+SHAP bars must show feature name and signed attribution value.
+
+Explainability and monitoring
+
+Save SHAP per game and feature drift PSI CSVs.
+
+Save model metrics history to data_delivery/model_monitor_YYYYMMDD.json.
+
+Provide a unit test script in /backend that validates:
+
+Point‑in‑time enforcement for a sample game.
+
+Walk‑forward training uses only historical cutoffs.
+
+PSI computation returns expected numeric ranges.
+
+Operational and security
+
+GitHub push: Document in README.md how to configure Colab with SSH key or PAT for GitPython. Do not hardcode secrets; use environment variables.
+
+README.md: Include project overview, Colab runbook, Streamlit deployment steps, GitHub credential instructions, and a short explanation of walk‑forward and point‑in‑time enforcement.
+
+No clarifying questions: Make reasonable assumptions and document them in README.md.
+
+Acceptance tests
+
+Structure Check: All files and directories exist exactly as listed.
+
+No Node Artifacts: No package.json, node_modules, src directory, or JS build files.
+
+Point in Time Test: Unit test demonstrates features for a sample game are computed only from prior dates.
+
+Walk Forward Test: Unit test demonstrates training uses only historical cutoffs and validation windows.
+
+Artifact Push Test: Running run_daily_pipeline in Colab produces data_delivery/todays_games_YYYYMMDD.csv and model_monitor_YYYYMMDD.json and github_sync attempts to stage and commit them.
+
+Frontend Render Test: Streamlit app loads and renders the four pages using raw GitHub URLs without importing heavy ML libraries.
+
+Deliverable
+
+Produce the complete repository with working backend scripts (Colab‑ready), a functional Streamlit frontend that reads artifacts from GitHub raw URLs, unit tests, and README.md. Commit the generated files into the repo and provide a final status summary listing created files and how to run the pipeline and the Streamlit app.
+
