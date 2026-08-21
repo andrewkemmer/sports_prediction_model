@@ -595,6 +595,9 @@ def _compute_rolling_batter_features(pitches: pd.DataFrame) -> pd.DataFrame:
         how="left",
     )
 
+    del batter_pa_stats, discipline
+    gc.collect()
+
     return batter_features[[
         "game_date", "game_pk", "batter",
         "batter_woba_30g", "batter_iso_30g",
@@ -609,20 +612,26 @@ def _compute_rolling_bullpen_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     # Identify relief pitchers: pitchers who appear mid-game (not starting)
     # A starter is the first pitcher in a game
+    # Use only columns needed for bullpen analysis (avoid full pitches copy)
+    _bp_cols = ["game_pk", "game_date", "home_team", "away_team",
+                "at_bat_number", "pitch_number", "pitcher", "events"]
+    _bp_cols = [c for c in _bp_cols if c in pitches.columns]
+    _bp_min = pitches[_bp_cols].copy(deep=False)
+
     first_pitchers = (
-        pitches.sort_values(["game_pk", "at_bat_number", "pitch_number"])
+        _bp_min.sort_values(["game_pk", "at_bat_number", "pitch_number"])
         .groupby("game_pk")["pitcher"]
         .first()
         .reset_index()
         .rename(columns={"pitcher": "starter_id"})
     )
 
-    pitches_with_starter = pitches.merge(first_pitchers, on="game_pk", how="left")
-    pitches_with_starter["is_reliever"] = (
-        pitches_with_starter["pitcher"] != pitches_with_starter["starter_id"]
-    ).astype(float)
+    _bp_min = _bp_min.merge(first_pitchers, on="game_pk", how="left")
+    del first_pitchers
+    _bp_min["is_reliever"] = (
+        _bp_min["pitcher"] != _bp_min["starter_id"]
+    )
 
-    # Get reliever PA-ending events
     pa_end_events = [
         "single", "double", "triple", "home_run",
         "strikeout", "strikeout_double_play",
@@ -634,10 +643,12 @@ def _compute_rolling_bullpen_features(pitches: pd.DataFrame) -> pd.DataFrame:
         "force_out", "sacrifice_bunt_double_play",
     ]
 
-    reliever_events = pitches_with_starter[
-        (pitches_with_starter["is_reliever"] == 1)
-        & (pitches_with_starter["events"].isin(pa_end_events))
-    ].copy()
+    reliever_events = _bp_min[
+        (_bp_min["is_reliever"])
+        & (_bp_min["events"].isin(pa_end_events))
+    ].copy(deep=False)
+    del _bp_min
+    gc.collect()
 
     if reliever_events.empty:
         return pd.DataFrame()
@@ -725,6 +736,9 @@ def _compute_rolling_bullpen_features(pitches: pd.DataFrame) -> pd.DataFrame:
         .transform(lambda x: x.rolling(window=ROLLING_WINDOW_BULLPEN, min_periods=2).sum())
         * 9.0
     )
+
+    del _bp_shift_grp
+    gc.collect()
 
     return team_bullpen[[
         "game_date", "game_pk", "team",
@@ -820,6 +834,9 @@ def _compute_team_offense_features(pitches: pd.DataFrame) -> pd.DataFrame:
                                 "team_woba_30g", "team_iso_30g",
                                 "team_k_rate_30g", "team_bb_rate_30g"]].copy()
     away_features = away_features.rename(columns={"away_team": "team"})
+
+    del pa_events, team_game, _tm_shift_grp
+    gc.collect()
 
     return pd.concat([home_features, away_features], ignore_index=True)
 
@@ -1059,28 +1076,31 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
                 logger.error("%s: game_pk NOT in columns or index! cols=%s", label, list(df.columns))
         return df
 
-    # Merge winners
+    # Merge winners (then free)
     winners = _ensure_game_pk(winners, "winners")
     game_level = base.merge(
         winners[["game_pk", "home_score", "away_score", "home_win", "total_runs"]],
         on="game_pk", how="left",
     )
+    del winners
     game_level = _ensure_game_pk(game_level, "after_winners")
 
-    # Merge starters
+    # Merge starters (then free)
     starters = _ensure_game_pk(starters, "starters")
     game_level = game_level.merge(
         starters[["game_pk", "home_starter_id", "away_starter_id"]],
         on="game_pk", how="left",
     )
+    del starters
     game_level = _ensure_game_pk(game_level, "after_starters")
 
-    # Merge venues
+    # Merge venues (then free)
     venues = _ensure_game_pk(venues, "venues")
     game_level = game_level.merge(
         venues[["game_pk", "venue"]],
         on="game_pk", how="left",
     )
+    del venues
     game_level = _ensure_game_pk(game_level, "after_venues")
 
     # 5. Rest days
@@ -1200,11 +1220,14 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
         on="game_pk", how="left",
     )
 
-    # 10. Game-level identifier
-    game_level["game_id"] = game_level.apply(
-        lambda r: f"{pd.Timestamp(r['game_date']).strftime('%Y%m%d')}_{r['away_team']}@{r['home_team']}",
-        axis=1,
+    # 10. Game-level identifier (vectorized, no .apply())
+    game_level["game_id"] = (
+        pd.to_datetime(game_level["game_date"]).dt.strftime("%Y%m%d")
+        + "_" + game_level["away_team"].astype(str)
+        + "@" + game_level["home_team"].astype(str)
     )
+    del markets
+    gc.collect()
 
     # Sort
     game_level = game_level.sort_values(["game_date", "game_pk"]).reset_index(drop=True)

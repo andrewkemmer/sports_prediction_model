@@ -71,14 +71,23 @@ if pitches.empty:
     print("❌ No data pulled."); sys.exit(1)
 print(f"✅ {len(pitches):,} pitches, {pitches['game_pk'].nunique()} games")
 
+import gc
+
 _banner("PHASE 2", "Feature Engineering")
 game_df = build_game_level_features(pitches)
 print(f"  ✅ Game: {game_df.shape}")
+
 pbp_df = build_pbp_level_features(pitches, game_df)
 print(f"  ✅ PBP:  {pbp_df.shape}")
 
+# Free raw pitches — no longer needed
+del pitches
+gc.collect()
+
 _banner("PHASE 3", "Validation")
-validation = validate_datasets(game_df, pbp_df, pitches)
+validation = validate_datasets(game_df, pbp_df, pbp_df)
+
+gc.collect()
 
 _banner("PHASE 4", "Compression")
 output_dir = Path(CONFIG["output_dir"]); output_dir.mkdir(parents=True, exist_ok=True)
