@@ -389,6 +389,29 @@ def main():
         help="Max walk-forward evaluation folds (0 = full history)",
     )
     parser.add_argument(
+        "--statcast",
+        action="store_true",
+        help="Use comprehensive Statcast pipeline (pulls raw pitch data, builds all features)",
+    )
+    parser.add_argument(
+        "--statcast-start",
+        type=str,
+        default=None,
+        help="Statcast start date (YYYY-MM-DD) for --statcast mode",
+    )
+    parser.add_argument(
+        "--statcast-end",
+        type=str,
+        default=None,
+        help="Statcast end date (YYYY-MM-DD) for --statcast mode",
+    )
+    parser.add_argument(
+        "--statcast-checkpoint-dir",
+        type=str,
+        default=None,
+        help="Checkpoint directory for Statcast data (use Google Drive path for Colab)",
+    )
+    parser.add_argument(
         "--version",
         type=str,
         default="v3.2.1",
@@ -400,6 +423,26 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     target = datetime.strptime(args.date, DATE_FMT).date()
+
+    if args.statcast:
+        # Run comprehensive Statcast pipeline
+        from statcast_pipeline import run_statcast_pipeline
+
+        start = args.statcast_start or (target - timedelta(days=120)).strftime("%Y-%m-%d")
+        end = args.statcast_end or target.strftime("%Y-%m-%d")
+        ckpt = args.statcast_checkpoint_dir
+
+        game_df, pbp_df = run_statcast_pipeline(
+            start_date=start,
+            end_date=end,
+            checkpoint_dir=ckpt,
+            validate=True,
+        )
+
+        print(f"\nStatcast pipeline complete:")
+        print(f"  Game-level: {game_df.shape}")
+        print(f"  PBP-level:  {pbp_df.shape}")
+        return {"status": "ok", "game_level": game_df, "pbp_level": pbp_df}
 
     summary = run_daily_pipeline(
         target_date=target,
