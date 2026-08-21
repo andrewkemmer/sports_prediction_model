@@ -266,6 +266,8 @@ def pull_statcast_data(
     _int_cols = df.select_dtypes(include=["int64"]).columns
     df[_int_cols] = df[_int_cols].astype("int32", errors="ignore")
     for col in df.select_dtypes(include=["object"]).columns:
+        if col == "game_date":
+            continue  # Keep datetime objects as-is
         if df[col].nunique() < 100:  # Low-cardinality strings → category
             df[col] = df[col].astype("category")
 
