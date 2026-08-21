@@ -67,18 +67,16 @@ PITCH_COLS = [
     "delta_home_win_exp", "delta_run_exp",
 ]
 
-# Columns actually used by feature functions (drop the rest to save RAM)
-USED_FEATURE_COLS = [
-    "game_date", "game_pk", "game_type", "home_team", "away_team",
-    "inning", "inning_topbot", "outs_when_up", "balls", "strikes",
-    "on_1b", "on_2b", "on_3b",
-    "at_bat_number", "pitch_number", "pitcher", "batter",
-    "p_throws", "stand", "pitch_type",
-    "description", "events",
-    "zone", "launch_speed", "launch_angle",
-    "estimated_woba_using_speedangle",
-    "barrel", "hard_contact",
-    "home_score", "away_score",
+# Columns to DROP after pull (genuinely unused by all feature functions)
+# Keeps all useful Statcast fields for future feature development.
+UNUSED_COLS = [
+    "fielder_2", "fielder_3", "fielder_4", "fielder_5",
+    "fielder_6", "fielder_7", "fielder_8", "fielder_9",
+    "if_fielding_alignment", "of_fielding_alignment",
+    "post_home_score", "post_away_score",
+    "event",  # duplicate of "events"
+    "type",   # covered by "description"
+    "launch_speed_angle",  # we compute barrel/hard_contact directly
 ]
 
 # Column aliases: map known Statcast name variants to canonical names.
@@ -287,12 +285,11 @@ def pull_statcast_data(
         if df[col].nunique() < 100:  # Low-cardinality strings → category
             df[col] = df[col].astype("category")
 
-    # Drop unused columns to save RAM (~73 MB for 78K pitches)
-    _keep = [c for c in df.columns if c in USED_FEATURE_COLS or c == "game_date"]
-    _drop = [c for c in df.columns if c not in _keep]
+    # Drop genuinely unused columns (15 columns, ~20 MB savings for 78K pitches)
+    _drop = [c for c in df.columns if c in UNUSED_COLS]
     if _drop:
         df = df.drop(columns=_drop)
-        logger.info("Dropped %d unused columns, keeping %d", len(_drop), len(_keep))
+        logger.info("Dropped %d unused columns: %s", len(_drop), _drop)
 
     logger.info("Final Statcast dataset: %d pitches across %d games, %d dates",
                 len(df), df["game_pk"].nunique(), df["game_date"].nunique())
