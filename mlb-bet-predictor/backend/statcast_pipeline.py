@@ -361,12 +361,7 @@ def _compute_rolling_pitcher_features(pitches: pd.DataFrame) -> pd.DataFrame:
     pitcher_game_stats = pitcher_game_stats.sort_values(["pitcher", "game_date"])
 
     # Rolling ERA (earned runs / IP * 9) over last ROLLING_WINDOW_PITCHER games
-    for stat_col, window, new_col, divisor in [
-        ("runs", ROLLING_WINDOW_PITCHER, "sp_era_roll", None),
-        ("ks", ROLLING_WINDOW_PITCHER, "sp_k9_roll", None),
-        ("bbs", ROLLING_WINDOW_PITCHER, "sp_bb9_roll", None),
-        ("hits_allowed", ROLLING_WINDOW_PITCHER, "sp_whip_num_roll", None),
-    ]:
+    for stat_col in ["runs", "ks", "bbs", "hits_allowed", "hbps"]:
         # Use shift(1) to ensure strict PIT: stats from game T appear only after game T
         pitcher_game_stats[f"_shifted_{stat_col}"] = (
             pitcher_game_stats.groupby("pitcher")[stat_col]
