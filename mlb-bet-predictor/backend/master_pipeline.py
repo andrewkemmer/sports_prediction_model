@@ -127,7 +127,7 @@ else:
         data_dir = sync_dir / "data_delivery"; data_dir.mkdir(exist_ok=True)
         staged = []
         for f in [csv_path, parquet_path]:
-            if f.exists(): shutil.copy2(f, data_dir / f.name); staged.append(f"{CONFIG['data_subdir']}/{f.name}")
+            if f.exists(): shutil.copy2(f, data_dir / f.name); staged.append(f"data_delivery/{f.name}")
         repo.index.add(staged)
         if repo.index.diff("HEAD"):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
