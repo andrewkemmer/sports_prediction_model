@@ -58,6 +58,10 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(database=":memory:")
     con.execute("SET threads = 1")
     con.execute("SET preserve_insertion_order = false")
+    con.execute("SET memory_limit = '4GB'")
+    # Allow generous temp space for spilling to disk (critical for large queries)
+    con.execute("SET temp_directory = '/tmp/duckdb_temp'")
+    con.execute("SET max_temp_directory_size = '50GB'")
 
     con.execute(f"CREATE TABLE pitches AS SELECT * FROM '{pitches_path}'")
 
@@ -68,6 +72,8 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     """)
 
     existing = {r[0] for r in con.execute("DESCRIBE pitches").fetchall()}
+
+    # Drop genuinely unused columns
     for col in [
         "fielder_2", "fielder_3", "fielder_4", "fielder_5",
         "fielder_6", "fielder_7", "fielder_8", "fielder_9",
@@ -77,6 +83,28 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     ]:
         if col in existing:
             con.execute(f'ALTER TABLE pitches DROP COLUMN "{col}"')
+
+    # Ensure ALL columns referenced by SQL queries exist (schema-robust).
+    # Missing columns become NULL — never assume any column exists.
+    _required = {
+        "game_pk", "game_date", "game_type", "home_team", "away_team",
+        "inning", "inning_topbot", "outs_when_up", "balls", "strikes",
+        "on_1b", "on_2b", "on_3b",
+        "at_bat_number", "pitch_number", "pitcher", "batter",
+        "p_throws", "stand",
+        "pitch_type", "release_speed", "description", "events",
+        "barrel", "hard_contact", "launch_speed", "launch_angle",
+        "estimated_woba_using_speedangle", "estimated_ba_using_speedangle",
+        "zone", "home_score", "away_score", "spin_rate",
+        "woba_value", "babip_value", "iso_value",
+        "delta_home_win_exp", "delta_run_exp", "player_name",
+        "hit_distance_sc", "release_pos_x", "release_pos_z",
+        "release_spin_rate", "release_extension", "pfx_x", "pfx_z",
+    }
+    existing2 = {r[0] for r in con.execute("DESCRIBE pitches").fetchall()}
+    for col in _required - existing2:
+        con.execute(f'ALTER TABLE pitches ADD COLUMN "{col}" DOUBLE')
+        con.execute(f'UPDATE pitches SET "{col}" = NULL')
 
     return con
 
@@ -518,15 +546,16 @@ def build_features(
         _build_game_level(con)
         logger.info("[MEM] After game_level: %.0f MB", _mem_mb())
 
+        # Export game_level BEFORE pbp_level (pbp_level drops game_level)
+        con.execute(f"COPY (SELECT * FROM game_level) TO '{game_out}' (FORMAT PARQUET)")
+        logger.info("Exported game_level: %.1f MB", game_out.stat().st_size / 1e6)
+
         _build_pbp_level(con)
         logger.info("[MEM] After pbp_level: %.0f MB", _mem_mb())
 
-        con.execute(f"COPY (SELECT * FROM game_level) TO '{game_out}' (FORMAT PARQUET)")
         con.execute(f"COPY (SELECT * FROM pbp_level) TO '{pbp_out}' (FORMAT PARQUET)")
-        logger.info("Exported game_level: %.1f MB", game_out.stat().st_size / 1e6)
         logger.info("Exported pbp_level: %.1f MB", pbp_out.stat().st_size / 1e6)
 
-        con.execute("DROP TABLE IF EXISTS game_level")
         con.execute("DROP TABLE IF EXISTS pbp_level")
         gc.collect()
     finally:
