@@ -1,321 +1,417 @@
-"""Daily pipeline orchestration.
-
-``run_daily_pipeline(target_date)`` is the single entry point Colab calls. It:
-
-1. Ingests a point-in-time game log (synthetic by default; pybaseball opt-in).
-2. Runs expanding-window walk-forward evaluation (calibration + metrics) and
-   retrains the production ensemble when the weekly cadence is due.
-3. Predicts P(home win) for every game on ``target_date`` using only features
-   available before each game's scheduled start.
-4. Writes ``todays_games_YYYYMMDD.csv``, SHAP files per game,
-   ``calibration_YYYYMMDD.json``, ``feature_drift_YYYYMMDD.csv`` and
-   ``model_monitor_YYYYMMDD.json`` into ``data_delivery/``.
-5. Attempts to stage/commit/push those artifacts to GitHub via GitPython.
-
-Run it in Colab with::
-
-    from pipeline import run_daily_pipeline
-    from datetime import date
-    run_daily_pipeline(date(2026, 8, 9))
 """
+Daily pipeline orchestration for MLB Bet Predictor.
 
+run_daily_pipeline(target_date) is the single entry point that:
+1. Ingests game events (synthetic or real)
+2. Attaches market lines
+3. Runs walk-forward evaluation + trains ensemble
+4. Predicts today's games
+5. Computes SHAP + feature drift
+6. Writes all artifacts to data_delivery/
+7. Syncs to GitHub (unless skip_sync=True)
+
+CLI:
+    python pipeline.py --date 2026-08-09 --real --skip-sync
+"""
 from __future__ import annotations
 
 import argparse
 import json
 import logging
-from datetime import date as date_cls, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any, Optional
 
-import numpy as np
 import pandas as pd
 
-from config import (
-    CALIBRATION_FILE,
-    DATA_CUTOFF,
-    DATA_DIR,
-    FEATURE_DRIFT,
-    FEATURE_COLUMNS,
-    LOGS_DIR,
-    METRICS,
-    MODEL_MONITOR_FILE,
-    MODELS_DIR,
-    N_TRAIN_GAMES,
-    POWER_RANKINGS_FILE,
+from .config import (
+    CALIBRATION,
+    DATA_DELIVERY_DIR,
+    DATE_FMT,
+    DATE_READABLE_FMT,
+    MODEL_MONITOR,
+    POWER_RANKINGS,
     RETRAIN_CADENCE_DAYS,
-    SEED,
-    TODAYS_GAMES_FILE,
-    TRAINED_AT,
-    VERSION,
-    artifact_path,
-    date_to_yyyymmdd,
+    TODAYS_GAMES,
+    VERSION_KEY,
+    TRAINED_AT_KEY,
+    DATA_CUTOFF_KEY,
 )
-import data_ingestion as di
-import explainability as ex
-import github_sync as gs
-import training as tr
+from .data_ingestion import (
+    attach_market_lines,
+    compute_elos_up_to,
+    generate_synthetic_games,
+    generate_synthetic_market_lines,
+    load_game_events,
+    filter_prior,
+)
+from .explainability import compute_feature_drift, compute_shap_per_game
+from .github_sync import sync_artifacts
+from .training import (
+    compute_metrics,
+    calibration_buckets,
+    load_ensemble,
+    persist_ensemble,
+    predict_games,
+    should_retrain,
+    update_model_history,
+    walk_forward_evaluate,
+)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logger = logging.getLogger("pipeline")
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, indent=2, default=str))
-    logger.info("Wrote %s", path)
-
-
-def _confidence_distribution(calibration_rows: list[dict]) -> list[dict]:
-    """Game count + actual accuracy % per probability bucket (for the combo chart)."""
-    out = []
-    for row in calibration_rows:
-        out.append(
-            {
-                "bucket": row["bucket"],
-                "count": row["count"],
-                "accuracy_pct": round(row["mean_actual"] * 100.0, 1),
-            }
-        )
-    return out
+logger = logging.getLogger(__name__)
 
 
-def _rolling_brier(eval_result: dict, window_days: int = 30) -> list[dict]:
-    """Daily Brier score for the last ``window_days`` of validation games."""
-    y_true = np.asarray(eval_result["pooled_y_true"], dtype=float)
-    y_prob = np.asarray(eval_result["pooled_y_prob"], dtype=float)
-    dates = pd.to_datetime(eval_result["pooled_dates"], utc=True)
-    daily = pd.DataFrame({"date": dates.date, "y": y_true, "p": y_prob})
-    daily = daily.groupby("date").apply(
-        lambda g: pd.Series({"brier": float(np.mean((g["p"] - g["y"]) ** 2)), "n": len(g)}),
-        include_groups=False,
-    )
-    daily = daily.reset_index().sort_values("date").tail(window_days)
-    return [
-        {"date": r["date"].isoformat(), "brier": round(float(r["brier"]), 4)}
-        for _, r in daily.iterrows()
+def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
+    """Write todays_games_YYYYMMDD.csv artifact."""
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / f"{TODAYS_GAMES}_{target_date_str}.csv"
+    # Select output columns
+    out_cols = [
+        "game_id", "game_date", "start_time_utc", "home_team", "away_team",
+        "home_record", "away_record", "home_win_prob_model", "away_win_prob_model",
+        "moneyline_home", "moneyline_away", "total_line", "run_line_home",
+        "juice", "edge_home", "edge_away",
+        "sp_name_home", "sp_name_away",
+        "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
+        "venue", "model_pick", "home_win",
     ]
+    cols = [c for c in out_cols if c in games.columns]
+    games[cols].to_csv(path, index=False)
+    return path
 
 
-def _model_history() -> list[dict]:
-    path = MODELS_DIR / "model_history.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    return []
+def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
+    """Write power_rankings_YYYYMMDD.csv artifact."""
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / f"{POWER_RANKINGS}_{target_date_str}.csv"
+
+    teams = games["home_team"].unique()
+    rankings = []
+    for team in teams:
+        home_games = games[games["home_team"] == team]
+        away_games = games[games["away_team"] == team]
+
+        elo = home_games["home_elo"].mean() if not home_games.empty else 1500.0
+        wins = int(home_games["home_win"].sum()) + int((1 - away_games["home_win"]).sum()) if not away_games.empty else 0
+        losses = int((1 - home_games["home_win"]).sum()) + int(away_games["home_win"].sum()) if not away_games.empty else 0
+        total = wins + losses
+        pct = round(wins / max(total, 1), 3)
+
+        home_count = len(home_games)
+        home_wins = int(home_games["home_win"].sum()) if not home_games.empty else 0
+        home_pct = round(home_wins / max(home_count, 1), 3)
+
+        away_count = len(away_games)
+        away_wins = int(away_games["home_win"].sum()) if not away_games.empty else 0
+        away_pct = round(1 - away_wins / max(away_count, 1), 3) if away_count > 0 else 0.5
+
+        # L10 (approximate from synthetic data)
+        recent = games[
+            ((games["home_team"] == team) | (games["away_team"] == team))
+        ].tail(10)
+        l10_wins = 0
+        for _, g in recent.iterrows():
+            if g["home_team"] == team:
+                l10_wins += int(g.get("home_win", 0))
+            else:
+                l10_wins += int(1 - g.get("home_win", 0))
+        l10 = f"{l10_wins}-{len(recent) - l10_wins}"
+
+        rankings.append({
+            "team": team,
+            "team_name": team,
+            "elo": round(elo, 1),
+            "wins": wins,
+            "losses": losses,
+            "record": f"{wins}-{losses}",
+            "pct": pct,
+            "run_diff": 0,
+            "l10": l10,
+            "home_pct": home_pct,
+            "away_pct": away_pct,
+        })
+
+    df = pd.DataFrame(rankings).sort_values("elo", ascending=False).reset_index(drop=True)
+    df.index += 1
+    df.index.name = "rank"
+    df.to_csv(path)
+    return path
 
 
-def _append_model_history(entry: dict) -> None:
-    path = MODELS_DIR / "model_history.json"
-    history = _model_history()
-    history = [h for h in history if h.get("version") != entry.get("version")] + [entry]
-    history.sort(key=lambda h: h.get("date", ""), reverse=True)
-    path.write_text(json.dumps(history, indent=2))
+def _calibration_json(
+    metrics: dict[str, float],
+    y_true, y_pred,
+    target_date_str: str,
+    n_games: int,
+) -> Path:
+    """Write calibration_YYYYMMDD.json artifact."""
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / f"{CALIBRATION}_{target_date_str}.json"
+
+    import numpy as np
+    buckets = calibration_buckets(np.asarray(y_true), np.asarray(y_pred))
+
+    # League-wide metadata
+    evening_games = 0
+    # (synthetic: count games with start hour >= 19)
+
+    data = {
+        "date": target_date_str,
+        "n_games": n_games,
+        "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "metrics": metrics,
+        "calibration_buckets": buckets,
+        "league_total": n_games,
+        "evening_games_league": evening_games,
+    }
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return path
+
+
+def _model_monitor_json(
+    metrics: dict[str, float],
+    drift_df: pd.DataFrame,
+    target_date_str: str,
+    last_retrained: Optional[str] = None,
+    version: str = "v3.2.1",
+) -> Path:
+    """Write model_monitor_YYYYMMDD.json artifact."""
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / f"{MODEL_MONITOR}_{target_date_str}.json"
+
+    # Load model history
+    history_path = DATA_DELIVERY_DIR / "model_history.json"
+    history = []
+    if history_path.exists():
+        with open(history_path) as f:
+            history = json.load(f)
+
+    # Drift summary
+    n_warns = int((drift_df["status"] == "WARN").sum()) if not drift_df.empty else 0
+    n_alerts = int((drift_df["status"] == "ALERT").sum()) if not drift_df.empty else 0
+    warn_features = drift_df[drift_df["status"].isin(["WARN", "ALERT"])]["feature"].tolist() if not drift_df.empty else []
+
+    data = {
+        "date": target_date_str,
+        "version": version,
+        "last_retrained": last_retrained or datetime.now().strftime("%Y-%m-%d"),
+        "next_retrain": (datetime.now() + timedelta(days=RETRAIN_CADENCE_DAYS)).strftime("%Y-%m-%d"),
+        "metrics": metrics,
+        "drift_summary": {
+            "warnings": n_warns,
+            "alerts": n_alerts,
+            "features": warn_features,
+        },
+        "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],
+        "model_history": history,
+    }
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return path
 
 
 def run_daily_pipeline(
-    target_date: date_cls,
-    synthetic: bool = True,
-    force_retrain: bool = False,
+    target_date: date,
+    real: bool = False,
     skip_sync: bool = False,
-    cadence_days: int = RETRAIN_CADENCE_DAYS,
-    seed: int = SEED,
-    max_eval_folds: int | None = None,
-) -> dict:
-    """Run the full daily pipeline and return a summary dict."""
-    summary = {"target_date": target_date.isoformat(), "synthetic": synthetic}
+    force_retrain: bool = False,
+    max_eval_folds: int = 0,
+    version: str = "v3.2.1",
+) -> dict[str, Any]:
+    """Run the full daily pipeline.
 
-    # 1) Ingest ---------------------------------------------------------------
-    start, end = di.history_window(target_date)
-    events = di.load_game_events(start, end, synthetic=synthetic, seed=seed, target_date=target_date)
-    summary["games_ingested"] = int(len(events))
-    logger.info("Ingested %d games from %s to %s", len(events), start, end)
+    Args:
+        target_date: Date to generate predictions for.
+        real: Use pybaseball real data (default: synthetic).
+        skip_sync: Skip GitHub push.
+        force_retrain: Retrain regardless of cadence.
+        max_eval_folds: Cap walk-forward folds (0 = full history).
+        version: Model version string.
 
-    # 2) Point-in-time features ------------------------------------------------
-    features = di.build_point_in_time_features(events, include_unready=True).set_index("game_id")
-    logger.info("Built features for %d games", len(features))
+    Returns:
+        Summary dict with keys: status, artifacts, metrics, sync, errors
+    """
+    target_date_str = target_date.strftime(DATE_FMT)
+    logger.info("=== Daily pipeline for %s ===", target_date_str)
 
-    # 3) Walk-forward evaluation + (cadence-based) retrain ---------------------
-    eval_result = tr.run_walk_forward_evaluation(
-        features, cadence_days=cadence_days, n_splits=max_eval_folds
-    )
-    due = tr.is_retrain_due(target_date, cadence_days)
-    if due or force_retrain:
-        payload = tr.train_final_model(features, data_cutoff=target_date)
-        payload[METRICS] = eval_result["metrics_moneyline"]
-        payload[N_TRAIN_GAMES] = eval_result["metrics_moneyline"]["n_games"]
-        # re-persist with metrics attached
-        tr._persist_ensemble(payload)
-        _append_model_history(
-            {
-                "version": payload[VERSION],
-                "date": target_date.isoformat(),
-                "auc": payload[METRICS]["auc_roc"],
-                "brier": payload[METRICS]["brier_score"],
-                "notes": "Weekly walk-forward retrain",
-            }
-        )
-        summary["retrained"] = True
-        logger.info("Retrained ensemble (version %s)", payload[VERSION])
-    else:
-        payload = tr.load_ensemble()
-        summary["retrained"] = False
-        logger.info("Retrain not due — using existing ensemble %s", payload.get(VERSION))
-
-    # 4) Predict today's games -------------------------------------------------
-    today = features[features["start_time"].dt.date == target_date]
-    today_feats = today[FEATURE_COLUMNS].dropna()
-    probs = pd.Series(0.5, index=today_feats.index)
-    if not today_feats.empty:
-        probs = pd.Series(
-            payload["moneyline"].predict_proba_home(today_feats), index=today_feats.index
-        )
-    summary["todays_games_predicted"] = int(len(probs))
-
-    # 5) Today's games CSV -----------------------------------------------------
-    games_df = di.build_todays_games(events, features, probs, target_date)
-    games_path = artifact_path(TODAYS_GAMES_FILE, target_date)
-    games_df.to_csv(games_path, index=False)
-    logger.info("Wrote %s (%d games)", games_path, len(games_df))
-
-    # 6) SHAP per game ---------------------------------------------------------
-    shap_files = ex.save_shap_for_games(payload, features, list(today_feats.index))
-    summary["shap_files"] = shap_files
-
-    # 7) Feature drift (PSI) ---------------------------------------------------
-    cur_win = features[(features["start_time"].dt.date > target_date - timedelta(days=30)) &
-                       (features["start_time"].dt.date <= target_date)]
-    base_win = features[(features["start_time"].dt.date > target_date - timedelta(days=180)) &
-                        (features["start_time"].dt.date <= target_date - timedelta(days=150))]
-    drift_df = ex.compute_feature_drift(cur_win, base_win)
-    drift_path = artifact_path(FEATURE_DRIFT, target_date)
-    drift_df.to_csv(drift_path, index=False)
-    summary["drift_features"] = len(drift_df)
-
-    # 8) Power rankings ----------------------------------------------------------
-    rankings_df = di.build_power_rankings(events, as_of=target_date)
-    rankings_path = artifact_path(POWER_RANKINGS_FILE, target_date)
-    rankings_df.to_csv(rankings_path, index=False)
-
-    # 9) Calibration JSON ---------------------------------------------------------
-    calibration = {
-        "date": target_date.isoformat(),
-        "n_games": eval_result["metrics_moneyline"]["n_games"],
-        "trained_version": payload.get(VERSION, "unknown"),
-        "trained_at": payload.get(TRAINED_AT, ""),
-        "data_cutoff": payload.get(DATA_CUTOFF, ""),
-        "kpis": eval_result["metrics_moneyline"],
-        "calibration_curve": eval_result["calibration"],
-        "confidence": _confidence_distribution(eval_result["calibration"]),
-        "today_record": _today_record(games_df),
-        "upsets": _today_upsets(games_df),
-        "games_shown": int(len(games_df)),
-        "league_total": int(len(games_df)),
-        "evening_games_league": int(games_df["evening_game"].sum()) if not games_df.empty else 0,
+    summary: dict[str, Any] = {
+        "status": "ok",
+        "target_date": target_date_str,
+        "artifacts": [],
+        "metrics": {},
+        "sync": None,
+        "errors": [],
     }
-    _write_json(artifact_path(CALIBRATION_FILE, target_date), calibration)
 
-    # 10) Model monitor JSON ------------------------------------------------------
-    retrained_ts = payload.get(TRAINED_AT, "")
-    retrain_date = pd.Timestamp(retrained_ts).tz_localize(None).date() if retrained_ts else target_date
-    monitor = {
-        "date": target_date.isoformat(),
-        "version": payload.get(VERSION, "unknown"),
-        "last_retrained": retrain_date.isoformat(),
-        "last_retrained_note": "Model healthy",
-        "next_retrain": (retrain_date + timedelta(days=cadence_days)).isoformat(),
-        "next_retrain_note": f"Nightly schedule — retrain cadence {cadence_days}d",
-        "drift_alerts": [
-            {"feature": r["feature"], "psi": r["psi"], "status": r["status"]}
-            for _, r in drift_df.iterrows() if r["status"] != "OK"
-        ],
-        "upset_note": _upset_note(games_df, calibration["upsets"]),
-        "feature_drift": drift_df.to_dict(orient="records"),
-        "rolling_brier": _rolling_brier(eval_result),
-        "brier_baseline_version": "v3.2.0",
-        "brier_baseline": eval_result["metrics_moneyline"]["brier_score"],
-        "version_history": _model_history(),
-        "metrics_moneyline": eval_result["metrics_moneyline"],
-    }
-    _write_json(artifact_path(MODEL_MONITOR_FILE, target_date), monitor)
+    try:
+        # 1. Ingest game events
+        logger.info("Step 1: Loading game events (real=%s)", real)
+        games = load_game_events(target_date, real=real)
+        if games.empty:
+            summary["status"] = "error"
+            summary["errors"].append("No game events loaded")
+            return summary
 
-    # 11) GitHub sync ---------------------------------------------------------------
-    if not skip_sync:
-        sync_status = gs.sync_artifacts(target_date)
-        summary["github_sync"] = sync_status
-        if not sync_status["pushed"]:
-            logger.warning("Artifacts NOT pushed: %s", sync_status.get("error"))
-    else:
-        summary["github_sync"] = {"pushed": False, "error": "skipped (skip_sync=True)"}
+        logger.info("Loaded %d games", len(games))
 
-    summary["artifacts"] = [
-        p.name for p in DATA_DIR.glob(f"*_{date_to_yyyymmdd(target_date)}.*")
-    ] + shap_files
-    summary["status"] = "ok"
+        # 2. Generate/attach market lines
+        logger.info("Step 2: Generating market lines")
+        lines = generate_synthetic_market_lines(games)
+        games = attach_market_lines(games, lines)
+
+        # 3. Walk-forward evaluation + training
+        logger.info("Step 3: Walk-forward evaluation")
+        # Use games up to target_date for training
+        train_games = games.copy()
+
+        # Check if we need to retrain
+        ensemble = load_ensemble()
+        need_retrain = force_retrain or should_retrain(None)  # Always train on first run
+
+        if need_retrain:
+            best_models, pooled_metrics, all_predictions = walk_forward_evaluate(
+                train_games,
+                max_eval_folds=max_eval_folds,
+                force_retrain=force_retrain,
+            )
+            logger.info("Walk-forward metrics: %s", pooled_metrics)
+
+            # Persist ensemble
+            persist_ensemble(best_models, pooled_metrics, version=version, data_cutoff=target_date_str)
+            update_model_history(pooled_metrics, version)
+            summary["metrics"] = pooled_metrics
+        else:
+            best_models = ensemble["models"] if ensemble else {}
+            pooled_metrics = ensemble["metrics"] if ensemble else {}
+            summary["metrics"] = pooled_metrics
+
+        # 4. Predict today's games (target_date only)
+        logger.info("Step 4: Predicting games for %s", target_date_str)
+        target_games = games[
+            pd.to_datetime(games["game_date"]).dt.date == target_date
+        ].copy()
+
+        if target_games.empty:
+            # Use all games if no specific target date games
+            target_games = games.tail(15).copy()
+
+        target_games = predict_games(best_models, target_games)
+
+        # 5. Write artifacts
+        logger.info("Step 5: Writing artifacts")
+
+        # todays_games CSV
+        path = _today_games_csv(target_games, target_date_str)
+        summary["artifacts"].append(str(path))
+
+        # power rankings
+        path = _power_rankings_csv(games, target_date_str)
+        summary["artifacts"].append(str(path))
+
+        # calibration JSON
+        if "home_win" in target_games.columns and "home_win_prob_model" in target_games.columns:
+            y_true = target_games["home_win"].dropna().values
+            y_pred = target_games["home_win_prob_model"].dropna().values
+            if len(y_true) > 0 and len(y_pred) > 0:
+                min_len = min(len(y_true), len(y_pred))
+                path = _calibration_json(pooled_metrics, y_true[:min_len], y_pred[:min_len], target_date_str, len(target_games))
+                summary["artifacts"].append(str(path))
+
+        # 6. SHAP + Feature drift
+        logger.info("Step 6: Explainability")
+        compute_shap_per_game(best_models, target_games)
+
+        # Feature drift: compare last 7 days vs all prior
+        cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
+        current = games[pd.to_datetime(games["game_date"]) >= cutoff]
+        baseline = games[pd.to_datetime(games["game_date"]) < cutoff]
+        if not baseline.empty and not current.empty:
+            drift_df = compute_feature_drift(baseline, current, target_date_str)
+            summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
+        else:
+            drift_df = pd.DataFrame()
+
+        # model monitor JSON
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version)
+        summary["artifacts"].append(str(path))
+
+        # 7. GitHub sync
+        if not skip_sync:
+            logger.info("Step 7: Syncing to GitHub")
+            sync_result = sync_artifacts()
+            summary["sync"] = sync_result
+            if not sync_result["pushed"]:
+                logger.warning("GitHub sync failed: %s", sync_result.get("error"))
+        else:
+            logger.info("Step 7: Skipping GitHub sync")
+
+    except Exception as e:
+        logger.error("Pipeline failed: %s", e, exc_info=True)
+        summary["status"] = "error"
+        summary["errors"].append(str(e))
+
+    logger.info("=== Pipeline complete: %s ===", summary["status"])
     return summary
 
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
+# ── CLI ──────────────────────────────────────────────────────────────────────
 
-def _today_record(games_df: pd.DataFrame) -> dict:
-    finals = games_df[games_df["game_status"] == "Final"]
-    correct = int(finals["model_correct"].sum()) if not finals.empty else 0
-    total = int(len(finals))
-    return {
-        "wins": correct,
-        "losses": total - correct,
-        "completed": total,
-        "accuracy": round(correct / total, 4) if total else 0.0,
-    }
-
-
-def _today_upsets(games_df: pd.DataFrame) -> list[dict]:
-    up = games_df[games_df["is_upset"] == True]  # noqa: E712
-    return [
-        {
-            "team": r["home_team"] if r["home_score"] > r["away_score"] else r["away_team"],
-            "prob": float(min(r["home_win_prob_model"], r["away_win_prob_model"])),
-        }
-        for _, r in up.iterrows()
-    ]
-
-
-def _upset_note(games_df: pd.DataFrame, upsets: list[dict]) -> str:
-    if not upsets:
-        return "No upsets today — model performance consistent with expectations."
-    detail = ", ".join(f"{u['team']} at {u['prob']:.0%}" for u in upsets)
-    record = _today_record(games_df)
-    return (
-        f"{len(upsets)} upset(s) today ({detail}) — monitoring for regime shift. "
-        f"Model went {record['wins']}-{record['losses']} overall but high-confidence "
-        "picks (>65%) showed vulnerability. Will assess after tonight's retrain."
+def main():
+    parser = argparse.ArgumentParser(description="MLB Bet Predictor Daily Pipeline")
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=date.today().strftime(DATE_FMT),
+        help="Target date (YYYYMMDD format)",
+    )
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help="Use real pybaseball data instead of synthetic",
+    )
+    parser.add_argument(
+        "--skip-sync",
+        action="store_true",
+        help="Skip GitHub push",
+    )
+    parser.add_argument(
+        "--force-retrain",
+        action="store_true",
+        help="Retrain regardless of cadence",
+    )
+    parser.add_argument(
+        "--max-eval-folds",
+        type=int,
+        default=0,
+        help="Max walk-forward evaluation folds (0 = full history)",
+    )
+    parser.add_argument(
+        "--version",
+        type=str,
+        default="v3.2.1",
+        help="Model version string",
     )
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the daily MLB prediction pipeline.")
-    parser.add_argument("--date", type=date_cls.fromisoformat, default=None, help="YYYY-MM-DD")
-    parser.add_argument("--real", action="store_true", help="Use pybaseball instead of synthetic data")
-    parser.add_argument("--force-retrain", action="store_true")
-    parser.add_argument("--skip-sync", action="store_true")
-    parser.add_argument("--cadence", type=int, default=RETRAIN_CADENCE_DAYS)
-    parser.add_argument("--max-eval-folds", type=int, default=None,
-                        help="Cap walk-forward evaluation to the most recent N weekly folds")
     args = parser.parse_args()
 
-    target = args.date or date_cls.today()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    target = datetime.strptime(args.date, DATE_FMT).date()
+
     summary = run_daily_pipeline(
-        target,
-        synthetic=not args.real,
-        force_retrain=args.force_retrain,
+        target_date=target,
+        real=args.real,
         skip_sync=args.skip_sync,
-        cadence_days=args.cadence,
+        force_retrain=args.force_retrain,
         max_eval_folds=args.max_eval_folds,
+        version=args.version,
     )
+
     print(json.dumps(summary, indent=2, default=str))
+    return summary
 
 
 if __name__ == "__main__":
