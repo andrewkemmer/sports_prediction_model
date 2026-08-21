@@ -504,13 +504,9 @@ def load_real_game_events(target_date: date, season: int = 2026) -> pd.DataFrame
 
     # Fetch schedule for each team and keep only home games to deduplicate
     all_games = []
-    import inspect
-    sig = inspect.signature(schedule_and_record)
-    logger.info("schedule_and_record signature: %s", sig)
     for team in MLB_TEAMS:
         try:
-            # Use keyword args to be safe across pybaseball versions
-            team_schedule = schedule_and_record(year=season, team=team)
+            team_schedule = schedule_and_record(season, team)
             if team_schedule is not None and not team_schedule.empty:
                 # Keep only home games for this team (avoids double-counting)
                 if "Home" in team_schedule.columns:
