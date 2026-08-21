@@ -1039,23 +1039,41 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
     if "game_pk" not in base.columns and base.index.name == "game_pk":
         base = base.reset_index()
 
+    # Debug helper: ensure game_pk is always a column
+    def _ensure_game_pk(df, label=""):
+        if df is None or df.empty:
+            return df
+        if "game_pk" not in df.columns:
+            if df.index.name == "game_pk" or "game_pk" in df.index.names:
+                df = df.reset_index()
+                logger.debug("%s: game_pk recovered from index", label)
+            else:
+                logger.error("%s: game_pk NOT in columns or index! cols=%s", label, list(df.columns))
+        return df
+
     # Merge winners
+    winners = _ensure_game_pk(winners, "winners")
     game_level = base.merge(
         winners[["game_pk", "home_score", "away_score", "home_win", "total_runs"]],
         on="game_pk", how="left",
     )
+    game_level = _ensure_game_pk(game_level, "after_winners")
 
     # Merge starters
+    starters = _ensure_game_pk(starters, "starters")
     game_level = game_level.merge(
         starters[["game_pk", "home_starter_id", "away_starter_id"]],
         on="game_pk", how="left",
     )
+    game_level = _ensure_game_pk(game_level, "after_starters")
 
     # Merge venues
+    venues = _ensure_game_pk(venues, "venues")
     game_level = game_level.merge(
         venues[["game_pk", "venue"]],
         on="game_pk", how="left",
     )
+    game_level = _ensure_game_pk(game_level, "after_venues")
 
     # 5. Rest days
     rest = _compute_rest_days(pitches)
@@ -1108,45 +1126,59 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     # 7. Team offense features
     team_off = _compute_team_offense_features(pitches)
+    team_off = _ensure_game_pk(team_off, "team_off")
 
-    # Home team offense
-    home_off = team_off.rename(columns={"team": "home_team"})
+    # Home team offense (manual rename to avoid .add_suffix fragility)
+    home_off = team_off.rename(columns={
+        "team": "home_team",
+        "team_woba_30g": "team_woba_30g_home", "team_iso_30g": "team_iso_30g_home",
+        "team_k_rate_30g": "team_k_rate_30g_home", "team_bb_rate_30g": "team_bb_rate_30g_home",
+    })
     game_level = game_level.merge(
-        home_off[["game_pk", "team_woba_30g", "team_iso_30g",
-                   "team_k_rate_30g", "team_bb_rate_30g"]].add_suffix("_home").rename(
-            columns={"game_pk_home": "game_pk"}
-        ),
+        home_off[["game_pk", "team_woba_30g_home", "team_iso_30g_home",
+                   "team_k_rate_30g_home", "team_bb_rate_30g_home"]],
         on="game_pk", how="left",
     )
 
     # Away team offense
-    away_off = team_off.rename(columns={"team": "away_team"})
+    away_off = team_off.rename(columns={
+        "team": "away_team",
+        "team_woba_30g": "team_woba_30g_away", "team_iso_30g": "team_iso_30g_away",
+        "team_k_rate_30g": "team_k_rate_30g_away", "team_bb_rate_30g": "team_bb_rate_30g_away",
+    })
     game_level = game_level.merge(
-        away_off[["game_pk", "team_woba_30g", "team_iso_30g",
-                   "team_k_rate_30g", "team_bb_rate_30g"]].add_suffix("_away").rename(
-            columns={"game_pk_home": "game_pk"}
-        ),
+        away_off[["game_pk", "team_woba_30g_away", "team_iso_30g_away",
+                   "team_k_rate_30g_away", "team_bb_rate_30g_away"]],
         on="game_pk", how="left",
     )
 
     # 8. Bullpen features
     bullpen_feats = _compute_rolling_bullpen_features(pitches)
-    if not bullpen_feats.empty:
-        home_bullpen = bullpen_feats.rename(columns={"team": "home_team"})
+    bullpen_feats = _ensure_game_pk(bullpen_feats, "bullpen")
+    if not bullpen_feats.empty and "game_pk" in bullpen_feats.columns:
+        home_bullpen = bullpen_feats.rename(columns={
+            "team": "home_team",
+            "bullpen_whip_10g": "bullpen_whip_10g_home",
+            "bullpen_era_10g": "bullpen_era_10g_home",
+        })
         game_level = game_level.merge(
-            home_bullpen[["game_pk", "bullpen_whip_10g", "bullpen_era_10g"]].add_suffix("_home").rename(
-                columns={"game_pk_home": "game_pk"}
-            ),
+            home_bullpen[["game_pk", "bullpen_whip_10g_home", "bullpen_era_10g_home"]],
             on="game_pk", how="left",
         )
 
-        away_bullpen = bullpen_feats.rename(columns={"team": "away_team"})
+        away_bullpen = bullpen_feats.rename(columns={
+            "team": "away_team",
+            "bullpen_whip_10g": "bullpen_whip_10g_away",
+            "bullpen_era_10g": "bullpen_era_10g_away",
+        })
         game_level = game_level.merge(
-            away_bullpen[["game_pk", "bullpen_whip_10g", "bullpen_era_10g"]].add_suffix("_away").rename(
-                columns={"game_pk_home": "game_pk"}
-            ),
+            away_bullpen[["game_pk", "bullpen_whip_10g_away", "bullpen_era_10g_away"]],
             on="game_pk", how="left",
         )
+
+    for c in ["bullpen_whip_10g_home", "bullpen_era_10g_home", "bullpen_whip_10g_away", "bullpen_era_10g_away"]:
+        if c not in game_level.columns:
+            game_level[c] = np.nan
 
     # 9. Market lines
     markets = _compute_markets_stub(game_level)
