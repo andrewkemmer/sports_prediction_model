@@ -32,7 +32,7 @@ def sync_artifacts(
     Returns:
         Status dict with keys: pushed, commit_sha, staged_files, error
     """
-    from .config import DATA_DELIVERY_DIR, ROOT_DIR
+    from config import DATA_DELIVERY_DIR, ROOT_DIR
 
     repo_url = repo_url or os.environ.get("GITHUB_REPO_URL", "")
     data_delivery_dir = data_delivery_dir or DATA_DELIVERY_DIR

@@ -13,7 +13,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from .config import (
+from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
     FEATURE_DRIFT,
@@ -22,7 +22,7 @@ from .config import (
     RANDOM_SEED,
     SHAP_GAME,
 )
-from .training import FEATURE_COLS
+from training import FEATURE_COLS
 
 logger = logging.getLogger(__name__)
 

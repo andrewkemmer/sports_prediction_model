@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from .config import (
+from config import (
     CALIBRATION,
     DATA_DELIVERY_DIR,
     DATE_FMT,
@@ -37,7 +37,7 @@ from .config import (
     TRAINED_AT_KEY,
     DATA_CUTOFF_KEY,
 )
-from .data_ingestion import (
+from data_ingestion import (
     attach_market_lines,
     compute_elos_up_to,
     generate_synthetic_games,
@@ -45,9 +45,9 @@ from .data_ingestion import (
     load_game_events,
     filter_prior,
 )
-from .explainability import compute_feature_drift, compute_shap_per_game
-from .github_sync import sync_artifacts
-from .training import (
+from explainability import compute_feature_drift, compute_shap_per_game
+from github_sync import sync_artifacts
+from training import (
     compute_metrics,
     calibration_buckets,
     load_ensemble,

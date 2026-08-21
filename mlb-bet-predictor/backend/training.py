@@ -23,7 +23,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-from .config import (
+from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
     ENSEMBLE_FILE,

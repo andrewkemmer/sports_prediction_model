@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .config import (
+from config import (
     BULLPEN_WHIP_WINDOW,
     ELO_HOME_ADV,
     ELO_K,
