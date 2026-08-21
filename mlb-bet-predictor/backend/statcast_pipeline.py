@@ -1013,17 +1013,31 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
             pitches[col] = np.nan
             logger.warning("Core column '%s' missing from pitches — filled with NaN", col)
 
+    # Ensure game_pk is a COLUMN, not just an index
+    if "game_pk" not in pitches.columns:
+        pitches = pitches.reset_index()
+    # Ensure game_pk has no NaN values (drop rows where game_pk is missing)
+    pitches = pitches.dropna(subset=["game_pk"])
+
     # 1. Determine winners
     winners = _determine_winners(pitches)
+    if "game_pk" not in winners.columns and winners.index.name == "game_pk":
+        winners = winners.reset_index()
 
     # 2. Starter info
     starters = _get_starter_info(pitches)
+    if "game_pk" not in starters.columns and starters.index.name == "game_pk":
+        starters = starters.reset_index()
 
     # 3. Venue info
     venues = _attach_venue_info(pitches)
+    if "game_pk" not in venues.columns and venues.index.name == "game_pk":
+        venues = venues.reset_index()
 
     # 4. Starting from the base game record
     base = pitches[["game_pk", "game_date", "home_team", "away_team"]].drop_duplicates()
+    if "game_pk" not in base.columns and base.index.name == "game_pk":
+        base = base.reset_index()
 
     # Merge winners
     game_level = base.merge(
