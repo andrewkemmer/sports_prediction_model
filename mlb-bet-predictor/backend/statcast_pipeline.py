@@ -1006,6 +1006,13 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
     """
     logger.info("Building game-level features from %d pitches...", len(pitches))
 
+    # Schema guard: ensure primary keys and core columns exist
+    for col in ["game_pk", "game_date", "home_team", "away_team",
+                "home_score", "away_score", "events", "pitcher", "batter"]:
+        if col not in pitches.columns:
+            pitches[col] = np.nan
+            logger.warning("Core column '%s' missing from pitches — filled with NaN", col)
+
     # 1. Determine winners
     winners = _determine_winners(pitches)
 
@@ -1146,12 +1153,26 @@ def build_game_level_features(pitches: pd.DataFrame) -> pd.DataFrame:
 
     # Schema validation: ensure all expected columns exist
     _expected_game_cols = [
+        # Primary keys
         "game_pk", "game_date", "game_id", "home_team", "away_team",
+        # Game results
         "home_win", "total_runs", "venue",
+        # Pitcher rolling
         "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
         "sp_fip_home", "sp_fip_away", "sp_xwoba_home", "sp_xwoba_away",
         "sp_whip_home", "sp_whip_away", "sp_bb9_home", "sp_bb9_away",
+        # Team offense
+        "team_woba_30g_home", "team_woba_30g_away",
+        "team_iso_30g_home", "team_iso_30g_away",
+        "team_k_rate_30g_home", "team_k_rate_30g_away",
+        "team_bb_rate_30g_home", "team_bb_rate_30g_away",
+        # Bullpen
+        "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+        "bullpen_era_10g_home", "bullpen_era_10g_away",
+        # Market
         "moneyline_home", "moneyline_away", "total_line",
+        # Context
+        "rest_days_home", "rest_days_away",
     ]
     for col in _expected_game_cols:
         if col not in game_level.columns:
@@ -1172,6 +1193,18 @@ def build_pbp_level_features(
     Inherits all game-level features plus situational/state features.
     """
     logger.info("Building PBP-level features...")
+
+    # Schema guard: ensure core columns exist
+    for col in ["game_pk", "game_date", "inning", "at_bat_number",
+                "pitch_number", "home_team", "away_team", "description", "events"]:
+        if col not in pitches.columns:
+            pitches[col] = np.nan
+            logger.warning("Core PBP column '%s' missing — filled with NaN", col)
+
+    # Also ensure game_level has game_pk
+    if "game_pk" not in game_level.columns:
+        logger.error("game_level missing game_pk — PBP merge will fail")
+        game_level["game_pk"] = np.nan
 
     pbp = pitches.copy()
 
