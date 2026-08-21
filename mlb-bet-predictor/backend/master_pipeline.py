@@ -58,17 +58,18 @@ for mod in list(sys.modules.keys()):
     if any(x in mod for x in ['statcast', 'pipeline', 'data_ingestion', 'config', 'training', 'explainability']):
         del sys.modules[mod]
 
-_banner("PHASE 1-3", "Chunked Pipeline (pull + features + validate)")
-from statcast_pipeline import run_statcast_pipeline
+_banner("PHASE 1-3", "DuckDB Pipeline (SQL on disk, <2 GB RAM)")
+from duckdb_features import run_duckdb_pipeline
 import gc
 
 start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
 print(f"📅 {start} → {end}")
-print("  Each feature tier computed in a separate pass (~40 MB peak)")
+print("  All rolling windows, shifts, groupbys, and joins via DuckDB SQL")
+print("  RAM stays under 2 GB regardless of dataset size")
 
 out_dir = CONFIG.get("output_dir", "/content/mlb_clean_data")
-game_df, pbp_df = run_statcast_pipeline(
+game_df, pbp_df = run_duckdb_pipeline(
     start_date=start,
     end_date=end,
     checkpoint_dir=out_dir,
