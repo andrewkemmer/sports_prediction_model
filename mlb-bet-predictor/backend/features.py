@@ -537,6 +537,97 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
     """)
 
+    # 7e. Lineup composition — every hitter gets his own statistical
+    # assumption: a per-player trailing-30g wOBA shrunk toward the
+    # point-in-time league mean by PA count (empirical Bayes), then
+    # aggregated into expected-lineup features (top-9 by playing time).
+    con.execute(f"""
+        CREATE TABLE batter_game_stats AS
+        WITH pa AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                   CASE WHEN inning_topbot = 'Top' THEN away_team
+                        ELSE home_team END AS batting_team,
+                   batter, events
+            FROM pitches WHERE events IN ({PA_END_EVENTS})
+        )
+        SELECT game_date, game_pk, batting_team, batter,
+               COUNT(*) AS pa,
+               SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bb,
+               SUM(CASE WHEN events = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hbp,
+               SUM(CASE WHEN events = 'single' THEN 1 ELSE 0 END) AS s,
+               SUM(CASE WHEN events = 'double' THEN 1 ELSE 0 END) AS d,
+               SUM(CASE WHEN events = 'triple' THEN 1 ELSE 0 END) AS t,
+               SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hr,
+               SUM(CASE WHEN events IN ('strikeout','strikeout_double_play')
+                        THEN 1 ELSE 0 END) AS k
+        FROM pa
+        GROUP BY game_date, game_pk, batting_team, batter
+    """)
+    con.execute("""
+        CREATE TABLE batter_shifted AS
+        SELECT *,
+            LAG(pa, 1) OVER w AS _pa,
+            LAG(bb, 1) OVER w AS _bb,
+            LAG(hbp, 1) OVER w AS _hbp,
+            LAG(s, 1) OVER w AS _s,
+            LAG(d, 1) OVER w AS _d,
+            LAG(t, 1) OVER w AS _t,
+            LAG(hr, 1) OVER w AS _hr
+        FROM batter_game_stats
+        WINDOW w AS (PARTITION BY batter ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE batter_rolling AS
+        SELECT game_date, game_pk, batting_team, batter,
+            SUM(0.690*_bb + 0.722*_hbp + 0.878*_s + 1.242*_d
+                + 1.568*_t + 2.007*_hr) OVER w30 AS _woba_num,
+            SUM(_pa - _bb - _hbp) OVER w30 AS _ab,
+            SUM(_pa) OVER w30 AS _pa30
+        FROM batter_shifted
+        WINDOW w30 AS (PARTITION BY batter ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+    # League mean wOBA, cumulative through each date — built ONLY from
+    # already-shifted (prior-game) stats, so it stays point-in-time safe.
+    con.execute("""
+        CREATE TABLE batter_league AS
+        SELECT game_date,
+            SUM(_woba_num) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+              / NULLIF(SUM(_ab) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
+              AS lg_woba
+        FROM (
+            SELECT game_date, SUM(_woba_num) AS _woba_num, SUM(_ab) AS _ab
+            FROM batter_rolling GROUP BY game_date
+        )
+    """)
+    con.execute("""
+        CREATE TABLE batter_ratings AS
+        SELECT r.game_date, r.game_pk, r.batting_team, r.batter,
+               CASE WHEN COALESCE(r._ab, 0) > 0 THEN
+                   (r._woba_num + COALESCE(l.lg_woba, 0.315) * 120)
+                   / (r._ab + 120)
+               END AS shrunk_woba,
+               r._pa30
+        FROM batter_rolling r
+        LEFT JOIN batter_league l USING (game_date)
+    """)
+    con.execute("""
+        CREATE TABLE lineup_agg AS
+        WITH ranked AS (
+            SELECT game_date, game_pk, batting_team, shrunk_woba,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
+                                      ORDER BY _pa30 DESC) AS rn
+            FROM batter_ratings WHERE shrunk_woba IS NOT NULL
+        ),
+        top9 AS (SELECT * FROM ranked WHERE rn <= 9)
+        SELECT game_pk, batting_team,
+               AVG(shrunk_woba) AS lineup_woba_mean,
+               AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS lineup_woba_top3,
+               STDDEV(shrunk_woba) AS lineup_woba_std
+        FROM top9
+        GROUP BY game_pk, batting_team
+    """)
+
     # 8. Assemble game_level via LEFT JOINs
     con.execute("""
         CREATE TABLE game_level AS
@@ -572,7 +663,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             hd.lineup_lefty_share_30g AS opp_lefty_share_home,
             ha.lineup_lefty_share_30g AS opp_lefty_share_away,
             bf.bullpen_pitches_3d_home, bf.bullpen_ip_3d_home,
-            bf.bullpen_pitches_3d_away, bf.bullpen_ip_3d_away
+            bf.bullpen_pitches_3d_away, bf.bullpen_ip_3d_away,
+            lh.lineup_woba_mean AS lineup_woba_mean_home,
+            lh.lineup_woba_top3 AS lineup_woba_top3_home,
+            lh.lineup_woba_std AS lineup_woba_std_home,
+            la.lineup_woba_mean AS lineup_woba_mean_away,
+            la.lineup_woba_top3 AS lineup_woba_top3_away,
+            la.lineup_woba_std AS lineup_woba_std_away
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -591,6 +688,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN team_hand_rolling hd ON w.game_pk = hd.game_pk AND w.away_team = hd.batting_team
         LEFT JOIN team_hand_rolling ha ON w.game_pk = ha.game_pk AND w.home_team = ha.batting_team
         LEFT JOIN bp_fatigue bf ON w.game_pk = bf.game_pk
+        LEFT JOIN lineup_agg lh ON w.game_pk = lh.game_pk AND w.home_team = lh.batting_team
+        LEFT JOIN lineup_agg la ON w.game_pk = la.game_pk AND w.away_team = la.batting_team
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -605,6 +704,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         "pitcher_stuff_raw", "pitcher_stuff",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
         "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
+        "batter_game_stats", "batter_shifted", "batter_rolling",
+        "batter_league", "batter_ratings", "lineup_agg",
     ):
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
     gc.collect()

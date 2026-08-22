@@ -92,6 +92,14 @@ FEATURE_COLS = [
     "bullpen_pitches_3d_away",
     "bullpen_ip_3d_home",
     "bullpen_ip_3d_away",
+    # Lineup composition — per-player shrunk wOBA aggregated over the
+    # expected top-9 (by playing time): mean, star (top-3) average, dispersion
+    "lineup_woba_mean_home",
+    "lineup_woba_mean_away",
+    "lineup_woba_top3_home",
+    "lineup_woba_top3_away",
+    "lineup_woba_std_home",
+    "lineup_woba_std_away",
 ]
 # Deduplicate
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
