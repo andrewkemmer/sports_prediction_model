@@ -188,3 +188,69 @@ else:
         """,
         unsafe_allow_html=True,
     )
+
+# ---------------------------------------------------------------------------
+# Game-level history: every walk-forward prediction vs its actual result
+# ---------------------------------------------------------------------------
+st.markdown("### Prediction History — Every Game")
+hist = utils.load_prediction_history(date_str)
+if hist is None or hist.empty or "home_win_prob_model" not in hist.columns:
+    st.info("No per-game prediction history available yet (generated on the next pipeline run).")
+else:
+    h = hist.copy()
+    h["_date"] = pd.to_datetime(h["game_date"], errors="coerce")
+    lo, hi = h["_date"].min().date(), h["_date"].max().date()
+
+    fc1, fc2, _ = st.columns([1, 1, 2])
+    start_d = fc1.date_input("Start date", value=lo, min_value=lo, max_value=hi)
+    end_d = fc2.date_input("End date", value=hi, min_value=lo, max_value=hi)
+    if start_d > end_d:
+        start_d, end_d = end_d, start_d
+
+    in_range = h[(h["_date"].dt.date >= start_d) & (h["_date"].dt.date <= end_d)]
+    view = in_range.sort_values("_date", ascending=False)
+    n_rng = len(view)
+    if n_rng == 0:
+        st.info("No games in the selected date range.")
+    else:
+        acc_rng = float(pd.to_numeric(view["correct"], errors="coerce").mean() * 100)
+        st.caption(
+            f"{n_rng:,} games · {acc_rng:.1f}% picks correct · most recent first — "
+            "scroll for older results"
+        )
+        rows = []
+        for _, r in view.iterrows():
+            ok = pd.to_numeric(pd.Series([r.get("correct")]), errors="coerce").iloc[0]
+            if pd.isna(ok):
+                res = "<td>—</td>"
+            elif bool(ok):
+                res = f"<td style='color:{utils.PRIMARY};font-weight:700;'>✓</td>"
+            else:
+                res = f"<td style='color:{utils.RED};font-weight:700;'>✗</td>"
+            prob = r.get("home_win_prob_model")
+            pick_prob = prob if str(r.get("model_pick")) == str(r.get("home_team")) else 1 - prob
+            score = "—"
+            hs, asc = r.get("home_score"), r.get("away_score")
+            if pd.notna(hs) and pd.notna(asc):
+                score = f"{int(asc)}–{int(hs)}"
+            rows.append(
+                f"<tr><td>{r['_date'].strftime('%b %d, %Y')}</td>"
+                f"<td>{r.get('away_team','')} @ {r.get('home_team','')}</td>"
+                f"<td>{score}</td>"
+                f"<td>{r.get('model_pick','')} ({pick_prob:.0%})</td>"
+                f"<td>{r.get('actual_winner','')}</td>{res}</tr>"
+            )
+        st.markdown(
+            f"""
+            <div class="fb-box" style="padding:6px 8px;">
+              <div style="max-height:480px;overflow-y:auto;">
+                <table class="fb-table">
+                  <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+                  <th>MODEL PICK</th><th>WINNER</th><th>RESULT</th></tr></thead>
+                  <tbody>{''.join(rows)}</tbody>
+                </table>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )

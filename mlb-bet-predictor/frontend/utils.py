@@ -290,6 +290,16 @@ def load_todays_games(date_str: str) -> pd.DataFrame:
     return normalize_games(df)
 
 
+def load_prediction_history(date_str: str) -> pd.DataFrame:
+    """Per-game walk-forward predictions + results (Calibration page table)."""
+    cfg = get_source_config()
+    data, src = _fetch_bytes(f"predictions_history_{_pick_date(date_str)}.csv", **cfg)
+    st.session_state["data_source"] = src
+    if data is None:
+        return pd.DataFrame()
+    return pd.read_csv(io.BytesIO(data))
+
+
 def load_power_rankings(date_str: str) -> pd.DataFrame:
     cfg = get_source_config()
     data, src = _fetch_bytes(f"power_rankings_{_pick_date(date_str)}.csv", **cfg)

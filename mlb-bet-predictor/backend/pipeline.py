@@ -228,6 +228,46 @@ def _calibration_json(
     return path
 
 
+def _predictions_history_csv(
+    oof: Optional[pd.DataFrame], target_date_str: str
+) -> Optional[Path]:
+    """Write predictions_history_YYYYMMDD.csv — every walk-forward OOF game
+    prediction with its actual result.
+
+    Feeds the Calibration page's per-game history table (the same games that
+    feed the reliability diagram). Point-in-time safe by construction: each
+    prediction comes from the fold trained strictly on prior games.
+    """
+    import numpy as np
+    if oof is None or oof.empty or "home_win_prob_model" not in getattr(oof, "columns", []):
+        return None
+    df = pd.DataFrame({
+        "game_id": oof.get("game_id"),
+        "game_date": pd.to_datetime(oof.get("game_date"), errors="coerce").dt.strftime("%Y-%m-%d"),
+        "home_team": oof.get("home_team"),
+        "away_team": oof.get("away_team"),
+        "home_score": oof.get("home_score"),
+        "away_score": oof.get("away_score"),
+        "home_win": oof.get("home_win"),
+        "home_win_prob_model": pd.to_numeric(oof["home_win_prob_model"], errors="coerce"),
+    }).copy()
+    decided = pd.to_numeric(df["home_win"], errors="coerce")
+    df = df[decided.notna() & df["home_win_prob_model"].notna()]
+    if df.empty:
+        return None
+    hw = pd.to_numeric(df["home_win"], errors="coerce").astype(int)
+    prob = df["home_win_prob_model"]
+    home_won_pick = prob >= 0.5
+    df["model_pick"] = np.where(home_won_pick, df["home_team"], df["away_team"])
+    df["actual_winner"] = np.where(hw == 1, df["home_team"], df["away_team"])
+    df["correct"] = (home_won_pick == (hw == 1)).astype(int)
+    df = df.sort_values(["game_date", "game_id"], ascending=[False, True])
+    path = DATA_DELIVERY_DIR / f"predictions_history_{target_date_str}.csv"
+    df.to_csv(path, index=False)
+    logger.info("Prediction history written: %d games -> %s", len(df), path.name)
+    return path
+
+
 def _model_monitor_json(
     metrics: dict[str, float],
     drift_df: pd.DataFrame,
@@ -412,6 +452,9 @@ def run_daily_pipeline(
                 min_len = min(len(y_true), len(y_pred))
                 path = _calibration_json(pooled_metrics, y_true[:min_len], y_pred[:min_len], target_date_str, len(target_games), oof=all_predictions)
                 summary["artifacts"].append(str(path))
+                hist_path = _predictions_history_csv(all_predictions, target_date_str)
+                if hist_path is not None:
+                    summary["artifacts"].append(str(hist_path))
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
