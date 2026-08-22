@@ -282,11 +282,66 @@ def load_power_rankings(date_str: str) -> pd.DataFrame:
 
 def load_calibration(date_str: str) -> dict:
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"calibration_{_pick_date(date_str)}.json", **cfg)
+    picked = _pick_date(date_str)
+    data, src = _fetch_bytes(f"calibration_{picked}.json", **cfg)
     st.session_state["data_source"] = src
     if data is None:
         return {}
-    return json.loads(data)
+    return _normalize_calibration(json.loads(data), picked)
+
+
+def _normalize_calibration(cal: dict, date_str: str) -> dict:
+    """Map the pipeline's calibration JSON onto the Calibration page's schema.
+
+    Pipeline emits:  metrics{auc,brier,logloss,ece}, calibration_buckets[].
+    Page reads:      kpis{auc_roc,brier_score,log_loss,cal_error},
+                     calibration_curve[], confidence[{bucket,count,accuracy_pct}],
+                     today_record{wins,losses,completed}, upsets[{team,prob}].
+    """
+    m = cal.get("metrics", {})
+    cal.setdefault("kpis", {
+        "auc_roc": m.get("auc"),
+        "brier_score": m.get("brier"),
+        "log_loss": m.get("logloss"),
+        "cal_error": m.get("ece"),
+    })
+
+    curve = cal.get("calibration_curve") or cal.get("calibration_buckets") or []
+    cal["calibration_curve"] = curve
+
+    if not cal.get("confidence"):
+        cal["confidence"] = [
+            {"bucket": b.get("bucket"),
+             "count": b.get("count", 0),
+             "accuracy_pct": round(float(b.get("mean_actual") or 0) * 100, 1)}
+            for b in curve
+        ]
+
+    # Today's Record + upsets derive from the games CSV (has real outcomes).
+    try:
+        games = load_todays_games(date_str)
+    except Exception:
+        games = pd.DataFrame()
+    if not games.empty:
+        win = pd.to_numeric(games.get("home_win"), errors="coerce")
+        finished = games[win.notna()]
+        completed = len(finished)
+        wins = (int(finished["model_correct"].astype(bool).sum())
+                if "model_correct" in finished else 0)
+        cal.setdefault("today_record",
+                       {"wins": wins, "losses": completed - wins,
+                        "completed": completed})
+        if not cal.get("upsets") and "is_upset" in games.columns:
+            probs = pd.to_numeric(games.get("home_win_prob_model"), errors="coerce")
+            ups = []
+            for idx, row in games[games["is_upset"].fillna(False)].iterrows():
+                home_won = win.loc[idx] == 1
+                team = row.get("home_team") if home_won else row.get("away_team")
+                p = probs.loc[idx] if home_won else 1 - probs.loc[idx]
+                ups.append({"team": team,
+                            "prob": float(p) if pd.notna(p) else 0.0})
+            cal["upsets"] = ups
+    return cal
 
 
 def load_model_monitor(date_str: str) -> dict:
