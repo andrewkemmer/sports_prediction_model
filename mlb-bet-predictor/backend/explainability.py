@@ -170,6 +170,21 @@ def psi_status(psi_value: float) -> str:
     return "OK"
 
 
+def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
+    """Expected PSI from sampling noise alone when both samples are drawn
+    from the SAME distribution.
+
+    For two independent samples the per-bin proportion error is O(1/sqrt(n)),
+    giving E[PSI] ≈ (k−1)/2 · (1/n_base + 1/n_cur). At the drift step's
+    adjacent-window sizes (~110 vs ~150 games) this is ≈0.07 — most of the
+    way to the WARN threshold (0.10). Statuses must therefore be assigned on
+    the NOISE-ADJUSTED PSI, or identical distributions page constantly.
+    """
+    if n_baseline <= 0 or n_current <= 0:
+        return 0.0
+    return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
+
+
 def compute_feature_drift(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
@@ -199,13 +214,22 @@ def compute_feature_drift(
         if len(baseline_vals) < 100 or len(current_vals) < 30:
             status = "INSUFFICIENT"
         else:
-            status = psi_status(psi)
+            # Threshold on the NOISE-ADJUSTED PSI: raw PSI between two
+            # same-distribution samples of this size already averages ~0.07,
+            # so near-equal means with raw PSI 0.10–0.30 are binning wiggle,
+            # not regime change. Raw PSI stays in the CSV for transparency.
+            noise = psi_noise_floor(len(baseline_vals), len(current_vals))
+            psi_adjusted = max(psi - noise, 0.0)
+            status = psi_status(psi_adjusted)
 
+        noise_out = psi_noise_floor(len(baseline_vals), len(current_vals))
         drift_rows.append({
             "feature": col,
             "current_mean": round(float(current_vals.mean()), 4),
             "baseline_mean": round(float(baseline_vals.mean()), 4),
             "psi": psi,
+            "psi_adjusted": round(max(psi - noise_out, 0.0), 6),
+            "noise_floor": round(noise_out, 6),
             "status": status,
             "n_baseline": int(len(baseline_vals)),
             "n_current": int(len(current_vals)),
@@ -218,8 +242,10 @@ def compute_feature_drift(
     n_warns = (df["status"] == "WARN").sum()
     n_alerts = (df["status"] == "ALERT").sum()
     logger.info(
-        "Feature drift: %d features, %d warnings, %d alerts",
+        "Feature drift: %d features, %d warnings, %d alerts "
+        "(statuses on noise-adjusted PSI; mean noise floor %.3f)",
         len(df), n_warns, n_alerts,
+        float(df["noise_floor"].mean()) if "noise_floor" in df.columns else float("nan"),
     )
 
     return df

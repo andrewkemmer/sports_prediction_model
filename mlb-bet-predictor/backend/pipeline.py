@@ -417,16 +417,17 @@ def run_daily_pipeline(
         logger.info("Step 6: Explainability")
         compute_shap_per_game(best_models, target_games)
 
-        # Feature drift: compare the last 7 days vs an ADJACENT window of
-        # comparable size. Comparing against all history instead made every
-        # cumulative feature (elo, win_pct, run_diff) look like ALERT drift,
-        # because those distributions widen structurally as a season matures —
-        # a property of the feature, not of model health. Adjacent windows are
-        # apples-to-apples: only genuine regime change fires WARN/ALERT.
+        # Feature drift: compare the last 7 days vs an ADJACENT season-local
+        # window (~3x the current window, min 250 games). Comparing against
+        # all history instead made every cumulative feature (elo, win_pct,
+        # run_diff) look like ALERT drift, because those distributions widen
+        # structurally as a season matures — a property of the feature, not
+        # model health. Adjacent-but-not-tiny keeps it apples-to-apples while
+        # giving quantile bin edges enough samples to be stable.
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
         current = games[pd.to_datetime(games["game_date"]) >= cutoff]
         prior = games[pd.to_datetime(games["game_date"]) < cutoff]
-        baseline = prior.tail(max(len(current), 150)) if not prior.empty else prior
+        baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
         if not baseline.empty and not current.empty:
             drift_df = compute_feature_drift(baseline, current, target_date_str)
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))

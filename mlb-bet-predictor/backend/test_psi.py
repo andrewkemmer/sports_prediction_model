@@ -9,10 +9,15 @@ Verifies that:
 - Status mapping works correctly
 """
 import unittest
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 
-from backend.explainability import compute_psi, psi_status
+from backend import explainability
+from backend.explainability import compute_psi, psi_status, psi_noise_floor, compute_feature_drift
 from backend.config import PSI_WARN_THRESHOLD, PSI_ALERT_THRESHOLD
 
 
@@ -142,3 +147,39 @@ if __name__ == "__main__":
         psi = compute_psi(baseline, current)
         self.assertGreater(psi, PSI_ALERT_THRESHOLD)
         self.assertLess(psi, 100.0)  # bounded by smoothing, not infinite
+
+
+class TestPSINoiseFloor(unittest.TestCase):
+    """At adjacent-window sizes (~110 vs ~150 games) raw PSI between two
+    SAME-distribution samples averages ~0.07 — most of the WARN band.
+    Statuses must be assigned on the noise-adjusted PSI."""
+
+    def test_noise_floor_formula(self):
+        self.assertAlmostEqual(psi_noise_floor(150, 110), 4.5 * (1/150 + 1/110))
+        self.assertEqual(psi_noise_floor(0, 100), 0.0)
+
+    def _drift(self, n_base, n_cur, psi_stub_value):
+        """Run compute_feature_drift with a stubbed raw PSI and inspect status."""
+        base = pd.DataFrame({"woba_30g_home": np.random.RandomState(0).normal(.30, .01, n_base)})
+        cur = pd.DataFrame({"woba_30g_home": np.random.RandomState(1).normal(.30, .01, n_cur)})
+        tmp = Path(tempfile.mkdtemp())
+        with patch.object(explainability, "DATA_DELIVERY_DIR", tmp), patch.object(
+            explainability, "compute_psi", return_value=psi_stub_value,
+        ):
+            df = compute_feature_drift(base, cur, "20990101")
+        return df.iloc[0]
+
+    def test_small_windows_identical_means_do_not_page(self):
+        """Raw PSI 0.12 on tiny windows is inside the noise floor -> OK,
+        even though the same raw value pages at large samples."""
+        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.12)
+        self.assertEqual(row["status"], "OK")          # floor ≈ 0.071 eats it
+        big = self._drift(n_base=20000, n_cur=5000, psi_stub_value=0.12)
+        self.assertEqual(big["status"], "WARN")        # floor ≈ 0.002: real signal
+        self.assertAlmostEqual(float(big["psi_adjusted"]), 0.12 - 4.5*(1/20000+1/5000), places=5)
+
+    def test_large_genuine_shift_still_alerts(self):
+        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.60)
+        # 0.60 - 0.071 = 0.53 > ALERT threshold
+        self.assertEqual(row["status"], "ALERT")
+        self.assertGreater(float(row["psi_adjusted"]), PSI_ALERT_THRESHOLD)
