@@ -459,6 +459,11 @@ def attach_market_lines(games: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFram
         lines["line_posted_at"] = pd.to_datetime(lines["line_posted_at"])
     if not pd.api.types.is_datetime64_any_dtype(games["start_time_utc"]):
         games["start_time_utc"] = pd.to_datetime(games["start_time_utc"])
+    # Normalize both to tz-naive to avoid comparison errors
+    if hasattr(lines["line_posted_at"].dt, "tz") and lines["line_posted_at"].dt.tz is not None:
+        lines["line_posted_at"] = lines["line_posted_at"].dt.tz_convert(None)
+    if hasattr(games["start_time_utc"].dt, "tz") and games["start_time_utc"].dt.tz is not None:
+        games["start_time_utc"] = games["start_time_utc"].dt.tz_convert(None)
 
     # For each game, pick the latest line posted strictly before start_time_utc
     merged = []
