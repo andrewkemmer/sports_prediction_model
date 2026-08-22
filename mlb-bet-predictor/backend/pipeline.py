@@ -63,6 +63,50 @@ from training import (
 logger = logging.getLogger(__name__)
 
 
+def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
+    """Re-apply pitcher names + market lines from an earlier same-date artifact.
+
+    ESPN drops probablePitcher from the scoreboard once a game starts, so an
+    evening rerun rebuilds the slate with sp_name_* = 'TBD' and erases the
+    pitching matchup already published that morning (which also blanks the
+    ERA/K9 boxes, since names drive the stat lookup). Anything already
+    published for a game_id is restored onto the rebuilt slate.
+    """
+    path = DATA_DELIVERY_DIR / f"{TODAYS_GAMES}_{target_date_str}.csv"
+    if slate.empty or not path.exists():
+        return slate
+    try:
+        prev = pd.read_csv(path)
+    except Exception as e:
+        logger.warning("Could not read previous %s for carry-forward: %s", path.name, e)
+        return slate
+    if prev.empty or "game_id" not in prev.columns:
+        return slate
+    carry_cols = [c for c in (
+        "sp_name_home", "sp_name_away",
+        "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice",
+    ) if c in prev.columns and c in slate.columns]
+    if not carry_cols:
+        return slate
+    prev = prev.drop_duplicates("game_id").set_index("game_id")
+    restored = 0
+    for idx, row in slate.iterrows():
+        gid = row.get("game_id")
+        if gid not in prev.index:
+            continue
+        p = prev.loc[gid]
+        for c in carry_cols:
+            cur = row[c]
+            stale = pd.isna(cur) or (isinstance(cur, str) and cur.strip().upper() == "TBD")
+            new = p[c]
+            if stale and pd.notna(new):
+                slate.at[idx, c] = new
+                restored += 1
+    if restored:
+        logger.info("Carried forward %d slate details from earlier artifact", restored)
+    return slate
+
+
 def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     """Write todays_games_YYYYMMDD.csv artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -76,6 +120,8 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         "sp_name_home", "sp_name_away",
         "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
         "venue", "model_pick", "home_win",
+        # Finals for finished games (ESPN results merged onto the slate)
+        "home_score", "away_score", "total_runs",
     ]
     cols = [c for c in out_cols if c in games.columns]
     games[cols].to_csv(path, index=False)
@@ -430,6 +476,11 @@ def run_daily_pipeline(
                     "back to most recent games", target_date_str,
                 )
                 target_games = games.tail(15).copy()
+
+        # ESPN drops probablePitcher once games start — restore the pitching
+        # matchup and lines published by an earlier same-day run before they
+        # get overwritten.
+        target_games = _carry_forward_slate_details(target_games, target_date_str)
 
         target_games = predict_games(best_models, target_games)
 
