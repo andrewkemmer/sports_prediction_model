@@ -188,12 +188,14 @@ def pull_statcast(
         cached_lo, cached_hi = _cache_bounds(out)
         if cached_hi is None:
             logger.warning("Existing cache unreadable — re-pulling full range")
-        elif cached_lo is not None and cached_lo <= start and cached_hi >= end:
-            logger.info(
-                "Cache fully covers %s → %s — skipping pull", cached_lo, cached_hi,
-            )
-            return out
         else:
+            # NOTE: there is deliberately NO "cache fully covers the range —
+            # skip" shortcut here. A prior run can cache PARTIAL data for the
+            # most recent days (games pulled mid-progress), making the bounds
+            # look complete while finals are frozen. The tail refresh below
+            # re-pulls the trailing window on every resume so those games get
+            # their real finals; the merge dedupes to the newest copy.
+
             # Backward gap first (history extension): start .. cached_min-1
             if cached_lo is not None and start < cached_lo:
                 back_end = cached_lo - timedelta(days=1)
@@ -215,19 +217,18 @@ def pull_statcast(
                 # Recompute bounds after prepending
                 cached_lo, cached_hi = _cache_bounds(out)
 
-            # Forward gap: cached_max+1 .. end
-            if cached_hi is not None and cached_hi < end:
-                # Re-pull the last REFRESH_TAIL_DAYS days even though they are
-                # already on disk: games captured while still IN PROGRESS
-                # (Savant posts innings progressively) would otherwise keep
-                # frozen scores and missing winners forever — the old top-up
-                # never revisited a day once cached. The merge dedupes on
-                # pitch identity keeping the NEWEST copy, so re-delivered
-                # finals overwrite the partial rows.
+            # Forward top-up + TAIL REFRESH. Two failure modes this fixes:
+            # 1. cached_hi < end: plain forward gap (new days to append).
+            # 2. cached_hi >= end: cache LOOKS current but a prior run may
+            #    have stored PARTIAL data for recent days (games pulled mid-
+            #    progress keep frozen scores forever unless revisited).
+            # Either way we re-pull the trailing REFRESH_TAIL_DAYS window;
+            # merge dedupe keeps the NEWEST copy of each pitch, so completed
+            # games overwrite their partial selves.
+            if cached_hi is not None:
                 refresh_start = end - timedelta(days=REFRESH_TAIL_DAYS - 1)
                 inc_start = min(cached_hi + timedelta(days=1), refresh_start)
-                if inc_start < start:
-                    inc_start = start
+                inc_start = max(inc_start, start)
                 logger.info(
                     "Cache covers through %s — pulling %s → %s "
                     "(includes %d-day tail refresh to fix in-progress games)",
@@ -235,11 +236,19 @@ def pull_statcast(
                 )
                 inc_chunks = _chunked_statcast(inc_start, end, chunk_days, pause_sec)
                 if not inc_chunks:
-                    logger.warning(
-                        "No Statcast data posted since %s yet — keeping cache "
-                        "(Savant lags game completion by hours to a day)",
-                        cached_hi,
-                    )
+                    if cached_hi < end:
+                        logger.warning(
+                            "No Statcast data posted for %s → %s yet — keeping cache "
+                            "(Savant lags game completion by hours to a day)",
+                            inc_start, end,
+                        )
+                    else:
+                        logger.error(
+                            "Tail refresh returned ZERO pitches — likely Savant rate "
+                            "limiting. STALE CACHE KEPT: recent finals may be frozen or "
+                            "missing. Wait a few minutes and re-run; if it persists, "
+                            "set MLB_FULL_REPULL=1 for one run."
+                        )
                     return out
                 inc = _normalize_columns(pd.concat(inc_chunks, ignore_index=True))
                 del inc_chunks
@@ -247,7 +256,10 @@ def pull_statcast(
                 for col in UNUSED_COLS:
                     if col in inc.columns:
                         inc.drop(columns=[col], inplace=True)
-                return _merge_and_save(out, inc, existing_first=True)
+                out = _merge_and_save(out, inc, existing_first=True)
+                new_lo, new_hi = _cache_bounds(out)
+                logger.info("Cache now covers %s → %s", new_lo, new_hi)
+                return out
 
             return out
 
