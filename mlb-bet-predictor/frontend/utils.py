@@ -240,6 +240,23 @@ def available_dates(owner: str, repo: str, branch: str) -> list[str]:
             pass
     for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
         dates.add(p.name[len("todays_games_"):-len(".csv")])
+
+    # Merge walk-forward calibration days so history stays selectable even
+    # when only one todays_games snapshot exists in the repo.
+    if dates:
+        try:
+            cal_bytes, _ = _fetch_bytes(
+                f"calibration_{max(dates)}.json",
+                owner=owner, repo=repo, branch=branch,
+            )
+            if cal_bytes:
+                for entry in json.loads(cal_bytes).get("daily", []):
+                    d = str(entry.get("date", ""))
+                    if len(d) == 8 and d.isdigit():
+                        dates.add(d)
+        except (ValueError, TypeError, KeyError):
+            pass
+
     return sorted(dates, reverse=True)
 
 
@@ -293,11 +310,28 @@ def load_calibration(date_str: str) -> dict:
 def _normalize_calibration(cal: dict, date_str: str) -> dict:
     """Map the pipeline's calibration JSON onto the Calibration page's schema.
 
-    Pipeline emits:  metrics{auc,brier,logloss,ece}, calibration_buckets[].
+    Pipeline emits:  metrics{auc,brier,logloss,ece}, calibration_buckets[],
+                     daily[{date,n_games,wins,losses,metrics{},buckets[]}].
     Page reads:      kpis{auc_roc,brier_score,log_loss,cal_error},
                      calibration_curve[], confidence[{bucket,count,accuracy_pct}],
                      today_record{wins,losses,completed}, upsets[{team,prob}].
     """
+    # Prefer the per-day walk-forward entry when one matches the selected
+    # date: it is the strict point-in-time predicted-vs-actual view for
+    # that day (fold trained only on prior games).
+    day = next((d for d in cal.get("daily", [])
+                if str(d.get("date")) == str(date_str)), None)
+    if day:
+        cal["metrics"] = day.get("metrics", {})
+        if day.get("buckets"):
+            cal["calibration_buckets"] = day["buckets"]
+            cal.pop("calibration_curve", None)
+        cal["today_record"] = {
+            "wins": int(day.get("wins", 0) or 0),
+            "losses": int(day.get("losses", 0) or 0),
+            "completed": int(day.get("n_games", 0) or 0),
+        }
+
     m = cal.get("metrics", {})
     cal.setdefault("kpis", {
         "auc_roc": m.get("auc"),

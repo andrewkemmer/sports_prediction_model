@@ -138,17 +138,69 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     return path
 
 
+def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
+    """Per-day predicted-vs-actual win rates from walk-forward OOF predictions.
+
+    Each row covers one game date; predictions come from the fold trained
+    strictly on prior games (point-in-time safe by construction).
+    """
+    if oof is None or oof.empty or "home_win_prob_model" not in oof.columns:
+        return []
+    df = oof.copy()
+    days = pd.to_datetime(df["game_date"], errors="coerce").dt.normalize()
+    rows: list[dict] = []
+    for day, g in df.groupby(days):
+        y_true = pd.to_numeric(g["home_win"], errors="coerce")
+        y_pred = pd.to_numeric(g["home_win_prob_model"], errors="coerce")
+        ok = y_true.notna() & y_pred.notna()
+        n = int(ok.sum())
+        if n == 0:
+            continue
+        yt, yp = y_true[ok].values, y_pred[ok].values
+        try:
+            m = compute_metrics(yt, yp)
+        except Exception:
+            m = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
+        rows.append({
+            "date": day.strftime("%Y%m%d"),
+            "n_games": n,
+            "wins": int((yt == 1).sum()),
+            "losses": int((yt == 0).sum()),
+            "metrics": {
+                "auc": round(float(m.get("auc", 0.5)), 4),
+                "brier": round(float(m.get("brier", 0.25)), 4),
+                "logloss": round(float(m.get("logloss", 0.69)), 4),
+                "ece": round(float(m.get("ece", 0.0)), 4),
+            },
+            "buckets": calibration_buckets(yt, yp),
+        })
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
 def _calibration_json(
     metrics: dict[str, float],
     y_true, y_pred,
     target_date_str: str,
     n_games: int,
+    oof: Optional[pd.DataFrame] = None,
 ) -> Path:
-    """Write calibration_YYYYMMDD.json artifact."""
+    """Write calibration_YYYYMMDD.json artifact.
+
+    Headline buckets use ALL walk-forward out-of-sample predictions when
+    available (a far richer curve than the target day alone); ``daily``
+    carries per-day predicted-vs-actual for the date selector.
+    """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"{CALIBRATION}_{target_date_str}.json"
 
     import numpy as np
+    if oof is not None and "home_win_prob_model" in getattr(oof, "columns", []):
+        ot = pd.to_numeric(oof["home_win"], errors="coerce")
+        op = pd.to_numeric(oof["home_win_prob_model"], errors="coerce")
+        ok = ot.notna() & op.notna()
+        if int(ok.sum()) >= len(y_true):
+            y_true, y_pred = ot[ok].values, op[ok].values
     buckets = calibration_buckets(np.asarray(y_true), np.asarray(y_pred))
 
     # League-wide metadata
@@ -161,6 +213,7 @@ def _calibration_json(
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "metrics": metrics,
         "calibration_buckets": buckets,
+        "daily": _daily_calibration_rows(oof),
         "league_total": n_games,
         "evening_games_league": evening_games,
     }
@@ -296,6 +349,7 @@ def run_daily_pipeline(
         else:
             best_models = ensemble["models"] if ensemble else {}
             pooled_metrics = ensemble["metrics"] if ensemble else {}
+            all_predictions = None  # cached model: no fresh OOF predictions
             summary["metrics"] = pooled_metrics
 
         # 4. Predict today's games (target_date only)
@@ -327,7 +381,7 @@ def run_daily_pipeline(
             y_pred = target_games["home_win_prob_model"].dropna().values
             if len(y_true) > 0 and len(y_pred) > 0:
                 min_len = min(len(y_true), len(y_pred))
-                path = _calibration_json(pooled_metrics, y_true[:min_len], y_pred[:min_len], target_date_str, len(target_games))
+                path = _calibration_json(pooled_metrics, y_true[:min_len], y_pred[:min_len], target_date_str, len(target_games), oof=all_predictions)
                 summary["artifacts"].append(str(path))
 
         # 6. SHAP + Feature drift

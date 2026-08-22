@@ -112,13 +112,13 @@ if curve_df.empty:
     st.info("No calibration curve data available.")
 else:
     model_pts = alt.Chart(curve_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5).encode(
-        x=alt.X("mean_predicted:Q", title="Mean Predicted Probability", scale=alt.Scale(domain=[0.45, 0.85])),
-        y=alt.Y("mean_actual:Q", title="Mean Actual Win Rate", scale=alt.Scale(domain=[0.45, 0.85])),
+        x=alt.X("mean_predicted:Q", title="Mean Predicted Probability", scale=alt.Scale(domain=[0, 1])),
+        y=alt.Y("mean_actual:Q", title="Mean Actual Win Rate", scale=alt.Scale(domain=[0, 1])),
     )
     diag_df = pd.DataFrame({"x": [0.0, 1.0], "y": [0.0, 1.0]})
     diag = alt.Chart(diag_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x=alt.X("x:Q", scale=alt.Scale(domain=[0.45, 0.85])),
-        y=alt.Y("y:Q", scale=alt.Scale(domain=[0.45, 0.85])),
+        x=alt.X("x:Q", scale=alt.Scale(domain=[0, 1])),
+        y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 1])),
     )
     layer = alt.layer(diag, model_pts).properties(height=340)
     utils.show_chart(layer)
