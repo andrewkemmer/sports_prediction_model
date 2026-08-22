@@ -63,6 +63,35 @@ FEATURE_COLS = [
     "home_win_pct",
     "home_run_diff",
     "away_run_diff",
+    # ── PBP-derived, pre-game-safe aggregates (DuckDB feature build) ──
+    # Starter stuff trends (last 3 starts)
+    "sp_fbvelo_3g_home",
+    "sp_fbvelo_3g_away",
+    "sp_fbpct_3g_home",
+    "sp_fbpct_3g_away",
+    "sp_whiff_3g_home",
+    "sp_whiff_3g_away",
+    # Starter handedness splits (season-to-date xwOBA allowed vs L/R batters)
+    "sp_xwoba_vs_l_home",
+    "sp_xwoba_vs_l_away",
+    "sp_xwoba_vs_r_home",
+    "sp_xwoba_vs_r_away",
+    # Team contact form (trailing 15 games, from balls in play)
+    "team_barrel_15g_home",
+    "team_barrel_15g_away",
+    "team_hardhit_15g_home",
+    "team_hardhit_15g_away",
+    "team_exitvelo_15g_home",
+    "team_exitvelo_15g_away",
+    # Opposing-lineup handedness share (trailing 30 games) — pairs with the
+    # sp_xwoba_vs_l/r splits so the model learns platoon-fit interactions.
+    "opp_lefty_share_home",
+    "opp_lefty_share_away",
+    # Bullpen fatigue (pitches/IP over trailing 3 days, excl. today)
+    "bullpen_pitches_3d_home",
+    "bullpen_pitches_3d_away",
+    "bullpen_ip_3d_home",
+    "bullpen_ip_3d_away",
 ]
 # Deduplicate
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))

@@ -215,8 +215,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                    SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS hits_allowed,
                    SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hrs_allowed,
                    AVG(xwoba_val) AS xwoba,
-                   AVG(barrel_val) AS barrel_rate,
-                   AVG(hard_val) AS hard_contact_rate
+                   AVG(TRY_CAST(barrel_val AS DOUBLE)) AS barrel_rate,
+                   AVG(TRY_CAST(hard_val AS DOUBLE)) AS hard_contact_rate
             FROM pa_events
             GROUP BY CAST(game_date AS DATE), game_pk, pitcher
         )
@@ -318,18 +318,26 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
     # 7. Bullpen rolling features
+    # Reliever workload is attributed to the FIELDING team (Top half → home
+    # team pitchers, Bottom half → away team). Previously both teams received
+    # the combined totals of BOTH bullpens, making bullpen_*_home and
+    # bullpen_*_away identical per game.
+    con.execute("""
+        CREATE TABLE first_pitchers AS
+        SELECT game_pk,
+               FIRST_VALUE(pitcher) OVER (
+                   PARTITION BY game_pk ORDER BY at_bat_number, pitch_number
+               ) AS starter_id
+        FROM pitches
+    """)
     con.execute("""
         CREATE TABLE bullpen_raw AS
-        WITH first_pitchers AS (
-            SELECT game_pk,
-                   FIRST_VALUE(pitcher) OVER (
-                       PARTITION BY game_pk ORDER BY at_bat_number, pitch_number
-                   ) AS starter_id
-            FROM pitches
-        ),
-        reliever_events AS (
+        WITH reliever_events AS (
             SELECT CAST(p.game_date AS DATE) AS game_date,
-                   p.game_pk, p.home_team, p.away_team, p.events
+                   p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                        ELSE p.away_team END AS fielding_team,
+                   p.events
             FROM pitches p
             JOIN first_pitchers fp ON p.game_pk = fp.game_pk
             WHERE p.pitcher != fp.starter_id
@@ -341,25 +349,55 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                   'catcher_interf','batter_interference',
                   'force_out','sacrifice_bunt_double_play')
         )
-        SELECT game_date, game_pk, home_team, away_team,
+        SELECT game_date, game_pk, fielding_team AS team,
             COUNT(*) / 3.0 AS bullpen_ip,
             SUM(CASE WHEN events IN ('strikeout','strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
             SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
             SUM(CASE WHEN events IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
             SUM(CASE WHEN events IN ('single','double','triple','home_run','walk','hit_by_pitch') THEN 1 ELSE 0 END) AS bullpen_runs
         FROM reliever_events
-        GROUP BY game_date, game_pk, home_team, away_team
+        GROUP BY game_date, game_pk, fielding_team
     """)
-
     con.execute("""
-        CREATE TABLE bullpen_team AS
-        SELECT game_date, game_pk, home_team AS team,
-               bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
-        FROM bullpen_raw
-        UNION ALL
-        SELECT game_date, game_pk, away_team AS team,
-               bullpen_ip, bullpen_ks, bullpen_bbs, bullpen_hits, bullpen_runs
-        FROM bullpen_raw
+        CREATE TABLE bp_daily AS
+        SELECT CAST(p.game_date AS DATE) AS day,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                    ELSE p.away_team END AS team,
+               COUNT(*) AS pitches,
+               COUNT(*) / 3.0 AS ip
+        FROM pitches p
+        JOIN first_pitchers fp ON p.game_pk = fp.game_pk
+        WHERE p.pitcher != fp.starter_id
+        GROUP BY 1, 2
+    """)
+    con.execute("""
+        CREATE TABLE bp_fatigue AS
+        WITH games AS (
+            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team, away_team FROM pitches
+        ),
+        home_load AS (
+            SELECT g.game_pk, SUM(d.pitches) AS pitches_3d, SUM(d.ip) AS ip_3d
+            FROM games g JOIN bp_daily d
+              ON d.team = g.home_team
+             AND d.day < g.gd AND d.day >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        ),
+        away_load AS (
+            SELECT g.game_pk, SUM(d.pitches) AS pitches_3d, SUM(d.ip) AS ip_3d
+            FROM games g JOIN bp_daily d
+              ON d.team = g.away_team
+             AND d.day < g.gd AND d.day >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        )
+        SELECT g.game_pk,
+               COALESCE(h.pitches_3d, 0) AS bullpen_pitches_3d_home,
+               COALESCE(h.ip_3d, 0) AS bullpen_ip_3d_home,
+               COALESCE(a.pitches_3d, 0) AS bullpen_pitches_3d_away,
+               COALESCE(a.ip_3d, 0) AS bullpen_ip_3d_away
+        FROM games g
+        LEFT JOIN home_load h ON g.game_pk = h.game_pk
+        LEFT JOIN away_load a ON g.game_pk = a.game_pk
     """)
     con.execute("""
         CREATE TABLE bullpen_shifted AS
@@ -368,7 +406,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             LAG(bullpen_hits, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_hits,
             LAG(bullpen_ip, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_ip,
             LAG(bullpen_runs, 1) OVER (PARTITION BY team ORDER BY game_date) AS _s_runs
-        FROM bullpen_team
+        FROM bullpen_raw
     """)
     con.execute("""
         CREATE TABLE bullpen_rolling AS
@@ -379,6 +417,124 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM bullpen_shifted
         WINDOW w AS (PARTITION BY team ORDER BY game_date
                      ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7b. Starter stuff trends — last-3-start fastball velo/mix, whiff rate,
+    # and season-to-date xwOBA allowed vs left/right-handed batters.
+    # All windows are LAG-shifted so the current game is excluded (point-in-time).
+    con.execute(f"""
+        CREATE TABLE pitcher_stuff_raw AS
+        WITH per_start AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
+                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
+                            THEN release_speed END) AS fb_velo,
+                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
+                            THEN 1.0 ELSE 0.0 END) AS fb_pct,
+                   COUNT(*) AS n_pitches,
+                   SUM(CASE WHEN description IN
+                            ('swinging_strike','swinging_strike_blocked')
+                            THEN 1 ELSE 0 END) AS whiffs,
+                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'L'
+                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_l,
+                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'R'
+                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_r
+            FROM pitches
+            GROUP BY game_date, game_pk, pitcher
+        )
+        SELECT *,
+            LAG(fb_velo, 1) OVER w AS _s_fb_velo,
+            LAG(fb_pct, 1) OVER w AS _s_fb_pct,
+            LAG(n_pitches, 1) OVER w AS _s_n,
+            LAG(whiffs, 1) OVER w AS _s_whiffs,
+            LAG(xwoba_vs_l, 1) OVER w AS _s_xl,
+            LAG(xwoba_vs_r, 1) OVER w AS _s_xr
+        FROM per_start
+        WINDOW w AS (PARTITION BY pitcher ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE pitcher_stuff AS
+        SELECT game_date, game_pk, pitcher,
+            AVG(_s_fb_velo) OVER w3 AS sp_fbvelo_3g,
+            AVG(_s_fb_pct) OVER w3 AS sp_fbpct_3g,
+            SUM(_s_whiffs) OVER w3 / NULLIF(SUM(_s_n) OVER w3, 0) AS sp_whiff_3g,
+            AVG(_s_xl) OVER wall AS sp_xwoba_vs_l,
+            AVG(_s_xr) OVER wall AS sp_xwoba_vs_r
+        FROM pitcher_stuff_raw
+        WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
+                      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
+               wall AS (PARTITION BY pitcher ORDER BY game_date
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7c. Team contact-form — barrel rate / hard-hit rate / avg exit velo over
+    # the trailing 15 games (LAG-shifted, excludes current game).
+    con.execute("""
+        CREATE TABLE team_contact_raw AS
+        WITH bip AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                   CASE WHEN inning_topbot = 'Top' THEN away_team
+                        ELSE home_team END AS batting_team,
+                   barrel, hard_contact, launch_speed
+            FROM pitches WHERE launch_speed IS NOT NULL
+        )
+        SELECT game_date, game_pk, batting_team,
+               AVG(CAST(barrel AS DOUBLE)) AS barrel_rate,
+               AVG(CAST(hard_contact AS DOUBLE)) AS hardhit_rate,
+               AVG(launch_speed) AS exitvelo
+        FROM bip
+        GROUP BY game_date, game_pk, batting_team
+    """)
+    con.execute("""
+        CREATE TABLE team_contact_shifted AS
+        SELECT *,
+            LAG(barrel_rate, 1) OVER w AS _s_barrel,
+            LAG(hardhit_rate, 1) OVER w AS _s_hardhit,
+            LAG(exitvelo, 1) OVER w AS _s_exitvelo
+        FROM team_contact_raw
+        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE team_contact_rolling AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_barrel) OVER w15 AS team_barrel_15g,
+            AVG(_s_hardhit) OVER w15 AS team_hardhit_15g,
+            AVG(_s_exitvelo) OVER w15 AS team_exitvelo_15g
+        FROM team_contact_shifted
+        WINDOW w15 AS (PARTITION BY batting_team ORDER BY game_date
+                       ROWS BETWEEN 14 PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7d. Opposing-lineup handedness share — fraction of a team's PAs taken by
+    # left-handed batters over the trailing 30 games. Paired with each
+    # starter's xwOBA-vs-L/R splits, tree models can learn platoon-fit
+    # interactions without raw player-name encoding.
+    con.execute(f"""
+        CREATE TABLE team_hand_raw AS
+        WITH pa AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                   CASE WHEN inning_topbot = 'Top' THEN away_team
+                        ELSE home_team END AS batting_team,
+                   stand
+            FROM pitches WHERE events IN ({PA_END_EVENTS})
+        )
+        SELECT game_date, game_pk, batting_team,
+               AVG(CASE WHEN stand = 'L' THEN 1.0 ELSE 0.0 END) AS lefty_share
+        FROM pa
+        GROUP BY game_date, game_pk, batting_team
+    """)
+    con.execute("""
+        CREATE TABLE team_hand_shifted AS
+        SELECT *, LAG(lefty_share, 1) OVER w AS _s_lefty
+        FROM team_hand_raw
+        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE team_hand_rolling AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_lefty) OVER w30 AS lineup_lefty_share_30g
+        FROM team_hand_shifted
+        WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
     """)
 
     # 8. Assemble game_level via LEFT JOINs
@@ -400,7 +556,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
             ta.team_k_rate_30g AS team_k_rate_30g_away, ta.team_bb_rate_30g AS team_bb_rate_30g_away,
             bh.bullpen_whip_10g AS bullpen_whip_10g_home, bh.bullpen_era_10g AS bullpen_era_10g_home,
-            ba.bullpen_whip_10g AS bullpen_whip_10g_away, ba.bullpen_era_10g AS bullpen_era_10g_away
+            ba.bullpen_whip_10g AS bullpen_whip_10g_away, ba.bullpen_era_10g AS bullpen_era_10g_away,
+            hst.sp_fbvelo_3g AS sp_fbvelo_3g_home, hst.sp_fbpct_3g AS sp_fbpct_3g_home,
+            hst.sp_whiff_3g AS sp_whiff_3g_home,
+            hst.sp_xwoba_vs_l AS sp_xwoba_vs_l_home, hst.sp_xwoba_vs_r AS sp_xwoba_vs_r_home,
+            ast.sp_fbvelo_3g AS sp_fbvelo_3g_away, ast.sp_fbpct_3g AS sp_fbpct_3g_away,
+            ast.sp_whiff_3g AS sp_whiff_3g_away,
+            ast.sp_xwoba_vs_l AS sp_xwoba_vs_l_away, ast.sp_xwoba_vs_r AS sp_xwoba_vs_r_away,
+            ch.team_barrel_15g AS team_barrel_15g_home, ch.team_hardhit_15g AS team_hardhit_15g_home,
+            ch.team_exitvelo_15g AS team_exitvelo_15g_home,
+            ca.team_barrel_15g AS team_barrel_15g_away, ca.team_hardhit_15g AS team_hardhit_15g_away,
+            ca.team_exitvelo_15g AS team_exitvelo_15g_away,
+            -- opp_lefty_share_* = the LINEUP THE OPPOSING STARTER FACES:
+            -- home col uses the AWAY team's batters (facing home starter).
+            hd.lineup_lefty_share_30g AS opp_lefty_share_home,
+            ha.lineup_lefty_share_30g AS opp_lefty_share_away,
+            bf.bullpen_pitches_3d_home, bf.bullpen_ip_3d_home,
+            bf.bullpen_pitches_3d_away, bf.bullpen_ip_3d_away
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -412,6 +584,13 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN team_offense_rolling ta ON w.game_pk = ta.game_pk AND w.away_team = ta.batting_team
         LEFT JOIN bullpen_rolling bh ON w.game_pk = bh.game_pk AND w.home_team = bh.team
         LEFT JOIN bullpen_rolling ba ON w.game_pk = ba.game_pk AND w.away_team = ba.team
+        LEFT JOIN pitcher_stuff hst ON w.game_pk = hst.game_pk AND hst.pitcher = s.home_starter_id
+        LEFT JOIN pitcher_stuff ast ON w.game_pk = ast.game_pk AND ast.pitcher = s.away_starter_id
+        LEFT JOIN team_contact_rolling ch ON w.game_pk = ch.game_pk AND w.home_team = ch.batting_team
+        LEFT JOIN team_contact_rolling ca ON w.game_pk = ca.game_pk AND w.away_team = ca.batting_team
+        LEFT JOIN team_hand_rolling hd ON w.game_pk = hd.game_pk AND w.away_team = hd.batting_team
+        LEFT JOIN team_hand_rolling ha ON w.game_pk = ha.game_pk AND w.home_team = ha.batting_team
+        LEFT JOIN bp_fatigue bf ON w.game_pk = bf.game_pk
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -421,7 +600,11 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         "game_winners", "starters", "venues", "rest_days",
         "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
-        "bullpen_raw", "bullpen_team", "bullpen_shifted", "bullpen_rolling",
+        "first_pitchers", "bullpen_raw", "bullpen_shifted", "bullpen_rolling",
+        "bp_daily", "bp_fatigue",
+        "pitcher_stuff_raw", "pitcher_stuff",
+        "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
+        "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
     ):
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
     gc.collect()
