@@ -112,15 +112,19 @@ if curve_df.empty:
     st.info("No calibration curve data available.")
 else:
     model_pts = alt.Chart(curve_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5).encode(
-        x=alt.X("mean_predicted:Q", title="Mean Predicted Probability (favorite)", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("mean_actual:Q", title="Mean Actual Win Rate", scale=alt.Scale(domain=[0, 1])),
+        x=alt.X("mean_predicted:Q", title="Predicted win probability", scale=alt.Scale(domain=[0.45, 1.0])),
+        y=alt.Y("mean_actual:Q", title="Actual win rate", scale=alt.Scale(domain=[0, 1])),
     )
-    diag_df = pd.DataFrame({"x": [0.0, 1.0], "y": [0.0, 1.0]})
+    diag_df = pd.DataFrame({"mean_predicted": [0.45, 1.0], "mean_actual": [0.45, 1.0]})
     diag = alt.Chart(diag_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x=alt.X("x:Q", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 1])),
+        x=alt.X("mean_predicted:Q", scale=alt.Scale(domain=[0.45, 1.0])),
+        y=alt.Y("mean_actual:Q", scale=alt.Scale(domain=[0, 1])),
     )
-    layer = alt.layer(diag, model_pts).properties(height=340)
+    # Shared scales + explicit container width: without these, layered
+    # charts fall back to natural size and collapse to a narrow strip.
+    layer = alt.layer(diag, model_pts).resolve_scale(x="shared", y="shared").properties(
+        width="container", height=340,
+    )
     utils.show_chart(layer)
     st.caption(f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal) · each game counted once from the favored side (probability ≥ 50%)")
 
@@ -141,7 +145,7 @@ else:
         y=alt.Y("accuracy_pct:Q", title="Actual Accuracy %", axis=alt.Axis(orient="right", grid=False),
                 scale=alt.Scale(domain=[0, 100])),
     )
-    combo = alt.layer(bars, line).resolve_scale(y="independent").properties(height=330)
+    combo = alt.layer(bars, line).resolve_scale(y="independent").properties(width="container", height=330)
     utils.show_chart(combo)
     st.caption("Blue bars: game count per bucket (left axis) · green line: actual accuracy % (right axis)")
 
