@@ -102,6 +102,11 @@ def _chunked_statcast(
     return chunks
 
 
+# Re-pull this many trailing days on every resume so games captured mid-game
+# (partial Statcast posts) get their real finals instead of frozen scores.
+REFRESH_TAIL_DAYS = 3
+
+
 def _cache_bounds(path: Path) -> tuple[date | None, date | None]:
     """(earliest, latest) game_date in a cached parquet; (None, None) if
     unreadable. Both ends are needed: the max detects stale tails (the usual
@@ -212,10 +217,21 @@ def pull_statcast(
 
             # Forward gap: cached_max+1 .. end
             if cached_hi is not None and cached_hi < end:
-                inc_start = cached_hi + timedelta(days=1)
+                # Re-pull the last REFRESH_TAIL_DAYS days even though they are
+                # already on disk: games captured while still IN PROGRESS
+                # (Savant posts innings progressively) would otherwise keep
+                # frozen scores and missing winners forever — the old top-up
+                # never revisited a day once cached. The merge dedupes on
+                # pitch identity keeping the NEWEST copy, so re-delivered
+                # finals overwrite the partial rows.
+                refresh_start = end - timedelta(days=REFRESH_TAIL_DAYS - 1)
+                inc_start = min(cached_hi + timedelta(days=1), refresh_start)
+                if inc_start < start:
+                    inc_start = start
                 logger.info(
-                    "Cache covers through %s — pulling increment %s → %s",
-                    cached_hi, inc_start, end,
+                    "Cache covers through %s — pulling %s → %s "
+                    "(includes %d-day tail refresh to fix in-progress games)",
+                    cached_hi, inc_start, end, REFRESH_TAIL_DAYS,
                 )
                 inc_chunks = _chunked_statcast(inc_start, end, chunk_days, pause_sec)
                 if not inc_chunks:

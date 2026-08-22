@@ -65,32 +65,37 @@ class TestPullStatcastCache(unittest.TestCase):
         self.assertEqual(result, self.out)
 
     def test_stale_cache_triggers_forward_topup(self):
-        old = _frame(["2026-08-19", "2026-08-20", "2026-08-21"])
+        old = _frame(["2026-08-19", "2026-08-20", "2026-08-21"], pks=[1, 2, 3])
         old.to_parquet(self.out, index=False)
-        new = _frame(["2026-08-22"], pks=[7777])
+
+        # The top-up re-pulls the last REFRESH_TAIL_DAYS days PLUS any new day:
+        # games cached mid-game must get their real finals.
+        def fake_pull(s, e, cd, ps):
+            assert (s, e) == (date(2026, 8, 20), date(2026, 8, 22))
+            return [_frame(["2026-08-20", "2026-08-21", "2026-08-22"],
+                           pks=[2, 4, 5])]
 
         with patch.object(
             ingestion, "_cache_bounds",
             return_value=(date(2025, 1, 1), date(2026, 8, 21)),
         ), patch.object(
-            ingestion, "_chunked_statcast",
-            side_effect=lambda s, e, cd, ps: [_frame([f"{s}"], pks=[7777])],
+            ingestion, "_chunked_statcast", side_effect=fake_pull,
         ) as mock_pull:
             ingestion.pull_statcast(
                 "2025-01-01", "2026-08-22", out_path=self.out,
                 chunk_days=60, pause_sec=0, resume=True,
             )
-        # Increment starts the day AFTER the cache's max date — never re-pulls
-        # the full 2025-01-01 range.
         mock_pull.assert_called_once()
         args = mock_pull.call_args[0]
-        self.assertEqual(args[0], date(2026, 8, 22))
+        self.assertEqual(args[0], date(2026, 8, 20))   # tail refresh window
         self.assertEqual(args[1], date(2026, 8, 22))
 
         merged = pd.read_parquet(self.out)
         dates = set(pd.to_datetime(merged["game_date"]).dt.date)
         self.assertEqual(dates, {date(2026, 8, 19), date(2026, 8, 20),
                                  date(2026, 8, 21), date(2026, 8, 22)})
+        # pks: cached 1,2,3 + re-delivered 2 (dupe) + new 4,5
+        self.assertEqual(sorted(merged["game_pk"]), [1, 2, 3, 4, 5])
 
     def test_earlier_start_extends_history_backwards(self):
         """Extending MLB_START_DATE earlier must back-fill the missing head,
@@ -116,6 +121,32 @@ class TestPullStatcastCache(unittest.TestCase):
         self.assertEqual(len(merged), 3)
         first = min(pd.to_datetime(merged["game_date"]).dt.date)
         self.assertEqual(first, date(2025, 3, 27))
+
+    def test_tail_refresh_fixes_partially_cached_games(self):
+        """A game cached mid-progress (one pitch) gains its missing innings
+        when the tail refresh re-delivers the completed game."""
+        partial = _frame(["2026-08-21"], pks=[9])
+        partial.to_parquet(self.out, index=False)
+        complete = pd.concat([
+            _frame(["2026-08-21"], pks=[9]),
+            _frame(["2026-08-21"], pks=[9]).assign(at_bat_number=[2], pitch_number=[3]),
+            _frame(["2026-08-22"], pks=[10]),
+        ], ignore_index=True)
+
+        with patch.object(
+            ingestion, "_cache_bounds",
+            return_value=(date(2026, 8, 19), date(2026, 8, 21)),
+        ), patch.object(
+            ingestion, "_chunked_statcast",
+            side_effect=lambda s, e, cd, ps: [complete],
+        ):
+            ingestion.pull_statcast(
+                "2026-08-19", "2026-08-22", out_path=self.out,
+                chunk_days=60, pause_sec=0, resume=True,
+            )
+        merged = pd.read_parquet(self.out)
+        self.assertEqual(len(merged[merged["game_pk"] == 9]), 2)   # full game
+        self.assertEqual(len(merged[merged["game_pk"] == 10]), 1)
 
     def test_overlap_rows_deduplicated(self):
         # Cache already contains Aug 21; the increment re-delivers it plus a
