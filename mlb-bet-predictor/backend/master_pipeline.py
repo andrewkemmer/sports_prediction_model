@@ -34,6 +34,10 @@ token = _load_github_token()
 #      Colab cell to override a single run without editing this file)
 #   2. Repo defaults below — end_date defaults to TODAY so daily runs never
 #      go stale and never need a commit just to move the window forward.
+#
+# Historical re-pull: set MLB_FULL_REPULL=1 to discard the cached
+# pitches.parquet and re-download the ENTIRE window cleanly (e.g. after a
+# schema/vendor change). Without it, resume logic only tops up missing days.
 def _env_date(key: str, fallback: str) -> str:
     val = os.environ.get(key, "").strip()
     return val or fallback
@@ -111,11 +115,14 @@ out_dir.mkdir(parents=True, exist_ok=True)
 pitches_path = out_dir / "pitches.parquet"
 
 print(f"📅 {start} → {end}")
+full_repull = os.environ.get("MLB_FULL_REPULL", "").strip().lower() in ("1", "true", "yes")
+if full_repull:
+    print("  ♻️  MLB_FULL_REPULL set — discarding cache and re-pulling full history")
 pull_statcast(
     start_date=start, end_date=end, out_path=pitches_path,
     chunk_days=CONFIG.get("statcast_chunk_days", 7),
     pause_sec=CONFIG.get("statcast_pause_sec", 2),
-    resume=True,
+    resume=not full_repull,
 )
 print(f"  ✅ Raw pitches: {pitches_path}")
 

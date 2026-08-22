@@ -77,11 +77,10 @@ def _chunked_statcast(
 ) -> list[pd.DataFrame]:
     """Pull Statcast in rate-limit-friendly chunks. Returns non-empty chunks.
 
-    Savant's ``game_date_gt`` / ``game_date_lt`` URL params are STRICTLY
-    exclusive, so a naive ``statcast(A, B)`` silently drops BOTH boundary
-    days (and ``statcast(D, D)`` returns nothing at all). Each wire query
-    is therefore widened by one day per side and the result trimmed back to
-    the chunk's true inclusive range.
+    Verified empirically against the live Savant CSV endpoint: gt/lt bounds
+    are INCLUSIVE (statcast(D, D) returns day D). Empty results for recent
+    dates mean Savant hasn't posted them yet — posting lags game completion
+    by hours to a day — NOT a query-semantics problem.
     """
     from pybaseball import statcast
 
@@ -91,19 +90,10 @@ def _chunked_statcast(
         chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
         logger.info("  Chunk: %s → %s", cursor, chunk_end)
         try:
-            df = statcast(
-                str(cursor - timedelta(days=1)),
-                str(chunk_end + timedelta(days=1)),
-            )
+            df = statcast(str(cursor), str(chunk_end))
             if df is not None and not df.empty:
-                df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
-                df = df[
-                    (df["game_date"].dt.date >= cursor)
-                    & (df["game_date"].dt.date <= chunk_end)
-                ]
-                if not df.empty:
-                    chunks.append(df)
-                    logger.info("    → %d pitches", len(df))
+                chunks.append(df)
+                logger.info("    → %d pitches", len(df))
         except Exception as e:
             logger.warning("    → Chunk failed: %s", e)
         cursor = chunk_end + timedelta(days=1)
@@ -112,14 +102,48 @@ def _chunked_statcast(
     return chunks
 
 
-def _cache_max_date(path: Path):
-    """Latest game_date in a cached parquet, or None if unreadable."""
+def _cache_bounds(path: Path) -> tuple[date | None, date | None]:
+    """(earliest, latest) game_date in a cached parquet; (None, None) if
+    unreadable. Both ends are needed: the max detects stale tails (the usual
+    daily case), the min detects a request to extend history earlier."""
     try:
-        mx = pd.read_parquet(path, columns=["game_date"])["game_date"].max()
-        return pd.Timestamp(mx).date() if pd.notna(mx) else None
+        gd = pd.read_parquet(path, columns=["game_date"])["game_date"]
+        lo = pd.Timestamp(gd.min()).date() if pd.notna(gd.min()) else None
+        hi = pd.Timestamp(gd.max()).date() if pd.notna(gd.max()) else None
+        return lo, hi
     except Exception as e:
-        logger.warning("Could not read cache max date from %s: %s", path, e)
-        return None
+        logger.warning("Could not read cache date bounds from %s: %s", path, e)
+        return None, None
+
+
+def _merge_and_save(
+    out: Path,
+    inc: pd.DataFrame,
+    existing_first: bool,
+) -> Path:
+    """Merge an increment with the existing cache, dedupe on pitch identity,
+    and overwrite the file. ``existing_first`` puts cache rows before the
+    increment so re-delivered rows resolve to the NEWER copy (keep=last)."""
+    existing = pd.read_parquet(out)
+    n_existing = len(existing)
+    parts = ([existing, inc] if existing_first else [inc, existing])
+    merged = pd.concat(parts, ignore_index=True)
+    del existing, inc
+    n_before_dedupe = len(merged)
+    merged = merged.drop_duplicates(
+        subset=[c for c in ("game_pk", "at_bat_number", "pitch_number")
+                if c in merged.columns],
+        keep="last",
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_parquet(out, index=False)
+    logger.info(
+        "Cache updated: %d pitches now (%d new vs old cache, %d overlap rows dropped) → %s",
+        len(merged), max(len(merged) - n_existing, 0),
+        n_before_dedupe - len(merged), out,
+    )
+    del merged
+    return out
 
 
 def pull_statcast(
@@ -139,9 +163,11 @@ def pull_statcast(
         chunk_days:  Days per API chunk (Statcast rate-limits large queries).
         pause_sec:   Seconds to pause between chunks.
         resume:      If True and a cached file exists, reuse it — but ONLY
-                     when its coverage reaches end_date. A stale cache gets
-                     an incremental top-up (cached_max+1 → end_date) instead
-                     of silently returning yesterday's data.
+                     when its coverage covers the full request. A stale tail
+                     gets a forward top-up (cached_max+1 → end); a requested
+                     start EARLIER than the cache's first day back-fills the
+                     head. Set resume=False (or MLB_FULL_REPULL=1 in
+                     master_pipeline) for a clean full historical re-pull.
 
     Returns:
         Path to the written Parquet file.
@@ -154,44 +180,59 @@ def pull_statcast(
     end = _to_date(end_date)
 
     if resume and out.exists():
-        cached_through = _cache_max_date(out)
-        if cached_through is not None and cached_through >= end:
-            logger.info("Cache fresh through %s — skipping pull", cached_through)
-            return out
-        if cached_through is None:
+        cached_lo, cached_hi = _cache_bounds(out)
+        if cached_hi is None:
             logger.warning("Existing cache unreadable — re-pulling full range")
+        elif cached_lo is not None and cached_lo <= start and cached_hi >= end:
+            logger.info(
+                "Cache fully covers %s → %s — skipping pull", cached_lo, cached_hi,
+            )
+            return out
         else:
-            inc_start = cached_through + timedelta(days=1)
-            logger.info(
-                "Cache covers through %s — pulling increment %s → %s",
-                cached_through, inc_start, end,
-            )
-            inc_chunks = _chunked_statcast(inc_start, end, chunk_days, pause_sec)
-            if not inc_chunks:
-                logger.warning("No new Statcast data since %s — keeping cache", cached_through)
-                return out
-            inc = _normalize_columns(pd.concat(inc_chunks, ignore_index=True))
-            del inc_chunks
-            inc = _downcast(inc)
-            existing = pd.read_parquet(out)
-            n_existing = len(existing)
-            merged = pd.concat([existing, inc], ignore_index=True)
-            del existing, inc
-            n_before_dedupe = len(merged)
-            merged = merged.drop_duplicates(
-                subset=[c for c in ("game_pk", "at_bat_number", "pitch_number")
-                        if c in merged.columns],
-                keep="last",
-            )
-            out.parent.mkdir(parents=True, exist_ok=True)
-            merged.to_parquet(out, index=False)
-            logger.info(
-                "Appended %d new pitches (%d overlap rows dropped) → %s",
-                max(len(merged) - n_existing, 0),
-                n_before_dedupe - len(merged),
-                out,
-            )
-            del merged
+            # Backward gap first (history extension): start .. cached_min-1
+            if cached_lo is not None and start < cached_lo:
+                back_end = cached_lo - timedelta(days=1)
+                logger.info(
+                    "Request starts before cache (%s < %s) — back-filling %s → %s",
+                    start, cached_lo, start, back_end,
+                )
+                chunks_back = _chunked_statcast(start, back_end, chunk_days, pause_sec)
+                if chunks_back:
+                    inc = _normalize_columns(pd.concat(chunks_back, ignore_index=True))
+                    del chunks_back
+                    inc = _downcast(inc)
+                    for col in UNUSED_COLS:
+                        if col in inc.columns:
+                            inc.drop(columns=[col], inplace=True)
+                    out = _merge_and_save(out, inc, existing_first=False)
+                else:
+                    logger.warning("No Statcast data found for %s → %s", start, back_end)
+                # Recompute bounds after prepending
+                cached_lo, cached_hi = _cache_bounds(out)
+
+            # Forward gap: cached_max+1 .. end
+            if cached_hi is not None and cached_hi < end:
+                inc_start = cached_hi + timedelta(days=1)
+                logger.info(
+                    "Cache covers through %s — pulling increment %s → %s",
+                    cached_hi, inc_start, end,
+                )
+                inc_chunks = _chunked_statcast(inc_start, end, chunk_days, pause_sec)
+                if not inc_chunks:
+                    logger.warning(
+                        "No Statcast data posted since %s yet — keeping cache "
+                        "(Savant lags game completion by hours to a day)",
+                        cached_hi,
+                    )
+                    return out
+                inc = _normalize_columns(pd.concat(inc_chunks, ignore_index=True))
+                del inc_chunks
+                inc = _downcast(inc)
+                for col in UNUSED_COLS:
+                    if col in inc.columns:
+                        inc.drop(columns=[col], inplace=True)
+                return _merge_and_save(out, inc, existing_first=True)
+
             return out
 
     logger.info("Pulling Statcast: %s → %s (chunk_days=%d)", start, end, chunk_days)
