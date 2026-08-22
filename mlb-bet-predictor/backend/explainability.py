@@ -29,6 +29,25 @@ logger = logging.getLogger(__name__)
 
 # ── SHAP per-game attributions ──────────────────────────────────────────────
 
+def _shap_vector(sv, n_cols: int):
+    """Normalize one member's explainer output to a length-n_cols vector.
+
+    Different explainers return different shapes for binary classification:
+      - XGBoost/LightGBM: (1, n_features) or list [class0, class1]
+      - sklearn RandomForest (recent shap): (1, n_features, 2)
+    Averaging raw outputs of mixed shapes is what crashed the pipeline with
+    'inhomogeneous shape'. Returns None when the output can't be reconciled.
+    """
+    if isinstance(sv, (list, tuple)):
+        sv = sv[-1]  # binary classifiers: last element = class 1
+    arr = np.asarray(sv, dtype=float)
+    if arr.ndim == 3:            # (batch, features, classes)
+        arr = arr[:, :, -1]
+    if arr.ndim == 2 and arr.shape[0] == 1:
+        arr = arr[0]
+    vec = arr.ravel()
+    return vec if vec.size == n_cols else None
+
 def compute_shap_per_game(
     models: dict[str, Any],
     games: pd.DataFrame,
@@ -57,24 +76,35 @@ def compute_shap_per_game(
     for idx, row in games.iterrows():
         game_id = row["game_id"]
         shap_values = {}
+        perspective_team = home if (home := row.get("home_team")) else "HOME"
 
         if has_shap:
             # Collect SHAP from tree-based models
             tree_shaps = []
             for name, model in models.items():
-                if name in ("scaler", "logistic"):
+                if name in ("scaler", "logistic", "impute_median"):
                     continue
                 try:
                     explainer = shap.TreeExplainer(model)
-                    sv = explainer.shap_values(X[idx:idx + 1])
-                    if isinstance(sv, list):
-                        sv = sv[1]  # For binary classification, class 1
-                    tree_shaps.append(sv.flatten())
+                    sv = _shap_vector(explainer.shap_values(X[idx:idx + 1]), len(cols))
+                    if sv is not None:
+                        tree_shaps.append(sv)
                 except Exception as e:
                     logger.debug("SHAP failed for %s on model %s: %s", game_id, name, e)
 
             if tree_shaps:
                 avg_shap = np.mean(tree_shaps, axis=0)
+                # FAVORED-team perspective: the model outputs P(home win).
+                # When the AWAY team is favored (p < 0.5), negate — shap
+                # values then describe the favorite's win probability, with
+                # positive = pushes the favorite toward winning. Consistent
+                # with the calibration page's favored-side view.
+                p_home = pd.to_numeric(pd.Series([row.get("home_win_prob_model")]),
+                                       errors="coerce").iloc[0]
+                if pd.notna(p_home) and float(p_home) < 0.5:
+                    avg_shap = -avg_shap
+                    away = row.get("away_team")
+                    perspective_team = away if isinstance(away, str) and away else "AWAY"
                 for i, col in enumerate(cols):
                     shap_values[col] = round(float(avg_shap[i]), 6)
             else:
@@ -93,6 +123,7 @@ def compute_shap_per_game(
                 "feature": feat,
                 "shap_value": val,
                 "signed_effect": "positive" if val > 0 else "negative",
+                "perspective_team": perspective_team,
             })
 
         df = pd.DataFrame(rows)

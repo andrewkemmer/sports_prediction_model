@@ -559,7 +559,7 @@ def shap_chart(shap_df: pd.DataFrame, max_features: int = 12) -> alt.Chart:
     # from empty per-layer scale extents in layered charts.
     pad = max(0.005, float(d["shap_value"].abs().max()) * 0.08)
     domain = [float(d["shap_value"].min()) - pad, float(d["shap_value"].max()) + pad]
-    x_enc = alt.X("shap_value:Q", title="SHAP value (P home win)", scale=alt.Scale(domain=domain))
+    x_enc = alt.X("shap_value:Q", title="SHAP value (favored team's win probability)", scale=alt.Scale(domain=domain))
 
     bars = alt.Chart(d).mark_bar(cornerRadiusEnd=3).encode(
         x=x_enc,

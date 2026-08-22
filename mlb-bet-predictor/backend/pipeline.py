@@ -512,7 +512,13 @@ def run_daily_pipeline(
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
-        compute_shap_per_game(best_models, target_games)
+        # SHAP must never take down the run: drift + model monitor are more
+        # important than per-game attributions, and artifacts from a failed
+        # step would otherwise go stale.
+        try:
+            compute_shap_per_game(best_models, target_games)
+        except Exception as e:
+            logger.error("SHAP computation failed (continuing): %s", e)
 
         # Feature drift: compare the last 7 days vs an ADJACENT season-local
         # window (~3x the current window, min 250 games). Comparing against
