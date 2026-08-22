@@ -74,12 +74,18 @@ def walk_forward_splits(
     games: pd.DataFrame,
     retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
     max_eval_folds: int = 0,
+    min_train_days: int = 0,
 ) -> list[dict[str, Any]]:
     """Generate expanding-window walk-forward train/val splits.
 
     Each validation window is `retrain_cadence_days` wide. The training set
     is all games strictly before the validation window start. Windows are
     non-overlapping and chronological.
+
+    Args:
+        min_train_days: Skip validation windows that start before this many
+            calendar days of history. Prevents tiny-training-set folds from
+            polluting pooled metrics with noise (default 0 = no warm-up).
 
     Returns a list of dicts with keys:
         train_games: DataFrame of training games
@@ -123,8 +129,9 @@ def walk_forward_splits(
     splits = []
     fold_idx = 0
 
-    # Start validation windows from the first date that has enough history
-    val_start_idx = retrain_cadence_days
+    # Start validation windows after the warm-up period so every fold has
+    # enough training history to produce meaningful predictions.
+    val_start_idx = max(retrain_cadence_days, min_train_days)
     while val_start_idx < len(unique_dates):
         val_start = unique_dates[val_start_idx]
         val_end_idx = min(val_start_idx + retrain_cadence_days, len(unique_dates))
@@ -398,13 +405,14 @@ def walk_forward_evaluate(
     retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
     max_eval_folds: int = 0,
     force_retrain: bool = False,
+    min_train_days: int = 0,
 ) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
     """Run full walk-forward evaluation across all splits.
 
     Returns:
         (best_models, pooled_metrics, all_predictions)
     """
-    splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds)
+    splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
 
     if not splits:
         logger.warning("No walk-forward splits generated; training on full data")
@@ -432,6 +440,13 @@ def walk_forward_evaluate(
         except Exception as e:
             logger.warning("Fold %d moneyline training failed: %s", split["fold_idx"], e)
             continue
+
+        logger.info(
+            "Fold %d [%s → %s]: train=%d val=%d auc=%.4f brier=%.4f",
+            split["fold_idx"],
+            str(split["val_start"])[:10], str(split["val_end"])[:10],
+            len(train), len(val), ml_metrics.get("auc", 0.5), ml_metrics.get("brier", 0.25),
+        )
 
         # Generate predictions for validation set
         cols = [c for c in FEATURE_COLS if c in val.columns]

@@ -142,6 +142,13 @@ try:
     # run_diff and maps columns to training.py's FEATURE_COLS format.
     train_games = load_game_features(csv_path)
     print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
+    key_feats = ["home_elo", "home_win_pct", "sp_era_30g_home", "woba_30g_home",
+                 "bullpen_whip_10g_home", "rest_days_home"]
+    cov = ", ".join(
+        f"{c}:{train_games[c].notna().mean()*100:.0f}%"
+        for c in key_feats if c in train_games.columns
+    )
+    print(f"  📊 Feature coverage: {cov}")
 
     target = end  # predict the last date in the range
     summary = run_daily_pipeline(
@@ -150,6 +157,7 @@ try:
         skip_sync=True,
         force_retrain=True,
         games=train_games,
+        min_train_days=30,  # warm-up: skip folds trained on < 30 days (~350 games)
     )
     print(f"  📊 Status: {summary['status']}")
     if summary.get("metrics"):
@@ -179,18 +187,24 @@ else:
         if CONFIG["git_name"]: repo.config_writer().set_value("user","name",CONFIG["git_name"]).release()
         data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"; data_delivery_dir.mkdir(exist_ok=True)
         staged = []
+        seen = set()
+
+        def _stage(src: Path, rel: str) -> None:
+            if rel not in seen:
+                seen.add(rel)
+                shutil.copy2(src, data_delivery_dir / Path(rel).name)
+                staged.append(rel)
+
         # Sync feature files
         for f in [csv_path, parquet_path]:
             if f.exists():
-                shutil.copy2(f, data_delivery_dir / f.name)
-                staged.append(f"mlb-bet-predictor/data_delivery/{f.name}")
+                _stage(f, f"mlb-bet-predictor/data_delivery/{f.name}")
         # Sync training artifacts (pipeline saves to data_delivery/ in CWD)
         data_delivery_local = Path.cwd() / "data_delivery"
         if data_delivery_local.exists():
             for artifact in data_delivery_local.glob("*"):
                 if artifact.is_file():
-                    shutil.copy2(artifact, data_delivery_dir / artifact.name)
-                    staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
+                    _stage(artifact, f"mlb-bet-predictor/data_delivery/{artifact.name}")
         print(f"  📋 Staging {len(staged)} files:")
         for s in staged:
             print(f"    {s}")

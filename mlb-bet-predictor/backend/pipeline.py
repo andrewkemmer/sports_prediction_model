@@ -221,6 +221,7 @@ def run_daily_pipeline(
     max_eval_folds: int = 0,
     version: str = "v3.2.1",
     games: Optional[pd.DataFrame] = None,
+    min_train_days: int = 0,
 ) -> dict[str, Any]:
     """Run the full daily pipeline.
 
@@ -233,6 +234,8 @@ def run_daily_pipeline(
         version: Model version string.
         games: Pre-built game DataFrame (from features.py). When provided,
                skips load_game_events() and uses this data for training.
+        min_train_days: Warm-up period — skip validation folds that start
+               before this many days of history (prevents tiny-training-fold noise).
 
     Returns:
         Summary dict with keys: status, artifacts, metrics, sync, errors
@@ -282,6 +285,7 @@ def run_daily_pipeline(
                 train_games,
                 max_eval_folds=max_eval_folds,
                 force_retrain=force_retrain,
+                min_train_days=min_train_days,
             )
             logger.info("Walk-forward metrics: %s", pooled_metrics)
 
