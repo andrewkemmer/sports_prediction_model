@@ -1,0 +1,608 @@
+{
+  "date": "20260822",
+  "version": "v3.2.1",
+  "last_retrained": "2026-08-22",
+  "next_retrain": "2026-08-29",
+  "metrics": {
+    "auc": 0.5379,
+    "brier": 0.2627,
+    "logloss": 0.725,
+    "ece": 0.092
+  },
+  "drift_summary": {
+    "warnings": 17,
+    "alerts": 12,
+    "features": [
+      "home_elo",
+      "home_win_pct",
+      "away_win_pct",
+      "sp_era_home",
+      "woba_30g_home",
+      "woba_30g_away",
+      "bullpen_whip_10g_away",
+      "sp_era_30g_home",
+      "home_run_diff",
+      "away_run_diff",
+      "sp_fbvelo_3g_away",
+      "sp_xwoba_vs_l_home",
+      "sp_xwoba_vs_r_home",
+      "sp_xwoba_vs_r_away",
+      "team_barrel_15g_home",
+      "team_barrel_15g_away",
+      "team_hardhit_15g_home",
+      "team_hardhit_15g_away",
+      "team_exitvelo_15g_home",
+      "team_exitvelo_15g_away",
+      "opp_lefty_share_home",
+      "opp_lefty_share_away",
+      "bullpen_ip_3d_home",
+      "lineup_woba_mean_home",
+      "lineup_woba_mean_away",
+      "lineup_woba_top3_home",
+      "lineup_woba_top3_away",
+      "lineup_woba_std_home",
+      "lineup_woba_std_away"
+    ]
+  },
+  "feature_drift": [
+    {
+      "feature": "home_elo",
+      "current_mean": 1504.3665,
+      "baseline_mean": 1501.4939,
+      "psi": 0.182055,
+      "status": "WARN",
+      "n_baseline": 4595,
+      "n_current": 95
+    },
+    {
+      "feature": "home_win_pct",
+      "current_mean": 0.5007,
+      "baseline_mean": 0.4996,
+      "psi": 0.369991,
+      "status": "ALERT",
+      "n_baseline": 4595,
+      "n_current": 95
+    },
+    {
+      "feature": "away_win_pct",
+      "current_mean": 0.4967,
+      "baseline_mean": 0.499,
+      "psi": 0.337957,
+      "status": "ALERT",
+      "n_baseline": 4595,
+      "n_current": 95
+    },
+    {
+      "feature": "sp_era_home",
+      "current_mean": 7.9757,
+      "baseline_mean": 8.1588,
+      "psi": 0.149526,
+      "status": "WARN",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_era_away",
+      "current_mean": 7.4702,
+      "baseline_mean": 8.2343,
+      "psi": 0.081581,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "sp_k9_home",
+      "current_mean": 8.676,
+      "baseline_mean": 8.7512,
+      "psi": 0.095511,
+      "status": "OK",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_k9_away",
+      "current_mean": 8.4658,
+      "baseline_mean": 8.7456,
+      "psi": 0.056524,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "woba_30g_home",
+      "current_mean": 0.3008,
+      "baseline_mean": 0.3039,
+      "psi": 0.222688,
+      "status": "WARN",
+      "n_baseline": 4582,
+      "n_current": 95
+    },
+    {
+      "feature": "woba_30g_away",
+      "current_mean": 0.2986,
+      "baseline_mean": 0.3038,
+      "psi": 0.11437,
+      "status": "WARN",
+      "n_baseline": 4578,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_10g_home",
+      "current_mean": 1.3456,
+      "baseline_mean": 1.364,
+      "psi": 0.098697,
+      "status": "OK",
+      "n_baseline": 4564,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_10g_away",
+      "current_mean": 1.3353,
+      "baseline_mean": 1.3569,
+      "psi": 0.211501,
+      "status": "WARN",
+      "n_baseline": 4549,
+      "n_current": 94
+    },
+    {
+      "feature": "rest_days_home",
+      "current_mean": 1.1158,
+      "baseline_mean": 1.697,
+      "psi": 0.006583,
+      "status": "OK",
+      "n_baseline": 4581,
+      "n_current": 95
+    },
+    {
+      "feature": "rest_days_away",
+      "current_mean": 1.1158,
+      "baseline_mean": 1.6877,
+      "psi": 0.002457,
+      "status": "OK",
+      "n_baseline": 4579,
+      "n_current": 95
+    },
+    {
+      "feature": "sp_era_30g_home",
+      "current_mean": 7.9757,
+      "baseline_mean": 8.1588,
+      "psi": 0.149526,
+      "status": "WARN",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_era_30g_away",
+      "current_mean": 7.4702,
+      "baseline_mean": 8.2343,
+      "psi": 0.081581,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "sp_k9_30g_home",
+      "current_mean": 8.676,
+      "baseline_mean": 8.7512,
+      "psi": 0.095511,
+      "status": "OK",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_k9_30g_away",
+      "current_mean": 8.4658,
+      "baseline_mean": 8.7456,
+      "psi": 0.056524,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "home_run_diff",
+      "current_mean": 3.0842,
+      "baseline_mean": 1.0292,
+      "psi": 0.449256,
+      "status": "ALERT",
+      "n_baseline": 4595,
+      "n_current": 95
+    },
+    {
+      "feature": "away_run_diff",
+      "current_mean": -9.4105,
+      "baseline_mean": 1.4773,
+      "psi": 0.796179,
+      "status": "ALERT",
+      "n_baseline": 4595,
+      "n_current": 95
+    },
+    {
+      "feature": "sp_fbvelo_3g_home",
+      "current_mean": 94.0897,
+      "baseline_mean": 94.0095,
+      "psi": 0.076423,
+      "status": "OK",
+      "n_baseline": 4399,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_fbvelo_3g_away",
+      "current_mean": 94.2588,
+      "baseline_mean": 94.0349,
+      "psi": 0.173795,
+      "status": "WARN",
+      "n_baseline": 4386,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_fbpct_3g_home",
+      "current_mean": 0.4621,
+      "baseline_mean": 0.463,
+      "psi": 0.04423,
+      "status": "OK",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_fbpct_3g_away",
+      "current_mean": 0.4765,
+      "baseline_mean": 0.4606,
+      "psi": 0.045247,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "sp_whiff_3g_home",
+      "current_mean": 0.1078,
+      "baseline_mean": 0.1075,
+      "psi": 0.086639,
+      "status": "OK",
+      "n_baseline": 4434,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_whiff_3g_away",
+      "current_mean": 0.1065,
+      "baseline_mean": 0.1079,
+      "psi": 0.020171,
+      "status": "OK",
+      "n_baseline": 4440,
+      "n_current": 94
+    },
+    {
+      "feature": "sp_xwoba_vs_l_home",
+      "current_mean": 0.3117,
+      "baseline_mean": 0.3171,
+      "psi": 0.102954,
+      "status": "WARN",
+      "n_baseline": 4287,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_xwoba_vs_l_away",
+      "current_mean": 0.3128,
+      "baseline_mean": 0.3155,
+      "psi": 0.099127,
+      "status": "OK",
+      "n_baseline": 4286,
+      "n_current": 94
+    },
+    {
+      "feature": "sp_xwoba_vs_r_home",
+      "current_mean": 0.3059,
+      "baseline_mean": 0.3127,
+      "psi": 0.135532,
+      "status": "WARN",
+      "n_baseline": 4287,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_xwoba_vs_r_away",
+      "current_mean": 0.3156,
+      "baseline_mean": 0.312,
+      "psi": 0.208437,
+      "status": "WARN",
+      "n_baseline": 4287,
+      "n_current": 94
+    },
+    {
+      "feature": "team_barrel_15g_home",
+      "current_mean": 0.0236,
+      "baseline_mean": 0.0259,
+      "psi": 0.112796,
+      "status": "WARN",
+      "n_baseline": 4532,
+      "n_current": 95
+    },
+    {
+      "feature": "team_barrel_15g_away",
+      "current_mean": 0.0211,
+      "baseline_mean": 0.0258,
+      "psi": 0.258003,
+      "status": "ALERT",
+      "n_baseline": 4527,
+      "n_current": 95
+    },
+    {
+      "feature": "team_hardhit_15g_home",
+      "current_mean": 0.3793,
+      "baseline_mean": 0.4021,
+      "psi": 0.653039,
+      "status": "ALERT",
+      "n_baseline": 4532,
+      "n_current": 95
+    },
+    {
+      "feature": "team_hardhit_15g_away",
+      "current_mean": 0.3787,
+      "baseline_mean": 0.4022,
+      "psi": 0.51088,
+      "status": "ALERT",
+      "n_baseline": 4527,
+      "n_current": 95
+    },
+    {
+      "feature": "team_exitvelo_15g_home",
+      "current_mean": 87.8115,
+      "baseline_mean": 88.524,
+      "psi": 0.465228,
+      "status": "ALERT",
+      "n_baseline": 4532,
+      "n_current": 95
+    },
+    {
+      "feature": "team_exitvelo_15g_away",
+      "current_mean": 87.97,
+      "baseline_mean": 88.5469,
+      "psi": 0.246596,
+      "status": "WARN",
+      "n_baseline": 4527,
+      "n_current": 95
+    },
+    {
+      "feature": "opp_lefty_share_home",
+      "current_mean": 0.5047,
+      "baseline_mean": 0.4553,
+      "psi": 0.740544,
+      "status": "ALERT",
+      "n_baseline": 4578,
+      "n_current": 95
+    },
+    {
+      "feature": "opp_lefty_share_away",
+      "current_mean": 0.4854,
+      "baseline_mean": 0.4558,
+      "psi": 0.435318,
+      "status": "ALERT",
+      "n_baseline": 4582,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_pitches_3d_home",
+      "current_mean": 173.6526,
+      "baseline_mean": 164.399,
+      "psi": 0.04048,
+      "status": "OK",
+      "n_baseline": 4511,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_pitches_3d_away",
+      "current_mean": 158.4526,
+      "baseline_mean": 160.8382,
+      "psi": 0.077065,
+      "status": "OK",
+      "n_baseline": 4524,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_ip_3d_home",
+      "current_mean": 9.9123,
+      "baseline_mean": 9.4234,
+      "psi": 0.173656,
+      "status": "WARN",
+      "n_baseline": 4511,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_ip_3d_away",
+      "current_mean": 9.1333,
+      "baseline_mean": 9.126,
+      "psi": 0.027465,
+      "status": "OK",
+      "n_baseline": 4524,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_mean_home",
+      "current_mean": 0.3464,
+      "baseline_mean": 0.3507,
+      "psi": 0.200899,
+      "status": "WARN",
+      "n_baseline": 4574,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_mean_away",
+      "current_mean": 0.3446,
+      "baseline_mean": 0.3503,
+      "psi": 0.280743,
+      "status": "ALERT",
+      "n_baseline": 4577,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_top3_home",
+      "current_mean": 0.3567,
+      "baseline_mean": 0.362,
+      "psi": 0.242356,
+      "status": "WARN",
+      "n_baseline": 4574,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_top3_away",
+      "current_mean": 0.3508,
+      "baseline_mean": 0.3615,
+      "psi": 0.269509,
+      "status": "ALERT",
+      "n_baseline": 4577,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_std_home",
+      "current_mean": 0.0289,
+      "baseline_mean": 0.0284,
+      "psi": 0.16233,
+      "status": "WARN",
+      "n_baseline": 4573,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_std_away",
+      "current_mean": 0.0277,
+      "baseline_mean": 0.0284,
+      "psi": 0.113904,
+      "status": "WARN",
+      "n_baseline": 4577,
+      "n_current": 95
+    }
+  ],
+  "ensemble": [
+    {
+      "name": "xgboost",
+      "weight": 0.4,
+      "auc": 0.526,
+      "brier": 0.2737,
+      "logloss": 0.7544,
+      "n_eval": 3980
+    },
+    {
+      "name": "lightgbm",
+      "weight": 0.4,
+      "auc": 0.5337,
+      "brier": 0.2723,
+      "logloss": 0.755,
+      "n_eval": 3980
+    },
+    {
+      "name": "logistic",
+      "weight": 0.2,
+      "auc": 0.5508,
+      "brier": 0.2536,
+      "logloss": 0.705,
+      "n_eval": 3980
+    }
+  ],
+  "model_history": [
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5,
+      "brier": 0.25,
+      "logloss": 0.69,
+      "ece": 0.0,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.4762,
+      "brier": 0.2661,
+      "logloss": 0.7343,
+      "ece": 0.1066,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5,
+      "brier": 0.0622,
+      "logloss": 0.2449,
+      "ece": 0.0015,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5033,
+      "brier": 0.2774,
+      "logloss": 0.7611,
+      "ece": 0.1517,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.489,
+      "brier": 0.2783,
+      "logloss": 0.7613,
+      "ece": 0.1352,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.489,
+      "brier": 0.2783,
+      "logloss": 0.7613,
+      "ece": 0.1352,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5187,
+      "brier": 0.2578,
+      "logloss": 0.7109,
+      "ece": 0.0824,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5187,
+      "brier": 0.2578,
+      "logloss": 0.7109,
+      "ece": 0.0824,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5391,
+      "brier": 0.2555,
+      "logloss": 0.707,
+      "ece": 0.0767,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5389,
+      "brier": 0.256,
+      "logloss": 0.7086,
+      "ece": 0.0751,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5379,
+      "brier": 0.2627,
+      "logloss": 0.725,
+      "ece": 0.092,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5379,
+      "brier": 0.2627,
+      "logloss": 0.725,
+      "ece": 0.092,
+      "notes": ""
+    }
+  ]
+}
