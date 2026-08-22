@@ -30,7 +30,7 @@ def _load_github_token() -> str:
 token = _load_github_token()
 
 CONFIG = {
-    "start_date": "2026-06-01",
+    "start_date": "2025-01-01",
     "end_date":   "2026-08-21",
     "github_username": "andrewkemmer",
     "github_repo":     "sports_prediction_model",
