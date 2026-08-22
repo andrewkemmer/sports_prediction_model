@@ -65,6 +65,142 @@ def source_label() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Team names + display-column normalization
+# ---------------------------------------------------------------------------
+
+MLB_TEAM_NAMES = {
+    "NYY": "New York Yankees", "BOS": "Boston Red Sox", "TB": "Tampa Bay Rays",
+    "TOR": "Toronto Blue Jays", "BAL": "Baltimore Orioles", "CLE": "Cleveland Guardians",
+    "DET": "Detroit Tigers", "MIN": "Minnesota Twins", "CWS": "Chicago White Sox",
+    "KC": "Kansas City Royals", "HOU": "Houston Astros", "SEA": "Seattle Mariners",
+    "TEX": "Texas Rangers", "LAA": "Los Angeles Angels", "ATH": "Athletics",
+    "OAK": "Oakland Athletics", "ATL": "Atlanta Braves", "PHI": "Philadelphia Phillies",
+    "NYM": "New York Mets", "MIA": "Miami Marlins", "WSH": "Washington Nationals",
+    "MIL": "Milwaukee Brewers", "CHC": "Chicago Cubs", "STL": "St. Louis Cardinals",
+    "PIT": "Pittsburgh Pirates", "CIN": "Cincinnati Reds", "LAD": "Los Angeles Dodgers",
+    "SD": "San Diego Padres", "SF": "San Francisco Giants", "AZ": "Arizona Diamondbacks",
+    "ARI": "Arizona Diamondbacks", "COL": "Colorado Rockies",
+}
+
+COIN_FLIP_THRESHOLD = 0.02   # |p − 0.5| below this → coin flip
+UPSET_PROB_THRESHOLD = 0.35  # winner's model prob below this → upset
+
+
+def _is_evening_start(iso) -> bool:
+    """True if the game starts at 7 PM ET or later."""
+    try:
+        ts = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+        et = ts.astimezone(ZoneInfo("America/New_York"))
+        return et.hour >= 19
+    except (ValueError, TypeError):
+        return False
+
+
+def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
+    """Derive every display column the dashboard cards expect.
+
+    The training pipeline emits a compact per-game CSV (probabilities,
+    market lines, model pick, outcome). This fills the presentation-layer
+    gaps so pages never KeyError on missing columns:
+
+      game_status     Final when an outcome exists, otherwise Live
+      evening_game    starts 7 PM ET or later
+      day_game        inverse of evening_game
+      *_team_name     full names from abbreviations
+      model_correct   pick matched the actual result (final games)
+      is_upset        winner's model probability ≤ 35%
+      is_coin_flip    |p − 0.5| < 2 pts or no pick
+      home/away_score merged from game_level_features.csv when absent
+      final_inning    empty (inning detail not in pipeline artifacts yet)
+    """
+    df = df.copy()
+
+    # Outcome flag: 1.0 home won, 0.0 away won, NaN no result yet
+    win = pd.to_numeric(df.get("home_win"), errors="coerce")
+
+    if "game_status" not in df.columns:
+        df["game_status"] = win.notna().map({True: "Final", False: "Live"})
+
+    if "evening_game" not in df.columns and "start_time_utc" in df.columns:
+        df["evening_game"] = df["start_time_utc"].map(_is_evening_start)
+    if "day_game" not in df.columns and "evening_game" in df.columns:
+        df["day_game"] = ~df["evening_game"].astype(bool)
+
+    for abbr_col, name_col in (("home_team", "home_team_name"),
+                               ("away_team", "away_team_name")):
+        if name_col not in df.columns and abbr_col in df.columns:
+            df[name_col] = df[abbr_col].map(MLB_TEAM_NAMES).fillna("")
+
+    if "final_inning" not in df.columns:
+        df["final_inning"] = ""
+
+    # Model pick + correctness
+    if "model_pick" not in df.columns:
+        ph = pd.to_numeric(df.get("home_win_prob_model"), errors="coerce")
+        df["model_pick"] = ""
+        df.loc[ph >= 0.5, "model_pick"] = df.loc[ph >= 0.5, "home_team"]
+        df.loc[ph < 0.5, "model_pick"] = df.loc[ph < 0.5, "away_team"]
+    pick = df["model_pick"].fillna("").astype(str)
+
+    actual = pd.Series(pd.NA, index=df.index, dtype="object")
+    finished = win.notna()
+    actual = actual.mask(finished & (win == 1), df["home_team"])
+    actual = actual.mask(finished & (win == 0), df["away_team"])
+    if "model_correct" not in df.columns:
+        df["model_correct"] = finished & (pick == actual)
+
+    probs = pd.to_numeric(df.get("home_win_prob_model"), errors="coerce")
+    winner_prob = probs.where(actual == df["home_team"], 1 - probs)
+    if "is_upset" not in df.columns:
+        df["is_upset"] = finished & (winner_prob <= UPSET_PROB_THRESHOLD)
+    if "is_coin_flip" not in df.columns:
+        df["is_coin_flip"] = (pick == "") | (
+            (probs - 0.5).abs() < COIN_FLIP_THRESHOLD
+        )
+
+    # Fill missing final scores from game_level_features.csv (keyed by game_id)
+    if "game_id" in df.columns:
+        scores = _load_scores()
+        if not scores.empty:
+            df = df.merge(scores, on="game_id", how="left", suffixes=("", "_feat"))
+            for col in ("home_score", "away_score"):
+                if f"{col}_feat" in df.columns:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(
+                            pd.to_numeric(df[f"{col}_feat"], errors="coerce"))
+                    else:
+                        df[col] = df[f"{col}_feat"]
+                    df.drop(columns=[f"{col}_feat"], inplace=True)
+
+    return df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_scores() -> pd.DataFrame:
+    """Per-game final scores from game_level_features.csv (optional merge).
+
+    Returns a two-column frame keyed by game_id ('YYYYMMDD_AWAY@HOME');
+    empty frame when the artifact is unavailable.
+    """
+    cfg = get_source_config()
+    data, src = _fetch_bytes("game_level_features.csv", **cfg)
+    if data is None:
+        return pd.DataFrame(columns=["game_id", "home_score", "away_score"])
+    try:
+        gl = pd.read_csv(io.BytesIO(data),
+                         usecols=lambda c: c in ("game_pk", "game_date",
+                                                 "home_team", "away_team",
+                                                 "home_score", "away_score"))
+        d = pd.to_datetime(gl["game_date"], errors="coerce").dt.strftime("%Y%m%d")
+        gl["game_id"] = d + "_" + gl["away_team"].astype(str) + "@" + gl["home_team"].astype(str)
+        return gl[["game_id", "home_score", "away_score"]]
+    except Exception:
+        return pd.DataFrame(columns=["game_id", "home_score", "away_score"])
+
+
+# ---------------------------------------------------------------------------
 # Artifact loading (GitHub raw -> local sample fallback)
 # ---------------------------------------------------------------------------
 
@@ -126,7 +262,7 @@ def load_todays_games(date_str: str) -> pd.DataFrame:
     for col in ["home_team_name", "away_team_name", "model_pick", "final_inning", "venue"]:
         if col in df.columns:
             df[col] = df[col].fillna("")
-    return df
+    return normalize_games(df)
 
 
 def load_power_rankings(date_str: str) -> pd.DataFrame:
@@ -135,7 +271,13 @@ def load_power_rankings(date_str: str) -> pd.DataFrame:
     st.session_state["data_source"] = src
     if data is None:
         return pd.DataFrame()
-    return pd.read_csv(io.BytesIO(data))
+    df = pd.read_csv(io.BytesIO(data))
+    # Backend writes wins/losses; page reads w/l — accept either spelling.
+    if "w" not in df.columns and "wins" in df.columns:
+        df["w"] = df["wins"]
+    if "l" not in df.columns and "losses" in df.columns:
+        df["l"] = df["losses"]
+    return df
 
 
 def load_calibration(date_str: str) -> dict:
