@@ -162,6 +162,18 @@ else:
             f"<td>{r['mean_actual']:.3f}</td><td>{int(r['count'])}</td>"
             f"<td style='color:{gap_color};font-weight:700;'>{gap_txt}</td></tr>"
         )
+    # TOTAL row: overall win rate across ALL predictions, count-weighted
+    n_tot = int(curve_df["count"].sum())
+    if n_tot > 0:
+        mp_tot = float((curve_df["mean_predicted"] * curve_df["count"]).sum() / n_tot)
+        ma_tot = float((curve_df["mean_actual"] * curve_df["count"]).sum() / n_tot)
+        gap_tot = mp_tot - ma_tot
+        tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
+        rows.append(
+            f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
+            f"<td>{mp_tot:.3f}</td><td>{ma_tot:.3f}</td><td>{n_tot}</td>"
+            f"<td style='color:{tot_color};font-weight:700;'>{gap_tot:+.3f}</td></tr>"
+        )
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
