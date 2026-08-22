@@ -97,12 +97,41 @@ gc.collect()
 _banner("PHASE 4", "Training + Prediction")
 try:
     from pipeline import run_daily_pipeline
+    from data_ingestion import load_game_features
+
+    # Map DuckDB feature columns to training.py format
+    csv_path = out_dir / "game_level_features.csv"
+    if csv_path.exists():
+        train_games = load_game_features(csv_path)
+    else:
+        train_games = game_df.copy()
+        # Column mapping for training.py FEATURE_COLS
+        train_games["game_id"] = train_games.apply(
+            lambda r: f"{pd.Timestamp(r['game_date']).strftime('%Y%m%d')}_{r.get('away_team','?')}@{r['home_team']}", axis=1)
+        train_games["start_time_utc"] = pd.to_datetime(train_games["game_date"])
+        train_games["woba_30g_home"] = train_games.get("team_woba_30g_home", 0)
+        train_games["woba_30g_away"] = train_games.get("team_woba_30g_away", 0)
+        train_games["sp_era_30g_home"] = train_games.get("sp_era_home", 0)
+        train_games["sp_era_30g_away"] = train_games.get("sp_era_away", 0)
+        train_games["sp_k9_30g_home"] = train_games.get("sp_k9_home", 0)
+        train_games["sp_k9_30g_away"] = train_games.get("sp_k9_away", 0)
+        train_games["home_elo"] = 1500.0
+        train_games["home_win_pct"] = 0.5
+        train_games["away_win_pct"] = 0.5
+        train_games["home_run_diff"] = 0
+        train_games["away_run_diff"] = 0
+        train_games["home_record"] = "0-0"
+        train_games["away_record"] = "0-0"
+
+    print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
+
     target = end  # predict the last date in the range
     summary = run_daily_pipeline(
         target_date=target,
         real=True,
         skip_sync=True,
         force_retrain=True,
+        games=train_games,
     )
     print(f"  📊 Status: {summary['status']}")
     if summary.get("metrics"):

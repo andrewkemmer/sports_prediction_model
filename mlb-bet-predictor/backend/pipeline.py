@@ -220,6 +220,7 @@ def run_daily_pipeline(
     force_retrain: bool = False,
     max_eval_folds: int = 0,
     version: str = "v3.2.1",
+    games: Optional[pd.DataFrame] = None,
 ) -> dict[str, Any]:
     """Run the full daily pipeline.
 
@@ -230,6 +231,8 @@ def run_daily_pipeline(
         force_retrain: Retrain regardless of cadence.
         max_eval_folds: Cap walk-forward folds (0 = full history).
         version: Model version string.
+        games: Pre-built game DataFrame (from features.py). When provided,
+               skips load_game_events() and uses this data for training.
 
     Returns:
         Summary dict with keys: status, artifacts, metrics, sync, errors
@@ -248,8 +251,11 @@ def run_daily_pipeline(
 
     try:
         # 1. Ingest game events
-        logger.info("Step 1: Loading game events (real=%s)", real)
-        games = load_game_events(target_date, real=real)
+        if games is not None and not games.empty:
+            logger.info("Step 1: Using pre-built game features (%d games)", len(games))
+        else:
+            logger.info("Step 1: Loading game events (real=%s)", real)
+            games = load_game_events(target_date, real=real)
         if games.empty:
             summary["status"] = "error"
             summary["errors"].append("No game events loaded")

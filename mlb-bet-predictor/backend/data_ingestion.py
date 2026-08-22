@@ -643,3 +643,132 @@ def load_game_events(target_date: date, real: bool = False, seed: int = RANDOM_S
     if real:
         return load_real_game_events(target_date)
     return generate_synthetic_games(target_date, seed=seed)
+
+
+def load_game_features(path: str | Path) -> pd.DataFrame:
+    """Load game-level features from DuckDB output and map columns for training.
+
+    The features.py module produces a game_level_features.csv with columns like:
+        game_pk, game_date, home_team, away_team, home_win, total_runs,
+        sp_era_home, team_woba_30g_home, bullpen_whip_10g_home, etc.
+
+    This function maps those to the column names expected by training.py:
+        game_id, home_elo, home_win_pct, away_win_pct,
+        woba_30g_home, sp_era_30g_home, sp_k9_30g_home, etc.
+
+    It also computes ELO, win percentage, and run differential from the data.
+    """
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Features file not found: {p}")
+
+    if p.suffix == ".csv":
+        df = pd.read_csv(p)
+    else:
+        df = pd.read_parquet(p)
+
+    logger.info("Loaded %d games from %s (columns: %s)", len(df), p.name, list(df.columns))
+
+    # Ensure game_date is datetime
+    df["game_date"] = pd.to_datetime(df["game_date"])
+    df = df.sort_values("game_date").reset_index(drop=True)
+
+    # Add game_id if missing
+    if "game_id" not in df.columns:
+        df["game_id"] = df.apply(
+            lambda r: f"{pd.Timestamp(r['game_date']).strftime('%Y%m%d')}_{r.get('away_team','?')}@{r['home_team']}",
+            axis=1,
+        )
+
+    # Add start_time_utc if missing (use game_date at 19:00 UTC)
+    if "start_time_utc" not in df.columns:
+        df["start_time_utc"] = df["game_date"].apply(
+            lambda d: datetime.combine(d.date(), datetime.min.time().replace(hour=19))
+            if pd.notna(d) else None
+        )
+
+    # Compute ELO from game results (PIT-safe: chronological)
+    df["home_elo"] = compute_elos(df)
+    df["home_elo"] = df["home_elo"].fillna(1500.0)
+
+    # Compute win percentages and records from cumulative results
+    team_records: dict[str, dict[str, int]] = {}
+    home_wins_list = []
+    home_losses_list = []
+    away_wins_list = []
+    away_losses_list = []
+    home_win_pcts = []
+    away_win_pcts = []
+    home_run_diffs = []
+    away_run_diffs = []
+
+    for _, row in df.iterrows():
+        home, away = row["home_team"], row["away_team"]
+        if home not in team_records:
+            team_records[home] = {"w": 0, "l": 0, "rs": 0, "ra": 0}
+        if away not in team_records:
+            team_records[away] = {"w": 0, "l": 0, "rs": 0, "ra": 0}
+
+        hw = team_records[home]
+        aw = team_records[away]
+
+        # Before this game
+        home_wins_list.append(hw["w"])
+        home_losses_list.append(hw["l"])
+        away_wins_list.append(aw["w"])
+        away_losses_list.append(aw["l"])
+        total_h = hw["w"] + hw["l"]
+        total_a = aw["w"] + aw["l"]
+        home_win_pcts.append(round(hw["w"] / max(total_h, 1), 3))
+        away_win_pcts.append(round(aw["w"] / max(total_a, 1), 3))
+        home_run_diffs.append(hw["rs"] - hw["ra"])
+        away_run_diffs.append(aw["rs"] - aw["ra"])
+
+        # Update after this game
+        if pd.notna(row.get("home_win")):
+            home_won = int(row["home_win"])
+            home_runs = int(row.get("home_score", row.get("total_runs", 8) // 2))
+            away_runs = int(row.get("away_score", row.get("total_runs", 8) - home_runs))
+
+            hw["w"] += home_won
+            hw["l"] += 1 - home_won
+            aw["w"] += 1 - home_won
+            aw["l"] += home_won
+            hw["rs"] += home_runs
+            hw["ra"] += away_runs
+            aw["rs"] += away_runs
+            aw["ra"] += home_runs
+
+    df["home_wins"] = home_wins_list
+    df["home_losses"] = home_losses_list
+    df["away_wins"] = away_wins_list
+    df["away_losses"] = away_losses_list
+    df["home_win_pct"] = home_win_pcts
+    df["away_win_pct"] = away_win_pcts
+    df["home_run_diff"] = home_run_diffs
+    df["away_run_diff"] = away_run_diffs
+
+    df["home_record"] = df.apply(
+        lambda r: f"{int(r['home_wins'])}-{int(r['home_losses'])}", axis=1
+    )
+    df["away_record"] = df.apply(
+        lambda r: f"{int(r['away_wins'])}-{int(r['away_losses'])}", axis=1
+    )
+
+    # Map column names to match FEATURE_COLS in training.py
+    col_map = {
+        "team_woba_30g_home": "woba_30g_home",
+        "team_woba_30g_away": "woba_30g_away",
+        "sp_era_home": "sp_era_30g_home",
+        "sp_era_away": "sp_era_30g_away",
+        "sp_k9_home": "sp_k9_30g_home",
+        "sp_k9_away": "sp_k9_30g_away",
+    }
+    # Add mapped columns (keep originals too for SHAP labels)
+    for src, dst in col_map.items():
+        if src in df.columns and dst not in df.columns:
+            df[dst] = df[src]
+
+    logger.info("Feature mapping complete: %d games, columns: %s", len(df), list(df.columns))
+    return df
