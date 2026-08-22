@@ -130,9 +130,11 @@ if (hist_curve is not None and not hist_curve.empty
         .reset_index()
     )
 
+# Bucketed curve from the artifact (also feeds the reliability table below).
+curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
+
 if pts.empty:
     # Fallback: 10-point bucket curve from the calibration artifact
-    curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
     if curve_df.empty:
         st.info("No calibration curve data available.")
     else:
