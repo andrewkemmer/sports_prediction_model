@@ -150,6 +150,34 @@ def rolling_prior_mean(
     )
 
 
+# ── Season boundaries ──────────────────────────────────────────────────────
+
+def _season_break(prev_date, cur_date) -> bool:
+    """True when two chronologically adjacent games cross an offseason.
+
+    MLB seasons never span a calendar-year change with games, so any change
+    in game_date year between consecutive games is an offseason boundary
+    (e.g. 2025-10-24 → 2026-03-17).
+    """
+    if prev_date is None or (isinstance(prev_date, float) and pd.isna(prev_date)) or pd.isna(prev_date):
+        return False
+    return pd.Timestamp(cur_date).year != pd.Timestamp(prev_date).year
+
+
+def _revert_elo(elo: float) -> float:
+    """Regress one Elo rating toward the 1500 mean at a season boundary."""
+    return elo + ELO_REVERT_FACTOR * (1500.0 - elo)
+
+
+def _row_year(row) -> int | None:
+    """Calendar year of a game row, from game_date or start_time_utc."""
+    for col in ("game_date", "start_time_utc"):
+        v = row.get(col)
+        if v is not None and not pd.isna(v):
+            return pd.Timestamp(v).year
+    return None
+
+
 # ── Elo ──────────────────────────────────────────────────────────────────────
 
 def compute_elos(games: pd.DataFrame) -> pd.Series:
@@ -160,9 +188,15 @@ def compute_elos(games: pd.DataFrame) -> pd.Series:
     """
     elos: dict[str, float] = {}
     home_elo_entry = pd.Series(np.nan, index=games.index, dtype=float)
+    prev_year = None
 
     for idx, row in games.iterrows():
         home, away = row["home_team"], row["away_team"]
+        # Offseason crossed: regress every team toward the mean before the new season
+        cur_year = _row_year(row)
+        if prev_year is not None and cur_year is not None and cur_year != prev_year:
+            elos = {t: _revert_elo(e) for t, e in elos.items()}
+        prev_year = cur_year or prev_year
         h_elo = elos.get(home, 1500.0)
         a_elo = elos.get(away, 1500.0)
         home_elo_entry.at[idx] = h_elo
@@ -187,8 +221,13 @@ def compute_elos_up_to(games: pd.DataFrame, as_of: datetime) -> dict[str, float]
     """Return Elo ratings for all teams as of `as_of` (PIT-safe)."""
     prior = filter_prior(games, as_of)
     elos: dict[str, float] = {}
+    prev_year = None
     for _, row in prior.iterrows():
         home, away = row["home_team"], row["away_team"]
+        cur_year = _row_year(row)
+        if prev_year is not None and cur_year is not None and cur_year != prev_year:
+            elos = {t: _revert_elo(e) for t, e in elos.items()}
+        prev_year = cur_year or prev_year
         h_elo = elos.get(home, 1500.0)
         a_elo = elos.get(away, 1500.0)
         if pd.isna(row.get("home_win")):
@@ -720,6 +759,7 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     # Compute win percentages and records from cumulative results
     team_records: dict[str, dict[str, int]] = {}
+    prev_year = None
     home_wins_list = []
     home_losses_list = []
     away_wins_list = []
@@ -731,6 +771,11 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     for _, row in df.iterrows():
         home, away = row["home_team"], row["away_team"]
+        # Offseason crossed: cumulative W/L and run diff reset each season
+        cur_year = _row_year(row)
+        if prev_year is not None and cur_year is not None and cur_year != prev_year:
+            team_records = {}
+        prev_year = cur_year or prev_year
         if home not in team_records:
             team_records[home] = {"w": 0, "l": 0, "rs": 0, "ra": 0}
         if away not in team_records:
@@ -746,8 +791,9 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         away_losses_list.append(aw["l"])
         total_h = hw["w"] + hw["l"]
         total_a = aw["w"] + aw["l"]
-        home_win_pcts.append(round(hw["w"] / max(total_h, 1), 3))
-        away_win_pcts.append(round(aw["w"] / max(total_a, 1), 3))
+        # Season opener (no games yet): rate is undefined → NULL, never 0
+        home_win_pcts.append(round(hw["w"] / total_h, 3) if total_h else np.nan)
+        away_win_pcts.append(round(aw["w"] / total_a, 3) if total_a else np.nan)
         home_run_diffs.append(hw["rs"] - hw["ra"])
         away_run_diffs.append(aw["rs"] - aw["ra"])
 
@@ -845,14 +891,21 @@ def _final_team_records(hist: pd.DataFrame) -> dict[str, dict[str, int]]:
     """Per-team W/L/RS/RA AFTER the last decided game (chronological walk).
 
     Mirrors the update rules used by load_game_features so carried records
-    match what the model saw entering historical games.
+    match what the model saw entering historical games (including the
+    per-season reset — only the current season's record carries forward).
     """
     rec: dict[str, dict[str, int]] = {}
+    prev_year = None
     for _, row in hist.sort_values("game_date").iterrows():
         hw = row.get("home_win")
         if pd.isna(hw):
             continue  # undecided: no record/run impact
         h, a = row["home_team"], row["away_team"]
+        # Offseason crossed: start fresh for the new season
+        cur_year = _row_year(row)
+        if prev_year is not None and cur_year is not None and cur_year != prev_year:
+            rec = {}
+        prev_year = cur_year or prev_year
         rh = rec.setdefault(h, {"w": 0, "l": 0, "rs": 0, "ra": 0})
         ra = rec.setdefault(a, {"w": 0, "l": 0, "rs": 0, "ra": 0})
         hs = row.get("home_score")
