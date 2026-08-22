@@ -455,9 +455,9 @@ def attach_market_lines(games: pd.DataFrame, lines: pd.DataFrame) -> pd.DataFram
     games = games.copy()
     lines = lines.copy()
 
-    if not np.issubdtype(lines["line_posted_at"].dtype, np.datetime64):
+    if not pd.api.types.is_datetime64_any_dtype(lines["line_posted_at"]):
         lines["line_posted_at"] = pd.to_datetime(lines["line_posted_at"])
-    if not np.issubdtype(games["start_time_utc"].dtype, np.datetime64):
+    if not pd.api.types.is_datetime64_any_dtype(games["start_time_utc"]):
         games["start_time_utc"] = pd.to_datetime(games["start_time_utc"])
 
     # For each game, pick the latest line posted strictly before start_time_utc
