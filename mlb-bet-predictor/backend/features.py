@@ -102,8 +102,15 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
         "release_spin_rate", "release_extension", "pfx_x", "pfx_z",
     }
     existing2 = {r[0] for r in con.execute("DESCRIBE pitches").fetchall()}
+    # String columns must be VARCHAR, not DOUBLE — otherwise IN() clauses fail
+    _str_cols = {
+        "pitch_type", "events", "description", "player_name",
+        "home_team", "away_team", "pitcher", "batter",
+        "stand", "p_throws", "game_type", "inning_topbot",
+    }
     for col in _required - existing2:
-        con.execute(f'ALTER TABLE pitches ADD COLUMN "{col}" DOUBLE')
+        dtype = "VARCHAR" if col in _str_cols else "DOUBLE"
+        con.execute(f'ALTER TABLE pitches ADD COLUMN "{col}" {dtype}')
         con.execute(f'UPDATE pitches SET "{col}" = NULL')
 
     return con
