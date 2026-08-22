@@ -12,6 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -107,18 +108,52 @@ for col, (label, value, color, cap) in zip(kcols, kpi_specs):
 # Calibration curve
 # ---------------------------------------------------------------------------
 st.markdown("### Calibration Curve — Favored Team")
-curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
-if curve_df.empty:
-    st.info("No calibration curve data available.")
-else:
-    model_pts = alt.Chart(curve_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5).encode(
-        x=alt.X("mean_predicted:Q", title="Predicted win probability", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("mean_actual:Q", title="Actual win rate", scale=alt.Scale(domain=[0, 1])),
+
+# Per-1%-probability calibration, built from the game-level prediction
+# history: each OOF prediction is taken from the FAVORED team's side
+# (probability >= 50%), rounded to the nearest 1%, and the actual win rate
+# of that 1% slice is plotted at that point.
+hist_curve = utils.load_prediction_history(date_str)
+pts = pd.DataFrame()
+if (hist_curve is not None and not hist_curve.empty
+        and {"home_win_prob_model", "correct"} <= set(hist_curve.columns)):
+    _p = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce")
+    _w = pd.to_numeric(hist_curve["correct"], errors="coerce")
+    _ok = _p.notna() & _w.notna()
+    _p, _w = _p[_ok], _w[_ok]
+    _fav = np.maximum(_p, 1.0 - _p)          # favored-side probability
+    _fav = (_fav * 100).round() / 100        # nearest 1%
+    pts = (
+        pd.DataFrame({"prob": _fav, "won": _w})
+        .groupby("prob")
+        .agg(win_rate=("won", "mean"), n=("won", "size"))
+        .reset_index()
     )
-    diag_df = pd.DataFrame({"mean_predicted": [0.45, 1.0], "mean_actual": [0.45, 1.0]})
+
+if pts.empty:
+    # Fallback: 10-point bucket curve from the calibration artifact
+    curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
+    if curve_df.empty:
+        st.info("No calibration curve data available.")
+    else:
+        pts = curve_df.rename(columns={
+            "mean_predicted": "prob", "mean_actual": "win_rate", "count": "n",
+        })[["prob", "win_rate", "n"]]
+
+if not pts.empty:
+    model_pts = alt.Chart(pts).mark_line(
+        point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5,
+    ).encode(
+        x=alt.X("prob:Q", title="Predicted win probability", scale=alt.Scale(domain=[0.45, 1.0])),
+        y=alt.Y("win_rate:Q", title="Actual win rate", scale=alt.Scale(domain=[0, 1])),
+        tooltip=[alt.Tooltip("prob:Q", title="Predicted", format="%"),
+                 alt.Tooltip("win_rate:Q", title="Actual win rate", format=".1%"),
+                 alt.Tooltip("n:Q", title="Games")],
+    )
+    diag_df = pd.DataFrame({"prob": [0.45, 1.0], "win_rate": [0.45, 1.0]})
     diag = alt.Chart(diag_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x=alt.X("mean_predicted:Q", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("mean_actual:Q", scale=alt.Scale(domain=[0, 1])),
+        x=alt.X("prob:Q", scale=alt.Scale(domain=[0.45, 1.0])),
+        y=alt.Y("win_rate:Q", scale=alt.Scale(domain=[0, 1])),
     )
     # Shared scales + explicit container width: without these, layered
     # charts fall back to natural size and collapse to a narrow strip.
@@ -126,7 +161,11 @@ else:
         width="container", height=340,
     )
     utils.show_chart(layer)
-    st.caption(f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal) · each game counted once from the favored side (probability ≥ 50%)")
+    st.caption(
+        f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal) · "
+        "each game counted once from the favored side; probabilities rounded "
+        "to the nearest 1% — hover for games per point"
+    )
 
 # ---------------------------------------------------------------------------
 # Confidence & accuracy combo chart
