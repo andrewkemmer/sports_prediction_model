@@ -87,12 +87,17 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     path = DATA_DELIVERY_DIR / f"{POWER_RANKINGS}_{target_date_str}.csv"
 
     teams = games["home_team"].unique()
+    # Ties/postponements carry home_win = NULL — they are not wins or losses
+    # and must not crash int() conversion or distort percentages.
+    decided = games[games["home_win"].notna()]
     rankings = []
     for team in teams:
-        home_games = games[games["home_team"] == team]
-        away_games = games[games["away_team"] == team]
+        home_games = decided[decided["home_team"] == team]
+        away_games = decided[decided["away_team"] == team]
+        team_games = decided[(decided["home_team"] == team) | (decided["away_team"] == team)]
 
-        elo = home_games["home_elo"].mean() if not home_games.empty else 1500.0
+        elo_rows = games[games["home_team"] == team]
+        elo = elo_rows["home_elo"].mean() if not elo_rows.empty else 1500.0
         wins = int(home_games["home_win"].sum()) + int((1 - away_games["home_win"]).sum()) if not away_games.empty else 0
         losses = int((1 - home_games["home_win"]).sum()) + int(away_games["home_win"].sum()) if not away_games.empty else 0
         total = wins + losses
@@ -106,16 +111,14 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         away_wins = int(away_games["home_win"].sum()) if not away_games.empty else 0
         away_pct = round(1 - away_wins / max(away_count, 1), 3) if away_count > 0 else 0.5
 
-        # L10 (approximate from synthetic data)
-        recent = games[
-            ((games["home_team"] == team) | (games["away_team"] == team))
-        ].tail(10)
+        # L10 — last 10 DECIDED games
+        recent = team_games.tail(10)
         l10_wins = 0
         for _, g in recent.iterrows():
             if g["home_team"] == team:
-                l10_wins += int(g.get("home_win", 0))
+                l10_wins += int(g["home_win"])
             else:
-                l10_wins += int(1 - g.get("home_win", 0))
+                l10_wins += int(1 - g["home_win"])
         l10 = f"{l10_wins}-{len(recent) - l10_wins}"
 
         rankings.append({
