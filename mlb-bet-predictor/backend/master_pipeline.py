@@ -195,10 +195,11 @@ else:
                 shutil.copy2(src, data_delivery_dir / Path(rel).name)
                 staged.append(rel)
 
-        # Sync feature files
-        for f in [csv_path, parquet_path]:
-            if f.exists():
-                _stage(f, f"mlb-bet-predictor/data_delivery/{f.name}")
+        # Sync game-level features CSV (dashboard uses it for final scores).
+        # pbp_level_features.parquet is NOT synced: ~7.6 MB per run and
+        # nothing in the dashboard reads it. It stays in /content/mlb_clean_data.
+        if csv_path.exists():
+            _stage(csv_path, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
         # Sync training artifacts (pipeline saves to data_delivery/ in CWD)
         data_delivery_local = Path.cwd() / "data_delivery"
         if data_delivery_local.exists():
