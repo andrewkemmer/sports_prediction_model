@@ -24,6 +24,9 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 
 from config import (
+    ADAPTIVE_WEIGHT_CAP,
+    ADAPTIVE_WEIGHT_FLOOR,
+    ADAPTIVE_WEIGHT_TEMPERATURE,
     DATA_DELIVERY_DIR,
     DATE_FMT,
     ENSEMBLE_FILE,
@@ -319,15 +322,87 @@ def _impute_median(
     return X, np.asarray(medians, dtype=float)
 
 
+# Adaptive blend weights from the most recent walk-forward run. Empty until
+# the first walk_forward_evaluate() completes; falls back to the static
+# ENSEMBLE_WEIGHTS priors before that.
+_LAST_ADAPTIVE_WEIGHTS: dict[str, float] = {}
+
+
+def compute_adaptive_weights(
+    oof_members: dict[str, list[float]], y_oof: np.ndarray
+) -> dict[str, float]:
+    """Blend weights earned by out-of-sample performance.
+
+    Softmax over pooled OOF log-loss (lower is better): a member beating
+    another by Δ earns exp(Δ / TEMPERATURE) times its weight — with
+    TEMPERATURE=0.03 a 0.06 log-loss edge means ~7× the weight. FLOOR keeps
+    every candidate alive for diversity; CAP prevents domination. The result
+    sums to exactly 1.0 and feeds both prediction blending and reporting so
+    the ensemble visibly self-corrects as features improve.
+    """
+    scores: dict[str, float] = {}
+    y = np.asarray(y_oof, dtype=float)
+    if len(y) == 0:
+        return {}
+    for name, preds in oof_members.items():
+        if not preds or len(preds) != len(y):
+            continue
+        m = compute_metrics(y, np.asarray(preds, dtype=float))
+        ll = m.get("logloss")
+        if ll is None or not np.isfinite(ll):
+            continue
+        scores[name] = float(ll)
+    if not scores:
+        return {}
+
+    best = min(scores.values())
+    exp_w = {n: np.exp(-(ll - best) / ADAPTIVE_WEIGHT_TEMPERATURE)
+             for n, ll in scores.items()}
+    tot = sum(exp_w.values())
+    w = {n: float(v / tot) for n, v in exp_w.items()}
+
+    # A per-member cap C is satisfiable only if n_members × C >= 1; widen
+    # it slightly past 1/n for small rosters so the constraint set stays
+    # feasible (with 2 members, 0.45 each is impossible).
+    eff_cap = max(ADAPTIVE_WEIGHT_CAP, 1.02 / len(w))
+
+    # Iterative floor/cap projection until both constraints hold
+    for _ in range(50):
+        w = {n: max(v, ADAPTIVE_WEIGHT_FLOOR) for n, v in w.items()}
+        s = sum(w.values())
+        w = {n: v / s for n, v in w.items()}
+        w = {n: min(v, eff_cap) for n, v in w.items()}
+        s = sum(w.values())
+        w = {n: v / s for n, v in w.items()}
+
+    # Round without breaking the exact 1.0 total: give the rounding
+    # remainder to the largest weight.
+    rounded = {n: round(v, 4) for n, v in w.items()}
+    drift = round(1.0 - sum(rounded.values()), 4)
+    if drift:
+        top = max(rounded, key=lambda n: w[n])
+        rounded[top] = round(rounded[top] + drift, 4)
+    return rounded
+
+
 def _member_weights(member_names: list[str]) -> dict[str, float]:
     """Normalized blend weights for the members that actually trained.
 
-    Configured weights come from ENSEMBLE_WEIGHTS; members that failed to
-    train contribute 0% and the remainder renormalizes so the blend always
-    sums to exactly 1.0.
+    Prefers adaptive weights earned from pooled OOF log-loss when available;
+    falls back to static ENSEMBLE_WEIGHTS priors otherwise (e.g. mid-run or
+    before the first full evaluation). Members that failed to train
+    contribute 0% and the remainder renormalizes to exactly 1.0.
     """
     names = [n for n in member_names if n not in ("scaler", "impute_median")]
-    raw = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in names}
+    source = _LAST_ADAPTIVE_WEIGHTS or ENSEMBLE_WEIGHTS
+    raw = {n: float(source.get(n, 0.0)) for n in names}
+    # A candidate with no earned weight still gets its static prior so it
+    # can prove itself on the next OOF cycle instead of being locked out.
+    zeroed = [n for n, v in raw.items() if v <= 0]
+    for n in zeroed:
+        prior = float(ENSEMBLE_WEIGHTS.get(n, 0.0))
+        if prior > 0:
+            raw[n] = min(prior, ADAPTIVE_WEIGHT_FLOOR * 2)
     total = sum(raw.values())
     if total <= 0:
         w = 1.0 / max(len(names), 1)
@@ -348,7 +423,8 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
                if n not in ("scaler", "impute_median")}
     if not members:
         return None
-    raw = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in members}
+    eff = _member_weights(list(members.keys()))
+    raw = {n: float(eff.get(n, 0.0)) for n in members}
     total = sum(raw.values())
     if total <= 0:
         raw = {n: 1.0 / len(members) for n in members}
@@ -392,7 +468,7 @@ def ensemble_predict(
         if name in ("scaler", "impute_median"):
             continue
         try:
-            if name == "logistic":
+            if name in ("logistic", "mlp"):
                 Xi, _ = _impute_median(X, medians)
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
             else:
@@ -420,6 +496,14 @@ _LAST_ENSEMBLE_INFO: list[dict[str, Any]] = []
 def last_ensemble_info() -> list[dict[str, Any]]:
     """Candidate-model report from the most recent walk-forward evaluation."""
     return [dict(e) for e in _LAST_ENSEMBLE_INFO]
+
+
+def set_adaptive_weights(weights: dict[str, float] | None) -> None:
+    """Restore adaptive blend weights (e.g. from a persisted ensemble bundle)
+    so prediction blending matches the model that was actually evaluated."""
+    _LAST_ADAPTIVE_WEIGHTS.clear()
+    if weights:
+        _LAST_ADAPTIVE_WEIGHTS.update({k: float(v) for k, v in weights.items()})
 
 
 def train_moneyline_ensemble(
@@ -472,16 +556,42 @@ def train_moneyline_ensemble(
     models["scaler"] = scaler
     models["impute_median"] = impute_medians
 
+    # Random Forest — bagged trees, decorrelated from boosting errors.
+    # sklearn trees cannot consume NaN: use the train-median-imputed matrix.
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+        rf = RandomForestClassifier(
+            n_estimators=300, min_samples_leaf=20,
+            random_state=RANDOM_SEED, n_jobs=-1,
+        )
+        rf.fit(X_train_lr, y_train)
+        models["randomforest"] = rf
+    except Exception as e:
+        logger.warning("RandomForest member failed: %s", e)
+
+    # MLP — small neural net with early stopping; diversity wildcard whose
+    # weight is earned (or starved) by the adaptive blend.
+    try:
+        from sklearn.neural_network import MLPClassifier
+        mlp = MLPClassifier(
+            hidden_layer_sizes=(32, 16), alpha=0.01,
+            early_stopping=True, validation_fraction=0.15,
+            max_iter=300, random_state=RANDOM_SEED,
+        )
+        mlp.fit(X_train_scaled, y_train)
+        models["mlp"] = mlp
+    except Exception as e:
+        logger.warning("MLP member failed: %s", e)
+
     # Weighted ensemble prediction (weights renormalized over trained members)
     weights = _member_weights(list(models.keys()))
     probs, wts = [], []
-    for name in ("xgboost", "lightgbm"):
-        if name in models:
-            probs.append(models[name].predict_proba(X_val)[:, 1])
-            wts.append(weights[name])
-    if "logistic" in models:
-        probs.append(models["logistic"].predict_proba(X_val_scaled)[:, 1])
-        wts.append(weights["logistic"])
+    for name, model in models.items():
+        if name in ("scaler", "impute_median"):
+            continue
+        Xuse = X_val_scaled if name in ("logistic", "mlp") else X_val
+        probs.append(model.predict_proba(Xuse)[:, 1])
+        wts.append(weights[name])
 
     ensemble_prob = np.average(probs, axis=0, weights=wts) if probs else np.full(len(y_val), 0.5)
 
@@ -675,16 +785,33 @@ def walk_forward_evaluate(
     else:
         best_models = {}
 
-    # Candidate-model report: every candidate that ever trained, its blend
-    # weight in the deployed ensemble (renormalized over final members, so
-    # weights sum to exactly 1.0; absent candidates report 0%), and its own
-    # pooled out-of-fold AUC/Brier/LogLoss across all evaluation folds.
+    # Adaptive blend weights: earned from pooled OOF member log-loss.
+    # These replace the static ENSEMBLE_WEIGHTS priors for prediction
+    # blending (see _member_weights) until the next evaluation, so the
+    # ensemble self-corrects as features change.
     y_oof = np.asarray(oof_y, dtype=float)
+    adaptive = compute_adaptive_weights(oof_members, y_oof)
+    _LAST_ADAPTIVE_WEIGHTS.clear()
+    _LAST_ADAPTIVE_WEIGHTS.update(adaptive)
+    if adaptive:
+        logger.info(
+            "Adaptive ensemble weights: %s",
+            {k: f"{v:.1%}" for k, v in sorted(adaptive.items())},
+        )
+
+    # Candidate-model report: every candidate that ever trained, its blend
+    # weight in the deployed ensemble (adaptive when available; absent or
+    # failed candidates report 0%), and its own pooled out-of-fold
+    # AUC/Brier/LogLoss across all evaluation folds.
     final_members = {
         n for n in (best_models or {})
         if n not in ("scaler", "impute_median")
     }
-    raw_w = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in final_members}
+    raw_w = {
+        n: float(adaptive.get(n, 0.0)) if adaptive
+        else float(ENSEMBLE_WEIGHTS.get(n, 0.0))
+        for n in final_members
+    }
     w_total = sum(raw_w.values()) or 1.0
     # Every configured candidate is reported — even ones that failed to train
     # this run (weight 0%, metrics null) — per the ensemble transparency rule.
@@ -734,6 +861,9 @@ def persist_ensemble(
         "models": models,
         "metrics": metrics,
         "metadata": metadata,
+        # Earned blend weights ride with the models so a cached-model run
+        # predicts with exactly the weighting that was validated.
+        "adaptive_weights": dict(_LAST_ADAPTIVE_WEIGHTS),
     }
 
     path = MODELS_DIR / ENSEMBLE_FILE

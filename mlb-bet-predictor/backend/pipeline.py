@@ -56,6 +56,7 @@ from training import (
     load_ensemble,
     persist_ensemble,
     predict_games,
+    set_adaptive_weights,
     should_retrain,
     update_model_history,
     walk_forward_evaluate,
@@ -449,6 +450,7 @@ def run_daily_pipeline(
             best_models = ensemble["models"] if ensemble else {}
             pooled_metrics = ensemble["metrics"] if ensemble else {}
             all_predictions = None  # cached model: no fresh OOF predictions
+            set_adaptive_weights(ensemble.get("adaptive_weights"))
             summary["metrics"] = pooled_metrics
 
         # 4. Predict today's games (target_date only)

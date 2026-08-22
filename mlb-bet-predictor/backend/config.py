@@ -41,13 +41,25 @@ RETRAIN_CADENCE_DAYS = 7
 DEFAULT_MAX_EVAL_FOLDS = 0  # 0 = full history
 TRAIN_TEST_SPLIT_RATIO = 0.2  # Not used directly; walk-forward handles splits
 
-# Ensemble members and their blend weights (renormalized over the members
-# that actually trained; reported weights always sum to 1.0).
+# Ensemble members and their blend weights. These are FALLBACK PRIORS used
+# only before the first adaptive weighting is computed (and when a member
+# fails to produce OOF predictions); after every walk-forward run the blend
+# switches to ADAPTIVE weights derived from pooled out-of-sample log-loss.
 ENSEMBLE_WEIGHTS = {
-    "xgboost": 0.40,
-    "lightgbm": 0.40,
-    "logistic": 0.20,
+    "xgboost": 0.25,
+    "lightgbm": 0.25,
+    "logistic": 0.30,
+    "randomforest": 0.10,
+    "mlp": 0.10,
 }
+
+# Adaptive ensemble weighting: softmax over pooled out-of-fold log-loss.
+# A member beating another by Δ log-loss earns exp(Δ / TEMPERATURE) times
+# its weight; FLOOR keeps every candidate alive (diversity), CAP prevents
+# any single member from dominating.
+ADAPTIVE_WEIGHT_TEMPERATURE = 0.03
+ADAPTIVE_WEIGHT_FLOOR = 0.05
+ADAPTIVE_WEIGHT_CAP = 0.45
 XGBOOST_PARAMS = {
     "n_estimators": 300,
     "max_depth": 5,

@@ -16,6 +16,7 @@ from backend.training import (
     _impute_median,
     _member_weights,
     last_ensemble_info,
+    set_adaptive_weights,
     walk_forward_evaluate,
 )
 
@@ -32,7 +33,7 @@ class TestMemberWeights(unittest.TestCase):
 
         w = _member_weights(["xgboost", "logistic"])
         self.assertAlmostEqual(sum(w.values()), 1.0, places=9)
-        self.assertGreater(w["xgboost"], w["logistic"])  # config favors trees
+        self.assertGreater(w["logistic"], w["xgboost"])  # config favors logistic
 
     def test_unknown_member_gets_zero_before_renormalization(self):
         w = _member_weights(["mystery_model"])
@@ -77,6 +78,9 @@ class TestRosterReporting(unittest.TestCase):
             walk_forward_evaluate(df, retrain_cadence_days=30, min_train_days=0)
         except Exception:
             self.fail("walk_forward_evaluate raised unexpectedly")
+        finally:
+            # Don't leak adaptive weights into other tests
+            set_adaptive_weights(None)
         info = last_ensemble_info()
         names = {e["name"] for e in info}
         self.assertTrue({"xgboost", "lightgbm", "logistic"} <= names,

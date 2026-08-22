@@ -28,6 +28,10 @@ class _FakeLogistic:
 
 
 class TestFeatureImportanceWeights(unittest.TestCase):
+    def setUp(self):
+        # Isolate from adaptive weights left by other tests
+        training.set_adaptive_weights(None)
+
     def test_blend_weighted_and_sums_to_100(self):
         n = len(training.FEATURE_COLS)
         imp = np.zeros(n); imp[0] = 1.0            # xgb rides feature 0 only
@@ -37,9 +41,9 @@ class TestFeatureImportanceWeights(unittest.TestCase):
         w = training.feature_importance_weights(models)
         self.assertIsNotNone(w)
         self.assertAlmostEqual(sum(w.values()), 100.0, places=6)
-        # Member shares: xgb .4 / logistic .2 of the .6 configured total
-        self.assertAlmostEqual(w[training.FEATURE_COLS[0]], 100 * (0.4 / 0.6), places=2)
-        self.assertAlmostEqual(w[training.FEATURE_COLS[1]], 100 * (0.2 / 0.6), places=2)
+        # Member shares: xgb .25 / logistic .30 of the .55 configured total
+        self.assertAlmostEqual(w[training.FEATURE_COLS[0]], 100 * (0.25 / 0.55), places=2)
+        self.assertAlmostEqual(w[training.FEATURE_COLS[1]], 100 * (0.30 / 0.55), places=2)
 
     def test_no_usable_member_returns_none(self):
         self.assertIsNone(training.feature_importance_weights({}))

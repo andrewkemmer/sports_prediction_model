@@ -189,6 +189,16 @@ ENSEMBLE_DESCRIPTIONS = {
         "imputation). A high-bias anchor that keeps the blend calibrated when tree "
         "members overfit thin early-season folds; also the most interpretable member."
     ),
+    "randomforest": (
+        "Bagged decision trees (300 estimators, deep-minimum leaves) — averaging "
+        "instead of boosting, so its errors are decorrelated from XGBoost/LightGBM. "
+        "Robust to noisy features; uses train-median imputation."
+    ),
+    "mlp": (
+        "Small neural network (32×16, L2 penalty, early stopping). A low-capacity "
+        "function approximator that can pick up smooth nonlinearities trees split "
+        "around; earns ensemble weight only when it beats the other members OOF."
+    ),
 }
 
 if ensemble:
