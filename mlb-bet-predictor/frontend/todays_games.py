@@ -236,6 +236,15 @@ def main() -> None:
     games = utils.load_todays_games(date_str)
     cal = utils.load_calibration(date_str)
 
+    history_view = False
+    if games.empty:
+        # No full card snapshot for this date — rebuild a simplified board
+        # from the walk-forward prediction history, which covers every game
+        # the model has ever predicted.
+        games = utils.load_history_games(date_str)
+        if not games.empty:
+            history_view = True
+
     if games.empty:
         st.warning(f"No game artifacts found for {date_str}. Run the Colab pipeline "
                    "or configure your GitHub repo in the sidebar.")
@@ -247,7 +256,10 @@ def main() -> None:
     completed = record.get("completed", wins + losses)
     acc = (wins / completed * 100) if completed else 0.0
     league_total = cal.get("league_total", len(games))
-    evening_league = cal.get("evening_games_league", int(games["evening_game"].sum()))
+    evening_league = cal.get(
+        "evening_games_league",
+        int(games["evening_game"].sum()) if "evening_game" in games.columns else 0,
+    )
 
     st.markdown(
         f"""
@@ -266,6 +278,13 @@ def main() -> None:
     )
 
     utils.arrow_nav(dates)
+
+    if history_view:
+        st.info(
+            "🗂 Archive view — the full snapshot for this date was never pushed "
+            "(or has been pruned), so cards are rebuilt from prediction history: "
+            "scores, picks and results only (no pitchers, odds or SHAP)."
+        )
 
     # --- filter pills ---
     counts = {

@@ -265,6 +265,24 @@ def available_dates(owner: str, repo: str, branch: str) -> list[str]:
         except (ValueError, TypeError, KeyError):
             pass
 
+    # Merge per-game prediction-history dates so ANY past date that has
+    # predictions is navigable on Today's Games — even when its full card
+    # artifact was never pushed or has been pruned.
+    if dates:
+        try:
+            hist_bytes, _ = _fetch_bytes(
+                f"predictions_history_{max(dates)}.csv",
+                owner=owner, repo=repo, branch=branch,
+            )
+            if hist_bytes:
+                hist = pd.read_csv(io.BytesIO(hist_bytes), usecols=["game_date"])
+                for d in hist["game_date"].dropna().astype(str):
+                    d = d.replace("-", "")
+                    if len(d) == 8 and d.isdigit():
+                        dates.add(d)
+        except (ValueError, TypeError, KeyError, pd.errors.EmptyDataError):
+            pass
+
     return sorted(dates, reverse=True)
 
 
@@ -298,6 +316,56 @@ def load_prediction_history(date_str: str) -> pd.DataFrame:
     if data is None:
         return pd.DataFrame()
     return pd.read_csv(io.BytesIO(data))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _history_for_date(date_str: str, owner: str, repo: str, branch: str) -> bytes | None:
+    """Latest predictions_history CSV bytes containing rows for ``date_str``.
+
+    Walk-forward history covers EVERY past game, so it can reconstruct a
+    simplified board for dates whose full todays_games snapshot is gone.
+    """
+    dates = sorted(available_dates(owner=owner, repo=repo, branch=branch))
+    # Newest artifacts first; fall back to progressively older histories so a
+    # pruned repo still serves deep-past dates.
+    for cand in reversed(dates):
+        data, _ = _fetch_bytes(f"predictions_history_{cand}.csv",
+                               owner=owner, repo=repo, branch=branch)
+        if data is None:
+            continue
+        try:
+            hist = pd.read_csv(io.BytesIO(data), usecols=["game_date"])
+        except (ValueError, pd.errors.EmptyDataError):
+            continue
+        gd = hist["game_date"].dropna().astype(str).str.replace("-", "")
+        if date_str in set(gd):
+            return data
+    return None
+
+
+def load_history_games(date_str: str) -> pd.DataFrame:
+    """Rebuild a simplified game board for a past date from prediction history."""
+    cfg = get_source_config()
+    data = _history_for_date(date_str, **cfg)
+    if data is None:
+        return pd.DataFrame()
+    hist = pd.read_csv(io.BytesIO(data))
+    gd = hist["game_date"].dropna().astype(str).str.replace("-", "")
+    day = hist[gd == date_str].copy()
+    if day.empty:
+        return pd.DataFrame()
+
+    # Reshape to what normalize_games + the card builder expect.
+    ph = pd.to_numeric(day["home_win_prob_model"], errors="coerce")
+    day["away_win_prob_model"] = (1.0 - ph).clip(0, 1)
+    day["model_correct"] = (
+        day["correct"].astype(str).str.lower().isin(("true", "1", "1.0", "yes"))
+        if "correct" in day.columns
+        else False
+    )
+    df = normalize_games(day)
+    st.session_state["data_source"] = "history"
+    return df
 
 
 def load_power_rankings(date_str: str) -> pd.DataFrame:
