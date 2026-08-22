@@ -158,10 +158,10 @@ class TestPSINoiseFloor(unittest.TestCase):
         self.assertAlmostEqual(psi_noise_floor(150, 110), 4.5 * (1/150 + 1/110))
         self.assertEqual(psi_noise_floor(0, 100), 0.0)
 
-    def _drift(self, n_base, n_cur, psi_stub_value):
+    def _drift(self, n_base, n_cur, psi_stub_value, cur_mean=0.30):
         """Run compute_feature_drift with a stubbed raw PSI and inspect status."""
         base = pd.DataFrame({"woba_30g_home": np.random.RandomState(0).normal(.30, .01, n_base)})
-        cur = pd.DataFrame({"woba_30g_home": np.random.RandomState(1).normal(.30, .01, n_cur)})
+        cur = pd.DataFrame({"woba_30g_home": np.random.RandomState(1).normal(cur_mean, .01, n_cur)})
         tmp = Path(tempfile.mkdtemp())
         with patch.object(explainability, "DATA_DELIVERY_DIR", tmp), patch.object(
             explainability, "compute_psi", return_value=psi_stub_value,
@@ -172,14 +172,28 @@ class TestPSINoiseFloor(unittest.TestCase):
     def test_small_windows_identical_means_do_not_page(self):
         """Raw PSI 0.12 on tiny windows is inside the noise floor -> OK,
         even though the same raw value pages at large samples."""
-        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.12)
+        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.12,
+                          cur_mean=0.305)
         self.assertEqual(row["status"], "OK")          # floor ≈ 0.071 eats it
-        big = self._drift(n_base=20000, n_cur=5000, psi_stub_value=0.12)
-        self.assertEqual(big["status"], "WARN")        # floor ≈ 0.002: real signal
+        big = self._drift(n_base=20000, n_cur=5000, psi_stub_value=0.12,
+                          cur_mean=0.302)
+        self.assertEqual(big["status"], "WARN")        # floor ≈ 0.002 + real shift
         self.assertAlmostEqual(float(big["psi_adjusted"]), 0.12 - 4.5*(1/20000+1/5000), places=5)
 
+    def test_high_psi_without_mean_shift_does_not_page(self):
+        """Quantization wiggle: PSI is huge but the mean did not move.
+        This is the tie-cluster artifact seen on hardhit%/win_pct —
+        identical distributions must stay green regardless of raw PSI."""
+        row = self._drift(n_base=20000, n_cur=5000, psi_stub_value=0.45,
+                          cur_mean=0.30)
+        self.assertEqual(row["status"], "OK")
+        self.assertFalse(bool(row["location_shift"]))
+
     def test_large_genuine_shift_still_alerts(self):
-        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.60)
-        # 0.60 - 0.071 = 0.53 > ALERT threshold
+        row = self._drift(n_base=150, n_cur=110, psi_stub_value=0.60,
+                          cur_mean=0.33)
+        # Mean moved 3 pooled-SDs (≫ 2·SE even with clustering factor),
+        # and 0.60 - 0.071 = 0.53 > ALERT threshold
         self.assertEqual(row["status"], "ALERT")
         self.assertGreater(float(row["psi_adjusted"]), PSI_ALERT_THRESHOLD)
+        self.assertTrue(bool(row["location_shift"]))

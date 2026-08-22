@@ -208,31 +208,58 @@ def compute_feature_drift(
             continue
 
         psi = compute_psi(baseline_vals, current_vals)
+        noise = psi_noise_floor(len(baseline_vals), len(current_vals))
+        psi_adjusted = max(psi - noise, 0.0)
+
+        # Location gate. PSI responds to ANY distributional change — including
+        # pure binning wiggle on heavily-tied/quantized features (win_pct and
+        # hardhit% rounded to 2–3 decimals put many teams on one value, so a
+        # quantile edge landing inside a tie cluster moves whole teams between
+        # bins while the distribution is unchanged). Only escalate above OK
+        # when the mean ALSO moved beyond its sampling noise. Games in a
+        # 7-day window share teams (~7 starts each), so the naive SE
+        # understates true variance — inflate by a clustering factor of 1.5.
+        n_b, n_c = len(baseline_vals), len(current_vals)
+        if n_b + n_c > 2:
+            pooled_sd = np.sqrt(
+                ((n_b - 1) * baseline_vals.var(ddof=1)
+                 + (n_c - 1) * current_vals.var(ddof=1))
+                / (n_b + n_c - 2)
+            )
+        else:
+            pooled_sd = 0.0
+        mean_shift = float(current_vals.mean() - baseline_vals.mean())
+        if pooled_sd > 0:
+            shift_se = float(pooled_sd * np.sqrt(1.0 / n_b + 1.0 / n_c) * 1.5)
+            location_shift = abs(mean_shift) > 2.0 * shift_se
+        else:
+            shift_se = 0.0
+            location_shift = psi_adjusted > 0  # degenerate: fall back to PSI
 
         # Small windows make PSI statistically meaningless — report them as
         # INSUFFICIENT rather than WARN/ALERT so they never page anyone.
-        if len(baseline_vals) < 100 or len(current_vals) < 30:
+        if n_b < 100 or n_c < 30:
             status = "INSUFFICIENT"
         else:
             # Threshold on the NOISE-ADJUSTED PSI: raw PSI between two
             # same-distribution samples of this size already averages ~0.07,
             # so near-equal means with raw PSI 0.10–0.30 are binning wiggle,
             # not regime change. Raw PSI stays in the CSV for transparency.
-            noise = psi_noise_floor(len(baseline_vals), len(current_vals))
-            psi_adjusted = max(psi - noise, 0.0)
-            status = psi_status(psi_adjusted)
+            status = psi_status(psi_adjusted) if location_shift else "OK"
 
-        noise_out = psi_noise_floor(len(baseline_vals), len(current_vals))
         drift_rows.append({
             "feature": col,
             "current_mean": round(float(current_vals.mean()), 4),
             "baseline_mean": round(float(baseline_vals.mean()), 4),
             "psi": psi,
-            "psi_adjusted": round(max(psi - noise_out, 0.0), 6),
-            "noise_floor": round(noise_out, 6),
+            "psi_adjusted": round(psi_adjusted, 6),
+            "noise_floor": round(noise, 6),
+            "mean_shift": round(mean_shift, 6),
+            "shift_se": round(shift_se, 6),
+            "location_shift": bool(location_shift),
             "status": status,
-            "n_baseline": int(len(baseline_vals)),
-            "n_current": int(len(current_vals)),
+            "n_baseline": int(n_b),
+            "n_current": int(n_c),
         })
 
     df = pd.DataFrame(drift_rows)

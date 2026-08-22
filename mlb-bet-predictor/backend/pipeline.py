@@ -424,9 +424,14 @@ def run_daily_pipeline(
         # structurally as a season matures — a property of the feature, not
         # model health. Adjacent-but-not-tiny keeps it apples-to-apples while
         # giving quantile bin edges enough samples to be stable.
+        # Decided games ONLY: pre-game slate rows carry the latest PIT state
+        # forward (clustered near-identical values), so including them in the
+        # current window distorted PSI for every feature.
+        decided = games[games["home_win"].notna()]
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
-        current = games[pd.to_datetime(games["game_date"]) >= cutoff]
-        prior = games[pd.to_datetime(games["game_date"]) < cutoff]
+        gd = pd.to_datetime(decided["game_date"])
+        current = decided[gd >= cutoff]
+        prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
         if not baseline.empty and not current.empty:
             drift_df = compute_feature_drift(baseline, current, target_date_str)
