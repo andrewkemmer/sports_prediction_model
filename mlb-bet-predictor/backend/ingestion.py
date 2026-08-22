@@ -69,42 +69,14 @@ UNUSED_COLS = [
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
-def pull_statcast(
-    start_date: str | date,
-    end_date: str | date,
-    out_path: str | Path = "pitches.parquet",
-    chunk_days: int = 7,
-    pause_sec: float = 2.0,
-    resume: bool = True,
-) -> Path:
-    """Pull Statcast data and save to Parquet.
-
-    Args:
-        start_date:  Inclusive start (YYYY-MM-DD or date).
-        end_date:    Inclusive end.
-        out_path:    Where to write the Parquet file.
-        chunk_days:  Days per API chunk (Statcast rate-limits large queries).
-        pause_sec:   Seconds to pause between chunks.
-        resume:      If True and out_path exists, skip the pull.
-
-    Returns:
-        Path to the written Parquet file.
-
-    Raises:
-        ValueError: If no data is returned by pybaseball.
-    """
-    out = Path(out_path)
-
-    if resume and out.exists():
-        logger.info("Resuming from existing file: %s", out)
-        return out
-
+def _chunked_statcast(
+    start: date,
+    end: date,
+    chunk_days: int,
+    pause_sec: float,
+) -> list[pd.DataFrame]:
+    """Pull Statcast in rate-limit-friendly chunks. Returns non-empty chunks."""
     from pybaseball import statcast
-
-    start = _to_date(start_date)
-    end = _to_date(end_date)
-
-    logger.info("Pulling Statcast: %s → %s (chunk_days=%d)", start, end, chunk_days)
 
     chunks: list[pd.DataFrame] = []
     cursor = start
@@ -121,6 +93,94 @@ def pull_statcast(
         cursor = chunk_end + timedelta(days=1)
         if cursor <= end:
             time.sleep(pause_sec)
+    return chunks
+
+
+def _cache_max_date(path: Path):
+    """Latest game_date in a cached parquet, or None if unreadable."""
+    try:
+        mx = pd.read_parquet(path, columns=["game_date"])["game_date"].max()
+        return pd.Timestamp(mx).date() if pd.notna(mx) else None
+    except Exception as e:
+        logger.warning("Could not read cache max date from %s: %s", path, e)
+        return None
+
+
+def pull_statcast(
+    start_date: str | date,
+    end_date: str | date,
+    out_path: str | Path = "pitches.parquet",
+    chunk_days: int = 7,
+    pause_sec: float = 2.0,
+    resume: bool = True,
+) -> Path:
+    """Pull Statcast data and save to Parquet.
+
+    Args:
+        start_date:  Inclusive start (YYYY-MM-DD or date).
+        end_date:    Inclusive end.
+        out_path:    Where to write the Parquet file.
+        chunk_days:  Days per API chunk (Statcast rate-limits large queries).
+        pause_sec:   Seconds to pause between chunks.
+        resume:      If True and a cached file exists, reuse it — but ONLY
+                     when its coverage reaches end_date. A stale cache gets
+                     an incremental top-up (cached_max+1 → end_date) instead
+                     of silently returning yesterday's data.
+
+    Returns:
+        Path to the written Parquet file.
+
+    Raises:
+        ValueError: If no data is returned by pybaseball.
+    """
+    out = Path(out_path)
+    start = _to_date(start_date)
+    end = _to_date(end_date)
+
+    if resume and out.exists():
+        cached_through = _cache_max_date(out)
+        if cached_through is not None and cached_through >= end:
+            logger.info("Cache fresh through %s — skipping pull", cached_through)
+            return out
+        if cached_through is None:
+            logger.warning("Existing cache unreadable — re-pulling full range")
+        else:
+            inc_start = cached_through + timedelta(days=1)
+            logger.info(
+                "Cache covers through %s — pulling increment %s → %s",
+                cached_through, inc_start, end,
+            )
+            inc_chunks = _chunked_statcast(inc_start, end, chunk_days, pause_sec)
+            if not inc_chunks:
+                logger.warning("No new Statcast data since %s — keeping cache", cached_through)
+                return out
+            inc = _normalize_columns(pd.concat(inc_chunks, ignore_index=True))
+            del inc_chunks
+            inc = _downcast(inc)
+            existing = pd.read_parquet(out)
+            n_existing = len(existing)
+            merged = pd.concat([existing, inc], ignore_index=True)
+            del existing, inc
+            n_before_dedupe = len(merged)
+            merged = merged.drop_duplicates(
+                subset=[c for c in ("game_pk", "at_bat_number", "pitch_number")
+                        if c in merged.columns],
+                keep="last",
+            )
+            out.parent.mkdir(parents=True, exist_ok=True)
+            merged.to_parquet(out, index=False)
+            logger.info(
+                "Appended %d new pitches (%d overlap rows dropped) → %s",
+                max(len(merged) - n_existing, 0),
+                n_before_dedupe - len(merged),
+                out,
+            )
+            del merged
+            return out
+
+    logger.info("Pulling Statcast: %s → %s (chunk_days=%d)", start, end, chunk_days)
+
+    chunks = _chunked_statcast(start, end, chunk_days, pause_sec)
 
     if not chunks:
         raise ValueError(f"No Statcast data for {start} to {end}")
@@ -128,7 +188,6 @@ def pull_statcast(
     raw = pd.concat(chunks, ignore_index=True)
     del chunks
     logger.info("Total raw pitches: %d", len(raw))
-
     raw = _normalize_columns(raw)
     raw = _downcast(raw)
 

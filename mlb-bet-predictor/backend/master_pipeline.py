@@ -99,6 +99,8 @@ for mod in list(sys.modules.keys()):
         del sys.modules[mod]
 
 # ── Phase 1: Ingestion ──────────────────────────────────────────────────────
+import logging
+logging.basicConfig(level=logging.INFO, format="  %(levelname)s %(message)s")
 _banner("PHASE 1", "Statcast Data Ingestion")
 from ingestion import pull_statcast
 
