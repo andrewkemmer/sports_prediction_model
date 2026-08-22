@@ -2,7 +2,7 @@
 import os
 
 CONFIG = {
-    "start_date": "2026-08-01",
+    "start_date": "2025-04-01",
     "end_date":   "2026-08-20",
     "github_username": "andrewkemmer",
     "github_repo":     "sports_prediction_model",
@@ -58,7 +58,7 @@ os.chdir(str(repo_dir / "mlb-bet-predictor"))
 print(f"  📁 {os.getcwd()}")
 
 for mod in list(sys.modules.keys()):
-    if any(x in mod for x in ['ingestion', 'features', 'statcast', 'duckdb']):
+    if any(x in mod for x in ['ingestion', 'features', 'pipeline', 'training', 'data_ingestion', 'statcast', 'duckdb']):
         del sys.modules[mod]
 
 # ── Phase 1: Ingestion ──────────────────────────────────────────────────────
@@ -148,14 +148,13 @@ else:
             if f.exists():
                 shutil.copy2(f, data_delivery_dir / f.name)
                 staged.append(f"mlb-bet-predictor/data_delivery/{f.name}")
-        # Sync training artifacts
-        for artifact in out_dir.glob("*.csv"):
-            if artifact not in [csv_path]:
-                shutil.copy2(artifact, data_delivery_dir / artifact.name)
-                staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
-        for artifact in out_dir.glob("*.json"):
-            shutil.copy2(artifact, data_delivery_dir / artifact.name)
-            staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
+        # Sync training artifacts (pipeline saves to data_delivery/ in CWD)
+        data_delivery_local = Path.cwd() / "data_delivery"
+        if data_delivery_local.exists():
+            for artifact in data_delivery_local.glob("*"):
+                if artifact.is_file():
+                    shutil.copy2(artifact, data_delivery_dir / artifact.name)
+                    staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
         repo.index.add(staged)
         if repo.index.diff("HEAD"):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
