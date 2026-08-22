@@ -155,14 +155,14 @@ else:
                 if artifact.is_file():
                     shutil.copy2(artifact, data_delivery_dir / artifact.name)
                     staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
+        print(f"  📋 Staging {len(staged)} files:")
+        for s in staged:
+            print(f"    {s}")
         repo.index.add(staged)
-        if repo.index.diff("HEAD"):
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            repo.index.commit(f"Update MLB features: {ts}")
-            repo.remote("origin").push(CONFIG["github_branch"])
-            print(f"  ✅ Pushed {len(staged)} files")
-        else:
-            print("  ℹ️  No changes")
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        repo.index.commit(f"Update MLB features + predictions: {ts}")
+        repo.remote("origin").push(CONFIG["github_branch"])
+        print(f"  ✅ Pushed {len(staged)} files")
         shutil.rmtree(sync_dir, ignore_errors=True)
     except Exception as e:
         print(f"  ❌ {e}")
