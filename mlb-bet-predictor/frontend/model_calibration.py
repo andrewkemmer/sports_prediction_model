@@ -146,7 +146,7 @@ if not pts.empty:
     ).encode(
         x=alt.X("prob:Q", title="Predicted win probability", scale=alt.Scale(domain=[0.45, 1.0])),
         y=alt.Y("win_rate:Q", title="Actual win rate", scale=alt.Scale(domain=[0, 1])),
-        tooltip=[alt.Tooltip("prob:Q", title="Predicted", format="%"),
+        tooltip=[alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
                  alt.Tooltip("win_rate:Q", title="Actual win rate", format=".1%"),
                  alt.Tooltip("n:Q", title="Games")],
     )
