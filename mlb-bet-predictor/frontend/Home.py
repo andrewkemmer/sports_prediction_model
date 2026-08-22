@@ -48,7 +48,7 @@ with st.sidebar:
     st.text_input("Branch", value=branch_default, key="gh_branch")
     st.caption(
         "Artifacts are fetched from "
-        "`raw.githubusercontent.com/<owner>/<repo>/<branch>/data_delivery/…` "
+        "`raw.githubusercontent.com/<owner>/<repo>/<branch>/mlb-bet-predictor/data_delivery/…` "
         "with a local fallback to the bundled samples."
     )
     utils.render_source_note()

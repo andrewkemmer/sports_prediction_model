@@ -26,6 +26,8 @@ import streamlit as st
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOCAL_DATA_DIR = ROOT_DIR / "data_delivery"
+# Artifacts live under mlb-bet-predictor/data_delivery/ inside the GitHub repo
+REPO_SUBDIR = "mlb-bet-predictor"
 
 PRIMARY = "#10B981"      # emerald accent
 BLUE = "#3B82F6"
@@ -70,7 +72,8 @@ def source_label() -> str:
 def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str):
     """Fetch one artifact. Returns (bytes | None, source)."""
     if owner and repo:
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/data_delivery/{relpath}"
+        url = (f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
+               f"/{REPO_SUBDIR}/data_delivery/{relpath}")
         try:
             resp = requests.get(url, timeout=15)
             if resp.ok:
@@ -89,7 +92,8 @@ def available_dates(owner: str, repo: str, branch: str) -> list[str]:
     dates: set[str] = set()
     if owner and repo:
         try:
-            api = f"https://api.github.com/repos/{owner}/{repo}/contents/data_delivery"
+            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
+                   f"/{REPO_SUBDIR}/data_delivery")
             resp = requests.get(api, timeout=15)
             if resp.ok:
                 for item in resp.json():
