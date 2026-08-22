@@ -229,8 +229,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         seq AS (
             SELECT *,
                 LAG(tot_score) OVER (
+                    -- at_bat_number is globally monotone within a game_pk, so this
+                    -- is true chronological PA order. The previous ordering
+                    -- (all Top half-innings, then all Bottom) made tot_score carry
+                    -- across half-innings, so LAG jumps credited the OTHER team's
+                    -- runs to this half's pitcher — double-counting every run
+                    -- (verified on game_pk 824317: 20 attributed vs 10 actual),
+                    -- which inflated all ERA-family features ~2x.
                     PARTITION BY game_pk
-                    ORDER BY CASE WHEN inning_topbot = 'Top' THEN 0 ELSE 1 END, at_bat_number
+                    ORDER BY at_bat_number
                 ) AS prev_tot
             FROM lp
         )
@@ -252,7 +259,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                     WHEN 'sacrifice_bunt_double_play' THEN 2
                     ELSE 0 END AS outs_on_pa,
                xwoba_val,
-               CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 26 AND 30
+               -- Barrel proxy: EV>=98 with LA in [22,36]. Calibrated on live
+               -- pulls: the official core band (LA 26-30) alone yields ~2.3%
+               -- of BBE (real league rate is ~8%), while this widened band
+               -- lands at ~7% here. The EV+LA sum-rule overcounts (~19%) in
+               -- our data, so the angle-band form is used.
+               CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 22 AND 36
                     THEN 1.0 ELSE 0.0 END AS barrel_flag,
                CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
         FROM seq
