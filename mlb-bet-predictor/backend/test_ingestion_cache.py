@@ -207,6 +207,22 @@ class TestPullStatcastCache(unittest.TestCase):
         self.assertEqual(sorted(merged["game_pk"]), [1, 2, 3])  # stale row gone
 
 
+class TestGameTypeFilter(unittest.TestCase):
+    """Savant posts pitch data for Spring Training ('S') and Exhibition
+    ('E') games; a pull spanning Feb–March must not ingest them."""
+
+    def test_spring_and_exhibition_dropped_regular_and_postseason_kept(self):
+        df = pd.DataFrame({
+            "game_date": pd.to_datetime(["2026-03-15"] * 5),
+            "game_pk": [1, 2, 3, 4, 5],
+            "at_bat_number": [1] * 5,
+            "pitch_number": [1] * 5,
+            "game_type": ["S", "E", "R", "W", "D"],
+        })
+        out = ingestion._normalize_columns(df)
+        self.assertEqual(sorted(out["game_pk"]), [3, 4, 5])
+
+
 class TestChunkedStatcastBounds(unittest.TestCase):
     """Verified against the live Savant CSV endpoint: gt/lt bounds are
     INCLUSIVE and same-day queries work. Empty results for recent dates are

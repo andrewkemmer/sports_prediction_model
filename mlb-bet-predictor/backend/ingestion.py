@@ -294,8 +294,27 @@ def _to_date(d: str | date) -> date:
     return date.fromisoformat(d)
 
 
+# Statcast game_type codes to KEEP. 'S' = Spring Training and 'E' =
+# Exhibition are excluded: Savant posts pitch data for them, so a pull
+# spanning Feb–March silently ingests hundreds of scrimmages whose stats
+# are not representative of regular-season play.
+KEEP_GAME_TYPES = {"R", "F", "D", "L", "W"}
+
+
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply aliases and ensure all expected columns exist (missing → NaN)."""
+    """Apply aliases and ensure all expected columns exist (missing → NaN).
+
+    Also drops non-regular-season games (spring training, exhibitions);
+    postseason codes (F/D/L/W) are kept.
+    """
+    n_before = len(df)
+    if "game_type" in df.columns:
+        df = df[df["game_type"].astype(str).str.strip().isin(KEEP_GAME_TYPES)]
+        dropped = n_before - len(df)
+        if dropped:
+            logger.info("Dropped %d non-regular-season pitches (game_type S/E)", dropped)
+    else:
+        logger.warning("game_type column missing — cannot filter spring training games")
     rename_map = {}
     for col in df.columns:
         canonical = COLUMN_ALIASES.get(col)
