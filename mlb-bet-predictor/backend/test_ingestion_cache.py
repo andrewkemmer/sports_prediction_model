@@ -49,20 +49,26 @@ class TestPullStatcastCache(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.out = self.tmp / "pitches.parquet"
 
-    def test_fresh_cache_skips_pull(self):
-        self.out.write_bytes(b"")
-        # Bypass real parquet write: monkey _cache_bounds to simulate a
-        # cache that already covers the full requested window.
+    def test_fresh_cache_skips_full_pull_but_refreshes_tail(self):
+        # A valid cache whose bounds cover the whole request
+        _frame(["2025-04-01", "2026-08-22"], pks=[1, 2]).to_parquet(self.out, index=False)
+        # Cache covers the full requested range — the 2025 history is NOT
+        # re-pulled, but the trailing REFRESH_TAIL_DAYS window still is, so
+        # games cached mid-progress get their real finals.
+        calls = []
+        def fake_pull(s, e, cd, ps):
+            calls.append((s, e))
+            return [_frame([str(s)], pks=[7777])]
         with patch.object(
             ingestion, "_cache_bounds", return_value=(date(2025, 1, 1), date(2026, 8, 22)),
         ), patch.object(
-            ingestion, "_chunked_statcast",
-            side_effect=AssertionError("must not pull when cache covers range"),
+            ingestion, "_chunked_statcast", side_effect=fake_pull,
         ):
-            result = ingestion.pull_statcast(
-                "2025-01-01", "2026-08-22", out_path=self.out, resume=True,
+            ingestion.pull_statcast(
+                "2025-01-01", "2026-08-22", out_path=self.out,
+                chunk_days=60, pause_sec=0, resume=True,
             )
-        self.assertEqual(result, self.out)
+        self.assertEqual(calls, [(date(2026, 8, 20), date(2026, 8, 22))])
 
     def test_stale_cache_triggers_forward_topup(self):
         old = _frame(["2026-08-19", "2026-08-20", "2026-08-21"], pks=[1, 2, 3])
@@ -106,7 +112,9 @@ class TestPullStatcastCache(unittest.TestCase):
         captured = []
         def fake_pull(s, e, cd, ps):
             captured.append((s, e))
-            return [_frame([str(s)], pks=[int(str(s).replace("-", "")) % 10000])]
+            if s == date(2025, 3, 27):
+                return [_frame([str(s)], pks=[int(str(s).replace("-", "")) % 10000])]
+            return []  # tail refresh found nothing new
 
         with patch.object(
             ingestion, "_cache_bounds", return_value=(date(2025, 4, 2), date(2026, 8, 22)),
@@ -115,8 +123,11 @@ class TestPullStatcastCache(unittest.TestCase):
                 "2025-03-27", "2026-08-22", out_path=self.out,
                 chunk_days=60, pause_sec=0, resume=True,
             )
-        # Backward gap only: 2025-03-27 .. 2025-04-01
-        self.assertEqual(captured, [(date(2025, 3, 27), date(2025, 4, 1))])
+        # Backward gap first (2025-03-27 .. 04-01), then the tail refresh
+        self.assertEqual(captured, [
+            (date(2025, 3, 27), date(2025, 4, 1)),
+            (date(2026, 8, 20), date(2026, 8, 22)),
+        ])
         merged = pd.read_parquet(self.out)
         self.assertEqual(len(merged), 3)
         first = min(pd.to_datetime(merged["game_date"]).dt.date)
@@ -146,6 +157,42 @@ class TestPullStatcastCache(unittest.TestCase):
             )
         merged = pd.read_parquet(self.out)
         self.assertEqual(len(merged[merged["game_pk"] == 9]), 2)   # full game
+        self.assertEqual(len(merged[merged["game_pk"] == 10]), 1)
+
+    def test_fresh_looking_cache_with_partial_tail_still_refreshes(self):
+        """A prior run stored partial Aug-22 pitches (cache 'covers' end),
+        which used to skip ALL repairs — frozen finals persisted forever.
+        The tail refresh must run even when cached_hi >= end."""
+        # Cache: complete Aug 20 + ONE pitch of an Aug 22 game in progress
+        old = pd.concat([
+            _frame(["2026-08-20"], pks=[1]),
+            _frame(["2026-08-22"], pks=[9]),
+        ], ignore_index=True)
+        old.to_parquet(self.out, index=False)
+
+        complete_game9 = pd.DataFrame({
+            "game_date": pd.to_datetime(["2026-08-22"] * 2),
+            "game_pk": [9, 9],
+            "at_bat_number": [1, 2],
+            "pitch_number": [1, 2],
+        })
+        captured = []
+        def fake_pull(s, e, cd, ps):
+            captured.append((s, e))
+            return [complete_game9, _frame(["2026-08-22"], pks=[10])]
+
+        with patch.object(
+            ingestion, "_cache_bounds",
+            return_value=(date(2025, 1, 1), date(2026, 8, 22)),
+        ), patch.object(ingestion, "_chunked_statcast", side_effect=fake_pull):
+            ingestion.pull_statcast(
+                "2025-01-01", "2026-08-22", out_path=self.out,
+                chunk_days=60, pause_sec=0, resume=True,
+            )
+        self.assertEqual(captured, [(date(2026, 8, 20), date(2026, 8, 22))])
+        merged = pd.read_parquet(self.out)
+        # Game 9 now has both pitches; game 10 arrived
+        self.assertEqual(len(merged[merged["game_pk"] == 9]), 2)
         self.assertEqual(len(merged[merged["game_pk"] == 10]), 1)
 
     def test_overlap_rows_deduplicated(self):

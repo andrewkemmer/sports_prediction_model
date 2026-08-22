@@ -612,6 +612,10 @@ def _parse_espn_event(event: dict) -> dict | None:
         "home_team": home_key,
         "away_team": away_key,
         "home_win": home_win,
+        # The actual runs — without these the dashboard shows winners with
+        # no final score (home_win alone was carried, scores were dropped).
+        "home_score": home_score,
+        "away_score": away_score,
         "total_runs": (home_score + away_score) if home_score is not None and away_score is not None else None,
         "sp_name_home": sp_home,
         "sp_name_away": sp_away,
