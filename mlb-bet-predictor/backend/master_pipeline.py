@@ -93,36 +93,26 @@ print(f"  ✅ Game: {game_df.shape}")
 print(f"  ✅ PBP:  {pbp_df.shape}")
 gc.collect()
 
+# ── Save features BEFORE training (Phase 4 needs the CSV) ────────────────
+_banner("PHASE 3.5", "Save Features")
+game_df.fillna(game_df.median(numeric_only=True), inplace=True)
+pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
+csv_path = out_dir / "game_level_features.csv"
+parquet_path = out_dir / "pbp_level_features.parquet"
+game_df.to_csv(csv_path, index=False)
+pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
+print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
+print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
+
 # ── Phase 4: Training + Prediction ──────────────────────────────────────────
 _banner("PHASE 4", "Training + Prediction")
 try:
     from pipeline import run_daily_pipeline
     from data_ingestion import load_game_features
 
-    # Map DuckDB feature columns to training.py format
-    csv_path = out_dir / "game_level_features.csv"
-    if csv_path.exists():
-        train_games = load_game_features(csv_path)
-    else:
-        train_games = game_df.copy()
-        # Column mapping for training.py FEATURE_COLS
-        train_games["game_id"] = train_games.apply(
-            lambda r: f"{pd.Timestamp(r['game_date']).strftime('%Y%m%d')}_{r.get('away_team','?')}@{r['home_team']}", axis=1)
-        train_games["start_time_utc"] = pd.to_datetime(train_games["game_date"])
-        train_games["woba_30g_home"] = train_games.get("team_woba_30g_home", 0)
-        train_games["woba_30g_away"] = train_games.get("team_woba_30g_away", 0)
-        train_games["sp_era_30g_home"] = train_games.get("sp_era_home", 0)
-        train_games["sp_era_30g_away"] = train_games.get("sp_era_away", 0)
-        train_games["sp_k9_30g_home"] = train_games.get("sp_k9_home", 0)
-        train_games["sp_k9_30g_away"] = train_games.get("sp_k9_away", 0)
-        train_games["home_elo"] = 1500.0
-        train_games["home_win_pct"] = 0.5
-        train_games["away_win_pct"] = 0.5
-        train_games["home_run_diff"] = 0
-        train_games["away_run_diff"] = 0
-        train_games["home_record"] = "0-0"
-        train_games["away_record"] = "0-0"
-
+    # Always load via load_game_features — it computes ELO, win_pct,
+    # run_diff and maps columns to training.py's FEATURE_COLS format.
+    train_games = load_game_features(csv_path)
     print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
 
     target = end  # predict the last date in the range
@@ -146,19 +136,8 @@ try:
 except Exception as e:
     print(f"  ❌ Training failed: {e}")
 
-# ── Phase 5: Save Outputs ──────────────────────────────────────────────────
-_banner("PHASE 5", "Save Outputs")
-game_df.fillna(game_df.median(numeric_only=True), inplace=True)
-pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
-csv_path = out_dir / "game_level_features.csv"
-parquet_path = out_dir / "pbp_level_features.parquet"
-game_df.to_csv(csv_path, index=False)
-pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
-print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
-print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
-
-# ── Phase 6: GitHub Sync ────────────────────────────────────────────────────
-_banner("PHASE 6", "GitHub Sync")
+# ── Phase 5: GitHub Sync ────────────────────────────────────────────────────
+_banner("PHASE 5", "GitHub Sync")
 token = CONFIG.get("github_token", "")
 if not token:
     print("  ⏭️  No token — skipping push")

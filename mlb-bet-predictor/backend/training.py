@@ -90,8 +90,17 @@ def walk_forward_splits(
     """
     if "game_date" not in games.columns:
         raise ValueError("games must have a 'game_date' column")
+    if "home_win" not in games.columns:
+        logger.warning("walk_forward_splits: no 'home_win' column — cannot split")
+        return []
 
     df = games.dropna(subset=["home_win"]).copy()
+    if df.empty:
+        logger.warning(
+            "walk_forward_splits: all %d rows have NaN home_win — cannot split",
+            len(games),
+        )
+        return []
     df["game_date"] = pd.to_datetime(df["game_date"])
     # Normalize to date-only (strip time) so unique dates represent calendar days,
     # not individual timestamps. Without this, each game with a unique start time
@@ -105,6 +114,10 @@ def walk_forward_splits(
     unique_dates = sorted(df["game_date"].unique())
     if len(unique_dates) < retrain_cadence_days + 1:
         # Not enough data for even one split — use all as train, none as val
+        logger.warning(
+            "walk_forward_splits: only %d unique dates (need >= %d for cadence %d)",
+            len(unique_dates), retrain_cadence_days + 1, retrain_cadence_days,
+        )
         return []
 
     splits = []
