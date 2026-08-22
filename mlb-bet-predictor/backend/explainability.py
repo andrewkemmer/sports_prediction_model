@@ -189,6 +189,7 @@ def compute_feature_drift(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
     target_date_str: str,
+    model_weights: dict | None = None,
 ) -> pd.DataFrame:
     """Compute PSI for each numeric feature and save feature_drift CSV.
 
@@ -258,6 +259,8 @@ def compute_feature_drift(
             "shift_se": round(shift_se, 6),
             "location_shift": bool(location_shift),
             "status": status,
+            "weight_pct": round(float(model_weights.get(col, 0.0)), 3)
+                          if model_weights else None,
             "n_baseline": int(n_b),
             "n_current": int(n_c),
         })

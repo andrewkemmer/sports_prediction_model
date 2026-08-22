@@ -52,6 +52,7 @@ from github_sync import sync_artifacts
 from training import (
     compute_metrics,
     calibration_buckets,
+    feature_importance_weights,
     load_ensemble,
     persist_ensemble,
     predict_games,
@@ -528,7 +529,10 @@ def run_daily_pipeline(
         prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
         if not baseline.empty and not current.empty:
-            drift_df = compute_feature_drift(baseline, current, target_date_str)
+            drift_df = compute_feature_drift(
+                baseline, current, target_date_str,
+                model_weights=feature_importance_weights(best_models),
+            )
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
         else:
             drift_df = pd.DataFrame()

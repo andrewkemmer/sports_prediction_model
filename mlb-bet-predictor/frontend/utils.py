@@ -665,3 +665,76 @@ def render_source_note() -> None:
     else:
         note, icon = "Showing bundled sample data (offline fallback)", "📦"
     st.caption(f"{icon} {note}")
+
+
+# ---------------------------------------------------------------------------
+# Feature descriptions (Model Monitor PSI table)
+# ---------------------------------------------------------------------------
+
+FEATURE_DESCRIPTIONS = {
+    "elo": "Team strength rating entering the game (Elo, updated each result)",
+    "win_pct": "Winning percentage prior to this game",
+    "run_diff": "Run differential (runs scored − allowed) prior to this game",
+    "rest_days": "Days since the team's previous game",
+    "record": "Season win-loss record entering the game",
+    "sp_era": "Starting pitcher earned run average",
+    "sp_era_30g": "Starting pitcher ERA, last 30 starts",
+    "sp_k9": "Starting pitcher strikeouts per 9 innings",
+    "sp_k9_30g": "Starting pitcher K/9, last 30 starts",
+    "sp_bb9": "Starting pitcher walks per 9 innings",
+    "sp_whip": "Starting pitcher WHIP (walks + hits per inning)",
+    "sp_fip": "Starting pitcher FIP (fielding-independent pitching)",
+    "sp_xwoba": "Expected wOBA allowed by the starting pitcher (contact quality)",
+    "sp_fbvelo_3g": "Starting pitcher fastball velocity, last 3 starts (mph)",
+    "sp_fbpct_3g": "Starting pitcher fastball usage rate, last 3 starts",
+    "sp_whiff_3g": "Starting pitcher whiff rate generated, last 3 starts",
+    "sp_xwoba_vs_l": "Expected wOBA the starter allows vs left-handed batters",
+    "sp_xwoba_vs_r": "Expected wOBA the starter allows vs right-handed batters",
+    "woba_30g": "Team weighted on-base average, last 30 games",
+    "team_woba_30g": "Team weighted on-base average, last 30 games",
+    "team_iso_30g": "Team isolated power (slugging − AVG), last 30 games",
+    "team_k_rate_30g": "Team strikeout rate at the plate, last 30 games",
+    "team_bb_rate_30g": "Team walk rate at the plate, last 30 games",
+    "bullpen_whip_10g": "Bullpen WHIP over the last 10 games",
+    "bullpen_era_10g": "Bullpen ERA over the last 10 games",
+    "bullpen_pitches_3d": "Pitches thrown by the bullpen over the last 3 days (fatigue)",
+    "bullpen_ip_3d": "Innings pitched by the bullpen over the last 3 days (fatigue)",
+    "team_barrel_15g": "Barrel rate (best-quality contact) allowed, last 15 games",
+    "team_hardhit_15g": "Hard-hit rate allowed, last 15 games",
+    "team_exitvelo_15g": "Average exit velocity allowed, last 15 games (mph)",
+    "opp_lefty_share": "Share of opposing lineup batting left-handed vs this starter",
+    "lineup_woba_mean": "Projected lineup's average wOBA",
+    "lineup_woba_top3": "wOBA of the projected lineup's top 3 hitters",
+    "lineup_woba_std": "Spread of wOBA across the projected lineup",
+}
+
+
+def describe_feature(name: str) -> str:
+    """Human description for a feature column like 'sp_era_30g_home'.
+
+    Strips the _home/_away slot suffix and notes which side of the matchup
+    the value describes.
+    """
+    s = str(name or "").strip()
+    side = ""
+    for suf in ("_home", "_away"):
+        if s.endswith(suf):
+            side = " — home team" if suf == "_home" else " — away team"
+            s = s[: -len(suf)]
+            break
+    base = FEATURE_DESCRIPTIONS.get(s)
+    if base is None:
+        for k, v in FEATURE_DESCRIPTIONS.items():
+            if s.startswith(k):
+                base = v
+                break
+    return f"{base}{side}" if base else name
+
+
+def feature_weight_pct(row: dict) -> str:
+    """Formatted blend weight for a drift row ('—' when unavailable)."""
+    v = row.get("weight_pct")
+    try:
+        return f"{float(v):.2f}%"
+    except (TypeError, ValueError):
+        return "—"

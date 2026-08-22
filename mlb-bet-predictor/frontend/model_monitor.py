@@ -120,6 +120,8 @@ st.markdown(
 st.markdown("### Feature Drift Analysis (PSI Scores)")
 drift = mon.get("feature_drift", [])
 if drift:
+    has_weights = any(r.get("weight_pct") is not None for r in drift)
+    weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
     for r in drift:
         psi = r.get("psi", 0.0)
@@ -131,18 +133,16 @@ if drift:
                     "INSUFFICIENT": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
-        label = {
-            "home_team_elo": "Home team ELO",
-            "away_sp_era_10g": "Away SP ERA (10g)",
-            "bullpen_whip_10g": "Bullpen WHIP (10g)",
-            "home_woba_30g": "Home wOBA (30g)",
-            "weather_wind_speed": "Wind speed (mph)",
-        }.get(r.get("feature", ""), r.get("feature", ""))
+        label = utils.describe_feature(r.get("feature", "")) or r.get("feature", "")
+        weight_cell = f"<td>{utils.feature_weight_pct(r)}</td>" if has_weights else ""
         rows.append(
-            f"<tr><td style='color:#E2E8F0;'>{label}</td>"
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{label}</div></td>"
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>{samples}</span></td></tr>"
         )
@@ -150,11 +150,14 @@ if drift:
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
-            <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th><th>PSI</th><th>STATUS</th></tr></thead>
+            <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th><th>PSI</th>
+            {weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          MODEL WEIGHT = share of the final blended ensemble riding on this feature
+          (blend-weighted importances across members; sums to 100%).
           Status shows the sample sizes behind each comparison as baseline/current.
           INSUFFICIENT = window too small to judge drift; PSI is informational only.
         </div>

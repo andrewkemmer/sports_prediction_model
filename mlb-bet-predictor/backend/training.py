@@ -335,6 +335,46 @@ def _member_weights(member_names: list[str]) -> dict[str, float]:
     return {n: v / total for n, v in raw.items()}
 
 
+def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | None:
+    """Blend-weighted feature importance across ensemble members (sums to 100).
+
+    Each member's importances are normalized internally, then averaged with
+    the member's configured ENSEMBLE_WEIGHTS share — so the result answers
+    "what fraction of the final blended model rides on this feature?"
+    Tree members contribute split-gain importance; logistic contributes
+    |coefficient|. Returns None when no member exposes importances.
+    """
+    members = {n: m for n, m in ml_models.items()
+               if n not in ("scaler", "impute_median")}
+    if not members:
+        return None
+    raw = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in members}
+    total = sum(raw.values())
+    if total <= 0:
+        raw = {n: 1.0 / len(members) for n in members}
+        total = 1.0
+
+    agg = np.zeros(len(FEATURE_COLS))
+    contributed = False
+    for name, model in members.items():
+        try:
+            if hasattr(model, "feature_importances_"):
+                imp = np.asarray(model.feature_importances_, dtype=float).ravel()
+            elif hasattr(model, "coef_"):
+                imp = np.abs(np.asarray(model.coef_, dtype=float)).ravel()
+            else:
+                continue
+        except Exception:
+            continue
+        if len(imp) != len(FEATURE_COLS) or imp.sum() <= 0:
+            continue
+        agg += (raw[name] / total) * (imp / imp.sum())
+        contributed = True
+    if not contributed or agg.sum() <= 0:
+        return None
+    return {f: round(float(w), 4) for f, w in zip(FEATURE_COLS, agg / agg.sum() * 100.0)}
+
+
 def ensemble_predict(
     ml_models: dict[str, Any], games: pd.DataFrame
 ) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float]]:
