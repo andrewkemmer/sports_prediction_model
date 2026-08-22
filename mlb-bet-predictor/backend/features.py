@@ -140,7 +140,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                CAST(game_date AS DATE) AS game_date,
                home_team, away_team,
                home_score, away_score,
-               CASE WHEN home_score > away_score THEN 1.0 ELSE 0.0 END AS home_win,
+               CASE WHEN home_score > away_score THEN 1.0
+                    WHEN away_score > home_score THEN 0.0
+                    ELSE NULL END AS home_win,
                (COALESCE(home_score, 0) + COALESCE(away_score, 0)) AS total_runs
         FROM last_pitch WHERE rn = 1
     """)
@@ -148,20 +150,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     # 2. Starting pitchers (first PA in inning 1)
     con.execute("""
         CREATE TABLE starters AS
+        -- Top of the 1st: AWAY team bats, so the HOME team's starter pitches.
+        -- These were swapped before (home SP stats were being read off the
+        -- away starter and vice versa on every card and feature).
         WITH first_pa_top AS (
-            SELECT game_pk, pitcher AS away_starter_id,
+            SELECT game_pk, pitcher AS home_starter_id,
                    ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches WHERE inning = 1 AND inning_topbot = 'Top'
         ),
         first_pa_bot AS (
-            SELECT game_pk, pitcher AS home_starter_id,
+            SELECT game_pk, pitcher AS away_starter_id,
                    ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches WHERE inning = 1 AND inning_topbot = 'Bot'
         )
         SELECT DISTINCT p.game_pk,
                CAST(p.game_date AS DATE) AS game_date,
                p.home_team, p.away_team,
-               t.away_starter_id, b.home_starter_id
+               t.home_starter_id, b.away_starter_id
         FROM (SELECT DISTINCT game_pk, game_date, home_team, away_team FROM pitches) p
         LEFT JOIN first_pa_top t ON p.game_pk = t.game_pk AND t.rn = 1
         LEFT JOIN first_pa_bot b ON p.game_pk = b.game_pk AND b.rn = 1
@@ -197,36 +202,83 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
     # 5. Pitcher rolling features (PIT-compliant: LAG first, then rolling SUM)
+    #
+    # Innings pitched and runs allowed are computed from real game state, not
+    # proxies: outs come from a per-PA out-event map and runs from the score
+    # progression across PA boundaries (attributed to the pitcher who threw
+    # the final pitch of the scoring PA). The previous proxy (PA count / 3 as
+    # "IP" and hits+BB+HBP-HR as "runs") produced ERA ~7.5 and K/9 ~6.0 —
+    # numbers that don't exist in Major League Baseball.
+    con.execute(f"""
+        CREATE TABLE pa_boundary AS
+        WITH lastp AS (
+            SELECT CAST(game_date AS DATE) AS game_date,
+                   game_pk, inning, inning_topbot, at_bat_number,
+                   pitcher, events,
+                   launch_speed, launch_angle,
+                   COALESCE(home_score, 0) + COALESCE(away_score, 0) AS tot_score,
+                   estimated_woba_using_speedangle AS xwoba_val,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY game_pk, inning, inning_topbot, at_bat_number
+                       ORDER BY pitch_number DESC
+                   ) AS rn
+            FROM pitches
+            WHERE events IN ({PA_END_EVENTS})
+        ),
+        lp AS (SELECT * FROM lastp WHERE rn = 1),
+        seq AS (
+            SELECT *,
+                LAG(tot_score) OVER (
+                    PARTITION BY game_pk
+                    ORDER BY CASE WHEN inning_topbot = 'Top' THEN 0 ELSE 1 END, at_bat_number
+                ) AS prev_tot
+            FROM lp
+        )
+        SELECT game_date, game_pk, pitcher, events,
+               -- First PA of the game: score starts 0-0, so its runs = tot_score.
+               CASE WHEN prev_tot IS NULL THEN tot_score
+                    ELSE GREATEST(tot_score - prev_tot, 0) END AS runs_on_pa,
+               CASE events
+                    WHEN 'field_out' THEN 1
+                    WHEN 'strikeout' THEN 1
+                    WHEN 'strikeout_double_play' THEN 2
+                    WHEN 'grounded_into_double_play' THEN 2
+                    WHEN 'double_play' THEN 2
+                    WHEN 'triple_play' THEN 3
+                    WHEN 'sac_fly' THEN 1
+                    WHEN 'sac_bunt' THEN 1
+                    WHEN 'fielders_choice_out' THEN 1
+                    WHEN 'sac_fly_double_play' THEN 2
+                    WHEN 'sacrifice_bunt_double_play' THEN 2
+                    ELSE 0 END AS outs_on_pa,
+               xwoba_val,
+               CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 26 AND 30
+                    THEN 1.0 ELSE 0.0 END AS barrel_flag,
+               CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
+        FROM seq
+    """)
     con.execute(f"""
         CREATE TABLE pitcher_game_stats AS
-        WITH pa_events AS (
-            SELECT game_date, game_pk, pitcher, events,
-                   estimated_woba_using_speedangle AS xwoba_val,
-                   barrel AS barrel_val, hard_contact AS hard_val
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
-        ),
-        game_agg AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
-                   COUNT(*) AS n_batters_faced,
-                   COUNT(*) / 3.0 AS ip_approx,
-                   SUM(CASE WHEN events IN ('strikeout', 'strikeout_double_play') THEN 1 ELSE 0 END) AS ks,
-                   SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bbs,
-                   SUM(CASE WHEN events = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hbps,
-                   SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS hits_allowed,
-                   SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hrs_allowed,
-                   AVG(xwoba_val) AS xwoba,
-                   AVG(TRY_CAST(barrel_val AS DOUBLE)) AS barrel_rate,
-                   AVG(TRY_CAST(hard_val AS DOUBLE)) AS hard_contact_rate
-            FROM pa_events
-            GROUP BY CAST(game_date AS DATE), game_pk, pitcher
-        )
-        SELECT *, hits_allowed + bbs + hbps - hrs_allowed AS runs FROM game_agg
+        SELECT game_date, game_pk, pitcher,
+               COUNT(*) AS n_batters_faced,
+               SUM(outs_on_pa) / 3.0 AS ip,
+               SUM(CASE WHEN events IN ('strikeout', 'strikeout_double_play') THEN 1 ELSE 0 END) AS ks,
+               SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bbs,
+               SUM(CASE WHEN events = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hbps,
+               SUM(CASE WHEN events IN ('single', 'double', 'triple', 'home_run') THEN 1 ELSE 0 END) AS hits_allowed,
+               SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hrs_allowed,
+               SUM(runs_on_pa) AS runs,
+               AVG(xwoba_val) AS xwoba,
+               AVG(barrel_flag) AS barrel_rate,
+               AVG(hard_flag) AS hard_contact_rate
+        FROM pa_boundary
+        GROUP BY game_date, game_pk, pitcher
     """)
 
     con.execute("""
         CREATE TABLE pitcher_shifted AS
         SELECT *,
-            LAG(ip_approx, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ip,
+            LAG(ip, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ip,
             LAG(runs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_runs,
             LAG(ks, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ks,
             LAG(bbs, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_bbs,
@@ -315,22 +367,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM team_off_shifted
         WINDOW w AS (PARTITION BY batting_team ORDER BY game_date
                      ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
-    """)
+    """)    # 7. Bullpen rolling features
 
-    # 7. Bullpen rolling features
     # Reliever workload is attributed to the FIELDING team (Top half → home
-    # team pitchers, Bottom half → away team). Previously both teams received
-    # the combined totals of BOTH bullpens, making bullpen_*_home and
-    # bullpen_*_away identical per game.
-    con.execute("""
-        CREATE TABLE first_pitchers AS
-        SELECT game_pk,
-               FIRST_VALUE(pitcher) OVER (
-                   PARTITION BY game_pk ORDER BY at_bat_number, pitch_number
-               ) AS starter_id
-        FROM pitches
-    """)
-    con.execute("""
+    # team pitchers, Bottom half → away team), and BOTH starting pitchers are
+    # excluded. The old first_pitchers CTE had one row per PITCH and only
+    # excluded the home starter, so every join fanned out ~300x (a team's
+    # 3-day "bullpen pitch count" read 69,901) and the away starter's warmup-
+    # free pitches were billed to the home bullpen.
+    con.execute(f"""
         CREATE TABLE bullpen_raw AS
         WITH reliever_events AS (
             SELECT CAST(p.game_date AS DATE) AS game_date,
@@ -339,8 +384,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                         ELSE p.away_team END AS fielding_team,
                    p.events
             FROM pitches p
-            JOIN first_pitchers fp ON p.game_pk = fp.game_pk
-            WHERE p.pitcher != fp.starter_id
+            JOIN starters s ON p.game_pk = s.game_pk
+            WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+              AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
               AND p.events IN ('single','double','triple','home_run',
                   'strikeout','strikeout_double_play','walk','hit_by_pitch',
                   'field_out','field_error','fielders_choice','fielders_choice_out',
@@ -350,7 +396,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                   'force_out','sacrifice_bunt_double_play')
         )
         SELECT game_date, game_pk, fielding_team AS team,
-            COUNT(*) / 3.0 AS bullpen_ip,
+            SUM(CASE events
+                    WHEN 'field_out' THEN 1
+                    WHEN 'strikeout' THEN 1
+                    WHEN 'strikeout_double_play' THEN 2
+                    WHEN 'grounded_into_double_play' THEN 2
+                    WHEN 'double_play' THEN 2
+                    WHEN 'triple_play' THEN 3
+                    WHEN 'sac_fly' THEN 1
+                    WHEN 'sac_bunt' THEN 1
+                    WHEN 'fielders_choice_out' THEN 1
+                    WHEN 'sac_fly_double_play' THEN 2
+                    WHEN 'sacrifice_bunt_double_play' THEN 2
+                    ELSE 0 END) / 3.0 AS bullpen_ip,
             SUM(CASE WHEN events IN ('strikeout','strikeout_double_play') THEN 1 ELSE 0 END) AS bullpen_ks,
             SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bullpen_bbs,
             SUM(CASE WHEN events IN ('single','double','triple','home_run') THEN 1 ELSE 0 END) AS bullpen_hits,
@@ -364,10 +422,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
                     ELSE p.away_team END AS team,
                COUNT(*) AS pitches,
-               COUNT(*) / 3.0 AS ip
+               SUM(CASE p.events
+                    WHEN 'field_out' THEN 1
+                    WHEN 'strikeout' THEN 1
+                    WHEN 'strikeout_double_play' THEN 2
+                    WHEN 'grounded_into_double_play' THEN 2
+                    WHEN 'double_play' THEN 2
+                    WHEN 'triple_play' THEN 3
+                    WHEN 'sac_fly' THEN 1
+                    WHEN 'sac_bunt' THEN 1
+                    WHEN 'fielders_choice_out' THEN 1
+                    WHEN 'sac_fly_double_play' THEN 2
+                    WHEN 'sacrifice_bunt_double_play' THEN 2
+                    ELSE 0 END) / 3.0 AS ip
         FROM pitches p
-        JOIN first_pitchers fp ON p.game_pk = fp.game_pk
-        WHERE p.pitcher != fp.starter_id
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
         GROUP BY 1, 2
     """)
     con.execute("""
@@ -391,10 +462,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             GROUP BY g.game_pk
         )
         SELECT g.game_pk,
-               COALESCE(h.pitches_3d, 0) AS bullpen_pitches_3d_home,
-               COALESCE(h.ip_3d, 0) AS bullpen_ip_3d_home,
-               COALESCE(a.pitches_3d, 0) AS bullpen_pitches_3d_away,
-               COALESCE(a.ip_3d, 0) AS bullpen_ip_3d_away
+               h.pitches_3d AS bullpen_pitches_3d_home,
+               h.ip_3d AS bullpen_ip_3d_home,
+               a.pitches_3d AS bullpen_pitches_3d_away,
+               a.ip_3d AS bullpen_ip_3d_away
         FROM games g
         LEFT JOIN home_load h ON g.game_pk = h.game_pk
         LEFT JOIN away_load a ON g.game_pk = a.game_pk
@@ -468,18 +539,27 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
 
     # 7c. Team contact-form — barrel rate / hard-hit rate / avg exit velo over
     # the trailing 15 games (LAG-shifted, excludes current game).
+    # Balls in play ONLY: launch_speed is also populated on foul balls
+    # (~76 mph avg vs ~87 on BIP), which dragged the old mean to ~83.
+    # Barrel/hard-hit are derived from the official Statcast definitions —
+    # the `barrel`/`hard_contact` columns don't exist in real Statcast pulls,
+    # so the old AVG() over them silently produced all-NULL features.
     con.execute("""
         CREATE TABLE team_contact_raw AS
         WITH bip AS (
             SELECT CAST(game_date AS DATE) AS game_date, game_pk,
                    CASE WHEN inning_topbot = 'Top' THEN away_team
                         ELSE home_team END AS batting_team,
-                   barrel, hard_contact, launch_speed
-            FROM pitches WHERE launch_speed IS NOT NULL
+                   CASE WHEN launch_speed >= 98 AND launch_angle BETWEEN 26 AND 30
+                        THEN 1.0 ELSE 0.0 END AS barrel_flag,
+                   CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag,
+                   launch_speed
+            FROM pitches
+            WHERE description = 'hit_into_play' AND launch_speed IS NOT NULL
         )
         SELECT game_date, game_pk, batting_team,
-               AVG(CAST(barrel AS DOUBLE)) AS barrel_rate,
-               AVG(CAST(hard_contact AS DOUBLE)) AS hardhit_rate,
+               AVG(barrel_flag) AS barrel_rate,
+               AVG(hard_flag) AS hardhit_rate,
                AVG(launch_speed) AS exitvelo
         FROM bip
         GROUP BY game_date, game_pk, batting_team
@@ -697,9 +777,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
 
     for tbl in (
         "game_winners", "starters", "venues", "rest_days",
-        "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
+        "pa_boundary", "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
-        "first_pitchers", "bullpen_raw", "bullpen_shifted", "bullpen_rolling",
+        "bullpen_raw", "bullpen_shifted", "bullpen_rolling",
         "bp_daily", "bp_fatigue",
         "pitcher_stuff_raw", "pitcher_stuff",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",

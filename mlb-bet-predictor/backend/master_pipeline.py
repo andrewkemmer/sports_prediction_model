@@ -123,8 +123,9 @@ gc.collect()
 
 # ── Save features BEFORE training (Phase 4 needs the CSV) ────────────────
 _banner("PHASE 3.5", "Save Features")
-game_df.fillna(game_df.median(numeric_only=True), inplace=True)
-pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
+# NOTE: no fillna here — missing observations ship as true NULLs. Tree models
+# handle NaN natively and zero/median fills fabricated signal that poisoned
+# PSI drift stats.
 csv_path = out_dir / "game_level_features.csv"
 parquet_path = out_dir / "pbp_level_features.parquet"
 game_df.to_csv(csv_path, index=False)

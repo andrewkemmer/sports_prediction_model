@@ -41,7 +41,13 @@ RETRAIN_CADENCE_DAYS = 7
 DEFAULT_MAX_EVAL_FOLDS = 0  # 0 = full history
 TRAIN_TEST_SPLIT_RATIO = 0.2  # Not used directly; walk-forward handles splits
 
-# Ensemble members
+# Ensemble members and their blend weights (renormalized over the members
+# that actually trained; reported weights always sum to 1.0).
+ENSEMBLE_WEIGHTS = {
+    "xgboost": 0.40,
+    "lightgbm": 0.40,
+    "logistic": 0.20,
+}
 XGBOOST_PARAMS = {
     "n_estimators": 300,
     "max_depth": 5,

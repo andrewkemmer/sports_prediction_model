@@ -111,3 +111,34 @@ class TestPSIStatus(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_outlier_does_not_explode_psi(self):
+        """Regression: a one-sided outlier must not create empty-bin explosions.
+
+        The old equal-width + epsilon implementation returned PSI > 1.7 for
+        near-identical distributions (e.g. home_win_pct 0.5003 vs 0.4999)
+        because a single outlier stretched the bin range, leaving edge bins
+        empty and log(1e-10) blowing up the sum. Quantile bins plus
+        add-one-half smoothing must keep this firmly in OK territory.
+        """
+        rng = np.random.RandomState(0)
+        baseline = rng.uniform(0.45, 0.55, 500)
+        current = np.append(rng.uniform(0.45, 0.55, 70), [0.95])
+        psi = compute_psi(baseline, current)
+        self.assertLess(psi, PSI_WARN_THRESHOLD)
+
+    def test_true_drift_still_flagged(self):
+        """A genuine distribution shift must still exceed WARN."""
+        rng = np.random.RandomState(1)
+        baseline = rng.normal(0, 1, 500)
+        current = rng.normal(1.5, 1, 200)
+        self.assertGreater(compute_psi(baseline, current), PSI_WARN_THRESHOLD)
+
+    def test_disjoint_distributions_large_psi(self):
+        """Fully disjoint distributions should produce a large (bounded) PSI."""
+        rng = np.random.RandomState(2)
+        baseline = rng.normal(0, 0.5, 300)
+        current = rng.normal(10, 0.5, 100)
+        psi = compute_psi(baseline, current)
+        self.assertGreater(psi, PSI_ALERT_THRESHOLD)
+        self.assertLess(psi, 100.0)  # bounded by smoothing, not infinite

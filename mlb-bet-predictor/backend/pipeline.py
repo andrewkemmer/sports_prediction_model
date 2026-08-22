@@ -46,6 +46,7 @@ from data_ingestion import (
     filter_prior,
 )
 from explainability import compute_feature_drift, compute_shap_per_game
+from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
     compute_metrics,
@@ -229,6 +230,7 @@ def _model_monitor_json(
     target_date_str: str,
     last_retrained: Optional[str] = None,
     version: str = "v3.2.1",
+    ensemble: Optional[list] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,6 +260,9 @@ def _model_monitor_json(
             "features": warn_features,
         },
         "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],
+        # Candidate models behind the ensemble: name, blend weight (sums to
+        # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
+        "ensemble": ensemble if ensemble is not None else last_ensemble_info(),
         "model_history": history,
     }
 
@@ -399,7 +404,7 @@ def run_daily_pipeline(
             drift_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version)
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info())
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync

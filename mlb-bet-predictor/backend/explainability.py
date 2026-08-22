@@ -50,7 +50,9 @@ def compute_shap_per_game(
         logger.warning("shap not available; writing zero-attribution CSVs")
 
     cols = [c for c in FEATURE_COLS if c in games.columns]
-    X = games[cols].fillna(0).values
+    # Preserve NaN: tree explainers handle missing values natively and a
+    # zero-fill would fabricate attributions for unobserved features.
+    X = games[cols].to_numpy(dtype=float)
 
     for idx, row in games.iterrows():
         game_id = row["game_id"]
@@ -111,6 +113,14 @@ def compute_psi(
 
     PSI = sum((current_pct - baseline_pct) * ln(current_pct / baseline_pct))
 
+    Implementation notes (fixed after false-alert investigation):
+    - Bin edges are QUANTILES of the combined sample (deduplicated), not
+      equal-width slices of the range. Equal-width bins let a single outlier
+      stretch the range so most edge bins end up empty on one side.
+    - Empty bins are handled with add-one-half smoothing instead of an
+      epsilon of 1e-10. The old epsilon made one empty bin contribute ~+2.0
+      to PSI by itself, flagging stable features as ALERT.
+
     Returns a non-negative float. 0 means identical distributions.
     """
     baseline = np.asarray(baseline, dtype=float)
@@ -123,28 +133,32 @@ def compute_psi(
     if len(baseline) == 0 or len(current) == 0:
         return 0.0
 
-    # Create bins from combined range
     combined = np.concatenate([baseline, current])
     min_val, max_val = combined.min(), combined.max()
 
     if min_val == max_val:
         return 0.0
 
-    bin_edges = np.linspace(min_val, max_val, n_bins + 1)
+    # Quantile bin edges from the combined sample; deduplicate so sparse or
+    # heavily-discrete features don't produce zero-width bins.
+    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_edges = np.unique(np.quantile(combined, quantiles))
+    if len(bin_edges) < 2:
+        return 0.0
     bin_edges[-1] = max_val + 1e-10  # Include right edge
 
     baseline_counts = np.histogram(baseline, bins=bin_edges)[0].astype(float)
     current_counts = np.histogram(current, bins=bin_edges)[0].astype(float)
 
-    # Convert to percentages (avoid division by zero)
-    baseline_pct = baseline_counts / max(baseline_counts.sum(), 1e-10)
-    current_pct = current_counts / max(current_counts.sum(), 1e-10)
+    # Add-one-half smoothing keeps empty bins bounded and the term-wise
+    # contribution (c - b) * ln(c / b) always >= 0.
+    k = len(bin_edges) - 1
+    baseline_pct = (baseline_counts + 0.5) / (baseline_counts.sum() + 0.5 * k)
+    current_pct = (current_counts + 0.5) / (current_counts.sum() + 0.5 * k)
 
-    # Avoid log(0) — add small epsilon
-    eps = 1e-10
-    psi = float(np.sum((current_pct - baseline_pct) * np.log((current_pct + eps) / (baseline_pct + eps))))
+    psi = float(np.sum((current_pct - baseline_pct) * np.log(current_pct / baseline_pct)))
 
-    return round(psi, 6)
+    return round(max(psi, 0.0), 6)
 
 
 def psi_status(psi_value: float) -> str:
@@ -179,7 +193,13 @@ def compute_feature_drift(
             continue
 
         psi = compute_psi(baseline_vals, current_vals)
-        status = psi_status(psi)
+
+        # Small windows make PSI statistically meaningless — report them as
+        # INSUFFICIENT rather than WARN/ALERT so they never page anyone.
+        if len(baseline_vals) < 100 or len(current_vals) < 30:
+            status = "INSUFFICIENT"
+        else:
+            status = psi_status(psi)
 
         drift_rows.append({
             "feature": col,
@@ -187,6 +207,8 @@ def compute_feature_drift(
             "baseline_mean": round(float(baseline_vals.mean()), 4),
             "psi": psi,
             "status": status,
+            "n_baseline": int(len(baseline_vals)),
+            "n_current": int(len(current_vals)),
         })
 
     df = pd.DataFrame(drift_rows)

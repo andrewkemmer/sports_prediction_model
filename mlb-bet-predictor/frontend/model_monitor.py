@@ -47,7 +47,12 @@ st.markdown("<div style='color:#94A3B8;margin:2px 0 14px;'>Tracking model health
 # ---------------------------------------------------------------------------
 last_retrained = mon.get("last_retrained", "")
 next_retrain = mon.get("next_retrain", "")
-drift_alerts = mon.get("drift_alerts", [])
+# Backend persists drift rows under "feature_drift"; older artifacts used
+# "drift_alerts". Derive from whichever exists.
+drift_rows_all = mon.get("feature_drift", []) or []
+drift_alerts = mon.get("drift_alerts") or [
+    r for r in drift_rows_all if r.get("status") in ("WARN", "ALERT")
+]
 
 try:
     days_since = (utils.parse_date(date_str) - date.fromisoformat(last_retrained[:10])).days
@@ -118,8 +123,14 @@ if drift:
     rows = []
     for r in drift:
         psi = r.get("psi", 0.0)
-        psi_color = utils.AMBER if r.get("status") == "WARN" else (utils.RED if r.get("status") == "ALERT" else utils.TEXT)
-        pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert"}.get(r.get("status", "OK"), "ok")
+        status = r.get("status", "OK")
+        psi_color = utils.AMBER if status == "WARN" else (
+            utils.RED if status == "ALERT" else utils.TEXT
+        )
+        pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
+                    "INSUFFICIENT": "ok"}.get(status, "ok")
+        n_base, n_cur = r.get("n_baseline"), r.get("n_current")
+        samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
         label = {
             "home_team_elo": "Home team ELO",
             "away_sp_era_10g": "Away SP ERA (10g)",
@@ -132,7 +143,8 @@ if drift:
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
-            f"<td><span class='fb-status-pill {pill_cls}'>{r.get('status', 'OK')}</span></td></tr>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>{samples}</span></td></tr>"
         )
     st.markdown(
         f"""
@@ -142,11 +154,103 @@ if drift:
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          Status shows the sample sizes behind each comparison as baseline/current.
+          INSUFFICIENT = window too small to judge drift; PSI is informational only.
+        </div>
         """,
         unsafe_allow_html=True,
     )
 else:
     st.info("No drift data available.")
+
+# ---------------------------------------------------------------------------
+# Model ensemble composition
+# ---------------------------------------------------------------------------
+st.markdown("### Model Ensemble")
+ensemble = mon.get("ensemble") or []
+
+ENSEMBLE_DESCRIPTIONS = {
+    "xgboost": (
+        "Gradient-boosted decision trees (depth 5, 300 rounds, logloss objective). "
+        "Sparsity-aware splits consume missing features natively — no imputation — "
+        "and capture nonlinear interactions such as platoon fit × bullpen fatigue."
+    ),
+    "lightgbm": (
+        "Leaf-wise histogram gradient boosting. Grows deeper, loss-guided trees than "
+        "XGBoost at the same budget, making it quick to exploit strong rolling-form "
+        "features; missing values are routed natively like XGBoost."
+    ),
+    "logistic": (
+        "L2-regularized linear model over standardized features (train-median "
+        "imputation). A high-bias anchor that keeps the blend calibrated when tree "
+        "members overfit thin early-season folds; also the most interpretable member."
+    ),
+}
+
+if ensemble:
+    ens_rows = []
+    total_weight = 0.0
+    for m in sorted(ensemble, key=lambda x: -x.get("weight", 0.0)):
+        name = m.get("name", "?")
+        w = float(m.get("weight", 0.0))
+        total_weight += w
+        desc = ENSEMBLE_DESCRIPTIONS.get(
+            name,
+            f"Candidate \u201c{name}\u201d registered in the walk-forward roster."
+            if w == 0.0 else f"Deployed candidate \u201c{name}\u201d.",
+        )
+        auc, brier, ll = m.get("auc"), m.get("brier"), m.get("logloss")
+        n_eval = m.get("n_eval") or 0
+        metric_txt = lambda v: (f"{v:.4f}" if isinstance(v, (int, float)) else "—")  # noqa: E731
+        eval_note = f"<div style='color:#64748B;font-size:0.72rem;'>{n_eval} OOF games</div>" if n_eval else \
+                    "<div style='color:#64748B;font-size:0.72rem;'>no OOF predictions</div>"
+        weight_badge = (
+            f"<span style='display:inline-block;min-width:52px;text-align:center;padding:2px 8px;border-radius:8px;"
+            f"background:{'rgba(16,185,129,.15);color:#34D399' if w > 0 else 'rgba(100,116,139,.15);color:#94A3B8'};"
+            f"font-weight:800;font-size:0.82rem;'>{w * 100:.0f}%</span>"
+        )
+        ens_rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;font-weight:700;text-transform:capitalize;'>{name.replace('_', ' ')}</td>"
+            f"<td style='max-width:420px;color:#94A3B8;'>{desc}{eval_note}</td>"
+            f"<td>{weight_badge}</td>"
+            f"<td style='color:#E2E8F0;font-weight:700;'>{metric_txt(auc)}</td>"
+            f"<td>{metric_txt(brier)}</td>"
+            f"<td>{metric_txt(ll)}</td>"
+            f"</tr>"
+        )
+    total_ok = abs(total_weight - 1.0) < 0.001
+    total_color = "#34D399" if total_ok else utils.AMBER
+    ens_rows.append(
+        f"<tr>"
+        f"<td style='font-weight:800;color:#E2E8F0;'>TOTAL (blended ensemble)</td>"
+        f"<td style='color:#64748B;'>Probability blend of deployed members; weights renormalize when a candidate fails to train.</td>"
+        f"<td style='font-weight:800;color:{total_color};'>{total_weight * 100:.0f}%</td>"
+        f"<td colspan='3'></td>"
+        f"</tr>"
+    )
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>MODEL</th><th>DESCRIPTION</th><th>WEIGHT</th><th>AUC</th><th>BRIER</th><th>LOG LOSS</th></tr></thead>
+            <tbody>{''.join(ens_rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          Every candidate from the walk-forward roster is listed — including zero-weight
+          candidates. AUC/Brier/Log-Loss are each model's own pooled out-of-fold scores;
+          the blended ensemble's headline metrics are shown in the KPI cards above.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.info(
+        "Ensemble composition appears after the next pipeline run "
+        "(artifact predates the per-model reporting)."
+    )
 
 # ---------------------------------------------------------------------------
 # Rolling Brier score timeline

@@ -623,6 +623,9 @@ def load_real_game_events(target_date: date, season: int | None = None) -> pd.Da
         return pd.DataFrame()
 
     df = pd.DataFrame(games)
+    for _tc in ("home_team", "away_team"):
+        if _tc in df.columns:
+            df[_tc] = df[_tc].map(normalize_team)
     df["home_wins"] = 0
     df["away_wins"] = 0
     df["home_losses"] = 0
@@ -643,6 +646,24 @@ def load_game_events(target_date: date, real: bool = False, seed: int = RANDOM_S
     if real:
         return load_real_game_events(target_date)
     return generate_synthetic_games(target_date, seed=seed)
+
+
+# Canonical MLBAM team codes as returned by Statcast (verified against live
+# pulls): AZ (not ARI), ATH (not OAK), CWS. Schedule feeds wobble between
+# spellings across seasons/vendors — every team code entering the pipeline is
+# canonicalized here so joins never split a franchise into two identities.
+TEAM_ALIASES = {
+    "CHW": "CWS", "CHA": "CWS",
+    "OAK": "ATH",
+    "ARI": "AZ",
+}
+
+
+def normalize_team(code) -> str:
+    """Map a vendor-specific team abbreviation to its canonical Statcast code."""
+    if code is None or (isinstance(code, float) and pd.isna(code)):
+        return code
+    return TEAM_ALIASES.get(str(code).strip().upper(), str(code).strip())
 
 
 def load_game_features(path: str | Path) -> pd.DataFrame:
@@ -667,6 +688,11 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         df = pd.read_csv(p)
     else:
         df = pd.read_parquet(p)
+
+    # Canonicalize team codes BEFORE anything derives ids/records from them
+    for _tc in ("home_team", "away_team"):
+        if _tc in df.columns:
+            df[_tc] = df[_tc].map(normalize_team)
 
     logger.info("Loaded %d games from %s (columns: %s)", len(df), p.name, list(df.columns))
 

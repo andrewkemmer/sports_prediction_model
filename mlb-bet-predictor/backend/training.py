@@ -27,6 +27,7 @@ from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
     ENSEMBLE_FILE,
+    ENSEMBLE_WEIGHTS,
     LIGHTGBM_PARAMS,
     LIGHTGBM_REG_PARAMS,
     MODELS_DIR,
@@ -263,14 +264,107 @@ def calibration_buckets(
     return buckets
 
 
-# ── Moneyline ensemble ──────────────────────────────────────────────────────
+# ── Moneyline ensemble ─────────────────────────────────────────────────────
+
+def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
+    """Feature matrix preserving NaN.
+
+    Missing observations stay NULL: XGBoost/LightGBM route them natively and
+    zero-filling fabricated signal (a 0 mph fastball, a 0.000 wOBA). Only the
+    logistic member — which cannot consume NaN — gets train-median imputation,
+    applied at predict time via the medians stored in the models dict.
+    """
+    cols = [c for c in FEATURE_COLS if c in df.columns]
+    return df[cols].to_numpy(dtype=float)
+
 
 def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Extract feature matrix and target from a games DataFrame."""
-    cols = [c for c in FEATURE_COLS if c in df.columns]
-    X = df[cols].fillna(0).values
+    X = _feature_matrix(df)
     y = df["home_win"].values.astype(float)
     return X, y
+
+
+def _impute_median(
+    X: np.ndarray, medians: Optional[np.ndarray] = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fill NaN with column medians (fit on train when medians is None).
+
+    All-NaN columns fall back to 0.0 so the logistic member stays usable.
+    Returns (imputed_matrix, medians_used).
+    """
+    X = np.asarray(X, dtype=float)
+    if medians is None:
+        with np.errstate(all="ignore"):
+            medians = np.nanmedian(X, axis=0) if len(X) else np.zeros(X.shape[1])
+        medians = np.where(np.isnan(medians), 0.0, medians)
+    X = X.copy()
+    idx = np.isnan(X)
+    X[idx] = np.take(np.asarray(medians, dtype=float), idx.nonzero()[1])
+    return X, np.asarray(medians, dtype=float)
+
+
+def _member_weights(member_names: list[str]) -> dict[str, float]:
+    """Normalized blend weights for the members that actually trained.
+
+    Configured weights come from ENSEMBLE_WEIGHTS; members that failed to
+    train contribute 0% and the remainder renormalizes so the blend always
+    sums to exactly 1.0.
+    """
+    names = [n for n in member_names if n not in ("scaler", "impute_median")]
+    raw = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in names}
+    total = sum(raw.values())
+    if total <= 0:
+        w = 1.0 / max(len(names), 1)
+        return {n: w for n in names}
+    return {n: v / total for n, v in raw.items()}
+
+
+def ensemble_predict(
+    ml_models: dict[str, Any], games: pd.DataFrame
+) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, float]]:
+    """Weighted-blend prediction plus per-member probabilities and weights.
+
+    Returns (blended_prob, {member_name: prob_vector}, {member_name: weight}).
+    Falls back to 0.5 when no member can predict.
+    """
+    X = _feature_matrix(games)
+    scaler = ml_models.get("scaler")
+    medians = ml_models.get("impute_median")
+
+    members: dict[str, np.ndarray] = {}
+    for name, model in ml_models.items():
+        if name in ("scaler", "impute_median"):
+            continue
+        try:
+            if name == "logistic":
+                Xi, _ = _impute_median(X, medians)
+                Xuse = scaler.transform(Xi) if scaler is not None else Xi
+            else:
+                Xuse = X
+            members[name] = model.predict_proba(Xuse)[:, 1]
+        except Exception as e:
+            logger.warning("Member %s failed to predict: %s", name, e)
+
+    if not members:
+        return np.full(len(games), 0.5), {}, {}
+
+    weights = _member_weights(list(members.keys()))
+    blend = np.zeros(len(games))
+    for name, p in members.items():
+        blend += weights[name] * p
+    return blend, members, weights
+
+
+# Candidate roster from the most recent walk_forward_evaluate() run:
+# every candidate model with its blend weight and pooled out-of-sample
+# AUC/Brier/LogLoss (None if it never produced predictions).
+_LAST_ENSEMBLE_INFO: list[dict[str, Any]] = []
+
+
+def last_ensemble_info() -> list[dict[str, Any]]:
+    """Candidate-model report from the most recent walk-forward evaluation."""
+    return [dict(e) for e in _LAST_ENSEMBLE_INFO]
 
 
 def train_moneyline_ensemble(
@@ -287,9 +381,14 @@ def train_moneyline_ensemble(
     if len(X_train) == 0 or len(X_val) == 0:
         raise ValueError("Insufficient training or validation data")
 
+    # Logistic cannot consume NaN — impute with TRAIN-fold medians only
+    # (never val medians, which would leak).
+    X_train_lr, impute_medians = _impute_median(X_train)
+    X_val_lr, _ = _impute_median(X_val, impute_medians)
+
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
+    X_train_scaled = scaler.fit_transform(X_train_lr)
+    X_val_scaled = scaler.transform(X_val_lr)
 
     models = {}
 
@@ -316,18 +415,20 @@ def train_moneyline_ensemble(
     lr.fit(X_train_scaled, y_train)
     models["logistic"] = lr
     models["scaler"] = scaler
+    models["impute_median"] = impute_medians
 
-    # Ensemble prediction (average probabilities)
-    probs = []
-    for name, model in models.items():
-        if name == "scaler":
-            continue
-        if name == "logistic":
-            probs.append(model.predict_proba(X_val_scaled)[:, 1])
-        else:
-            probs.append(model.predict_proba(X_val)[:, 1])
+    # Weighted ensemble prediction (weights renormalized over trained members)
+    weights = _member_weights(list(models.keys()))
+    probs, wts = [], []
+    for name in ("xgboost", "lightgbm"):
+        if name in models:
+            probs.append(models[name].predict_proba(X_val)[:, 1])
+            wts.append(weights[name])
+    if "logistic" in models:
+        probs.append(models["logistic"].predict_proba(X_val_scaled)[:, 1])
+        wts.append(weights["logistic"])
 
-    ensemble_prob = np.mean(probs, axis=0) if probs else np.full(len(y_val), 0.5)
+    ensemble_prob = np.average(probs, axis=0, weights=wts) if probs else np.full(len(y_val), 0.5)
 
     metrics = compute_metrics(y_val, ensemble_prob)
     return models, metrics
@@ -340,9 +441,9 @@ def train_totals_model(
 ) -> dict[str, Any]:
     """Train XGBoost + LightGBM regression ensemble for total runs."""
     cols = [c for c in FEATURE_COLS if c in train.columns]
-    X_train = train[cols].fillna(0).values
+    X_train = train[cols].to_numpy(dtype=float)
     y_train = train["total_runs"].values.astype(float)
-    X_val = val[cols].fillna(0).values
+    X_val = val[cols].to_numpy(dtype=float)
     y_val = val["total_runs"].values.astype(float)
 
     models = {}
@@ -399,9 +500,9 @@ def train_run_line_model(
     val["run_line_cover"] = (val["home_win"] == 1).astype(float)
 
     cols = [c for c in FEATURE_COLS if c in train.columns]
-    X_train = train[cols].fillna(0).values
+    X_train = train[cols].to_numpy(dtype=float)
     y_train = train["run_line_cover"].values
-    X_val = val[cols].fillna(0).values
+    X_val = val[cols].to_numpy(dtype=float)
     y_val = val["run_line_cover"].values
 
     models = {}
@@ -464,6 +565,8 @@ def walk_forward_evaluate(
 
     all_preds = []
     fold_metrics_list = []
+    oof_members: dict[str, list[float]] = {}
+    oof_y: list[float] = []
 
     for split in splits:
         train = split["train_games"]
@@ -485,21 +588,12 @@ def walk_forward_evaluate(
             len(train), len(val), ml_metrics.get("auc", 0.5), ml_metrics.get("brier", 0.25),
         )
 
-        # Generate predictions for validation set
-        cols = [c for c in FEATURE_COLS if c in val.columns]
-        X_val = val[cols].fillna(0).values
-        scaler = ml_models.get("scaler")
-
-        probs = []
-        for name, model in ml_models.items():
-            if name == "scaler":
-                continue
-            if name == "logistic" and scaler is not None:
-                probs.append(model.predict_proba(scaler.transform(X_val))[:, 1])
-            else:
-                probs.append(model.predict_proba(X_val)[:, 1])
-
-        ensemble_prob = np.mean(probs, axis=0) if probs else np.full(len(val), 0.5)
+        # Weighted-blend prediction; keep each member's probabilities so we
+        # can score candidates individually out of sample.
+        ensemble_prob, member_probs, _wts = ensemble_predict(ml_models, val)
+        oof_y.extend(val["home_win"].values.tolist())
+        for name, p in member_probs.items():
+            oof_members.setdefault(name, []).extend(p.tolist())
 
         val_pred = val.copy()
         val_pred["home_win_prob_model"] = ensemble_prob
@@ -525,6 +619,41 @@ def walk_forward_evaluate(
             best_models = {}
     else:
         best_models = {}
+
+    # Candidate-model report: every candidate that ever trained, its blend
+    # weight in the deployed ensemble (renormalized over final members, so
+    # weights sum to exactly 1.0; absent candidates report 0%), and its own
+    # pooled out-of-fold AUC/Brier/LogLoss across all evaluation folds.
+    y_oof = np.asarray(oof_y, dtype=float)
+    final_members = {
+        n for n in (best_models or {})
+        if n not in ("scaler", "impute_median")
+    }
+    raw_w = {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in final_members}
+    w_total = sum(raw_w.values()) or 1.0
+    # Every configured candidate is reported — even ones that failed to train
+    # this run (weight 0%, metrics null) — per the ensemble transparency rule.
+    roster = list(dict.fromkeys(
+        list(ENSEMBLE_WEIGHTS.keys()) + list(oof_members.keys()) + sorted(final_members)
+    ))
+    _LAST_ENSEMBLE_INFO.clear()
+    for name in roster:
+        entry: dict[str, Any] = {
+            "name": name,
+            "weight": round(raw_w[name] / w_total, 4) if name in final_members else 0.0,
+        }
+        preds = oof_members.get(name)
+        if preds and len(preds) == len(y_oof) and len(y_oof) > 0:
+            m = compute_metrics(y_oof, np.asarray(preds, dtype=float))
+            entry.update({
+                "auc": m.get("auc"),
+                "brier": m.get("brier"),
+                "logloss": m.get("logloss"),
+                "n_eval": int(len(y_oof)),
+            })
+        else:
+            entry.update({"auc": None, "brier": None, "logloss": None, "n_eval": 0})
+        _LAST_ENSEMBLE_INFO.append(entry)
 
     return best_models, pooled, combined
 
@@ -584,23 +713,8 @@ def predict_games(
     if not models:
         return games
 
-    cols = [c for c in FEATURE_COLS if c in games.columns]
-    X = games[cols].fillna(0).values
-
-    scaler = models.get("scaler")
-    probs = []
-    for name, model in models.items():
-        if name == "scaler":
-            continue
-        if name == "logistic" and scaler is not None:
-            probs.append(model.predict_proba(scaler.transform(X))[:, 1])
-        else:
-            probs.append(model.predict_proba(X)[:, 1])
-
-    if not probs:
-        games["home_win_prob_model"] = 0.5
-    else:
-        games["home_win_prob_model"] = np.round(np.mean(probs, axis=0), 4)
+    blend, _members, _wts = ensemble_predict(models, games)
+    games["home_win_prob_model"] = np.round(blend, 4)
 
     games["away_win_prob_model"] = 1 - games["home_win_prob_model"]
 
