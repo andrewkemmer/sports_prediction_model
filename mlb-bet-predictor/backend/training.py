@@ -93,6 +93,10 @@ def walk_forward_splits(
 
     df = games.dropna(subset=["home_win"]).copy()
     df["game_date"] = pd.to_datetime(df["game_date"])
+    # Normalize to date-only (strip time) so unique dates represent calendar days,
+    # not individual timestamps. Without this, each game with a unique start time
+    # becomes its own "date" and 7-day validation windows collapse to 1 game.
+    df["game_date"] = df["game_date"].dt.normalize()
     df = df.sort_values("game_date").reset_index(drop=True)
 
     if df.empty:
