@@ -1,18 +1,22 @@
 
 import os
+from google.colab import userdata
+
+# Safely fetch the token you just verified
+token = userdata.get('MY_GITHUB_TOKEN')
 
 CONFIG = {
-    "start_date": "2025-04-01",
-    "end_date":   "2026-08-20",
+    "start_date": "2026-06-01",
+    "end_date":   "2026-08-21",
     "github_username": "andrewkemmer",
     "github_repo":     "sports_prediction_model",
     "github_branch":   "main",
-    "github_token":    "",
-    "git_email":       "",
-    "git_name":        "",
+    "github_token":    token,
+    "git_email":       "andrew.kemmer@gmail.com",
+    "git_name":        "andrewkemmer",
     "output_dir":      "/content/mlb_clean_data",
     "data_subdir":     "data",
-    "statcast_chunk_days": 7,
+    "statcast_chunk_days": 60,
     "statcast_pause_sec":  2,
 }
 
