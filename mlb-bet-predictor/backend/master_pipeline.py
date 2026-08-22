@@ -167,6 +167,7 @@ try:
         skip_sync=True,
         force_retrain=True,
         games=train_games,
+        pbp_df=pbp_df,  # maps ESPN probable-pitcher names to rolling stat lines
         min_train_days=30,  # warm-up: skip folds trained on < 30 days (~350 games)
     )
     print(f"  📊 Status: {summary['status']}")

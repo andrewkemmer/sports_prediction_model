@@ -121,7 +121,15 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     win = pd.to_numeric(df.get("home_win"), errors="coerce")
 
     if "game_status" not in df.columns:
-        df["game_status"] = win.notna().map({True: "Final", False: "Live"})
+        status = win.notna().map({True: "Final", False: "Live"})
+        # Games whose first pitch is still in the future are neither Final nor
+        # Live — labeling them Live made every unstarted game look underway.
+        if "start_time_utc" in df.columns:
+            starts = pd.to_datetime(df["start_time_utc"], errors="coerce", utc=True)
+            status = status.mask(
+                starts > pd.Timestamp.now(tz="UTC"), "Scheduled"
+            )
+        df["game_status"] = status
 
     if "evening_game" not in df.columns and "start_time_utc" in df.columns:
         df["evening_game"] = df["start_time_utc"].map(_is_evening_start)

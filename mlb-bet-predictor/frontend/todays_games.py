@@ -67,6 +67,10 @@ def _team_row(name, team, rec, prob, accent, pct_color, bar_color, picked, troph
 def _banner_html(status, is_final, is_live, winner, pick, correct, coin, upset, home_team, away_team, g) -> str:
     winner_name = g.get("home_team_name", home_team) if winner == home_team else (
         g.get("away_team_name", away_team) if winner == away_team else "")
+    if status == "Scheduled":
+        first_pitch = utils.start_time_et(g.get("start_time_utc", ""))
+        suffix = f" — {first_pitch}" if first_pitch else ""
+        return f'<div class="fb-banner blue">⏳ Pre-game{suffix} · prediction locked at first pitch</div>'
     if is_live:
         leader = winner or "—"
         suffix = f" · {leader} leading" if leader != "—" else ""
@@ -87,6 +91,7 @@ def _card_html(g: pd.Series) -> str:
     status = g["game_status"]
     is_final = status == "Final"
     is_live = status == "Live"
+    is_scheduled = status == "Scheduled"
 
     hs = g.get("home_score")
     as_ = g.get("away_score")
@@ -114,6 +119,8 @@ def _card_html(g: pd.Series) -> str:
         center_pill = '<span class="fb-pill upset">⚡ UPSET</span>'
     if is_live:
         right_pills = '<span class="fb-pill live">● LIVE</span>'
+    elif is_scheduled:
+        right_pills = '<span class="fb-pill final">PRE-GAME</span>'
     elif is_final:
         correct_pill = '' if is_coin_flip else (
             '<span class="fb-pill correct">✓ CORRECT PICK</span>' if correct else '<span class="fb-pill miss">X MISS</span>'
@@ -131,12 +138,15 @@ def _card_html(g: pd.Series) -> str:
     )
 
     # --- scoreboard ---
-    mid = "F" if is_final else g.get("final_inning", "LIVE")
-    if is_final and g.get("final_inning", "F") not in ("", "F"):
-        mid = f"F/{g['final_inning'].lstrip('F/')}"
-    if is_live:
-        raw = g.get("final_inning", "LIVE").lstrip("L")
-        mid = f"L{raw}" if raw else "LIVE"
+    if is_scheduled:
+        mid = utils.start_time_et(g.get("start_time_utc", "")) or "PREGAME"
+    else:
+        mid = "F" if is_final else g.get("final_inning", "LIVE")
+        if is_final and g.get("final_inning", "F") not in ("", "F"):
+            mid = f"F/{g['final_inning'].lstrip('F/')}"
+        if is_live:
+            raw = g.get("final_inning", "LIVE").lstrip("L")
+            mid = f"L{raw}" if raw else "LIVE"
     home_num_color = utils.PRIMARY if winner == home_team else utils.TEXT
     away_num_color = utils.PRIMARY if winner == away_team else utils.TEXT
     score = (

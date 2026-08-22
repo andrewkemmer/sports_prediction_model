@@ -39,6 +39,7 @@ from config import (
 )
 from data_ingestion import (
     attach_market_lines,
+    build_upcoming_slate,
     compute_elos_up_to,
     generate_synthetic_games,
     generate_synthetic_market_lines,
@@ -283,6 +284,7 @@ def run_daily_pipeline(
     version: str = "v3.2.1",
     games: Optional[pd.DataFrame] = None,
     min_train_days: int = 0,
+    pbp_df: Optional[pd.DataFrame] = None,
 ) -> dict[str, Any]:
     """Run the full daily pipeline.
 
@@ -297,6 +299,8 @@ def run_daily_pipeline(
                skips load_game_events() and uses this data for training.
         min_train_days: Warm-up period — skip validation folds that start
                before this many days of history (prevents tiny-training-fold noise).
+        pbp_df: Optional pitch-level frame used to map probable-pitcher names
+               to their rolling stat lines when predicting today's slate.
 
     Returns:
         Summary dict with keys: status, artifacts, metrics, sync, errors
@@ -367,8 +371,25 @@ def run_daily_pipeline(
         ].copy()
 
         if target_games.empty:
-            # Use all games if no specific target date games
-            target_games = games.tail(15).copy()
+            # Statcast-derived history ends at the last PLAYED game, so on a
+            # normal pre-game run there are zero rows for today. Build today's
+            # real schedule with each team/pitcher's latest point-in-time
+            # state carried forward — never recycle yesterday's completed
+            # games as "today" again.
+            slate = build_upcoming_slate(games, target_date, pbp_df=pbp_df)
+            if not slate.empty:
+                logger.info(
+                    "No completed games on %s — built %d-game upcoming slate "
+                    "(pre-game PIT features)", target_date_str, len(slate),
+                )
+                games = pd.concat([games, slate], ignore_index=True)
+                target_games = slate.copy()
+            else:
+                logger.warning(
+                    "No games found for %s (schedule fetch empty) — falling "
+                    "back to most recent games", target_date_str,
+                )
+                target_games = games.tail(15).copy()
 
         target_games = predict_games(best_models, target_games)
 
@@ -396,10 +417,16 @@ def run_daily_pipeline(
         logger.info("Step 6: Explainability")
         compute_shap_per_game(best_models, target_games)
 
-        # Feature drift: compare last 7 days vs all prior
+        # Feature drift: compare the last 7 days vs an ADJACENT window of
+        # comparable size. Comparing against all history instead made every
+        # cumulative feature (elo, win_pct, run_diff) look like ALERT drift,
+        # because those distributions widen structurally as a season matures —
+        # a property of the feature, not of model health. Adjacent windows are
+        # apples-to-apples: only genuine regime change fires WARN/ALERT.
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
         current = games[pd.to_datetime(games["game_date"]) >= cutoff]
-        baseline = games[pd.to_datetime(games["game_date"]) < cutoff]
+        prior = games[pd.to_datetime(games["game_date"]) < cutoff]
+        baseline = prior.tail(max(len(current), 150)) if not prior.empty else prior
         if not baseline.empty and not current.empty:
             drift_df = compute_feature_drift(baseline, current, target_date_str)
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))

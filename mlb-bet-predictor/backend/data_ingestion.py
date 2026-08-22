@@ -798,3 +798,273 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     logger.info("Feature mapping complete: %d games, columns: %s", len(df), list(df.columns))
     return df
+
+
+# ── Upcoming-slate construction (pre-game predictions for TODAY) ───────────
+
+def _norm_player_name(name) -> str:
+    """Normalize a player name for matching across vendors.
+
+    Statcast stores 'Wheeler, Zack'; ESPN ships 'Zack Wheeler'. Both
+    normalize to 'zack wheeler' so probable pitchers can be joined to
+    their rolling stat lines without a paid ID crosswalk.
+    """
+    s = str(name or "").strip().lower()
+    if "," in s:
+        last, first = s.split(",", 1)
+        s = f"{first.strip()} {last.strip()}"
+    return " ".join(s.split())
+
+
+def load_espn_schedule(target_date: date) -> pd.DataFrame:
+    """Games scheduled for EXACTLY target_date via the ESPN API.
+
+    Unlike load_real_game_events() there is no 7-day walk-back: an empty
+    off-day returns an empty frame instead of yesterday's slate, which is
+    exactly what pre-game prediction needs.
+    """
+    rows = []
+    try:
+        events = _fetch_espn_scoreboard(target_date)
+    except Exception as e:
+        logger.warning("ESPN schedule fetch failed for %s: %s", target_date, e)
+        return pd.DataFrame()
+    for ev in events:
+        parsed = _parse_espn_event(ev)
+        if parsed:
+            rows.append(parsed)
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    for _tc in ("home_team", "away_team"):
+        df[_tc] = df[_tc].map(normalize_team)
+    return df
+
+
+def _final_team_records(hist: pd.DataFrame) -> dict[str, dict[str, int]]:
+    """Per-team W/L/RS/RA AFTER the last decided game (chronological walk).
+
+    Mirrors the update rules used by load_game_features so carried records
+    match what the model saw entering historical games.
+    """
+    rec: dict[str, dict[str, int]] = {}
+    for _, row in hist.sort_values("game_date").iterrows():
+        hw = row.get("home_win")
+        if pd.isna(hw):
+            continue  # undecided: no record/run impact
+        h, a = row["home_team"], row["away_team"]
+        rh = rec.setdefault(h, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+        ra = rec.setdefault(a, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+        hs = row.get("home_score")
+        asc = row.get("away_score")
+        hs_i = int(hs) if pd.notna(hs) else 0
+        asc_i = int(asc) if pd.notna(asc) else 0
+        won = int(hw)
+        rh["w"] += won; rh["l"] += 1 - won; rh["rs"] += hs_i; rh["ra"] += asc_i
+        ra["w"] += 1 - won; ra["l"] += won; ra["rs"] += asc_i; ra["ra"] += hs_i
+    return rec
+
+
+def _latest_side_state(hist: pd.DataFrame, cols: list[str]) -> dict[str, dict[str, float]]:
+    """team → {feature_base: most recent non-null value across BOTH sides}.
+
+    A team's home-start and road-start rows feed different suffixed columns
+    (woba_30g_home / woba_30g_away) but describe the same rolling stat, so
+    the carry-forward resolves per feature base in chronological order — a
+    team's latest road value must override its older home value and vice
+    versa. Returns keys WITHOUT the side suffix; callers re-suffix by slot.
+    """
+    state: dict[str, dict[str, float]] = {}
+    ordered = hist.sort_values("game_date")
+    for col in cols:
+        if col not in hist.columns:
+            continue
+        if col.endswith("_home"):
+            base, side = col[: -len("_home")], "home"
+        elif col.endswith("_away"):
+            base, side = col[: -len("_away")], "away"
+        else:
+            continue
+        sub = ordered.dropna(subset=[col])
+        if sub.empty:
+            continue
+        last_per_team = sub.groupby(f"{side}_team", sort=False).tail(1)
+        for _, r in last_per_team.iterrows():
+            state.setdefault(r[f"{side}_team"], {})[base] = float(r[col])
+    return state
+
+
+def _own_lefty_share(hist: pd.DataFrame) -> dict[str, float]:
+    """team → its OWN lineup lefty share (trailing 30g).
+
+    opp_lefty_share_home actually holds the AWAY lineup's share and vice
+    versa (each measures the lineup the opposing starter faces), so the two
+    stored sides must be mirrored back onto the batting team before they can
+    be re-paired with a new matchup.
+    """
+    pieces = []
+    if "opp_lefty_share_away" in hist.columns:
+        pieces.append(hist.dropna(subset=["opp_lefty_share_away"])
+                      .groupby("home_team")["opp_lefty_share_away"].last())
+    if "opp_lefty_share_home" in hist.columns:
+        pieces.append(hist.dropna(subset=["opp_lefty_share_home"])
+                      .groupby("away_team")["opp_lefty_share_home"].last())
+    if not pieces:
+        return {}
+    combined = pd.concat(pieces)
+    return {t: float(v) for t, v in combined.groupby(level=0).last().items()}
+
+
+def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
+    """pitcher_id → {sp_* feature base: latest non-null value across starts}.
+
+    A starter's road starts land in *_away columns and home starts in *_home
+    columns, but the stat describes the pitcher — resolve per feature base in
+    date order and re-suffix by the slot he occupies in the new game.
+    """
+    state: dict[Any, dict[str, float]] = {}
+    ordered = hist.sort_values("game_date")
+    for side in ("home", "away"):
+        id_col = f"{side}_starter_id"
+        if id_col not in hist.columns:
+            continue
+        sp_cols = [c for c in hist.columns
+                   if c.startswith("sp_") and c.endswith(f"_{side}")]
+        if not sp_cols:
+            continue
+        sub = ordered[ordered[id_col].notna()]
+        for col in sp_cols:
+            base = col[: -len(f"_{side}")]
+            s = sub.dropna(subset=[col])
+            if s.empty:
+                continue
+            last_per_pid = s.groupby(id_col, sort=False).tail(1)
+            for _, r in last_per_pid.iterrows():
+                state.setdefault(r[id_col], {})[base] = float(r[col])
+    return state
+
+
+def build_upcoming_slate(
+    history_df: pd.DataFrame,
+    target_date: date,
+    pbp_df: Optional[pd.DataFrame] = None,
+    schedule_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Build pre-game feature rows for target_date's scheduled games.
+
+    Statcast-derived history only contains games that have been played, so
+    on a normal morning run there are zero rows for today. This carries each
+    team's and each probable starter's most recent point-in-time feature
+    state forward onto today's real schedule — strictly prior data only,
+    same semantics the training frame used entering every historical game.
+
+    Args:
+        history_df:   Feature-enriched game history (from load_game_features).
+        target_date:  Slate date.
+        pbp_df:       Optional pitch-level frame; player_name + pitcher IDs
+                      are used to map ESPN probable-pitcher NAMES to their
+                      rolling stat lines. Without it, pitcher features ship NaN.
+        schedule_df:  Pre-fetched schedule (tests). Default fetches ESPN.
+
+    Returns:
+        DataFrame with one row per scheduled game. Undecided games carry
+        home_win/home_score/away_score = NULL; games ESPN already scores
+        (earlier finals) keep their results. Every FEATURE_COLS column exists
+        so predict_games sees the exact trained feature layout.
+    """
+    from training import FEATURE_COLS  # lazy: avoids import cycles at module load
+
+    sched = schedule_df if schedule_df is not None else load_espn_schedule(target_date)
+    if sched.empty:
+        return pd.DataFrame()
+
+    hist = history_df.copy()
+    hist["game_date"] = pd.to_datetime(hist["game_date"])
+    if "start_time_utc" not in hist.columns:
+        hist["start_time_utc"] = pd.to_datetime(hist["game_date"])
+
+    # Point-in-time states as of the start of target_date
+    as_of = datetime.combine(target_date, datetime.min.time())
+    elos = compute_elos_up_to(hist, as_of=as_of)
+    records = _final_team_records(hist)
+
+    carry_cols = [c for c in FEATURE_COLS
+                  if not c.startswith("sp_") and not c.startswith("opp_lefty_share")]
+    team_state = _latest_side_state(hist, carry_cols)
+    own_lefty = _own_lefty_share(hist)
+    pitcher_state = _latest_pitcher_state(hist)
+
+    # ESPN name → Statcast pitcher id (latest mapping wins)
+    name_to_id: dict[str, Any] = {}
+    if pbp_df is not None and {"player_name", "pitcher"}.issubset(pbp_df.columns):
+        m = pbp_df[["player_name", "pitcher"]].dropna()
+        m = m.assign(_norm=m["player_name"].map(_norm_player_name))
+        m = m[m["_norm"] != ""].drop_duplicates(subset=["_norm"], keep="last")
+        name_to_id = dict(zip(m["_norm"], m["pitcher"]))
+
+    last_played_h = hist.groupby("home_team")["game_date"].max()
+    last_played_a = hist.groupby("away_team")["game_date"].max()
+    last_played = pd.concat([last_played_h, last_played_a]).groupby(level=0).max()
+
+    def _rest_days(team: str):
+        lp = last_played.get(team)
+        if pd.isna(lp):
+            return np.nan
+        return max((pd.Timestamp(target_date) - lp).days, 1)
+
+    rows = []
+    for _, s in sched.iterrows():
+        home, away = s["home_team"], s["away_team"]
+        row = {c: np.nan for c in FEATURE_COLS}
+        row.update({
+            "game_id": s.get("game_id") or (
+                f"{pd.Timestamp(target_date).strftime('%Y%m%d')}_{away}@{home}"),
+            "game_date": pd.Timestamp(target_date),
+            "start_time_utc": s.get("start_time_utc"),
+            "home_team": home,
+            "away_team": away,
+            "venue": s.get("venue", "Unknown"),
+            "total_runs": np.nan,
+            # Results: keep them when ESPN already has a final, else NULL
+            "home_win": s.get("home_win"),
+            "home_score": s.get("home_score"),
+            "away_score": s.get("away_score"),
+            "sp_name_home": s.get("sp_name_home", "TBD"),
+            "sp_name_away": s.get("sp_name_away", "TBD"),
+        })
+
+        # Team-level state (records, elo, run diff, rolling offense/bullpen)
+        for team, side in ((home, "home"), (away, "away")):
+            r = records.get(team, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+            total = r["w"] + r["l"]
+            row[f"{side}_wins"] = r["w"]
+            row[f"{side}_losses"] = r["l"]
+            row[f"{side}_record"] = f"{r['w']}-{r['l']}"
+            row[f"{side}_win_pct"] = round(r["w"] / max(total, 1), 3)
+            row[f"{side}_run_diff"] = r["rs"] - r["ra"]
+            row[f"rest_days_{side}"] = _rest_days(team)
+            # Re-suffix the side-agnostic latest values onto this game's slot
+            for base, val in team_state.get(team, {}).items():
+                row[f"{base}_{side}"] = val
+            # Mirror: each lineup's share pairs with the OPPOSING starter
+            share = own_lefty.get(team)
+            if share is not None:
+                row[f"opp_lefty_share_{'away' if side == 'home' else 'home'}"] = share
+        row["home_elo"] = elos.get(home, 1500.0)
+
+        # Pitcher-level state via name → id → latest stat line, re-suffixed
+        # to the slot he occupies tonight (his last start may have been on
+        # the other side of a box score).
+        for side in ("home", "away"):
+            pid = name_to_id.get(_norm_player_name(row[f"sp_name_{side}"]))
+            if pid is None:
+                continue
+            for base, val in pitcher_state.get(pid, {}).items():
+                row[f"{base}_{side}"] = val
+
+        rows.append(row)
+
+    slate = pd.DataFrame(rows)
+    slate = slate.sort_values("start_time_utc").reset_index(drop=True)
+    logger.info("Upcoming slate built: %d games for %s", len(slate), target_date)
+    return slate
