@@ -139,7 +139,7 @@ else:
     line = alt.Chart(conf_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=50), color=utils.PRIMARY, strokeWidth=2.5).encode(
         x=alt.X("bucket:N", sort=None),
         y=alt.Y("accuracy_pct:Q", title="Actual Accuracy %", axis=alt.Axis(orient="right", grid=False),
-                scale=alt.Scale(domain=[45, 80])),
+                scale=alt.Scale(domain=[0, 100])),
     )
     combo = alt.layer(bars, line).resolve_scale(y="independent").properties(height=330)
     utils.show_chart(combo)
