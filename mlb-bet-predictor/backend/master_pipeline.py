@@ -29,9 +29,18 @@ def _load_github_token() -> str:
 # Safely fetch the token (env var first, then Colab Secrets)
 token = _load_github_token()
 
+# Run dates resolve in order:
+#   1. Environment variables MLB_START_DATE / MLB_END_DATE (set these in the
+#      Colab cell to override a single run without editing this file)
+#   2. Repo defaults below — end_date defaults to TODAY so daily runs never
+#      go stale and never need a commit just to move the window forward.
+def _env_date(key: str, fallback: str) -> str:
+    val = os.environ.get(key, "").strip()
+    return val or fallback
+
 CONFIG = {
-    "start_date": "2025-01-01",
-    "end_date":   "2026-08-21",
+    "start_date": _env_date("MLB_START_DATE", "2025-01-01"),
+    "end_date":   _env_date("MLB_END_DATE", __import__("datetime").date.today().strftime("%Y-%m-%d")),
     "github_username": "andrewkemmer",
     "github_repo":     "sports_prediction_model",
     "github_branch":   "main",
