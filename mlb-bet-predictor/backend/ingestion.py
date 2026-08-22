@@ -75,7 +75,14 @@ def _chunked_statcast(
     chunk_days: int,
     pause_sec: float,
 ) -> list[pd.DataFrame]:
-    """Pull Statcast in rate-limit-friendly chunks. Returns non-empty chunks."""
+    """Pull Statcast in rate-limit-friendly chunks. Returns non-empty chunks.
+
+    Savant's ``game_date_gt`` / ``game_date_lt`` URL params are STRICTLY
+    exclusive, so a naive ``statcast(A, B)`` silently drops BOTH boundary
+    days (and ``statcast(D, D)`` returns nothing at all). Each wire query
+    is therefore widened by one day per side and the result trimmed back to
+    the chunk's true inclusive range.
+    """
     from pybaseball import statcast
 
     chunks: list[pd.DataFrame] = []
@@ -84,10 +91,19 @@ def _chunked_statcast(
         chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
         logger.info("  Chunk: %s → %s", cursor, chunk_end)
         try:
-            df = statcast(str(cursor), str(chunk_end))
+            df = statcast(
+                str(cursor - timedelta(days=1)),
+                str(chunk_end + timedelta(days=1)),
+            )
             if df is not None and not df.empty:
-                chunks.append(df)
-                logger.info("    → %d pitches", len(df))
+                df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
+                df = df[
+                    (df["game_date"].dt.date >= cursor)
+                    & (df["game_date"].dt.date <= chunk_end)
+                ]
+                if not df.empty:
+                    chunks.append(df)
+                    logger.info("    → %d pitches", len(df))
         except Exception as e:
             logger.warning("    → Chunk failed: %s", e)
         cursor = chunk_end + timedelta(days=1)
@@ -187,6 +203,16 @@ def pull_statcast(
 
     raw = pd.concat(chunks, ignore_index=True)
     del chunks
+    # Trimmed chunk ranges should not overlap, but boundary rows from vendor
+    # quirks are cheap to guard against.
+    before = len(raw)
+    raw = raw.drop_duplicates(
+        subset=[c for c in ("game_pk", "at_bat_number", "pitch_number")
+                if c in raw.columns],
+        keep="first",
+    )
+    if len(raw) < before:
+        logger.warning("Dropped %d duplicate pitches at chunk boundaries", before - len(raw))
     logger.info("Total raw pitches: %d", len(raw))
     raw = _normalize_columns(raw)
     raw = _downcast(raw)

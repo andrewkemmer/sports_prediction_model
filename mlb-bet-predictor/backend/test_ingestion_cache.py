@@ -43,6 +43,54 @@ def _frame(dates, pks=None):
     })
 
 
+class TestChunkedStatcastExclusiveBounds(unittest.TestCase):
+    """Savant's game_date_gt/lt are STRICTLY exclusive: statcast(A, B) drops
+    both boundary days and statcast(D, D) returns nothing. The chunker must
+    widen each wire query by a day per side and trim back to the range."""
+
+    def _run(self, served, requested):
+        mod = types.ModuleType("pybaseball")
+
+        def fake_statcast(start, end):
+            requested.append((start, end))
+            return served.get((start, end))
+
+        mod.statcast = fake_statcast
+        with patch.dict(sys.modules, {"pybaseball": mod}):
+            return ingestion._chunked_statcast(
+                date(2026, 8, 22), date(2026, 8, 22), chunk_days=60, pause_sec=0,
+            )
+
+    def test_single_day_query_widens_bounds_and_trims(self):
+        # The vendor only returns data when the window strictly surrounds it.
+        served = {
+            ("2026-08-21", "2026-08-23"): _frame(
+                ["2026-08-21", "2026-08-22", "2026-08-23"], pks=[1, 2, 3]
+            ),
+        }
+        requested = []
+        chunks = self._run(served, requested)
+
+        # Wire query widened by one day per side around the single target day
+        self.assertEqual(requested, [("2026-08-21", "2026-08-23")])
+        # Trimmed to exactly Aug 22 — boundary days dropped
+        dates = set(pd.to_datetime(chunks[0]["game_date"]).dt.date)
+        self.assertEqual(dates, {date(2026, 8, 22)})
+
+    def test_naive_bounds_return_empty(self):
+        """Documents the vendor behavior that silently ate every boundary day:
+        querying the exact range returns nothing."""
+        served = {("2026-08-22", "2026-08-22"): None}  # vendor: empty result
+        requested = []
+        mod = types.ModuleType("pybaseball")
+        mod.statcast = lambda s, e: served.get((s, e))
+        with patch.dict(sys.modules, {"pybaseball": mod}):
+            chunks = ingestion._chunked_statcast(
+                date(2026, 8, 22), date(2026, 8, 22), chunk_days=60, pause_sec=0,
+            )
+        self.assertEqual(chunks, [])
+
+
 class TestPullStatcastCache(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
