@@ -93,8 +93,32 @@ print(f"  ✅ Game: {game_df.shape}")
 print(f"  ✅ PBP:  {pbp_df.shape}")
 gc.collect()
 
-# ── Phase 4: Output ─────────────────────────────────────────────────────────
-_banner("PHASE 4", "Output")
+# ── Phase 4: Training + Prediction ──────────────────────────────────────────
+_banner("PHASE 4", "Training + Prediction")
+try:
+    from pipeline import run_daily_pipeline
+    target = end  # predict the last date in the range
+    summary = run_daily_pipeline(
+        target_date=target,
+        real=True,
+        skip_sync=True,
+        force_retrain=True,
+    )
+    print(f"  📊 Status: {summary['status']}")
+    if summary.get("metrics"):
+        import json
+        print(f"  📈 Metrics: {json.dumps(summary['metrics'], indent=2)}")
+    if summary.get("artifacts"):
+        print(f"  📁 Artifacts: {len(summary['artifacts'])} files")
+        for a in summary['artifacts']:
+            print(f"    {a}")
+    if summary.get("errors"):
+        print(f"  ❌ Errors: {summary['errors']}")
+except Exception as e:
+    print(f"  ❌ Training failed: {e}")
+
+# ── Phase 5: Save Outputs ──────────────────────────────────────────────────
+_banner("PHASE 5", "Save Outputs")
 game_df.fillna(game_df.median(numeric_only=True), inplace=True)
 pbp_df.fillna(pbp_df.median(numeric_only=True), inplace=True)
 csv_path = out_dir / "game_level_features.csv"
@@ -104,8 +128,8 @@ pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
 print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
 print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
 
-# ── Phase 5: GitHub Sync ────────────────────────────────────────────────────
-_banner("PHASE 5", "GitHub Sync")
+# ── Phase 6: GitHub Sync ────────────────────────────────────────────────────
+_banner("PHASE 6", "GitHub Sync")
 token = CONFIG.get("github_token", "")
 if not token:
     print("  ⏭️  No token — skipping push")
@@ -118,11 +142,20 @@ else:
         if CONFIG["git_email"]: repo.config_writer().set_value("user","email",CONFIG["git_email"]).release()
         if CONFIG["git_name"]: repo.config_writer().set_value("user","name",CONFIG["git_name"]).release()
         data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"; data_delivery_dir.mkdir(exist_ok=True)
-        staged = [] # Initialize staged list
+        staged = []
+        # Sync feature files
         for f in [csv_path, parquet_path]:
-            if f.exists(): 
+            if f.exists():
                 shutil.copy2(f, data_delivery_dir / f.name)
-                staged.append(f"mlb-bet-predictor/data_delivery/{f.name}") # Corrected path for staging
+                staged.append(f"mlb-bet-predictor/data_delivery/{f.name}")
+        # Sync training artifacts
+        for artifact in out_dir.glob("*.csv"):
+            if artifact not in [csv_path]:
+                shutil.copy2(artifact, data_delivery_dir / artifact.name)
+                staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
+        for artifact in out_dir.glob("*.json"):
+            shutil.copy2(artifact, data_delivery_dir / artifact.name)
+            staged.append(f"mlb-bet-predictor/data_delivery/{artifact.name}")
         repo.index.add(staged)
         if repo.index.diff("HEAD"):
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -137,3 +170,4 @@ else:
 
 _banner("DONE ✅")
 print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  Features: {game_df.shape[1]+pbp_df.shape[1]}")
+print(f"  Output: {out_dir}")
