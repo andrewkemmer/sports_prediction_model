@@ -106,23 +106,23 @@ for col, (label, value, color, cap) in zip(kcols, kpi_specs):
 # ---------------------------------------------------------------------------
 # Calibration curve
 # ---------------------------------------------------------------------------
-st.markdown("### Calibration Curve")
+st.markdown("### Calibration Curve — Favored Team")
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
 if curve_df.empty:
     st.info("No calibration curve data available.")
 else:
     model_pts = alt.Chart(curve_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5).encode(
-        x=alt.X("mean_predicted:Q", title="Mean Predicted Probability", scale=alt.Scale(domain=[0, 1])),
+        x=alt.X("mean_predicted:Q", title="Mean Predicted Probability (favorite)", scale=alt.Scale(domain=[0.45, 1.0])),
         y=alt.Y("mean_actual:Q", title="Mean Actual Win Rate", scale=alt.Scale(domain=[0, 1])),
     )
     diag_df = pd.DataFrame({"x": [0.0, 1.0], "y": [0.0, 1.0]})
     diag = alt.Chart(diag_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x=alt.X("x:Q", scale=alt.Scale(domain=[0, 1])),
+        x=alt.X("x:Q", scale=alt.Scale(domain=[0.45, 1.0])),
         y=alt.Y("y:Q", scale=alt.Scale(domain=[0, 1])),
     )
     layer = alt.layer(diag, model_pts).properties(height=340)
     utils.show_chart(layer)
-    st.caption(f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal)")
+    st.caption(f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal) · each game counted once from the favored side (probability ≥ 50%)")
 
 # ---------------------------------------------------------------------------
 # Confidence & accuracy combo chart
@@ -183,7 +183,7 @@ else:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
+          Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
         </div>
         """,
         unsafe_allow_html=True,

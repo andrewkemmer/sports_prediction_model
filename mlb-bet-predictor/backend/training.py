@@ -243,16 +243,31 @@ def _expected_calibration_error(
 def calibration_buckets(
     y_true: np.ndarray, y_pred_prob: np.ndarray, n_bins: int = 10
 ) -> list[dict[str, Any]]:
-    """Compute calibration bucket data for the dashboard."""
-    bin_edges = np.linspace(0, 1, n_bins + 1)
+    """Compute calibration bucket data for the dashboard.
+
+    Observations are taken from the FAVORED team's perspective: each game
+    contributes ONE point at probability max(p_home, p_away) ∈ [0.5, 1],
+    labeled by whether the favorite actually won. This matches how the
+    model is consumed (you bet the pick) and is information-equivalent
+    to the home-side view, since (p, y) and (1 − p, 1 − y) are exact
+    complements — every metric derived from these buckets mirrors the
+    home-side version.
+    """
+    y_pred_prob = np.asarray(y_pred_prob, dtype=float)
+    y_true = np.asarray(y_true, dtype=float)
+    fav_prob = np.maximum(y_pred_prob, 1.0 - y_pred_prob)
+    fav_won = np.where(y_pred_prob >= 0.5, y_true, 1.0 - y_true)
+    bin_edges = np.linspace(0.5, 1.0, max(n_bins // 2, 1) + 1)
     buckets = []
-    for i in range(n_bins):
-        mask = (y_pred_prob >= bin_edges[i]) & (y_pred_prob < bin_edges[i + 1])
+    for i in range(len(bin_edges) - 1):
+        mask = (fav_prob >= bin_edges[i]) & (fav_prob < bin_edges[i + 1])
+        if i == len(bin_edges) - 2:  # include 1.0 in the top bucket
+            mask |= fav_prob == bin_edges[i + 1]
         count = int(mask.sum())
         if count == 0:
             continue
-        mean_pred = round(float(y_pred_prob[mask].mean()), 4)
-        mean_actual = round(float(y_true[mask].mean()), 4)
+        mean_pred = round(float(fav_prob[mask].mean()), 4)
+        mean_actual = round(float(fav_won[mask].mean()), 4)
         gap = round(mean_pred - mean_actual, 4)
         buckets.append({
             "bucket": f"{bin_edges[i]*100:.0f}–{bin_edges[i+1]*100:.0f}%",
