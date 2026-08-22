@@ -4,30 +4,26 @@
   "last_retrained": "2026-08-22",
   "next_retrain": "2026-08-29",
   "metrics": {
-    "auc": 0.489,
-    "brier": 0.2783,
-    "logloss": 0.7613,
-    "ece": 0.1352
+    "auc": 0.5187,
+    "brier": 0.2578,
+    "logloss": 0.7109,
+    "ece": 0.0824
   },
   "drift_summary": {
-    "warnings": 0,
-    "alerts": 19,
+    "warnings": 4,
+    "alerts": 11,
     "features": [
       "home_elo",
       "home_win_pct",
       "away_win_pct",
       "sp_era_home",
-      "sp_era_away",
       "sp_k9_home",
       "sp_k9_away",
       "woba_30g_home",
       "woba_30g_away",
       "bullpen_whip_10g_home",
       "bullpen_whip_10g_away",
-      "rest_days_home",
-      "rest_days_away",
       "sp_era_30g_home",
-      "sp_era_30g_away",
       "sp_k9_30g_home",
       "sp_k9_30g_away",
       "home_run_diff",
@@ -37,135 +33,135 @@
   "feature_drift": [
     {
       "feature": "home_elo",
-      "current_mean": 1503.076,
-      "baseline_mean": 1500.8097,
-      "psi": 0.462272,
+      "current_mean": 1502.2731,
+      "baseline_mean": 1501.3852,
+      "psi": 0.483223,
       "status": "ALERT"
     },
     {
       "feature": "home_win_pct",
-      "current_mean": 0.5009,
-      "baseline_mean": 0.4889,
-      "psi": 2.304768,
+      "current_mean": 0.5003,
+      "baseline_mean": 0.4996,
+      "psi": 1.690009,
       "status": "ALERT"
     },
     {
       "feature": "away_win_pct",
-      "current_mean": 0.4967,
-      "baseline_mean": 0.4951,
-      "psi": 2.511464,
+      "current_mean": 0.4974,
+      "baseline_mean": 0.4979,
+      "psi": 1.554157,
       "status": "ALERT"
     },
     {
       "feature": "sp_era_home",
-      "current_mean": 7.6153,
-      "baseline_mean": 7.4292,
-      "psi": 0.387705,
-      "status": "ALERT"
+      "current_mean": 7.6258,
+      "baseline_mean": 7.4706,
+      "psi": 0.138563,
+      "status": "WARN"
     },
     {
       "feature": "sp_era_away",
-      "current_mean": 7.3879,
-      "baseline_mean": 7.4808,
-      "psi": 0.262393,
-      "status": "ALERT"
+      "current_mean": 7.4233,
+      "baseline_mean": 7.5097,
+      "psi": 0.082978,
+      "status": "OK"
     },
     {
       "feature": "sp_k9_home",
-      "current_mean": 5.6763,
-      "baseline_mean": 6.0678,
-      "psi": 0.344857,
+      "current_mean": 5.6867,
+      "baseline_mean": 6.0235,
+      "psi": 0.49292,
       "status": "ALERT"
     },
     {
       "feature": "sp_k9_away",
-      "current_mean": 5.9768,
-      "baseline_mean": 5.9608,
-      "psi": 0.342249,
-      "status": "ALERT"
+      "current_mean": 6.0248,
+      "baseline_mean": 6.0085,
+      "psi": 0.209413,
+      "status": "WARN"
     },
     {
       "feature": "woba_30g_home",
       "current_mean": 0.3001,
-      "baseline_mean": 0.3082,
-      "psi": 1.600023,
+      "baseline_mean": 0.3039,
+      "psi": 0.650496,
       "status": "ALERT"
     },
     {
       "feature": "woba_30g_away",
       "current_mean": 0.2999,
-      "baseline_mean": 0.3086,
-      "psi": 0.764303,
+      "baseline_mean": 0.3037,
+      "psi": 0.705863,
       "status": "ALERT"
     },
     {
       "feature": "bullpen_whip_10g_home",
-      "current_mean": 0.9266,
-      "baseline_mean": 0.9273,
-      "psi": 1.005935,
+      "current_mean": 0.9261,
+      "baseline_mean": 0.9261,
+      "psi": 1.463643,
       "status": "ALERT"
     },
     {
       "feature": "bullpen_whip_10g_away",
-      "current_mean": 0.9225,
-      "baseline_mean": 0.9233,
-      "psi": 1.093642,
+      "current_mean": 0.9219,
+      "baseline_mean": 0.9248,
+      "psi": 0.897847,
       "status": "ALERT"
     },
     {
       "feature": "rest_days_home",
       "current_mean": 1.1064,
-      "baseline_mean": 1.178,
-      "psi": 0.29547,
-      "status": "ALERT"
+      "baseline_mean": 1.6983,
+      "psi": 0.055083,
+      "status": "OK"
     },
     {
       "feature": "rest_days_away",
       "current_mean": 1.1277,
-      "baseline_mean": 1.1631,
-      "psi": 0.339407,
-      "status": "ALERT"
+      "baseline_mean": 1.6835,
+      "psi": 0.055083,
+      "status": "OK"
     },
     {
       "feature": "sp_era_30g_home",
-      "current_mean": 7.6153,
-      "baseline_mean": 7.4292,
-      "psi": 0.387705,
-      "status": "ALERT"
+      "current_mean": 7.6258,
+      "baseline_mean": 7.4706,
+      "psi": 0.138563,
+      "status": "WARN"
     },
     {
       "feature": "sp_era_30g_away",
-      "current_mean": 7.3879,
-      "baseline_mean": 7.4808,
-      "psi": 0.262393,
-      "status": "ALERT"
+      "current_mean": 7.4233,
+      "baseline_mean": 7.5097,
+      "psi": 0.082978,
+      "status": "OK"
     },
     {
       "feature": "sp_k9_30g_home",
-      "current_mean": 5.6763,
-      "baseline_mean": 6.0678,
-      "psi": 0.344857,
+      "current_mean": 5.6867,
+      "baseline_mean": 6.0235,
+      "psi": 0.49292,
       "status": "ALERT"
     },
     {
       "feature": "sp_k9_30g_away",
-      "current_mean": 5.9768,
-      "baseline_mean": 5.9608,
-      "psi": 0.342249,
-      "status": "ALERT"
+      "current_mean": 6.0248,
+      "baseline_mean": 6.0085,
+      "psi": 0.209413,
+      "status": "WARN"
     },
     {
       "feature": "home_run_diff",
-      "current_mean": -2.0426,
-      "baseline_mean": 0.0139,
-      "psi": 0.929825,
+      "current_mean": 1.766,
+      "baseline_mean": 0.9801,
+      "psi": 0.612992,
       "status": "ALERT"
     },
     {
       "feature": "away_run_diff",
-      "current_mean": 0.2234,
-      "baseline_mean": 0.2719,
-      "psi": 0.374329,
+      "current_mean": -8.234,
+      "baseline_mean": 1.5324,
+      "psi": 0.802459,
       "status": "ALERT"
     }
   ],
@@ -222,6 +218,15 @@
       "brier": 0.2783,
       "logloss": 0.7613,
       "ece": 0.1352,
+      "notes": ""
+    },
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5187,
+      "brier": 0.2578,
+      "logloss": 0.7109,
+      "ece": 0.0824,
       "notes": ""
     }
   ]
