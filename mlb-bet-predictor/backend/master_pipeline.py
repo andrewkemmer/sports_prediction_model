@@ -1,9 +1,33 @@
 
 import os
-from google.colab import userdata
 
-# Safely fetch the token you just verified
-token = userdata.get('MY_GITHUB_TOKEN')
+def _load_github_token() -> str:
+    """Load GitHub token from env or Colab Secrets, never crashing.
+
+    Order:
+      1. GITHUB_TOKEN / MY_GITHUB_TOKEN environment variable
+         (works everywhere, incl. `python master_pipeline.py` subprocess)
+      2. Colab userdata secret 'MY_GITHUB_TOKEN'
+         (only available inside a live notebook kernel — guarded so a
+         subprocess run doesn't crash with AttributeError)
+    Returns "" when unavailable; GitHub sync is then skipped.
+    """
+    env_tok = (os.environ.get("GITHUB_TOKEN") or os.environ.get("MY_GITHUB_TOKEN") or "").strip()
+    if env_tok:
+        print("🔑 GitHub token loaded from environment")
+        return env_tok
+    try:
+        from google.colab import userdata
+        tok = userdata.get("MY_GITHUB_TOKEN").strip()
+        print("🔑 GitHub token loaded from Colab Secrets")
+        return tok
+    except Exception:
+        print("⚠️  No GitHub token (set Colab Secret 'MY_GITHUB_TOKEN' or env GITHUB_TOKEN)")
+        print("    → GitHub sync will be skipped")
+        return ""
+
+# Safely fetch the token (env var first, then Colab Secrets)
+token = _load_github_token()
 
 CONFIG = {
     "start_date": "2026-06-01",
@@ -142,7 +166,7 @@ except Exception as e:
 
 # ── Phase 5: GitHub Sync ────────────────────────────────────────────────────
 _banner("PHASE 5", "GitHub Sync")
-token = CONFIG.get("github_token", "")
+token = token or CONFIG.get("github_token", "")
 if not token:
     print("  ⏭️  No token — skipping push")
 else:
