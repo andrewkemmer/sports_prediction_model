@@ -47,6 +47,7 @@ from data_ingestion import (
     filter_prior,
 )
 from explainability import compute_feature_drift, compute_shap_per_game
+from features import add_diff_features
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
@@ -421,6 +422,11 @@ def run_daily_pipeline(
 
         logger.info("Loaded %d games", len(games))
 
+        # Ensure diff features exist (may be missing from stale CSV)
+        if "elo_diff" not in games.columns:
+            logger.info("Diff features missing — computing from raw home/away columns")
+            games = add_diff_features(games)
+
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")
         lines = generate_synthetic_market_lines(games)
@@ -473,6 +479,8 @@ def run_daily_pipeline(
                     "No completed games on %s — built %d-game upcoming slate "
                     "(pre-game PIT features)", target_date_str, len(slate),
                 )
+                # Compute diff features on the slate so FEATURE_COLS columns exist
+                slate = add_diff_features(slate)
                 games = pd.concat([games, slate], ignore_index=True)
                 target_games = slate.copy()
             else:

@@ -885,6 +885,213 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
     gc.collect()
 
 
+# ── Diff features ───────────────────────────────────────────────────────────
+
+# Statcast SLG park factors for 2025, indexed to 100 (league average).
+# Source: Baseball Savant custom leaderboard (year=2025, type=park, xslg).
+# >100 = hitters park, <100 = pitchers park.
+PARK_FACTORS_SLG = {
+    "ARI": 101, "ATL": 97, "BAL": 99, "BOS": 103, "CHC": 100,
+    "CHW": 97, "CIN": 103, "CLE": 98, "COL": 116, "DET": 98,
+    "HOU": 99, "KC": 100, "LAA": 101, "LAD": 101, "MIA": 97,
+    "MIL": 101, "MIN": 100, "NYM": 96, "NYY": 102, "OAK": 99,
+    "PHI": 101, "PIT": 98, "SD": 95, "SF": 96, "SEA": 99,
+    "STL": 97, "TB": 100, "TEX": 102, "TOR": 100, "WSH": 101,
+    "ATH": 99,
+}
+
+# Dome/closed-roof flag: 1 if fixed dome, 0 if open-air.
+# Prevents the model from hallucinating weather impacts indoors.
+DOME_STATUS = {
+    "ARI": 1, "ATL": 0, "BAL": 0, "BOS": 0, "CHC": 0,
+    "CHW": 0, "CIN": 0, "CLE": 0, "COL": 0, "DET": 0,
+    "HOU": 1, "KC": 0, "LAA": 0, "LAD": 0, "MIA": 1,
+    "MIL": 1, "MIN": 1, "NYM": 1, "NYY": 0, "OAK": 1,
+    "PHI": 0, "PIT": 0, "SD": 0, "SF": 0, "SEA": 1,
+    "STL": 0, "TB": 1, "TEX": 1, "TOR": 1, "WSH": 0,
+    "ATH": 1,
+}
+
+
+
+def add_diff_features(game_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute all 34 model features from the raw home/away columns.
+
+    All diff features follow the convention: home − away (positive = home
+    advantage).  Interaction features (26–34) are built from the diff
+    features, so the model sees relative strengths directly.
+
+    Returns a copy of game_df with the 34 new columns appended.
+    """
+    df = game_df.copy()
+    n = len(df)
+    logger.info("Computing %d diff features for %d games...", 34, n)
+
+    # ── 1. is_home (always 1 — anchors the baseline home-field advantage)
+    df["is_home"] = 1.0
+
+    # ── 2. win_pct_diff: home_win_pct − away_win_pct
+    if "home_win_pct" in df.columns and "away_win_pct" in df.columns:
+        df["win_pct_diff"] = pd.to_numeric(df["home_win_pct"], errors="coerce") \
+            - pd.to_numeric(df["away_win_pct"], errors="coerce")
+    else:
+        df["win_pct_diff"] = 0.0
+        logger.warning("win_pct_diff: home_win_pct/away_win_pct columns missing, set to 0")
+
+    # ── 3. elo_diff: home_elo − away_elo
+    if "home_elo" in df.columns and "away_elo" in df.columns:
+        df["elo_diff"] = pd.to_numeric(df["home_elo"], errors="coerce") \
+            - pd.to_numeric(df["away_elo"], errors="coerce")
+    else:
+        df["elo_diff"] = 0.0
+        logger.warning("elo_diff: home_elo/away_elo columns missing, set to 0")
+
+    # ── 4. rest_days_diff: rest_days_home − rest_days_away
+    if "rest_days_home" in df.columns and "rest_days_away" in df.columns:
+        df["rest_days_diff"] = pd.to_numeric(df["rest_days_home"], errors="coerce") \
+            - pd.to_numeric(df["rest_days_away"], errors="coerce")
+    else:
+        df["rest_days_diff"] = 0.0
+
+    # ── 5–8. Starting pitcher diffs (career-level metrics from DuckDB)
+    for pair in [
+        ("sp_era_home", "sp_era_away", "sp_era_diff"),
+        ("sp_k9_home", "sp_k9_away", "sp_k9_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # ── 9–11. SP stuff diffs (trailing 3-game fastball metrics)
+    for pair in [
+        ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away", "sp_fbvelo_diff"),
+        ("sp_fbpct_3g_home", "sp_fbpct_3g_away", "sp_fbpct_diff"),
+        ("sp_whiff_3g_home", "sp_whiff_3g_away", "sp_whiff_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # ── 12–13. SP xwOBA diffs (season-to-date contact quality)
+    for pair in [
+        ("sp_xwoba_home", "sp_xwoba_away", "sp_xwoba_diff"),
+        ("sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away", "sp_xwoba_vs_l_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # ── 14–16. Lineup wOBA diffs (mean, top-3 star power, dispersion)
+    for pair in [
+        ("lineup_woba_mean_home", "lineup_woba_mean_away", "lineup_woba_mean_diff"),
+        ("lineup_woba_top3_home", "lineup_woba_top3_away", "lineup_woba_top3_diff"),
+        ("lineup_woba_std_home", "lineup_woba_std_away", "lineup_woba_std_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # ── 17. woba_30g_diff: team 30-game rolling wOBA
+    if "woba_30g_home" in df.columns and "woba_30g_away" in df.columns:
+        df["woba_30g_diff"] = pd.to_numeric(df["woba_30g_home"], errors="coerce") \
+            - pd.to_numeric(df["woba_30g_away"], errors="coerce")
+    else:
+        df["woba_30g_diff"] = 0.0
+
+    # ── 18–21. Bullpen diffs (WHIP 10g, WHIP 3g, pitches 3d, IP 3d)
+    for pair in [
+        ("bullpen_whip_10g_home", "bullpen_whip_10g_away", "bullpen_whip_diff"),
+        ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away", "bullpen_pitches_diff"),
+        ("bullpen_ip_3d_home", "bullpen_ip_3d_away", "bullpen_ip_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # 19. bullpen_whip_3g_diff — compute from 3-day pitches + IP if available
+    # (the raw DuckDB output doesn't have a pre-built 3g WHIP column,
+    # so derive it from the raw bullpen workload data if available)
+    if "bullpen_whip_3g_diff" not in df.columns:
+        df["bullpen_whip_3g_diff"] = 0.0  # placeholder until 3g WHIP is added to DuckDB
+
+    # ── 22–24. Team contact form diffs (barrel%, hard-hit%, avg EV — trailing 15g)
+    for pair in [
+        ("team_barrel_15g_home", "team_barrel_15g_away", "team_barrel_diff"),
+        ("team_hardhit_15g_home", "team_hardhit_15g_away", "team_hardhit_diff"),
+        ("team_exitvelo_15g_home", "team_exitvelo_15g_away", "team_exitvelo_diff"),
+    ]:
+        h, a, out = pair
+        if h in df.columns and a in df.columns:
+            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
+        else:
+            df[out] = 0.0
+
+    # ── 25. opp_lefty_share_diff: opposing lineup lefty share vs each starter
+    if "opp_lefty_share_home" in df.columns and "opp_lefty_share_away" in df.columns:
+        df["opp_lefty_share_diff"] = pd.to_numeric(df["opp_lefty_share_home"], errors="coerce") \
+            - pd.to_numeric(df["opp_lefty_share_away"], errors="coerce")
+    else:
+        df["opp_lefty_share_diff"] = 0.0
+
+    # ── 26. dome_is_neutral: binary flag (1 if fixed dome/closed roof)
+    # Prevents models from hallucinating weather impacts indoors.
+    home_team = df["home_team"].astype(str).str.upper().str.strip()
+    df["dome_is_neutral"] = home_team.map(DOME_STATUS).fillna(0).astype(float)
+
+    # ── 27. park_factor_slug_diff: park_factor × lineup_woba_top3_diff
+    # Maps out when a power-heavy lineup gets to exploit a small ballpark.
+    pf_raw = home_team.map(PARK_FACTORS_SLG).fillna(100).astype(float)
+    pf = (pf_raw - 100.0) / 100.0  # center at 0: +0.05 = 5% more SLG than avg
+    df["park_factor_slug_diff"] = pf * df["lineup_woba_top3_diff"]
+
+    # ── 28. wind_advantage_flyball_factor
+    # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
+    # Flags when mistake-prone pitchers are at risk of wind-blown home runs.
+    # Dome games get 0 (no wind), outdoor games default to neutral (0).
+    df["wind_advantage_flyball_factor"] = 0.0  # will be filled when weather data is wired
+    # For dome games, explicitly 0; for outdoor, leave at 0 until weather API is live
+    df.loc[df["dome_is_neutral"] == 1, "wind_advantage_flyball_factor"] = 0.0
+
+    # ── 29. air_density_velocity_boost
+    # stadium_air_density × sp_fbvelo_diff. Adjusts for how cold or thin air
+    # alters raw pitching velocity.
+    df["air_density_velocity_boost"] = 0.0  # will be filled when weather data is wired
+
+    # ── 30. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
+    # Overworked + low quality bullpen = elevated meltdown risk.
+    df["bullpen_meltdown_risk"] = df["bullpen_pitches_diff"] * df["bullpen_whip_diff"]
+
+    # ── 31. platoon_exploit_edge: opp_lefty_share_diff × sp_xwoba_vs_l_diff
+    # Lineup matching against pitcher platoon flaw.
+    df["platoon_exploit_edge"] = df["opp_lefty_share_diff"] * df["sp_xwoba_vs_l_diff"]
+
+    # ── 32. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_30g_diff
+    # Physical velocity drop vs surface-level ERA results — flags regression candidates.
+    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_diff"]
+
+    # ── 33. lineup_depth_multiplier: lineup_woba_mean_diff × lineup_woba_top3_diff
+    # Star power vs complete batting order depth.
+    df["lineup_depth_multiplier"] = df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"]
+
+    # ── 34. ace_efficiency_factor: sp_k9_30g_diff × sp_whiff_diff
+    # High strikeout volume driven by raw stuff vs command — ace differentiator.
+    df["ace_efficiency_factor"] = df["sp_k9_diff"] * df["sp_whiff_diff"]
+
+    logger.info("Diff features complete: %d columns added", 34)
+    return df
+
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 def _mem_mb() -> float:
@@ -977,6 +1184,10 @@ def build_features(
                 df[col] = df[col].astype("int16")
 
     logger.info("[MEM] After pandas load: %.0f MB", _mem_mb())
+
+    # ── Diff features: 34 model inputs from home/away pairs ──────────
+    game_df = add_diff_features(game_df)
+
     logger.info("=== Complete: %d games, %d pitches ===", len(game_df), len(pbp_df))
 
     return game_df, pbp_df

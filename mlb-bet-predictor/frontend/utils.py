@@ -781,40 +781,51 @@ def render_source_note() -> None:
 # ---------------------------------------------------------------------------
 
 FEATURE_DESCRIPTIONS = {
-    "elo": "Team strength rating entering the game (Elo, updated each result)",
-    "win_pct": "Winning percentage prior to this game",
-    "run_diff": "Run differential (runs scored − allowed) prior to this game",
-    "rest_days": "Days since the team's previous game",
-    "record": "Season win-loss record entering the game",
-    "sp_era": "Starting pitcher earned run average",
-    "sp_era_30g": "Starting pitcher ERA, last 30 starts",
-    "sp_k9": "Starting pitcher strikeouts per 9 innings",
-    "sp_k9_30g": "Starting pitcher K/9, last 30 starts",
-    "sp_bb9": "Starting pitcher walks per 9 innings",
-    "sp_whip": "Starting pitcher WHIP (walks + hits per inning)",
-    "sp_fip": "Starting pitcher FIP (fielding-independent pitching)",
-    "sp_xwoba": "Expected wOBA allowed by the starting pitcher (contact quality)",
-    "sp_fbvelo_3g": "Starting pitcher fastball velocity, last 3 starts (mph)",
-    "sp_fbpct_3g": "Starting pitcher fastball usage rate, last 3 starts",
-    "sp_whiff_3g": "Starting pitcher whiff rate generated, last 3 starts",
-    "sp_xwoba_vs_l": "Expected wOBA the starter allows vs left-handed batters",
-    "sp_xwoba_vs_r": "Expected wOBA the starter allows vs right-handed batters",
-    "woba_30g": "Team weighted on-base average, last 30 games",
-    "team_woba_30g": "Team weighted on-base average, last 30 games",
-    "team_iso_30g": "Team isolated power (slugging − AVG), last 30 games",
-    "team_k_rate_30g": "Team strikeout rate at the plate, last 30 games",
-    "team_bb_rate_30g": "Team walk rate at the plate, last 30 games",
-    "bullpen_whip_10g": "Bullpen WHIP over the last 10 games",
-    "bullpen_era_10g": "Bullpen ERA over the last 10 games",
-    "bullpen_pitches_3d": "Pitches thrown by the bullpen over the last 3 days (fatigue)",
-    "bullpen_ip_3d": "Innings pitched by the bullpen over the last 3 days (fatigue)",
-    "team_barrel_15g": "Barrel rate (best-quality contact) allowed, last 15 games",
-    "team_hardhit_15g": "Hard-hit rate allowed, last 15 games",
-    "team_exitvelo_15g": "Average exit velocity allowed, last 15 games (mph)",
-    "opp_lefty_share": "Share of opposing lineup batting left-handed vs this starter",
-    "lineup_woba_mean": "Projected lineup's average wOBA",
-    "lineup_woba_top3": "wOBA of the projected lineup's top 3 hitters",
-    "lineup_woba_std": "Spread of wOBA across the projected lineup",
+    # 1. Baseline
+    "is_home": "Always 1 — anchors the ~53% MLB home-field win advantage",
+    # 2–4. Core pre-game diffs (home − away; positive = home advantage)
+    "win_pct_diff": "Home win% − away win% (smoothed to .500 early season)",
+    "elo_diff": "Home Elo − away Elo (skill-gap anchor, updated each game)",
+    "rest_days_diff": "Home rest days − away rest days (schedule fatigue)",
+    # 5–6. SP career-level diffs
+    "sp_era_diff": "Home SP career ERA − away SP career ERA",
+    "sp_k9_diff": "Home SP career K/9 − away SP career K/9",
+    # 7–9. SP trailing-3-game stuff diffs
+    "sp_fbvelo_diff": "Home SP fastball velo (last 3 starts) − away SP (mph)",
+    "sp_fbpct_diff": "Home SP fastball usage (last 3 starts) − away SP",
+    "sp_whiff_diff": "Home SP whiff rate (last 3 starts) − away SP",
+    # 10–11. SP xwOBA diffs (contact quality allowed)
+    "sp_xwoba_diff": "Home SP season xwOBA allowed − away SP",
+    "sp_xwoba_vs_l_diff": "Home SP xwOBA vs LHB − away SP xwOBA vs LHB",
+    # 12–14. Lineup wOBA diffs (projected top-9, shrunk toward league mean)
+    "lineup_woba_mean_diff": "Home lineup avg wOBA − away lineup avg wOBA",
+    "lineup_woba_top3_diff": "Home top-3 hitter wOBA − away top-3 hitter wOBA",
+    "lineup_woba_std_diff": "Home lineup wOBA dispersion − away lineup dispersion",
+    # 15. Team rolling wOBA diff
+    "woba_30g_diff": "Home team 30-game wOBA − away team 30-game wOBA",
+    # 16–19. Bullpen diffs (workload + quality)
+    "bullpen_whip_diff": "Home bullpen 10-game WHIP − away bullpen (lower = better)",
+    "bullpen_whip_3g_diff": "Home bullpen 3-game WHIP − away bullpen (short-term form)",
+    "bullpen_pitches_diff": "Home bullpen 3-day pitch count − away (fatigue signal)",
+    "bullpen_ip_diff": "Home bullpen 3-day IP − away bullpen IP",
+    # 20–22. Team contact form diffs (trailing 15g, balls in play only)
+    "team_barrel_diff": "Home barrel% (15g) − away barrel% (quality of contact)",
+    "team_hardhit_diff": "Home hard-hit% (15g) − away hard-hit%",
+    "team_exitvelo_diff": "Home avg exit velo (15g) − away avg exit velo (mph)",
+    # 23. Platoon exposure
+    "opp_lefty_share_diff": "Home opponent LHB% − away opponent LHB%",
+    # 24. Dome neutral flag (prevents weather hallucination indoors)
+    "dome_is_neutral": "1 if home park is a fixed dome/closed roof, 0 if open-air",
+    # 25–27. Context interaction features
+    "park_factor_slug_diff": "Home park SLG factor × lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
+    "wind_advantage_flyball_factor": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
+    "air_density_velocity_boost": "Stadium air density × SP velo diff (cold/thin air affects velocity)",
+    # 28–32. Derived interaction features
+    "bullpen_meltdown_risk": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
+    "platoon_exploit_edge": "Opp LHB% diff × SP xwOBA vs LHB diff (platoon mismatch exploitation)",
+    "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
+    "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
+    "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
 }
 
 

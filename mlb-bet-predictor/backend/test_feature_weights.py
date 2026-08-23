@@ -51,20 +51,18 @@ class TestFeatureImportanceWeights(unittest.TestCase):
 
     def test_weight_pct_flows_through_drift_csv(self):
         n = len(training.FEATURE_COLS)
-        base = pd.DataFrame({"home_elo": np.random.RandomState(0).normal(1500, 20, 300),
-                             "home_win": np.ones(300)})
-        cur = pd.DataFrame({"home_elo": np.random.RandomState(1).normal(1500, 20, 100),
-                            "home_win": np.ones(100)})
-        weights = {"home_elo": 12.5}
+        base = pd.DataFrame({"elo_diff": np.random.RandomState(0).normal(50, 20, 300)})
+        cur = pd.DataFrame({"elo_diff": np.random.RandomState(1).normal(50, 20, 100)})
+        weights = {"elo_diff": 12.5}
         tmp = Path(tempfile.mkdtemp())
-        with pipeline.mock_DATA_DELIVERY_DIR(tmp) if False else self._patch_dir(tmp):
+        with self._patch_dir(tmp):
             df = explainability.compute_feature_drift(
                 base, cur, "20990101", model_weights=weights)
         self.assertIn("weight_pct", df.columns)
-        row = df[df["feature"] == "home_elo"].iloc[0]
+        row = df[df["feature"] == "elo_diff"].iloc[0]
         self.assertEqual(float(row["weight_pct"]), 12.5)
         # Features absent from the weights dict get explicit 0.0, not NaN
-        other = df[df["feature"] != "home_elo"]["weight_pct"].fillna(0.0)
+        other = df[df["feature"] != "elo_diff"]["weight_pct"].fillna(0.0)
         self.assertTrue((other == 0.0).all())
 
     def _patch_dir(self, tmp):

@@ -16,6 +16,7 @@ from backend.data_ingestion import (
     _norm_player_name,
     build_upcoming_slate,
 )
+from backend.features import add_diff_features
 from backend.training import FEATURE_COLS
 
 
@@ -111,8 +112,11 @@ class TestBuildUpcomingSlate(unittest.TestCase):
 
     def test_all_feature_columns_present(self):
         """predict_games slices [c for c in FEATURE_COLS if c in columns] — a
-        missing column would silently change the model's input shape."""
-        missing = [c for c in FEATURE_COLS if c not in self.slate.columns]
+        missing column would silently change the model's input shape.
+        Diff features are computed by add_diff_features() in the pipeline
+        after build_upcoming_slate(), so we apply it here too."""
+        slate_with_diffs = add_diff_features(self.slate)
+        missing = [c for c in FEATURE_COLS if c not in slate_with_diffs.columns]
         self.assertEqual(missing, [])
 
     def test_undecided_games_ship_null_labels(self):

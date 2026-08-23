@@ -45,67 +45,56 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Features used for model input
+# Features used for model input — all 34 diff/computed features.
+# Diff convention: home − away (positive = home advantage).
 FEATURE_COLS = [
-    "home_elo",
-    "home_win_pct",
-    "away_win_pct",
-    "sp_era_home",
-    "sp_era_away",
-    "sp_k9_home",
-    "sp_k9_away",
-    "woba_30g_home",
-    "woba_30g_away",
-    "bullpen_whip_10g_home",
-    "bullpen_whip_10g_away",
-    "rest_days_home",
-    "rest_days_away",
-    "sp_era_30g_home",
-    "sp_era_30g_away",
-    "sp_k9_30g_home",
-    "sp_k9_30g_away",
-    "home_win_pct",
-    "home_run_diff",
-    "away_run_diff",
-    # ── PBP-derived, pre-game-safe aggregates (DuckDB feature build) ──
-    # Starter stuff trends (last 3 starts)
-    "sp_fbvelo_3g_home",
-    "sp_fbvelo_3g_away",
-    "sp_fbpct_3g_home",
-    "sp_fbpct_3g_away",
-    "sp_whiff_3g_home",
-    "sp_whiff_3g_away",
-    # Starter handedness splits (season-to-date xwOBA allowed vs L/R batters)
-    "sp_xwoba_vs_l_home",
-    "sp_xwoba_vs_l_away",
-    "sp_xwoba_vs_r_home",
-    "sp_xwoba_vs_r_away",
-    # Team contact form (trailing 15 games, from balls in play)
-    "team_barrel_15g_home",
-    "team_barrel_15g_away",
-    "team_hardhit_15g_home",
-    "team_hardhit_15g_away",
-    "team_exitvelo_15g_home",
-    "team_exitvelo_15g_away",
-    # Opposing-lineup handedness share (trailing 30 games) — pairs with the
-    # sp_xwoba_vs_l/r splits so the model learns platoon-fit interactions.
-    "opp_lefty_share_home",
-    "opp_lefty_share_away",
-    # Bullpen fatigue (pitches/IP over trailing 3 days, excl. today)
-    "bullpen_pitches_3d_home",
-    "bullpen_pitches_3d_away",
-    "bullpen_ip_3d_home",
-    "bullpen_ip_3d_away",
-    # Lineup composition — per-player shrunk wOBA aggregated over the
-    # expected top-9 (by playing time): mean, star (top-3) average, dispersion
-    "lineup_woba_mean_home",
-    "lineup_woba_mean_away",
-    "lineup_woba_top3_home",
-    "lineup_woba_top3_away",
-    "lineup_woba_std_home",
-    "lineup_woba_std_away",
+    # 1. Baseline
+    "is_home",
+    # 2–4. Core pre-game diffs
+    "win_pct_diff",
+    "elo_diff",
+    "rest_days_diff",
+    # 5–8. Starting pitcher diffs (career-level)
+    "sp_era_diff",
+    "sp_k9_diff",
+    # 9–11. SP stuff diffs (trailing 3-game)
+    "sp_fbvelo_diff",
+    "sp_fbpct_diff",
+    "sp_whiff_diff",
+    # 12–13. SP xwOBA diffs
+    "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff",
+    # 14–16. Lineup wOBA diffs
+    "lineup_woba_mean_diff",
+    "lineup_woba_top3_diff",
+    "lineup_woba_std_diff",
+    # 17. Team rolling wOBA diff
+    "woba_30g_diff",
+    # 18–21. Bullpen diffs
+    "bullpen_whip_diff",
+    "bullpen_whip_3g_diff",
+    "bullpen_pitches_diff",
+    "bullpen_ip_diff",
+    # 22–24. Team contact form diffs (trailing 15g)
+    "team_barrel_diff",
+    "team_hardhit_diff",
+    "team_exitvelo_diff",
+    # 25. Platoon exposure
+    "opp_lefty_share_diff",
+    # 26. Dome neutral flag
+    "dome_is_neutral",
+    # 27–29. Interaction/context features
+    "park_factor_slug_diff",
+    "wind_advantage_flyball_factor",
+    "air_density_velocity_boost",
+    # 30–34. Derived interaction features
+    "bullpen_meltdown_risk",
+    "platoon_exploit_edge",
+    "pitcher_regression_indicator",
+    "lineup_depth_multiplier",
+    "ace_efficiency_factor",
 ]
-# Deduplicate
+# Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
 
 

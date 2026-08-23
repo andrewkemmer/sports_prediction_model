@@ -20,6 +20,7 @@ from backend.config import (
     ADAPTIVE_WEIGHT_FLOOR,
     ENSEMBLE_WEIGHTS,
 )
+from backend.features import add_diff_features
 
 
 class TestCandidateRoster(unittest.TestCase):
@@ -31,15 +32,55 @@ class TestCandidateRoster(unittest.TestCase):
         for i in range(400):
             signal = rng.normal(0, 1)
             rows.append({
+                "game_id": f"synth_{i}",
+                "game_date": pd.Timestamp("2026-03-27") + pd.Timedelta(days=i),
+                "home_team": "NYY",
+                "away_team": "BOS",
                 "home_elo": 1500 + signal * 40 + rng.normal(0, 10),
                 "away_elo": 1500 - signal * 40,
+                "home_win_pct": 0.55 + signal * 0.02,
+                "away_win_pct": 0.48 - signal * 0.01,
+                "rest_days_home": 1,
+                "rest_days_away": 1,
                 "sp_era_home": 4.0 - signal * 0.2,
                 "sp_era_away": 4.0 + signal * 0.2,
+                "sp_k9_home": 9.0 + signal * 0.5,
+                "sp_k9_away": 8.5 - signal * 0.3,
+                "sp_fbvelo_3g_home": 94.0 + signal * 0.5,
+                "sp_fbvelo_3g_away": 93.5 - signal * 0.3,
+                "sp_fbpct_3g_home": 0.45 + signal * 0.01,
+                "sp_fbpct_3g_away": 0.44,
+                "sp_whiff_3g_home": 0.28 + signal * 0.01,
+                "sp_whiff_3g_away": 0.27,
+                "sp_xwoba_home": 0.31 + signal * 0.005,
+                "sp_xwoba_away": 0.32,
+                "sp_xwoba_vs_l_home": 0.30 + signal * 0.005,
+                "sp_xwoba_vs_l_away": 0.31,
+                "lineup_woba_mean_home": 0.33 + signal * 0.005,
+                "lineup_woba_mean_away": 0.32,
+                "lineup_woba_top3_home": 0.37 + signal * 0.005,
+                "lineup_woba_top3_away": 0.36,
+                "lineup_woba_std_home": 0.03,
+                "lineup_woba_std_away": 0.03,
                 "woba_30g_home": 0.32 + signal * 0.005,
                 "woba_30g_away": 0.31,
+                "bullpen_whip_10g_home": 1.3,
+                "bullpen_whip_10g_away": 1.35,
+                "bullpen_pitches_3d_home": 45.0,
+                "bullpen_pitches_3d_away": 50.0,
+                "bullpen_ip_3d_home": 14.0,
+                "bullpen_ip_3d_away": 13.0,
+                "team_barrel_15g_home": 0.08,
+                "team_barrel_15g_away": 0.07,
+                "team_hardhit_15g_home": 0.35,
+                "team_hardhit_15g_away": 0.33,
+                "team_exitvelo_15g_home": 89.0,
+                "team_exitvelo_15g_away": 88.5,
+                "opp_lefty_share_home": 0.33,
+                "opp_lefty_share_away": 0.30,
                 "home_win": float(rng.rand() < 1 / (1 + np.exp(-signal))),
             })
-        cls.games = pd.DataFrame(rows)
+        cls.games = add_diff_features(pd.DataFrame(rows))
 
     def test_all_five_members_train(self):
         models, metrics = training.train_moneyline_ensemble(

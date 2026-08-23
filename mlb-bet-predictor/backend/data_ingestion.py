@@ -1053,8 +1053,24 @@ def build_upcoming_slate(
     elos = compute_elos_up_to(hist, as_of=as_of)
     records = _final_team_records(hist)
 
-    carry_cols = [c for c in FEATURE_COLS
-                  if not c.startswith("sp_") and not c.startswith("opp_lefty_share")]
+    # Carry forward the raw input columns that add_diff_features() needs
+    # to compute the model's diff FEATURE_COLS.  (FEATURE_COLS itself now
+    # uses diff names, so we derive the raw list from add_diff_features'
+    # expected inputs.)
+    _RAW_CARRY = [
+        "woba_30g_home", "woba_30g_away",
+        "rest_days_home", "rest_days_away",
+        "team_barrel_15g_home", "team_barrel_15g_away",
+        "team_hardhit_15g_home", "team_hardhit_15g_away",
+        "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+        "lineup_woba_mean_home", "lineup_woba_mean_away",
+        "lineup_woba_top3_home", "lineup_woba_top3_away",
+        "lineup_woba_std_home", "lineup_woba_std_away",
+        "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+        "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
+        "bullpen_ip_3d_home", "bullpen_ip_3d_away",
+    ]
+    carry_cols = [c for c in _RAW_CARRY if c in hist.columns]
     team_state = _latest_side_state(hist, carry_cols)
     own_lefty = _own_lefty_share(hist)
     pitcher_state = _latest_pitcher_state(hist)
@@ -1081,6 +1097,35 @@ def build_upcoming_slate(
     for _, s in sched.iterrows():
         home, away = s["home_team"], s["away_team"]
         row = {c: np.nan for c in FEATURE_COLS}
+        # Initialize raw input columns that add_diff_features() needs.
+        # FEATURE_COLS now has diff names only, but the raw home/away
+        # columns must exist for add_diff_features() to compute them.
+        _RAW_INPUTS = [
+            "home_elo", "away_elo", "home_win_pct", "away_win_pct",
+            "rest_days_home", "rest_days_away",
+            "sp_era_home", "sp_era_away",
+            "sp_k9_home", "sp_k9_away",
+            "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
+            "sp_fbpct_3g_home", "sp_fbpct_3g_away",
+            "sp_whiff_3g_home", "sp_whiff_3g_away",
+            "sp_xwoba_home", "sp_xwoba_away",
+            "sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away",
+            "sp_era_30g_home", "sp_era_30g_away",
+            "sp_k9_30g_home", "sp_k9_30g_away",
+            "woba_30g_home", "woba_30g_away",
+            "lineup_woba_mean_home", "lineup_woba_mean_away",
+            "lineup_woba_top3_home", "lineup_woba_top3_away",
+            "lineup_woba_std_home", "lineup_woba_std_away",
+            "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+            "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
+            "bullpen_ip_3d_home", "bullpen_ip_3d_away",
+            "team_barrel_15g_home", "team_barrel_15g_away",
+            "team_hardhit_15g_home", "team_hardhit_15g_away",
+            "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+            "opp_lefty_share_home", "opp_lefty_share_away",
+        ]
+        for _c in _RAW_INPUTS:
+            row.setdefault(_c, np.nan)
         row.update({
             "game_id": s.get("game_id") or (
                 f"{pd.Timestamp(target_date).strftime('%Y%m%d')}_{away}@{home}"),
@@ -1116,6 +1161,7 @@ def build_upcoming_slate(
             if share is not None:
                 row[f"opp_lefty_share_{'away' if side == 'home' else 'home'}"] = share
         row["home_elo"] = elos.get(home, 1500.0)
+        row["away_elo"] = elos.get(away, 1500.0)
 
         # Pitcher-level state via name → id → latest stat line, re-suffixed
         # to the slot he occupies tonight (his last start may have been on
