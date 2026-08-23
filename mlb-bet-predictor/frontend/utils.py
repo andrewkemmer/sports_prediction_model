@@ -840,25 +840,28 @@ FEATURE_DESCRIPTIONS = {
 
 
 def describe_feature(name: str) -> str:
-    """Human description for a feature column like 'sp_era_30g_home'.
+    """Human description for a feature column like 'sp_era_30g_diff'.
 
-    Strips the _home/_away slot suffix and notes which side of the matchup
-    the value describes.
+    Exact diff-name matches win first (the current model layout). For legacy
+    per-side names ('sp_era_30g_home'), strip the _home/_away slot suffix and
+    note which side of the matchup the value describes. 'is_home' is a
+    baseline feature whose name genuinely ends in '_home' — the exact match
+    must win so it is not mangled into a name-repeating label.
     """
     s = str(name or "").strip()
-    side = ""
+    base = FEATURE_DESCRIPTIONS.get(s)
+    if base is not None:
+        return base
     for suf in ("_home", "_away"):
         if s.endswith(suf):
-            side = " — home team" if suf == "_home" else " — away team"
-            s = s[: -len(suf)]
+            base = FEATURE_DESCRIPTIONS.get(s[: -len(suf)])
+            if base is not None:
+                return f"{base} — home team" if suf == "_home" else f"{base} — away team"
             break
-    base = FEATURE_DESCRIPTIONS.get(s)
-    if base is None:
-        for k, v in FEATURE_DESCRIPTIONS.items():
-            if s.startswith(k):
-                base = v
-                break
-    return f"{base}{side}" if base else name
+    for k, v in FEATURE_DESCRIPTIONS.items():
+        if s.startswith(k):
+            return v
+    return name
 
 
 def feature_weight_pct(row: dict) -> str:
