@@ -373,13 +373,22 @@ def _model_monitor_json(
     return path
 
 
+def auto_version(target_date: date) -> str:
+    """Date-stamped model version (e.g. ``v2026.08.23``).
+
+    Every retrain is visibly distinct in the Model Monitor version history;
+    pass an explicit --version to override.
+    """
+    return f"v{target_date.strftime('%Y.%m.%d')}"
+
+
 def run_daily_pipeline(
     target_date: date,
     real: bool = False,
     skip_sync: bool = False,
     force_retrain: bool = False,
     max_eval_folds: int = 0,
-    version: str = "v3.2.1",
+    version: Optional[str] = None,
     games: Optional[pd.DataFrame] = None,
     min_train_days: int = 0,
     pbp_df: Optional[pd.DataFrame] = None,
@@ -392,7 +401,8 @@ def run_daily_pipeline(
         skip_sync: Skip GitHub push.
         force_retrain: Retrain regardless of cadence.
         max_eval_folds: Cap walk-forward folds (0 = full history).
-        version: Model version string.
+        version: Model version string (default: auto, ``vYYYY.MM.DD`` of
+               the target date).
         games: Pre-built game DataFrame (from features.py). When provided,
                skips load_game_events() and uses this data for training.
         min_train_days: Warm-up period — skip validation folds that start
@@ -404,7 +414,9 @@ def run_daily_pipeline(
         Summary dict with keys: status, artifacts, metrics, sync, errors
     """
     target_date_str = target_date.strftime(DATE_FMT)
-    logger.info("=== Daily pipeline for %s ===", target_date_str)
+    if not version:
+        version = auto_version(target_date)
+    logger.info("=== Daily pipeline for %s (model %s) ===", target_date_str, version)
 
     summary: dict[str, Any] = {
         "status": "ok",
@@ -725,8 +737,8 @@ def main():
     parser.add_argument(
         "--version",
         type=str,
-        default="v3.2.1",
-        help="Model version string",
+        default=None,
+        help="Model version string (default: auto, vYYYY.MM.DD of the run date)",
     )
 
     args = parser.parse_args()

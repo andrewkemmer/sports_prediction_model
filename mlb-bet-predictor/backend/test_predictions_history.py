@@ -70,3 +70,25 @@ class TestPredictionsHistory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoVersion(unittest.TestCase):
+    """Model versions are date-stamped so every retrain is distinct."""
+
+    def test_format(self):
+        from datetime import date
+        self.assertEqual(pipeline.auto_version(date(2026, 8, 23)),
+                         "v2026.08.23")
+
+    def test_run_pipeline_resolves_none_to_auto(self):
+        import inspect
+        src = inspect.getsource(pipeline.run_daily_pipeline)
+        self.assertIn("auto_version(target_date)", src)
+        sig = inspect.signature(pipeline.run_daily_pipeline)
+        self.assertIsNone(sig.parameters["version"].default)
+
+    def test_argparse_version_defaults_to_auto(self):
+        import inspect
+        main_src = inspect.getsource(pipeline.main) if hasattr(pipeline, "main") else ""
+        self.assertIn("default=None", main_src)
+        self.assertIn("vYYYY.MM.DD", main_src)
