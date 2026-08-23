@@ -23,6 +23,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
+from calibration import apply_platt, fit_platt, is_identity, MIN_OOF_FOR_FIT
 from config import (
     ADAPTIVE_WEIGHT_CAP,
     ADAPTIVE_WEIGHT_FLOOR,
@@ -321,6 +322,11 @@ def _impute_median(
 # ENSEMBLE_WEIGHTS priors before that.
 _LAST_ADAPTIVE_WEIGHTS: dict[str, float] = {}
 
+# Post-hoc Platt calibrator from the most recent walk-forward run. Applied
+# to live blended probabilities in predict_games(); restored from a cached
+# bundle via set_calibration() so cached-model runs stay consistent.
+_LAST_CALIBRATOR: dict | None = None
+
 
 def compute_adaptive_weights(
     oof_members: dict[str, list[float]], y_oof: np.ndarray
@@ -490,6 +496,18 @@ _LAST_ENSEMBLE_INFO: list[dict[str, Any]] = []
 def last_ensemble_info() -> list[dict[str, Any]]:
     """Candidate-model report from the most recent walk-forward evaluation."""
     return [dict(e) for e in _LAST_ENSEMBLE_INFO]
+
+
+def set_calibration(calibrator: dict | None) -> None:
+    """Restore the post-hoc calibrator (e.g. from a persisted ensemble bundle)
+    so published probabilities match the model that was actually evaluated."""
+    global _LAST_CALIBRATOR
+    _LAST_CALIBRATOR = dict(calibrator) if calibrator else None
+
+
+def get_last_calibrator() -> dict | None:
+    """Calibrator fitted on pooled OOF by the most recent walk-forward run."""
+    return dict(_LAST_CALIBRATOR) if _LAST_CALIBRATOR else None
 
 
 def set_adaptive_weights(weights: dict[str, float] | None) -> None:
@@ -726,6 +744,11 @@ def walk_forward_evaluate(
     fold_metrics_list = []
     oof_members: dict[str, list[float]] = {}
     oof_y: list[float] = []
+    # Blended raw probabilities and their PREQUENTIAL calibrated twins:
+    # each fold's calibration comes from a Platt map fitted strictly on
+    # PRIOR folds' OOF pairs, so every calibrated point stays honest.
+    oof_blend: list[float] = []
+    oof_blend_calibrated: list[float] = []
 
     for split in splits:
         train = split["train_games"]
@@ -750,12 +773,26 @@ def walk_forward_evaluate(
         # Weighted-blend prediction; keep each member's probabilities so we
         # can score candidates individually out of sample.
         ensemble_prob, member_probs, _wts = ensemble_predict(ml_models, val)
-        oof_y.extend(val["home_win"].values.tolist())
+        y_val = val["home_win"].values.tolist()
+
+        # Prequential calibration: fit on everything out-of-sample BEFORE
+        # this fold, then transform this fold's predictions.
+        fold_cal = None
+        if len(oof_blend) >= MIN_OOF_FOR_FIT:
+            fold_cal = fit_platt(oof_y, oof_blend)
+        fold_calibrated = apply_platt(ensemble_prob, fold_cal)
+
+        oof_y.extend(y_val)
+        oof_blend.extend(np.asarray(ensemble_prob, dtype=float).tolist())
+        oof_blend_calibrated.extend(
+            np.asarray(fold_calibrated, dtype=float).tolist()
+        )
         for name, p in member_probs.items():
             oof_members.setdefault(name, []).extend(p.tolist())
 
         val_pred = val.copy()
         val_pred["home_win_prob_model"] = ensemble_prob
+        val_pred["home_win_prob_model_calibrated"] = np.round(fold_calibrated, 4)
         val_pred["fold_idx"] = split["fold_idx"]
         all_preds.append(val_pred)
         fold_metrics_list.append(ml_metrics)
@@ -767,6 +804,31 @@ def walk_forward_evaluate(
     else:
         combined = pd.DataFrame()
         pooled = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
+
+    # Post-hoc calibration: fit the shipped Platt map on ALL pooled OOF
+    # pairs, and score it against the raw blend using the prequential
+    # calibrated predictions (fold k corrected only by folds < k — never
+    # self-calibrated). Raw headline metrics stay untouched; calibrated
+    # twins ride alongside so dashboards can show both.
+    y_oof_all = np.asarray(oof_y, dtype=float) if oof_y else np.empty(0)
+    p_raw_all = np.asarray(oof_blend, dtype=float) if oof_blend else np.empty(0)
+    p_cal_prequential = (
+        np.asarray(oof_blend_calibrated, dtype=float)
+        if oof_blend_calibrated else np.empty(0)
+    )
+    final_calibrator = fit_platt(y_oof_all, p_raw_all)
+    global _LAST_CALIBRATOR
+    _LAST_CALIBRATOR = final_calibrator
+    if p_cal_prequential.size == len(y_oof_all) and len(y_oof_all) > 0:
+        m_cal = compute_metrics(y_oof_all, apply_platt(p_cal_prequential, final_calibrator))
+        pooled["brier_calibrated"] = m_cal["brier"]
+        pooled["logloss_calibrated"] = m_cal["logloss"]
+        pooled["ece_calibrated"] = m_cal["ece"]
+        logger.info(
+            "Calibration (OOF, prequential): ECE %.4f → %.4f, log-loss %.4f → %.4f",
+            pooled.get("ece", 0.0), m_cal["ece"],
+            pooled.get("logloss", 0.0), m_cal["logloss"],
+        )
 
     # Retrain on full data for final model
     full_train = games.dropna(subset=["home_win"])
@@ -858,6 +920,9 @@ def persist_ensemble(
         # Earned blend weights ride with the models so a cached-model run
         # predicts with exactly the weighting that was validated.
         "adaptive_weights": dict(_LAST_ADAPTIVE_WEIGHTS),
+        # Post-hoc Platt calibrator fitted on pooled OOF; applied by
+        # predict_games so published probabilities are calibrated.
+        "calibrator": get_last_calibrator(),
     }
 
     path = MODELS_DIR / ENSEMBLE_FILE
@@ -893,6 +958,11 @@ def predict_games(
         return games
 
     blend, _members, _wts = ensemble_predict(models, games)
+    # Post-hoc recalibration: correct blended probabilities before they
+    # feed picks/edges. Identity (no-op) when no calibrator is loaded.
+    calibrator = get_last_calibrator()
+    if not is_identity(calibrator):
+        blend = apply_platt(blend, calibrator)
     games["home_win_prob_model"] = np.round(blend, 4)
 
     games["away_win_prob_model"] = 1 - games["home_win_prob_model"]
@@ -952,6 +1022,8 @@ def update_model_history(
         "brier": metrics.get("brier", 0),
         "logloss": metrics.get("logloss", 0),
         "ece": metrics.get("ece", 0),
+        **({"ece_calibrated": metrics["ece_calibrated"]}
+           if "ece_calibrated" in metrics else {}),
         "notes": notes,
     })
     history.sort(key=lambda row: str(row.get("date", "")))

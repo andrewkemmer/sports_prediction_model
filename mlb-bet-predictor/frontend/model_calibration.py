@@ -107,6 +107,43 @@ for col, (label, value, color, cap) in zip(kcols, kpi_specs):
         )
 
 # ---------------------------------------------------------------------------
+# Post-hoc recalibration banner (raw vs calibrated)
+# ---------------------------------------------------------------------------
+cal_sec = cal.get("calibration") or {}
+if cal_sec.get("method") == "platt":
+    _mr = cal_sec.get("metrics_raw") or {}
+    _mc = cal_sec.get("metrics_calibrated") or {}
+    _params = cal_sec.get("params") or {}
+    _ece_raw = _mr.get("ece")
+    _ece_cal = _mc.get("ece")
+    if _ece_raw is not None and _ece_cal is not None:
+        _delta = (_ece_raw - _ece_cal) * 100
+        _arrow = "🟢" if _delta >= 0 else "🔴"
+        st.markdown(
+            f"""
+            <div class="fb-box" style="margin:12px 0;padding:12px 18px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#E2E8F0;">
+                <span style="font-weight:700;">Post-Hoc Recalibration:</span>
+                <span style="background:rgba(59,130,246,.18);color:#60A5FA;border-radius:999px;padding:2px 12px;font-size:0.82rem;font-weight:700;">
+                  Platt scaling · a={_params.get('a', '—')}, b={_params.get('b', '—')}
+                </span>
+                <span style="color:#94A3B8;font-size:0.9rem;">
+                  fitted on {int(_params.get('n', 0) or 0):,} out-of-sample games
+                </span>
+                <span style="background:rgba(16,185,129,.15);color:#34D399;border-radius:999px;padding:2px 12px;font-size:0.82rem;font-weight:700;">
+                  {_arrow} ECE {_ece_raw:.4f} → {_ece_cal:.4f} ({_delta:+.2f} pts)
+                </span>
+              </div>
+              <div style="color:#64748B;font-size:0.8rem;margin-top:6px;">
+                Published probabilities are corrected after blending: p<sub>cal</sub> = σ(a·logit(p) + b).
+                Fitted only on out-of-fold predictions — each evaluation fold is scored by a map trained strictly on prior folds.
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ---------------------------------------------------------------------------
 # Calibration curve
 # ---------------------------------------------------------------------------
 st.markdown("### Calibration Curve — Favored Team")
@@ -127,6 +164,23 @@ if (hist_curve is not None and not hist_curve.empty
     _fav = (_fav * 100).round() / 100        # nearest 1%
     pts = (
         pd.DataFrame({"prob": _fav, "won": _w})
+        .groupby("prob")
+        .agg(win_rate=("won", "mean"), n=("won", "size"))
+        .reset_index()
+    )
+
+# Calibrated twin of the raw curve (same construction, corrected probs).
+pts_cal = pd.DataFrame()
+if (hist_curve is not None and not hist_curve.empty
+        and {"home_win_prob_model_calibrated", "correct"} <= set(hist_curve.columns)):
+    _pc = pd.to_numeric(hist_curve["home_win_prob_model_calibrated"], errors="coerce")
+    _wc = pd.to_numeric(hist_curve["correct"], errors="coerce")
+    _okc = _pc.notna() & _wc.notna()
+    _pc, _wc = _pc[_okc], _wc[_okc]
+    _favc = np.maximum(_pc, 1.0 - _pc)
+    _favc = (_favc * 100).round() / 100
+    pts_cal = (
+        pd.DataFrame({"prob": _favc, "won": _wc})
         .groupby("prob")
         .agg(win_rate=("won", "mean"), n=("won", "size"))
         .reset_index()
@@ -161,14 +215,29 @@ if not pts.empty:
     )
     # Shared scales + explicit container width: without these, layered
     # charts fall back to natural size and collapse to a narrow strip.
-    layer = alt.layer(diag, model_pts).resolve_scale(x="shared", y="shared").properties(
+    layers = [diag, model_pts]
+    legend_extra = ""
+    if not pts_cal.empty:
+        cal_line = alt.Chart(pts_cal).mark_line(
+            point=alt.OverlayMarkDef(filled=True, size=45), color="#34D399",
+            strokeDash=[6, 4], strokeWidth=2,
+        ).encode(
+            x=alt.X("prob:Q"),
+            y=alt.Y("win_rate:Q"),
+            tooltip=[alt.Tooltip("prob:Q", title="Calibrated", format=".0%"),
+                     alt.Tooltip("win_rate:Q", title="Actual win rate", format=".1%"),
+                     alt.Tooltip("n:Q", title="Games")],
+        )
+        layers.append(cal_line)
+        legend_extra = " · Green dashed: after recalibration"
+    layer = alt.layer(*layers).resolve_scale(x="shared", y="shared").properties(
         width="container", height=340,
     )
     utils.show_chart(layer)
     st.caption(
-        f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal) · "
-        "each game counted once from the favored side; probabilities rounded "
-        "to the nearest 1% — hover for games per point"
+        f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal)"
+        f"{legend_extra} · each game counted once from the favored side; "
+        "probabilities rounded to the nearest 1% — hover for games per point"
     )
 
 # ---------------------------------------------------------------------------

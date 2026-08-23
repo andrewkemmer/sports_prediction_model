@@ -47,6 +47,7 @@ from data_ingestion import (
     filter_prior,
 )
 from explainability import compute_feature_drift, compute_shap_per_game
+from calibration import is_identity
 from features import add_diff_features
 from weather import fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
@@ -55,10 +56,12 @@ from training import (
     compute_metrics,
     calibration_buckets,
     feature_importance_weights,
+    get_last_calibrator,
     load_ensemble,
     persist_ensemble,
     predict_games,
     set_adaptive_weights,
+    set_calibration,
     should_retrain,
     update_model_history,
     walk_forward_evaluate,
@@ -266,6 +269,39 @@ def _calibration_json(
             y_true, y_pred = ot[ok].values, op[ok].values
     buckets = calibration_buckets(np.asarray(y_true), np.asarray(y_pred))
 
+    # Post-hoc recalibration report: raw vs calibrated quality over the
+    # pooled walk-forward OOF set, plus the fitted Platt parameters.
+    cal_section: Optional[dict] = None
+    if oof is not None and {"home_win", "home_win_prob_model"} <= set(
+        getattr(oof, "columns", [])
+    ):
+        ot = pd.to_numeric(oof["home_win"], errors="coerce")
+        op = pd.to_numeric(oof["home_win_prob_model"], errors="coerce")
+        oc = (
+            pd.to_numeric(oof["home_win_prob_model_calibrated"], errors="coerce")
+            if "home_win_prob_model_calibrated" in oof.columns
+            else None
+        )
+        ok = ot.notna() & op.notna()
+        if oc is not None:
+            ok &= oc.notna()
+        if int(ok.sum()) > 0:
+            m_raw = compute_metrics(ot[ok].values, op[ok].values)
+            calibrator = get_last_calibrator()
+            cal_section = {
+                "method": "platt" if not is_identity(calibrator) else "identity",
+                "params": calibrator,
+                "metrics_raw": {k: m_raw.get(k) for k in ("brier", "logloss", "ece")},
+            }
+            if oc is not None:
+                m_cal = compute_metrics(ot[ok].values, oc[ok].values)
+                cal_section["metrics_calibrated"] = {
+                    k: m_cal.get(k) for k in ("auc", "brier", "logloss", "ece")
+                }
+                cal_section["calibration_buckets_calibrated"] = calibration_buckets(
+                    np.asarray(ot[ok].values), np.asarray(oc[ok].values)
+                )
+
     # League-wide metadata
     evening_games = 0
     # (synthetic: count games with start hour >= 19)
@@ -276,6 +312,7 @@ def _calibration_json(
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "metrics": metrics,
         "calibration_buckets": buckets,
+        "calibration": cal_section,
         "daily": _daily_calibration_rows(oof),
         "league_total": n_games,
         "evening_games_league": evening_games,
@@ -308,6 +345,15 @@ def _predictions_history_csv(
         "away_score": oof.get("away_score"),
         "home_win": oof.get("home_win"),
         "home_win_prob_model": pd.to_numeric(oof["home_win_prob_model"], errors="coerce"),
+        **(
+            {
+                "home_win_prob_model_calibrated": pd.to_numeric(
+                    oof["home_win_prob_model_calibrated"], errors="coerce"
+                )
+            }
+            if "home_win_prob_model_calibrated" in getattr(oof, "columns", [])
+            else {}
+        ),
     }).copy()
     decided = pd.to_numeric(df["home_win"], errors="coerce")
     df = df[decided.notna() & df["home_win_prob_model"].notna()]
@@ -594,6 +640,7 @@ def run_daily_pipeline(
             pooled_metrics = ensemble["metrics"] if ensemble else {}
             all_predictions = None  # cached model: no fresh OOF predictions
             set_adaptive_weights(ensemble.get("adaptive_weights"))
+            set_calibration(ensemble.get("calibrator"))
             summary["metrics"] = pooled_metrics
 
         # 4. Predict today's games (target_date only)
