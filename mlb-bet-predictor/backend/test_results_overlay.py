@@ -214,6 +214,59 @@ class TestFetchMlbResults(unittest.TestCase):
         self.assertEqual(calls[1], ("2026-01-01", "2026-08-23"))
         self.assertEqual(sorted(df["game_pk"].tolist()), [202500000, 202600000])
 
+    def test_suspended_game_keeps_scored_listing(self):
+        """Suspended/resumed games appear under two dates — the original
+        listing can be Final-with-no-score. The scored listing must win the
+        dedupe, else the overlay goes blind to the game entirely."""
+        from unittest.mock import patch, MagicMock
+        import backend.results as results_mod
+
+        def _listing(pk, date_str, hs, asc, hw):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"dates": [{
+                "date": date_str,
+                "games": [{
+                    "gamePk": pk,
+                    "status": {"abstractGameState": "Final"},
+                    "teams": {
+                        "home": {"score": hs},
+                        "away": {"score": asc},
+                    },
+                    # home_win derived by parser; emulate via scores only
+                }],
+            }]}
+            return resp
+
+        # NOTE: fetch_mlb_results parses scores itself; a None-score listing
+        # is emulated with missing score keys. Both listings arrive in ONE
+        # payload (same year-chunk), as the real endpoint returns them.
+        dates_payload = []
+        for date_str, hs, asc in [("2025-04-29", None, None),   # suspended
+                                  ("2025-04-30", 0, 6)]:        # completion
+            teams_home = {"score": hs} if hs is not None else {}
+            teams_away = {"score": asc} if asc is not None else {}
+            dates_payload.append({
+                "date": date_str,
+                "games": [{
+                    "gamePk": 778134,
+                    "status": {"abstractGameState": "Final"},
+                    "teams": {"home": teams_home, "away": teams_away},
+                }],
+            })
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"dates": dates_payload}
+
+        with patch.object(results_mod.requests, "get", return_value=resp):
+            df = fetch_mlb_results(date(2025, 4, 29), date(2025, 4, 30))
+
+        self.assertEqual(len(df), 1)
+        row = df.iloc[0]
+        self.assertEqual(row["home_score"], 0.0)
+        self.assertEqual(row["away_score"], 6.0)
+        self.assertEqual(row["home_win"], 0.0)
+
 
 class TestMergeResultCache(unittest.TestCase):
     """merge_result_cache should dedupe keeping the newest/final copy."""

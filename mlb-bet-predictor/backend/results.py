@@ -93,10 +93,28 @@ def fetch_mlb_results(start_date: date, end_date: date,
                     "home_win": home_win,
                     "is_final": is_final,
                 })
-    return pd.DataFrame(rows, columns=cols)
+    return _dedupe_prefer_scored(pd.DataFrame(rows, columns=cols))
 
 
 _TEAM_ALIASES = {"CHW": "CWS", "OAK": "ATH", "ARI": "AZ"}
+
+
+def _dedupe_prefer_scored(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per game_pk, preferring the listing WITH scores.
+
+    Suspended/resumed games appear under multiple dates; the original
+    date's listing can be Final-with-no-score while the completion date
+    carries the real result. Keeping 'last' blindly could retain the
+    scoreless row and blind the overlay to the game entirely.
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+    df["_scored"] = df["home_win"].notna() & df["home_score"].notna()
+    df = (df.sort_values(["game_pk", "_scored"])
+            .drop_duplicates(subset=["game_pk"], keep="last")
+            .drop(columns=["_scored"]))
+    return df.reset_index(drop=True)
 
 
 def _canon_team(code) -> str:
@@ -135,11 +153,7 @@ def apply_official_results(games: pd.DataFrame,
     # crash set_index().to_dict('index') — keep one row per game.
     pk_lookup = {}
     if "game_pk" in df.columns:
-        pk_res = (
-            res.dropna(subset=["game_pk"])
-            .drop_duplicates(subset=["game_pk"], keep="last")
-            .copy()
-        )
+        pk_res = _dedupe_prefer_scored(res.dropna(subset=["game_pk"]).copy())
         pk_res["game_pk"] = pk_res["game_pk"].astype("int64")
         pk_lookup = pk_res.set_index("game_pk").to_dict("index")
         df["_pk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
