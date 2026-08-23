@@ -179,6 +179,41 @@ class TestFetchMlbResults(unittest.TestCase):
             # All returned games should be from the requested date
             self.assertTrue(all(d == "2026-07-15" for d in df["game_date"]))
 
+    def test_multi_year_range_fetched_in_yearly_chunks(self):
+        """The schedule endpoint silently truncates long ranges (a full
+        2-season query returned ~3,000 games vs ~5,900 per-year), so the
+        fetcher must split by calendar year and combine the chunks."""
+        from unittest.mock import patch, MagicMock
+        import backend.results as results_mod
+
+        calls = []
+
+        def _fake_get(url, params=None, timeout=None):
+            calls.append((params["startDate"], params["endDate"]))
+            resp = MagicMock()
+            resp.status_code = 200
+            year = params["startDate"][:4]
+            resp.json.return_value = {"dates": [{
+                "date": f"{year}-07-15",
+                "games": [{
+                    "gamePk": int(year) * 100000,
+                    "status": {"abstractGameState": "Final"},
+                    "teams": {
+                        "home": {"score": 5},
+                        "away": {"score": 3},
+                    },
+                }],
+            }]}
+            return resp
+
+        with patch.object(results_mod.requests, "get", side_effect=_fake_get):
+            df = fetch_mlb_results(date(2025, 3, 1), date(2026, 8, 23))
+
+        self.assertEqual(len(calls), 2, f"expected 2 yearly chunks, got {calls}")
+        self.assertEqual(calls[0], ("2025-03-01", "2025-12-31"))
+        self.assertEqual(calls[1], ("2026-01-01", "2026-08-23"))
+        self.assertEqual(sorted(df["game_pk"].tolist()), [202500000, 202600000])
+
 
 class TestMergeResultCache(unittest.TestCase):
     """merge_result_cache should dedupe keeping the newest/final copy."""

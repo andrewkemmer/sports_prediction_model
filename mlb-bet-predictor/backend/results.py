@@ -39,46 +39,60 @@ def fetch_mlb_results(start_date: date, end_date: date,
     """
     cols = ["game_pk", "game_date", "home_score", "away_score",
             "home_win", "is_final"]
-    try:
-        resp = requests.get(
-            STATSAPI_SCHEDULE_URL,
-            params={
-                "sportId": 1,
-                "startDate": start_date.isoformat(),
-                "endDate": end_date.isoformat(),
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except (requests.RequestException, ValueError) as exc:
-        logger.warning("StatsAPI results unavailable (%s) — keeping "
-                       "pitch-derived scores", exc)
-        return pd.DataFrame(columns=cols)
+
+    # The schedule endpoint SILENTLY TRUNCATES long date ranges: a full
+    # season-pair query returned ~3,000 games vs ~5,900 fetched per year —
+    # 2,800 finals were simply absent, so the overlay 'succeeded' while
+    # half the history stayed uncorrected. Fetch in ≤1-year chunks.
+    chunks: list[tuple[date, date]] = []
+    cur = start_date
+    while cur <= end_date:
+        chunk_end = min(date(cur.year, 12, 31), end_date)
+        chunks.append((cur, chunk_end))
+        cur = chunk_end + timedelta(days=1)
 
     rows = []
-    for day in data.get("dates", []):
-        for g in day.get("games", []):
-            state = (g.get("status", {}).get("abstractGameState") or "")
-            is_final = state == "Final"
-            home = g.get("teams", {}).get("home", {})
-            away = g.get("teams", {}).get("away", {})
-            hs = home.get("score")
-            as_ = away.get("score")
-            if is_final and isinstance(hs, int) and isinstance(as_, int):
-                home_score, away_score = float(hs), float(as_)
-                home_win = float(home_score > away_score) \
-                    if home_score != away_score else None
-            else:
-                home_score = away_score = home_win = None
-            rows.append({
-                "game_pk": g.get("gamePk"),
-                "game_date": day.get("date"),
-                "home_score": home_score,
-                "away_score": away_score,
-                "home_win": home_win,
-                "is_final": is_final,
-            })
+    for c_start, c_end in chunks:
+        try:
+            resp = requests.get(
+                STATSAPI_SCHEDULE_URL,
+                params={
+                    "sportId": 1,
+                    "startDate": c_start.isoformat(),
+                    "endDate": c_end.isoformat(),
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning("StatsAPI results unavailable (%s–%s): %s — "
+                           "keeping pitch-derived scores for this chunk",
+                           c_start, c_end, exc)
+            continue
+
+        for day in data.get("dates", []):
+            for g in day.get("games", []):
+                state = (g.get("status", {}).get("abstractGameState") or "")
+                is_final = state == "Final"
+                home = g.get("teams", {}).get("home", {})
+                away = g.get("teams", {}).get("away", {})
+                hs = home.get("score")
+                as_ = away.get("score")
+                if is_final and isinstance(hs, int) and isinstance(as_, int):
+                    home_score, away_score = float(hs), float(as_)
+                    home_win = float(home_score > away_score) \
+                        if home_score != away_score else None
+                else:
+                    home_score = away_score = home_win = None
+                rows.append({
+                    "game_pk": g.get("gamePk"),
+                    "game_date": day.get("date"),
+                    "home_score": home_score,
+                    "away_score": away_score,
+                    "home_win": home_win,
+                    "is_final": is_final,
+                })
     return pd.DataFrame(rows, columns=cols)
 
 
