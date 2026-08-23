@@ -48,6 +48,7 @@ from data_ingestion import (
 )
 from explainability import compute_feature_drift, compute_shap_per_game
 from features import add_diff_features
+from weather import fetch_day_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
@@ -479,8 +480,13 @@ def run_daily_pipeline(
                     "No completed games on %s — built %d-game upcoming slate "
                     "(pre-game PIT features)", target_date_str, len(slate),
                 )
-                # Compute diff features on the slate so FEATURE_COLS columns exist
-                slate = add_diff_features(slate)
+                # Fetch point-in-time weather for the slate, then compute diff features
+                weather = {}
+                try:
+                    weather = fetch_day_weather(slate)
+                except Exception as e:
+                    logger.warning("Weather fetch failed (features will use neutral defaults): %s", e)
+                slate = add_diff_features(slate, weather_data=weather if weather else None)
                 games = pd.concat([games, slate], ignore_index=True)
                 target_games = slate.copy()
             else:

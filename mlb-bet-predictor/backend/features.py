@@ -914,12 +914,21 @@ DOME_STATUS = {
 
 
 
-def add_diff_features(game_df: pd.DataFrame) -> pd.DataFrame:
+def add_diff_features(
+    game_df: pd.DataFrame,
+    weather_data: dict | None = None,
+) -> pd.DataFrame:
     """Compute all 34 model features from the raw home/away columns.
 
     All diff features follow the convention: home − away (positive = home
     advantage).  Interaction features (26–34) are built from the diff
     features, so the model sees relative strengths directly.
+
+    Args:
+        game_df: DataFrame with raw home/away columns.
+        weather_data: Optional dict keyed by game_id → weather dict with
+            air_density and wind_multiplier (from weather.fetch_day_weather).
+            When provided, features 28-29 use real weather data.
 
     Returns a copy of game_df with the 34 new columns appended.
     """
@@ -1057,15 +1066,37 @@ def add_diff_features(game_df: pd.DataFrame) -> pd.DataFrame:
     # ── 28. wind_advantage_flyball_factor
     # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
     # Flags when mistake-prone pitchers are at risk of wind-blown home runs.
-    # Dome games get 0 (no wind), outdoor games default to neutral (0).
-    df["wind_advantage_flyball_factor"] = 0.0  # will be filled when weather data is wired
-    # For dome games, explicitly 0; for outdoor, leave at 0 until weather API is live
-    df.loc[df["dome_is_neutral"] == 1, "wind_advantage_flyball_factor"] = 0.0
-
+    df["wind_advantage_flyball_factor"] = 0.0
     # ── 29. air_density_velocity_boost
     # stadium_air_density × sp_fbvelo_diff. Adjusts for how cold or thin air
     # alters raw pitching velocity.
-    df["air_density_velocity_boost"] = 0.0  # will be filled when weather data is wired
+    df["air_density_velocity_boost"] = 0.0
+    # Fill from weather data when available
+    if weather_data:
+        wind_mults = []
+        air_dens = []
+        for _, row in df.iterrows():
+            gid = row.get("game_id", "")
+            w = weather_data.get(gid, {})
+            wind_mults.append(w.get("wind_multiplier", 0.0) if w.get("available") else 0.0)
+            ad = w.get("air_density", np.nan) if w.get("available") else np.nan
+            air_dens.append(ad if ad is not None and not np.isnan(ad) else np.nan)
+        df["wind_advantage_flyball_factor"] = [
+            wm * sp if not np.isnan(wm) and not np.isnan(sp) else 0.0
+            for wm, sp in zip(wind_mults, df["sp_era_diff"].values)
+        ]
+        # Standard sea-level air density ≈ 1.225 kg/m³ — center so neutral = 0
+        SEA_LEVEL_RHO = 1.225
+        df["air_density_velocity_boost"] = [
+            (ad - SEA_LEVEL_RHO) * sp if not np.isnan(ad) and not np.isnan(sp) else 0.0
+            for ad, sp in zip(air_dens, df["sp_fbvelo_diff"].values)
+        ]
+        n_weather = sum(1 for gid in df["game_id"] if gid in weather_data and weather_data[gid].get("available"))
+        logger.info("Weather applied to %d/%d games", n_weather, len(df))
+    else:
+        # Dome games always get 0
+        df.loc[df["dome_is_neutral"] == 1, "wind_advantage_flyball_factor"] = 0.0
+        df.loc[df["dome_is_neutral"] == 1, "air_density_velocity_boost"] = 0.0
 
     # ── 30. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
     # Overworked + low quality bullpen = elevated meltdown risk.
