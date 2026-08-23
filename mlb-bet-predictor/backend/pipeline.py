@@ -260,6 +260,22 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
                     row["buckets_calibrated"] = calibration_buckets(yt[okc.values], yc)
                 except Exception:
                     pass
+            # Raw-axis calibrated twin: for each RAW-probability bucket,
+            # the mean favored-side CALIBRATED probability of those same
+            # games. Lets the daily calibration curve plot both curves on
+            # one comparable axis (vertical gap = correction applied).
+            if int(okc.sum()) > 0:
+                import numpy as _np
+                _raw_fav = _np.maximum(yp[okc.values], 1.0 - yp[okc.values])
+                _cal_fav = _np.maximum(y_cal[okc].values, 1.0 - y_cal[okc].values)
+                for b in row["buckets"]:
+                    lo = float(b["bucket"].split("–")[0]) / 100.0
+                    hi = float(b["bucket"].split("–")[1].rstrip("%")) / 100.0
+                    mask = (_raw_fav >= lo) & (_raw_fav < hi)
+                    if hi >= 0.999:
+                        mask |= _raw_fav == hi
+                    if mask.any():
+                        b["cal_mean_predicted"] = round(float(_cal_fav[mask].mean()), 4)
         rows.append(row)
     rows.sort(key=lambda r: r["date"])
     return rows

@@ -414,17 +414,17 @@ def load_power_rankings(date_str: str) -> pd.DataFrame:
     return df
 
 
-def load_calibration(date_str: str) -> dict:
+def load_calibration(date_str: str, use_daily: bool = True) -> dict:
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, "calibration")
     data, src = _fetch_bytes(f"calibration_{picked}.json", **cfg)
     st.session_state["data_source"] = src
     if data is None:
         return {}
-    return _normalize_calibration(json.loads(data), picked)
+    return _normalize_calibration(json.loads(data), picked, use_daily=use_daily)
 
 
-def _normalize_calibration(cal: dict, date_str: str) -> dict:
+def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True) -> dict:
     """Map the pipeline's calibration JSON onto the Calibration page's schema.
 
     Pipeline emits:  metrics{auc,brier,logloss,ece}, calibration_buckets[],
@@ -432,6 +432,11 @@ def _normalize_calibration(cal: dict, date_str: str) -> dict:
     Page reads:      kpis{auc_roc,brier_score,log_loss,cal_error},
                      calibration_curve[], confidence[{bucket,count,accuracy_pct}],
                      today_record{wins,losses,completed}, upsets[{team,prob}].
+
+    With ``use_daily=True``, a per-day walk-forward entry matching
+    ``date_str`` replaces the pooled view (strict point-in-time view for
+    that day, used by Today's Games). With ``use_daily=False`` the pooled
+    latest snapshot is always shown (Calibration tab behavior).
     """
     cal["_artifact_date"] = date_str
     # Prefer the per-day walk-forward entry when one matches the selected
@@ -439,7 +444,7 @@ def _normalize_calibration(cal: dict, date_str: str) -> dict:
     # that day (fold trained only on prior games).
     day = next((d for d in cal.get("daily", [])
                 if str(d.get("date")) == str(date_str)), None)
-    if day:
+    if day and use_daily:
         cal["metrics"] = day.get("metrics", {})
         if day.get("buckets"):
             cal["calibration_buckets"] = day["buckets"]

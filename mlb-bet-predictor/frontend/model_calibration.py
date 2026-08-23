@@ -21,8 +21,11 @@ import utils
 utils.inject_css()
 
 dates = utils.available_dates(**utils.get_source_config())
-date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
-cal = utils.load_calibration(date_str)
+# Always show the most recent run (like Power Rankings / Model Monitor):
+# ignore the date picked on Today's Games so the tab never drills into a
+# past day's small per-day slice.
+date_str = dates[0] if dates else "20260809"
+cal = utils.load_calibration(date_str, use_daily=False)
 if not cal:
     st.warning(f"No calibration artifacts found for {date_str} or any recent date.")
     st.stop()
@@ -178,22 +181,38 @@ if (hist_curve is not None and not hist_curve.empty
         .reset_index()
     )
 
-# Calibrated twin of the raw curve (same construction, corrected probs).
+# Green curve on the SAME RAW AXIS: the DEPLOYED Platt calibration map
+# σ(a·logit(p)+b) evaluated at every raw favored probability. Because it
+# is a single fitted monotone function (a > 0), the green line is strictly
+# monotone by construction — unlike binned averages of the stored per-fold
+# calibrated values, which mix calibrators fitted at different times.
+# Vertical gap between blue (actual win rate) and green (what the
+# calibrated model predicts) at a given raw x = the correction applied.
 pts_cal = pd.DataFrame()
-if (hist_curve is not None and not hist_curve.empty
-        and {"home_win_prob_model_calibrated", "correct"} <= set(hist_curve.columns)):
-    _pc = pd.to_numeric(hist_curve["home_win_prob_model_calibrated"], errors="coerce")
-    _wc = pd.to_numeric(hist_curve["correct"], errors="coerce")
-    _okc = _pc.notna() & _wc.notna()
-    _pc, _wc = _pc[_okc], _wc[_okc]
-    _favc = np.maximum(_pc, 1.0 - _pc)
-    _favc = (_favc * 100).round() / 100
-    pts_cal = (
-        pd.DataFrame({"prob": _favc, "won": _wc})
-        .groupby("prob")
-        .agg(win_rate=("won", "mean"), n=("won", "size"))
-        .reset_index()
-    )
+_params = cal_sec.get("params") or {}
+try:
+    _a = float(_params.get("a"))
+    _b = float(_params.get("b"))
+    _xs = np.arange(0.50, 1.0, 0.005)   # logit(p) undefined at p = 1.0
+    _z = _a * np.log(_xs / (1.0 - _xs)) + _b
+    _sigma = 1.0 / (1.0 + np.exp(-_z))
+    # Favored-side convention mirrors the pipeline: max(p_cal, 1 - p_cal).
+    pts_cal = pd.DataFrame({
+        "prob": _xs,
+        "cal_mean": np.maximum(_sigma, 1.0 - _sigma),
+        "n": 0,
+    })
+    # Per-1%-bin game counts from history, so hover shows sample size.
+    if hist_curve is not None and not hist_curve.empty \
+            and "home_win_prob_model" in hist_curve.columns:
+        _p0 = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce").dropna()
+        _raw0 = np.maximum(_p0.values, 1.0 - _p0.values)
+        _cnt = pd.Series(np.round(_raw0 * 100).astype(int)).value_counts()
+        pts_cal["n"] = pts_cal["prob"].map(
+            lambda x: int(_cnt.get(int(round(x * 100)), 0))
+        )
+except (TypeError, ValueError, ZeroDivisionError):
+    pts_cal = pd.DataFrame()
 
 # Bucketed curve from the artifact (also feeds the reliability table below).
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
@@ -232,21 +251,24 @@ if not pts.empty:
             strokeDash=[6, 4], strokeWidth=2,
         ).encode(
             x=alt.X("prob:Q"),
-            y=alt.Y("win_rate:Q"),
-            tooltip=[alt.Tooltip("prob:Q", title="Calibrated", format=".0%"),
-                     alt.Tooltip("win_rate:Q", title="Actual win rate", format=".1%"),
+            y=alt.Y("cal_mean:Q", title="Actual win rate"),
+            tooltip=[alt.Tooltip("prob:Q", title="Raw predicted", format=".0%"),
+                     alt.Tooltip("cal_mean:Q", title="Calibrated prediction", format=".1%"),
                      alt.Tooltip("n:Q", title="Games")],
         )
         layers.append(cal_line)
-        legend_extra = " · Green dashed: after recalibration"
+        legend_extra = (" · Green dashed: deployed Platt calibration map "
+                        "(vertical gap = correction applied at that raw probability)")
     layer = alt.layer(*layers).resolve_scale(x="shared", y="shared").properties(
         width="container", height=340,
     )
     utils.show_chart(layer)
     st.caption(
-        f"Model (n={n_games:,}) · Perfect Calibration (dashed diagonal)"
+        f"Model (n={n_games:,}) · Blue: actual win rate at each raw probability · "
+        f"Green: calibrated probability σ(a·logit(p)+b) at each raw probability · "
+        f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
-        "probabilities rounded to the nearest 1% — hover for games per point"
+        "blue curve binned to the nearest 1% — hover for games per point"
     )
 
 # ---------------------------------------------------------------------------
