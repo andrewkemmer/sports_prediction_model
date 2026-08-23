@@ -98,6 +98,17 @@ sys.path.insert(0, str(repo_dir / "mlb-bet-predictor" / "backend"))
 os.chdir(str(repo_dir / "mlb-bet-predictor"))
 print(f"  📁 {os.getcwd()}")
 
+# Snapshot the artifacts already in the repo's data_delivery (relative path →
+# mtime in ns) BEFORE the pipeline writes anything. Phase 5 must stage only
+# files THIS run produced or modified; every other file in that folder is a
+# stale file that Phase 6 will delete from GitHub.
+_preexisting_delivery: dict[str, int] = {}
+_preexisting_dir = Path.cwd() / "data_delivery"
+if _preexisting_dir.exists():
+    for _p in _preexisting_dir.rglob("*"):
+        if _p.is_file():
+            _preexisting_delivery[_p.relative_to(_preexisting_dir).as_posix()] = _p.stat().st_mtime_ns
+
 for mod in list(sys.modules.keys()):
     if any(x in mod for x in ['ingestion', 'features', 'pipeline', 'training', 'data_ingestion', 'statcast', 'duckdb']):
         del sys.modules[mod]
@@ -241,14 +252,20 @@ else:
         # nothing in the dashboard reads it. It stays in /content/mlb_clean_data.
         if csv_path.exists():
             _stage(csv_path, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
-        # Sync every artifact this run regenerated in data_delivery/, including
-        # the models/ subdir (trained ensemble joblib the dashboard loads).
+        # Sync every artifact THIS run regenerated in data_delivery/, including
+        # the models/ subdir (trained ensemble joblib the dashboard loads). The
+        # fresh clone starts with the repo's old files, so compare mtimes to
+        # the pre-run snapshot: files this run didn't touch are stale — they
+        # are left out of the push and removed from GitHub by Phase 6.
         data_delivery_local = Path.cwd() / "data_delivery"
         if data_delivery_local.exists():
             for artifact in sorted(data_delivery_local.rglob("*")):
                 if artifact.is_file():
-                    rel = f"mlb-bet-predictor/data_delivery/{artifact.relative_to(data_delivery_local)}"
-                    _stage(artifact, rel)
+                    rel_local = artifact.relative_to(data_delivery_local).as_posix()
+                    pre_mtime = _preexisting_delivery.get(rel_local)
+                    if pre_mtime is not None and artifact.stat().st_mtime_ns <= pre_mtime:
+                        continue  # repo file untouched by this run -> stale
+                    _stage(artifact, f"mlb-bet-predictor/data_delivery/{rel_local}")
         print(f"  📋 Staging {len(staged)} files:")
         for s in staged:
             print(f"    {s}")
