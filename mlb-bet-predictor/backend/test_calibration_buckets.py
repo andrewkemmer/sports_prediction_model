@@ -7,11 +7,18 @@ whether the favorite won. Information-equivalent to the old home-side view —
 (p, y) and (1 − p, 1 − y) are exact complements — but buckets read the way a
 bettor sees them ("a team at 70% wins 70% of the time").
 """
+import json
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
-from backend.training import calibration_buckets
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from training import calibration_buckets
 
 
 class TestFavoredCalibrationBuckets(unittest.TestCase):
@@ -58,3 +65,53 @@ class TestFavoredCalibrationBuckets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCalibrationArtifactOnPreGameRuns(unittest.TestCase):
+    """calibration_YYYYMMDD.json must be written even when today's slate has
+    no finals (pre-game-only runs).  Phase 6 prunes stale calibration files,
+    so skipping the write leaves the Calibration dashboard empty."""
+
+    def test_oof_only_artifact_written_without_day_finals(self):
+        import pipeline
+
+        oof = pd.DataFrame({
+            "game_date": ["2026-08-20", "2026-08-20", "2026-08-21"],
+            "home_win": [1.0, 0.0, 1.0],
+            "home_win_prob_model": [0.62, 0.41, 0.58],
+        })
+        metrics = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
+        with tempfile.TemporaryDirectory() as td:
+            orig = pipeline.DATA_DELIVERY_DIR
+            pipeline.DATA_DELIVERY_DIR = Path(td)
+            try:
+                path = pipeline._calibration_json(
+                    metrics, np.array([]), np.array([]),
+                    "20260823", 15, oof=oof,
+                )
+                self.assertTrue(path.exists())
+                data = json.loads(Path(path).read_text())
+                # Buckets came from the OOF pairs, not the (empty) finals.
+                self.assertTrue(data["calibration_buckets"])
+                self.assertEqual(len(data["daily"]), 2)
+            finally:
+                pipeline.DATA_DELIVERY_DIR = orig
+
+    def test_no_fabricated_labels_when_oof_missing(self):
+        """No OOF + no finals → no buckets can be computed; artifact must not
+        silently invent zeros."""
+        import pipeline
+
+        with tempfile.TemporaryDirectory() as td:
+            orig = pipeline.DATA_DELIVERY_DIR
+            pipeline.DATA_DELIVERY_DIR = Path(td)
+            try:
+                path = pipeline._calibration_json(
+                    {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0},
+                    np.array([]), np.array([]), "20260823", 15, oof=None,
+                )
+                data = json.loads(Path(path).read_text()) if path.exists() else None
+            finally:
+                pipeline.DATA_DELIVERY_DIR = orig
+        if data is not None:
+            self.assertEqual(data["calibration_buckets"], [])

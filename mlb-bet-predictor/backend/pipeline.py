@@ -573,17 +573,39 @@ def run_daily_pipeline(
         path = _power_rankings_csv(games, target_date_str)
         summary["artifacts"].append(str(path))
 
-        # calibration JSON
-        if "home_win" in target_games.columns and "home_win_prob_model" in target_games.columns:
-            y_true = target_games["home_win"].dropna().values
-            y_pred = target_games["home_win_prob_model"].dropna().values
-            if len(y_true) > 0 and len(y_pred) > 0:
+        # calibration JSON — written on EVERY run.  The walk-forward OOF frame
+        # carries thousands of PIT-safe predicted-vs-actual pairs regardless
+        # of whether tonight's slate has finished, so a pre-game-only run must
+        # still ship a fresh artifact (Phase 6 prunes stale calibration files,
+        # so skipping the write would leave the Calibration page empty).
+        oof_ok = (
+            all_predictions is not None
+            and len(all_predictions) > 0
+            and "home_win_prob_model" in all_predictions.columns
+        )
+        day_final = (
+            "home_win" in target_games.columns
+            and "home_win_prob_model" in target_games.columns
+            and target_games["home_win"].notna().any()
+        )
+        if oof_ok or day_final:
+            if day_final:
+                y_true = target_games["home_win"].dropna().values
+                y_pred = target_games["home_win_prob_model"].dropna().values
                 min_len = min(len(y_true), len(y_pred))
-                path = _calibration_json(pooled_metrics, y_true[:min_len], y_pred[:min_len], target_date_str, len(target_games), oof=all_predictions)
-                summary["artifacts"].append(str(path))
-                hist_path = _predictions_history_csv(all_predictions, target_date_str)
-                if hist_path is not None:
-                    summary["artifacts"].append(str(hist_path))
+                cal_yt, cal_yp = y_true[:min_len], y_pred[:min_len]
+            else:
+                # No finals yet today: fall back to OOF pairs only — labels
+                # are real outcomes from completed games, never fabricated.
+                _ot = pd.to_numeric(all_predictions["home_win"], errors="coerce")
+                _op = pd.to_numeric(all_predictions["home_win_prob_model"], errors="coerce")
+                _ok = _ot.notna() & _op.notna()
+                cal_yt, cal_yp = _ot[_ok].values, _op[_ok].values
+            path = _calibration_json(pooled_metrics, cal_yt, cal_yp, target_date_str, len(target_games), oof=all_predictions)
+            summary["artifacts"].append(str(path))
+            hist_path = _predictions_history_csv(all_predictions, target_date_str)
+            if hist_path is not None:
+                summary["artifacts"].append(str(hist_path))
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
