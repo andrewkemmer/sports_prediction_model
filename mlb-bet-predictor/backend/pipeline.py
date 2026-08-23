@@ -213,6 +213,7 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
     if oof is None or oof.empty or "home_win_prob_model" not in oof.columns:
         return []
     df = oof.copy()
+    has_cal = "home_win_prob_model_calibrated" in getattr(df, "columns", [])
     days = pd.to_datetime(df["game_date"], errors="coerce").dt.normalize()
     rows: list[dict] = []
     for day, g in df.groupby(days):
@@ -227,19 +228,39 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
             m = compute_metrics(yt, yp)
         except Exception:
             m = {"auc": 0.5, "brier": 0.25, "logloss": 0.69, "ece": 0.0}
-        rows.append({
+        entry_metrics = {
+            "auc": round(float(m.get("auc", 0.5)), 4),
+            "brier": round(float(m.get("brier", 0.25)), 4),
+            "logloss": round(float(m.get("logloss", 0.69)), 4),
+            "ece": round(float(m.get("ece", 0.0)), 4),
+        }
+        row = {
             "date": day.strftime("%Y%m%d"),
             "n_games": n,
             "wins": int((yt == 1).sum()),
             "losses": int((yt == 0).sum()),
-            "metrics": {
-                "auc": round(float(m.get("auc", 0.5)), 4),
-                "brier": round(float(m.get("brier", 0.25)), 4),
-                "logloss": round(float(m.get("logloss", 0.69)), 4),
-                "ece": round(float(m.get("ece", 0.0)), 4),
-            },
+            "metrics": entry_metrics,
             "buckets": calibration_buckets(yt, yp),
-        })
+        }
+        # Per-day post-hoc calibration quality (prequential OOF twins).
+        if has_cal:
+            y_cal = pd.to_numeric(
+                g["home_win_prob_model_calibrated"], errors="coerce"
+            )
+            okc = ok & y_cal.notna()
+            if int(okc.sum()) > 0:
+                yc = y_cal[okc].values
+                try:
+                    mc = compute_metrics(yt[okc.values], yc)
+                    entry_metrics.update({
+                        "brier_calibrated": round(float(mc.get("brier", 0.25)), 4),
+                        "logloss_calibrated": round(float(mc.get("logloss", 0.69)), 4),
+                        "ece_calibrated": round(float(mc.get("ece", 0.0)), 4),
+                    })
+                    row["buckets_calibrated"] = calibration_buckets(yt[okc.values], yc)
+                except Exception:
+                    pass
+        rows.append(row)
     rows.sort(key=lambda r: r["date"])
     return rows
 

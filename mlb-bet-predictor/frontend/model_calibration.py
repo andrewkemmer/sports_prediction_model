@@ -92,9 +92,18 @@ st.markdown(
 # ---------------------------------------------------------------------------
 kpi_specs = [
     ("AUC-ROC", kpis.get("auc_roc", "—"), utils.BLUE, "Discrimination"),
-    ("BRIER SCORE", kpis.get("brier_score", "—"), utils.PRIMARY, "Lower is better"),
-    ("LOG-LOSS", kpis.get("log_loss", "—"), "#FBBF24", "Penalizes confidence"),
-    ("CAL. ERROR", kpis.get("cal_error", "—"), "#F472B6", "ECE metric"),
+    ("BRIER SCORE", _brier_disp := (
+        f"{kpis['brier_score']} → {kpis['brier_calibrated']}"
+        if kpis.get("brier_calibrated") is not None else kpis.get("brier_score", "—")
+     ), utils.PRIMARY, "Lower is better" + (" · after calibration" if kpis.get("brier_calibrated") is not None else "")),
+    ("LOG-LOSS", _ll_disp := (
+        f"{kpis['log_loss']} → {kpis['log_loss_calibrated']}"
+        if kpis.get("log_loss_calibrated") is not None else kpis.get("log_loss", "—")
+     ), "#FBBF24", "Penalizes confidence" + (" · after calibration" if kpis.get("log_loss_calibrated") is not None else "")),
+    ("CAL. ERROR", _ece_disp := (
+        f"{kpis['cal_error']} → {kpis['cal_error_calibrated']}"
+        if kpis.get("cal_error_calibrated") is not None else kpis.get("cal_error", "—")
+     ), "#F472B6", "ECE raw → calibrated" if kpis.get("cal_error_calibrated") is not None else "ECE metric"),
 ]
 kcols = st.columns(4)
 for col, (label, value, color, cap) in zip(kcols, kpi_specs):

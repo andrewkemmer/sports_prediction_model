@@ -456,6 +456,11 @@ def _normalize_calibration(cal: dict, date_str: str) -> dict:
         "brier_score": m.get("brier"),
         "log_loss": m.get("logloss"),
         "cal_error": m.get("ece"),
+        # Per-day post-hoc twins (present when the daily row carries the
+        # prequential calibrated metrics).
+        "cal_error_calibrated": m.get("ece_calibrated"),
+        "log_loss_calibrated": m.get("logloss_calibrated"),
+        "brier_calibrated": m.get("brier_calibrated"),
     })
 
     curve = cal.get("calibration_curve") or cal.get("calibration_buckets") or []
