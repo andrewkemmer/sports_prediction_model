@@ -12,6 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import altair as alt
+import inspect
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -25,7 +26,13 @@ dates = utils.available_dates(**utils.get_source_config())
 # ignore the date picked on Today's Games so the tab never drills into a
 # past day's small per-day slice.
 date_str = dates[0] if dates else "20260809"
-cal = utils.load_calibration(date_str, use_daily=False)
+if "use_daily" in inspect.signature(utils.load_calibration).parameters:
+    cal = utils.load_calibration(date_str, use_daily=False)
+else:
+    # Deployed utils.py may predate the use_daily param (stale snapshot):
+    # fall back to the plain call — date pinning alone still yields the
+    # latest pooled view for current artifacts.
+    cal = utils.load_calibration(date_str)
 if not cal:
     st.warning(f"No calibration artifacts found for {date_str} or any recent date.")
     st.stop()
