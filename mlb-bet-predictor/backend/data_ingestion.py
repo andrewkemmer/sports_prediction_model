@@ -186,8 +186,21 @@ def compute_elos(games: pd.DataFrame) -> pd.Series:
     Returns a Series aligned with the input DataFrame index containing the
     home team's Elo *entering* that game.
     """
+    return compute_elo_entries(games)["home_elo"]
+
+
+def compute_elo_entries(games: pd.DataFrame) -> pd.DataFrame:
+    """Point-in-time Elo ratings entering each game, for BOTH teams.
+
+    Returns a DataFrame aligned with the input index with columns
+    ``home_elo`` and ``away_elo`` — the rating each team carried INTO that
+    game (strictly prior to first pitch; no future information).  Teams
+    with no prior history enter at 1500.0, and Elo is regressed toward the
+    mean across offseasons.
+    """
     elos: dict[str, float] = {}
     home_elo_entry = pd.Series(np.nan, index=games.index, dtype=float)
+    away_elo_entry = pd.Series(np.nan, index=games.index, dtype=float)
     prev_year = None
 
     for idx, row in games.iterrows():
@@ -200,21 +213,128 @@ def compute_elos(games: pd.DataFrame) -> pd.Series:
         h_elo = elos.get(home, 1500.0)
         a_elo = elos.get(away, 1500.0)
         home_elo_entry.at[idx] = h_elo
+        away_elo_entry.at[idx] = a_elo
 
-        # Determine outcome (1 = home win, 0 = home loss)
-        if pd.notna(row.get("home_win")):
-            actual = float(row["home_win"])
-        else:
-            # No result yet (future game) — skip update
+        # No result yet (future game) — skip update
+        if pd.isna(row.get("home_win")):
             continue
 
-        # Expected score
+        # Expected score and update
+        actual = float(row["home_win"])
         exp_home = 1.0 / (1.0 + 10 ** ((a_elo - h_elo - ELO_HOME_ADV) / 400))
-        # Update
         elos[home] = h_elo + ELO_K * (actual - exp_home)
         elos[away] = a_elo + ELO_K * ((1 - actual) - (1 - exp_home))
 
-    return home_elo_entry
+    return pd.DataFrame({"home_elo": home_elo_entry, "away_elo": away_elo_entry})
+
+
+def compute_season_records(games: pd.DataFrame) -> pd.DataFrame:
+    """Point-in-time cumulative season W/L, win pct, and run diff per team.
+
+    For each game, returns the record each team carried INTO the game
+    (strictly prior to first pitch).  Records reset across offseasons; a
+    season opener with no games played carries win_pct = NaN (undefined
+    rate — never 0).  Aligned with the input index.
+    """
+    team_records: dict[str, dict[str, int]] = {}
+    prev_year = None
+    out: dict[str, list] = {k: [] for k in (
+        "home_wins", "home_losses", "away_wins", "away_losses",
+        "home_win_pct", "away_win_pct", "home_run_diff", "away_run_diff",
+    )}
+
+    for _, row in games.iterrows():
+        home, away = row["home_team"], row["away_team"]
+        # Offseason crossed: cumulative W/L and run diff reset each season
+        cur_year = _row_year(row)
+        if prev_year is not None and cur_year is not None and cur_year != prev_year:
+            team_records = {}
+        prev_year = cur_year or prev_year
+        hw = team_records.setdefault(home, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+        aw = team_records.setdefault(away, {"w": 0, "l": 0, "rs": 0, "ra": 0})
+
+        # Before this game
+        total_h = hw["w"] + hw["l"]
+        total_a = aw["w"] + aw["l"]
+        out["home_wins"].append(hw["w"])
+        out["home_losses"].append(hw["l"])
+        out["away_wins"].append(aw["w"])
+        out["away_losses"].append(aw["l"])
+        # Season opener (no games yet): rate is undefined → NULL, never 0
+        out["home_win_pct"].append(round(hw["w"] / total_h, 3) if total_h else np.nan)
+        out["away_win_pct"].append(round(aw["w"] / total_a, 3) if total_a else np.nan)
+        out["home_run_diff"].append(hw["rs"] - hw["ra"])
+        out["away_run_diff"].append(aw["rs"] - aw["ra"])
+
+        # Update after this game
+        if pd.notna(row.get("home_win")):
+            home_won = int(row["home_win"])
+            home_runs = int(row.get("home_score", row.get("total_runs", 8) // 2))
+            away_runs = int(row.get("away_score", row.get("total_runs", 8) - home_runs))
+
+            hw["w"] += home_won
+            hw["l"] += 1 - home_won
+            aw["w"] += 1 - home_won
+            aw["l"] += home_won
+            hw["rs"] += home_runs
+            hw["ra"] += away_runs
+            aw["rs"] += away_runs
+            aw["ra"] += home_runs
+
+    res = pd.DataFrame(out, index=games.index)
+    res["home_record"] = (
+        res["home_wins"].astype(int).astype(str) + "-" + res["home_losses"].astype(int).astype(str)
+    )
+    res["away_record"] = (
+        res["away_wins"].astype(int).astype(str) + "-" + res["away_losses"].astype(int).astype(str)
+    )
+    return res
+
+
+def enrich_elo_and_records(
+    games: pd.DataFrame,
+    *,
+    rename_team_woba: bool = False,
+) -> pd.DataFrame:
+    """Fill point-in-time Elo + season records (+ spec wOBA names) on a frame.
+
+    The DuckDB feature-engineering export omits Elo and season records and
+    ships the rolling team wOBA under ``team_woba_30g_*``; this derives the
+    missing columns strictly from games completed BEFORE each row (PIT-safe,
+    chronological) and optionally renames the wOBA columns to the spec names
+    ``add_diff_features`` expects.  Frames that already carry these columns
+    (the slate path) keep their supplied values; frames missing the raw
+    inputs needed to derive them stay NaN — never fabricated 0s.
+    """
+    df = games.copy()
+    _chrono_cols = {"game_date", "home_team", "away_team", "home_win"}
+    if _chrono_cols <= set(df.columns):
+        _dates = pd.to_datetime(df["game_date"], errors="coerce")
+        _order = _dates.argsort(kind="stable")  # NaT sorts last
+        _srt = df.iloc[_order].reset_index(drop=True)
+        _back = np.argsort(_order)  # inverse permutation → original row order
+
+        if "home_elo" not in df.columns or "away_elo" not in df.columns:
+            _elo = compute_elo_entries(_srt)
+            for _c in ("home_elo", "away_elo"):
+                if _c not in df.columns:
+                    df[_c] = pd.Series(_elo[_c].to_numpy()[_back], index=df.index)
+
+        if not all(c in df.columns for c in
+                   ("home_wins", "home_losses", "away_wins", "away_losses")):
+            _rec = compute_season_records(_srt)
+            for _c in ("home_wins", "home_losses", "away_wins", "away_losses",
+                       "home_win_pct", "away_win_pct", "home_run_diff", "away_run_diff",
+                       "home_record", "away_record"):
+                if _c not in df.columns:
+                    df[_c] = pd.Series(_rec[_c].to_numpy()[_back], index=df.index)
+
+    if rename_team_woba:
+        df = df.rename(columns={
+            "team_woba_30g_home": "woba_30g_home",
+            "team_woba_30g_away": "woba_30g_away",
+        })
+    return df
 
 
 def compute_elos_up_to(games: pd.DataFrame, as_of: datetime) -> dict[str, float]:
@@ -777,79 +897,16 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
         df["start_time_observed"] = df["start_time_utc"].notna()
 
     # Compute ELO from game results (PIT-safe: chronological)
-    df["home_elo"] = compute_elos(df)
-    df["home_elo"] = df["home_elo"].fillna(1500.0)
+    elo_entries = compute_elo_entries(df)
+    df["home_elo"] = elo_entries["home_elo"].fillna(1500.0)
+    df["away_elo"] = elo_entries["away_elo"].fillna(1500.0)
 
-    # Compute win percentages and records from cumulative results
-    team_records: dict[str, dict[str, int]] = {}
-    prev_year = None
-    home_wins_list = []
-    home_losses_list = []
-    away_wins_list = []
-    away_losses_list = []
-    home_win_pcts = []
-    away_win_pcts = []
-    home_run_diffs = []
-    away_run_diffs = []
-
-    for _, row in df.iterrows():
-        home, away = row["home_team"], row["away_team"]
-        # Offseason crossed: cumulative W/L and run diff reset each season
-        cur_year = _row_year(row)
-        if prev_year is not None and cur_year is not None and cur_year != prev_year:
-            team_records = {}
-        prev_year = cur_year or prev_year
-        if home not in team_records:
-            team_records[home] = {"w": 0, "l": 0, "rs": 0, "ra": 0}
-        if away not in team_records:
-            team_records[away] = {"w": 0, "l": 0, "rs": 0, "ra": 0}
-
-        hw = team_records[home]
-        aw = team_records[away]
-
-        # Before this game
-        home_wins_list.append(hw["w"])
-        home_losses_list.append(hw["l"])
-        away_wins_list.append(aw["w"])
-        away_losses_list.append(aw["l"])
-        total_h = hw["w"] + hw["l"]
-        total_a = aw["w"] + aw["l"]
-        # Season opener (no games yet): rate is undefined → NULL, never 0
-        home_win_pcts.append(round(hw["w"] / total_h, 3) if total_h else np.nan)
-        away_win_pcts.append(round(aw["w"] / total_a, 3) if total_a else np.nan)
-        home_run_diffs.append(hw["rs"] - hw["ra"])
-        away_run_diffs.append(aw["rs"] - aw["ra"])
-
-        # Update after this game
-        if pd.notna(row.get("home_win")):
-            home_won = int(row["home_win"])
-            home_runs = int(row.get("home_score", row.get("total_runs", 8) // 2))
-            away_runs = int(row.get("away_score", row.get("total_runs", 8) - home_runs))
-
-            hw["w"] += home_won
-            hw["l"] += 1 - home_won
-            aw["w"] += 1 - home_won
-            aw["l"] += home_won
-            hw["rs"] += home_runs
-            hw["ra"] += away_runs
-            aw["rs"] += away_runs
-            aw["ra"] += home_runs
-
-    df["home_wins"] = home_wins_list
-    df["home_losses"] = home_losses_list
-    df["away_wins"] = away_wins_list
-    df["away_losses"] = away_losses_list
-    df["home_win_pct"] = home_win_pcts
-    df["away_win_pct"] = away_win_pcts
-    df["home_run_diff"] = home_run_diffs
-    df["away_run_diff"] = away_run_diffs
-
-    df["home_record"] = df.apply(
-        lambda r: f"{int(r['home_wins'])}-{int(r['home_losses'])}", axis=1
-    )
-    df["away_record"] = df.apply(
-        lambda r: f"{int(r['away_wins'])}-{int(r['away_losses'])}", axis=1
-    )
+    # Compute win percentages and records from cumulative results (PIT)
+    records_df = compute_season_records(df)
+    for _rec_col in ("home_wins", "home_losses", "away_wins", "away_losses",
+                     "home_win_pct", "away_win_pct", "home_run_diff", "away_run_diff",
+                     "home_record", "away_record"):
+        df[_rec_col] = records_df[_rec_col]
 
     # Map column names to match FEATURE_COLS in training.py
     col_map = {
@@ -864,6 +921,24 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
     for src, dst in col_map.items():
         if src in df.columns and dst not in df.columns:
             df[dst] = df[src]
+
+    # ── Heal diff features the DuckDB export could not compute ─────────
+    # The export lacks records/Elo and ships the rolling team wOBA under
+    # team_woba_30g_*, so win_pct_diff / elo_diff / woba_30g_diff were
+    # all-NaN in the CSV.  With the raw inputs computed/mapped above, rebuild
+    # them with the exact formulas add_diff_features uses (early-season
+    # smoothing for win pct; plain home − away otherwise).  Any row whose
+    # observation is genuinely missing stays NaN — never a fabricated 0.
+    from features import _smoothed_win_pct  # lazy: avoids import cycles
+    if {"home_wins", "home_losses", "away_wins", "away_losses"} <= set(df.columns):
+        df["win_pct_diff"] = (_smoothed_win_pct(df["home_wins"], df["home_losses"])
+                              - _smoothed_win_pct(df["away_wins"], df["away_losses"]))
+    if {"home_elo", "away_elo"} <= set(df.columns):
+        df["elo_diff"] = (pd.to_numeric(df["home_elo"], errors="coerce")
+                          - pd.to_numeric(df["away_elo"], errors="coerce"))
+    if {"woba_30g_home", "woba_30g_away"} <= set(df.columns):
+        df["woba_30g_diff"] = (pd.to_numeric(df["woba_30g_home"], errors="coerce")
+                               - pd.to_numeric(df["woba_30g_away"], errors="coerce"))
 
     logger.info("Feature mapping complete: %d games, columns: %s", len(df), list(df.columns))
     return df

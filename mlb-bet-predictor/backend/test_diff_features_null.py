@@ -13,6 +13,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from backend.data_ingestion import enrich_elo_and_records, load_game_features
 from backend.features import add_diff_features, RAW_COLUMN_ALIASES
 
 
@@ -160,6 +161,90 @@ class TestWeatherFeatures(unittest.TestCase):
         out = add_diff_features(raw)  # no weather fetched
         self.assertEqual(float(out.loc[0, "wind_advantage_flyball_factor"]), 0.0)
         self.assertEqual(float(out.loc[0, "air_density_velocity_boost"]), 0.0)
+
+
+class TestPitEnrichment(unittest.TestCase):
+    """Enriching DuckDB frames: Elo + records derived PIT, never fabricated."""
+
+    def _history(self) -> pd.DataFrame:
+        # 3 chronological games: BOS beats NYY, NYY loses at home to BOS, NYY wins.
+        return pd.DataFrame([
+            {"game_date": "2026-04-01", "home_team": "BOS", "away_team": "NYY",
+             "home_win": 1.0, "home_score": 5, "away_score": 3},
+            {"game_date": "2026-04-02", "home_team": "NYY", "away_team": "BOS",
+             "home_win": 0.0, "home_score": 2, "away_score": 4},
+            {"game_date": "2026-04-03", "home_team": "NYY", "away_team": "TB",
+             "home_win": 1.0, "home_score": 6, "away_score": 1},
+        ])
+
+    def test_elo_and_records_are_point_in_time(self):
+        out = enrich_elo_and_records(self._history())
+        # Game 1: neither team has history -> both enter at 1500
+        self.assertEqual(float(out.loc[0, "home_elo"]), 1500.0)
+        self.assertEqual(float(out.loc[0, "away_elo"]), 1500.0)
+        # Game 2: BOS won game 1 (rating up), NYY lost it (rating down)
+        self.assertGreater(float(out.loc[1, "away_elo"]), 1500.0)   # BOS entering g2
+        self.assertLess(float(out.loc[1, "home_elo"]), 1500.0)      # NYY entering g2
+        # Records entering each game exclude the game itself (PIT)
+        self.assertEqual(int(out.loc[0, "home_wins"]), 0)
+        self.assertEqual(int(out.loc[1, "away_wins"]), 1)   # BOS won g1
+        self.assertEqual(int(out.loc[1, "home_wins"]), 0)    # NYY lost g1
+        self.assertEqual(int(out.loc[2, "home_wins"]), 0)    # NYY 0-2 entering g3
+        self.assertEqual(int(out.loc[2, "away_wins"]), 0)    # TB hasn't played yet
+
+    def test_present_columns_are_untouched(self):
+        h = self._history()
+        h["home_elo"] = [1600.0] * 3
+        h["away_elo"] = [1550.0] * 3
+        h["home_wins"] = h["home_losses"] = h["away_wins"] = h["away_losses"] = 0
+        out = enrich_elo_and_records(h)
+        self.assertEqual(out["home_elo"].tolist(), [1600.0] * 3)
+        self.assertEqual(out["home_wins"].tolist(), [0, 0, 0])
+
+    def test_rename_team_woba(self):
+        h = self._history()
+        h["team_woba_30g_home"] = [0.30, 0.31, 0.32]
+        h["team_woba_30g_away"] = [0.29, 0.28, 0.27]
+        out = enrich_elo_and_records(h, rename_team_woba=True)
+        self.assertIn("woba_30g_home", out.columns)
+        self.assertNotIn("team_woba_30g_home", out.columns)
+
+    def test_missing_chronology_stays_unchanged(self):
+        out = enrich_elo_and_records(pd.DataFrame({"home_team": ["NYY"], "away_team": ["BOS"]}))
+        self.assertNotIn("home_elo", out.columns)
+        self.assertNotIn("home_wins", out.columns)
+
+
+class TestLoadGameFeaturesHealing(unittest.TestCase):
+    """load_game_features rebuilds diff features the DuckDB export NaN'd."""
+
+    def test_heals_nan_diffs_from_duckdb_schema(self):
+        import os
+        import tempfile
+        raw = pd.DataFrame([
+            {"game_pk": 1, "game_date": "2026-04-01", "home_team": "BOS", "away_team": "NYY",
+             "home_win": 1.0, "home_score": 5, "away_score": 3, "total_runs": 8,
+             "team_woba_30g_home": 0.30, "team_woba_30g_away": 0.29,
+             "win_pct_diff": np.nan, "elo_diff": np.nan, "woba_30g_diff": np.nan},
+            {"game_pk": 2, "game_date": "2026-04-02", "home_team": "NYY", "away_team": "BOS",
+             "home_win": 0.0, "home_score": 2, "away_score": 4, "total_runs": 6,
+             "team_woba_30g_home": 0.31, "team_woba_30g_away": 0.28,
+             "win_pct_diff": np.nan, "elo_diff": np.nan, "woba_30g_diff": np.nan},
+        ])
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+            raw.to_csv(f, index=False)
+            path = f.name
+        try:
+            out = load_game_features(path)
+        finally:
+            os.unlink(path)
+        self.assertTrue(out["win_pct_diff"].notna().all())
+        self.assertTrue(out["elo_diff"].notna().all())
+        self.assertTrue(out["woba_30g_diff"].notna().all())
+        # woba diff resolves through the team_woba_30g_* -> woba_30g_* mapping
+        self.assertAlmostEqual(float(out.loc[0, "woba_30g_diff"]), 0.30 - 0.29, places=6)
+        # g1 both teams 0-0: smoothed win pct is exactly .500 - .500 = 0
+        self.assertAlmostEqual(float(out.loc[0, "win_pct_diff"]), 0.0, places=6)
 
 
 class TestColumnAliases(unittest.TestCase):

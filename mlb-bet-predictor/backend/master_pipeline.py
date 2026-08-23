@@ -150,6 +150,16 @@ print(f"  ✅ Game: {game_df.shape}")
 print(f"  ✅ PBP:  {pbp_df.shape}")
 gc.collect()
 
+# The DuckDB export omits Elo/season records and ships the rolling team wOBA
+# under team_woba_30g_*; enrich the PIT inputs, then recompute the diff
+# features so win_pct_diff / elo_diff / woba_30g_diff ship real values
+# (spec features 2, 3, 17) instead of all-NaN columns.
+from data_ingestion import enrich_elo_and_records
+from features import add_diff_features
+
+game_df = enrich_elo_and_records(game_df, rename_team_woba=True)
+game_df = add_diff_features(game_df)
+
 # ── Save features BEFORE training (Phase 4 needs the CSV) ────────────────
 _banner("PHASE 3.5", "Save Features")
 # NOTE: no fillna here — missing observations ship as true NULLs. Tree models
