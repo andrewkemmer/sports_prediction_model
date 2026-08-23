@@ -282,6 +282,105 @@ def _build_closer_features(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
 
+
+def _build_rest_days(con: duckdb.DuckDBPyConnection) -> None:
+    """Season-scoped rest days per team-game, capped at REST_DAYS_CAP.
+
+    A season opener has no prior game IN THAT SEASON → NULL (never the
+    ~180-day October→March gap, which was an extreme outlier against a
+    0–4 day in-season distribution).
+    """
+    # Rest days (days since each team's previous game).
+    # Season-scoped: a season opener has no prior game IN THAT SEASON, so
+    # rest is NULL (never the ~180-day October→March gap, which was an
+    # extreme outlier against a 0–4 day in-season distribution). In-season
+    # gaps are capped at REST_DAYS_CAP so All-Star breaks and long layoffs
+    # don't fabricate outsized values.
+    con.execute("""
+        CREATE TABLE rest_days AS
+        WITH team_games AS (
+            SELECT DISTINCT game_date, game_pk, home_team AS team FROM pitches
+            UNION
+            SELECT DISTINCT game_date, game_pk, away_team AS team FROM pitches
+        ),
+        with_prev AS (
+            SELECT *, LAG(game_date) OVER (
+                       PARTITION BY team ORDER BY game_date, game_pk) AS prev_date
+            FROM team_games
+        )
+        SELECT game_pk, team,
+               CASE
+                   WHEN prev_date IS NULL THEN NULL
+                   WHEN YEAR(CAST(prev_date AS DATE)) != YEAR(CAST(game_date AS DATE))
+                       THEN NULL
+                   ELSE LEAST(
+                       CAST(game_date AS DATE) - CAST(prev_date AS DATE),
+                       %d)
+               END AS rest_days
+        FROM with_prev
+    """ % REST_DAYS_CAP)
+
+
+
+def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
+    """Last-3-start fastball/whiff form and season-to-date xwOBA splits.
+
+    The xwOBA-vs-hand cumulative windows are PARTITIONED BY SEASON: an
+    April start must never average in the prior October (the old
+    unpartitioned window silently produced career-to-date values while the
+    docs claimed "season to date").
+    """
+    # Starter stuff trends — last-3-start fastball velo/mix, whiff rate,
+    # and CURRENT-SEASON-to-date xwOBA allowed vs left/right-handed
+    # batters (windows are season-partitioned: April never averages in
+    # the prior October).
+    # All windows are LAG-shifted so the current game is excluded (point-in-time).
+    con.execute(f"""
+        CREATE TABLE pitcher_stuff_raw AS
+        WITH per_start AS (
+            SELECT CAST(game_date AS DATE) AS game_date,
+                   YEAR(CAST(game_date AS DATE)) AS season, game_pk, pitcher,
+                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
+                            THEN release_speed END) AS fb_velo,
+                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
+                            THEN 1.0 ELSE 0.0 END) AS fb_pct,
+                   COUNT(*) AS n_pitches,
+                   SUM(CASE WHEN description IN
+                            ('swinging_strike','swinging_strike_blocked')
+                            THEN 1 ELSE 0 END) AS whiffs,
+                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'L'
+                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_l,
+                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'R'
+                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_r
+            FROM pitches
+            GROUP BY game_date, game_pk, pitcher
+        )
+        SELECT *,
+            LAG(fb_velo, 1) OVER w AS _s_fb_velo,
+            LAG(fb_pct, 1) OVER w AS _s_fb_pct,
+            LAG(n_pitches, 1) OVER w AS _s_n,
+            LAG(whiffs, 1) OVER w AS _s_whiffs,
+            LAG(xwoba_vs_l, 1) OVER ws AS _s_xl,
+            LAG(xwoba_vs_r, 1) OVER ws AS _s_xr
+        FROM per_start
+        WINDOW w AS (PARTITION BY pitcher ORDER BY game_date),
+               ws AS (PARTITION BY pitcher, season ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE pitcher_stuff AS
+        SELECT game_date, game_pk, pitcher,
+            AVG(_s_fb_velo) OVER w3 AS sp_fbvelo_3g,
+            AVG(_s_fb_pct) OVER w3 AS sp_fbpct_3g,
+            SUM(_s_whiffs) OVER w3 / NULLIF(SUM(_s_n) OVER w3, 0) AS sp_whiff_3g,
+            AVG(_s_xl) OVER wall AS sp_xwoba_vs_l,
+            AVG(_s_xr) OVER wall AS sp_xwoba_vs_r
+        FROM pitcher_stuff_raw
+        WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
+                      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
+               wall AS (PARTITION BY pitcher, season ORDER BY game_date
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+
 def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     """Build game_level table via pure DuckDB SQL.  All intermediate tables
     are dropped after assembly to free RAM."""
@@ -349,22 +448,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM pitches
     """)
 
-    # 4. Rest days (days since each team's previous game)
-    con.execute("""
-        CREATE TABLE rest_days AS
-        WITH team_games AS (
-            SELECT DISTINCT game_date, game_pk, home_team AS team FROM pitches
-            UNION
-            SELECT DISTINCT game_date, game_pk, away_team AS team FROM pitches
-        ),
-        with_prev AS (
-            SELECT *, LAG(game_date) OVER (PARTITION BY team ORDER BY game_date) AS prev_date
-            FROM team_games
-        )
-        SELECT game_pk, team,
-               CAST(game_date AS DATE) - CAST(prev_date AS DATE) AS rest_days
-        FROM with_prev
-    """)
+    _build_rest_days(con)
 
     # 5. Pitcher rolling features (PIT-compliant: LAG first, then rolling SUM)
     #
@@ -671,52 +755,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
     """)
 
-    # 7b. Starter stuff trends — last-3-start fastball velo/mix, whiff rate,
-    # and season-to-date xwOBA allowed vs left/right-handed batters.
-    # All windows are LAG-shifted so the current game is excluded (point-in-time).
-    con.execute(f"""
-        CREATE TABLE pitcher_stuff_raw AS
-        WITH per_start AS (
-            SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
-                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
-                            THEN release_speed END) AS fb_velo,
-                   AVG(CASE WHEN pitch_type IN ('FF','SI','FT')
-                            THEN 1.0 ELSE 0.0 END) AS fb_pct,
-                   COUNT(*) AS n_pitches,
-                   SUM(CASE WHEN description IN
-                            ('swinging_strike','swinging_strike_blocked')
-                            THEN 1 ELSE 0 END) AS whiffs,
-                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'L'
-                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_l,
-                   AVG(CASE WHEN events IN ({PA_END_EVENTS}) AND stand = 'R'
-                            THEN estimated_woba_using_speedangle END) AS xwoba_vs_r
-            FROM pitches
-            GROUP BY game_date, game_pk, pitcher
-        )
-        SELECT *,
-            LAG(fb_velo, 1) OVER w AS _s_fb_velo,
-            LAG(fb_pct, 1) OVER w AS _s_fb_pct,
-            LAG(n_pitches, 1) OVER w AS _s_n,
-            LAG(whiffs, 1) OVER w AS _s_whiffs,
-            LAG(xwoba_vs_l, 1) OVER w AS _s_xl,
-            LAG(xwoba_vs_r, 1) OVER w AS _s_xr
-        FROM per_start
-        WINDOW w AS (PARTITION BY pitcher ORDER BY game_date)
-    """)
-    con.execute("""
-        CREATE TABLE pitcher_stuff AS
-        SELECT game_date, game_pk, pitcher,
-            AVG(_s_fb_velo) OVER w3 AS sp_fbvelo_3g,
-            AVG(_s_fb_pct) OVER w3 AS sp_fbpct_3g,
-            SUM(_s_whiffs) OVER w3 / NULLIF(SUM(_s_n) OVER w3, 0) AS sp_whiff_3g,
-            AVG(_s_xl) OVER wall AS sp_xwoba_vs_l,
-            AVG(_s_xr) OVER wall AS sp_xwoba_vs_r
-        FROM pitcher_stuff_raw
-        WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
-                      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
-               wall AS (PARTITION BY pitcher ORDER BY game_date
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
-    """)
+    _build_pitcher_stuff(con)
 
     # 7c. Team contact-form — barrel rate / hard-hit rate / avg exit velo over
     # the trailing 15 games (LAG-shifted, excludes current game).
@@ -1188,6 +1227,11 @@ DOME_STATUS = {
 # Approximate home-plate UTC offsets per stadium (standard-time style).
 # Used for travel fatigue: a crossing is counted each time consecutive
 # games are played in different time zones within the trailing window.
+# Cap for rest_days: days since a team's previous game are clipped here so
+# All-Star breaks and long layoffs don't fabricate outliers (season openers
+# carry NULL instead — see the rest_days table above).
+REST_DAYS_CAP = 6
+
 # The 30 team codes exactly as they appear in Statcast data.  Lookup dicts
 # below MUST cover every one of these — an unmatched code silently degrades
 # to a default (offset 0 / NaN) instead of failing loudly.
@@ -1274,7 +1318,9 @@ def add_diff_features(
         10. sp_fbpct_diff      home_sp_fbpct_3g − away_sp_fbpct_3g
         11. sp_whiff_diff      home_sp_whiff_3g − away_sp_whiff_3g
         12. sp_xwoba_diff      home_sp_xwoba − away_sp_xwoba
+                               (trailing 6-start xwOBA allowed — NOT season-to-date)
         13. sp_xwoba_vs_l_diff home_sp_xwoba_vs_l − away_sp_xwoba_vs_l
+                               (current-season-to-date xwOBA vs LHB)
         14. lineup_woba_mean_diff
         15. lineup_woba_top3_diff
         16. lineup_woba_std_diff

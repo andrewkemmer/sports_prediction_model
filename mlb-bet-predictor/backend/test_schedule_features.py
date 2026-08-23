@@ -153,6 +153,108 @@ class TestCloserAvailability(unittest.TestCase):
         self.assertEqual(out.loc[2, "closer_available_home"], 1.0)
         # Entering Aug 4 he had pitched both prior days -> unavailable
         self.assertEqual(out.loc[3, "closer_available_home"], 0.0)
+class TestRestDaysSeasonScoped(unittest.TestCase):
+    """rest_days must be season-partitioned and capped at REST_DAYS_CAP.
+
+    Previously LAG() ran across the offseason: March openers inherited the
+    October gap as rest_days ≈ 180 — an extreme outlier against a 0–4 day
+    in-season distribution.
+    """
+
+    def _build(self, rows, team="NYY"):
+        import duckdb
+        con = duckdb.connect()
+        con.register("pitches", pd.DataFrame(rows))
+        features._build_rest_days(con)
+        df = con.execute(
+            "SELECT * FROM rest_days ORDER BY game_pk"
+        ).fetchdf()
+        df = df[df["team"] == team]
+        return df.set_index("game_pk")["rest_days"]
+
+    @staticmethod
+    def _row(game_pk, gd, home, away):
+        return {"game_pk": game_pk, "game_date": pd.Timestamp(gd),
+                "home_team": home, "away_team": away}
+
+    def test_in_season_gap_counted(self):
+        out = self._build([
+            self._row(1, "2026-04-01", "NYY", "BOS"),
+            self._row(2, "2026-04-04", "NYY", "BOS"),  # 3 days later
+        ])
+        self.assertTrue(pd.isna(out.loc[1]))   # season opener → NULL
+        self.assertEqual(int(out.loc[2]), 3)
+
+    def test_gap_capped_at_six(self):
+        out = self._build([
+            self._row(1, "2026-06-10", "NYY", "BOS"),
+            self._row(2, "2026-07-01", "NYY", "BOS"),  # 21 days (All-Star)
+        ])
+        self.assertEqual(int(out.loc[2]), features.REST_DAYS_CAP)
+
+    def test_season_opener_is_null_not_offseason_gap(self):
+        out = self._build([
+            self._row(1, "2025-09-28", "NYY", "BOS"),
+            self._row(2, "2026-03-28", "NYY", "BOS"),  # ~180 days
+        ])
+        self.assertTrue(pd.isna(out.loc[2]))
+
+    def test_same_day_doubleheader_is_zero(self):
+        out = self._build([
+            self._row(1, "2026-05-02", "NYY", "BOS"),
+            self._row(2, "2026-05-02", "NYY", "BOS"),
+        ])
+        self.assertEqual(int(out.loc[2]), 0)
+
+
+class TestPitcherStuffSeasonPartition(unittest.TestCase):
+    """sp_xwoba_vs_l/r cumulative windows must be partitioned by SEASON.
+
+    The old unpartitioned UNBOUNDED PRECEDING window made April values
+    average in the prior October (career-to-date, not season-to-date).
+    """
+
+    def _build(self, rows):
+        import duckdb
+        con = duckdb.connect()
+        con.register("pitches", pd.DataFrame(rows))
+        features._build_pitcher_stuff(con)
+        return con.execute(
+            "SELECT * FROM pitcher_stuff ORDER BY game_date"
+        ).fetchdf().set_index("game_pk")
+
+    @staticmethod
+    def _start(game_pk, gd, xwoba_l, pitcher=51):
+        return {
+            "game_pk": game_pk, "game_date": pd.Timestamp(gd),
+            "pitcher": pitcher, "pitch_type": "FF", "release_speed": 95.0,
+            "description": "swinging_strike",
+            "events": "strikeout", "stand": "L",
+            "estimated_woba_using_speedangle": xwoba_l,
+        }
+
+    def test_first_start_of_season_has_no_prior_season_leakage(self):
+        rows = [
+            self._start(1, "2025-08-10", 0.400),
+            self._start(2, "2025-08-20", 0.400),
+            self._start(3, "2026-04-01", 0.200),   # first 2026 start
+            self._start(4, "2026-04-10", 0.300),   # second 2026 start
+        ]
+        out = self._build(rows)
+        # First 2026 start: no prior IN-SEASON start → NULL (was 0.400 avg)
+        self.assertTrue(pd.isna(out.loc[3, "sp_xwoba_vs_l"]))
+        # Second start: only the first 2026 start counts → 0.200 (not 0.30+)
+        self.assertAlmostEqual(out.loc[4, "sp_xwoba_vs_l"], 0.200, places=6)
+
+    def test_cumulative_within_season(self):
+        rows = [
+            self._start(1, "2026-04-01", 0.300),
+            self._start(2, "2026-04-08", 0.500),
+        ]
+        out = self._build(rows)
+        self.assertTrue(pd.isna(out.loc[1, "sp_xwoba_vs_l"]))
+        # PIT-safe: entering game 2, only PRIOR starts count (current excluded)
+        self.assertAlmostEqual(out.loc[2, "sp_xwoba_vs_l"], 0.300, places=6)
 
 
 if __name__ == "__main__":

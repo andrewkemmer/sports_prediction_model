@@ -1288,7 +1288,9 @@ def build_upcoming_slate(
         lp = last_played.get(team)
         if pd.isna(lp):
             return np.nan
-        return max((pd.Timestamp(target_date) - lp).days, 1)
+        # Cap at REST_DAYS_CAP (same convention as the historical rest_days
+        # table): an offseason gap is not "180 days of rest".
+        return min(max((pd.Timestamp(target_date) - lp).days, 1), 6)
 
     rows = []
     for _, s in sched.iterrows():

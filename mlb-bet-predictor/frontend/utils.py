@@ -801,8 +801,8 @@ FEATURE_DESCRIPTIONS = {
     "sp_fbpct_diff": "Home SP fastball usage (last 3 starts) − away SP",
     "sp_whiff_diff": "Home SP whiff rate (last 3 starts) − away SP",
     # 10–11. SP xwOBA diffs (contact quality allowed)
-    "sp_xwoba_diff": "Home SP season xwOBA allowed − away SP",
-    "sp_xwoba_vs_l_diff": "Home SP xwOBA vs LHB − away SP xwOBA vs LHB",
+    "sp_xwoba_diff": "Home SP last-6-start xwOBA allowed − away SP",
+    "sp_xwoba_vs_l_diff": "Home SP xwOBA vs LHB (season to date) − away SP",
     # 12–14. Lineup wOBA diffs (projected top-9, shrunk toward league mean)
     "lineup_woba_mean_diff": "Home lineup avg wOBA − away lineup avg wOBA",
     "lineup_woba_top3_diff": "Home top-3 hitter wOBA − away top-3 hitter wOBA",
