@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 
 from backend.weather import (
+    _get_with_retry,
     STADIUMS,
     compute_air_density,
     compute_wind_multiplier,
@@ -257,6 +258,49 @@ class TestStadiums(unittest.TestCase):
         """Dome stadiums have bearing=0 (wind handled by dome_is_neutral flag)."""
         for team in ("TB", "HOU", "SEA", "TEX", "TOR", "MIL", "MIA", "ARI"):
             self.assertEqual(STADIUMS[team]["bearing"], 0, f"{team} should have bearing=0")
+
+
+class TestGetWithRetry(unittest.TestCase):
+    """429/5xx responses must retry with backoff, not degrade to climatology."""
+
+    def _resp(self, status):
+        m = MagicMock()
+        m.status_code = status
+        return m
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("backend.weather.requests.get")
+    def test_recovers_after_429s(self, mock_get):
+        mock_get.side_effect = [self._resp(429), self._resp(429),
+                                self._resp(200)]
+        resp = _get_with_retry("https://x/archive", {}, attempts=3)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 3)
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("backend.weather.requests.get")
+    def test_gives_up_after_attempts(self, mock_get):
+        mock_get.side_effect = [self._resp(429)] * 5
+        resp = _get_with_retry("https://x/archive", {}, attempts=3)
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(mock_get.call_count, 3)
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("backend.weather.requests.get")
+    def test_non_retryable_status_returned_immediately(self, mock_get):
+        mock_get.side_effect = [self._resp(400)]
+        resp = _get_with_retry("https://x/archive", {}, attempts=3)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(mock_get.call_count, 1)
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("backend.weather.requests.get")
+    def test_network_exception_retried(self, mock_get):
+        import requests as _rq
+        mock_get.side_effect = [_rq.exceptions.ConnectionError(), self._resp(200)]
+        resp = _get_with_retry("https://x/archive", {}, attempts=3)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
 
 
 if __name__ == "__main__":

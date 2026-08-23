@@ -255,6 +255,39 @@ _HOURLY_KEYS = (
 )
 
 
+def _get_with_retry(url: str, params: dict, attempts: int = 3,
+                    timeout: int = 15):
+    """GET with exponential backoff on rate-limit/server errors.
+
+    Open-Meteo's free endpoints return 429 under burst load (8 workers ×
+    ~300 stadium-day requests during backfill). Without retries those games
+    silently degraded to climatology; with them nearly all recover.
+    """
+    import random
+    import time
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            if resp.status_code in (429, 502, 503, 504) and attempt < attempts - 1:
+                wait = (2 ** attempt) + random.uniform(0, 0.5)
+                logger.warning(
+                    "Weather API %d for %s — retrying in %.1fs (%d/%d)",
+                    resp.status_code, url.split("/")[-1], wait,
+                    attempt + 1, attempts - 1,
+                )
+                time.sleep(wait)
+                continue
+            return resp
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < attempts - 1:
+                time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+    if last_exc is not None:
+        raise last_exc
+    return resp
+
+
 def _fetch_hourly_series(
     lat: float,
     lon: float,
@@ -284,7 +317,7 @@ def _fetch_hourly_series(
         url = "https://api.open-meteo.com/v1/forecast"
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = _get_with_retry(url, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         hourly = data.get("hourly", {})
@@ -328,7 +361,7 @@ def _fetch_recent_past_series(
         "forecast_days": 1,
     }
     try:
-        resp = requests.get(
+        resp = _get_with_retry(
             "https://api.open-meteo.com/v1/forecast", params=params, timeout=15
         )
         resp.raise_for_status()
