@@ -54,9 +54,11 @@ FEATURE_COLS = [
     "win_pct_diff",
     "elo_diff",
     "rest_days_diff",
-    # 5–8. Starting pitcher diffs (career-level)
+    # 5–8. Starting pitcher diffs (career + trailing-30g twins)
     "sp_era_diff",
+    "sp_era_30g_diff",
     "sp_k9_diff",
+    "sp_k9_30g_diff",
     # 9–11. SP stuff diffs (trailing 3-game)
     "sp_fbvelo_diff",
     "sp_fbpct_diff",
@@ -79,17 +81,20 @@ FEATURE_COLS = [
     "team_barrel_diff",
     "team_hardhit_diff",
     "team_exitvelo_diff",
-    # 25. Platoon exposure
-    "opp_lefty_share_diff",
-    # 26. Dome neutral flag
+    # 25. Lineup handedness matchup advantage (OPS vs tonight's starter hand)
+    "lineup_handedness_matchup_advantage",
+    # 26. Travel fatigue (timezone crossings, last 3 days)
+    "travel_fatigue_diff",
+    # 27. Closer availability
+    "closer_availability_diff",
+    # 28. Dome neutral flag
     "dome_is_neutral",
-    # 27–29. Interaction/context features
+    # 29–31. Interaction/context features
     "park_factor_slug_diff",
     "wind_advantage_flyball_factor",
     "air_density_velocity_boost",
-    # 30–34. Derived interaction features
+    # 32–35. Derived interaction features
     "bullpen_meltdown_risk",
-    "platoon_exploit_edge",
     "pitcher_regression_indicator",
     "lineup_depth_multiplier",
     "ace_efficiency_factor",

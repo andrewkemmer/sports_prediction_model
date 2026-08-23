@@ -110,8 +110,6 @@ class TestRosterReporting(unittest.TestCase):
             "team_hardhit_15g_away": rng.uniform(0.30, 0.40, n),
             "team_exitvelo_15g_home": rng.uniform(87, 91, n),
             "team_exitvelo_15g_away": rng.uniform(87, 91, n),
-            "opp_lefty_share_home": rng.uniform(0.25, 0.40, n),
-            "opp_lefty_share_away": rng.uniform(0.25, 0.40, n),
         })
         df = add_diff_features(raw)
         try:

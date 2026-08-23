@@ -34,10 +34,11 @@ def _history() -> pd.DataFrame:
             "home_win": 1.0, "home_score": 5, "away_score": 3,
             "home_starter_id": 101.0, "away_starter_id": 202.0,
             "woba_30g_home": 0.330, "woba_30g_away": 0.310,
-            # Stored sides are OPPONENT-indexed:
-            #   ..._home  = lineup facing the HOME starter  = AWAY lineup
-            "opp_lefty_share_home": 0.40,  # SEA lineup share
-            "opp_lefty_share_away": 0.44,  # NYY lineup share
+            # Per-hand lineup OPS splits (team state): NYY batting at home
+            "lineup_ops_vs_l_home": 0.700, "lineup_ops_vs_r_home": 0.780,
+            # SEA batting on the road
+            "lineup_ops_vs_l_away": 0.660, "lineup_ops_vs_r_away": 0.740,
+            "closer_available_home": 1.0, "closer_available_away": 1.0,
             "sp_era_30g_home": 3.10, "sp_era_home": 3.10, "sp_k9_30g_home": 9.9,
         },
         {   # NYY wins again at SEA (Aug 20): NYY 2-0, SEA 0-2
@@ -47,8 +48,10 @@ def _history() -> pd.DataFrame:
             "home_win": 0.0, "home_score": 2, "away_score": 7,
             "home_starter_id": 202.0, "away_starter_id": 101.0,
             "woba_30g_home": np.nan, "woba_30g_away": 0.340,
-            "opp_lefty_share_home": np.nan,
-            "opp_lefty_share_away": 0.46,  # NYY lineup share (most recent)
+            # SEA batting at home: newest L-split observation (R is missing —
+            # proves the carry-forward resolves to the last OBSERVED value)
+            "lineup_ops_vs_l_home": 0.680, "lineup_ops_vs_r_home": np.nan,
+            "closer_available_away": 0.0,  # NYY closer unavailable Aug 20
             # Cole started as the AWAY pitcher here
             "sp_era_30g_away": 4.50,
         },
@@ -142,15 +145,56 @@ class TestBuildUpcomingSlate(unittest.TestCase):
         # SEA's Aug-20 woba is NaN -> carries Aug-19 value, not 0 and not NaN
         self.assertAlmostEqual(float(s["woba_30g_away"]), 0.310)
 
-    def test_lefty_share_is_mirrored_to_the_batting_lineup(self):
-        """Stored sides are opponent-indexed: opp_lefty_share_<X> holds the
-        lineup facing X's starter, i.e. the OPPOSING team's own share."""
-        g = self.by_id["20260822_BOS@NYY"]          # home NYY, away BOS
-        self.assertAlmostEqual(float(g["opp_lefty_share_away"]), 0.44)   # NYY own
-        self.assertTrue(pd.isna(g["opp_lefty_share_home"]))              # BOS unknown
-        s = self.by_id["20260822_SEA@BOS"]          # home BOS, away SEA
-        self.assertAlmostEqual(float(s["opp_lefty_share_home"]), 0.40)   # SEA own
-        self.assertTrue(pd.isna(s["opp_lefty_share_away"]))              # BOS unknown
+    def test_lineup_hand_splits_carry_forward(self):
+        """Per-hand lineup OPS splits are TEAM state (not opponent-indexed):
+        each team's latest observed L/R value re-suffixes onto tonight's slot."""
+        g = self.by_id["20260822_BOS@NYY"]          # NYY bats at home
+        self.assertAlmostEqual(float(g["lineup_ops_vs_l_home"]), 0.700)
+        self.assertAlmostEqual(float(g["lineup_ops_vs_r_home"]), 0.780)
+        s = self.by_id["20260822_SEA@BOS"]          # SEA on the road
+        # SEA's latest observed L-split (Aug 20) overrides Aug 19
+        self.assertAlmostEqual(float(s["lineup_ops_vs_l_away"]), 0.680)
+        self.assertAlmostEqual(float(s["lineup_ops_vs_r_away"]), 0.740)
+
+    def test_travel_and_closer_state_carry_forward(self):
+        """Travel fatigue recomputes from strictly-prior schedule; closer
+        availability carries forward as team state."""
+        g = self.by_id["20260822_BOS@NYY"]
+        # NYY: Bronx (ET, Aug 19) -> Seattle (PT, Aug 20) -> Bronx (Aug 21):
+        # both the trip out and the trip back count → 2 crossings
+        self.assertEqual(int(g["time_zones_crossed_last_3d_home"]), 2)
+        # NYY's latest closer observation (Aug 20 road game): unavailable
+        self.assertEqual(int(g["closer_available_home"]), 0)
+        s = self.by_id["20260822_SEA@BOS"]
+        # SEA returned Seattle (PT, Aug 20) from Bronx (ET, Aug 19): 1
+        self.assertEqual(int(s["time_zones_crossed_last_3d_away"]), 1)
+        # SEA's latest closer observation (Aug 19 road game): available
+        self.assertEqual(int(s["closer_available_away"]), 1)
+
+    def test_pitcher_stats_via_statsapi_id_without_pbp(self):
+        """Slate pitcher ERA/K9 must resolve from the StatsAPI person id
+        alone (no pbp_df/name matching). load_espn_schedule now stamps
+        sp_id_* on every row, so an evening/next-day run still gets real
+        starter stats even though ESPN dropped probablePitcher."""
+        sched = _schedule()
+        sched["sp_id_home"] = [101.0, 303.0]  # Cole(id 101) / Wheeler(303, no stats)
+        sched["sp_id_away"] = [202.0, 404.0]  # no observed stats either
+        slate = build_upcoming_slate(_history(), TARGET, pbp_df=None, schedule_df=sched)
+        by_id = {r["game_id"]: r for _, r in slate.iterrows()}
+
+        g = by_id["20260822_BOS@NYY"]
+        # Cole (101) via id -> his latest observed stats (same as name path)
+        self.assertAlmostEqual(float(g["sp_era_30g_home"]), 4.50)
+        self.assertAlmostEqual(float(g["sp_era_home"]), 3.10)
+        self.assertAlmostEqual(float(g["sp_k9_30g_home"]), 9.9)
+        # id 202 has NO observed sp stats -> NULL, never a fabricated 0
+        self.assertTrue(pd.isna(g["sp_era_30g_away"]))
+        self.assertTrue(pd.isna(g["sp_k9_30g_away"]))
+
+        f = by_id["20260822_SEA@BOS"]
+        # Wheeler (303) has no observed stats either -> NULLs
+        self.assertTrue(pd.isna(f["sp_era_home"]))
+        self.assertTrue(pd.isna(f["sp_k9_30g_home"]))
 
     def test_pitcher_features_via_name_mapping(self):
         g = self.by_id["20260822_BOS@NYY"]

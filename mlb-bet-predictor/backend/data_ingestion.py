@@ -573,10 +573,15 @@ def _parse_espn_event(event: dict) -> dict | None:
     home_key = ESPN_ABBREV_TO_KEY.get(home_abbr, home_abbr)
     away_key = ESPN_ABBREV_TO_KEY.get(away_abbr, away_abbr)
 
-    # Parse date
+    # Parse date.  ESPN's event.date is UTC; the game's DATE is the ET date
+    # (matches StatsAPI schedule grouping and keeps late-night ET games on
+    # the correct day instead of rolling over to tomorrow's UTC date).
     date_str = event.get("date", "")
     try:
         game_dt = pd.Timestamp(date_str)
+        if game_dt.tzinfo is None:
+            game_dt = game_dt.tz_localize("UTC")
+        game_dt = game_dt.tz_convert("America/New_York")
     except Exception:
         return None
     game_date = game_dt.date()
@@ -758,12 +763,18 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
             axis=1,
         )
 
-    # Add start_time_utc if missing (use game_date at 19:00 UTC)
-    if "start_time_utc" not in df.columns:
+    # Add start_time_utc if missing (use game_date at 19:00 UTC).  This is an
+    # ORDERING fallback only — it is not a real observation.  Tag it so the
+    # pipeline never treats the fabricated hour as a genuine pre-game start
+    # (weather/point-in-time features stay NULL for such rows).
+    if "start_time_utc" not in df.columns or df["start_time_utc"].isna().all():
         df["start_time_utc"] = df["game_date"].apply(
             lambda d: datetime.combine(d.date(), datetime.min.time().replace(hour=19))
             if pd.notna(d) else None
         )
+        df["start_time_observed"] = False
+    else:
+        df["start_time_observed"] = df["start_time_utc"].notna()
 
     # Compute ELO from game results (PIT-safe: chronological)
     df["home_elo"] = compute_elos(df)
@@ -874,6 +885,58 @@ def _norm_player_name(name) -> str:
     return " ".join(s.split())
 
 
+def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], dict]:
+    """Authoritative probable starters from MLB StatsAPI (names + person ids).
+
+    ESPN drops probablePitcher from its scoreboard once a game starts, so an
+    evening/next-day run rebuilt the slate with sp_name_* = 'TBD' — which
+    also blanked the ERA/K9 stat lookup, since the name drove the id lookup
+    into the pitcher's rolling stat lines. StatsAPI keeps the starter
+    through game end, giving the slate real names + pitcher ids even for
+    completed games.
+
+    Returns {(home_abbr, away_abbr): {home_name, away_name, home_id,
+    away_id}} keyed by CANONICAL team abbreviations (normalize_team applied
+    to StatsAPI's own codes, so 'AZ'/'ATH' match the pipeline's keys).
+    """
+    import requests
+    teams: dict[int, str] = {}
+    try:
+        r = requests.get("https://statsapi.mlb.com/api/v1/teams?sportId=1", timeout=20)
+        for t in r.json().get("teams", []):
+            teams[int(t["id"])] = normalize_team(str(t.get("abbreviation", "")))
+    except Exception as e:
+        logger.warning("StatsAPI team list fetch failed; pitcher enrichment skipped: %s", e)
+        return {}
+
+    url = (
+        "https://statsapi.mlb.com/api/v1/schedule?sportId=1"
+        f"&date={target_date.strftime('%Y-%m-%d')}&hydrate=probablePitcher(person)"
+    )
+    try:
+        r = requests.get(url, timeout=20)
+        games = r.json().get("dates", [{}])[0].get("games", [])
+    except Exception as e:
+        logger.warning("StatsAPI schedule fetch failed for %s: %s", target_date, e)
+        return {}
+
+    out: dict[tuple[str, str], dict] = {}
+    for g in games:
+        home = teams.get(g["teams"]["home"]["team"]["id"])
+        away = teams.get(g["teams"]["away"]["team"]["id"])
+        if not home or not away:
+            continue
+        hp = g["teams"]["home"].get("probablePitcher") or {}
+        ap = g["teams"]["away"].get("probablePitcher") or {}
+        out[(home, away)] = {
+            "home_name": hp.get("fullName"),
+            "away_name": ap.get("fullName"),
+            "home_id": hp.get("id"),
+            "away_id": ap.get("id"),
+        }
+    return out
+
+
 def load_espn_schedule(target_date: date) -> pd.DataFrame:
     """Games scheduled for EXACTLY target_date via the ESPN API.
 
@@ -896,6 +959,30 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     for _tc in ("home_team", "away_team"):
         df[_tc] = df[_tc].map(normalize_team)
+
+    # Enrich with authoritative probable starters from MLB StatsAPI. ESPN's
+    # probablePitcher disappears once a game starts; StatsAPI keeps it, so
+    # sp_name_* gets a real name and sp_id_* lets build_upcoming_slate look
+    # up the starter's rolling ERA/K9 directly by person id (no name-spelling
+    # fragility). Names/ids missing on the StatsAPI side are left untouched.
+    try:
+        sp = _fetch_statsapi_pitchers(target_date)
+    except Exception as e:
+        logger.warning("StatsAPI pitcher enrichment failed: %s", e)
+        sp = {}
+    if sp:
+        df["sp_id_home"] = np.nan
+        df["sp_id_away"] = np.nan
+        for idx, row in df.iterrows():
+            info = sp.get((str(row["home_team"]), str(row["away_team"])))
+            if not info:
+                continue
+            if info.get("home_name"):
+                df.at[idx, "sp_name_home"] = info["home_name"]
+                df.at[idx, "sp_id_home"] = info.get("home_id")
+            if info.get("away_name"):
+                df.at[idx, "sp_name_away"] = info["away_name"]
+                df.at[idx, "sp_id_away"] = info.get("away_id")
     return df
 
 
@@ -940,7 +1027,13 @@ def _latest_side_state(hist: pd.DataFrame, cols: list[str]) -> dict[str, dict[st
     versa. Returns keys WITHOUT the side suffix; callers re-suffix by slot.
     """
     state: dict[str, dict[str, float]] = {}
-    ordered = hist.sort_values("game_date")
+    ordered = hist.sort_values("game_date").copy()
+    ordered["_gd"] = pd.to_datetime(ordered["game_date"], errors="coerce")
+    if "start_time_utc" in ordered.columns:
+        ordered["_st"] = pd.to_datetime(ordered["start_time_utc"], errors="coerce")
+    else:
+        ordered["_st"] = pd.NaT
+    pieces = []
     for col in cols:
         if col not in hist.columns:
             continue
@@ -950,34 +1043,57 @@ def _latest_side_state(hist: pd.DataFrame, cols: list[str]) -> dict[str, dict[st
             base, side = col[: -len("_away")], "away"
         else:
             continue
-        sub = ordered.dropna(subset=[col])
+        sub = ordered.loc[ordered[col].notna(), ["_gd", "_st", f"{side}_team", col]]
         if sub.empty:
             continue
-        last_per_team = sub.groupby(f"{side}_team", sort=False).tail(1)
-        for _, r in last_per_team.iterrows():
-            state.setdefault(r[f"{side}_team"], {})[base] = float(r[col])
+        p = sub.copy()
+        p.columns = ["_gd", "_st", "_team", "_val"]
+        p["_base"] = base
+        pieces.append(p)
+    if not pieces:
+        return state
+    long = pd.concat(pieces).sort_values(["_gd", "_st"], kind="stable")
+    latest = long.groupby(["_team", "_base"], sort=False).tail(1)
+    for _, r in latest.iterrows():
+        state.setdefault(r["_team"], {})[r["_base"]] = float(r["_val"])
     return state
 
 
-def _own_lefty_share(hist: pd.DataFrame) -> dict[str, float]:
-    """team → its OWN lineup lefty share (trailing 30g).
+def _travel_crossings(hist: pd.DataFrame, target_date: date,
+                      window_days: int = 3) -> dict[str, int]:
+    """team → timezone crossings over the last ``window_days`` days.
 
-    opp_lefty_share_home actually holds the AWAY lineup's share and vice
-    versa (each measures the lineup the opposing starter faces), so the two
-    stored sides must be mirrored back onto the batting team before they can
-    be re-paired with a new matchup.
+    Walks each team's scheduled appearances strictly before target_date in
+    chronological order (postponements still count — the team travelled to
+    the venue), looks up the venue's timezone via the HOME team of that
+    game, and counts transitions whose offset changed. Mirrors the SQL
+    travel-fatigue CTE in features.py so the slate path matches training.
     """
-    pieces = []
-    if "opp_lefty_share_away" in hist.columns:
-        pieces.append(hist.dropna(subset=["opp_lefty_share_away"])
-                      .groupby("home_team")["opp_lefty_share_away"].last())
-    if "opp_lefty_share_home" in hist.columns:
-        pieces.append(hist.dropna(subset=["opp_lefty_share_home"])
-                      .groupby("away_team")["opp_lefty_share_home"].last())
-    if not pieces:
-        return {}
-    combined = pd.concat(pieces)
-    return {t: float(v) for t, v in combined.groupby(level=0).last().items()}
+    from features import TEAM_TZ_OFFSETS
+
+    hd = pd.to_datetime(hist["game_date"], errors="coerce")
+    cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=window_days)
+    recent = hist.loc[
+        (hd >= cutoff) & (hd < pd.Timestamp(target_date)) &
+        hist["home_team"].notna()
+    ]
+    crossings: dict[str, int] = {}
+    for team in set(recent["home_team"]) | set(recent.get("away_team", pd.Series(dtype=object))):
+        rows = recent.loc[(recent["home_team"] == team) |
+                          (recent.get("away_team", pd.Series(dtype=object)) == team)]
+        rows = rows.assign(_d=pd.to_datetime(rows["game_date"], errors="coerce")) \
+            .sort_values(["_d", "start_time_utc"])
+        prev_off = None
+        n = 0
+        for _, r in rows.iterrows():
+            off = TEAM_TZ_OFFSETS.get(str(r["home_team"]).upper())
+            if off is None:
+                continue
+            if prev_off is not None and off != prev_off:
+                n += 1
+            prev_off = off
+        crossings[team] = n
+    return crossings
 
 
 def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
@@ -1069,10 +1185,16 @@ def build_upcoming_slate(
         "bullpen_whip_10g_home", "bullpen_whip_10g_away",
         "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
         "bullpen_ip_3d_home", "bullpen_ip_3d_away",
+        # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
+        # OPS vs L/R starters), re-suffixed onto tonight's batting slot.
+        "lineup_ops_vs_l_home", "lineup_ops_vs_l_away",
+        "lineup_ops_vs_r_home", "lineup_ops_vs_r_away",
+        # Closer availability is also team state (latest observation wins).
+        "closer_available_home", "closer_available_away",
     ]
     carry_cols = [c for c in _RAW_CARRY if c in hist.columns]
     team_state = _latest_side_state(hist, carry_cols)
-    own_lefty = _own_lefty_share(hist)
+    travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
 
     # ESPN name → Statcast pitcher id (latest mapping wins)
@@ -1122,18 +1244,26 @@ def build_upcoming_slate(
             "team_barrel_15g_home", "team_barrel_15g_away",
             "team_hardhit_15g_home", "team_hardhit_15g_away",
             "team_exitvelo_15g_home", "team_exitvelo_15g_away",
-            "opp_lefty_share_home", "opp_lefty_share_away",
+            # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
+            # OPS vs L/R starters), re-suffixed onto tonight's batting slot.
+            "lineup_ops_vs_l_home", "lineup_ops_vs_l_away",
+            "lineup_ops_vs_r_home", "lineup_ops_vs_r_away",
+            # Closer availability is also team state (latest observation wins).
+            "closer_available_home", "closer_available_away",
         ]
         for _c in _RAW_INPUTS:
             row.setdefault(_c, np.nan)
         row.update({
             "game_id": s.get("game_id") or (
-                f"{pd.Timestamp(target_date).strftime('%Y%m%d')}_{away}@{home}"),
-            "game_date": pd.Timestamp(target_date),
+                f"{pd.Timestamp(s.get('game_date') or target_date).strftime('%Y%m%d')}_{away}@{home}"),
+            "game_date": pd.Timestamp(s.get("game_date") or target_date),
             "start_time_utc": s.get("start_time_utc"),
             "home_team": home,
             "away_team": away,
             "venue": s.get("venue", "Unknown"),
+            # ESPN game state drives Live/Final/Scheduled on the dashboard
+            "game_state": s.get("game_state", ""),
+            "game_status_detail": s.get("game_status_detail", ""),
             "total_runs": np.nan,
             # Results: keep them when ESPN already has a final, else NULL
             "home_win": s.get("home_win"),
@@ -1141,6 +1271,10 @@ def build_upcoming_slate(
             "away_score": s.get("away_score"),
             "sp_name_home": s.get("sp_name_home", "TBD"),
             "sp_name_away": s.get("sp_name_away", "TBD"),
+            # Authoritative MLB StatsAPI starter ids (when enrichment ran) —
+            # lets the stat lookup skip name→id matching entirely.
+            "sp_id_home": s.get("sp_id_home"),
+            "sp_id_away": s.get("sp_id_away"),
         })
 
         # Team-level state (records, elo, run diff, rolling offense/bullpen)
@@ -1156,18 +1290,26 @@ def build_upcoming_slate(
             # Re-suffix the side-agnostic latest values onto this game's slot
             for base, val in team_state.get(team, {}).items():
                 row[f"{base}_{side}"] = val
-            # Mirror: each lineup's share pairs with the OPPOSING starter
-            share = own_lefty.get(team)
-            if share is not None:
-                row[f"opp_lefty_share_{'away' if side == 'home' else 'home'}"] = share
+            row[f"time_zones_crossed_last_3d_{side}"] = travel_crossings.get(team, 0)
         row["home_elo"] = elos.get(home, 1500.0)
         row["away_elo"] = elos.get(away, 1500.0)
 
-        # Pitcher-level state via name → id → latest stat line, re-suffixed
-        # to the slot he occupies tonight (his last start may have been on
-        # the other side of a box score).
+        # Pitcher-level state via id → latest stat line, re-suffixed to the
+        # slot he occupies tonight (his last start may have been on the other
+        # side of a box score).  The StatsAPI person id (sp_id_*) is preferred
+        # — it is authoritative and needs no name-spelling matching; fall back
+        # to name → Statcast id via pbp_df when the id is absent.
         for side in ("home", "away"):
-            pid = name_to_id.get(_norm_player_name(row[f"sp_name_{side}"]))
+            pid = row.get(f"sp_id_{side}")
+            if pid is not None and pd.notna(pid):
+                try:
+                    pid = int(pid)
+                except (TypeError, ValueError):
+                    pid = None
+            else:
+                pid = None
+            if pid is None:
+                pid = name_to_id.get(_norm_player_name(row[f"sp_name_{side}"]))
             if pid is None:
                 continue
             for base, val in pitcher_state.get(pid, {}).items():

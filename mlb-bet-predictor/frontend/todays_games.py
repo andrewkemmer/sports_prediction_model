@@ -84,6 +84,34 @@ def _banner_html(status, is_final, is_live, winner, pick, correct, coin, upset, 
     return f'<div class="fb-banner red">X {winner_name} Won — Model picked {pick}</div>'
 
 
+def _val(row: pd.Series, *keys: str, default: str = "—") -> str:
+    """First non-empty value across column-name aliases (artifact schema
+    changed spellings over time — try each)."""
+    for k in keys:
+        v = row.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s and s.lower() not in ("nan", "none", "tbd"):
+            return s
+    return default
+
+
+def _pitcher_box(name: str, era: str, k9: str) -> str:
+    name_html = f'<div class="pname">{name}</div>' if name else ""
+    return (f'<div class="fb-pitcher">{name_html}'
+            f'<div class="pstats">ERA {era} · K/9 {k9}</div></div>')
+
+
+def _score_side(num, abbr: str, is_winner: bool) -> str:
+    """Score column: green vertical bar to the left of the winning score
+    (matches the reference dashboard), white number, abbreviation below."""
+    bar = f'<span class="win-bar" style="background:{utils.PRIMARY};"></span>' if is_winner else ""
+    return (f'<div class="side"><div class="num-wrap">{bar}'
+            f'<span class="num">{num}</span></div>'
+            f'<div class="abbr">{abbr}</div></div>')
+
+
 def _card_html(g: pd.Series) -> str:
     home_team, away_team = g["home_team"], g["away_team"]
     home_name = g.get("home_team_name", "") or home_team
@@ -147,15 +175,11 @@ def _card_html(g: pd.Series) -> str:
         if is_live:
             raw = g.get("final_inning", "LIVE").lstrip("L")
             mid = f"L{raw}" if raw else "LIVE"
-    home_num_color = utils.PRIMARY if winner == home_team else utils.TEXT
-    away_num_color = utils.PRIMARY if winner == away_team else utils.TEXT
     score = (
         f'<div class="fb-score">'
-        f'<div class="side"><div class="num" style="color:{away_num_color};">{a_disp}</div>'
-        f'<div class="abbr">{away_team}</div></div>'
+        f'{_score_side(a_disp, away_team, is_winner=(winner == away_team))}'
         f'<span class="mid">{mid}</span>'
-        f'<div class="side"><div class="num" style="color:{home_num_color};">{h_disp}</div>'
-        f'<div class="abbr">{home_team}</div></div>'
+        f'{_score_side(h_disp, home_team, is_winner=(winner == home_team))}'
         f'</div>'
     )
 
@@ -180,10 +204,8 @@ def _card_html(g: pd.Series) -> str:
     # --- pitchers / venue / odds ---
     pitchers = (
         f'<div class="fb-pitchers">'
-        f'<div class="fb-pitcher"><div class="pname">{g.get("starting_pitcher_home", "")}</div>'
-        f'<div class="pstats">ERA {g.get("sp_home_era", "—")} · K/9 {g.get("sp_home_k9", "—")}</div></div>'
-        f'<div class="fb-pitcher"><div class="pname">{g.get("starting_pitcher_away", "")}</div>'
-        f'<div class="pstats">ERA {g.get("sp_away_era", "—")} · K/9 {g.get("sp_away_k9", "—")}</div></div>'
+        f'{_pitcher_box(_val(g, "starting_pitcher_home", "sp_name_home"), _val(g, "sp_home_era", "sp_era_home"), _val(g, "sp_home_k9", "sp_k9_home"))}'
+        f'{_pitcher_box(_val(g, "starting_pitcher_away", "sp_name_away"), _val(g, "sp_away_era", "sp_era_away"), _val(g, "sp_away_k9", "sp_k9_away"))}'
         f'</div>'
     )
     start_et = utils.start_time_et(g.get("start_time_utc", ""))
@@ -217,8 +239,17 @@ def _shap_expander(g: pd.Series, date_str: str) -> None:
         chart = utils.shap_chart(shap_df)
         if chart is not None:
             utils.show_chart(chart)
-        st.caption("Positive values increase P(home win); negative decrease it. "
-                   "Averaged across the XGBoost / LightGBM / Logistic Regression ensemble.")
+        # SHAP is aligned to the FAVORED team (backend negates values when the
+        # away team is favored), so positive = pushes the favorite toward winning.
+        persp = ""
+        if "perspective_team" in shap_df.columns:
+            pt = shap_df["perspective_team"].dropna().astype(str)
+            pt = pt[pt.str.strip() != ""].iloc[0] if not pt.empty else ""
+            if pt and pt not in ("HOME", "AWAY"):
+                persp = f" · Viewing from {pt}'s perspective"
+        st.caption("Positive values increase the favored team's win probability; "
+                   "negative decrease it. Averaged across the XGBoost / LightGBM / "
+                   f"Logistic Regression ensemble.{persp}")
 
 
 # ===========================================================================

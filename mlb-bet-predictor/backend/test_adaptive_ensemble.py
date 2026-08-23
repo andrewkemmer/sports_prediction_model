@@ -76,8 +76,6 @@ class TestCandidateRoster(unittest.TestCase):
                 "team_hardhit_15g_away": 0.33,
                 "team_exitvelo_15g_home": 89.0,
                 "team_exitvelo_15g_away": 88.5,
-                "opp_lefty_share_home": 0.33,
-                "opp_lefty_share_away": 0.30,
                 "home_win": float(rng.rand() < 1 / (1 + np.exp(-signal))),
             })
         cls.games = add_diff_features(pd.DataFrame(rows))

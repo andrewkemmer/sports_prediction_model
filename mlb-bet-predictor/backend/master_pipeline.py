@@ -192,56 +192,109 @@ try:
 except Exception as e:
     print(f"  ❌ Training failed: {e}")
 
-# ── Phase 5: GitHub Sync ────────────────────────────────────────────────────
-_banner("PHASE 5", "GitHub Sync")
+# ── Phase 5: GitHub Sync — push this run's NEW files first ─────────────────
+_banner("PHASE 5", "GitHub Sync — push new artifacts")
 token = token or CONFIG.get("github_token", "")
+sync_dir = Path("/content/mlb_sync_tmp")
+
+def _git_push_confirmed(repo, branch: str) -> None:
+    """Push and verify the remote accepted the new head (raise on failure)."""
+    info = repo.remote("origin").push(branch)
+    bad = [p for p in info if p.flags & (p.ERROR | p.REJECTED | p.REMOTE_REJECTED | p.REMOTE_FAILURE)]
+    if bad:
+        raise RuntimeError(f"Push rejected by remote: {[p.summary for p in bad]}")
+
+def _open_sync_repo(token: str, sync_dir: Path):
+    """Open the sync clone (or create it), configuring git identity."""
+    import git
+    auth_url = f"https://{token}@github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git"
+    if (sync_dir / ".git").exists():
+        repo = git.Repo(str(sync_dir))
+    else:
+        repo = git.Repo.clone_from(auth_url, str(sync_dir), branch=CONFIG["github_branch"], depth=1)
+    if CONFIG["git_email"]: repo.config_writer().set_value("user", "email", CONFIG["git_email"]).release()
+    if CONFIG["git_name"]:  repo.config_writer().set_value("user", "name", CONFIG["git_name"]).release()
+    return repo
+
+staged: list[str] = []
+seen: set[str] = set()
+
 if not token:
-    print("  ⏭️  No token — skipping push")
+    print("  ⏭️  No token — skipping push and cleanup")
 else:
     try:
-        import git
-        auth_url = f"https://{token}@github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git"
-        sync_dir = Path("/content/mlb_sync_tmp")
-        repo = git.Repo.clone_from(auth_url, str(sync_dir), branch=CONFIG["github_branch"], depth=1)
-        if CONFIG["git_email"]: repo.config_writer().set_value("user","email",CONFIG["git_email"]).release()
-        if CONFIG["git_name"]: repo.config_writer().set_value("user","name",CONFIG["git_name"]).release()
-        data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"; data_delivery_dir.mkdir(exist_ok=True)
-        # Wipe old artifacts so only this run's files are pushed — prevents
-        # stale SHAP/monitor/calibration files from piling up indefinitely.
-        for old in data_delivery_dir.iterdir():
-            if old.is_file():
-                old.unlink()
-        staged = []
-        seen = set()
+        repo = _open_sync_repo(token, sync_dir)
+        data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"
+        data_delivery_dir.mkdir(parents=True, exist_ok=True)
 
         def _stage(src: Path, rel: str) -> None:
-            if rel not in seen:
-                seen.add(rel)
-                shutil.copy2(src, data_delivery_dir / Path(rel).name)
-                staged.append(rel)
+            if rel in seen:
+                return
+            seen.add(rel)
+            dest = data_delivery_dir / rel[len("mlb-bet-predictor/data_delivery/"):]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            staged.append(rel)
 
         # Sync game-level features CSV (dashboard uses it for final scores).
         # pbp_level_features.parquet is NOT synced: ~7.6 MB per run and
         # nothing in the dashboard reads it. It stays in /content/mlb_clean_data.
         if csv_path.exists():
             _stage(csv_path, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
-        # Sync training artifacts (pipeline saves to data_delivery/ in CWD)
+        # Sync every artifact this run regenerated in data_delivery/, including
+        # the models/ subdir (trained ensemble joblib the dashboard loads).
         data_delivery_local = Path.cwd() / "data_delivery"
         if data_delivery_local.exists():
-            for artifact in data_delivery_local.glob("*"):
+            for artifact in sorted(data_delivery_local.rglob("*")):
                 if artifact.is_file():
-                    _stage(artifact, f"mlb-bet-predictor/data_delivery/{artifact.name}")
+                    rel = f"mlb-bet-predictor/data_delivery/{artifact.relative_to(data_delivery_local)}"
+                    _stage(artifact, rel)
         print(f"  📋 Staging {len(staged)} files:")
         for s in staged:
             print(f"    {s}")
-        repo.index.add(staged)
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        repo.index.commit(f"Update MLB features + predictions: {ts}")
-        repo.remote("origin").push(CONFIG["github_branch"])
-        print(f"  ✅ Pushed {len(staged)} files")
-        shutil.rmtree(sync_dir, ignore_errors=True)
+        if staged:
+            repo.index.add(staged)
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            repo.index.commit(f"Update MLB features + predictions: {ts}")
+            _git_push_confirmed(repo, CONFIG["github_branch"])
+            print(f"  ✅ Pushed {len(staged)} files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
+        else:
+            print("  ⏭️  Nothing new to push")
     except Exception as e:
         print(f"  ❌ {e}")
+
+# ── Phase 6: Stale artifact cleanup — LAST step, after push confirmed ──────
+# data_delivery/ on GitHub must contain ONLY this run's refreshed files.
+# Everything the run did NOT regenerate (older SHAP/calibration/monitor/
+# power-rankings snapshots, superseded models) is deleted here — strictly
+# after the new files were pushed AND confirmed, so a failed push can never
+# empty the folder, and the repo keeps no redundant/stale blobs.
+_banner("PHASE 6", "Stale artifact cleanup (final step)")
+if not token:
+    print("  ⏭️  No token — skipping cleanup")
+elif not staged:
+    print("  ⏭️  Nothing was pushed this run — skipping cleanup (can't tell stale from new)")
+else:
+    try:
+        repo = _open_sync_repo(token, sync_dir)
+        tracked = repo.git.ls_files("mlb-bet-predictor/data_delivery").splitlines()
+        stale = [p for p in tracked if p not in seen]
+        if not stale:
+            print("  ✅ No stale files — data_delivery holds exactly this run's artifacts")
+        else:
+            print(f"  🧹 Removing {len(stale)} stale files:")
+            for s in stale:
+                print(f"    {s}")
+            repo.git.rm(stale)
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            repo.index.commit(f"Remove stale data_delivery artifacts: {ts}")
+            _git_push_confirmed(repo, CONFIG["github_branch"])
+            print(f"  ✅ Removed {len(stale)} stale files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
+    except Exception as e:
+        print(f"  ❌ Cleanup failed: {e}")
+
+if sync_dir.exists():
+    shutil.rmtree(sync_dir, ignore_errors=True)
 
 _banner("DONE ✅")
 print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  Features: {game_df.shape[1]+pbp_df.shape[1]}")

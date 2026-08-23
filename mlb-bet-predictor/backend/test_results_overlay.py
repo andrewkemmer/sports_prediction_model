@@ -93,6 +93,53 @@ class TestApplyOfficialResults(unittest.TestCase):
         df = apply_official_results(games, res)
         self.assertEqual(df.iloc[0]["home_win"], 0.0)  # unchanged
 
+    def test_fallback_matches_by_date_and_teams(self):
+        """Slate rows without game_pk are overlaid via (date, teams)."""
+        games = pd.DataFrame([
+            # frozen mid-game final on the ESPN-built slate (no game_pk)
+            {"game_id": "20260821_PIT@LAD", "game_date": "2026-08-21",
+             "home_team": "LAD", "away_team": "PIT",
+             "home_score": 4, "away_score": 4, "home_win": None,
+             "total_runs": 8, "game_state": "in"},
+            # live game must keep home_win nulled
+            {"game_id": "20260822_SF@BOS", "game_date": "2026-08-22",
+             "home_team": "BOS", "away_team": "SF",
+             "home_score": 0, "away_score": 3, "home_win": 1.0,
+             "total_runs": 3, "game_state": "in"},
+        ])
+        res = pd.DataFrame([
+            {"game_pk": 823911, "game_date": "2026-08-21",
+             "home_team": "LAD", "away_team": "PIT",
+             "home_score": 5.0, "away_score": 4.0,
+             "home_win": 1.0, "is_final": True},
+            {"game_pk": 824718, "game_date": "2026-08-22",
+             "home_team": "BOS", "away_team": "SF",
+             "home_score": np.nan, "away_score": np.nan,
+             "home_win": np.nan, "is_final": False},
+        ])
+        df = apply_official_results(games, res)
+        lad = df[df["game_id"] == "20260821_PIT@LAD"].iloc[0]
+        self.assertEqual(lad["home_score"], 5.0)
+        self.assertEqual(lad["away_score"], 4.0)
+        self.assertEqual(lad["home_win"], 1.0)
+        self.assertEqual(lad["total_runs"], 9)
+        bos = df[df["game_id"] == "20260822_SF@BOS"].iloc[0]
+        self.assertTrue(pd.isna(bos["home_win"]))
+
+    def test_fallback_canonicalizes_team_codes(self):
+        """CHW/OAK/ARI alias to the canonical Statcast codes when joining."""
+        games = pd.DataFrame([{"game_id": "g1", "game_date": "2026-08-21",
+                               "home_team": "CWS", "away_team": "NYM",
+                               "home_score": 4, "away_score": 4,
+                               "home_win": None, "total_runs": 8}])
+        res = pd.DataFrame([{"game_pk": 1, "game_date": "2026-08-21",
+                             "home_team": "CHW", "away_team": "NYM",
+                             "home_score": 6.0, "away_score": 4.0,
+                             "home_win": 1.0, "is_final": True}])
+        df = apply_official_results(games, res)
+        self.assertEqual(df.iloc[0]["home_score"], 6.0)
+        self.assertEqual(df.iloc[0]["home_win"], 1.0)
+
 
 class TestFetchMlbResults(unittest.TestCase):
     """fetch_mlb_results should parse StatsAPI correctly."""

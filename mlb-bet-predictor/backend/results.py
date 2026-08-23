@@ -82,46 +82,99 @@ def fetch_mlb_results(start_date: date, end_date: date,
     return pd.DataFrame(rows, columns=cols)
 
 
+_TEAM_ALIASES = {"CHW": "CWS", "OAK": "ATH", "ARI": "AZ"}
+
+
+def _canon_team(code) -> str:
+    try:
+        return _TEAM_ALIASES.get(str(code).strip().upper(), str(code).strip())
+    except Exception:
+        return str(code)
+
+
 def apply_official_results(games: pd.DataFrame,
                            results: pd.DataFrame) -> pd.DataFrame:
     """Override pitch-derived scores/labels with official ones.
 
     - Final games: home_score/away_score/home_win/total_runs replaced with
       the official values (fixes frozen mid-game finals retroactively).
-    - Non-final games: home_win set to NaN so a live score snapshot can
-      never enter training as an outcome. Scores are kept for display but
-      flagged through ``is_official_final = False`` downstream consumers
-      may check.
+    - Non-final games: home_win set to NaN so a live/preview score snapshot
+      can NEVER enter training or artifacts as an outcome. Scores are kept
+      for display only.
+
+    Rows are matched by StatsAPI ``game_pk`` when present; rows without a
+    game_pk (e.g. the ESPN-built upcoming slate) fall back to a match on
+    (game_date, home_team, away_team) with canonical team codes.
     """
     df = games.copy()
-    if results.empty or "game_pk" not in df.columns:
+    if results.empty or results.columns.intersection(
+            ["home_score", "home_win", "is_final"]).empty:
         return df
 
-    res = results.dropna(subset=["game_pk"]).copy()
-    res["game_pk"] = res["game_pk"].astype("int64")
-    df["game_pk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
+    res = results.dropna(subset=["is_final"]).copy()
+    if res.empty:
+        return df
 
-    lookup = res.set_index("game_pk")
-    pk = df["game_pk"].map(lambda x: x if pd.notna(x) else None)
+    # Match key 1: StatsAPI game_pk (history frames from Statcast).
+    pk_lookup = {}
+    if "game_pk" in df.columns:
+        pk_res = res.dropna(subset=["game_pk"]).copy()
+        pk_res["game_pk"] = pk_res["game_pk"].astype("int64")
+        pk_lookup = pk_res.set_index("game_pk").to_dict("index")
+        df["_pk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
+
+    # Match key 2: (game_date, canonical home/away) for frames without pk.
+    date_team_lookup = {}
+    has_dt_cols = all(c in df.columns for c in ("game_date", "home_team", "away_team"))
+    if has_dt_cols:
+        for _, r in res.iterrows():
+            d = pd.to_datetime(r.get("game_date"), errors="coerce")
+            if pd.isna(d):
+                continue
+            key = (str(d.date()), _canon_team(r.get("home_team")),
+                   _canon_team(r.get("away_team")))
+            date_team_lookup[key] = r
+
+    def _apply(row_idx, r) -> None:
+        if bool(r["is_final"]):
+            hs, as_ = r.get("home_score"), r.get("away_score")
+            if pd.notna(hs) and pd.notna(as_):
+                df.at[row_idx, "home_score"] = hs
+                df.at[row_idx, "away_score"] = as_
+            if pd.notna(r.get("home_win")):
+                df.at[row_idx, "home_win"] = r["home_win"]
+            df.at[row_idx, "total_runs"] = (
+                (pd.to_numeric(r.get("home_score"), errors="coerce") or 0)
+                + (pd.to_numeric(r.get("away_score"), errors="coerce") or 0))
+            if "game_state" in df.columns:
+                df.at[row_idx, "game_state"] = "post"
+        else:
+            # Live / postponed / in-progress / preview: never an outcome.
+            # game_state is left untouched (ESPN already supplies pre/in).
+            df.at[row_idx, "home_win"] = None
 
     n_fixed = 0
-    for idx, key in zip(df.index, pk):
-        if key is None or key not in lookup.index:
-            continue
-        r = lookup.loc[key]
-        if bool(r["is_final"]):
-            df.at[idx, "home_score"] = r["home_score"]
-            df.at[idx, "away_score"] = r["away_score"]
-            if pd.notna(r["home_win"]):
-                df.at[idx, "home_win"] = r["home_win"]
-            df.at[idx, "total_runs"] = (
-                (r["home_score"] or 0) + (r["away_score"] or 0))
-            n_fixed += 1
-        else:
-            # Live / postponed / in-progress: never a training outcome.
-            df.at[idx, "home_win"] = None
+    for idx, row in df.iterrows():
+        r = None
+        if "_pk" in df.columns and pd.notna(row.get("_pk")):
+            pk = int(row["_pk"])
+            if pk in pk_lookup:
+                r = pk_lookup[pk]
+        if r is None and has_dt_cols:
+            d = pd.to_datetime(row.get("game_date"), errors="coerce")
+            if pd.notna(d):
+                key = (str(d.date()), _canon_team(row.get("home_team")),
+                       _canon_team(row.get("away_team")))
+                r = date_team_lookup.get(key)
+        if r is not None:
+            was = df.at[idx, "home_win"] if "home_win" in df.columns else None
+            _apply(idx, r)
+            if not (pd.isna(was) and pd.isna(df.at[idx, "home_win"])):
+                n_fixed += 1
+    if "_pk" in df.columns:
+        df = df.drop(columns=["_pk"])
     if n_fixed:
-        logger.info("Official results applied: %d finals verified/corrected",
+        logger.info("Official results applied: %d games verified/corrected",
                     n_fixed)
     return df
 

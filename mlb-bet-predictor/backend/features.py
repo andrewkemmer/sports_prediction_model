@@ -21,6 +21,7 @@ import resource
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -154,19 +155,20 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         -- These were swapped before (home SP stats were being read off the
         -- away starter and vice versa on every card and feature).
         WITH first_pa_top AS (
-            SELECT game_pk, pitcher AS home_starter_id,
+            SELECT game_pk, pitcher AS home_starter_id, p_throws AS home_starter_hand,
                    ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches WHERE inning = 1 AND inning_topbot = 'Top'
         ),
         first_pa_bot AS (
-            SELECT game_pk, pitcher AS away_starter_id,
+            SELECT game_pk, pitcher AS away_starter_id, p_throws AS away_starter_hand,
                    ROW_NUMBER() OVER (PARTITION BY game_pk ORDER BY at_bat_number, pitch_number) AS rn
             FROM pitches WHERE inning = 1 AND inning_topbot = 'Bot'
         )
         SELECT DISTINCT p.game_pk,
                CAST(p.game_date AS DATE) AS game_date,
                p.home_team, p.away_team,
-               t.home_starter_id, b.away_starter_id
+               t.home_starter_id, t.home_starter_hand,
+               b.away_starter_id, b.away_starter_hand
         FROM (SELECT DISTINCT game_pk, game_date, home_team, away_team FROM pitches) p
         LEFT JOIN first_pa_top t ON p.game_pk = t.game_pk AND t.rn = 1
         LEFT JOIN first_pa_bot b ON p.game_pk = b.game_pk AND b.rn = 1
@@ -494,12 +496,16 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""
         CREATE TABLE bullpen_rolling AS
         SELECT game_date, game_pk, team,
-            (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
-                / NULLIF(SUM(_s_ip) OVER w, 0) AS bullpen_whip_10g,
-            SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 AS bullpen_era_10g
+            (SUM(_s_bbs) OVER w10 + SUM(_s_hits) OVER w10)
+                / NULLIF(SUM(_s_ip) OVER w10, 0) AS bullpen_whip_10g,
+            SUM(_s_runs) OVER w10 / NULLIF(SUM(_s_ip) OVER w10, 0) * 9.0 AS bullpen_era_10g,
+            (SUM(_s_bbs) OVER w3 + SUM(_s_hits) OVER w3)
+                / NULLIF(SUM(_s_ip) OVER w3, 0) AS bullpen_whip_3g
         FROM bullpen_shifted
-        WINDOW w AS (PARTITION BY team ORDER BY game_date
-                     ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
+        WINDOW w10 AS (PARTITION BY team ORDER BY game_date
+                       ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
+               w3 AS (PARTITION BY team ORDER BY game_date
+                      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
     """)
 
     # 7b. Starter stuff trends — last-3-start fastball velo/mix, whiff rate,
@@ -720,6 +726,214 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         GROUP BY game_pk, batting_team
     """)
 
+    # 7f. Lineup OPS split by opposing pitching hand — every hitter's
+    # trailing-30g OPS vs left-handed and right-handed pitchers separately
+    # (LAG-shifted, excludes the current game), aggregated over the expected
+    # top-9 by playing time per hand.  Paired with tonight's opposing starter
+    # throwing hand at assembly time this yields lineup_ops_vs_starter_hand.
+    con.execute(f"""
+        CREATE TABLE batter_hand_game AS
+        WITH pa AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                   CASE WHEN inning_topbot = 'Top' THEN away_team
+                        ELSE home_team END AS batting_team,
+                   batter, p_throws, events
+            FROM pitches WHERE events IN ({PA_END_EVENTS})
+        )
+        SELECT game_date, game_pk, batting_team, batter, p_throws,
+               COUNT(*) AS pa_n,
+               SUM(CASE WHEN events = 'walk' THEN 1 ELSE 0 END) AS bb,
+               SUM(CASE WHEN events = 'hit_by_pitch' THEN 1 ELSE 0 END) AS hbp,
+               SUM(CASE WHEN events = 'single' THEN 1 ELSE 0 END) AS s,
+               SUM(CASE WHEN events = 'double' THEN 1 ELSE 0 END) AS d,
+               SUM(CASE WHEN events = 'triple' THEN 1 ELSE 0 END) AS t,
+               SUM(CASE WHEN events = 'home_run' THEN 1 ELSE 0 END) AS hr
+        FROM pa GROUP BY 1, 2, 3, 4, 5
+    """)
+    con.execute("""
+        CREATE TABLE batter_hand_shifted AS
+        SELECT *,
+            LAG(pa_n, 1) OVER w AS _pa_n,
+            LAG(bb, 1) OVER w AS _bb,
+            LAG(hbp, 1) OVER w AS _hbp,
+            LAG(s, 1) OVER w AS _s,
+            LAG(d, 1) OVER w AS _d,
+            LAG(t, 1) OVER w AS _t,
+            LAG(hr, 1) OVER w AS _hr
+        FROM batter_hand_game
+        WINDOW w AS (PARTITION BY batter, p_throws ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE batter_hand_rolling AS
+        SELECT game_date, game_pk, batting_team, batter, p_throws,
+            SUM(_s + _d + _t + _hr) OVER w30 AS _h30,
+            SUM(_s + 2 * _d + 3 * _t + 4 * _hr) OVER w30 AS _tb30,
+            SUM(_bb + _hbp + _s + _d + _t + _hr) OVER w30 AS _onb_num,
+            SUM(_pa_n - _bb - _hbp) OVER w30 AS _ab30,
+            SUM(_pa_n) OVER w30 AS _pa30
+        FROM batter_hand_shifted
+        WINDOW w30 AS (PARTITION BY batter, p_throws ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("""
+        CREATE TABLE lineup_ops_agg AS
+        WITH ranked AS (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team, p_throws
+                                   ORDER BY _pa30 DESC) AS rn
+            FROM batter_hand_rolling WHERE _ab30 > 0
+        ),
+        top9 AS (
+            SELECT game_pk, batting_team, p_throws,
+                   (_onb_num::DOUBLE / _ab30) + (_tb30::DOUBLE / _ab30) AS ops
+            FROM ranked WHERE rn <= 9
+        )
+        SELECT game_pk, batting_team,
+               AVG(CASE WHEN p_throws = 'L' THEN ops END) AS lineup_ops_vs_l,
+               AVG(CASE WHEN p_throws = 'R' THEN ops END) AS lineup_ops_vs_r
+        FROM top9
+        GROUP BY game_pk, batting_team
+    """)
+
+    # 7g. Travel fatigue — count timezone crossings across each team's last
+    # three games PRIOR to today (point-in-time: strictly past games only).
+    tz_home_lines = "\n".join(
+        f"                WHEN '{k}' THEN {v}" for k, v in TEAM_TZ_OFFSETS.items()
+    )
+    tz_away_lines = "\n".join(
+        f"                WHEN '{k}' THEN {v}" for k, v in TEAM_TZ_OFFSETS.items()
+    )
+    con.execute(f"""
+        CREATE TABLE team_travel_raw AS
+        SELECT gd, game_pk, team, off FROM (
+            SELECT DISTINCT CAST(game_date AS DATE) AS gd, game_pk,
+                   home_team AS team,
+                   CASE home_team
+{tz_home_lines}
+                       ELSE 0 END AS off
+            FROM pitches
+            UNION ALL
+            SELECT DISTINCT CAST(game_date AS DATE) AS gd, game_pk,
+                   away_team AS team,
+                   CASE away_team
+{tz_away_lines}
+                       ELSE 0 END AS off
+            FROM pitches
+        )
+    """)
+    con.execute("""
+        CREATE TABLE travel_seq AS
+        SELECT *, LAG(off) OVER (PARTITION BY team ORDER BY gd, game_pk) AS prev_off
+        FROM team_travel_raw
+    """)
+    con.execute("""
+        CREATE TABLE travel_cross AS
+        SELECT gd, team,
+               CASE WHEN prev_off IS NOT NULL AND off != prev_off
+                    THEN 1 ELSE 0 END AS crossed
+        FROM travel_seq
+    """)
+    con.execute("""
+        CREATE TABLE travel_fatigue AS
+        WITH games AS (
+            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team, away_team FROM pitches
+        ),
+        home_tz AS (
+            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
+            FROM games g JOIN travel_cross c
+              ON c.team = g.home_team
+             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        ),
+        away_tz AS (
+            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
+            FROM games g JOIN travel_cross c
+              ON c.team = g.away_team
+             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        )
+        SELECT g.game_pk,
+               COALESCE(h.tz_crossed, 0) AS time_zones_crossed_last_3d_home,
+               COALESCE(a.tz_crossed, 0) AS time_zones_crossed_last_3d_away
+        FROM games g
+        LEFT JOIN home_tz h ON g.game_pk = h.game_pk
+        LEFT JOIN away_tz a ON g.game_pk = a.game_pk
+    """)
+
+    # 7h. Closer availability — point-in-time high-leverage metric. Each
+    # team's closer is the reliever with the most prior late-inning (8th+)
+    # work for that team; he is UNAVAILABLE only when he pitched BOTH of the
+    # previous two days (three consecutive appearances). Unknown closers
+    # (early season) default to available.
+    con.execute(f"""
+        CREATE TABLE late_relief AS
+        SELECT CAST(p.game_date AS DATE) AS gd, p.game_pk,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                    ELSE p.away_team END AS team,
+               p.pitcher,
+               COUNT(DISTINCT p.at_bat_number) AS tbf
+        FROM pitches p
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE p.inning >= 8
+          AND (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+        GROUP BY 1, 2, 3, 4
+    """)
+    con.execute("""
+        CREATE TABLE reliever_shifted AS
+        SELECT *, LAG(tbf, 1) OVER (PARTITION BY pitcher ORDER BY gd) AS _tbf
+        FROM late_relief
+    """)
+    con.execute("""
+        CREATE TABLE reliever_load AS
+        SELECT *,
+            SUM(_tbf) OVER (PARTITION BY pitcher ORDER BY gd
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_tbf
+        FROM reliever_shifted
+    """)
+    con.execute("""
+        CREATE TABLE team_closer AS
+        WITH ranked AS (
+            SELECT gd, game_pk, team, pitcher,
+                   ROW_NUMBER() OVER (PARTITION BY game_pk, team
+                                      ORDER BY cum_tbf DESC NULLS LAST, pitcher) AS rn
+            FROM reliever_load WHERE cum_tbf > 0
+        )
+        SELECT gd, game_pk, team, pitcher FROM ranked WHERE rn = 1
+    """)
+    con.execute("""
+        CREATE TABLE relief_days AS
+        SELECT DISTINCT gd, pitcher FROM late_relief
+    """)
+    con.execute("""
+        CREATE TABLE closer_usage AS
+        SELECT d.pitcher, d.gd,
+               MAX(CASE WHEN u.gd = d.gd - 1 THEN 1 ELSE 0 END) AS pitched_d1,
+               MAX(CASE WHEN u.gd = d.gd - 2 THEN 1 ELSE 0 END) AS pitched_d2
+        FROM relief_days d
+        LEFT JOIN relief_days u
+          ON d.pitcher = u.pitcher AND u.gd < d.gd AND u.gd >= d.gd - 2
+        GROUP BY 1, 2
+    """)
+    con.execute("""
+        CREATE TABLE closer_avail AS
+        WITH games AS (
+            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team, away_team FROM pitches
+        )
+        SELECT g.game_pk,
+            CASE WHEN cu_h.pitched_d1 = 1 AND cu_h.pitched_d2 = 1
+                 THEN 0.0 ELSE 1.0 END AS closer_available_home,
+            CASE WHEN cu_a.pitched_d1 = 1 AND cu_a.pitched_d2 = 1
+                 THEN 0.0 ELSE 1.0 END AS closer_available_away
+        FROM games g
+        LEFT JOIN team_closer tc_h ON g.game_pk = tc_h.game_pk AND g.home_team = tc_h.team
+        LEFT JOIN team_closer tc_a ON g.game_pk = tc_a.game_pk AND g.away_team = tc_a.team
+        LEFT JOIN closer_usage cu_h ON tc_h.pitcher = cu_h.pitcher AND tc_h.gd = cu_h.gd
+        LEFT JOIN closer_usage cu_a ON tc_a.pitcher = cu_a.pitcher AND tc_a.gd = cu_a.gd
+    """)
+
     # 8. Assemble game_level via LEFT JOINs
     con.execute("""
         CREATE TABLE game_level AS
@@ -734,12 +948,17 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             pa.sp_era_30g AS sp_era_away, pa.sp_k9_30g AS sp_k9_away,
             pa.sp_bb9_30g AS sp_bb9_away, pa.sp_whip_30g AS sp_whip_away,
             pa.sp_fip_30g AS sp_fip_away, pa.sp_xwoba_30g AS sp_xwoba_away,
+            -- 30-game rolling SP twins under their own names (feature 6/8)
+            ph.sp_era_30g AS sp_era_30g_home, ph.sp_k9_30g AS sp_k9_30g_home,
+            pa.sp_era_30g AS sp_era_30g_away, pa.sp_k9_30g AS sp_k9_30g_away,
             th.team_woba_30g AS team_woba_30g_home, th.team_iso_30g AS team_iso_30g_home,
             th.team_k_rate_30g AS team_k_rate_30g_home, th.team_bb_rate_30g AS team_bb_rate_30g_home,
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
             ta.team_k_rate_30g AS team_k_rate_30g_away, ta.team_bb_rate_30g AS team_bb_rate_30g_away,
             bh.bullpen_whip_10g AS bullpen_whip_10g_home, bh.bullpen_era_10g AS bullpen_era_10g_home,
             ba.bullpen_whip_10g AS bullpen_whip_10g_away, ba.bullpen_era_10g AS bullpen_era_10g_away,
+            bh.bullpen_whip_3g AS bullpen_whip_3g_home,
+            ba.bullpen_whip_3g AS bullpen_whip_3g_away,
             hst.sp_fbvelo_3g AS sp_fbvelo_3g_home, hst.sp_fbpct_3g AS sp_fbpct_3g_home,
             hst.sp_whiff_3g AS sp_whiff_3g_home,
             hst.sp_xwoba_vs_l AS sp_xwoba_vs_l_home, hst.sp_xwoba_vs_r AS sp_xwoba_vs_r_home,
@@ -756,6 +975,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             ha.lineup_lefty_share_30g AS opp_lefty_share_away,
             bf.bullpen_pitches_3d_home, bf.bullpen_ip_3d_home,
             bf.bullpen_pitches_3d_away, bf.bullpen_ip_3d_away,
+            loh.lineup_ops_vs_l AS lineup_ops_vs_l_home,
+            loh.lineup_ops_vs_r AS lineup_ops_vs_r_home,
+            loa.lineup_ops_vs_l AS lineup_ops_vs_l_away,
+            loa.lineup_ops_vs_r AS lineup_ops_vs_r_away,
+            -- Feature 25: each lineup's OPS vs the hand of the starter it faces
+            CASE WHEN s.away_starter_hand = 'L' THEN loh.lineup_ops_vs_l
+                 WHEN s.away_starter_hand = 'R' THEN loh.lineup_ops_vs_r
+                 ELSE NULL END AS lineup_ops_vs_starter_hand_home,
+            CASE WHEN s.home_starter_hand = 'L' THEN loa.lineup_ops_vs_l
+                 WHEN s.home_starter_hand = 'R' THEN loa.lineup_ops_vs_r
+                 ELSE NULL END AS lineup_ops_vs_starter_hand_away,
+            tf.time_zones_crossed_last_3d_home, tf.time_zones_crossed_last_3d_away,
+            cl.closer_available_home, cl.closer_available_away,
             lh.lineup_woba_mean AS lineup_woba_mean_home,
             lh.lineup_woba_top3 AS lineup_woba_top3_home,
             lh.lineup_woba_std AS lineup_woba_std_home,
@@ -780,8 +1012,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN team_hand_rolling hd ON w.game_pk = hd.game_pk AND w.away_team = hd.batting_team
         LEFT JOIN team_hand_rolling ha ON w.game_pk = ha.game_pk AND w.home_team = ha.batting_team
         LEFT JOIN bp_fatigue bf ON w.game_pk = bf.game_pk
+        LEFT JOIN travel_fatigue tf ON w.game_pk = tf.game_pk
+        LEFT JOIN closer_avail cl ON w.game_pk = cl.game_pk
         LEFT JOIN lineup_agg lh ON w.game_pk = lh.game_pk AND w.home_team = lh.batting_team
         LEFT JOIN lineup_agg la ON w.game_pk = la.game_pk AND w.away_team = la.batting_team
+        LEFT JOIN lineup_ops_agg loh ON w.game_pk = loh.game_pk AND w.home_team = loh.batting_team
+        LEFT JOIN lineup_ops_agg loa ON w.game_pk = loa.game_pk AND w.away_team = loa.batting_team
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -798,6 +1034,10 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
         "batter_game_stats", "batter_shifted", "batter_rolling",
         "batter_league", "batter_ratings", "lineup_agg",
+        "batter_hand_game", "batter_hand_shifted", "batter_hand_rolling", "lineup_ops_agg",
+        "team_travel_raw", "travel_seq", "travel_cross", "travel_fatigue",
+        "late_relief", "reliever_shifted", "reliever_load", "team_closer",
+        "relief_days", "closer_usage", "closer_avail",
     ):
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
     gc.collect()
@@ -912,216 +1152,294 @@ DOME_STATUS = {
     "ATH": 1,
 }
 
+# Approximate home-plate UTC offsets per stadium (standard-time style).
+# Used for travel fatigue: a crossing is counted each time consecutive
+# games are played in different time zones within the trailing window.
+TEAM_TZ_OFFSETS = {
+    # Eastern (-5)
+    "NYY": -5, "BOS": -5, "BAL": -5, "TB": -5, "TOR": -5,
+    "WSH": -5, "ATL": -5, "MIA": -5, "PHI": -5, "PIT": -5,
+    "CLE": -5, "DET": -5,
+    # Central (-6)
+    "CHC": -6, "CHW": -6, "KC": -6, "MIN": -6,
+    "HOU": -6, "TEX": -6, "MIL": -6, "STL": -6,
+    # Mountain (-7)
+    "COL": -7, "ARI": -7,
+    # Pacific (-8)
+    "LAD": -8, "SD": -8, "SF": -8, "SEA": -8,
+    "ATH": -8, "OAK": -8,
+}
+
+# Shrinkage weight for early-season win% smoothing (feature 2):
+# smoothed = (wins + K/2) / (games + K) -> exactly .500 at game 0.
+WIN_PCT_SHRINKAGE_GAMES = 30.0
+
+
+def _smoothed_win_pct(wins: pd.Series, losses: pd.Series) -> pd.Series:
+    """Win pct shrunk toward .500 by games played (early-season smoothing).
+
+    (wins + K/2) / (games + K): equals exactly 0.500 before a team plays,
+    heavily smoothed to .500 early season, converges to the raw win pct
+    as the season matures.
+    """
+    wins = pd.to_numeric(wins, errors="coerce")
+    losses = pd.to_numeric(losses, errors="coerce")
+    games = (wins + losses).clip(lower=0)
+    return (wins + 0.5 * WIN_PCT_SHRINKAGE_GAMES) / (games + WIN_PCT_SHRINKAGE_GAMES)
+
+
+
+# Historical column-name aliases: canonical raw name -> alternate names that
+# have appeared for the same underlying stat in different ingestion eras.
+# add_diff_features resolves raw inputs through these so renamed columns are
+# still sourced; anything that remains missing yields NaN (never 0).
+RAW_COLUMN_ALIASES: dict[str, list[str]] = {
+    "sp_xwoba_vs_l_home": ["sp_xwoba_vs_l_home", "sp_xwoba_l_home"],
+    "sp_xwoba_vs_l_away": ["sp_xwoba_vs_l_away", "sp_xwoba_l_away"],
+    "bullpen_ip_3d_home": ["bullpen_ip_3d_home", "bullpen_innings_3d_home"],
+    "bullpen_ip_3d_away": ["bullpen_ip_3d_away", "bullpen_innings_3d_away"],
+    "lineup_ops_vs_l_home": ["lineup_ops_vs_l_home", "lineup_ops_l_home"],
+    "lineup_ops_vs_l_away": ["lineup_ops_vs_l_away", "lineup_ops_l_away"],
+    "lineup_ops_vs_r_home": ["lineup_ops_vs_r_home", "lineup_ops_r_home"],
+    "lineup_ops_vs_r_away": ["lineup_ops_vs_r_away", "lineup_ops_r_away"],
+    "time_zones_crossed_last_3d_home": ["time_zones_crossed_last_3d_home",
+                                        "travel_zones_crossed_last_3d_home"],
+    "time_zones_crossed_last_3d_away": ["time_zones_crossed_last_3d_away",
+                                        "travel_zones_crossed_last_3d_away"],
+}
 
 
 def add_diff_features(
     game_df: pd.DataFrame,
     weather_data: dict | None = None,
 ) -> pd.DataFrame:
-    """Compute all 34 model features from the raw home/away columns.
+    """Compute all 35 model features from the raw home/away columns.
+
+    Exact feature layout (order matters — mirrors the spec sheet):
+
+         1. is_home            always 1 (anchors baseline home-field edge)
+         2. win_pct_diff       home_win_pct − away_win_pct
+                               (smoothed to 0.500 if early season)
+         3. elo_diff           home_elo − away_elo
+         4. rest_days_diff     rest_days_home − rest_days_away
+         5. sp_era_diff        home_sp_era − away_sp_era
+         6. sp_era_30g_diff    home_sp_era_30g − away_sp_era_30g
+         7. sp_k9_diff         home_sp_k9 − away_sp_k9
+         8. sp_k9_30g_diff     home_sp_k9_30g − away_sp_k9_30g
+         9. sp_fbvelo_diff     home_sp_fbvelo_3g − away_sp_fbvelo_3g
+        10. sp_fbpct_diff      home_sp_fbpct_3g − away_sp_fbpct_3g
+        11. sp_whiff_diff      home_sp_whiff_3g − away_sp_whiff_3g
+        12. sp_xwoba_diff      home_sp_xwoba − away_sp_xwoba
+        13. sp_xwoba_vs_l_diff home_sp_xwoba_vs_l − away_sp_xwoba_vs_l
+        14. lineup_woba_mean_diff
+        15. lineup_woba_top3_diff
+        16. lineup_woba_std_diff
+        17. woba_30g_diff      home_woba_30g − away_woba_30g
+        18. bullpen_whip_diff  home_bullpen_whip_10g − away_bullpen_whip_10g
+        19. bullpen_whip_3g_diff
+        20. bullpen_pitches_diff  (home_bullpen_pitches_3d − away_…)
+        21. bullpen_ip_diff       (home_bullpen_ip_3d − away_…)
+        22. team_barrel_diff   (trailing 15g barrel rate)
+        23. team_hardhit_diff  (trailing 15g hard-hit rate)
+        24. team_exitvelo_diff (trailing 15g avg exit velo)
+        25. lineup_handedness_matchup_advantage
+                               home_lineup_ops_vs_starter_hand
+                               − away_lineup_ops_vs_starter_hand
+                               (replaces opp_lefty_share_diff)
+        26. travel_fatigue_diff
+                               home_time_zones_crossed_last_3d
+                               − away_time_zones_crossed_last_3d
+        27. closer_availability_diff
+                               home_closer_available − away_closer_available
+        28. dome_is_neutral    binary flag (1 fixed dome/closed roof)
+        29. park_factor_slug_diff  home_park_slug_factor × lineup_woba_top3_diff
+        30. wind_advantage_flyball_factor
+                               wind_direction_multiplier (Out=1, In=-1, Dome=0)
+                               × sp_era_diff
+        31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
+        32. bullpen_meltdown_risk       bullpen_pitches_diff × bullpen_whip_diff
+        33. pitcher_regression_indicator  sp_fbvelo_diff × sp_era_30g_diff
+        34. lineup_depth_multiplier      lineup_woba_mean_diff × lineup_woba_top3_diff
+        35. ace_efficiency_factor        sp_k9_30g_diff × sp_whiff_diff
 
     All diff features follow the convention: home − away (positive = home
-    advantage).  Interaction features (26–34) are built from the diff
+    advantage).  Interaction features (29–35) are built from the diff
     features, so the model sees relative strengths directly.
 
     Args:
         game_df: DataFrame with raw home/away columns.
         weather_data: Optional dict keyed by game_id → weather dict with
             air_density and wind_multiplier (from weather.fetch_day_weather).
-            When provided, features 28-29 use real weather data.
+            When provided, features 30–31 use real weather data.
 
-    Returns a copy of game_df with the 34 new columns appended.
+    Returns a copy of game_df with the 35 new columns appended.
     """
     df = game_df.copy()
     n = len(df)
-    logger.info("Computing %d diff features for %d games...", 34, n)
+    logger.info("Computing %d diff features for %d games...", 35, n)
+
+    def _resolve_col(col: str) -> str | None:
+        """First present column for a canonical raw name (aliases included)."""
+        for name in [col, *RAW_COLUMN_ALIASES.get(col, [])]:
+            if name in df.columns:
+                return name
+        return None
+
+    def _diff(out: str, h_col: str, a_col: str) -> None:
+        """home − away diff.
+
+        Missing observations are NULL (NaN) — never a fabricated 0.  Column
+        names may vary across ingestion eras; aliases are tried first.
+        """
+        h = _resolve_col(h_col)
+        a = _resolve_col(a_col)
+        if h is None or a is None:
+            df[out] = np.nan
+        else:
+            df[out] = (pd.to_numeric(df[h], errors="coerce")
+                       - pd.to_numeric(df[a], errors="coerce"))
 
     # ── 1. is_home (always 1 — anchors the baseline home-field advantage)
     df["is_home"] = 1.0
 
     # ── 2. win_pct_diff: home_win_pct − away_win_pct
-    if "home_win_pct" in df.columns and "away_win_pct" in df.columns:
-        df["win_pct_diff"] = pd.to_numeric(df["home_win_pct"], errors="coerce") \
-            - pd.to_numeric(df["away_win_pct"], errors="coerce")
+    # Smoothed to 0.500 if early season: when W/L counts are available the
+    # raw rates are shrunk toward .500 by games played; otherwise fall back
+    # to the precomputed win-pct columns.
+    has_records = all(c in df.columns for c in
+                      ("home_wins", "home_losses", "away_wins", "away_losses"))
+    if has_records:
+        df["win_pct_diff"] = (_smoothed_win_pct(df["home_wins"], df["home_losses"])
+                              - _smoothed_win_pct(df["away_wins"], df["away_losses"]))
+    elif "home_win_pct" in df.columns and "away_win_pct" in df.columns:
+        df["win_pct_diff"] = (pd.to_numeric(df["home_win_pct"], errors="coerce")
+                              - pd.to_numeric(df["away_win_pct"], errors="coerce"))
     else:
-        df["win_pct_diff"] = 0.0
-        logger.warning("win_pct_diff: home_win_pct/away_win_pct columns missing, set to 0")
+        df["win_pct_diff"] = np.nan
+        logger.warning("win_pct_diff: record/win-pct columns missing, set to NaN")
 
-    # ── 3. elo_diff: home_elo − away_elo
-    if "home_elo" in df.columns and "away_elo" in df.columns:
-        df["elo_diff"] = pd.to_numeric(df["home_elo"], errors="coerce") \
-            - pd.to_numeric(df["away_elo"], errors="coerce")
-    else:
-        df["elo_diff"] = 0.0
-        logger.warning("elo_diff: home_elo/away_elo columns missing, set to 0")
+    # ── 3–24. Straight home − away diffs (exact spec-sheet order)
+    simple_diffs = [
+        ("elo_diff", "home_elo", "away_elo"),                                    # 3
+        ("rest_days_diff", "rest_days_home", "rest_days_away"),                  # 4
+        ("sp_era_diff", "sp_era_home", "sp_era_away"),                           # 5
+        ("sp_era_30g_diff", "sp_era_30g_home", "sp_era_30g_away"),               # 6
+        ("sp_k9_diff", "sp_k9_home", "sp_k9_away"),                              # 7
+        ("sp_k9_30g_diff", "sp_k9_30g_home", "sp_k9_30g_away"),                  # 8
+        ("sp_fbvelo_diff", "sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),            # 9
+        ("sp_fbpct_diff", "sp_fbpct_3g_home", "sp_fbpct_3g_away"),               # 10
+        ("sp_whiff_diff", "sp_whiff_3g_home", "sp_whiff_3g_away"),               # 11
+        ("sp_xwoba_diff", "sp_xwoba_home", "sp_xwoba_away"),                     # 12
+        ("sp_xwoba_vs_l_diff", "sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away"),      # 13
+        ("lineup_woba_mean_diff", "lineup_woba_mean_home", "lineup_woba_mean_away"),  # 14
+        ("lineup_woba_top3_diff", "lineup_woba_top3_home", "lineup_woba_top3_away"),  # 15
+        ("lineup_woba_std_diff", "lineup_woba_std_home", "lineup_woba_std_away"),     # 16
+        ("woba_30g_diff", "woba_30g_home", "woba_30g_away"),                     # 17
+        ("bullpen_whip_diff", "bullpen_whip_10g_home", "bullpen_whip_10g_away"),      # 18
+        ("bullpen_whip_3g_diff", "bullpen_whip_3g_home", "bullpen_whip_3g_away"),     # 19
+        ("bullpen_pitches_diff", "bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),  # 20
+        ("bullpen_ip_diff", "bullpen_ip_3d_home", "bullpen_ip_3d_away"),         # 21
+        ("team_barrel_diff", "team_barrel_15g_home", "team_barrel_15g_away"),    # 22
+        ("team_hardhit_diff", "team_hardhit_15g_home", "team_hardhit_15g_away"), # 23
+        ("team_exitvelo_diff", "team_exitvelo_15g_home", "team_exitvelo_15g_away"),  # 24
+    ]
+    for out, h_col, a_col in simple_diffs:
+        _diff(out, h_col, a_col)
 
-    # ── 4. rest_days_diff: rest_days_home − rest_days_away
-    if "rest_days_home" in df.columns and "rest_days_away" in df.columns:
-        df["rest_days_diff"] = pd.to_numeric(df["rest_days_home"], errors="coerce") \
-            - pd.to_numeric(df["rest_days_away"], errors="coerce")
-    else:
-        df["rest_days_diff"] = 0.0
+    # ── 25. lineup_handedness_matchup_advantage
+    # Each lineup's OPS against the hand of the starter it faces (assembled
+    # in SQL from per-batter L/R splits + tonight's starter throwing hand).
+    # Replaces the old opp_lefty_share_diff.
+    _diff("lineup_handedness_matchup_advantage",
+          "lineup_ops_vs_starter_hand_home", "lineup_ops_vs_starter_hand_away")
 
-    # ── 5–8. Starting pitcher diffs (career-level metrics from DuckDB)
-    for pair in [
-        ("sp_era_home", "sp_era_away", "sp_era_diff"),
-        ("sp_k9_home", "sp_k9_away", "sp_k9_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
+    # ── 26. travel_fatigue_diff (new schedule metric)
+    _diff("travel_fatigue_diff",
+          "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away")
 
-    # ── 9–11. SP stuff diffs (trailing 3-game fastball metrics)
-    for pair in [
-        ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away", "sp_fbvelo_diff"),
-        ("sp_fbpct_3g_home", "sp_fbpct_3g_away", "sp_fbpct_diff"),
-        ("sp_whiff_3g_home", "sp_whiff_3g_away", "sp_whiff_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
+    # ── 27. closer_availability_diff (new high-leverage metric)
+    _diff("closer_availability_diff",
+          "closer_available_home", "closer_available_away")
 
-    # ── 12–13. SP xwOBA diffs (season-to-date contact quality)
-    for pair in [
-        ("sp_xwoba_home", "sp_xwoba_away", "sp_xwoba_diff"),
-        ("sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away", "sp_xwoba_vs_l_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
-
-    # ── 14–16. Lineup wOBA diffs (mean, top-3 star power, dispersion)
-    for pair in [
-        ("lineup_woba_mean_home", "lineup_woba_mean_away", "lineup_woba_mean_diff"),
-        ("lineup_woba_top3_home", "lineup_woba_top3_away", "lineup_woba_top3_diff"),
-        ("lineup_woba_std_home", "lineup_woba_std_away", "lineup_woba_std_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
-
-    # ── 17. woba_30g_diff: team 30-game rolling wOBA
-    if "woba_30g_home" in df.columns and "woba_30g_away" in df.columns:
-        df["woba_30g_diff"] = pd.to_numeric(df["woba_30g_home"], errors="coerce") \
-            - pd.to_numeric(df["woba_30g_away"], errors="coerce")
-    else:
-        df["woba_30g_diff"] = 0.0
-
-    # ── 18–21. Bullpen diffs (WHIP 10g, WHIP 3g, pitches 3d, IP 3d)
-    for pair in [
-        ("bullpen_whip_10g_home", "bullpen_whip_10g_away", "bullpen_whip_diff"),
-        ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away", "bullpen_pitches_diff"),
-        ("bullpen_ip_3d_home", "bullpen_ip_3d_away", "bullpen_ip_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
-
-    # 19. bullpen_whip_3g_diff — compute from 3-day pitches + IP if available
-    # (the raw DuckDB output doesn't have a pre-built 3g WHIP column,
-    # so derive it from the raw bullpen workload data if available)
-    if "bullpen_whip_3g_diff" not in df.columns:
-        df["bullpen_whip_3g_diff"] = 0.0  # placeholder until 3g WHIP is added to DuckDB
-
-    # ── 22–24. Team contact form diffs (barrel%, hard-hit%, avg EV — trailing 15g)
-    for pair in [
-        ("team_barrel_15g_home", "team_barrel_15g_away", "team_barrel_diff"),
-        ("team_hardhit_15g_home", "team_hardhit_15g_away", "team_hardhit_diff"),
-        ("team_exitvelo_15g_home", "team_exitvelo_15g_away", "team_exitvelo_diff"),
-    ]:
-        h, a, out = pair
-        if h in df.columns and a in df.columns:
-            df[out] = pd.to_numeric(df[h], errors="coerce") - pd.to_numeric(df[a], errors="coerce")
-        else:
-            df[out] = 0.0
-
-    # ── 25. opp_lefty_share_diff: opposing lineup lefty share vs each starter
-    if "opp_lefty_share_home" in df.columns and "opp_lefty_share_away" in df.columns:
-        df["opp_lefty_share_diff"] = pd.to_numeric(df["opp_lefty_share_home"], errors="coerce") \
-            - pd.to_numeric(df["opp_lefty_share_away"], errors="coerce")
-    else:
-        df["opp_lefty_share_diff"] = 0.0
-
-    # ── 26. dome_is_neutral: binary flag (1 if fixed dome/closed roof)
-    # Prevents models from hallucinating weather impacts indoors.
+    # ── 28. dome_is_neutral: binary flag (1 if fixed dome/closed roof)
     home_team = df["home_team"].astype(str).str.upper().str.strip()
-    df["dome_is_neutral"] = home_team.map(DOME_STATUS).fillna(0).astype(float)
+    df["dome_is_neutral"] = home_team.map(DOME_STATUS).astype(float)  # NaN = unknown
 
-    # ── 27. park_factor_slug_diff: park_factor × lineup_woba_top3_diff
+    # ── 29. park_factor_slug_diff: home_park_slug_factor × lineup_woba_top3_diff
     # Maps out when a power-heavy lineup gets to exploit a small ballpark.
-    pf_raw = home_team.map(PARK_FACTORS_SLG).fillna(100).astype(float)
+    pf_raw = home_team.map(PARK_FACTORS_SLG).astype(float)  # NaN = unknown park
     pf = (pf_raw - 100.0) / 100.0  # center at 0: +0.05 = 5% more SLG than avg
-    df["park_factor_slug_diff"] = pf * df["lineup_woba_top3_diff"]
+    df["park_factor_slug_diff"] = pf * pd.to_numeric(
+        df["lineup_woba_top3_diff"], errors="coerce")
 
-    # ── 28. wind_advantage_flyball_factor
+    # ── 30. wind_advantage_flyball_factor
     # wind_direction_multiplier(Out=1, In=-1, Dome=0) × sp_era_diff.
     # Flags when mistake-prone pitchers are at risk of wind-blown home runs.
-    df["wind_advantage_flyball_factor"] = 0.0
-    # ── 29. air_density_velocity_boost
-    # stadium_air_density × sp_fbvelo_diff. Adjusts for how cold or thin air
-    # alters raw pitching velocity.
-    df["air_density_velocity_boost"] = 0.0
-    # Fill from weather data when available
+    # NULL when weather is missing or the SP diff is missing — never 0.
+    df["wind_advantage_flyball_factor"] = np.nan
+
+    # ── 31. air_density_velocity_boost: stadium_air_density × sp_fbvelo_diff
+    # Adjusts for how cold or thin air alters raw pitching velocity.
+    # NULL when weather is missing or the SP diff is missing — never 0.
+    df["air_density_velocity_boost"] = np.nan
+
+    # Standard sea-level air density ≈ 1.225 kg/m³ — center so neutral = 0
+    SEA_LEVEL_RHO = 1.225
     if weather_data:
         wind_mults = []
         air_dens = []
+        dome_mask = []
         for _, row in df.iterrows():
             gid = row.get("game_id", "")
-            w = weather_data.get(gid, {})
-            wind_mults.append(w.get("wind_multiplier", 0.0) if w.get("available") else 0.0)
-            ad = w.get("air_density", np.nan) if w.get("available") else np.nan
-            air_dens.append(ad if ad is not None and not np.isnan(ad) else np.nan)
-        df["wind_advantage_flyball_factor"] = [
-            wm * sp if not np.isnan(wm) and not np.isnan(sp) else 0.0
-            for wm, sp in zip(wind_mults, df["sp_era_diff"].values)
-        ]
-        # Standard sea-level air density ≈ 1.225 kg/m³ — center so neutral = 0
-        SEA_LEVEL_RHO = 1.225
-        df["air_density_velocity_boost"] = [
-            (ad - SEA_LEVEL_RHO) * sp if not np.isnan(ad) and not np.isnan(sp) else 0.0
-            for ad, sp in zip(air_dens, df["sp_fbvelo_diff"].values)
-        ]
-        n_weather = sum(1 for gid in df["game_id"] if gid in weather_data and weather_data[gid].get("available"))
+            w = weather_data.get(gid, {}) if isinstance(weather_data, dict) else {}
+            dome = row.get("dome_is_neutral")
+            dome_mask.append(pd.notna(dome) and float(dome) == 1)
+            if w.get("available"):
+                wind_mults.append(w.get("wind_multiplier", np.nan))
+                air_dens.append(w.get("air_density", np.nan))
+            else:
+                wind_mults.append(np.nan)
+                air_dens.append(np.nan)
+        wm = pd.Series(wind_mults, index=df.index, dtype="float64")
+        ad = pd.Series(air_dens, index=df.index, dtype="float64")
+        dome = pd.Series(dome_mask, index=df.index)
+        df["wind_advantage_flyball_factor"] = (
+            wm * pd.to_numeric(df["sp_era_diff"], errors="coerce"))
+        df["air_density_velocity_boost"] = (
+            (ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce"))
+        # Dome games: wind and air density are genuinely neutral indoors —
+        # a real, valid 0 (not a fabricated default).
+        df.loc[dome, "wind_advantage_flyball_factor"] = 0.0
+        df.loc[dome, "air_density_velocity_boost"] = 0.0
+        n_weather = int((wm.notna() & ad.notna()).sum())
         logger.info("Weather applied to %d/%d games", n_weather, len(df))
     else:
-        # Dome games always get 0
-        df.loc[df["dome_is_neutral"] == 1, "wind_advantage_flyball_factor"] = 0.0
-        df.loc[df["dome_is_neutral"] == 1, "air_density_velocity_boost"] = 0.0
+        # No weather fetched: dome games (KNOWN dome status) get a valid
+        # neutral 0; every other game stays NULL until real weather exists.
+        dome = df["dome_is_neutral"] == 1
+        df.loc[dome, "wind_advantage_flyball_factor"] = 0.0
+        df.loc[dome, "air_density_velocity_boost"] = 0.0
 
-    # ── 30. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
+    # ── 32. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
     # Overworked + low quality bullpen = elevated meltdown risk.
     df["bullpen_meltdown_risk"] = df["bullpen_pitches_diff"] * df["bullpen_whip_diff"]
 
-    # ── 31. platoon_exploit_edge: opp_lefty_share_diff × sp_xwoba_vs_l_diff
-    # Lineup matching against pitcher platoon flaw.
-    df["platoon_exploit_edge"] = df["opp_lefty_share_diff"] * df["sp_xwoba_vs_l_diff"]
+    # ── 33. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_30g_diff
+    # Physical velocity drop vs surface-level rolling-ERA results — flags
+    # regression candidates before the ERA fully catches up to the stuff.
+    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_30g_diff"]
 
-    # ── 32. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_30g_diff
-    # Physical velocity drop vs surface-level ERA results — flags regression candidates.
-    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_diff"]
-
-    # ── 33. lineup_depth_multiplier: lineup_woba_mean_diff × lineup_woba_top3_diff
+    # ── 34. lineup_depth_multiplier: lineup_woba_mean_diff × lineup_woba_top3_diff
     # Star power vs complete batting order depth.
     df["lineup_depth_multiplier"] = df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"]
 
-    # ── 34. ace_efficiency_factor: sp_k9_30g_diff × sp_whiff_diff
-    # High strikeout volume driven by raw stuff vs command — ace differentiator.
-    df["ace_efficiency_factor"] = df["sp_k9_diff"] * df["sp_whiff_diff"]
+    # ── 35. ace_efficiency_factor: sp_k9_30g_diff × sp_whiff_diff
+    # Rolling strikeout volume driven by raw swing-and-miss stuff — the
+    # true-ace differentiator.
+    df["ace_efficiency_factor"] = df["sp_k9_30g_diff"] * df["sp_whiff_diff"]
 
-    logger.info("Diff features complete: %d columns added", 34)
+    logger.info("Diff features complete: %d columns added", 35)
     return df
-
-
 
 # ── Public API ──────────────────────────────────────────────────────────────
 

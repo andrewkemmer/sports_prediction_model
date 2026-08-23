@@ -399,8 +399,10 @@ def load_history_games(date_str: str) -> pd.DataFrame:
 
 def load_power_rankings(date_str: str) -> pd.DataFrame:
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"power_rankings_{_pick_date(date_str)}.csv", **cfg)
+    picked = _pick_artifact_date(date_str, "power_rankings")
+    data, src = _fetch_bytes(f"power_rankings_{picked}.csv", **cfg)
     st.session_state["data_source"] = src
+    st.session_state["power_rankings_date"] = picked
     if data is None:
         return pd.DataFrame()
     df = pd.read_csv(io.BytesIO(data))
@@ -719,7 +721,9 @@ def inject_css() -> None:
         .fb-pill.pick {{ background: rgba(59,130,246,.9); color: #fff; }}
         .fb-score {{ display: flex; align-items: center; justify-content: center; gap: 26px; margin: 6px 0 4px; }}
         .fb-score .side {{ text-align: center; }}
-        .fb-score .num {{ font-size: 2.1rem; font-weight: 800; line-height: 1; }}
+        .fb-score .num-wrap {{ display: flex; align-items: center; justify-content: center; }}
+        .fb-score .win-bar {{ width: 4px; border-radius: 3px; height: 26px; margin-right: 7px; }}
+        .fb-score .num {{ font-size: 2.1rem; font-weight: 800; line-height: 1; color: {TEXT}; }}
         .fb-score .abbr {{ color: {SLATE}; font-size: 0.8rem; letter-spacing: 1px; }}
         .fb-score .mid {{ color: {SLATE}; font-size: 0.95rem; font-weight: 600; }}
         .fb-team {{ display: flex; align-items: center; gap: 8px; margin: 7px 0 3px; }}
@@ -787,9 +791,11 @@ FEATURE_DESCRIPTIONS = {
     "win_pct_diff": "Home win% − away win% (smoothed to .500 early season)",
     "elo_diff": "Home Elo − away Elo (skill-gap anchor, updated each game)",
     "rest_days_diff": "Home rest days − away rest days (schedule fatigue)",
-    # 5–6. SP career-level diffs
+    # 5–8. SP career + trailing-30g diffs
     "sp_era_diff": "Home SP career ERA − away SP career ERA",
+    "sp_era_30g_diff": "Home SP 30-start ERA − away SP (recent form)",
     "sp_k9_diff": "Home SP career K/9 − away SP career K/9",
+    "sp_k9_30g_diff": "Home SP 30-start K/9 − away SP (recent form)",
     # 7–9. SP trailing-3-game stuff diffs
     "sp_fbvelo_diff": "Home SP fastball velo (last 3 starts) − away SP (mph)",
     "sp_fbpct_diff": "Home SP fastball usage (last 3 starts) − away SP",
@@ -812,17 +818,21 @@ FEATURE_DESCRIPTIONS = {
     "team_barrel_diff": "Home barrel% (15g) − away barrel% (quality of contact)",
     "team_hardhit_diff": "Home hard-hit% (15g) − away hard-hit%",
     "team_exitvelo_diff": "Home avg exit velo (15g) − away avg exit velo (mph)",
-    # 23. Platoon exposure
-    "opp_lefty_share_diff": "Home opponent LHB% − away opponent LHB%",
-    # 24. Dome neutral flag (prevents weather hallucination indoors)
+    # 23. Lineup handedness matchup advantage
+    "lineup_handedness_matchup_advantage": "Lineup OPS vs tonight's opposing starter hand, home − away",
+    # 24. Travel fatigue & closer availability
+    "travel_fatigue_diff": "Home timezone crossings (last 3 days) − away (schedule fatigue)",
+    "closer_availability_diff": "Home closer available − away closer available (late-inning edge)",
+    # 25. Dome neutral flag (prevents weather hallucination indoors)
+    "dome_is_neutral": "1 if home park is a fixed dome/closed roof, 0 if open-air",
+    # 26–28. Context interaction features
     "dome_is_neutral": "1 if home park is a fixed dome/closed roof, 0 if open-air",
     # 25–27. Context interaction features
     "park_factor_slug_diff": "Home park SLG factor × lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
     "wind_advantage_flyball_factor": "Wind direction multiplier × SP ERA diff (flyball risk in windy conditions)",
     "air_density_velocity_boost": "Stadium air density × SP velo diff (cold/thin air affects velocity)",
-    # 28–32. Derived interaction features
+    # 29–32. Derived interaction features
     "bullpen_meltdown_risk": "Bullpen pitches diff × WHIP diff (overworked + low quality = meltdown)",
-    "platoon_exploit_edge": "Opp LHB% diff × SP xwOBA vs LHB diff (platoon mismatch exploitation)",
     "pitcher_regression_indicator": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
     "lineup_depth_multiplier": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
     "ace_efficiency_factor": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",

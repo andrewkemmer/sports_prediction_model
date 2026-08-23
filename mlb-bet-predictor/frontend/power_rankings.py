@@ -21,6 +21,9 @@ rankings = utils.load_power_rankings(date_str)
 if rankings.empty:
     st.warning(f"No power rankings found for {date_str}.")
     st.stop()
+# The artifact may resolve to a newer snapshot than the selected date
+# (rankings only exist for dates the pipeline published) — label it honestly.
+shown_date = st.session_state.get("power_rankings_date", date_str)
 
 top15 = rankings.head(15).reset_index(drop=True)
 
@@ -28,7 +31,7 @@ st.markdown(f"<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>Power
             unsafe_allow_html=True)
 st.markdown(
     f"<div style='color:#94A3B8;margin:2px 0 14px;'>"
-    f"Current Elo-based power rankings · As of {utils.format_date_long(date_str)} · Top 15 teams</div>",
+    f"Current Elo-based power rankings · As of {utils.format_date_long(shown_date)} · Top 15 teams</div>",
     unsafe_allow_html=True,
 )
 

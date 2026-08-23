@@ -47,7 +47,21 @@ class TestAirDensity(unittest.TestCase):
 
     def test_nan_inputs(self):
         self.assertTrue(np.isnan(compute_air_density(np.nan, 50.0, 1013.25, 0.0)))
-        self.assertTrue(np.isnan(compute_air_density(15.0, 50.0, np.nan, 0.0)))
+        # Pressure may be derived from a KNOWN altitude (a real calculation), so
+        # missing pressure + known altitude is valid, not NaN.
+        self.assertFalse(np.isnan(compute_air_density(15.0, 50.0, np.nan, 0.0)))
+        # Missing pressure AND unknown altitude -> null
+        self.assertTrue(np.isnan(compute_air_density(15.0, 50.0, np.nan, np.nan)))
+
+    def test_missing_humidity_is_null_not_assumed(self):
+        """A missing RH observation must NOT be silently assumed 50%."""
+        self.assertTrue(np.isnan(compute_air_density(15.0, np.nan, 1013.25, 0.0)))
+
+    def test_pressure_derived_from_altitude_is_valid(self):
+        """Missing pressure at a KNOWN altitude is a real calculation, not a
+        fabrication — altitude is a stadium constant."""
+        rho = compute_air_density(15.0, 50.0, np.nan, 0.0)
+        self.assertFalse(np.isnan(rho))
 
 
 class TestWindMultiplier(unittest.TestCase):
@@ -91,8 +105,9 @@ class TestWindMultiplier(unittest.TestCase):
         self.assertAlmostEqual(at_cap, over_cap, places=2)
 
     def test_nan_inputs(self):
-        self.assertEqual(compute_wind_multiplier(np.nan, 20.0, 0.0), 0.0)
-        self.assertEqual(compute_wind_multiplier(0.0, np.nan, 0.0), 0.0)
+        """Missing wind observations are NULL — never a fabricated 0."""
+        self.assertTrue(np.isnan(compute_wind_multiplier(np.nan, 20.0, 0.0)))
+        self.assertTrue(np.isnan(compute_wind_multiplier(0.0, np.nan, 0.0)))
 
 
 class TestNearestHour(unittest.TestCase):
@@ -151,6 +166,34 @@ class TestFetchWeather(unittest.TestCase):
         # Should use archive API
         call_url = mock_get.call_args[0][0]
         self.assertIn("archive-api", call_url)
+
+    @patch("backend.weather.requests.get")
+    def test_strictly_prior_hour_selected(self, mock_get):
+        """PIT: weather used must be observed strictly before first pitch —
+        the hour in which the game starts is never used."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "hourly": {
+                "time": ["2025-07-15T18:00", "2025-07-15T19:00", "2025-07-15T20:00"],
+                "temperature_2m": [23.0, 25.0, 26.0],
+                "relative_humidity_2m": [60, 62, 64],
+                "wind_speed_10m": [14.0, 15.0, 16.0],
+                "wind_direction_10m": [180.0, 185.0, 190.0],
+                "surface_pressure": [1013.0, 1012.0, 1011.0],
+            }
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        # Game starts 19:05 — the 19:00 hourly timestamp is strictly prior to
+        # 19:05, so it is the latest usable row (mirrors the 1-second-shift
+        # convention used for market lines).
+        result = fetch_weather(40.83, -73.93, datetime(2025, 7, 15, 19, 5), date(2025, 7, 15))
+        self.assertAlmostEqual(result["temp_c"], 25.0)
+
+        # Game starts exactly 19:00 — 19:00 is NOT strictly prior → 18:00.
+        result = fetch_weather(40.83, -73.93, datetime(2025, 7, 15, 19, 0), date(2025, 7, 15))
+        self.assertAlmostEqual(result["temp_c"], 23.0)
 
     @patch("backend.weather.requests.get")
     def test_forecast_api_for_future(self, mock_get):

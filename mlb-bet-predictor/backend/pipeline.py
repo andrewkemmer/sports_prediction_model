@@ -48,7 +48,7 @@ from data_ingestion import (
 )
 from explainability import compute_feature_drift, compute_shap_per_game
 from features import add_diff_features
-from weather import fetch_day_weather
+from weather import fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
@@ -87,7 +87,13 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
     if prev.empty or "game_id" not in prev.columns:
         return slate
     carry_cols = [c for c in (
+        # Pitching matchup + stats: ESPN drops probablePitcher once a game
+        # starts, so an evening rerun restores the morning's published
+        # starters AND their ERA/K9 lines (names alone don't re-derive stats
+        # without the pbp mapping), plus the StatsAPI ids.
         "sp_name_home", "sp_name_away",
+        "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
+        "sp_id_home", "sp_id_away",
         "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice",
     ) if c in prev.columns and c in slate.columns]
     if not carry_cols:
@@ -428,6 +434,43 @@ def run_daily_pipeline(
             logger.info("Diff features missing — computing from raw home/away columns")
             games = add_diff_features(games)
 
+        # Official-results overlay (Step 1.5).  Authoritative scores and
+        # finality from StatsAPI: corrects frozen mid-game finals
+        # retroactively and NULLS any home_win attached to a game that is
+        # not officially final — a partial score can never ship as a final
+        # (the same guarantee features.build_features provides).
+        try:
+            from results import apply_official_results, fetch_mlb_results
+            _d = pd.to_datetime(games.get("game_date"), errors="coerce").dropna()
+            if len(_d):
+                _res = fetch_mlb_results(_d.min().date(), _d.max().date())
+                if not _res.empty:
+                    games = apply_official_results(games, _res)
+        except Exception as exc:
+            logger.warning("Official results overlay failed on history: %s", exc)
+
+        # Real point-in-time weather for features 30–31 (wind advantage,
+        # air density).  One Open-Meteo request per (stadium, day); games
+        # without a strictly-prior observation get NULL weather features
+        # (never a fabricated 0).  Weather is only attached when the frame
+        # carries GENUINELY observed start times — fabricated defaults (e.g.
+        # load_game_features' 19:00 UTC fallback) are excluded via the
+        # start_time_observed tag so we never fetch weather for the wrong
+        # hour.
+        if "start_time_utc" in games.columns:
+            real_start = games["start_time_utc"].notna()
+            if "start_time_observed" in games.columns:
+                real_start &= games["start_time_observed"].fillna(True).astype(bool)
+            if real_start.any():
+                weather = {}
+                try:
+                    weather = fetch_games_weather(games.loc[real_start])
+                except Exception as e:
+                    logger.warning(
+                        "Weather fetch failed for history (features 30–31 stay NULL): %s", e
+                    )
+                games = add_diff_features(games, weather_data=weather or None)
+
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")
         lines = generate_synthetic_market_lines(games)
@@ -500,6 +543,22 @@ def run_daily_pipeline(
         # matchup and lines published by an earlier same-day run before they
         # get overwritten.
         target_games = _carry_forward_slate_details(target_games, target_date_str)
+
+        # Official-results overlay on today's board.  Slate rows carry no
+        # StatsAPI game_pk, so the overlay falls back to (date + teams).
+        # Live/preview games get home_win=NULL; finals get authoritative
+        # scores — never a mid-game snapshot as a final.
+        try:
+            from results import apply_official_results, fetch_mlb_results
+            _d = pd.to_datetime(target_games.get("game_date"), errors="coerce").dropna()
+            if len(_d):
+                _res = fetch_mlb_results(_d.min().date(), _d.max().date())
+                if not _res.empty:
+                    target_games = apply_official_results(target_games, _res)
+                    if all_predictions is not None and len(all_predictions):
+                        all_predictions = apply_official_results(all_predictions, _res)
+        except Exception as exc:
+            logger.warning("Official results overlay failed on slate: %s", exc)
 
         target_games = predict_games(best_models, target_games)
 

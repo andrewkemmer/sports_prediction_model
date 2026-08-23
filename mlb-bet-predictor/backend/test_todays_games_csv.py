@@ -21,6 +21,7 @@ from backend import pipeline
 def _slate_row(gid="20260822_TOR@NYY", name="TBD"):
     row = {c: np.nan for c in (
         ["game_id", "home_team", "away_team", "sp_name_home", "sp_name_away",
+         "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
          "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice"])}
     row.update({
         "game_id": gid,
@@ -69,15 +70,33 @@ class TestCarryForwardSlateDetails(unittest.TestCase):
         self.assertEqual(out.iloc[0]["sp_name_away"], "Gausman, Kevin")
         self.assertEqual(out.iloc[0]["moneyline_home"], -150)
 
+    def test_pitcher_stats_restored_with_names(self):
+        """Evening rerun must restore ERA/K9 too — names alone don't re-derive
+        stats without the pbp mapping, so the morning's stat lines carry."""
+        morning = pd.DataFrame([
+            {**_slate_row(), "sp_name_home": "Cole, Gerrit", "sp_name_away": "Gausman, Kevin",
+             "sp_era_home": 3.10, "sp_k9_home": 9.9,
+             "sp_era_away": 4.05, "sp_k9_away": 8.2},
+        ])
+        morning.to_csv(self.tmp / "todays_games_20990101.csv", index=False)
+
+        rebuilt = pd.DataFrame([{**_slate_row()}])  # all TBD / NaN
+        out = pipeline._carry_forward_slate_details(rebuilt, "20990101")
+        self.assertEqual(out.iloc[0]["sp_name_home"], "Cole, Gerrit")
+        self.assertAlmostEqual(float(out.iloc[0]["sp_era_home"]), 3.10)
+        self.assertAlmostEqual(float(out.iloc[0]["sp_k9_home"]), 9.9)
+        self.assertAlmostEqual(float(out.iloc[0]["sp_era_away"]), 4.05)
+
     def test_existing_values_not_overwritten(self):
         """A fresher non-TBD value on the rebuilt slate must win."""
         morning = pd.DataFrame([
-            {**_slate_row(), "sp_name_home": "Cole, Gerrit"},
+            {**_slate_row(), "sp_name_home": "Cole, Gerrit", "sp_era_home": 3.10},
         ])
         morning.to_csv(self.tmp / "todays_games_20990101.csv", index=False)
-        rebuilt = pd.DataFrame([{**_slate_row(), "sp_name_home": "New Guy"}])
+        rebuilt = pd.DataFrame([{**_slate_row(), "sp_name_home": "New Guy", "sp_era_home": 2.95}])
         out = pipeline._carry_forward_slate_details(rebuilt, "20990101")
         self.assertEqual(out.iloc[0]["sp_name_home"], "New Guy")
+        self.assertAlmostEqual(float(out.iloc[0]["sp_era_home"]), 2.95)
 
     def test_missing_previous_artifact_is_noop(self):
         slate = pd.DataFrame([_slate_row()])

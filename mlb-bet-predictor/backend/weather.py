@@ -125,8 +125,16 @@ def compute_air_density(
     when it approximates sea-level pressure the barometric formula
     corrects it to station level via ``altitude_m``.
     Standard sea-level value ≈ 1.225 kg/m³.
+
+    Point-in-time / null rule: any MISSING observation returns NaN.  A
+    missing humidity is not silently assumed to be 50% — if we do not
+    observe it, the feature is null.  (Pressure may be derived from
+    stadium altitude, which is a known constant, so a missing pressure
+    reading is a real calculation rather than a fabrication.)
     """
-    if np.isnan(temp_c) or np.isnan(pressure_hpa):
+    if np.isnan(temp_c) or np.isnan(rh_pct):
+        return np.nan
+    if np.isnan(pressure_hpa) and np.isnan(altitude_m):
         return np.nan
 
     T = temp_c + 273.15  # Kelvin
@@ -153,7 +161,7 @@ def compute_air_density(
 
     # Saturation vapor pressure (Tetens formula)
     esat = 610.78 * np.exp(17.27 * temp_c / (temp_c + 237.3))
-    rh_frac = max(0.0, min(100.0, rh_pct if not np.isnan(rh_pct) else 50.0)) / 100.0
+    rh_frac = max(0.0, min(100.0, rh_pct)) / 100.0
     Pv = rh_frac * esat  # partial pressure of water vapor
     Pd = P - Pv  # dry air partial pressure
 
@@ -177,11 +185,13 @@ def compute_wind_multiplier(
     helps hitters → +1.0.  Wind in (from center field toward home plate)
     helps pitchers → -1.0.  Calm or cross winds → near 0.
 
-    Returns a value in [-1, 1] scaled by wind speed.
+    Returns a value in [-1, 1] scaled by wind speed.  NaN for any MISSING
+    observation (never a fabricated 0); 0.0 is reserved for genuinely calm
+    wind or a genuinely perpendicular (cross) wind.
     """
     if np.isnan(wind_direction_deg) or np.isnan(wind_speed_kmh):
-        return 0.0
-    if wind_speed_kmh < 3.0:  # calm (< 2 mph)
+        return np.nan
+    if wind_speed_kmh < 3.0:  # calm (< 2 mph) — a real, valid observation
         return 0.0
 
     # wind_direction_deg = direction wind is COMING FROM (meteorological)
@@ -218,18 +228,44 @@ def _nearest_hour(
     return best_i
 
 
-def fetch_weather(
+def _hour_prior(
+    times: list[str],
+    target_utc: datetime,
+) -> int:
+    """Index of the latest hourly timestamp STRICTLY before target_utc.
+
+    Point-in-time rule: weather used as a pre-game feature must be observed
+    strictly before first pitch, so the hour in which the game starts is
+    never used (its window overlaps the game).  Returns -1 when no hourly
+    row is strictly prior (e.g. a past game whose archive row does not
+    exist yet, or a start at/before the earliest available hour).
+    """
+    target = target_utc.replace(tzinfo=None)
+    best_i = -1
+    for i, t in enumerate(times):
+        ts = datetime.fromisoformat(t.replace("Z", "")).replace(tzinfo=None)
+        if ts < target:
+            best_i = i
+    return best_i
+
+
+_HOURLY_KEYS = (
+    "time", "temperature_2m", "relative_humidity_2m",
+    "wind_speed_10m", "wind_direction_10m", "surface_pressure",
+)
+
+
+def _fetch_hourly_series(
     lat: float,
     lon: float,
-    game_local_time: datetime,
     archive_date: date,
-) -> dict:
-    """Fetch hourly weather for a single stadium at game time.
+) -> dict[str, list] | None:
+    """Full-day hourly arrays for one stadium/date (one HTTP request).
 
-    Uses archive API for past dates, forecast API for today/future.
-
-    Returns dict with keys: temp_c, rh_pct, wind_speed_kmh,
-    wind_direction_deg, pressure_hpa.
+    Past dates (strictly before today) use the archive API — the observed
+    historical record.  Today/future use the forecast API, which is
+    produced before game time and therefore strictly prior knowledge.
+    Returns None on any failure or empty payload (missing observation).
     """
     today = date.today()
     params = {
@@ -237,9 +273,10 @@ def fetch_weather(
         "longitude": lon,
         "hourly": _HOURLY_VARS,
     }
-
-    if archive_date <= today - timedelta(days=5):
-        # Archive API (historical) — free, no key
+    if archive_date < today:
+        # Archive API (historical) — free, no key.  Note the archive has
+        # ~5-day latency; dates inside that window return no rows, which
+        # correctly yields NaN (null) features instead of stale values.
         params["start_date"] = archive_date.isoformat()
         params["end_date"] = archive_date.isoformat()
         url = "https://archive-api.open-meteo.com/v1/archive"
@@ -254,25 +291,32 @@ def fetch_weather(
         data = resp.json()
     except Exception as e:
         logger.warning("Weather fetch failed for %.2f,%.2f: %s", lat, lon, e)
-        return {
-            "temp_c": np.nan, "rh_pct": np.nan,
-            "wind_speed_kmh": np.nan, "wind_direction_deg": np.nan,
-            "pressure_hpa": np.nan,
-        }
+        return None
 
     hourly = data.get("hourly", {})
-    times = hourly.get("time", [])
-    if not times:
+    if not hourly.get("time"):
+        return None
+    return {k: hourly.get(k, []) for k in _HOURLY_KEYS}
+
+
+def _pick_row(series: dict[str, list] | None, game_local_time: datetime) -> dict:
+    """Pick the strictly-prior hourly row from a day's series (NaN when missing)."""
+    if series is None:
+        return {
+            "temp_c": np.nan, "rh_pct": np.nan,
+            "wind_speed_kmh": np.nan, "wind_direction_deg": np.nan,
+            "pressure_hpa": np.nan,
+        }
+    idx = _hour_prior(series["time"], game_local_time)
+    if idx < 0:
         return {
             "temp_c": np.nan, "rh_pct": np.nan,
             "wind_speed_kmh": np.nan, "wind_direction_deg": np.nan,
             "pressure_hpa": np.nan,
         }
 
-    idx = _nearest_hour(times, game_local_time)
-
     def _get(key: str) -> float:
-        vals = hourly.get(key, [])
+        vals = series.get(key, [])
         return float(vals[idx]) if idx < len(vals) else np.nan
 
     return {
@@ -281,6 +325,62 @@ def fetch_weather(
         "wind_speed_kmh": _get("wind_speed_10m"),
         "wind_direction_deg": _get("wind_direction_10m"),
         "pressure_hpa": _get("surface_pressure"),
+    }
+
+
+def fetch_weather(
+    lat: float,
+    lon: float,
+    game_local_time: datetime,
+    archive_date: date,
+) -> dict:
+    """Fetch hourly weather for a single stadium at game time.
+
+    Uses archive API for past dates, forecast API for today/future.  The
+    hourly row used is the latest one STRICTLY before game time (PIT).
+
+    Returns dict with keys: temp_c, rh_pct, wind_speed_kmh,
+    wind_direction_deg, pressure_hpa (all NaN when unavailable).
+    """
+    return _pick_row(_fetch_hourly_series(lat, lon, archive_date), game_local_time)
+
+
+def _localize(start_utc: datetime, tz_name: str, lon: float = 0.0) -> datetime:
+    """Convert a UTC game start to stadium-local time (DST-correct)."""
+    try:
+        from zoneinfo import ZoneInfo
+        start = start_utc if start_utc.tzinfo else start_utc.replace(tzinfo=timezone.utc)
+        return start.astimezone(ZoneInfo(tz_name))
+    except Exception:
+        # Fallback: fixed offset ≈ longitude / 15 (ignores DST)
+        return start_utc + timedelta(hours=round(lon / 15.0))
+
+
+def _stadium_weather(
+    info: dict,
+    game_start_utc: datetime,
+    series: dict[str, list] | None,
+) -> dict:
+    """Build the extended weather dict for one game from a day's series."""
+    local = _localize(game_start_utc, info["tz"], info["lon"])
+    raw = _pick_row(series, local)
+    air_density = compute_air_density(
+        raw["temp_c"], raw["rh_pct"], raw["pressure_hpa"], info["alt_m"]
+    )
+    wind_mult = compute_wind_multiplier(
+        raw["wind_direction_deg"], raw["wind_speed_kmh"], info["bearing"]
+    )
+    return {
+        "available": True,
+        "temp_c": raw["temp_c"],
+        "rh_pct": raw["rh_pct"],
+        "wind_speed_kmh": raw["wind_speed_kmh"],
+        "wind_direction_deg": raw["wind_direction_deg"],
+        "pressure_hpa": raw["pressure_hpa"],
+        "air_density": air_density,
+        "wind_multiplier": wind_mult,
+        "stadium_alt_m": info["alt_m"],
+        "stadium_bearing": info["bearing"],
     }
 
 
@@ -294,8 +394,8 @@ def fetch_game_weather(
     plus computed air_density and wind_multiplier.
 
     ``game_start_local`` is used to pick the right hourly row.  If not
-    provided, it is derived from ``game_start_utc`` via the stadium's tz
-    (approximated as the UTC offset of the stadium's longitude).
+    provided, it is derived from ``game_start_utc`` via the stadium's
+    registered timezone (DST-correct).
     """
     team_code = _resolve_team_code(home_team, venue)
     info = STADIUMS.get(team_code)
@@ -303,10 +403,8 @@ def fetch_game_weather(
         logger.warning("No stadium data for %s (venue=%s)", home_team, venue)
         return {"available": False}
 
-    # Local time approximation (UTC offset ≈ longitude / 15)
     if game_start_local is None:
-        utc_offset_h = round(info["lon"] / 15.0)
-        game_start_local = game_start_utc + timedelta(hours=utc_offset_h)
+        game_start_local = _localize(game_start_utc, info["tz"], info["lon"])
 
     game_date = game_start_local.date()
 
@@ -333,35 +431,69 @@ def fetch_game_weather(
     }
 
 
-def fetch_day_weather(
+def fetch_games_weather(
     games_df: pd.DataFrame,
 ) -> dict[str, dict]:
-    """Fetch weather for all games in a DataFrame.
+    """Weather for every game in a frame — one request per (stadium, day).
 
-    Expects columns: home_team, venue, start_time_utc (or game_date).
-    Returns dict keyed by game_id mapping to weather dicts.
+    Expects columns: game_id (or the frame index), home_team, venue,
+    start_time_utc.  All games at the same stadium on the same local date
+    share a single Open-Meteo request; each game then picks its own
+    STRICTLY-PRIOR hourly row (point-in-time).
+
+    Returns dict keyed by game_id → weather dict (available=False when the
+    stadium is unknown or the start time is missing — those games yield
+    null weather features, never fabricated zeros).
     """
     results: dict[str, dict] = {}
-
-    if games_df.empty:
+    if games_df is None or games_df.empty:
         return results
 
-    # Group by venue to avoid duplicate fetches for doubleheaders
-    for gid, row in games_df.iterrows():
+    df = games_df.copy()
+    if "game_id" not in df.columns:
+        df = df.reset_index()
+        df = df.rename(columns={df.columns[0]: "game_id"})
+
+    # Cache one day-series per (stadium team code, local date)
+    series_cache: dict[tuple[str, date], dict[str, list] | None] = {}
+
+    def _series(team_code: str, info: dict, start_utc: datetime) -> dict[str, list] | None:
+        local = _localize(start_utc, info["tz"], info["lon"])
+        key = (team_code, local.date())
+        if key not in series_cache:
+            series_cache[key] = _fetch_hourly_series(
+                info["lat"], info["lon"], local.date()
+            )
+        return series_cache[key]
+
+    for gid, row in df.iterrows():
         game_id = row.get("game_id", str(gid))
         home = row.get("home_team", "")
         venue = row.get("venue", "")
         start = row.get("start_time_utc")
-        if pd.isna(start) or not start:
+        if start is None or (isinstance(start, float) and pd.isna(start)):
+            results[game_id] = {"available": False}
             continue
         if isinstance(start, str):
             start = pd.Timestamp(start).to_pydatetime()
         elif isinstance(start, pd.Timestamp):
             start = start.to_pydatetime()
 
-        w = fetch_game_weather(home, venue, start)
-        results[game_id] = w
+        team_code = _resolve_team_code(home, venue)
+        info = STADIUMS.get(team_code)
+        if info is None:
+            results[game_id] = {"available": False}
+            continue
+
+        results[game_id] = _stadium_weather(info, start, _series(team_code, info, start))
 
     n_ok = sum(1 for v in results.values() if v.get("available"))
     logger.info("Weather fetched: %d/%d games", n_ok, len(results))
     return results
+
+
+def fetch_day_weather(
+    games_df: pd.DataFrame,
+) -> dict[str, dict]:
+    """Backward-compatible alias for :func:`fetch_games_weather`."""
+    return fetch_games_weather(games_df)
