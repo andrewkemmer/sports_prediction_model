@@ -75,6 +75,25 @@ class TestApplyOfficialResults(unittest.TestCase):
         lad = df[df["game_pk"] == 824010].iloc[0]
         self.assertTrue(pd.isna(lad["home_win"]))
 
+    def test_duplicate_game_pk_rows_do_not_crash(self):
+        """StatsAPI lists rescheduled games under multiple dates → the same
+        gamePk appears twice. This crashed set_index().to_dict('index') and
+        silently disabled the overlay on every real run."""
+        results = pd.concat([
+            self._make_results(),
+            # Duplicate listing of 823420 under a different date (postponed
+            # then played), same final.
+            pd.DataFrame([{
+                "game_pk": 823420, "game_date": "2026-08-22",
+                "home_score": 7.0, "away_score": 6.0,
+                "home_win": 1.0, "is_final": True,
+            }]),
+        ], ignore_index=True)
+        df = apply_official_results(self._make_games(), results)
+        phi = df[df["game_pk"] == 823420].iloc[0]
+        self.assertEqual(phi["home_score"], 7.0)
+        self.assertEqual(phi["home_win"], 1.0)
+
     def test_empty_results_returns_original(self):
         """No results → games unchanged."""
         games = self._make_games()

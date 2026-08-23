@@ -116,9 +116,16 @@ def apply_official_results(games: pd.DataFrame,
         return df
 
     # Match key 1: StatsAPI game_pk (history frames from Statcast).
+    # The schedule endpoint can list the same game under multiple dates
+    # (postponements/resumptions), producing duplicate game_pk rows that
+    # crash set_index().to_dict('index') — keep one row per game.
     pk_lookup = {}
     if "game_pk" in df.columns:
-        pk_res = res.dropna(subset=["game_pk"]).copy()
+        pk_res = (
+            res.dropna(subset=["game_pk"])
+            .drop_duplicates(subset=["game_pk"], keep="last")
+            .copy()
+        )
         pk_res["game_pk"] = pk_res["game_pk"].astype("int64")
         pk_lookup = pk_res.set_index("game_pk").to_dict("index")
         df["_pk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")

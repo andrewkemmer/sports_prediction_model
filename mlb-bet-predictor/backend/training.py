@@ -34,6 +34,7 @@ from config import (
     ENSEMBLE_WEIGHTS,
     LIGHTGBM_PARAMS,
     LIGHTGBM_REG_PARAMS,
+    MIN_VAL_FOLD_GAMES,
     MODELS_DIR,
     RANDOM_SEED,
     RETRAIN_CADENCE_DAYS,
@@ -721,12 +722,20 @@ def walk_forward_evaluate(
     max_eval_folds: int = 0,
     force_retrain: bool = False,
     min_train_days: int = 0,
+    min_val_games: Optional[int] = None,
 ) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
     """Run full walk-forward evaluation across all splits.
+
+    Validation folds with fewer than ``min_val_games`` games are skipped
+    (default MIN_VAL_FOLD_GAMES): tiny postseason/offseason-tail folds add
+    high-variance metrics that pollute the pooled scores and the adaptive
+    weights earned from them. Pass 0 to keep every fold (used by tests).
 
     Returns:
         (best_models, pooled_metrics, all_predictions)
     """
+    if min_val_games is None:
+        min_val_games = MIN_VAL_FOLD_GAMES
     splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
 
     if not splits:
@@ -755,6 +764,13 @@ def walk_forward_evaluate(
         val = split["val_games"]
 
         if len(train) < 10 or len(val) < 5:
+            continue
+        if len(val) < min_val_games:
+            logger.info(
+                "Skipping fold %d [%s → %s]: only %d val games < %d minimum",
+                split["fold_idx"], str(split["val_start"])[:10],
+                str(split["val_end"])[:10], len(val), min_val_games,
+            )
             continue
 
         try:

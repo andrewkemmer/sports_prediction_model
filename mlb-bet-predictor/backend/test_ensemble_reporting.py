@@ -113,7 +113,9 @@ class TestRosterReporting(unittest.TestCase):
         })
         df = add_diff_features(raw)
         try:
-            walk_forward_evaluate(df, retrain_cadence_days=30, min_train_days=0)
+            walk_forward_evaluate(
+                df, retrain_cadence_days=30, min_train_days=0, min_val_games=0
+            )
         except Exception:
             self.fail("walk_forward_evaluate raised unexpectedly")
         finally:

@@ -38,6 +38,11 @@ SP_K9_WINDOW = 30  # Games
 # Training
 # ---------------------------------------------------------------------------
 RETRAIN_CADENCE_DAYS = 7
+# Walk-forward validation folds below this many games are skipped entirely:
+# a handful of games (postseason tails, offseason gaps) produce wild AUC/Brier
+# swings (e.g. AUC 0.18 on 11 games) that pollute pooled metrics and the
+# adaptive blend weights earned from them.
+MIN_VAL_FOLD_GAMES = 40
 DEFAULT_MAX_EVAL_FOLDS = 0  # 0 = full history
 TRAIN_TEST_SPLIT_RATIO = 0.2  # Not used directly; walk-forward handles splits
 
