@@ -378,8 +378,8 @@ def generate_synthetic_games(
         venue, rest_days_home, rest_days_away,
         woba_30g_home, woba_30g_away,
         bullpen_whip_10g_home, bullpen_whip_10g_away,
-        sp_era_30g_home, sp_era_30g_away,
-        sp_k9_30g_home, sp_k9_30g_away,
+        sp_era_5g_home, sp_era_5g_away,
+        sp_k9_5g_home, sp_k9_5g_away,
     """
     rng = np.random.RandomState(seed)
     teams = list(MLB_TEAMS.keys())
@@ -475,10 +475,10 @@ def generate_synthetic_games(
                 "woba_30g_away": round(woba_a, 3),
                 "bullpen_whip_10g_home": round(bp_whip_h, 3),
                 "bullpen_whip_10g_away": round(bp_whip_a, 3),
-                "sp_era_30g_home": round(sp_era_h, 2),
-                "sp_era_30g_away": round(sp_era_a, 2),
-                "sp_k9_30g_home": round(sp_k9_h, 1),
-                "sp_k9_30g_away": round(sp_k9_a, 1),
+                "sp_era_5g_home": round(sp_era_h, 2),
+                "sp_era_5g_away": round(sp_era_a, 2),
+                "sp_k9_5g_home": round(sp_k9_h, 1),
+                "sp_k9_5g_away": round(sp_k9_a, 1),
             })
 
             # Record for future rolling stats
@@ -763,10 +763,10 @@ def _parse_espn_event(event: dict) -> dict | None:
         "woba_30g_away": None,
         "bullpen_whip_10g_home": None,
         "bullpen_whip_10g_away": None,
-        "sp_era_30g_home": None,
-        "sp_era_30g_away": None,
-        "sp_k9_30g_home": None,
-        "sp_k9_30g_away": None,
+        "sp_era_5g_home": None,
+        "sp_era_5g_away": None,
+        "sp_k9_5g_home": None,
+        "sp_k9_5g_away": None,
     }
 
 
@@ -851,7 +851,7 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
 
     This function maps those to the column names expected by training.py:
         game_id, home_elo, home_win_pct, away_win_pct,
-        woba_30g_home, sp_era_30g_home, sp_k9_30g_home, etc.
+        woba_30g_home, sp_era_5g_home, sp_k9_5g_home, etc.
 
     It also computes ELO, win percentage, and run differential from the data.
     """
@@ -912,10 +912,14 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
     col_map = {
         "team_woba_30g_home": "woba_30g_home",
         "team_woba_30g_away": "woba_30g_away",
-        "sp_era_home": "sp_era_30g_home",
-        "sp_era_away": "sp_era_30g_away",
-        "sp_k9_home": "sp_k9_30g_home",
-        "sp_k9_away": "sp_k9_30g_away",
+        # Backward compat: pre-2026-08-23 CSVs named the last-5-start twins
+        # sp_era_30g_* (the "career" sp_era_home was aliased to them). A
+        # fresh build natively carries season-to-date sp_era_home plus
+        # sp_era_5g_*; old CSVs are remapped so cached runs don't break.
+        "sp_era_30g_home": "sp_era_5g_home",
+        "sp_era_30g_away": "sp_era_5g_away",
+        "sp_k9_30g_home": "sp_k9_5g_home",
+        "sp_k9_30g_away": "sp_k9_5g_away",
     }
     # Add mapped columns (keep originals too for SHAP labels)
     for src, dst in col_map.items():
@@ -1309,8 +1313,8 @@ def build_upcoming_slate(
             "sp_whiff_3g_home", "sp_whiff_3g_away",
             "sp_xwoba_home", "sp_xwoba_away",
             "sp_xwoba_vs_l_home", "sp_xwoba_vs_l_away",
-            "sp_era_30g_home", "sp_era_30g_away",
-            "sp_k9_30g_home", "sp_k9_30g_away",
+            "sp_era_5g_home", "sp_era_5g_away",
+            "sp_k9_5g_home", "sp_k9_5g_away",
             "woba_30g_home", "woba_30g_away",
             "lineup_woba_mean_home", "lineup_woba_mean_away",
             "lineup_woba_top3_home", "lineup_woba_top3_away",

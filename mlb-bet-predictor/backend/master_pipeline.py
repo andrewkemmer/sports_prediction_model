@@ -123,6 +123,9 @@ start = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d").date()
 end = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d").date()
 out_dir = Path(CONFIG.get("output_dir", "/content/mlb_clean_data"))
 out_dir.mkdir(parents=True, exist_ok=True)
+# The weather-history cache lives beside pitches.parquet (outside the git
+# repo) so Colab's per-run artifact sync never stages it.
+getattr(os, "environ").setdefault("MLB_CACHE_DIR", str(out_dir))
 pitches_path = out_dir / "pitches.parquet"
 
 print(f"📅 {start} → {end}")
@@ -182,7 +185,7 @@ try:
     # run_diff and maps columns to training.py's FEATURE_COLS format.
     train_games = load_game_features(csv_path)
     print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
-    key_feats = ["home_elo", "home_win_pct", "sp_era_30g_home", "woba_30g_home",
+    key_feats = ["home_elo", "home_win_pct", "sp_era_5g_home", "woba_30g_home",
                  "bullpen_whip_10g_home", "rest_days_home"]
     cov = ", ".join(
         f"{c}:{train_games[c].notna().mean()*100:.0f}%"

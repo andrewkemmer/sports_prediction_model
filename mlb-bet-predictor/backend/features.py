@@ -566,11 +566,65 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                      ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)
     """)
 
+    # Season-to-date ERA / K/9 (strictly in-season, via season-partitioned
+    # LAGs so the prior October never leaks into a new season's cumulative)
+    # plus last-5-start ERA / K/9 (ACROSS seasons — no season-start gap: an
+    # April start rolls over the prior season's tail). All point-in-time
+    # safe: the row holds the previous game's stats via LAG, so the current
+    # game never enters its own feature.
+    con.execute("""
+        CREATE TABLE pitcher_shifted_season AS
+        SELECT *,
+            LAG(ip, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_ip,
+            LAG(runs, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_runs,
+            LAG(ks, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_ks
+        FROM (SELECT *, EXTRACT(YEAR FROM game_date) AS season FROM pitcher_game_stats)
+    """)
+
+    con.execute("""
+        CREATE TABLE pitcher_season_rolling AS
+        SELECT game_date, game_pk, pitcher,
+            SUM(_s_runs) OVER w_season AS _s_runs_s,
+            SUM(_s_ks)  OVER w_season AS _s_ks_s,
+            SUM(_s_ip)  OVER w_season AS _s_ip_s
+        FROM pitcher_shifted_season
+        WINDOW w_season AS (PARTITION BY pitcher, season ORDER BY game_date
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+
+    # Last-5-start window across ALL seasons (no season partition): built on
+    # the cross-season LAGs in pitcher_shifted, so a season's first starts
+    # roll over the prior season's tail — no gap at the season boundary. A
+    # career debut (no prior start at all) yields NULL naturally.
+    con.execute("""
+        CREATE TABLE pitcher_5g_rolling AS
+        SELECT game_date, game_pk, pitcher,
+            SUM(_s_runs) OVER w5 AS _roll5_runs,
+            SUM(_s_ks)  OVER w5 AS _roll5_ks,
+            SUM(_s_ip)  OVER w5 AS _roll5_ip
+        FROM pitcher_shifted
+        WINDOW w5 AS (PARTITION BY pitcher ORDER BY game_date
+                      ROWS BETWEEN 4 PRECEDING AND CURRENT ROW)
+    """)
+
+    con.execute("""
+        CREATE TABLE pitcher_season_features AS
+        SELECT psr.game_date, psr.game_pk, psr.pitcher,
+            -- True season-to-date ERA / K/9 (through the prior in-season
+            -- starts only; NULL for a season's opening start).
+            psr._s_runs_s / NULLIF(psr._s_ip_s, 0) * 9.0 AS sp_era,
+            psr._s_ks_s / NULLIF(psr._s_ip_s, 0) * 9.0 AS sp_k9,
+            -- Last-5-start ERA / K/9 across seasons (no start-count guard).
+            p5._roll5_runs / NULLIF(p5._roll5_ip, 0) * 9.0 AS sp_era_5g,
+            p5._roll5_ks / NULLIF(p5._roll5_ip, 0) * 9.0 AS sp_k9_5g
+        FROM pitcher_season_rolling psr
+        LEFT JOIN pitcher_5g_rolling p5
+               ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
+    """)
+
     con.execute("""
         CREATE TABLE pitcher_features AS
         SELECT game_date, game_pk, pitcher,
-            _roll_runs / NULLIF(_roll_ip, 0) * 9.0 AS sp_era_30g,
-            _roll_ks / NULLIF(_roll_ip, 0) * 9.0 AS sp_k9_30g,
             _roll_bbs / NULLIF(_roll_ip, 0) * 9.0 AS sp_bb9_30g,
             (_roll_bbs + _roll_hits) / NULLIF(_roll_ip, 0) AS sp_whip_30g,
             (13 * _roll_hrs + 3 * (_roll_bbs + _roll_hbps) - 2 * _roll_ks)
@@ -1009,15 +1063,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             w.home_score, w.away_score, w.home_win, w.total_runs,
             s.home_starter_id, s.away_starter_id, v.venue,
             rh.rest_days AS rest_days_home, ra.rest_days AS rest_days_away,
-            ph.sp_era_30g AS sp_era_home, ph.sp_k9_30g AS sp_k9_home,
+            sh.sp_era AS sp_era_home, sh.sp_k9 AS sp_k9_home,
             ph.sp_bb9_30g AS sp_bb9_home, ph.sp_whip_30g AS sp_whip_home,
             ph.sp_fip_30g AS sp_fip_home, ph.sp_xwoba_30g AS sp_xwoba_home,
-            pa.sp_era_30g AS sp_era_away, pa.sp_k9_30g AS sp_k9_away,
+            sa.sp_era AS sp_era_away, sa.sp_k9 AS sp_k9_away,
             pa.sp_bb9_30g AS sp_bb9_away, pa.sp_whip_30g AS sp_whip_away,
             pa.sp_fip_30g AS sp_fip_away, pa.sp_xwoba_30g AS sp_xwoba_away,
-            -- 30-game rolling SP twins under their own names (feature 6/8)
-            ph.sp_era_30g AS sp_era_30g_home, ph.sp_k9_30g AS sp_k9_30g_home,
-            pa.sp_era_30g AS sp_era_30g_away, pa.sp_k9_30g AS sp_k9_30g_away,
+            -- Last-5-start SP twins under their own names (feature 6/8)
+            sh.sp_era_5g AS sp_era_5g_home, sh.sp_k9_5g AS sp_k9_5g_home,
+            sa.sp_era_5g AS sp_era_5g_away, sa.sp_k9_5g AS sp_k9_5g_away,
             th.team_woba_30g AS team_woba_30g_home, th.team_iso_30g AS team_iso_30g_home,
             th.team_k_rate_30g AS team_k_rate_30g_home, th.team_bb_rate_30g AS team_bb_rate_30g_home,
             ta.team_woba_30g AS team_woba_30g_away, ta.team_iso_30g AS team_iso_30g_away,
@@ -1066,6 +1120,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN venues v ON w.game_pk = v.game_pk
         LEFT JOIN rest_days rh ON w.game_pk = rh.game_pk AND w.home_team = rh.team
         LEFT JOIN rest_days ra ON w.game_pk = ra.game_pk AND w.away_team = ra.team
+        LEFT JOIN pitcher_season_features sh ON w.game_pk = sh.game_pk AND sh.pitcher = s.home_starter_id
+        LEFT JOIN pitcher_season_features sa ON w.game_pk = sa.game_pk AND sa.pitcher = s.away_starter_id
         LEFT JOIN pitcher_features ph ON w.game_pk = ph.game_pk AND ph.pitcher = s.home_starter_id
         LEFT JOIN pitcher_features pa ON w.game_pk = pa.game_pk AND pa.pitcher = s.away_starter_id
         LEFT JOIN team_offense_rolling th ON w.game_pk = th.game_pk AND w.home_team = th.batting_team
@@ -1092,7 +1148,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
 
     for tbl in (
         "game_winners", "starters", "venues", "rest_days",
-        "pa_boundary", "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling", "pitcher_features",
+        "pa_boundary", "pitcher_game_stats", "pitcher_shifted", "pitcher_rolling",
+        "pitcher_shifted_season", "pitcher_season_rolling", "pitcher_5g_rolling",
+        "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
         "bullpen_raw", "bullpen_shifted", "bullpen_rolling",
         "bp_daily", "bp_fatigue",
@@ -1311,9 +1369,13 @@ def add_diff_features(
          3. elo_diff           home_elo − away_elo
          4. rest_days_diff     rest_days_home − rest_days_away
          5. sp_era_diff        home_sp_era − away_sp_era
-         6. sp_era_30g_diff    home_sp_era_30g − away_sp_era_30g
+                               (true season-to-date ERA, per-season)
+         6. sp_era_5g_diff     home_sp_era_5g − away_sp_era_5g
+                               (last 5 starts, across seasons)
          7. sp_k9_diff         home_sp_k9 − away_sp_k9
-         8. sp_k9_30g_diff     home_sp_k9_30g − away_sp_k9_30g
+                               (true season-to-date K/9, per-season)
+         8. sp_k9_5g_diff      home_sp_k9_5g − away_sp_k9_5g
+                               (last 5 starts, across seasons)
          9. sp_fbvelo_diff     home_sp_fbvelo_3g − away_sp_fbvelo_3g
         10. sp_fbpct_diff      home_sp_fbpct_3g − away_sp_fbpct_3g
         11. sp_whiff_diff      home_sp_whiff_3g − away_sp_whiff_3g
@@ -1348,9 +1410,9 @@ def add_diff_features(
                                × sp_era_diff
         31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
         32. bullpen_meltdown_risk       bullpen_pitches_diff × bullpen_whip_diff
-        33. pitcher_regression_indicator  sp_fbvelo_diff × sp_era_30g_diff
+        33. pitcher_regression_indicator  sp_fbvelo_diff × sp_era_5g_diff
         34. lineup_depth_multiplier      lineup_woba_mean_diff × lineup_woba_top3_diff
-        35. ace_efficiency_factor        sp_k9_30g_diff × sp_whiff_diff
+        35. ace_efficiency_factor        sp_k9_5g_diff × sp_whiff_diff
 
     All diff features follow the convention: home − away (positive = home
     advantage).  Interaction features (29–35) are built from the diff
@@ -1413,9 +1475,9 @@ def add_diff_features(
         ("elo_diff", "home_elo", "away_elo"),                                    # 3
         ("rest_days_diff", "rest_days_home", "rest_days_away"),                  # 4
         ("sp_era_diff", "sp_era_home", "sp_era_away"),                           # 5
-        ("sp_era_30g_diff", "sp_era_30g_home", "sp_era_30g_away"),               # 6
+        ("sp_era_5g_diff", "sp_era_5g_home", "sp_era_5g_away"),                   # 6
         ("sp_k9_diff", "sp_k9_home", "sp_k9_away"),                              # 7
-        ("sp_k9_30g_diff", "sp_k9_30g_home", "sp_k9_30g_away"),                  # 8
+        ("sp_k9_5g_diff", "sp_k9_5g_home", "sp_k9_5g_away"),                     # 8
         ("sp_fbvelo_diff", "sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),            # 9
         ("sp_fbpct_diff", "sp_fbpct_3g_home", "sp_fbpct_3g_away"),               # 10
         ("sp_whiff_diff", "sp_whiff_3g_home", "sp_whiff_3g_away"),               # 11
@@ -1498,35 +1560,42 @@ def add_diff_features(
         df["air_density_velocity_boost"] = (
             (ad - SEA_LEVEL_RHO) * pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce"))
         # Dome games: wind and air density are genuinely neutral indoors —
-        # a real, valid 0 (not a fabricated default).
-        df.loc[dome, "wind_advantage_flyball_factor"] = 0.0
-        df.loc[dome, "air_density_velocity_boost"] = 0.0
+        # a real, valid 0 (not a fabricated default) — but only when the
+        # underlying diff input is present; a dome game with a missing ERA
+        # diff stays NULL (never a fabricated 0).
+        _era_ok = pd.to_numeric(df["sp_era_diff"], errors="coerce").notna()
+        _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
+        df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
+        df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
         n_weather = int((wm.notna() & ad.notna()).sum())
         logger.info("Weather applied to %d/%d games", n_weather, len(df))
     else:
         # No weather fetched: dome games (KNOWN dome status) get a valid
-        # neutral 0; every other game stays NULL until real weather exists.
+        # neutral 0 — but only where the underlying diff input exists; every
+        # other game stays NULL until real weather exists.
         dome = df["dome_is_neutral"] == 1
-        df.loc[dome, "wind_advantage_flyball_factor"] = 0.0
-        df.loc[dome, "air_density_velocity_boost"] = 0.0
+        _era_ok = pd.to_numeric(df["sp_era_diff"], errors="coerce").notna()
+        _velo_ok = pd.to_numeric(df["sp_fbvelo_diff"], errors="coerce").notna()
+        df.loc[dome & _era_ok, "wind_advantage_flyball_factor"] = 0.0
+        df.loc[dome & _velo_ok, "air_density_velocity_boost"] = 0.0
 
     # ── 32. bullpen_meltdown_risk: bullpen_pitches_diff × bullpen_whip_diff
     # Overworked + low quality bullpen = elevated meltdown risk.
     df["bullpen_meltdown_risk"] = df["bullpen_pitches_diff"] * df["bullpen_whip_diff"]
 
-    # ── 33. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_30g_diff
-    # Physical velocity drop vs surface-level rolling-ERA results — flags
-    # regression candidates before the ERA fully catches up to the stuff.
-    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_30g_diff"]
+    # ── 33. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_5g_diff
+    # Physical velocity drop vs surface-level last-5-start ERA results —
+    # flags regression candidates before the ERA fully catches up to the stuff.
+    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_5g_diff"]
 
     # ── 34. lineup_depth_multiplier: lineup_woba_mean_diff × lineup_woba_top3_diff
     # Star power vs complete batting order depth.
     df["lineup_depth_multiplier"] = df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"]
 
-    # ── 35. ace_efficiency_factor: sp_k9_30g_diff × sp_whiff_diff
-    # Rolling strikeout volume driven by raw swing-and-miss stuff — the
-    # true-ace differentiator.
-    df["ace_efficiency_factor"] = df["sp_k9_30g_diff"] * df["sp_whiff_diff"]
+    # ── 35. ace_efficiency_factor: sp_k9_5g_diff × sp_whiff_diff
+    # Last-5-start strikeout volume driven by raw swing-and-miss stuff —
+    # the true-ace differentiator.
+    df["ace_efficiency_factor"] = df["sp_k9_5g_diff"] * df["sp_whiff_diff"]
 
     logger.info("Diff features complete: %d columns added", 35)
     return df

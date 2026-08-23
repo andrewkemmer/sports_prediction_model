@@ -77,17 +77,17 @@ def _first_observed(cols):
     return sub.iloc[0]
 
 r_melt = _first_observed(["bullpen_pitches_diff", "bullpen_whip_diff"])
-r_reg = _first_observed(["sp_fbvelo_diff", "sp_era_30g_diff"])
-r_ace = _first_observed(["sp_k9_30g_diff", "sp_whiff_diff"])
+r_reg = _first_observed(["sp_fbvelo_diff", "sp_era_5g_diff"])
+r_ace = _first_observed(["sp_k9_5g_diff", "sp_whiff_diff"])
 def close(a, b):
     return np.isclose(
         pd.to_numeric(pd.Series(a), errors="coerce").astype(float),
         pd.to_numeric(pd.Series(b), errors="coerce").astype(float),
         rtol=1e-4, atol=1e-6, equal_nan=True,
     ).all()
-assert close(r_reg["pitcher_regression_indicator"], float(r_reg["sp_fbvelo_diff"]) * float(r_reg["sp_era_30g_diff"]))
+assert close(r_reg["pitcher_regression_indicator"], float(r_reg["sp_fbvelo_diff"]) * float(r_reg["sp_era_5g_diff"]))
 if r_ace is not None:
-    assert close(r_ace["ace_efficiency_factor"], float(r_ace["sp_k9_30g_diff"]) * float(r_ace["sp_whiff_diff"]))
+    assert close(r_ace["ace_efficiency_factor"], float(r_ace["sp_k9_5g_diff"]) * float(r_ace["sp_whiff_diff"]))
 else:
     print("ace_efficiency_factor: no row with observed inputs — skipped")
 if r_melt is not None:
@@ -104,6 +104,6 @@ assert (z["win_pct_diff"] == 0.0).all(), "smoothing must give exactly .500 − .
 print("formula + smoothing checks ✓")
 print("new raw columns sample:",
       [c for c in ("lineup_ops_vs_starter_hand_home", "time_zones_crossed_last_3d_home",
-                   "closer_available_home", "bullpen_whip_3g_home", "sp_era_30g_home")
+                   "closer_available_home", "bullpen_whip_3g_home", "sp_era_5g_home")
        if c in out.columns])
 print("SMOKE OK")

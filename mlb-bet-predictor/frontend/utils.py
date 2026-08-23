@@ -801,11 +801,11 @@ FEATURE_DESCRIPTIONS = {
     "win_pct_diff": "Home win% − away win% (smoothed to .500 early season)",
     "elo_diff": "Home Elo − away Elo (skill-gap anchor, updated each game)",
     "rest_days_diff": "Home rest days − away rest days (schedule fatigue)",
-    # 5–8. SP career + trailing-30g diffs
-    "sp_era_diff": "Home SP career ERA − away SP career ERA",
-    "sp_era_30g_diff": "Home SP 30-start ERA − away SP (recent form)",
-    "sp_k9_diff": "Home SP career K/9 − away SP career K/9",
-    "sp_k9_30g_diff": "Home SP 30-start K/9 − away SP (recent form)",
+    # 5–8. SP season-to-date + last-5-start diffs
+    "sp_era_diff": "Home SP season-to-date ERA − away SP",
+    "sp_era_5g_diff": "Home SP last-5-start ERA − away SP (recent form)",
+    "sp_k9_diff": "Home SP season-to-date K/9 − away SP",
+    "sp_k9_5g_diff": "Home SP last-5-start K/9 − away SP (recent form)",
     # 7–9. SP trailing-3-game stuff diffs
     "sp_fbvelo_diff": "Home SP fastball velo (last 3 starts) − away SP (mph)",
     "sp_fbpct_diff": "Home SP fastball usage (last 3 starts) − away SP",
@@ -850,10 +850,10 @@ FEATURE_DESCRIPTIONS = {
 
 
 def describe_feature(name: str) -> str:
-    """Human description for a feature column like 'sp_era_30g_diff'.
+    """Human description for a feature column like 'sp_era_5g_diff'.
 
     Exact diff-name matches win first (the current model layout). For legacy
-    per-side names ('sp_era_30g_home'), strip the _home/_away slot suffix and
+    per-side names (('sp_era_5g_home')), strip the _home/_away slot suffix and
     note which side of the matchup the value describes. 'is_home' is a
     baseline feature whose name genuinely ends in '_home' — the exact match
     must win so it is not mangled into a name-repeating label.

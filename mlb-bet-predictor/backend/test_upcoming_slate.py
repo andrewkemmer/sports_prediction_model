@@ -39,7 +39,7 @@ def _history() -> pd.DataFrame:
             # SEA batting on the road
             "lineup_ops_vs_l_away": 0.660, "lineup_ops_vs_r_away": 0.740,
             "closer_available_home": 1.0, "closer_available_away": 1.0,
-            "sp_era_30g_home": 3.10, "sp_era_home": 3.10, "sp_k9_30g_home": 9.9,
+            "sp_era_5g_home": 3.10, "sp_era_home": 3.10, "sp_k9_5g_home": 9.9,
         },
         {   # NYY wins again at SEA (Aug 20): NYY 2-0, SEA 0-2
             "game_id": "20260820_NYY@SEA", "game_date": "2026-08-20",
@@ -53,7 +53,7 @@ def _history() -> pd.DataFrame:
             "lineup_ops_vs_l_home": 0.680, "lineup_ops_vs_r_home": np.nan,
             "closer_available_away": 0.0,  # NYY closer unavailable Aug 20
             # Cole started as the AWAY pitcher here
-            "sp_era_30g_away": 4.50,
+            "sp_era_5g_away": 4.50,
         },
         {   # Postponed/tied (Aug 21): must not affect records or Elo updates
             "game_id": "20260821_BOS@NYY", "game_date": "2026-08-21",
@@ -184,31 +184,31 @@ class TestBuildUpcomingSlate(unittest.TestCase):
 
         g = by_id["20260822_BOS@NYY"]
         # Cole (101) via id -> his latest observed stats (same as name path)
-        self.assertAlmostEqual(float(g["sp_era_30g_home"]), 4.50)
+        self.assertAlmostEqual(float(g["sp_era_5g_home"]), 4.50)
         self.assertAlmostEqual(float(g["sp_era_home"]), 3.10)
-        self.assertAlmostEqual(float(g["sp_k9_30g_home"]), 9.9)
+        self.assertAlmostEqual(float(g["sp_k9_5g_home"]), 9.9)
         # id 202 has NO observed sp stats -> NULL, never a fabricated 0
-        self.assertTrue(pd.isna(g["sp_era_30g_away"]))
-        self.assertTrue(pd.isna(g["sp_k9_30g_away"]))
+        self.assertTrue(pd.isna(g["sp_era_5g_away"]))
+        self.assertTrue(pd.isna(g["sp_k9_5g_away"]))
 
         f = by_id["20260822_SEA@BOS"]
         # Wheeler (303) has no observed stats either -> NULLs
         self.assertTrue(pd.isna(f["sp_era_home"]))
-        self.assertTrue(pd.isna(f["sp_k9_30g_home"]))
+        self.assertTrue(pd.isna(f["sp_k9_5g_home"]))
 
     def test_pitcher_features_via_name_mapping(self):
         g = self.by_id["20260822_BOS@NYY"]
         # Cole (id 101) is tonight's HOME starter. His latest start was Aug 20
         # (as a road starter) -> the newest observed value re-suffixes onto
         # this game's home slot regardless of which side it came from.
-        self.assertAlmostEqual(float(g["sp_era_30g_home"]), 4.50)
+        self.assertAlmostEqual(float(g["sp_era_5g_home"]), 4.50)
         # sp_era (non-30g twin) was last observed on Aug 19
         self.assertAlmostEqual(float(g["sp_era_home"]), 3.10)
-        self.assertAlmostEqual(float(g["sp_k9_30g_home"]), 9.9)
+        self.assertAlmostEqual(float(g["sp_k9_5g_home"]), 9.9)
         # Unknown away probable -> NULLs, never fabricated zeros and never
         # Cole's values leaking into his slot.
-        self.assertTrue(pd.isna(g["sp_era_30g_away"]))
-        self.assertTrue(pd.isna(g["sp_k9_30g_away"]))
+        self.assertTrue(pd.isna(g["sp_era_5g_away"]))
+        self.assertTrue(pd.isna(g["sp_k9_5g_away"]))
 
     def test_rest_days_since_last_appearance(self):
         g = self.by_id["20260822_BOS@NYY"]

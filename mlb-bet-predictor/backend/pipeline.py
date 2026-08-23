@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -36,6 +37,7 @@ from config import (
     VERSION_KEY,
     TRAINED_AT_KEY,
     DATA_CUTOFF_KEY,
+    WEATHER_BACKFILL_ALL,
 )
 from data_ingestion import (
     attach_market_lines,
@@ -531,6 +533,134 @@ def _attach_recent_weather(games: pd.DataFrame, target_date: date) -> pd.DataFra
     return apply_weather_features(games, wx)
 
 
+# ── Full-history weather backfill (cache-backed) ───────────────────────────
+
+def _weather_cache_path() -> Path:
+    """Persistent per-game weather cache.
+
+    Lives outside the git repo in Colab (MLB_CACHE_DIR points at the
+    /content/mlb_clean_data cache dir); falls back to data_delivery locally.
+    """
+    base = os.getenv("MLB_CACHE_DIR") or str(DATA_DELIVERY_DIR)
+    return Path(base) / "weather_history.parquet"
+
+
+_WEATHER_CACHE_COLS = [
+    "available", "temp_c", "rh_pct", "wind_speed_kmh", "wind_direction_deg",
+    "pressure_hpa", "air_density", "wind_multiplier",
+    "stadium_alt_m", "stadium_bearing",
+]
+
+
+def _load_weather_cache(path: Path) -> dict[int, dict]:
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_parquet(path)
+    except Exception as exc:
+        logger.warning("Weather cache unreadable (%s) — rebuilding", exc)
+        return {}
+    out: dict[int, dict] = {}
+    for _, r in df.iterrows():
+        pk = int(r["game_pk"])
+        out[pk] = {k: (None if pd.isna(r.get(k)) else r.get(k))
+                   for k in _WEATHER_CACHE_COLS}
+    return out
+
+
+def _save_weather_cache(path: Path, cache: dict[int, dict]) -> None:
+    if not cache:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{"game_pk": pk, **w} for pk, w in cache.items()]
+    pd.DataFrame(rows).to_parquet(path, index=False)
+    logger.info("Weather cache saved: %d games → %s", len(cache), path)
+
+
+def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFrame:
+    """Attach real point-in-time weather to EVERY decided game.
+
+    Real StatsAPI first pitches → strictly-prior Open-Meteo archive
+    observation per (stadium, day), cached by game_pk so each run fetches
+    only games missing from the cache. Without this, the wind/air-density
+    features stayed null for ~93% of history (only dome zeros) and the two
+    weather features were starved. Runs AFTER add_diff_features so the
+    sp_*_diff inputs exist for apply_weather_features.
+    """
+    from results import fetch_game_start_times
+    from weather import apply_weather_features, fetch_games_weather
+
+    if games.empty:
+        return games
+    pks = pd.to_numeric(games.get("game_pk"), errors="coerce")
+    decided = (games["home_win"].notna()
+               if "home_win" in games.columns else pd.Series(True, index=games.index))
+    cache = _load_weather_cache(_weather_cache_path())
+    cached_pks = set(cache)
+
+    need = decided & pks.notna() & ~pks.astype(int).isin(cached_pks)
+    if need.any():
+        subset = games[need]
+        gd = pd.to_datetime(games["game_date"], errors="coerce")
+        starts = fetch_game_start_times(gd[need].min().date(), gd[need].max().date())
+        rows: list[dict] = []
+        row_idx: list[Any] = []
+        for idx, r in subset.iterrows():
+            pk = int(pks.loc[idx])
+            st = starts.get(pk)
+            if not st:
+                continue
+            ts = pd.Timestamp(st)
+            rows.append({
+                "game_id": r.get("game_id"),
+                "game_pk": pk,
+                "home_team": r.get("home_team"),
+                "venue": r.get("venue", ""),
+                "start_time_utc": ts.tz_localize(None) if ts.tzinfo is not None else ts,
+            })
+            row_idx.append(idx)
+        if rows:
+            wx_df = pd.DataFrame(rows, index=row_idx)
+            wx = fetch_games_weather(wx_df)
+            # fetch_games_weather keys results by game_id (or frame index when
+            # game_id is absent) — resolve back to game_pk for the cache.
+            gid_to_pk = {r["game_id"]: int(r["game_pk"]) for _, r in wx_df.iterrows()}
+            new = 0
+            for gid, w in wx.items():
+                pk = gid_to_pk.get(gid)
+                if pk is None:
+                    continue
+                if w.get("available"):
+                    cache[pk] = {k: w.get(k) for k in _WEATHER_CACHE_COLS}
+                    new += 1
+            _save_weather_cache(_weather_cache_path(), cache)
+            logger.info("Weather history: fetched %d new games (cache now %d)",
+                        new, len(cache))
+        else:
+            logger.warning("Weather history: no authoritative start times matched")
+
+    # Apply: key by game_id (apply_weather_features' primary lookup), with the
+    # frame index as fallback for frames lacking game_id.
+    by_gid: dict[Any, dict] = {}
+    for idx, r in games.iterrows():
+        pk = pks.loc[idx]
+        if pd.isna(pk):
+            continue
+        w = cache.get(int(pk))
+        if w is None:
+            continue
+        gid = r.get("game_id")
+        if gid is not None and not (isinstance(gid, float) and pd.isna(gid)):
+            by_gid[gid] = w
+        else:
+            by_gid[str(idx)] = w
+    out = apply_weather_features(games, by_gid)
+    n_ok = sum(1 for pk in pks.dropna().astype(int).unique() if pk in cache)
+    logger.info("Weather history: %d/%d games with real weather (cache)",
+                n_ok, len(games))
+    return out
+
+
 def run_daily_pipeline(
     target_date: date,
     real: bool = False,
@@ -618,29 +748,46 @@ def run_daily_pipeline(
         # load_game_features' 19:00 UTC fallback) are excluded via the
         # start_time_observed tag so we never fetch weather for the wrong
         # hour.
-        if "start_time_utc" in games.columns:
-            real_start = games["start_time_utc"].notna()
-            if "start_time_observed" in games.columns:
-                real_start &= games["start_time_observed"].fillna(True).astype(bool)
-            if real_start.any():
-                weather = {}
+        if WEATHER_BACKFILL_ALL:
+            # Full-history weather mode: compute the diff features first with
+            # no weather, then the cache-backed backfill applies real
+            # point-in-time weather to every decided game (see
+            # _attach_weather_history) — no reliance on the trailing window.
+            games = add_diff_features(games)
+            try:
+                games = _attach_weather_history(games, target_date)
+            except Exception as exc:
+                logger.warning(
+                    "Full weather backfill failed (features stay null): %s", exc
+                )
                 try:
-                    weather = fetch_games_weather(games.loc[real_start])
-                except Exception as e:
-                    logger.warning(
-                        "Weather fetch failed for history (features 30–31 stay NULL): %s", e
-                    )
-                games = add_diff_features(games, weather_data=weather or None)
+                    games = _attach_recent_weather(games, target_date)
+                except Exception:
+                    pass
+        else:
+            if "start_time_utc" in games.columns:
+                real_start = games["start_time_utc"].notna()
+                if "start_time_observed" in games.columns:
+                    real_start &= games["start_time_observed"].fillna(True).astype(bool)
+                if real_start.any():
+                    weather = {}
+                    try:
+                        weather = fetch_games_weather(games.loc[real_start])
+                    except Exception as e:
+                        logger.warning(
+                            "Weather fetch failed for history (features 30–31 stay NULL): %s", e
+                        )
+                    games = add_diff_features(games, weather_data=weather or None)
 
-        # Weather backfill over decided history: real StatsAPI first pitches →
-        # strictly-prior observations for the trailing drift window (see
-        # _attach_recent_weather).  Runs AFTER add_diff_features so the
-        # sp_*_diff inputs exist; applied values survive because this is the
-        # last writer of the two weather-driven columns.
-        try:
-            games = _attach_recent_weather(games, target_date)
-        except Exception as exc:
-            logger.warning("Weather backfill failed (features stay null): %s", exc)
+            # Weather backfill over decided history: real StatsAPI first pitches →
+            # strictly-prior observations for the trailing drift window (see
+            # _attach_recent_weather).  Runs AFTER add_diff_features so the
+            # sp_*_diff inputs exist; applied values survive because this is the
+            # last writer of the two weather-driven columns.
+            try:
+                games = _attach_recent_weather(games, target_date)
+            except Exception as exc:
+                logger.warning("Weather backfill failed (features stay null): %s", exc)
 
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")

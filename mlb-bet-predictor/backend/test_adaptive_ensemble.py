@@ -107,6 +107,21 @@ class TestAdaptiveWeights(unittest.TestCase):
         self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
         self.assertGreater(w["good"], w["bad"])
 
+    def test_auc_objective_prefers_discrimination_over_logloss(self):
+        # Member A ranks well but is miscalibrated (AUC 0.72, log-loss
+        # 0.83); member B is perfectly calibrated but coin-flip (AUC 0.50,
+        # log-loss 0.69). With ADAPTIVE_WEIGHT_METRIC="auc" the blend must
+        # lean toward A — log-loss weighting would have favored B and
+        # diluted the signal (the exact failure this objective fixes).
+        rng = np.random.RandomState(7)
+        y = np.array([1, 0] * 60, dtype=float)
+        a = np.clip(0.5 + (y * 2 - 1) * 0.15 + rng.normal(0, 0.45, len(y)),
+                    0.01, 0.99)
+        b = np.full(len(y), 0.5)
+        w = training.compute_adaptive_weights({"a": list(a), "b": list(b)}, y)
+        self.assertGreater(w["a"], w["b"])
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+
     def test_floor_and_cap_respected(self):
         # Three identical members: softmax would give exactly 1/3 each.
         # With cap .45 and floor .05, equal weights stay within bounds.

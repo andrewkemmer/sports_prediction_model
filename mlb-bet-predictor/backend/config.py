@@ -3,6 +3,7 @@
 All paths, hyperparameters, seeds, PSI thresholds, and version metadata
 keys live here. Import from this module to avoid hardcoding values.
 """
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -12,6 +13,12 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
+
+# Full-history weather backfill (default ON): real StatsAPI first pitches +
+# strictly-prior Open-Meteo archive observations for EVERY decided game,
+# cached by game_pk so each run fetches only games missing from the cache.
+# Set MLB_WEATHER_BACKFILL_ALL=0 to keep the old trailing-35-day window only.
+WEATHER_BACKFILL_ALL = os.getenv("MLB_WEATHER_BACKFILL_ALL", "1").strip().lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
 # Reproducibility
@@ -65,6 +72,17 @@ ENSEMBLE_WEIGHTS = {
 ADAPTIVE_WEIGHT_TEMPERATURE = 0.03
 ADAPTIVE_WEIGHT_FLOOR = 0.05
 ADAPTIVE_WEIGHT_CAP = 0.45
+# Blend-weight objective: "auc" (pooled OOF discrimination — pushes the
+# blend toward the best-separating members) or "logloss" (calibration-
+# oriented softmax, the previous behavior). Default "auc": the blend was
+# measuring 0.525 while its best member scored 0.546 OOF — log-loss
+# weighting let near-coin-flip members dilute the strong ones.
+ADAPTIVE_WEIGHT_METRIC = "auc"
+# AUC softmax uses a sharper temperature: AUC edges among members are
+# ~0.005–0.045 (vs log-loss edges ~0.002–0.027), so T=0.015 separates
+# signal members (edge > 0.02) from noise members (edge < 0.01) cleanly,
+# landing near-coin-flip members on the 5% floor.
+ADAPTIVE_WEIGHT_AUC_TEMPERATURE = 0.015
 XGBOOST_PARAMS = {
     "n_estimators": 300,
     "max_depth": 5,

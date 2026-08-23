@@ -712,10 +712,9 @@ def apply_weather_features(
                     w = weather_data[key]
                     break
         dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
-        if dome:
-            wind_vals.append(0.0)
-            air_vals.append(0.0)
-        elif w.get("available"):
+        if w.get("available"):
+            # Real fetched observation — use the formulas as-is (a dome with
+            # a fetch reports wind_multiplier≈0 and its actual indoor density).
             wm = w.get("wind_multiplier", np.nan)
             ad = w.get("air_density", np.nan)
             wv = float(wm) * era.iloc[i] if pd.notna(wm) and pd.notna(era.iloc[i]) else np.nan
@@ -723,6 +722,14 @@ def apply_weather_features(
             wind_vals.append(wv)
             air_vals.append(av)
             n_applied += 1
+        elif dome:
+            # No weather fetched. Indoors the wind component is genuinely
+            # zero — a valid 0, but only when the ERA-diff input exists (a
+            # missing input keeps it NULL, never a fabricated 0). The
+            # air-density boost is UNKNOWN without a fetch (HVAC keeps indoor
+            # air off the sea-level standard), so it stays NULL.
+            wind_vals.append(0.0 if pd.notna(era.iloc[i]) else np.nan)
+            air_vals.append(np.nan)
         else:
             wind_vals.append(np.nan)
             air_vals.append(np.nan)

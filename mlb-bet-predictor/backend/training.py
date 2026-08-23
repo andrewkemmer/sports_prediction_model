@@ -25,8 +25,10 @@ from sklearn.preprocessing import StandardScaler
 
 from calibration import apply_platt, fit_platt, is_identity, MIN_OOF_FOR_FIT
 from config import (
+    ADAPTIVE_WEIGHT_AUC_TEMPERATURE,
     ADAPTIVE_WEIGHT_CAP,
     ADAPTIVE_WEIGHT_FLOOR,
+    ADAPTIVE_WEIGHT_METRIC,
     ADAPTIVE_WEIGHT_TEMPERATURE,
     DATA_DELIVERY_DIR,
     DATE_FMT,
@@ -47,55 +49,63 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Features used for model input — all 34 diff/computed features.
+# Features used for model input — all diff/computed features.
 # Diff convention: home − away (positive = home advantage).
+#
+# Pruned 2026-08-23 (feature_audit):
+#   wind/air_density factors         constant 0 (weather backfill covers only
+#                                    ~7% of games; starved, not broken —
+#                                    re-add when coverage improves)
+#   bullpen_ip_diff                  r=0.87 with bullpen_pitches_diff, weaker
+#
+# Wave-2 ablation candidates (univariate |lift| < ~0.01, need walk-forward
+# retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_woba_std_diff,
+# park_factor_slug_diff, closer_availability_diff, travel_fatigue_diff,
+# bullpen_whip_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
 FEATURE_COLS = [
-    # 1. Baseline
+    # 1. Baseline (home-field anchor; constant by construction)
     "is_home",
     # 2–4. Core pre-game diffs
     "win_pct_diff",
     "elo_diff",
     "rest_days_diff",
-    # 5–8. Starting pitcher diffs (career + trailing-30g twins)
+    # 5–8. Starting pitcher diffs (season-to-date + last-5-start)
     "sp_era_diff",
-    "sp_era_30g_diff",
+    "sp_era_5g_diff",
     "sp_k9_diff",
-    "sp_k9_30g_diff",
+    "sp_k9_5g_diff",
     # 9–11. SP stuff diffs (trailing 3-game)
     "sp_fbvelo_diff",
     "sp_fbpct_diff",
     "sp_whiff_diff",
-    # 12–13. SP xwOBA diffs
+    # 10–11. SP xwOBA diffs
     "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff",
-    # 14–16. Lineup wOBA diffs
+    # 12–14. Lineup wOBA diffs
     "lineup_woba_mean_diff",
     "lineup_woba_top3_diff",
     "lineup_woba_std_diff",
-    # 17. Team rolling wOBA diff
+    # 15. Team rolling wOBA diff
     "woba_30g_diff",
-    # 18–21. Bullpen diffs
+    # 16–18. Bullpen diffs
     "bullpen_whip_diff",
     "bullpen_whip_3g_diff",
     "bullpen_pitches_diff",
-    "bullpen_ip_diff",
-    # 22–24. Team contact form diffs (trailing 15g)
+    # 19–21. Team contact form diffs (trailing 15g)
     "team_barrel_diff",
     "team_hardhit_diff",
     "team_exitvelo_diff",
-    # 25. Lineup handedness matchup advantage (OPS vs tonight's starter hand)
+    # 22. Lineup handedness matchup advantage (OPS vs tonight's starter hand)
     "lineup_handedness_matchup_advantage",
-    # 26. Travel fatigue (timezone crossings, last 3 days)
+    # 23. Travel fatigue (timezone crossings, last 3 days)
     "travel_fatigue_diff",
-    # 27. Closer availability
+    # 24. Closer availability
     "closer_availability_diff",
-    # 28. Dome neutral flag
+    # 25. Dome neutral flag
     "dome_is_neutral",
-    # 29–31. Interaction/context features
+    # 26. Park factor
     "park_factor_slug_diff",
-    "wind_advantage_flyball_factor",
-    "air_density_velocity_boost",
-    # 32–35. Derived interaction features
+    # 27–30. Derived interaction features
     "bullpen_meltdown_risk",
     "pitcher_regression_indicator",
     "lineup_depth_multiplier",
@@ -334,12 +344,15 @@ def compute_adaptive_weights(
 ) -> dict[str, float]:
     """Blend weights earned by out-of-sample performance.
 
-    Softmax over pooled OOF log-loss (lower is better): a member beating
-    another by Δ earns exp(Δ / TEMPERATURE) times its weight — with
-    TEMPERATURE=0.03 a 0.06 log-loss edge means ~7× the weight. FLOOR keeps
-    every candidate alive for diversity; CAP prevents domination. The result
-    sums to exactly 1.0 and feeds both prediction blending and reporting so
-    the ensemble visibly self-corrects as features improve.
+    Softmax over pooled OOF scores. With ADAPTIVE_WEIGHT_METRIC="auc"
+    (default) the score is pooled OOF AUC — a member beating another by Δ
+    earns exp(Δ / TEMPERATURE) times its weight, so the blend leans toward
+    the members that actually separate winners from losers. With
+    "logloss" it scores pooled OOF log-loss (lower is better) as before.
+    FLOOR keeps every candidate alive for diversity; CAP prevents
+    domination. The result sums to exactly 1.0 and feeds both prediction
+    blending and reporting so the ensemble visibly self-corrects as
+    features improve.
     """
     scores: dict[str, float] = {}
     y = np.asarray(y_oof, dtype=float)
@@ -349,16 +362,29 @@ def compute_adaptive_weights(
         if not preds or len(preds) != len(y):
             continue
         m = compute_metrics(y, np.asarray(preds, dtype=float))
-        ll = m.get("logloss")
-        if ll is None or not np.isfinite(ll):
-            continue
-        scores[name] = float(ll)
+        if ADAPTIVE_WEIGHT_METRIC == "auc":
+            a = m.get("auc")
+            if a is None or not np.isfinite(a):
+                continue
+            scores[name] = float(a)
+        else:
+            ll = m.get("logloss")
+            if ll is None or not np.isfinite(ll):
+                continue
+            scores[name] = float(ll)
     if not scores:
         return {}
 
-    best = min(scores.values())
-    exp_w = {n: np.exp(-(ll - best) / ADAPTIVE_WEIGHT_TEMPERATURE)
-             for n, ll in scores.items()}
+    if ADAPTIVE_WEIGHT_METRIC == "auc":
+        _t = ADAPTIVE_WEIGHT_AUC_TEMPERATURE
+        best = max(scores.values())
+        exp_w = {n: np.exp((a - best) / _t)
+                 for n, a in scores.items()}
+    else:
+        _t = ADAPTIVE_WEIGHT_TEMPERATURE
+        best = min(scores.values())
+        exp_w = {n: np.exp(-(ll - best) / _t)
+                 for n, ll in scores.items()}
     tot = sum(exp_w.values())
     w = {n: float(v / tot) for n, v in exp_w.items()}
 
@@ -857,10 +883,11 @@ def walk_forward_evaluate(
     else:
         best_models = {}
 
-    # Adaptive blend weights: earned from pooled OOF member log-loss.
-    # These replace the static ENSEMBLE_WEIGHTS priors for prediction
-    # blending (see _member_weights) until the next evaluation, so the
-    # ensemble self-corrects as features change.
+    # Adaptive blend weights: earned from pooled OOF member scores
+    # (AUC by default — see ADAPTIVE_WEIGHT_METRIC). These replace the
+    # static ENSEMBLE_WEIGHTS priors for prediction blending (see
+    # _member_weights) until the next evaluation, so the ensemble
+    # self-corrects as features change.
     y_oof = np.asarray(oof_y, dtype=float)
     adaptive = compute_adaptive_weights(oof_members, y_oof)
     _LAST_ADAPTIVE_WEIGHTS.clear()
