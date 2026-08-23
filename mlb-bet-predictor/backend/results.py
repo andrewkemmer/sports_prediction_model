@@ -179,6 +179,41 @@ def apply_official_results(games: pd.DataFrame,
     return df
 
 
+def fetch_game_start_times(start_date: date, end_date: date,
+                           timeout: int = 20) -> dict[int, str]:
+    """Authoritative first-pitch UTC timestamps from the StatsAPI schedule.
+
+    Maps StatsAPI ``gamePk`` → ISO-8601 UTC datetime string.  Used by the
+    weather backfill: Statcast-derived history carries only fabricated
+    19:00-UTC placeholders, and weather must be sampled strictly before the
+    REAL first pitch to stay point-in-time honest.  Empty dict on failure.
+    """
+    try:
+        resp = requests.get(
+            STATSAPI_SCHEDULE_URL,
+            params={
+                "sportId": 1,
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("StatsAPI start times unavailable (%s)", exc)
+        return {}
+
+    out: dict[int, str] = {}
+    for day in data.get("dates", []):
+        for g in day.get("games", []):
+            pk = g.get("gamePk")
+            dt = g.get("gameDate")
+            if pk and dt:
+                out[int(pk)] = dt
+    return out
+
+
 def merge_result_cache(cached: pd.DataFrame | None,
                        fresh: pd.DataFrame) -> pd.DataFrame:
     """Merge cached results with a fresh pull, newest/final copy wins."""

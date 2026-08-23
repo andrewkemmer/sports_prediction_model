@@ -119,6 +119,169 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
 
 # ── Game-level features ─────────────────────────────────────────────────────
 
+def _tz_case_lines(indent: str = "                ") -> str:
+    return "\n".join(
+        f"{indent}WHEN '{k}' THEN {v}" for k, v in TEAM_TZ_OFFSETS.items()
+    )
+
+
+def _build_travel_features(con: duckdb.DuckDBPyConnection) -> None:
+    """7g. Travel fatigue — timezone crossings across each team's last three
+    games PRIOR to today (point-in-time: strictly past games only).
+
+    The offset compared is that of each game's VENUE (the home team's park),
+    NOT the travelling team's own city — a team's home timezone never
+    changes, so comparing it to itself can never register a crossing.
+    """
+    tz_lines = _tz_case_lines()
+    con.execute(f"""
+        CREATE TABLE game_venue_tz AS
+        SELECT DISTINCT CAST(game_date AS DATE) AS gd, game_pk,
+               home_team, away_team,
+               CASE home_team
+{tz_lines}
+                       ELSE 0 END AS venue_off
+        FROM pitches
+    """)
+    con.execute("""
+        CREATE TABLE team_travel_raw AS
+        SELECT gd, game_pk, team, venue_off AS off FROM (
+            SELECT gd, game_pk, home_team AS team, venue_off FROM game_venue_tz
+            UNION ALL
+            SELECT gd, game_pk, away_team AS team, venue_off FROM game_venue_tz
+        )
+    """)
+    con.execute("""
+        CREATE TABLE travel_seq AS
+        SELECT *, LAG(off) OVER (PARTITION BY team ORDER BY gd, game_pk) AS prev_off
+        FROM team_travel_raw
+    """)
+    con.execute("""
+        CREATE TABLE travel_cross AS
+        SELECT gd, team,
+               CASE WHEN prev_off IS NOT NULL AND off != prev_off
+                    THEN 1 ELSE 0 END AS crossed
+        FROM travel_seq
+    """)
+    con.execute("""
+        CREATE TABLE travel_fatigue AS
+        WITH games AS (
+            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team, away_team FROM pitches
+        ),
+        home_tz AS (
+            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
+            FROM games g JOIN travel_cross c
+              ON c.team = g.home_team
+             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        ),
+        away_tz AS (
+            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
+            FROM games g JOIN travel_cross c
+              ON c.team = g.away_team
+             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
+            GROUP BY g.game_pk
+        )
+        SELECT g.game_pk,
+               COALESCE(h.tz_crossed, 0) AS time_zones_crossed_last_3d_home,
+               COALESCE(a.tz_crossed, 0) AS time_zones_crossed_last_3d_away
+        FROM games g
+        LEFT JOIN home_tz h ON g.game_pk = h.game_pk
+        LEFT JOIN away_tz a ON g.game_pk = a.game_pk
+    """)
+
+
+def _build_closer_features(con: duckdb.DuckDBPyConnection) -> None:
+    """7h. Closer availability — point-in-time high-leverage metric.
+
+    For EVERY game, each team's closer is identified strictly from prior
+    work: the reliever with the most cumulative late-inning (8th+) batters
+    faced over the trailing 30 days. He is UNAVAILABLE entering tonight only
+    when he pitched BOTH of the previous two days. Teams without an
+    established closer default to available. The check runs for every game,
+    whether or not the closer ends up pitching tonight — the previous
+    implementation attached usage state only to games the closer appeared
+    in, which collapsed the flag to ~0.8% nonzero.
+    """
+    con.execute(f"""
+        CREATE TABLE late_relief AS
+        SELECT CAST(p.game_date AS DATE) AS gd, p.game_pk,
+               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
+                    ELSE p.away_team END AS team,
+               p.pitcher,
+               COUNT(DISTINCT p.at_bat_number) AS tbf
+        FROM pitches p
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE p.inning >= 8
+          AND (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+        GROUP BY 1, 2, 3, 4
+    """)
+    # Daily workload per reliever + cumulative workload BEFORE each date
+    # (window excludes the current row → strictly prior, PIT-safe).
+    con.execute("""
+        CREATE TABLE rel_daily AS
+        SELECT gd, pitcher, SUM(tbf) AS tbf FROM late_relief GROUP BY 1, 2
+    """)
+    con.execute("""
+        CREATE TABLE rel_cum AS
+        SELECT gd, pitcher,
+            COALESCE(SUM(SUM(tbf)) OVER (
+                PARTITION BY pitcher ORDER BY gd
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ), 0.0) AS cum_before
+        FROM rel_daily GROUP BY gd, pitcher
+    """)
+    con.execute("""
+        CREATE TABLE rel_team AS
+        SELECT pitcher, arg_max(team, gd) AS team
+        FROM late_relief GROUP BY pitcher
+    """)
+    con.execute("""
+        CREATE TABLE team_closer_pit AS
+        WITH games AS (
+            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team, away_team FROM pitches
+        ),
+        pairs AS (
+            SELECT game_pk, gd, home_team AS team FROM games
+            UNION ALL
+            SELECT game_pk, gd, away_team AS team FROM games
+        ),
+        candidates AS (
+            SELECT p.game_pk, p.gd, p.team, rc.pitcher, rc.cum_before,
+                   ROW_NUMBER() OVER (PARTITION BY p.game_pk, p.team
+                                      ORDER BY rc.cum_before DESC NULLS LAST,
+                                               rc.pitcher) AS rn
+            FROM pairs p
+            JOIN rel_team tr ON tr.team = p.team
+            JOIN rel_cum rc ON rc.pitcher = tr.pitcher
+                 AND rc.gd < p.gd AND rc.gd >= p.gd - INTERVAL 30 DAY
+        )
+        SELECT game_pk, gd, team, pitcher FROM candidates WHERE rn = 1
+    """)
+    con.execute("""
+        CREATE TABLE closer_avail AS
+        WITH state AS (
+            SELECT c.game_pk, c.team,
+                   COALESCE(BOOL_OR(u.gd = c.gd - INTERVAL 1 DAY), FALSE) AS d1,
+                   COALESCE(BOOL_OR(u.gd = c.gd - INTERVAL 2 DAY), FALSE) AS d2
+            FROM team_closer_pit c
+            LEFT JOIN rel_daily u
+              ON u.pitcher = c.pitcher
+             AND u.gd IN (c.gd - INTERVAL 1 DAY, c.gd - INTERVAL 2 DAY)
+            GROUP BY 1, 2
+        )
+        SELECT g.game_pk,
+            CASE WHEN sh.d1 AND sh.d2 THEN 0.0 ELSE 1.0 END AS closer_available_home,
+            CASE WHEN sa.d1 AND sa.d2 THEN 0.0 ELSE 1.0 END AS closer_available_away
+        FROM (SELECT DISTINCT game_pk, home_team, away_team FROM pitches) g
+        LEFT JOIN state sh ON sh.game_pk = g.game_pk AND sh.team = g.home_team
+        LEFT JOIN state sa ON sa.game_pk = g.game_pk AND sa.team = g.away_team
+    """)
+
+
 def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     """Build game_level table via pure DuckDB SQL.  All intermediate tables
     are dropped after assembly to free RAM."""
@@ -795,144 +958,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         GROUP BY game_pk, batting_team
     """)
 
-    # 7g. Travel fatigue — count timezone crossings across each team's last
-    # three games PRIOR to today (point-in-time: strictly past games only).
-    tz_home_lines = "\n".join(
-        f"                WHEN '{k}' THEN {v}" for k, v in TEAM_TZ_OFFSETS.items()
-    )
-    tz_away_lines = "\n".join(
-        f"                WHEN '{k}' THEN {v}" for k, v in TEAM_TZ_OFFSETS.items()
-    )
-    con.execute(f"""
-        CREATE TABLE team_travel_raw AS
-        SELECT gd, game_pk, team, off FROM (
-            SELECT DISTINCT CAST(game_date AS DATE) AS gd, game_pk,
-                   home_team AS team,
-                   CASE home_team
-{tz_home_lines}
-                       ELSE 0 END AS off
-            FROM pitches
-            UNION ALL
-            SELECT DISTINCT CAST(game_date AS DATE) AS gd, game_pk,
-                   away_team AS team,
-                   CASE away_team
-{tz_away_lines}
-                       ELSE 0 END AS off
-            FROM pitches
-        )
-    """)
-    con.execute("""
-        CREATE TABLE travel_seq AS
-        SELECT *, LAG(off) OVER (PARTITION BY team ORDER BY gd, game_pk) AS prev_off
-        FROM team_travel_raw
-    """)
-    con.execute("""
-        CREATE TABLE travel_cross AS
-        SELECT gd, team,
-               CASE WHEN prev_off IS NOT NULL AND off != prev_off
-                    THEN 1 ELSE 0 END AS crossed
-        FROM travel_seq
-    """)
-    con.execute("""
-        CREATE TABLE travel_fatigue AS
-        WITH games AS (
-            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
-                   home_team, away_team FROM pitches
-        ),
-        home_tz AS (
-            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
-            FROM games g JOIN travel_cross c
-              ON c.team = g.home_team
-             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
-            GROUP BY g.game_pk
-        ),
-        away_tz AS (
-            SELECT g.game_pk, SUM(c.crossed) AS tz_crossed
-            FROM games g JOIN travel_cross c
-              ON c.team = g.away_team
-             AND c.gd < g.gd AND c.gd >= g.gd - INTERVAL 3 DAY
-            GROUP BY g.game_pk
-        )
-        SELECT g.game_pk,
-               COALESCE(h.tz_crossed, 0) AS time_zones_crossed_last_3d_home,
-               COALESCE(a.tz_crossed, 0) AS time_zones_crossed_last_3d_away
-        FROM games g
-        LEFT JOIN home_tz h ON g.game_pk = h.game_pk
-        LEFT JOIN away_tz a ON g.game_pk = a.game_pk
-    """)
-
-    # 7h. Closer availability — point-in-time high-leverage metric. Each
-    # team's closer is the reliever with the most prior late-inning (8th+)
-    # work for that team; he is UNAVAILABLE only when he pitched BOTH of the
-    # previous two days (three consecutive appearances). Unknown closers
-    # (early season) default to available.
-    con.execute(f"""
-        CREATE TABLE late_relief AS
-        SELECT CAST(p.game_date AS DATE) AS gd, p.game_pk,
-               CASE WHEN p.inning_topbot = 'Top' THEN p.home_team
-                    ELSE p.away_team END AS team,
-               p.pitcher,
-               COUNT(DISTINCT p.at_bat_number) AS tbf
-        FROM pitches p
-        JOIN starters s ON p.game_pk = s.game_pk
-        WHERE p.inning >= 8
-          AND (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
-          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
-        GROUP BY 1, 2, 3, 4
-    """)
-    con.execute("""
-        CREATE TABLE reliever_shifted AS
-        SELECT *, LAG(tbf, 1) OVER (PARTITION BY pitcher ORDER BY gd) AS _tbf
-        FROM late_relief
-    """)
-    con.execute("""
-        CREATE TABLE reliever_load AS
-        SELECT *,
-            SUM(_tbf) OVER (PARTITION BY pitcher ORDER BY gd
-                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_tbf
-        FROM reliever_shifted
-    """)
-    con.execute("""
-        CREATE TABLE team_closer AS
-        WITH ranked AS (
-            SELECT gd, game_pk, team, pitcher,
-                   ROW_NUMBER() OVER (PARTITION BY game_pk, team
-                                      ORDER BY cum_tbf DESC NULLS LAST, pitcher) AS rn
-            FROM reliever_load WHERE cum_tbf > 0
-        )
-        SELECT gd, game_pk, team, pitcher FROM ranked WHERE rn = 1
-    """)
-    con.execute("""
-        CREATE TABLE relief_days AS
-        SELECT DISTINCT gd, pitcher FROM late_relief
-    """)
-    con.execute("""
-        CREATE TABLE closer_usage AS
-        SELECT d.pitcher, d.gd,
-               MAX(CASE WHEN u.gd = d.gd - 1 THEN 1 ELSE 0 END) AS pitched_d1,
-               MAX(CASE WHEN u.gd = d.gd - 2 THEN 1 ELSE 0 END) AS pitched_d2
-        FROM relief_days d
-        LEFT JOIN relief_days u
-          ON d.pitcher = u.pitcher AND u.gd < d.gd AND u.gd >= d.gd - 2
-        GROUP BY 1, 2
-    """)
-    con.execute("""
-        CREATE TABLE closer_avail AS
-        WITH games AS (
-            SELECT DISTINCT game_pk, CAST(game_date AS DATE) AS gd,
-                   home_team, away_team FROM pitches
-        )
-        SELECT g.game_pk,
-            CASE WHEN cu_h.pitched_d1 = 1 AND cu_h.pitched_d2 = 1
-                 THEN 0.0 ELSE 1.0 END AS closer_available_home,
-            CASE WHEN cu_a.pitched_d1 = 1 AND cu_a.pitched_d2 = 1
-                 THEN 0.0 ELSE 1.0 END AS closer_available_away
-        FROM games g
-        LEFT JOIN team_closer tc_h ON g.game_pk = tc_h.game_pk AND g.home_team = tc_h.team
-        LEFT JOIN team_closer tc_a ON g.game_pk = tc_a.game_pk AND g.away_team = tc_a.team
-        LEFT JOIN closer_usage cu_h ON tc_h.pitcher = cu_h.pitcher AND tc_h.gd = cu_h.gd
-        LEFT JOIN closer_usage cu_a ON tc_a.pitcher = cu_a.pitcher AND tc_a.gd = cu_a.gd
-    """)
+    # 7g/7h — travel fatigue + closer availability (helpers above).
+    _build_travel_features(con)
+    _build_closer_features(con)
 
     # 8. Assemble game_level via LEFT JOINs
     con.execute("""
@@ -1035,9 +1063,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         "batter_game_stats", "batter_shifted", "batter_rolling",
         "batter_league", "batter_ratings", "lineup_agg",
         "batter_hand_game", "batter_hand_shifted", "batter_hand_rolling", "lineup_ops_agg",
-        "team_travel_raw", "travel_seq", "travel_cross", "travel_fatigue",
-        "late_relief", "reliever_shifted", "reliever_load", "team_closer",
-        "relief_days", "closer_usage", "closer_avail",
+        "game_venue_tz", "team_travel_raw", "travel_seq", "travel_cross", "travel_fatigue",
+        "late_relief", "rel_daily", "rel_cum", "rel_team", "team_closer_pit",
+        "closer_avail",
     ):
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
     gc.collect()
@@ -1131,8 +1159,9 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
 # Source: Baseball Savant custom leaderboard (year=2025, type=park, xslg).
 # >100 = hitters park, <100 = pitchers park.
 PARK_FACTORS_SLG = {
-    "ARI": 101, "ATL": 97, "BAL": 99, "BOS": 103, "CHC": 100,
-    "CHW": 97, "CIN": 103, "CLE": 98, "COL": 116, "DET": 98,
+    # Keys MUST match Statcast team codes (AZ/CWS, not ARI/CHW).
+    "ARI": 101, "AZ": 101, "ATL": 97, "BAL": 99, "BOS": 103, "CHC": 100,
+    "CHW": 97, "CWS": 97, "CIN": 103, "CLE": 98, "COL": 116, "DET": 98,
     "HOU": 99, "KC": 100, "LAA": 101, "LAD": 101, "MIA": 97,
     "MIL": 101, "MIN": 100, "NYM": 96, "NYY": 102, "OAK": 99,
     "PHI": 101, "PIT": 98, "SD": 95, "SF": 96, "SEA": 99,
@@ -1143,31 +1172,46 @@ PARK_FACTORS_SLG = {
 # Dome/closed-roof flag: 1 if fixed dome, 0 if open-air.
 # Prevents the model from hallucinating weather impacts indoors.
 DOME_STATUS = {
-    "ARI": 1, "ATL": 0, "BAL": 0, "BOS": 0, "CHC": 0,
-    "CHW": 0, "CIN": 0, "CLE": 0, "COL": 0, "DET": 0,
+    # Keys MUST match Statcast team codes (AZ/CWS, not ARI/CHW).
+    # 1 = roof typically closed (fixed or retractable): ARI/HOU/MIA/MIL/
+    # SEA/TB/TEX/TOR.  Citi Field (NYM) and the A's parks (SAC/OAK) are
+    # OPEN-AIR — previously mislabeled 1, which nulled weather features.
+    "ARI": 1, "AZ": 1, "ATL": 0, "BAL": 0, "BOS": 0, "CHC": 0,
+    "CHW": 0, "CWS": 0, "CIN": 0, "CLE": 0, "COL": 0, "DET": 0,
     "HOU": 1, "KC": 0, "LAA": 0, "LAD": 0, "MIA": 1,
-    "MIL": 1, "MIN": 1, "NYM": 1, "NYY": 0, "OAK": 1,
+    "MIL": 1, "MIN": 1, "NYM": 0, "NYY": 0, "OAK": 0,
     "PHI": 0, "PIT": 0, "SD": 0, "SF": 0, "SEA": 1,
     "STL": 0, "TB": 1, "TEX": 1, "TOR": 1, "WSH": 0,
-    "ATH": 1,
+    "ATH": 0,
 }
 
 # Approximate home-plate UTC offsets per stadium (standard-time style).
 # Used for travel fatigue: a crossing is counted each time consecutive
 # games are played in different time zones within the trailing window.
+# The 30 team codes exactly as they appear in Statcast data.  Lookup dicts
+# below MUST cover every one of these — an unmatched code silently degrades
+# to a default (offset 0 / NaN) instead of failing loudly.
+REAL_TEAM_CODES = frozenset({
+    "ATH", "AZ", "ATL", "BAL", "BOS", "CHC", "CIN", "CLE", "COL", "CWS",
+    "DET", "HOU", "KC", "LAA", "LAD", "MIA", "MIL", "MIN", "NYM", "NYY",
+    "PHI", "PIT", "SD", "SEA", "SF", "STL", "TB", "TEX", "TOR", "WSH",
+})
+
 TEAM_TZ_OFFSETS = {
+    # Keys MUST match Statcast team codes: AZ/CWS/LAA/NYM (not ARI/CHW) —
+    # an unmatched code silently maps to offset 0.
     # Eastern (-5)
-    "NYY": -5, "BOS": -5, "BAL": -5, "TB": -5, "TOR": -5,
+    "NYY": -5, "NYM": -5, "BOS": -5, "BAL": -5, "TB": -5, "TOR": -5,
     "WSH": -5, "ATL": -5, "MIA": -5, "PHI": -5, "PIT": -5,
-    "CLE": -5, "DET": -5,
+    "CLE": -5, "DET": -5, "CIN": -5,
     # Central (-6)
-    "CHC": -6, "CHW": -6, "KC": -6, "MIN": -6,
+    "CHC": -6, "CWS": -6, "KC": -6, "MIN": -6,
     "HOU": -6, "TEX": -6, "MIL": -6, "STL": -6,
     # Mountain (-7)
-    "COL": -7, "ARI": -7,
+    "COL": -7, "AZ": -7,
     # Pacific (-8)
-    "LAD": -8, "SD": -8, "SF": -8, "SEA": -8,
-    "ATH": -8, "OAK": -8,
+    "LAD": -8, "SD": -8, "SF": -8, "SEA": -8, "LAA": -8,
+    "ATH": -8,
 }
 
 # Shrinkage weight for early-season win% smoothing (feature 2):

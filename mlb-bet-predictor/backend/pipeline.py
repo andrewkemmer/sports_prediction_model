@@ -382,6 +382,72 @@ def auto_version(target_date: date) -> str:
     return f"v{target_date.strftime('%Y.%m.%d')}"
 
 
+# Trailing window (days) of decided games that receive real point-in-time
+# weather.  Must cover BOTH drift windows: current (~7 days) and baseline
+# (>= 250 games ≈ ~17 days), so PSI compares like-for-like coverage.
+WEATHER_BACKFILL_DAYS = 35
+
+
+def _attach_recent_weather(games: pd.DataFrame, target_date: date) -> pd.DataFrame:
+    """Attach point-in-time weather features to recent decided games.
+
+    Statcast history carries only fabricated 19:00-UTC start placeholders,
+    so first fetch each game's REAL first pitch from StatsAPI; weather is
+    then sampled strictly before it (Open-Meteo archive, with a recent-past
+    forecast fallback and climatology as last resort).  Without this,
+    wind/air-density features are null for all history except dome zeros —
+    collapsing their drift sample to ~1/3 of the other features.
+    """
+    from results import fetch_game_start_times
+    from weather import apply_weather_features, fetch_games_weather
+
+    if games.empty:
+        return games
+    gd = pd.to_datetime(games["game_date"], errors="coerce")
+    decided = games["home_win"].notna() if "home_win" in games.columns else pd.Series(True, index=games.index)
+    start = pd.Timestamp(target_date) - pd.Timedelta(days=WEATHER_BACKFILL_DAYS)
+    end = pd.Timestamp(target_date)
+    mask = decided & (gd >= start) & (gd < end)
+    subset = games[mask]
+    if subset.empty:
+        logger.info("Weather backfill: no decided games in trailing %dd window", WEATHER_BACKFILL_DAYS)
+        return games
+
+    # Real first pitches keyed by StatsAPI game_pk (the same authoritative
+    # identifier the results overlay uses).  Rows without one — or without a
+    # matching official start — are skipped: never sample at a fabricated hour.
+    starts = fetch_game_start_times(subset["game_date"].min().date(),
+                                    subset["game_date"].max().date())
+
+    rows = []
+    row_idx = []
+    matched = 0
+    for idx, r in subset.iterrows():
+        pk = pd.to_numeric(r.get("game_pk"), errors="coerce")
+        st = starts.get(int(pk)) if pd.notna(pk) else None
+        if not st:
+            continue
+        matched += 1
+        ts = pd.Timestamp(st)
+        rows.append({
+            "home_team": r.get("home_team"),
+            "venue": r.get("venue", ""),
+            "start_time_utc": ts.tz_localize(None) if ts.tzinfo is not None else ts,
+        })
+        # Preserve the source index label: both fetch_games_weather and
+        # apply_weather_features key results by it when game_id is absent.
+        row_idx.append(idx)
+    if not rows:
+        logger.warning("Weather backfill: no authoritative start times matched — skipped")
+        return games
+
+    wx_df = pd.DataFrame(rows, index=row_idx)
+    wx = fetch_games_weather(wx_df)
+    logger.info("Weather backfill: %d/%d decided games matched to real starts",
+                matched, len(subset))
+    return apply_weather_features(games, wx)
+
+
 def run_daily_pipeline(
     target_date: date,
     real: bool = False,
@@ -482,6 +548,16 @@ def run_daily_pipeline(
                         "Weather fetch failed for history (features 30–31 stay NULL): %s", e
                     )
                 games = add_diff_features(games, weather_data=weather or None)
+
+        # Weather backfill over decided history: real StatsAPI first pitches →
+        # strictly-prior observations for the trailing drift window (see
+        # _attach_recent_weather).  Runs AFTER add_diff_features so the
+        # sp_*_diff inputs exist; applied values survive because this is the
+        # last writer of the two weather-driven columns.
+        try:
+            games = _attach_recent_weather(games, target_date)
+        except Exception as exc:
+            logger.warning("Weather backfill failed (features stay null): %s", exc)
 
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")
@@ -644,6 +720,10 @@ def run_daily_pipeline(
         # current window distorted PSI for every feature.
         decided = games[games["home_win"].notna()]
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
+        gd = pd.to_datetime(decided["game_date"])
+        # Chronological order is required: tail(N) on an unordered frame
+        # mixes arbitrary seasons into the baseline window.
+        decided = decided.sort_values("game_date")
         gd = pd.to_datetime(decided["game_date"])
         current = decided[gd >= cutoff]
         prior = decided[gd < cutoff]

@@ -274,9 +274,7 @@ def _fetch_hourly_series(
         "hourly": _HOURLY_VARS,
     }
     if archive_date < today:
-        # Archive API (historical) — free, no key.  Note the archive has
-        # ~5-day latency; dates inside that window return no rows, which
-        # correctly yields NaN (null) features instead of stale values.
+        # Archive API (historical) — free, no key.
         params["start_date"] = archive_date.isoformat()
         params["end_date"] = archive_date.isoformat()
         url = "https://archive-api.open-meteo.com/v1/archive"
@@ -289,14 +287,68 @@ def _fetch_hourly_series(
         resp = requests.get(url, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
+        hourly = data.get("hourly", {})
     except Exception as e:
         logger.warning("Weather fetch failed for %.2f,%.2f: %s", lat, lon, e)
-        return None
+        hourly = {}
 
-    hourly = data.get("hourly", {})
     if not hourly.get("time"):
+        # Archive latency: the historical archive lags ~5 days.  Recent past
+        # dates fall back to the forecast API's observed past window (up to
+        # 92 days), which carries the same strictly-prior hourly record.
+        if archive_date < today:
+            recent = _fetch_recent_past_series(lat, lon, archive_date)
+            if recent is not None:
+                return recent
         return None
     return {k: hourly.get(k, []) for k in _HOURLY_KEYS}
+
+
+def _fetch_recent_past_series(
+    lat: float,
+    lon: float,
+    day: date,
+) -> dict[str, list] | None:
+    """Observed hourly series for a recent past date via the forecast API.
+
+    The archive API publishes with ~5-day latency, leaving the freshest
+    decided games without weather.  The forecast endpoint exposes its
+    observed past window (`past_days`, up to 92) — same hourly record,
+    available immediately.  Returns only rows belonging to ``day``
+    (stadium-local), or None when unavailable.
+    """
+    past = min((date.today() - day).days + 1, 92)
+    if past < 1:
+        return None
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": _HOURLY_VARS,
+        "past_days": past,
+        "forecast_days": 1,
+    }
+    try:
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast", params=params, timeout=15
+        )
+        resp.raise_for_status()
+        hourly = resp.json().get("hourly", {})
+    except Exception as e:
+        logger.warning("Recent-past weather fetch failed for %.2f,%.2f: %s", lat, lon, e)
+        return None
+
+    prefix = day.isoformat()
+    times = hourly.get("time", []) or []
+    keep = [i for i, t in enumerate(times) if str(t).startswith(prefix)]
+    if not keep:
+        return None
+    out = {"time": [times[i] for i in keep]}
+    for k in _HOURLY_KEYS:
+        if k == "time":
+            continue
+        vals = hourly.get(k, []) or []
+        out[k] = [vals[i] if i < len(vals) else None for i in keep]
+    return out
 
 
 def _pick_row(series: dict[str, list] | None, game_local_time: datetime) -> dict:
@@ -456,18 +508,57 @@ def fetch_games_weather(
 
     # Cache one day-series per (stadium team code, local date)
     series_cache: dict[tuple[str, date], dict[str, list] | None] = {}
+    n_fallback = 0
+
+    def _key_for(team_code: str, start_utc: datetime) -> tuple[datetime, str, date]:
+        info = STADIUMS[team_code]
+        local = _localize(start_utc, info["tz"], info["lon"])
+        return start_utc, team_code, local.date()
+
+    # Prefetch every unique (stadium, day) series CONCURRENTLY — a trailing
+    # month of games is ~300+ distinct requests, far too slow serially.
+    unique_keys: dict[tuple[str, date], datetime] = {}
+    for _, row in df.iterrows():
+        start = row.get("start_time_utc")
+        if start is None or (isinstance(start, float) and pd.isna(start)):
+            continue
+        if isinstance(start, str):
+            start = pd.Timestamp(start).to_pydatetime()
+        elif isinstance(start, pd.Timestamp):
+            start = start.to_pydatetime()
+        team_code = _resolve_team_code(row.get("home_team", ""), row.get("venue", ""))
+        info = STADIUMS.get(team_code)
+        if info is None:
+            continue
+        _, tc, d = _key_for(team_code, start)
+        unique_keys.setdefault((tc, d), start)
+
+    if len(unique_keys) > 4:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _pull(item):
+            (tc, d), first_start = item
+            info = STADIUMS[tc]
+            return (tc, d), _fetch_hourly_series(info["lat"], info["lon"], d)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for key, series in pool.map(_pull, unique_keys.items()):
+                series_cache[key] = series
+    else:
+        for (tc, d), first_start in unique_keys.items():
+            info = STADIUMS[tc]
+            series_cache[(tc, d)] = _fetch_hourly_series(info["lat"], info["lon"], d)
 
     def _series(team_code: str, info: dict, start_utc: datetime) -> dict[str, list] | None:
         local = _localize(start_utc, info["tz"], info["lon"])
-        key = (team_code, local.date())
-        if key not in series_cache:
-            series_cache[key] = _fetch_hourly_series(
-                info["lat"], info["lon"], local.date()
-            )
-        return series_cache[key]
+        return series_cache.get((team_code, local.date()))
 
     for gid, row in df.iterrows():
-        game_id = row.get("game_id", str(gid))
+        game_id = row.get("game_id")
+        if game_id is None or (isinstance(game_id, float) and pd.isna(game_id)):
+            # Frames without a game-id column are keyed by their index
+            # label; apply_weather_features resolves the same way.
+            game_id = str(gid)
         home = row.get("home_team", "")
         venue = row.get("venue", "")
         start = row.get("start_time_utc")
@@ -485,10 +576,25 @@ def fetch_games_weather(
             results[game_id] = {"available": False}
             continue
 
-        results[game_id] = _stadium_weather(info, start, _series(team_code, info, start))
+        series = _series(team_code, info, start)
+        if series is None:
+            # Both archive and forecast pulls failed — fall back to the
+            # stadium's seasonal norm instead of a null (explicit remediation:
+            # keeps weather-feature coverage uniform for drift/training).
+            local = _localize(start, info["tz"], info["lon"])
+            results[game_id] = climatology_weather(home, venue, local.month)
+            n_fallback += 1
+            continue
+        results[game_id] = _stadium_weather(info, start, series)
 
     n_ok = sum(1 for v in results.values() if v.get("available"))
-    logger.info("Weather fetched: %d/%d games", n_ok, len(results))
+    if n_fallback:
+        logger.warning(
+            "Weather fetched: %d/%d games (%d via climatology fallback)",
+            n_ok, len(results), n_fallback,
+        )
+    else:
+        logger.info("Weather fetched: %d/%d games", n_ok, len(results))
     return results
 
 
@@ -497,3 +603,97 @@ def fetch_day_weather(
 ) -> dict[str, dict]:
     """Backward-compatible alias for :func:`fetch_games_weather`."""
     return fetch_games_weather(games_df)
+
+
+# ── Climatology fallback ────────────────────────────────────────────────────
+
+# Monthly mean afternoon temperature (°C) for a typical temperate MLB city.
+# Used ONLY when both the archive and forecast pulls fail — a clearly-labeled
+# seasonal norm instead of a null, so weather-driven features keep coverage.
+_CLIMO_MONTHLY_TEMP_C = (3.0, 5.0, 9.0, 14.0, 19.0, 24.5, 27.0, 26.0, 21.5, 15.0, 8.0, 4.0)
+_CLIMO_RH_PCT = 50.0
+
+
+def climatology_weather(home_team: str, venue: str, month: int) -> dict:
+    """Deterministic seasonal-norm weather for a stadium/month.
+
+    Fallback when real-time AND archive pulls fail: air density from the
+    stadium's known altitude + monthly mean temperature; wind treated as
+    calm (a genuine neutral value, like a dome — never a fabricated gust).
+    Marked ``source='climatology'`` so downstream consumers can audit it.
+    """
+    team_code = _resolve_team_code(home_team, venue)
+    info = STADIUMS.get(team_code)
+    alt_m = float(info["alt_m"]) if info else 100.0
+    month = max(1, min(12, int(month)))
+    temp_c = _CLIMO_MONTHLY_TEMP_C[month - 1]
+    air_density = compute_air_density(temp_c, _CLIMO_RH_PCT, np.nan, alt_m)
+    return {
+        "available": True,
+        "source": "climatology",
+        "temp_c": temp_c,
+        "rh_pct": _CLIMO_RH_PCT,
+        "wind_speed_kmh": 0.0,
+        "wind_direction_deg": np.nan,
+        "pressure_hpa": np.nan,
+        "air_density": air_density if not np.isnan(air_density) else 1.225,
+        "wind_multiplier": 0.0,
+        "stadium_alt_m": alt_m,
+    }
+
+
+def apply_weather_features(
+    df: pd.DataFrame,
+    weather_data: dict | None,
+) -> pd.DataFrame:
+    """Fill wind_advantage_flyball_factor / air_density_velocity_boost on an
+    existing diff-feature frame from a ``{game_id: weather}`` mapping.
+
+    Same formulas as ``features.add_diff_features``:
+      * wind_advantage_flyball_factor = wind_multiplier × sp_era_diff
+      * air_density_velocity_boost   = (air_density − 1.225) × sp_fbvelo_diff
+    Dome games are genuinely neutral → a valid 0.  Rows without weather stay
+    NULL.  Idempotent: rows absent from ``weather_data`` are left untouched.
+    """
+    df = df.copy()
+    if weather_data is None or df.empty:
+        return df
+    for col in ("wind_advantage_flyball_factor", "air_density_velocity_boost"):
+        if col not in df.columns:
+            df[col] = np.nan
+
+    sea_level_rho = 1.225
+    n_applied = 0
+    era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
+    wind_vals: list[float] = []
+    air_vals: list[float] = []
+    for i, (idx, row) in enumerate(df.iterrows()):
+        # Key forms vary by caller: explicit game-id strings, or index
+        # labels that may arrive as int (reset_index) or str. Try all.
+        w = {}
+        if isinstance(weather_data, dict):
+            gid = row.get("game_id")
+            for key in (gid, str(idx), idx):
+                if key is not None and key in weather_data:
+                    w = weather_data[key]
+                    break
+        dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
+        if dome:
+            wind_vals.append(0.0)
+            air_vals.append(0.0)
+        elif w.get("available"):
+            wm = w.get("wind_multiplier", np.nan)
+            ad = w.get("air_density", np.nan)
+            wv = float(wm) * era.iloc[i] if pd.notna(wm) and pd.notna(era.iloc[i]) else np.nan
+            av = (float(ad) - sea_level_rho) * velo.iloc[i] if pd.notna(ad) and pd.notna(velo.iloc[i]) else np.nan
+            wind_vals.append(wv)
+            air_vals.append(av)
+            n_applied += 1
+        else:
+            wind_vals.append(np.nan)
+            air_vals.append(np.nan)
+    df["wind_advantage_flyball_factor"] = pd.Series(wind_vals, index=df.index, dtype="float64")
+    df["air_density_velocity_boost"] = pd.Series(air_vals, index=df.index, dtype="float64")
+    logger.info("Weather features applied to %d/%d games", n_applied, len(df))
+    return df
