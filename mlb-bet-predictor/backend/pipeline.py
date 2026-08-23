@@ -496,7 +496,10 @@ def run_daily_pipeline(
 
             # Persist ensemble
             persist_ensemble(best_models, pooled_metrics, version=version, data_cutoff=target_date_str)
-            update_model_history(pooled_metrics, version)
+            update_model_history(
+                pooled_metrics, version,
+                notes=f"walk-forward through {target_date_str} ({len(train_games)} games)",
+            )
             summary["metrics"] = pooled_metrics
         else:
             best_models = ensemble["models"] if ensemble else {}

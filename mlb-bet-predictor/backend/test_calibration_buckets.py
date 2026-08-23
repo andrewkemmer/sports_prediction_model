@@ -115,3 +115,50 @@ class TestCalibrationArtifactOnPreGameRuns(unittest.TestCase):
                 pipeline.DATA_DELIVERY_DIR = orig
         if data is not None:
             self.assertEqual(data["calibration_buckets"], [])
+
+
+class TestModelHistoryDedup(unittest.TestCase):
+    """update_model_history must keep one row per day — reruns replace, not
+    append — so the Version History table can't fill with duplicate rows."""
+
+    def _run(self, metrics, tmp):
+        import training
+        orig = training.DATA_DELIVERY_DIR
+        training.DATA_DELIVERY_DIR = Path(tmp)
+        try:
+            training.update_model_history(metrics, "vTest", notes="n1")
+            training.update_model_history({"auc": 0.6, "brier": 0.2,
+                                           "logloss": 0.68, "ece": 0.05},
+                                          "vTest", notes="n2")
+            return json.loads((Path(tmp) / "model_history.json").read_text())
+        finally:
+            training.DATA_DELIVERY_DIR = orig
+
+    def test_same_day_rerun_replaces_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hist = self._run({"auc": 0.5, "brier": 0.25, "logloss": 0.69,
+                              "ece": 0.0}, tmp)
+        self.assertEqual(len(hist), 1)
+        self.assertEqual(hist[0]["notes"], "n2")
+        self.assertAlmostEqual(hist[0]["auc"], 0.6)
+
+    def test_other_days_are_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import training
+            orig = training.DATA_DELIVERY_DIR
+            training.DATA_DELIVERY_DIR = Path(tmp)
+            try:
+                (Path(tmp) / "model_history.json").write_text(json.dumps([
+                    {"version": "vOld", "date": "2026-08-20", "auc": 0.51,
+                     "brier": 0.25, "logloss": 0.69, "ece": 0.01, "notes": ""},
+                ]))
+                training.update_model_history({"auc": 0.55, "brier": 0.24,
+                                               "logloss": 0.685, "ece": 0.03},
+                                              "vNew")
+                hist = json.loads(
+                    (Path(tmp) / "model_history.json").read_text())
+            finally:
+                training.DATA_DELIVERY_DIR = orig
+        self.assertEqual(len(hist), 2)
+        self.assertEqual([r["date"] for r in hist],
+                         sorted(r["date"] for r in hist))

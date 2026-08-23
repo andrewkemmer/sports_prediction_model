@@ -926,24 +926,35 @@ def update_model_history(
     version: str,
     notes: str = "",
 ) -> None:
-    """Append a row to model_history.json for the Model Monitor page."""
+    """Append a row to model_history.json for the Model Monitor page.
+
+    One row per calendar day: a re-run on the same day REPLACES that day's
+    row instead of appending, so the Version History table reflects real
+    retrains rather than every debugging rerun.
+    """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     history_path = DATA_DELIVERY_DIR / "model_history.json"
 
     history = []
     if history_path.exists():
         with open(history_path) as f:
-            history = json.load(f)
+            try:
+                history = json.load(f)
+            except ValueError:
+                history = []
 
+    today = datetime.now().strftime("%Y-%m-%d")
+    history = [row for row in history if row.get("date") != today]
     history.append({
         "version": version,
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date": today,
         "auc": metrics.get("auc", 0),
         "brier": metrics.get("brier", 0),
         "logloss": metrics.get("logloss", 0),
         "ece": metrics.get("ece", 0),
         "notes": notes,
     })
+    history.sort(key=lambda row: str(row.get("date", "")))
 
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
