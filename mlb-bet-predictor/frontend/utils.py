@@ -121,14 +121,21 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     win = pd.to_numeric(df.get("home_win"), errors="coerce")
 
     if "game_status" not in df.columns:
-        status = win.notna().map({True: "Final", False: "Live"})
-        # Games whose first pitch is still in the future are neither Final nor
-        # Live — labeling them Live made every unstarted game look underway.
-        if "start_time_utc" in df.columns:
-            starts = pd.to_datetime(df["start_time_utc"], errors="coerce", utc=True)
-            status = status.mask(
-                starts > pd.Timestamp.now(tz="UTC"), "Scheduled"
-            )
+        # Prefer the authoritative ESPN game_state when present ("post" =
+        # Final, "in" = Live, "pre" = Scheduled). When absent (e.g.
+        # archive views rebuilt from prediction history), fall back to
+        # the legacy heuristic: home_win notnull → Final, else Live.
+        gs = df.get("game_state")
+        if gs is not None and gs.notna().any():
+            _MAP = {"post": "Final", "in": "Live", "pre": "Scheduled"}
+            status = gs.map(_MAP).fillna("Live")
+        else:
+            status = win.notna().map({True: "Final", False: "Live"})
+            if "start_time_utc" in df.columns:
+                starts = pd.to_datetime(df["start_time_utc"], errors="coerce", utc=True)
+                status = status.mask(
+                    starts > pd.Timestamp.now(tz="UTC"), "Scheduled"
+                )
         df["game_status"] = status
 
     if "evening_game" not in df.columns and "start_time_utc" in df.columns:
@@ -295,6 +302,28 @@ def _pick_date(date_str: str) -> str:
     return "20260809"  # bundled sample
 
 
+def _pick_artifact_date(date_str: str, prefix: str) -> str:
+    """Find the best date for an artifact file ``{prefix}_{date}.ext``.
+
+    Tries the requested date first; if no artifact exists for it, falls
+    back to the newest available date — so tabs that track the latest
+    snapshot (Calibration, Model Monitor, SHAP) never show blank just
+    because the user navigated to a past date.
+    """
+    cfg = get_source_config()
+    dates = available_dates(**cfg)
+    latest = dates[0] if dates else None
+    # Try the requested date — check .json first (calibration/monitor), then .csv (SHAP)
+    if date_str:
+        for ext in (".json", ".csv"):
+            if _fetch_bytes(f"{prefix}_{date_str}{ext}", **cfg)[0] is not None:
+                return date_str
+    # Fall back to latest available date
+    if latest and latest != date_str:
+        return latest
+    return date_str or "20260809"
+
+
 def load_todays_games(date_str: str) -> pd.DataFrame:
     cfg = get_source_config()
     data, src = _fetch_bytes(f"todays_games_{_pick_date(date_str)}.csv", **cfg)
@@ -385,7 +414,7 @@ def load_power_rankings(date_str: str) -> pd.DataFrame:
 
 def load_calibration(date_str: str) -> dict:
     cfg = get_source_config()
-    picked = _pick_date(date_str)
+    picked = _pick_artifact_date(date_str, "calibration")
     data, src = _fetch_bytes(f"calibration_{picked}.json", **cfg)
     st.session_state["data_source"] = src
     if data is None:
@@ -402,6 +431,7 @@ def _normalize_calibration(cal: dict, date_str: str) -> dict:
                      calibration_curve[], confidence[{bucket,count,accuracy_pct}],
                      today_record{wins,losses,completed}, upsets[{team,prob}].
     """
+    cal["_artifact_date"] = date_str
     # Prefer the per-day walk-forward entry when one matches the selected
     # date: it is the strict point-in-time predicted-vs-actual view for
     # that day (fold trained only on prior games).
@@ -466,7 +496,8 @@ def _normalize_calibration(cal: dict, date_str: str) -> dict:
 
 def load_model_monitor(date_str: str) -> dict:
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"model_monitor_{_pick_date(date_str)}.json", **cfg)
+    picked = _pick_artifact_date(date_str, "model_monitor")
+    data, src = _fetch_bytes(f"model_monitor_{picked}.json", **cfg)
     st.session_state["data_source"] = src
     if data is None:
         return {}
@@ -475,10 +506,20 @@ def load_model_monitor(date_str: str) -> dict:
 
 def load_shap(game_id: str, date_str: str) -> pd.DataFrame:
     cfg = get_source_config()
+    # Try the requested date first; fall back to latest available snapshot.
+    # SHAP files use a game_id that embeds the date (shap_game_20260821_STL@PHI.csv),
+    # so we can't do a simple prefix lookup — try requested date then latest.
     data, _ = _fetch_bytes(f"shap_game_{game_id}.csv", **cfg)
-    if data is None:
-        return pd.DataFrame()
-    return pd.read_csv(io.BytesIO(data))
+    if data is not None:
+        return pd.read_csv(io.BytesIO(data))
+    # Extract date from game_id (first 8 digits) and try latest
+    dates = available_dates(**cfg)
+    if dates and dates[0] != date_str:
+        new_gid = game_id.replace(date_str, dates[0]) if date_str in game_id else game_id
+        data, _ = _fetch_bytes(f"shap_game_{new_gid}.csv", **cfg)
+        if data is not None:
+            return pd.read_csv(io.BytesIO(data))
+    return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------

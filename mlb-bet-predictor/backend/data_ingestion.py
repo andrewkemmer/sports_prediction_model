@@ -581,14 +581,20 @@ def _parse_espn_event(event: dict) -> dict | None:
         return None
     game_date = game_dt.date()
 
+    # Game state from ESPN — only "post" means the game is truly final.
+    game_state = (competition.get("status", {}).get("type", {}).get("state") or "")
+    game_status_detail = (competition.get("status", {}).get("type", {}).get("detail") or "")
+
     # Scores (may be None if game hasn't started/finished)
     home_score_str = home_comp.get("score", "")
     away_score_str = away_comp.get("score", "")
     home_score = int(home_score_str) if home_score_str.isdigit() else None
     away_score = int(away_score_str) if away_score_str.isdigit() else None
 
+    # Only set home_win when the game is FINAL — live scores must never
+    # become training labels or appear as "Final" on the dashboard.
     home_win = None
-    if home_score is not None and away_score is not None:
+    if game_state == "post" and home_score is not None and away_score is not None:
         home_win = float(home_score > away_score)
 
     # Starting pitchers from ESPN projectedStats or probablePitcher
@@ -611,6 +617,8 @@ def _parse_espn_event(event: dict) -> dict | None:
         "start_time_utc": game_dt,
         "home_team": home_key,
         "away_team": away_key,
+        "game_state": game_state,
+        "game_status_detail": game_status_detail,
         "home_win": home_win,
         # The actual runs — without these the dashboard shows winners with
         # no final score (home_win alone was carried, scores were dropped).

@@ -950,6 +950,25 @@ def build_features(
     game_df = pd.read_parquet(game_out)
     pbp_df = pd.read_parquet(pbp_out)
 
+    # ── Official results overlay ────────────────────────────────────────
+    # Statcast pitch rows derive scores from the last cached pitch — a
+    # partial crawl freezes wrong finals forever, and mid-game snapshots
+    # become bogus training labels.  The MLB StatsAPI schedule endpoint
+    # gives authoritative scores + game state per game_pk, so we overlay
+    # them here: final scores are corrected and non-final labels are nulled
+    # so the model never trains on a game that hasn't actually finished.
+    try:
+        from results import fetch_mlb_results, apply_official_results
+        if len(game_df) > 0 and "game_date" in game_df.columns:
+            gd = game_df["game_date"].dropna()
+            start = pd.to_datetime(gd.min()).date()
+            end = pd.to_datetime(gd.max()).date()
+            res = fetch_mlb_results(start, end)
+            if not res.empty:
+                game_df = apply_official_results(game_df, res)
+    except Exception as exc:
+        logger.warning("Official results overlay failed — keeping pitch-derived scores: %s", exc)
+
     for df in [game_df, pbp_df]:
         for col in df.select_dtypes(include=["float64"]).columns:
             df[col] = df[col].astype("float32")

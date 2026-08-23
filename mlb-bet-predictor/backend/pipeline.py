@@ -124,6 +124,8 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         "venue", "model_pick", "home_win",
         # Finals for finished games (ESPN results merged onto the slate)
         "home_score", "away_score", "total_runs",
+        # Game state from ESPN — drives Live/Final status on the dashboard
+        "game_state", "game_status_detail",
     ]
     cols = [c for c in out_cols if c in games.columns]
     games[cols].to_csv(path, index=False)

@@ -24,9 +24,10 @@ dates = utils.available_dates(**utils.get_source_config())
 date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
 cal = utils.load_calibration(date_str)
 if not cal:
-    st.warning(f"No calibration artifacts found for {date_str}.")
+    st.warning(f"No calibration artifacts found for {date_str} or any recent date.")
     st.stop()
 
+artifact_date = cal.get("_artifact_date", date_str)
 n_games = cal.get("n_games", 0)
 kpis = cal.get("kpis", {})
 curve = cal.get("calibration_curve", [])
@@ -53,8 +54,9 @@ st.markdown(
     f"""
     <div style="display:inline-flex;align-items:center;gap:6px;margin:6px 0 2px;color:#94A3B8;
                 border:1px solid #1E293B;border-radius:999px;padding:3px 12px;font-size:0.85rem;">
-      As of {utils.format_date_long(date_str)} · n = {n_games:,} games · Trained {_trained_label(cal.get('trained_at', ''))}
+      As of {utils.format_date_long(artifact_date)} · n = {n_games:,} games · Trained {_trained_label(cal.get('trained_at', ''))}
     </div>
+    {f'<div style="color:#64748B;font-size:0.82rem;margin-top:2px;">ℹ No artifact for {utils.format_date_long(date_str)} — showing latest snapshot ({utils.format_date_long(artifact_date)})</div>' if artifact_date != date_str else ''}
     <div style="color:#94A3B8;font-size:0.9rem;margin-top:4px;">
       Assessing prediction reliability and accuracy across probability buckets
     </div>
