@@ -837,6 +837,25 @@ def fetch_games_weather(
 
     n_ok = sum(1 for value in results.values() if value.get("available"))
     logger.info("Weather fetched: %d/%d games from batched observations", n_ok, len(results))
+    # Coverage gate, per calendar year when the batch spans seasons. A
+    # season-wide starvation (bad date range, endpoint change) must be loud,
+    # not a healthy-looking aggregate ratio that one good year dilutes.
+    if n_ok < 0.8 * len(results):
+        logger.warning(
+            "Weather fetched only %d/%d games (%.0f%%) — observations "
+            "unavailable for many games; wind/air-density features stay NULL",
+            n_ok, len(results), 100.0 * n_ok / max(len(results), 1))
+    if len(results) >= 40:
+        by_year: dict[int, tuple[int, int]] = {}
+        for _key, _code, _info, start in targets:
+            ok = results.get(_key, {}).get("available")
+            tot, good = by_year.get(start.year, (0, 0))
+            by_year[start.year] = (tot + 1, good + (1 if ok else 0))
+        for year, (tot, good) in sorted(by_year.items()):
+            if tot and good < 0.8 * tot:
+                logger.warning(
+                    "Weather coverage %d: only %d/%d games observed "
+                    "— that season's weather features are starving", year, good, tot)
     return results
 
 

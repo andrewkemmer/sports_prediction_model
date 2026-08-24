@@ -69,6 +69,28 @@ UNUSED_COLS = [
 
 # ── Public API ──────────────────────────────────────────────────────────────
 
+_REGULAR_SEASON_CORE_MONTHS = {4, 5, 6, 7, 8, 9}
+
+
+def _warn_if_core_season_chunk_empty(chunk_start: date, chunk_end: date,
+                                     reason: str) -> None:
+    """Loud gate for silent Statcast starvation.
+
+    Empty chunks at the season edges (late March, October+) are normal
+    offseason/posting-lag behavior. An empty chunk whose midpoint falls in
+    the April–September core means data silently went missing for real
+    games — exactly the failure mode that produced wrong frozen finals
+    before the StatsAPI overlay existed.
+    """
+    mid = chunk_start + (chunk_end - chunk_start) / 2
+    if mid.month in _REGULAR_SEASON_CORE_MONTHS:
+        logger.warning(
+            "Statcast chunk %s → %s came back EMPTY (%s) in core regular-"
+            "season months — games in this window will have missing pitch "
+            "data; investigate before training",
+            chunk_start, chunk_end, reason)
+
+
 def _chunked_statcast(
     start: date,
     end: date,
@@ -94,8 +116,11 @@ def _chunked_statcast(
             if df is not None and not df.empty:
                 chunks.append(df)
                 logger.info("    → %d pitches", len(df))
+            else:
+                _warn_if_core_season_chunk_empty(cursor, chunk_end, "empty response")
         except Exception as e:
             logger.warning("    → Chunk failed: %s", e)
+            _warn_if_core_season_chunk_empty(cursor, chunk_end, f"error: {e}")
         cursor = chunk_end + timedelta(days=1)
         if cursor <= end:
             time.sleep(pause_sec)

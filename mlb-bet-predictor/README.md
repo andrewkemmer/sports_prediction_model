@@ -224,6 +224,18 @@ Tests need only `pandas`/`numpy` (heavy ML is imported lazily).
 * **Other sports** reuse the same `game-events → PIT features → walk-forward
   → artifacts` skeleton; league-specific adapters slot into
   `data_ingestion.load_game_events`.
+* **StatsAPI schedule truncation (do not remove chunking).** The schedule
+  endpoint SILENTLY truncates long date ranges — one request for
+  2025-01-01→2026-08-23 returns only 2025-02-20→2025-11-01, with no error.
+  `results.fetch_game_start_times` therefore always queries in ≤
+  `SCHEDULE_CHUNK_DAYS` (60-day) chunks; any new code path that hits the
+  schedule endpoint must do the same or an entire season of games silently
+  loses start times (and downstream weather) while logs look healthy.
+  Coverage gates in `_attach_weather_history` (per calendar year),
+  `weather.fetch_games_weather`, and `ingestion._chunked_statcast` warn
+  loudly when a source starves; the dashboard's Model & Data Drift Monitor
+  page renders a per-feature coverage panel (feature × window × % measured)
+  so absence is visible instead of hiding behind default-filled zeros.
 
 ## 6. FAQ
 

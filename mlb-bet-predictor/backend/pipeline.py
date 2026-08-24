@@ -48,7 +48,7 @@ from data_ingestion import (
     load_game_events,
     filter_prior,
 )
-from explainability import compute_feature_drift, compute_shap_per_game
+from explainability import compute_feature_coverage, compute_feature_drift, compute_shap_per_game
 from calibration import is_identity
 from features import add_diff_features
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
@@ -418,6 +418,7 @@ def _model_monitor_json(
     last_retrained: Optional[str] = None,
     version: str = "v3.2.1",
     ensemble: Optional[list] = None,
+    coverage_df: Optional[pd.DataFrame] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -447,6 +448,10 @@ def _model_monitor_json(
             "features": warn_features,
         },
         "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],
+        # Per-feature non-null coverage per window (measured vs default-filled).
+        # Visual backstop for silent data starvation — see compute_feature_coverage.
+        "feature_coverage": coverage_df.to_dict(orient="records")
+                               if coverage_df is not None and not coverage_df.empty else [],
         # Candidate models behind the ensemble: name, blend weight (sums to
         # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
         "ensemble": ensemble if ensemble is not None else last_ensemble_info(),
@@ -627,15 +632,25 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         # Loud coverage gate: a silently truncated schedule source is how an
         # ENTIRE SEASON of weather features went null while every log line
         # looked healthy (2470/2477 'fetched' — of only the games attempted).
+        # Checked PER CALENDAR YEAR because the failure was season-specific:
+        # 2025 matched 100% while 2026 matched ~1%. An aggregate ratio over
+        # both years would have diluted the dead season into a single pass.
         need_pks_all = [int(p) for p in pks[need].dropna()]
-        matched_n = sum(1 for pk in need_pks_all if pk in starts)
-        if need_pks_all and matched_n < 0.8 * len(need_pks_all):
-            logger.warning(
-                "Weather history: start times matched only %d/%d decided "
-                "games (%s→%s) — schedule source may be truncating or "
-                "failing; open-air weather stays NULL for unmatched games",
-                matched_n, len(need_pks_all),
-                gd[need].min().date(), gd[need].max().date())
+        need_years = gd[need].dt.year
+        for year in sorted(need_years.dropna().unique()):
+            yr_mask = (need_years == year).values
+            yr_pks = [int(p) for p, m in zip(pks[need], yr_mask) if m]
+            matched_yr = sum(1 for pk in yr_pks if pk in starts)
+            pct = 100.0 * matched_yr / len(yr_pks) if yr_pks else 100.0
+            logger.info("Weather history: start times %s: %d/%d (%.0f%%)",
+                        year, matched_yr, len(yr_pks), pct)
+            if yr_pks and matched_yr < 0.8 * len(yr_pks):
+                logger.warning(
+                    "Weather history: start times matched only %d/%d decided "
+                    "games in %d (%s→%s) — schedule source may be truncating "
+                    "or failing; open-air weather stays NULL for unmatched games",
+                    matched_yr, len(yr_pks), int(year),
+                    gd[need][yr_mask].min().date(), gd[need][yr_mask].max().date())
         rows: list[dict] = []
         row_idx: list[Any] = []
         for idx, r in subset.iterrows():
@@ -1051,11 +1066,14 @@ def run_daily_pipeline(
                 model_weights=feature_importance_weights(best_models),
             )
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
+            coverage_df = compute_feature_coverage(baseline, current, target_date_str)
+            summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"))
         else:
             drift_df = pd.DataFrame()
+            coverage_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info())
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df)
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync

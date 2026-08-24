@@ -168,6 +168,80 @@ else:
     st.info("No drift data available.")
 
 # ---------------------------------------------------------------------------
+# Feature coverage panel (measured vs default-filled, per window)
+# ---------------------------------------------------------------------------
+st.markdown("### Feature Coverage (non-null / measured)")
+coverage = mon.get("feature_coverage", []) or []
+if coverage:
+    # Worst first: lowest measured share at top. This is the visual backstop
+    # for silent data starvation — a fetcher can die for a whole season while
+    # PSI rows keep showing plausible zeros (the 2026 weather truncation did
+    # exactly that). MEASURED excludes default-filled values (e.g. the dome
+    # branch's exact-0 wind) so legitimate zeros cannot mask absence.
+    cov_sorted = sorted(
+        coverage,
+        key=lambda r: (r.get("pct_measured", 0.0), r.get("feature", "")),
+    )
+    n_starved = sum(1 for r in coverage if r.get("status") == "STARVED")
+    n_low = sum(1 for r in coverage if r.get("status") == "LOW_COVERAGE")
+    sub = (
+        f"<span style='color:{utils.RED};font-weight:700;'>{n_starved} starved</span>"
+        f" · <span style='color:{utils.AMBER};font-weight:700;'>{n_low} low</span>"
+        if (n_starved or n_low) else
+        "<span style='color:#4ADE80;font-weight:700;'>all windows healthy</span>"
+    )
+    st.markdown(
+        f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
+        f"Share of games in each drift window with a real observation per feature — {sub}</div>",
+        unsafe_allow_html=True)
+    show_starved_only = n_starved + n_low > 0
+    cov_rows = []
+    shown = 0
+    for r in cov_sorted:
+        status = r.get("status", "OK")
+        if show_starved_only and status == "OK" and shown >= 12:
+            continue  # keep the table readable; healthy tail is summarized below
+        pct_m = float(r.get("pct_measured", 0.0))
+        pct_n = float(r.get("pct_nonnull", 0.0))
+        n_def = int(r.get("n_default_zero", 0) or 0)
+        color = utils.RED if status == "STARVED" else (
+            utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
+        pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn", "STARVED": "alert"}.get(status, "ok")
+        default_cell = (
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>"
+            f"{n_def} default-zero</div>" if n_def else "")
+        cov_rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"
+            f"<td>{r.get('window','')}</td>"
+            f"<td>{r.get('n_games','—')}</td>"
+            f"<td style='color:{color};font-weight:700;'>{pct_m:.0f}%</td>"
+            f"<td>{pct_n:.0f}%{default_cell}</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td></tr>"
+        )
+        shown += 1
+    n_hidden = len(coverage) - shown
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>FEATURE</th><th>WINDOW</th><th>GAMES</th>
+            <th>% MEASURED</th><th>% NON-NULL</th><th>STATUS</th></tr></thead>
+            <tbody>{''.join(cov_rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          % MEASURED = real observations only (default-filled values excluded);
+          % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
+          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.info("No feature coverage data available (older run artifact).")
+
+# ---------------------------------------------------------------------------
 # Model ensemble composition
 # ---------------------------------------------------------------------------
 st.markdown("### Model Ensemble")
