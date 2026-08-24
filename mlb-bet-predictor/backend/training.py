@@ -598,7 +598,12 @@ def ensemble_predict(
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
-                Xuse = np.hstack([Xi, X_cat])  # imputed numeric + team IDs
+                import pandas as pd
+                num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
+                _df = pd.DataFrame(Xi, columns=num_cols_in_data)
+                for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
+                    _df[c_] = pd.Categorical(X_cat[:, i])
+                Xuse = _df
             elif name in ("randomforest", "lightgbm"):
                 Xuse = X_tree  # RF: integer team IDs; LGBM: native categoricals
             else:
@@ -700,20 +705,33 @@ def train_moneyline_ensemble(
     try:
         from xgboost import XGBClassifier
         from config import XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP
+        # XGBoost: build DataFrame with category-dtype team IDs so
+        # enable_categorical=True routes them natively (no one-hot).
+        # Must build column-by-column: np.hstack would cast ints → float64,
+        # and xgboost rejects float categories.
+        num_cols_in_data = [c for c in FEATURE_COLS if c in train.columns]
+        xgb_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
+        import pandas as pd
+        X_train_xgb = pd.DataFrame(X_train_lr, columns=num_cols_in_data)
+        for i, c in enumerate(TREE_CATEGORICAL_COLS):
+            X_train_xgb[c] = pd.Categorical(X_cat_train[:, i])
         if X_val is not None:
+            X_val_xgb = pd.DataFrame(X_val_lr, columns=num_cols_in_data)
+            for i, c in enumerate(TREE_CATEGORICAL_COLS):
+                X_val_xgb[c] = pd.Categorical(X_cat_val[:, i])
             xgb = XGBClassifier(
                 **XGBOOST_PARAMS,
                 n_estimators=XGBOOST_FOLD_ROUNDS,
                 early_stopping_rounds=XGBOOST_EARLY_STOP,
             )
             xgb.fit(
-                X_train_lr_tree, y_train,
-                eval_set=[(X_val_lr_tree, y_val)],
+                X_train_xgb, y_train,
+                eval_set=[(X_val_xgb, y_val)],
                 verbose=False,
             )
         else:
             xgb = XGBClassifier(**XGBOOST_PARAMS)
-            xgb.fit(X_train_lr_tree, y_train, verbose=False)
+            xgb.fit(X_train_xgb, y_train, verbose=False)
         models["xgboost"] = xgb
     except ImportError:
         logger.warning("xgboost not available, skipping XGB member")

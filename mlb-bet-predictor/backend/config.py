@@ -100,6 +100,7 @@ XGBOOST_PARAMS = {
     "learning_rate": 0.058,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
+    "enable_categorical": True,
 }
 # n_estimators ceiling + early-stopping rounds for walk-forward folds.
 # Separate from the constructor dict because xgboost 3.2 sklearn API
