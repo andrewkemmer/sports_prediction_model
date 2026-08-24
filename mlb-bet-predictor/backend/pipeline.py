@@ -842,6 +842,16 @@ def run_daily_pipeline(
             except Exception as exc:
                 logger.warning("Weather backfill failed (features stay null): %s", exc)
 
+        # Re-export the feature frame now that weather has been applied, so
+        # the shipped game_level_features.csv matches the exact features the
+        # models trained on (the Phase-3.5 export runs before any weather
+        # pass and would otherwise ship dome-default zeros/nulls only).
+        try:
+            games.to_csv(DATA_DELIVERY_DIR / "game_level_features.csv", index=False)
+            logger.info("Refreshed game_level_features.csv with applied weather")
+        except Exception as exc:
+            logger.warning("Could not refresh game_level_features.csv: %s", exc)
+
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")
         lines = generate_synthetic_market_lines(games)

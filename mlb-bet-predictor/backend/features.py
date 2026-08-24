@@ -1542,8 +1542,24 @@ def add_diff_features(
         air_dens = []
         dome_mask = []
         for _, row in df.iterrows():
-            gid = row.get("game_id", "")
-            w = weather_data.get(gid, {}) if isinstance(weather_data, dict) else {}
+            # Fetchers key results by game_pk (falling back to game_id);
+            # accept raw/string/int variants of either so a direct
+            # weather_data= call resolves identically to the production
+            # apply_weather_features path.
+            candidates = []
+            for v in (row.get("game_pk"), row.get("game_id")):
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                candidates.extend([v, str(v)])
+                s = str(v)
+                if s.isdigit():
+                    candidates.append(int(s))
+            w = {}
+            if isinstance(weather_data, dict):
+                for c in candidates:
+                    if c in weather_data:
+                        w = weather_data[c] or {}
+                        break
             dome = row.get("dome_is_neutral")
             dome_mask.append(pd.notna(dome) and float(dome) == 1)
             if w.get("available"):

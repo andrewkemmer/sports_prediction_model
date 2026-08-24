@@ -162,6 +162,25 @@ class TestWeatherFeatures(unittest.TestCase):
         self.assertEqual(float(out.loc[0, "wind_advantage_flyball_factor"]), 0.0)
         self.assertEqual(float(out.loc[0, "air_density_velocity_boost"]), 0.0)
 
+    def test_game_pk_keyed_weather_resolves(self):
+        """Fetchers key results by game_pk; the direct weather_data= path
+        must resolve int/numeric-string keys, not just game_id."""
+        for pk in (861234, "861234"):
+            raw = _raw()
+            raw["game_pk"] = [861234, 861235]
+            weather = {pk: {"available": True, "wind_multiplier": 0.5, "air_density": 1.18}}
+            out = add_diff_features(raw, weather_data=weather)
+            self.assertAlmostEqual(
+                float(out.loc[0, "wind_advantage_flyball_factor"]), 0.5 * -0.9, places=3)
+            # second game absent from the mapping stays NULL
+            self.assertTrue(pd.isna(out.loc[1, "wind_advantage_flyball_factor"]))
+
+    def test_weather_columns_in_training_feature_set(self):
+        """Both validated weather metrics must feed the models."""
+        from backend.training import FEATURE_COLS
+        self.assertIn("wind_advantage_flyball_factor", FEATURE_COLS)
+        self.assertIn("air_density_velocity_boost", FEATURE_COLS)
+
 
 class TestPitEnrichment(unittest.TestCase):
     """Enriching DuckDB frames: Elo + records derived PIT, never fabricated."""

@@ -105,6 +105,11 @@ FEATURE_COLS = [
     "dome_is_neutral",
     # 26. Park factor
     "park_factor_slug_diff",
+    # 27–28. Weather-driven interactions from REAL Open-Meteo observations
+    # (validated 2026-08: varied, venue-sane values incl. Coors thin-air).
+    # Missing observations stay NULL; dome wind is a valid neutral 0.
+    "wind_advantage_flyball_factor",
+    "air_density_velocity_boost",
     # 27–30. Derived interaction features
     "bullpen_meltdown_risk",
     "pitcher_regression_indicator",
