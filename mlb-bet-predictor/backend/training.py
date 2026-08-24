@@ -453,13 +453,22 @@ def _tree_dataframe(
     """Build a DataFrame with named numeric + categorical columns.
 
     Numeric columns preserve their names from FEATURE_COLS. Team-ID columns
-    are converted to pandas Categorical (XGBoost) / kept as int (LightGBM
-    uses categorical_feature= by name). Unknown team IDs are mapped to
-    UNK_TEAM_ID by _team_id — a dedicated category that never aliases a
-    real team — so no NaN or silent misidentification reaches the trees.
+    are converted to pandas Categorical with an explicit category set that
+    always includes UNK_TEAM_ID (so XGBoost never throws "unseen category"
+    at predict time). LightGBM gets plain ints + categorical_feature= by name.
+    Unknown team IDs are mapped to UNK_TEAM_ID by _team_id — a dedicated
+    category that never aliases a real team.
     """
     import pandas as pd
     import numpy as np
+
+    # Explicit category set: every known team ID + UNK_TEAM_ID.  This
+    # guarantees XGBoost never sees an "unseen category" at predict time
+    # even when no training row carries UNK_TEAM_ID.  The set is stable
+    # because _TEAM_ID_TO_ABBR is populated during _add_team_ids before
+    # _tree_dataframe is called (both train and predict paths).
+    known_ids = sorted(set(_TEAM_ID_TO_ABBR.keys()) | {UNK_TEAM_ID})
+
     df = pd.DataFrame(X_num, columns=numeric_cols)
     for i, c in enumerate(TREE_CATEGORICAL_COLS):
         vals = X_cat[:, i].copy()
@@ -467,7 +476,7 @@ def _tree_dataframe(
         # instead of the first real team.  (Should never fire after the
         # _team_id fix, but belt-and-suspenders.)
         vals = np.where(vals < 0, UNK_TEAM_ID, vals)
-        df[c] = pd.Categorical(vals)
+        df[c] = pd.Categorical(vals, categories=known_ids)
     return df
 
 
