@@ -401,15 +401,15 @@ _TEAM_ID_TO_ABBR: dict[int, str] = {}
 def _team_id(abbr: str) -> int:
     """Convert a 3-letter team abbreviation to a stable integer ID.
 
-    Unknown abbreviations (expansion teams, All-Star rosters) map to 0
-    (the first observed team) instead of -1, keeping categorical columns
-    valid for XGBoost/LightGBM. At predict time, an unseen team is routed
-    to the most-common training bin — a safe fallback that never crashes.
+    Unknown / invalid abbreviations (expansion teams, All-Star rosters,
+    missing data) map to UNK_TEAM_ID — a dedicated category with
+    near-zero training presence so trees learn a neutral weight for it
+    instead of silently aliasing a real team (e.g., 0 = NYY).
     """
     if abbr in _TEAM_ABBR_TO_ID:
         return _TEAM_ABBR_TO_ID[abbr]
     if not isinstance(abbr, str) or len(abbr) < 2:
-        return 0  # fallback: first known team
+        return UNK_TEAM_ID  # semantic "unknown", not a real team
     tid = len(_TEAM_ABBR_TO_ID)
     _TEAM_ABBR_TO_ID[abbr] = tid
     _TEAM_ID_TO_ABBR[tid] = abbr
@@ -419,6 +419,12 @@ def _team_id(abbr: str) -> int:
 # native categorical handling in LightGBM. Logistic/MLP must not receive
 # raw team IDs (one-hot would starve on ~4k rows with 30 categories).
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+
+# Dedicated "unknown team" category ID.  Never collides with a real team because
+# it sits above the MLB team-space (~30 teams).  Unknown / invalid / predict-time
+# expansion-team abbreviations map here instead of silently aliasing a real team
+# (e.g. 0 = NYY).  With near-zero training presence, trees learn a neutral weight.
+UNK_TEAM_ID = 99
 
 # RF ablation toggle: set False to train RandomForest WITHOUT team IDs
 # (for measuring the marginal benefit of team IDs on the RF member).
@@ -448,18 +454,19 @@ def _tree_dataframe(
 
     Numeric columns preserve their names from FEATURE_COLS. Team-ID columns
     are converted to pandas Categorical (XGBoost) / kept as int (LightGBM
-    uses categorical_feature= by name). Unknown team IDs (from predict-time
-    expansion teams) are already mapped to 0 by _team_id, so no NaN reaches
-    the categorical constructor.
+    uses categorical_feature= by name). Unknown team IDs are mapped to
+    UNK_TEAM_ID by _team_id — a dedicated category that never aliases a
+    real team — so no NaN or silent misidentification reaches the trees.
     """
     import pandas as pd
     import numpy as np
     df = pd.DataFrame(X_num, columns=numeric_cols)
     for i, c in enumerate(TREE_CATEGORICAL_COLS):
-        vals = X_cat[:, i]
-        # Safety: replace any lingering negatives (shouldn't happen after
-        # _team_id fix, but belt-and-suspenders) with 0.
-        vals = np.where(vals < 0, 0, vals)
+        vals = X_cat[:, i].copy()
+        # Safety: clamp any lingering negatives / sub-0 values to UNK_TEAM_ID
+        # instead of the first real team.  (Should never fire after the
+        # _team_id fix, but belt-and-suspenders.)
+        vals = np.where(vals < 0, UNK_TEAM_ID, vals)
         df[c] = pd.Categorical(vals)
     return df
 
@@ -641,7 +648,8 @@ def ensemble_predict(
                 num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
                 _df = pd.DataFrame(X, columns=num_cols_in_data)
                 for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
-                    _df[c_] = X_cat[:, i].astype(int)
+                    vals = np.where(X_cat[:, i] < 0, UNK_TEAM_ID, X_cat[:, i])
+                    _df[c_] = vals.astype(int)
                 Xuse = _df
             elif name == "randomforest":
                 # If model was trained without team IDs (ablation), it expects
@@ -781,12 +789,16 @@ def train_moneyline_ensemble(
         lgbm_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
         X_train_lgbm = pd.DataFrame(X_train, columns=num_cols_in_data)
         for i, c in enumerate(TREE_CATEGORICAL_COLS):
-            X_train_lgbm[c] = X_cat_train[:, i].astype(int)
+            X_train_lgbm[c] = np.where(
+                X_cat_train[:, i] < 0, UNK_TEAM_ID, X_cat_train[:, i]
+            ).astype(int)
         lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
         if X_val is not None:
             X_val_lgbm = pd.DataFrame(X_val, columns=num_cols_in_data)
             for i, c in enumerate(TREE_CATEGORICAL_COLS):
-                X_val_lgbm[c] = X_cat_val[:, i].astype(int)
+                X_val_lgbm[c] = np.where(
+                    X_cat_val[:, i] < 0, UNK_TEAM_ID, X_cat_val[:, i]
+                ).astype(int)
             lgbm.fit(X_train_lgbm, y_train, eval_set=[(X_val_lgbm, y_val)],
                      categorical_feature=TREE_CATEGORICAL_COLS)
         else:
