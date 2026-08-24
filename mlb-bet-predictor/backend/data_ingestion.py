@@ -908,20 +908,32 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
                      "home_record", "away_record"):
         df[_rec_col] = records_df[_rec_col]
 
-    # Map column names to match FEATURE_COLS in training.py
+    # Map column names to match FEATURE_COLS in training.py. The pitcher
+    # windows are intentionally not backward-compatible: a legacy 30-game
+    # column is not equivalent to the current last-5-start, cross-season
+    # feature and must never be relabeled into it.
+    legacy_pitcher_cols = {
+        "sp_era_30g_home", "sp_era_30g_away",
+        "sp_k9_30g_home", "sp_k9_30g_away",
+    } & set(df.columns)
+    canonical_pitcher_cols = {
+        "sp_era_5g_home", "sp_era_5g_away",
+        "sp_k9_5g_home", "sp_k9_5g_away",
+    }
+    missing_canonical = canonical_pitcher_cols - set(df.columns)
+    if legacy_pitcher_cols and missing_canonical:
+        raise ValueError(
+            "Legacy pitcher-window columns found "
+            f"({', '.join(sorted(legacy_pitcher_cols))}) but the canonical "
+            f"5-start columns are missing ({', '.join(sorted(missing_canonical))}). "
+            "Rebuild game-level features; 30-game values cannot be used as 5-start values."
+        )
+
     col_map = {
         "team_woba_30g_home": "woba_30g_home",
         "team_woba_30g_away": "woba_30g_away",
-        # Backward compat: pre-2026-08-23 CSVs named the last-5-start twins
-        # sp_era_30g_* (the "career" sp_era_home was aliased to them). A
-        # fresh build natively carries season-to-date sp_era_home plus
-        # sp_era_5g_*; old CSVs are remapped so cached runs don't break.
-        "sp_era_30g_home": "sp_era_5g_home",
-        "sp_era_30g_away": "sp_era_5g_away",
-        "sp_k9_30g_home": "sp_k9_5g_home",
-        "sp_k9_30g_away": "sp_k9_5g_away",
     }
-    # Add mapped columns (keep originals too for SHAP labels)
+    # Add mapped team wOBA columns (keep originals too for SHAP labels).
     for src, dst in col_map.items():
         if src in df.columns and dst not in df.columns:
             df[dst] = df[src]

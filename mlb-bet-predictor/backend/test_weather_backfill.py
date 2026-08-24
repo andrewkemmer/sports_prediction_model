@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from pipeline import _attach_weather_history, _load_weather_cache
+from weather import apply_weather_features
 
 
 def _games() -> pd.DataFrame:
@@ -71,6 +72,7 @@ class TestWeatherHistoryBackfill(unittest.TestCase):
 
     def _wx(self, game_id, **kw):
         w = dict(_WEATHER[game_id])
+        w.setdefault("source", "open_meteo_archive")
         w.update(kw)
         return w
 
@@ -113,9 +115,29 @@ class TestWeatherHistoryBackfill(unittest.TestCase):
         self.assertEqual(mock_wx.call_count, 1)
         self.assertTrue(np.isfinite(out["wind_advantage_flyball_factor"].iloc[0]))
 
+    def test_partial_apply_uses_game_pk_and_preserves_existing_values(self):
+        games = _games().iloc[:2].copy()
+        games["dome_is_neutral"] = 0.0
+        games["wind_advantage_flyball_factor"] = [0.25, 0.33]
+        games["air_density_velocity_boost"] = [0.10, 0.44]
+        weather = {
+            101: {"available": True, "wind_multiplier": 0.5, "air_density": 1.18},
+        }
+
+        out = apply_weather_features(games, weather)
+
+        # The authoritative game_pk key applies to row 101.
+        self.assertAlmostEqual(float(out.loc[0, "wind_advantage_flyball_factor"]), 0.25)
+        self.assertAlmostEqual(float(out.loc[0, "air_density_velocity_boost"]), (1.18 - 1.225))
+        # An omitted row is not evidence that a previously valid observation
+        # should be erased on a later partial fetch.
+        self.assertAlmostEqual(float(out.loc[1, "wind_advantage_flyball_factor"]), 0.33)
+        self.assertAlmostEqual(float(out.loc[1, "air_density_velocity_boost"]), 0.44)
+
     def test_cache_roundtrip_handles_nan(self):
         from pipeline import _save_weather_cache
-        cache = {7: {"available": True, "temp_c": 22.0, "rh_pct": None,
+        cache = {7: {"available": True, "source": "open_meteo_archive",
+                     "temp_c": 22.0, "rh_pct": None,
                      "wind_speed_kmh": None, "wind_direction_deg": None,
                      "pressure_hpa": None, "air_density": 1.19,
                      "wind_multiplier": 1.0, "stadium_alt_m": None,

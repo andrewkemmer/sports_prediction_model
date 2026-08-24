@@ -15,7 +15,7 @@ Open-Meteo terms: https://open-meteo.com/en/terms
 from __future__ import annotations
 
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 
 import numpy as np
@@ -257,12 +257,7 @@ _HOURLY_KEYS = (
 
 def _get_with_retry(url: str, params: dict, attempts: int = 3,
                     timeout: int = 15):
-    """GET with exponential backoff on rate-limit/server errors.
-
-    Open-Meteo's free endpoints return 429 under burst load (8 workers ×
-    ~300 stadium-day requests during backfill). Without retries those games
-    silently degraded to climatology; with them nearly all recover.
-    """
+    """GET with exponential backoff and server-directed retry delays."""
     import random
     import time
     last_exc = None
@@ -271,6 +266,11 @@ def _get_with_retry(url: str, params: dict, attempts: int = 3,
             resp = requests.get(url, params=params, timeout=timeout)
             if resp.status_code in (429, 502, 503, 504) and attempt < attempts - 1:
                 wait = (2 ** attempt) + random.uniform(0, 0.5)
+                try:
+                    retry_after = float(resp.headers.get("Retry-After", ""))
+                    wait = max(wait, retry_after)
+                except (AttributeError, TypeError, ValueError):
+                    pass
                 logger.warning(
                     "Weather API %d for %s — retrying in %.1fs (%d/%d)",
                     resp.status_code, url.split("/")[-1], wait,
@@ -384,9 +384,9 @@ def _fetch_recent_past_series(
     return out
 
 
-def _pick_row(series: dict[str, list] | None, game_local_time: datetime) -> dict:
+def _pick_row(series: dict[str, list] | None, game_local_time: datetime | None) -> dict:
     """Pick the strictly-prior hourly row from a day's series (NaN when missing)."""
-    if series is None:
+    if series is None or game_local_time is None:
         return {
             "temp_c": np.nan, "rh_pct": np.nan,
             "wind_speed_kmh": np.nan, "wind_direction_deg": np.nan,
@@ -411,6 +411,13 @@ def _pick_row(series: dict[str, list] | None, game_local_time: datetime) -> dict
         "wind_direction_deg": _get("wind_direction_10m"),
         "pressure_hpa": _get("surface_pressure"),
     }
+
+
+def _has_observation(raw: dict) -> bool:
+    """Whether a selected row contains at least one observed weather value."""
+    return any(pd.notna(raw.get(key)) for key in (
+        "temp_c", "rh_pct", "wind_speed_kmh", "wind_direction_deg", "pressure_hpa"
+    ))
 
 
 def fetch_weather(
@@ -456,7 +463,8 @@ def _stadium_weather(
         raw["wind_direction_deg"], raw["wind_speed_kmh"], info["bearing"]
     )
     return {
-        "available": True,
+        "available": _has_observation(raw),
+        "source": "open_meteo_archive" if _has_observation(raw) else "open_meteo_unavailable",
         "temp_c": raw["temp_c"],
         "rh_pct": raw["rh_pct"],
         "wind_speed_kmh": raw["wind_speed_kmh"],
@@ -502,8 +510,10 @@ def fetch_game_weather(
         raw["wind_direction_deg"], raw["wind_speed_kmh"], info["bearing"]
     )
 
+    observed = _has_observation(raw)
     return {
-        "available": True,
+        "available": observed,
+        "source": "open_meteo_archive" if observed else "open_meteo_unavailable",
         "temp_c": raw["temp_c"],
         "rh_pct": raw["rh_pct"],
         "wind_speed_kmh": raw["wind_speed_kmh"],
@@ -516,118 +526,317 @@ def fetch_game_weather(
     }
 
 
+_WEATHER_BATCH_DAYS = 14
+_WEATHER_BATCH_SIZE = 30
+_WEATHER_BATCH_PAUSE_SEC = 0.5
+
+
+def _utc_naive(value: datetime | pd.Timestamp | str) -> datetime | None:
+    """Normalize a timestamp to a naive UTC datetime for API matching."""
+    try:
+        ts = pd.Timestamp(value)
+        if pd.isna(ts):
+            return None
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        else:
+            ts = ts.tz_localize(None)
+        return ts.to_pydatetime()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _split_hourly_by_utc_day(
+    hourly: dict[str, list],
+    source: str,
+) -> dict[date, dict[str, list]]:
+    """Split a UTC hourly response into exact-date series."""
+    times = hourly.get("time", []) or []
+    by_day: dict[date, dict[str, list]] = {}
+    for i, raw_time in enumerate(times):
+        try:
+            day = datetime.fromisoformat(str(raw_time).replace("Z", "")).date()
+        except ValueError:
+            continue
+        series = by_day.setdefault(
+            day,
+            {"time": [], "_source": source, **{k: [] for k in _HOURLY_KEYS if k != "time"}},
+        )
+        series["time"].append(raw_time)
+        for key in _HOURLY_KEYS:
+            if key == "time":
+                continue
+            values = hourly.get(key, []) or []
+            series[key].append(values[i] if i < len(values) else None)
+    return by_day
+
+
+def _parse_batch_response(
+    payload: object,
+    locations: list[tuple[str, dict]],
+    source: str,
+) -> dict[tuple[str, date], dict[str, list]]:
+    """Parse Open-Meteo's object-or-list response for multiple coordinates."""
+    items = payload if isinstance(payload, list) else [payload]
+    if len(items) != len(locations):
+        logger.warning(
+            "Weather batch returned %d locations for %d requested",
+            len(items), len(locations),
+        )
+    out: dict[tuple[str, date], dict[str, list]] = {}
+    for (team_code, _), item in zip(locations, items):
+        if not isinstance(item, dict):
+            continue
+        for day, series in _split_hourly_by_utc_day(item.get("hourly", {}) or {}, source).items():
+            out[(team_code, day)] = series
+    return out
+
+
+def _fetch_batch_range(
+    locations: list[tuple[str, dict]],
+    start_date: date,
+    end_date: date,
+    *,
+    source: str,
+    forecast: bool = False,
+    past_days: int | None = None,
+    forecast_days: int | None = None,
+) -> dict[tuple[str, date], dict[str, list]]:
+    """Fetch one bounded multi-coordinate Open-Meteo request."""
+    params = {
+        "latitude": ",".join(str(info["lat"]) for _, info in locations),
+        "longitude": ",".join(str(info["lon"]) for _, info in locations),
+        "hourly": _HOURLY_VARS,
+        "timezone": "GMT",
+    }
+    if forecast:
+        params.update({
+            "past_days": 1 if past_days is None else past_days,
+            "forecast_days": 1 if forecast_days is None else forecast_days,
+        })
+        url = "https://api.open-meteo.com/v1/forecast"
+    else:
+        params.update({"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+        url = "https://archive-api.open-meteo.com/v1/archive"
+    try:
+        resp = _get_with_retry(url, params=params, timeout=45)
+        resp.raise_for_status()
+        return _parse_batch_response(resp.json(), locations, source)
+    except Exception as exc:
+        logger.warning(
+            "Weather batch failed (%s → %s, %d locations, source=%s): %s",
+            start_date, end_date, len(locations), source, exc,
+        )
+        return {}
+
+
+def _fetch_batched_weather(
+    locations: list[tuple[str, dict]],
+    start_date: date,
+    end_date: date,
+) -> dict[tuple[str, date], dict[str, list]]:
+    """Fetch historical weather in paced multi-coordinate date batches.
+
+    The previous implementation made one request per stadium-day and ran
+    eight workers concurrently. This sends roughly one request per 14-day
+    window for all stadiums, then fills only recent archive gaps from the
+    forecast past window. Missing responses remain missing; no climatology is
+    promoted to an observed record.
+    """
+    import time
+
+    by_key: dict[tuple[str, date], dict[str, list]] = {}
+    if not locations or start_date > end_date:
+        return by_key
+
+    today = date.today()
+    archive_end = min(end_date, today - timedelta(days=1))
+
+    # Archive requests contain only dates that are definitely historical.
+    # Never send today's or a future slate to the archive endpoint.
+    if start_date <= archive_end:
+        for batch_start in range(0, (archive_end - start_date).days + 1, _WEATHER_BATCH_DAYS):
+            chunk_start = start_date + timedelta(days=batch_start)
+            chunk_end = min(chunk_start + timedelta(days=_WEATHER_BATCH_DAYS - 1), archive_end)
+            for i in range(0, len(locations), _WEATHER_BATCH_SIZE):
+                batch = locations[i:i + _WEATHER_BATCH_SIZE]
+                by_key.update(_fetch_batch_range(
+                    batch, chunk_start, chunk_end, source="open_meteo_archive"
+                ))
+                if i + _WEATHER_BATCH_SIZE < len(locations):
+                    time.sleep(_WEATHER_BATCH_PAUSE_SEC)
+            if chunk_end < archive_end:
+                time.sleep(_WEATHER_BATCH_PAUSE_SEC)
+
+    # The archive has a publication delay. Recover recent missing dates from
+    # the forecast endpoint's observed-past window, still using PIT cutoffs.
+    recent_start = max(start_date, today - timedelta(days=91))
+    recent_end = min(end_date, today)
+    if recent_start <= recent_end:
+        recent_days = {
+            recent_start + timedelta(days=i)
+            for i in range((recent_end - recent_start).days + 1)
+        }
+        if any((team_code, day) not in by_key for team_code, _ in locations for day in recent_days):
+            recent = _fetch_batch_range(
+                locations, recent_start, recent_end,
+                source="open_meteo_forecast_past", forecast=True,
+                past_days=(today - recent_start).days + 1,
+            )
+            for key, series in recent.items():
+                by_key.setdefault(key, series)
+
+    # Future slates use the forecast endpoint directly. Open-Meteo supports
+    # up to 16 forecast days; dates beyond that remain unavailable rather
+    # than being filled with climatology.
+    future_start = max(start_date, today)
+    if future_start <= end_date:
+        forecast_days = min((end_date - today).days + 1, 16)
+        future = _fetch_batch_range(
+            locations, today, end_date,
+            source="open_meteo_forecast", forecast=True,
+            past_days=1, forecast_days=forecast_days,
+        )
+        for key, series in future.items():
+            by_key.setdefault(key, series)
+    return by_key
+
+
+def _stadium_weather_utc(
+    info: dict,
+    game_start_utc: datetime,
+    series: dict[str, list],
+) -> dict:
+    """Build weather from a GMT/UTC series using a strict UTC cutoff."""
+    raw = _pick_row(series, _utc_naive(game_start_utc))
+    air_density = compute_air_density(
+        raw["temp_c"], raw["rh_pct"], raw["pressure_hpa"], info["alt_m"]
+    )
+    wind_mult = compute_wind_multiplier(
+        raw["wind_direction_deg"], raw["wind_speed_kmh"], info["bearing"]
+    )
+    observed = _has_observation(raw)
+    return {
+        "available": observed,
+        "source": series.get("_source", "open_meteo_archive") if observed else "open_meteo_unavailable",
+        "temp_c": raw["temp_c"],
+        "rh_pct": raw["rh_pct"],
+        "wind_speed_kmh": raw["wind_speed_kmh"],
+        "wind_direction_deg": raw["wind_direction_deg"],
+        "pressure_hpa": raw["pressure_hpa"],
+        "air_density": air_density,
+        "wind_multiplier": wind_mult,
+        "stadium_alt_m": info["alt_m"],
+        "stadium_bearing": info["bearing"],
+    }
+
+
+def _is_missing_key(value: object) -> bool:
+    """Return whether a scalar dataframe key is missing."""
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if isinstance(missing, (bool, np.bool_)) else False
+
+
+def _game_weather_key(row: pd.Series, fallback: object) -> object:
+    """Choose one stable key for a weather result.
+
+    ``game_pk`` is the authoritative identifier shared by StatsAPI, the
+    results overlay, and the history cache.  ``game_id`` remains the
+    fallback for schedule/slate frames that do not carry a game_pk.
+    """
+    game_pk = pd.to_numeric(row.get("game_pk"), errors="coerce")
+    if pd.notna(game_pk):
+        return int(game_pk)
+    game_id = row.get("game_id")
+    return fallback if _is_missing_key(game_id) else game_id
+
+
+def _weather_key_candidates(value: object) -> list[object]:
+    """Return equivalent scalar forms used by mixed CSV/pandas key types."""
+    if _is_missing_key(value):
+        return []
+    candidates: list[object] = [value]
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.notna(numeric):
+        candidates.extend([int(numeric), str(int(numeric))])
+    else:
+        candidates.append(str(value))
+    out: list[object] = []
+    for candidate in candidates:
+        if candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def _lookup_weather(
+    weather_data: dict,
+    row: pd.Series,
+    index: object,
+) -> dict:
+    """Look up weather by game_pk first, then game_id/index fallbacks."""
+    if not isinstance(weather_data, dict):
+        return {}
+    values = [row.get("game_pk"), row.get("game_id"), index]
+    for value in values:
+        for key in _weather_key_candidates(value):
+            if key in weather_data:
+                return weather_data[key]
+    return {}
+
+
 def fetch_games_weather(
     games_df: pd.DataFrame,
-) -> dict[str, dict]:
-    """Weather for every game in a frame — one request per (stadium, day).
+) -> dict[object, dict]:
+    """Fetch point-in-time weather with paced multi-coordinate requests.
 
-    Expects columns: game_id (or the frame index), home_team, venue,
-    start_time_utc.  All games at the same stadium on the same local date
-    share a single Open-Meteo request; each game then picks its own
-    STRICTLY-PRIOR hourly row (point-in-time).
-
-    Returns dict keyed by game_id → weather dict (available=False when the
-    stadium is unknown or the start time is missing — those games yield
-    null weather features, never fabricated zeros).
+    The API is queried in GMT/UTC so each game uses the latest hourly record
+    strictly before its actual UTC first pitch. Failed or unavailable days
+    return ``available=False`` and are never replaced with climatology.
+    Results are keyed by ``game_pk`` when present, otherwise by ``game_id``
+    (or the input index as a final fallback).
     """
-    results: dict[str, dict] = {}
+    results: dict[object, dict] = {}
     if games_df is None or games_df.empty:
         return results
 
     df = games_df.copy()
-    if "game_id" not in df.columns:
-        df = df.reset_index()
-        df = df.rename(columns={df.columns[0]: "game_id"})
-
-    # Cache one day-series per (stadium team code, local date)
-    series_cache: dict[tuple[str, date], dict[str, list] | None] = {}
-    n_fallback = 0
-
-    def _key_for(team_code: str, start_utc: datetime) -> tuple[datetime, str, date]:
-        info = STADIUMS[team_code]
-        local = _localize(start_utc, info["tz"], info["lon"])
-        return start_utc, team_code, local.date()
-
-    # Prefetch every unique (stadium, day) series CONCURRENTLY — a trailing
-    # month of games is ~300+ distinct requests, far too slow serially.
-    unique_keys: dict[tuple[str, date], datetime] = {}
-    for _, row in df.iterrows():
-        start = row.get("start_time_utc")
-        if start is None or (isinstance(start, float) and pd.isna(start)):
+    targets: list[tuple[object, str, dict, datetime]] = []
+    locations: dict[str, dict] = {}
+    for index, row in df.iterrows():
+        result_key = _game_weather_key(row, index)
+        start = _utc_naive(row.get("start_time_utc"))
+        if start is None:
+            results[result_key] = {"available": False, "source": "unavailable"}
             continue
-        if isinstance(start, str):
-            start = pd.Timestamp(start).to_pydatetime()
-        elif isinstance(start, pd.Timestamp):
-            start = start.to_pydatetime()
         team_code = _resolve_team_code(row.get("home_team", ""), row.get("venue", ""))
         info = STADIUMS.get(team_code)
         if info is None:
+            results[result_key] = {"available": False, "source": "unknown_stadium"}
             continue
-        _, tc, d = _key_for(team_code, start)
-        unique_keys.setdefault((tc, d), start)
+        targets.append((result_key, team_code, info, start))
+        locations[team_code] = info
 
-    if len(unique_keys) > 4:
-        from concurrent.futures import ThreadPoolExecutor
+    if not targets:
+        return results
 
-        def _pull(item):
-            (tc, d), first_start = item
-            info = STADIUMS[tc]
-            return (tc, d), _fetch_hourly_series(info["lat"], info["lon"], d)
+    min_day = min(start.date() for _, _, _, start in targets) - timedelta(days=1)
+    max_day = max(start.date() for _, _, _, start in targets)
+    series_by_key = _fetch_batched_weather(list(locations.items()), min_day, max_day)
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            for key, series in pool.map(_pull, unique_keys.items()):
-                series_cache[key] = series
-    else:
-        for (tc, d), first_start in unique_keys.items():
-            info = STADIUMS[tc]
-            series_cache[(tc, d)] = _fetch_hourly_series(info["lat"], info["lon"], d)
-
-    def _series(team_code: str, info: dict, start_utc: datetime) -> dict[str, list] | None:
-        local = _localize(start_utc, info["tz"], info["lon"])
-        return series_cache.get((team_code, local.date()))
-
-    for gid, row in df.iterrows():
-        game_id = row.get("game_id")
-        if game_id is None or (isinstance(game_id, float) and pd.isna(game_id)):
-            # Frames without a game-id column are keyed by their index
-            # label; apply_weather_features resolves the same way.
-            game_id = str(gid)
-        home = row.get("home_team", "")
-        venue = row.get("venue", "")
-        start = row.get("start_time_utc")
-        if start is None or (isinstance(start, float) and pd.isna(start)):
-            results[game_id] = {"available": False}
-            continue
-        if isinstance(start, str):
-            start = pd.Timestamp(start).to_pydatetime()
-        elif isinstance(start, pd.Timestamp):
-            start = start.to_pydatetime()
-
-        team_code = _resolve_team_code(home, venue)
-        info = STADIUMS.get(team_code)
-        if info is None:
-            results[game_id] = {"available": False}
-            continue
-
-        series = _series(team_code, info, start)
+    for result_key, team_code, info, start in targets:
+        series = series_by_key.get((team_code, start.date()))
         if series is None:
-            # Both archive and forecast pulls failed — fall back to the
-            # stadium's seasonal norm instead of a null (explicit remediation:
-            # keeps weather-feature coverage uniform for drift/training).
-            local = _localize(start, info["tz"], info["lon"])
-            results[game_id] = climatology_weather(home, venue, local.month)
-            n_fallback += 1
-            continue
-        results[game_id] = _stadium_weather(info, start, series)
+            results[result_key] = {"available": False, "source": "open_meteo_unavailable"}
+        else:
+            results[result_key] = _stadium_weather_utc(info, start, series)
 
-    n_ok = sum(1 for v in results.values() if v.get("available"))
-    if n_fallback:
-        logger.warning(
-            "Weather fetched: %d/%d games (%d via climatology fallback)",
-            n_ok, len(results), n_fallback,
-        )
-    else:
-        logger.info("Weather fetched: %d/%d games", n_ok, len(results))
+    n_ok = sum(1 for value in results.values() if value.get("available"))
+    logger.info("Weather fetched: %d/%d games from batched observations", n_ok, len(results))
     return results
 
 
@@ -640,20 +849,17 @@ def fetch_day_weather(
 
 # ── Climatology fallback ────────────────────────────────────────────────────
 
-# Monthly mean afternoon temperature (°C) for a typical temperate MLB city.
-# Used ONLY when both the archive and forecast pulls fail — a clearly-labeled
-# seasonal norm instead of a null, so weather-driven features keep coverage.
+# Retained only as an explicit, opt-in diagnostic helper. It is never treated
+# as an observed record by fetch_games_weather or the history cache.
 _CLIMO_MONTHLY_TEMP_C = (3.0, 5.0, 9.0, 14.0, 19.0, 24.5, 27.0, 26.0, 21.5, 15.0, 8.0, 4.0)
 _CLIMO_RH_PCT = 50.0
 
 
 def climatology_weather(home_team: str, venue: str, month: int) -> dict:
-    """Deterministic seasonal-norm weather for a stadium/month.
+    """Return an explicitly labeled seasonal norm for diagnostics only.
 
-    Fallback when real-time AND archive pulls fail: air density from the
-    stadium's known altitude + monthly mean temperature; wind treated as
-    calm (a genuine neutral value, like a dome — never a fabricated gust).
-    Marked ``source='climatology'`` so downstream consumers can audit it.
+    ``available`` is deliberately false: climatology is not a point-in-time
+    observation and must never enter training features or the weather cache.
     """
     team_code = _resolve_team_code(home_team, venue)
     info = STADIUMS.get(team_code)
@@ -662,7 +868,7 @@ def climatology_weather(home_team: str, venue: str, month: int) -> dict:
     temp_c = _CLIMO_MONTHLY_TEMP_C[month - 1]
     air_density = compute_air_density(temp_c, _CLIMO_RH_PCT, np.nan, alt_m)
     return {
-        "available": True,
+        "available": False,
         "source": "climatology",
         "temp_c": temp_c,
         "rh_pct": _CLIMO_RH_PCT,
@@ -699,18 +905,13 @@ def apply_weather_features(
     n_applied = 0
     era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
     velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
-    wind_vals: list[float] = []
-    air_vals: list[float] = []
+    # Preserve values already attached by another weather pass. A fetch often
+    # covers only a subset (for example, cache misses), and absence from that
+    # subset is not evidence that a prior valid observation should be erased.
+    wind_vals = pd.to_numeric(df["wind_advantage_flyball_factor"], errors="coerce").tolist()
+    air_vals = pd.to_numeric(df["air_density_velocity_boost"], errors="coerce").tolist()
     for i, (idx, row) in enumerate(df.iterrows()):
-        # Key forms vary by caller: explicit game-id strings, or index
-        # labels that may arrive as int (reset_index) or str. Try all.
-        w = {}
-        if isinstance(weather_data, dict):
-            gid = row.get("game_id")
-            for key in (gid, str(idx), idx):
-                if key is not None and key in weather_data:
-                    w = weather_data[key]
-                    break
+        w = _lookup_weather(weather_data, row, idx)
         dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
         if w.get("available"):
             # Real fetched observation — use the formulas as-is (a dome with
@@ -719,20 +920,19 @@ def apply_weather_features(
             ad = w.get("air_density", np.nan)
             wv = float(wm) * era.iloc[i] if pd.notna(wm) and pd.notna(era.iloc[i]) else np.nan
             av = (float(ad) - sea_level_rho) * velo.iloc[i] if pd.notna(ad) and pd.notna(velo.iloc[i]) else np.nan
-            wind_vals.append(wv)
-            air_vals.append(av)
+            wind_vals[i] = wv
+            air_vals[i] = av
             n_applied += 1
         elif dome:
             # No weather fetched. Indoors the wind component is genuinely
             # zero — a valid 0, but only when the ERA-diff input exists (a
             # missing input keeps it NULL, never a fabricated 0). The
-            # air-density boost is UNKNOWN without a fetch (HVAC keeps indoor
-            # air off the sea-level standard), so it stays NULL.
-            wind_vals.append(0.0 if pd.notna(era.iloc[i]) else np.nan)
-            air_vals.append(np.nan)
-        else:
-            wind_vals.append(np.nan)
-            air_vals.append(np.nan)
+            # air-density boost is UNKNOWN without a fetch, so leave any
+            # existing value untouched and otherwise keep it NULL.
+            if pd.notna(era.iloc[i]):
+                wind_vals[i] = 0.0
+        # For non-dome rows with no matching observation, preserve the
+        # pre-existing values and leave genuinely missing values as NULL.
     df["wind_advantage_flyball_factor"] = pd.Series(wind_vals, index=df.index, dtype="float64")
     df["air_density_velocity_boost"] = pd.Series(air_vals, index=df.index, dtype="float64")
     logger.info("Weather features applied to %d/%d games", n_applied, len(df))

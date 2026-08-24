@@ -546,27 +546,32 @@ def set_adaptive_weights(weights: dict[str, float] | None) -> None:
 
 
 def train_moneyline_ensemble(
-    train: pd.DataFrame, val: pd.DataFrame
+    train: pd.DataFrame, val: Optional[pd.DataFrame] = None
 ) -> tuple[dict[str, Any], dict[str, float]]:
-    """Train XGBoost + LightGBM + Logistic Regression ensemble for moneyline.
+    """Train the moneyline ensemble.
 
-    Returns (ensemble_dict, metrics) where ensemble_dict maps model names
-    to fitted model objects.
+    ``val`` is supplied for walk-forward folds so the boosting members can
+    evaluate against a strictly future holdout. When omitted, the function
+    performs a fit-only refit on every decided game for the deployed bundle.
     """
     X_train, y_train = _prepare_features(train)
-    X_val, y_val = _prepare_features(val)
+    X_val = y_val = None
+    if val is not None:
+        X_val, y_val = _prepare_features(val)
 
-    if len(X_train) == 0 or len(X_val) == 0:
+    if len(X_train) == 0 or (X_val is not None and len(X_val) == 0):
         raise ValueError("Insufficient training or validation data")
 
     # Logistic cannot consume NaN — impute with TRAIN-fold medians only
     # (never val medians, which would leak).
     X_train_lr, impute_medians = _impute_median(X_train)
-    X_val_lr, _ = _impute_median(X_val, impute_medians)
+    X_val_scaled = None
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_lr)
-    X_val_scaled = scaler.transform(X_val_lr)
+    if X_val is not None:
+        X_val_lr, _ = _impute_median(X_val, impute_medians)
+        X_val_scaled = scaler.transform(X_val_lr)
 
     models = {}
 
@@ -574,7 +579,10 @@ def train_moneyline_ensemble(
     try:
         from xgboost import XGBClassifier
         xgb = XGBClassifier(**XGBOOST_PARAMS)
-        xgb.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+        if X_val is not None:
+            xgb.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+        else:
+            xgb.fit(X_train, y_train, verbose=False)
         models["xgboost"] = xgb
     except ImportError:
         logger.warning("xgboost not available, skipping XGB member")
@@ -583,7 +591,10 @@ def train_moneyline_ensemble(
     try:
         from lightgbm import LGBMClassifier
         lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
-        lgbm.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+        if X_val is not None:
+            lgbm.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+        else:
+            lgbm.fit(X_train, y_train)
         models["lightgbm"] = lgbm
     except ImportError:
         logger.warning("lightgbm not available, skipping LGBM member")
@@ -621,6 +632,10 @@ def train_moneyline_ensemble(
         models["mlp"] = mlp
     except Exception as e:
         logger.warning("MLP member failed: %s", e)
+
+    # A fit-only refit has no honest holdout metric to report.
+    if X_val is None:
+        return models, {}
 
     # Weighted ensemble prediction (weights renormalized over trained members)
     weights = _member_weights(list(models.keys()))
@@ -762,6 +777,10 @@ def walk_forward_evaluate(
     """
     if min_val_games is None:
         min_val_games = MIN_VAL_FOLD_GAMES
+
+    # OOF scoring must start from the configured priors. Otherwise an earlier
+    # run's adaptive weights can change the current run's fold predictions.
+    _LAST_ADAPTIVE_WEIGHTS.clear()
     splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
 
     if not splits:
@@ -872,12 +891,13 @@ def walk_forward_evaluate(
             pooled.get("logloss", 0.0), m_cal["logloss"],
         )
 
-    # Retrain on full data for final model
+    # Fit the deployed bundle on every decided game. The walk-forward folds
+    # remain the only source of honest OOF metrics; no final validation holdout
+    # is needed once evaluation is complete.
     full_train = games.dropna(subset=["home_win"])
     if len(full_train) >= 20:
-        last_split = splits[-1]
         try:
-            best_models, _ = train_moneyline_ensemble(last_split["train_games"], last_split["val_games"])
+            best_models, _ = train_moneyline_ensemble(full_train)
         except Exception:
             best_models = {}
     else:

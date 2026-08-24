@@ -17,6 +17,8 @@ from backend.weather import (
     fetch_day_weather,
     _resolve_team_code,
     _nearest_hour,
+    _parse_batch_response,
+    fetch_games_weather,
 )
 
 
@@ -226,6 +228,15 @@ class TestFetchWeather(unittest.TestCase):
         self.assertTrue(np.isnan(result["temp_c"]))
         self.assertTrue(np.isnan(result["wind_speed_kmh"]))
 
+    @patch("backend.weather.requests.get")
+    def test_game_fetch_failure_is_unavailable(self, mock_get):
+        mock_get.side_effect = Exception("rate limited")
+        result = fetch_game_weather(
+            "NYY", "Yankee Stadium", datetime(2025, 7, 15, 23, 0)
+        )
+        self.assertFalse(result["available"])
+        self.assertEqual(result["source"], "open_meteo_unavailable")
+
 
 class TestFetchGameWeather(unittest.TestCase):
     @patch("backend.weather.fetch_weather")
@@ -258,6 +269,35 @@ class TestStadiums(unittest.TestCase):
         """Dome stadiums have bearing=0 (wind handled by dome_is_neutral flag)."""
         for team in ("TB", "HOU", "SEA", "TEX", "TOR", "MIL", "MIA", "ARI"):
             self.assertEqual(STADIUMS[team]["bearing"], 0, f"{team} should have bearing=0")
+
+
+class TestBatchWeather(unittest.TestCase):
+    def test_parse_multi_location_response_preserves_source_and_days(self):
+        locations = [("BOS", STADIUMS["BOS"]), ("NYY", STADIUMS["NYY"])]
+        hourly = {
+            "time": ["2025-07-15T18:00", "2025-07-15T19:00", "2025-07-16T00:00"],
+            "temperature_2m": [20.0, 21.0, 22.0],
+            "relative_humidity_2m": [50.0, 51.0, 52.0],
+            "wind_speed_10m": [10.0, 11.0, 12.0],
+            "wind_direction_10m": [90.0, 90.0, 90.0],
+            "surface_pressure": [1010.0, 1010.0, 1010.0],
+        }
+        parsed = _parse_batch_response([{"hourly": hourly}, {"hourly": hourly}], locations, "open_meteo_archive")
+        self.assertEqual(sorted(parsed), [
+            ("BOS", date(2025, 7, 15)), ("BOS", date(2025, 7, 16)),
+            ("NYY", date(2025, 7, 15)), ("NYY", date(2025, 7, 16)),
+        ])
+        self.assertEqual(parsed[("BOS", date(2025, 7, 15))]["_source"], "open_meteo_archive")
+        self.assertEqual(parsed[("BOS", date(2025, 7, 15))]["temperature_2m"], [20.0, 21.0])
+
+    @patch("backend.weather._fetch_batch_range")
+    def test_rate_limited_batch_returns_no_observations(self, mock_batch):
+        mock_batch.return_value = {}
+        from backend.weather import _fetch_batched_weather
+        locations = [("BOS", STADIUMS["BOS"])]
+        result = _fetch_batched_weather(locations, date(2025, 7, 15), date(2025, 7, 15))
+        self.assertEqual(result, {})
+        self.assertEqual(mock_batch.call_count, 1)
 
 
 class TestGetWithRetry(unittest.TestCase):

@@ -246,6 +246,23 @@ class TestLoadGameFeaturesHealing(unittest.TestCase):
         # g1 both teams 0-0: smoothed win pct is exactly .500 - .500 = 0
         self.assertAlmostEqual(float(out.loc[0, "win_pct_diff"]), 0.0, places=6)
 
+    def test_legacy_pitcher_window_is_rejected(self):
+        import os
+        import tempfile
+        raw = pd.DataFrame([
+            {"game_pk": 1, "game_date": "2026-04-01", "home_team": "BOS", "away_team": "NYY",
+             "home_win": 1.0, "sp_era_30g_home": 3.0, "sp_era_30g_away": 4.0,
+             "sp_k9_30g_home": 9.0, "sp_k9_30g_away": 8.0},
+        ])
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+            raw.to_csv(f, index=False)
+            path = f.name
+        try:
+            with self.assertRaisesRegex(ValueError, "30-game values cannot be used as 5-start values"):
+                load_game_features(path)
+        finally:
+            os.unlink(path)
+
 
 class TestColumnAliases(unittest.TestCase):
     def test_renamed_column_is_sourced(self):

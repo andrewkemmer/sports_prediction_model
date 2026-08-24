@@ -8,6 +8,7 @@ Verifies that:
 - walk_forward_evaluate publishes a roster via last_ensemble_info()
 """
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -55,6 +56,77 @@ class TestImputeMedian(unittest.TestCase):
         Xi, med = _impute_median(X)
         self.assertEqual(med[0], 0.0)
         self.assertTrue(not np.isnan(Xi).any())
+
+
+class TestFinalModelTraining(unittest.TestCase):
+    @staticmethod
+    def _games(n=20):
+        return pd.DataFrame({
+            "game_date": pd.date_range("2026-06-01", periods=n, freq="D"),
+            "home_win": [float(i % 2) for i in range(n)],
+        })
+
+    def test_final_refit_uses_all_decided_games_without_validation(self):
+        games = self._games()
+        fold = {
+            "train_games": games.iloc[:10].copy(),
+            "val_games": games.iloc[10:15].copy(),
+            "fold_idx": 0,
+            "val_start": games.iloc[10]["game_date"],
+            "val_end": games.iloc[14]["game_date"],
+        }
+        calls = []
+
+        def fake_train(train, val=None):
+            calls.append((len(train), None if val is None else len(val)))
+            return {"logistic": object()}, {}
+
+        def fake_predict(models, val):
+            p = np.full(len(val), 0.5)
+            return p, {"logistic": p}, {"logistic": 1.0}
+
+        try:
+            with patch("backend.training.walk_forward_splits", return_value=[fold]), \
+                 patch("backend.training.train_moneyline_ensemble", side_effect=fake_train), \
+                 patch("backend.training.ensemble_predict", side_effect=fake_predict):
+                walk_forward_evaluate(games, min_val_games=0)
+        finally:
+            set_adaptive_weights(None)
+
+        self.assertEqual(calls, [(10, 5), (20, None)])
+
+    def test_oof_run_clears_adaptive_weights_from_previous_run(self):
+        games = self._games()
+        fold = {
+            "train_games": games.iloc[:10].copy(),
+            "val_games": games.iloc[10:15].copy(),
+            "fold_idx": 0,
+            "val_start": games.iloc[10]["game_date"],
+            "val_end": games.iloc[14]["game_date"],
+        }
+        observed_weights = []
+
+        def fake_train(train, val=None):
+            return {"xgboost": object(), "logistic": object()}, {}
+
+        def fake_predict(models, val):
+            weights = _member_weights(["xgboost", "logistic"])
+            observed_weights.append(weights)
+            p = np.full(len(val), 0.5)
+            return p, {"xgboost": p, "logistic": p}, weights
+
+        set_adaptive_weights({"xgboost": 0.95, "logistic": 0.05})
+        try:
+            with patch("backend.training.walk_forward_splits", return_value=[fold]), \
+                 patch("backend.training.train_moneyline_ensemble", side_effect=fake_train), \
+                 patch("backend.training.ensemble_predict", side_effect=fake_predict):
+                walk_forward_evaluate(games, min_val_games=0)
+        finally:
+            set_adaptive_weights(None)
+
+        self.assertEqual(len(observed_weights), 1)
+        self.assertAlmostEqual(observed_weights[0]["xgboost"], 0.25 / 0.55)
+        self.assertAlmostEqual(observed_weights[0]["logistic"], 0.30 / 0.55)
 
 
 class TestRosterReporting(unittest.TestCase):

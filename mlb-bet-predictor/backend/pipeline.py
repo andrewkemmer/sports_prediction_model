@@ -51,7 +51,7 @@ from data_ingestion import (
 from explainability import compute_feature_drift, compute_shap_per_game
 from calibration import is_identity
 from features import add_diff_features
-from weather import fetch_day_weather, fetch_games_weather
+from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
@@ -546,10 +546,15 @@ def _weather_cache_path() -> Path:
 
 
 _WEATHER_CACHE_COLS = [
-    "available", "temp_c", "rh_pct", "wind_speed_kmh", "wind_direction_deg",
-    "pressure_hpa", "air_density", "wind_multiplier",
+    "available", "source", "temp_c", "rh_pct", "wind_speed_kmh",
+    "wind_direction_deg", "pressure_hpa", "air_density", "wind_multiplier",
     "stadium_alt_m", "stadium_bearing",
 ]
+_OBSERVED_WEATHER_SOURCES = {
+    "open_meteo_archive",
+    "open_meteo_forecast_past",
+    "noaa_isd",
+}
 
 
 def _load_weather_cache(path: Path) -> dict[int, dict]:
@@ -560,8 +565,21 @@ def _load_weather_cache(path: Path) -> dict[int, dict]:
     except Exception as exc:
         logger.warning("Weather cache unreadable (%s) — rebuilding", exc)
         return {}
+    if "source" not in df.columns:
+        # Legacy caches predate provenance and may contain climatology values
+        # marked available=True. Never reuse them as observed weather.
+        logger.warning("Weather cache has no source column — invalidating legacy cache")
+        return {}
     out: dict[int, dict] = {}
     for _, r in df.iterrows():
+        source = None if pd.isna(r.get("source")) else str(r.get("source"))
+        available = r.get("available")
+        if (
+            source not in _OBSERVED_WEATHER_SOURCES
+            or pd.isna(available)
+            or not bool(available)
+        ):
+            continue
         pk = int(r["game_pk"])
         out[pk] = {k: (None if pd.isna(r.get(k)) else r.get(k))
                    for k in _WEATHER_CACHE_COLS}
@@ -598,7 +616,10 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
     cache = _load_weather_cache(_weather_cache_path())
     cached_pks = set(cache)
 
-    need = decided & pks.notna() & ~pks.astype(int).isin(cached_pks)
+    # Avoid casting the full nullable series to int: non-authoritative rows
+    # may legitimately have no game_pk.
+    pks_int = pks.where(pks.notna()).astype("Int64")
+    need = decided & pks.notna() & ~pks_int.isin(cached_pks)
     if need.any():
         subset = games[need]
         gd = pd.to_datetime(games["game_date"], errors="coerce")
@@ -622,15 +643,32 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         if rows:
             wx_df = pd.DataFrame(rows, index=row_idx)
             wx = fetch_games_weather(wx_df)
-            # fetch_games_weather keys results by game_id (or frame index when
-            # game_id is absent) — resolve back to game_pk for the cache.
-            gid_to_pk = {r["game_id"]: int(r["game_pk"]) for _, r in wx_df.iterrows()}
+            # Results are keyed by game_pk whenever available. Keep the
+            # game_id/index aliases for mocked or older providers so a cache
+            # refresh remains backward-compatible without weakening the
+            # authoritative game_pk contract.
+            key_to_pk: dict[object, int] = {}
+            for row_idx, r in wx_df.iterrows():
+                pk = int(r["game_pk"])
+                key_to_pk[pk] = pk
+                key_to_pk[str(pk)] = pk
+                gid = r.get("game_id")
+                if gid is not None and not (isinstance(gid, float) and pd.isna(gid)):
+                    key_to_pk[gid] = pk
+                    key_to_pk[str(gid)] = pk
+                key_to_pk[row_idx] = pk
+                key_to_pk[str(row_idx)] = pk
             new = 0
-            for gid, w in wx.items():
-                pk = gid_to_pk.get(gid)
+            for result_key, w in wx.items():
+                pk = key_to_pk.get(result_key)
+                if pk is None:
+                    pk = key_to_pk.get(str(result_key))
                 if pk is None:
                     continue
-                if w.get("available"):
+                if (
+                    w.get("available")
+                    and w.get("source") in _OBSERVED_WEATHER_SOURCES
+                ):
                     cache[pk] = {k: w.get(k) for k in _WEATHER_CACHE_COLS}
                     new += 1
             _save_weather_cache(_weather_cache_path(), cache)
@@ -639,24 +677,22 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         else:
             logger.warning("Weather history: no authoritative start times matched")
 
-    # Apply: key by game_id (apply_weather_features' primary lookup), with the
-    # frame index as fallback for frames lacking game_id.
-    by_gid: dict[Any, dict] = {}
+    # Apply using the authoritative game_pk key. apply_weather_features also
+    # accepts game_id/index aliases for slate and legacy frames.
+    by_pk: dict[int, dict] = {}
     for idx, r in games.iterrows():
         pk = pks.loc[idx]
         if pd.isna(pk):
             continue
         w = cache.get(int(pk))
-        if w is None:
-            continue
-        gid = r.get("game_id")
-        if gid is not None and not (isinstance(gid, float) and pd.isna(gid)):
-            by_gid[gid] = w
-        else:
-            by_gid[str(idx)] = w
-    out = apply_weather_features(games, by_gid)
-    n_ok = sum(1 for pk in pks.dropna().astype(int).unique() if pk in cache)
-    logger.info("Weather history: %d/%d games with real weather (cache)",
+        if w is not None:
+            by_pk[int(pk)] = w
+    out = apply_weather_features(games, by_pk)
+    n_ok = sum(
+        1 for pk in pks.dropna().astype(int).unique()
+        if pk in cache and cache[pk].get("source") in _OBSERVED_WEATHER_SOURCES
+    )
+    logger.info("Weather history: %d/%d games with observed weather (cache)",
                 n_ok, len(games))
     return out
 
@@ -720,9 +756,12 @@ def run_daily_pipeline(
 
         logger.info("Loaded %d games", len(games))
 
-        # Ensure diff features exist (may be missing from stale CSV)
-        if "elo_diff" not in games.columns:
-            logger.info("Diff features missing — computing from raw home/away columns")
+        # Ensure the canonical diff contract exists. Checking only elo_diff
+        # allowed stale exports to bypass recomputation while omitting the
+        # renamed cross-season 5-start pitcher fields.
+        _required_diff_cols = {"elo_diff", "sp_era_5g_diff", "sp_k9_5g_diff"}
+        if not _required_diff_cols <= set(games.columns):
+            logger.info("Canonical diff features missing — computing from raw home/away columns")
             games = add_diff_features(games)
 
         # Official-results overlay (Step 1.5).  Authoritative scores and
@@ -754,6 +793,10 @@ def run_daily_pipeline(
             # point-in-time weather to every decided game (see
             # _attach_weather_history) — no reliance on the trailing window.
             games = add_diff_features(games)
+            # add_diff_features may assign legacy dome-neutral defaults before
+            # the real weather pass. Air density is not safely neutral indoors
+            # without an observation, so clear it before applying cache data.
+            games["air_density_velocity_boost"] = pd.NA
             try:
                 games = _attach_weather_history(games, target_date)
             except Exception as exc:
@@ -765,6 +808,11 @@ def run_daily_pipeline(
                 except Exception:
                     pass
         else:
+            # Build raw diffs first, then apply observed weather separately.
+            # This prevents the legacy dome default from fabricating an
+            # air-density value when the provider returns no observation.
+            games = add_diff_features(games)
+            games["air_density_velocity_boost"] = pd.NA
             if "start_time_utc" in games.columns:
                 real_start = games["start_time_utc"].notna()
                 if "start_time_observed" in games.columns:
@@ -777,7 +825,9 @@ def run_daily_pipeline(
                         logger.warning(
                             "Weather fetch failed for history (features 30–31 stay NULL): %s", e
                         )
-                    games = add_diff_features(games, weather_data=weather or None)
+                    if weather:
+                        from weather import apply_weather_features
+                        games = apply_weather_features(games, weather)
 
             # Weather backfill over decided history: real StatsAPI first pitches →
             # strictly-prior observations for the trailing drift window (see
@@ -851,7 +901,12 @@ def run_daily_pipeline(
                     weather = fetch_day_weather(slate)
                 except Exception as e:
                     logger.warning("Weather fetch failed (features will use neutral defaults): %s", e)
-                slate = add_diff_features(slate, weather_data=weather if weather else None)
+                # Build diffs first, then apply weather through the shared
+                # game_pk/game_id-aware applicator. This keeps missing weather
+                # NULL and avoids a second key contract in add_diff_features.
+                slate = add_diff_features(slate)
+                if weather:
+                    slate = apply_weather_features(slate, weather)
                 games = pd.concat([games, slate], ignore_index=True)
                 target_games = slate.copy()
             else:
