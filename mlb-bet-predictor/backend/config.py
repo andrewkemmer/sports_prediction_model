@@ -108,12 +108,23 @@ XGBOOST_PARAMS = {
 # path has no validation window.
 XGBOOST_FOLD_ROUNDS = 2000
 XGBOOST_EARLY_STOP = 20
+# Optuna-tuned on 4,159-games/44-fold walk-forward (tune_lightgbm_optuna.py,
+# 50 trials, pooled OOF logloss 0.68066 vs 0.78465 for the old depth-5/300-r
+# config; sealed holdout 2026-08-03→08-23 confirmed: 0.68150/AUC 0.5573 vs
+# 0.71444/0.5492). Strongly regularized: tiny leaf count + high min gain +
+# heavy bagging suppress variance in the MLB low-signal regime. Native NaN
+# routing kept (impute_medians=False won); team-ID categoricals route via
+# categorical_feature BY NAME in the fold trainer — unchanged.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 300,
+    "n_estimators": 50,
     "max_depth": 5,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
+    "num_leaves": 6,
+    "min_child_samples": 59,
+    "min_gain_to_split": 1.745,
+    "bagging_fraction": 0.556,
+    "bagging_freq": 1,
+    "feature_fraction": 0.749,
+    "learning_rate": 0.053,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
