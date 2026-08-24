@@ -50,5 +50,66 @@ class TestShapVector(unittest.TestCase):
         np.testing.assert_allclose(avg[:3], [1.0, 1.5, 2.0])
 
 
+class TestXgbBaseScoreShim(unittest.TestCase):
+    """End-to-end guard for the shap/xgboost base_score incompatibility.
+
+    xgboost>=2 serializes learner_model_param.base_score as a bracketed
+    string inside its UBJSON dump; shap's loader crashes on it and every
+    XGBoost attribution silently vanished. _ensure_shap_xgb_compat wraps
+    the decoder; these tests prove the fix on a REAL booster so a future
+    upgrade that breaks the pairing fails here instead of in production.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import xgboost  # noqa: F401
+            import shap  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("xgboost/shap not installed")
+        rng = np.random.RandomState(0)
+        cls.X = rng.normal(size=(120, 4))
+        y = (cls.X[:, 0] + cls.X[:, 1] > 0).astype(int)
+        cls.model = xgboost.XGBClassifier(
+            n_estimators=8, max_depth=2, eval_metric="logloss")
+        cls.model.fit(cls.X, y)
+
+    def test_shim_is_idempotent_and_marker_set(self):
+        from backend.explainability import _ensure_shap_xgb_compat
+        import shap.explainers._tree as st
+        _ensure_shap_xgb_compat()
+        _ensure_shap_xgb_compat()  # second call must be a no-op, not double-wrap
+        self.assertTrue(getattr(st, "_mlb_base_score_shim", False))
+        # The wrapper must wrap the ORIGINAL decoder exactly once.
+        self.assertEqual(st.decode_ubjson_buffer.__name__, "_decode_fixed")
+
+    def test_real_booster_produces_nonempty_attributions(self):
+        import shap
+        from backend.explainability import _ensure_shap_xgb_compat
+        _ensure_shap_xgb_compat()
+        ex = shap.TreeExplainer(self.model)  # crashed pre-shim on xgboost>=2
+        sv = np.asarray(ex.shap_values(self.X[:5]), dtype=float)
+        self.assertEqual(sv.shape[-1], 4)
+        self.assertTrue(np.isfinite(sv).all())
+        self.assertGreater(float(np.abs(sv).sum()), 0.0,
+                           "attributions all zero — shim not effective")
+
+    def test_additivity_reconstructs_model_logodds(self):
+        """Σφ + base must equal the booster's own log-odds (end-to-end proof)."""
+        import math
+        import shap
+        from backend.explainability import _ensure_shap_xgb_compat
+        _ensure_shap_xgb_compat()
+        ex = shap.TreeExplainer(self.model)
+        row = self.X[:1]
+        vec = _shap_vector(ex.shap_values(row), 4)
+        self.assertIsNotNone(vec)
+        ev = float(np.ravel(ex.expected_value)[-1])
+        p = float(self.model.predict_proba(row)[0, 1])
+        p = min(max(p, 1e-12), 1 - 1e-12)
+        target = math.log(p) - math.log(1 - p)
+        self.assertAlmostEqual(float(vec.sum()) + ev, target, delta=1e-4)
+
+
 if __name__ == "__main__":
     unittest.main()

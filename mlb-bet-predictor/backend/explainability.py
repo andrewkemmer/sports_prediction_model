@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +38,45 @@ logger = logging.getLogger(__name__)
 
 _SHAP_XGB_SHIM_APPLIED = False
 
+# Version ranges the shim + per-member SHAP routing were verified against
+# (xgboost 3.2 / shap 0.49 with the decode shim active). Outside these
+# ranges we still try — the shim is format-tolerant — but loudly.
+_SHAP_TESTED_RANGE = ((0, 45), (0, 51))
+_XGB_TESTED_RANGE = ((1, 7), (4, 0))
+
+
+def _major_minor(version: Optional[str]) -> Optional[tuple[int, int]]:
+    m = re.match(r"(\d+)\.(\d+)", str(version or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _warn_if_outside_tested_range() -> None:
+    """Announce any untested shap/xgboost pairing before it can bite."""
+    try:
+        from importlib.metadata import version as _pkg_version
+        shap_v = _major_minor(_pkg_version("shap"))
+        xgb_v = _major_minor(_pkg_version("xgboost"))
+    except Exception:
+        return
+    problems = []
+    if shap_v and not (_SHAP_TESTED_RANGE[0] <= shap_v < _SHAP_TESTED_RANGE[1]):
+        problems.append(f"shap {shap_v[0]}.{shap_v[1]} outside tested "
+                        f"{_SHAP_TESTED_RANGE[0][0]}.{_SHAP_TESTED_RANGE[0][1]}–"
+                        f"{_SHAP_TESTED_RANGE[1][0]}.{_SHAP_TESTED_RANGE[1][1]}")
+    if xgb_v and not (_XGB_TESTED_RANGE[0] <= xgb_v < _XGB_TESTED_RANGE[1]):
+        problems.append(f"xgboost {xgb_v[0]}.{xgb_v[1]} outside tested "
+                        f"{_XGB_TESTED_RANGE[0][0]}.{_XGB_TESTED_RANGE[0][1]}–"
+                        f"{_XGB_TESTED_RANGE[1][0]}.{_XGB_TESTED_RANGE[1][1]}")
+    if problems:
+        logger.warning(
+            "Untested SHAP stack: %s — verify XGBoost attributions via the "
+            "additivity check before trusting game explanations.",
+            "; ".join(problems),
+        )
+    else:
+        logger.info("SHAP stack in tested range (shap %s, xgboost %s)",
+                    shap_v, xgb_v)
+
 
 def _ensure_shap_xgb_compat() -> None:
     """Make shap's XGBoost loader parse xgboost ≥2 UBJSON dumps.
@@ -57,6 +97,16 @@ def _ensure_shap_xgb_compat() -> None:
     except Exception:
         return
     if getattr(st, "_mlb_base_score_shim", False):
+        _warn_if_outside_tested_range()
+        return
+    if not hasattr(st, "decode_ubjson_buffer"):
+        # shap internals changed upstream: our hook point is gone. Fail loud
+        # here rather than letting every XGBoost attribution die quietly.
+        logger.warning(
+            "shap.explainers._tree.decode_ubjson_buffer is missing — shap "
+            "internals changed; cannot apply the xgboost base_score shim. "
+            "XGBoost SHAP will likely fail; pin a tested shap version.")
+        _warn_if_outside_tested_range()
         return
     orig = st.decode_ubjson_buffer
 
@@ -73,6 +123,7 @@ def _ensure_shap_xgb_compat() -> None:
 
     st.decode_ubjson_buffer = _decode_fixed
     st._mlb_base_score_shim = True
+    _warn_if_outside_tested_range()
 
 
 # ── SHAP per-game attributions ──────────────────────────────────────────────

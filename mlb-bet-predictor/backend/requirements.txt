@@ -1,9 +1,12 @@
 GitPython>=3.1.0
 pybaseball>=2.2.0
-xgboost
+# Version-guarded: shap's XGBoost loader requires the base_score decode shim
+# in backend/explainability.py for xgboost>=2 UBJSON dumps (verified pair:
+# xgboost 3.2 + shap 0.49). Loosen only after re-running the SHAP shim tests.
+xgboost>=1.7,<4
 lightgbm
 scikit-learn
-shap
+shap>=0.45,<0.51
 pandas
 numpy
 joblib

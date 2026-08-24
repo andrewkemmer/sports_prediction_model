@@ -84,7 +84,11 @@ except OSError:
 
 _banner("PHASE 0", "Environment Setup")
 print("📦 Installing dependencies...")
-_run("pip install -q pandas numpy scikit-learn xgboost lightgbm optuna shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
+# shap/xgboost are version-guarded: shap's XGBoost loader needs our
+# base_score decode shim for xgboost>=2 UBJSON dumps (verified on
+# xgboost 3.2 + shap 0.49; see backend/explainability.py). Upper bounds
+# at the next major prevent an untested pairing from silently shipping.
+_run('pip install -q pandas numpy scikit-learn "xgboost>=1.7,<4" lightgbm optuna "shap>=0.45,<0.51" joblib gitpython pybaseball requests tqdm pyarrow duckdb', check=False)
 print("  ✅ Done")
 
 # Clone fresh
