@@ -115,6 +115,46 @@ FEATURE_COLS = [
     "pitcher_regression_indicator",
     "lineup_depth_multiplier",
     "ace_efficiency_factor",
+    # 33–56. Raw per-side inputs (home/away pre-differenced values).
+    # Gives every member the raw home and away values alongside their diffs,
+    # letting tree members discover side-specific thresholds and interactions
+    # that a pure home-minus-away diff cannot express.
+    # Elo
+    "home_elo",
+    "away_elo",
+    # Win percentage
+    "home_win_pct",
+    "away_win_pct",
+    # SP ERA (season-to-date)
+    "sp_era_home",
+    "sp_era_away",
+    # SP K/9 (season-to-date)
+    "sp_k9_home",
+    "sp_k9_away",
+    # SP xwOBA allowed (last 6 starts)
+    "sp_xwoba_home",
+    "sp_xwoba_away",
+    # Lineup mean wOBA
+    "lineup_woba_mean_home",
+    "lineup_woba_mean_away",
+    # Lineup top-3 wOBA
+    "lineup_woba_top3_home",
+    "lineup_woba_top3_away",
+    # Team 30-game wOBA
+    "woba_30g_home",
+    "woba_30g_away",
+    # Bullpen 10-game WHIP
+    "bullpen_whip_10g_home",
+    "bullpen_whip_10g_away",
+    # Bullpen 3-game WHIP
+    "bullpen_whip_3g_home",
+    "bullpen_whip_3g_away",
+    # Team barrel% (15-game)
+    "team_barrel_15g_home",
+    "team_barrel_15g_away",
+    # Team exit velocity (15-game)
+    "team_exitvelo_15g_home",
+    "team_exitvelo_15g_away",
 ]
 # Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
@@ -300,18 +340,25 @@ def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
 
     Missing observations stay NULL: XGBoost/LightGBM route them natively and
     zero-filling fabricated signal (a 0 mph fastball, a 0.000 wOBA). Only the
-    logistic member — which cannot consume NaN — gets train-median imputation,
-    applied at predict time via the medians stored in the models dict.
+    logistic/MLP members — which cannot consume NaN — get train-median
+    imputation, applied at predict time via the medians stored in the models
+    dict. Team IDs route through a separate categorical path (LightGBM).
     """
     cols = [c for c in FEATURE_COLS if c in df.columns]
     return df[cols].to_numpy(dtype=float)
 
 
-def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Extract feature matrix and target from a games DataFrame."""
+def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Extract feature matrix, categorical matrix, and target.
+
+    Returns (X_numeric, X_categorical, y). X_categorical carries team IDs
+    for tree members that use native categorical support (LightGBM).
+    """
+    df = _add_team_ids(df)
     X = _feature_matrix(df)
+    X_cat = _categorical_matrix(df)
     y = df["home_win"].values.astype(float)
-    return X, y
+    return X, X_cat, y
 
 
 def _impute_median(
@@ -342,6 +389,44 @@ _LAST_ADAPTIVE_WEIGHTS: dict[str, float] = {}
 # to live blended probabilities in predict_games(); restored from a cached
 # bundle via set_calibration() so cached-model runs stay consistent.
 _LAST_CALIBRATOR: dict | None = None
+
+# ── Team ID mapping for tree-member categoricals ──────────────────────────
+
+# Consistent integer IDs from 3-letter team abbreviations. Same team = same
+# ID across seasons (verified: Statcast team_id is stable). Built lazily
+# from observed data so expansion teams get IDs automatically.
+_TEAM_ABBR_TO_ID: dict[str, int] = {}
+_TEAM_ID_TO_ABBR: dict[int, str] = {}
+
+def _team_id(abbr: str) -> int:
+    """Convert a 3-letter team abbreviation to a stable integer ID."""
+    if abbr in _TEAM_ABBR_TO_ID:
+        return _TEAM_ABBR_TO_ID[abbr]
+    if not isinstance(abbr, str) or len(abbr) < 2:
+        return -1
+    tid = len(_TEAM_ABBR_TO_ID)
+    _TEAM_ABBR_TO_ID[abbr] = tid
+    _TEAM_ID_TO_ABBR[tid] = abbr
+    return tid
+
+# Tree-member-only categorical columns. NOT in FEATURE_COLS — they get
+# native categorical handling in LightGBM. Logistic/MLP must not receive
+# raw team IDs (one-hot would starve on ~4k rows with 30 categories).
+TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+
+def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Attach stable integer team IDs for tree-member categorical routing."""
+    import pandas as pd
+    df = df.copy()
+    df["home_team_id"] = df["home_team"].apply(_team_id)
+    df["away_team_id"] = df["away_team"].apply(_team_id)
+    return df
+
+def _categorical_matrix(df: "pd.DataFrame") -> "np.ndarray":
+    """Extract categorical-feature matrix (team IDs, for tree members)."""
+    import numpy as np
+    return df[TREE_CATEGORICAL_COLS].to_numpy(dtype=int)
+
 
 
 def compute_adaptive_weights(
@@ -491,7 +576,10 @@ def ensemble_predict(
     Returns (blended_prob, {member_name: prob_vector}, {member_name: weight}).
     Falls back to 0.5 when no member can predict.
     """
+    games = _add_team_ids(games)
     X = _feature_matrix(games)
+    X_cat = _categorical_matrix(games)
+    X_tree = np.hstack([X, X_cat])
     scaler = ml_models.get("scaler")
     medians = ml_models.get("impute_median")
 
@@ -503,6 +591,8 @@ def ensemble_predict(
             if name in ("logistic", "mlp", "xgboost"):
                 Xi, _ = _impute_median(X, medians)
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
+            elif name == "lightgbm":
+                Xuse = X_tree  # includes team-ID categoricals
             else:
                 Xuse = X
             members[name] = model.predict_proba(Xuse)[:, 1]
@@ -559,10 +649,10 @@ def train_moneyline_ensemble(
     evaluate against a strictly future holdout. When omitted, the function
     performs a fit-only refit on every decided game for the deployed bundle.
     """
-    X_train, y_train = _prepare_features(train)
-    X_val = y_val = None
+    X_train, X_cat_train, y_train = _prepare_features(train)
+    X_val = X_cat_val = y_val = None
     if val is not None:
-        X_val, y_val = _prepare_features(val)
+        X_val, X_cat_val, y_val = _prepare_features(val)
 
     if len(X_train) == 0 or (X_val is not None and len(X_val) == 0):
         raise ValueError("Insufficient training or validation data")
@@ -577,6 +667,11 @@ def train_moneyline_ensemble(
     if X_val is not None:
         X_val_lr, _ = _impute_median(X_val, impute_medians)
         X_val_scaled = scaler.transform(X_val_lr)
+
+    # Build tree-member feature matrices: numeric diffs + team-ID categoricals.
+    # LightGBM gets native categorical support; XGBoost/RF get numeric-only.
+    X_train_tree = np.hstack([X_train, X_cat_train])
+    X_val_tree = np.hstack([X_val, X_cat_val]) if X_val is not None else None
 
     models = {}
 
@@ -612,10 +707,12 @@ def train_moneyline_ensemble(
     try:
         from lightgbm import LGBMClassifier
         lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
+        cat_idx = list(range(len(FEATURE_COLS), len(FEATURE_COLS) + len(TREE_CATEGORICAL_COLS)))
         if X_val is not None:
-            lgbm.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+            lgbm.fit(X_train_tree, y_train, eval_set=[(X_val_tree, y_val)],
+                     categorical_feature=cat_idx)
         else:
-            lgbm.fit(X_train, y_train)
+            lgbm.fit(X_train_tree, y_train, categorical_feature=cat_idx)
         models["lightgbm"] = lgbm
     except ImportError:
         logger.warning("lightgbm not available, skipping LGBM member")
@@ -664,7 +761,12 @@ def train_moneyline_ensemble(
     for name, model in models.items():
         if name in ("scaler", "impute_median"):
             continue
-        Xuse = X_val_scaled if name in ("logistic", "mlp") else X_val
+        if name in ("logistic", "mlp"):
+            Xuse = X_val_scaled
+        elif name == "lightgbm":
+            Xuse = X_val_tree  # includes team-ID categoricals
+        else:
+            Xuse = X_val  # xgboost, randomforest: numeric-only
         probs.append(model.predict_proba(Xuse)[:, 1])
         wts.append(weights[name])
 
