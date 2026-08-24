@@ -173,17 +173,54 @@ else:
 st.markdown("### Model Ensemble")
 ensemble = mon.get("ensemble") or []
 
+
+def _xgb_desc() -> str:
+    """Derive XGBoost card text from the deployed config so it cannot drift."""
+    try:
+        import sys
+        from pathlib import Path
+        _backend = Path(__file__).resolve().parents[1] / "backend"
+        if str(_backend) not in sys.path:
+            sys.path.insert(0, str(_backend))
+        from config import XGBOOST_PARAMS  # type: ignore[import-untyped]
+        p = XGBOOST_PARAMS
+    except Exception:
+        return "XGBoost — config unavailable."
+    learn = p.get("learning_rate", "?")
+    depth = p.get("max_depth", "?")
+    return (
+        f"Gradient-boosted decision trees (max depth {depth}, lr {learn}, "
+        "early-stopped on each fold's validation window, logloss eval). "
+        "Train-median imputation replaces the old native-NaN routing — "
+        "the Optuna winner picked it over raw NaN splitting."
+    )
+
+
+def _lgbm_desc() -> str:
+    """Derive LightGBM card text from the deployed config."""
+    try:
+        import sys
+        from pathlib import Path
+        _backend = Path(__file__).resolve().parents[1] / "backend"
+        if str(_backend) not in sys.path:
+            sys.path.insert(0, str(_backend))
+        from config import LIGHTGBM_PARAMS  # type: ignore[import-untyped]
+        p = LIGHTGBM_PARAMS
+    except Exception:
+        return "LightGBM — config unavailable."
+    learn = p.get("learning_rate", "?")
+    depth = p.get("max_depth", "?")
+    return (
+        f"Leaf-wise histogram gradient boosting (max depth {depth}, lr {learn}, "
+        f"{p.get('n_estimators', '?')} rounds, logloss eval). Grows deeper "
+        "loss-guided trees than XGBoost at the same budget; routes missing "
+        "values natively."
+    )
+
+
 ENSEMBLE_DESCRIPTIONS = {
-    "xgboost": (
-        "Gradient-boosted decision trees (depth 5, 300 rounds, logloss objective). "
-        "Sparsity-aware splits consume missing features natively — no imputation — "
-        "and capture nonlinear interactions such as platoon fit × bullpen fatigue."
-    ),
-    "lightgbm": (
-        "Leaf-wise histogram gradient boosting. Grows deeper, loss-guided trees than "
-        "XGBoost at the same budget, making it quick to exploit strong rolling-form "
-        "features; missing values are routed natively like XGBoost."
-    ),
+    "xgboost": _xgb_desc(),
+    "lightgbm": _lgbm_desc(),
     "logistic": (
         "L2-regularized linear model over standardized features (train-median "
         "imputation). A high-bias anchor that keeps the blend calibrated when tree "

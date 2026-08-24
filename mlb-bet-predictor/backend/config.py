@@ -83,16 +83,30 @@ ADAPTIVE_WEIGHT_METRIC = "auc"
 # signal members (edge > 0.02) from noise members (edge < 0.01) cleanly,
 # landing near-coin-flip members on the 5% floor.
 ADAPTIVE_WEIGHT_AUC_TEMPERATURE = 0.015
+# Regularized: Optuna-tuned on 4,144-games/44-fold walk-forward
+# (pooled OOF logloss 0.68107 vs 0.69115 for the old depth-5/300-r config).
+# Shallow depth + high gamma + subsampling suppress variance in the
+# MLB low-signal regime. The fold trainer adds early_stopping_rounds=20
+# and n_estimators=2000 (generous ceiling ~50 median rounds at refit) when
+# a validation window is available; fit-only refits use the params below
+# directly with no early stopping. Train-median imputation is now applied
+# alongside logistic/MLP (the Optuna winner consistently preferred it).
 XGBOOST_PARAMS = {
-    "n_estimators": 300,
-    "max_depth": 5,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
+    "max_depth": 2,
+    "min_child_weight": 8,
+    "gamma": 2.13,
+    "subsample": 0.60,
+    "colsample_bytree": 0.56,
+    "learning_rate": 0.058,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
-    "use_label_encoder": False,
 }
+# n_estimators ceiling + early-stopping rounds for walk-forward folds.
+# Separate from the constructor dict because xgboost 3.2 sklearn API
+# requires eval_set when early_stopping_rounds is set, and the full-refit
+# path has no validation window.
+XGBOOST_FOLD_ROUNDS = 2000
+XGBOOST_EARLY_STOP = 20
 LIGHTGBM_PARAMS = {
     "n_estimators": 300,
     "max_depth": 5,

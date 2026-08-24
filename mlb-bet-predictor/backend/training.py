@@ -500,7 +500,7 @@ def ensemble_predict(
         if name in ("scaler", "impute_median"):
             continue
         try:
-            if name in ("logistic", "mlp"):
+            if name in ("logistic", "mlp", "xgboost"):
                 Xi, _ = _impute_median(X, medians)
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
             else:
@@ -580,14 +580,30 @@ def train_moneyline_ensemble(
 
     models = {}
 
-    # XGBoost
+    # XGBoost — tuned config: train-median imputation + early stopping.
+    # The raw NaN matrix that tree members used to consume natively is
+    # replaced by the same train-fold-median-imputed matrix that logistic/MLP
+    # use (no val leakage). Walk-forward folds get n_estimators=2000 +
+    # early_stopping_rounds=20 on the val window (~50 median rounds at refit);
+    # fit-only refits use XGBOOST_PARAMS directly with no early stopping.
     try:
         from xgboost import XGBClassifier
-        xgb = XGBClassifier(**XGBOOST_PARAMS)
+        from config import XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP
         if X_val is not None:
-            xgb.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            xgb = XGBClassifier(
+                **XGBOOST_PARAMS,
+                n_estimators=XGBOOST_FOLD_ROUNDS,
+                early_stopping_rounds=XGBOOST_EARLY_STOP,
+            )
+            X_val_lr_for_xgb, _ = _impute_median(X_val, impute_medians)
+            xgb.fit(
+                X_train_lr, y_train,
+                eval_set=[(X_val_lr_for_xgb, y_val)],
+                verbose=False,
+            )
         else:
-            xgb.fit(X_train, y_train, verbose=False)
+            xgb = XGBClassifier(**XGBOOST_PARAMS)
+            xgb.fit(X_train_lr, y_train, verbose=False)
         models["xgboost"] = xgb
     except ImportError:
         logger.warning("xgboost not available, skipping XGB member")
