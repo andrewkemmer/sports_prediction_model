@@ -405,12 +405,17 @@ def _team_id(abbr: str) -> int:
     missing data) map to UNK_TEAM_ID — a dedicated category with
     near-zero training presence so trees learn a neutral weight for it
     instead of silently aliasing a real team (e.g., 0 = NYY).
+
+    Auto-generated IDs skip UNK_TEAM_ID so the reserved slot can never
+    collide with a real team no matter how many abbreviations accumulate.
     """
     if abbr in _TEAM_ABBR_TO_ID:
         return _TEAM_ABBR_TO_ID[abbr]
     if not isinstance(abbr, str) or len(abbr) < 2:
         return UNK_TEAM_ID  # semantic "unknown", not a real team
     tid = len(_TEAM_ABBR_TO_ID)
+    if tid >= UNK_TEAM_ID:
+        tid += 1  # skip the reserved slot
     _TEAM_ABBR_TO_ID[abbr] = tid
     _TEAM_ID_TO_ABBR[tid] = abbr
     return tid
@@ -437,6 +442,16 @@ def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
     df = df.copy()
     df["home_team_id"] = df["home_team"].apply(_team_id)
     df["away_team_id"] = df["away_team"].apply(_team_id)
+    # Belt-and-suspenders: no real team abbreviation may map to the
+    # reserved UNK slot.  The auto-generation skip prevents this in
+    # normal operation; this guard catches corruption before training.
+    for abbr, tid in sorted(_TEAM_ABBR_TO_ID.items()):
+        if tid == UNK_TEAM_ID:
+            raise AssertionError(
+                f"UNK_TEAM_ID={UNK_TEAM_ID} collides with real team "
+                f"'{abbr}' → {tid}. "
+                f"Check _team_id auto-generation logic."
+            )
     return df
 
 def _categorical_matrix(df: "pd.DataFrame") -> "np.ndarray":
