@@ -128,6 +128,37 @@ def _ensure_shap_xgb_compat() -> None:
 
 # ── SHAP per-game attributions ──────────────────────────────────────────────
 
+def _native_xgb_contribs(model: Any, Xin: Any) -> Optional[tuple[np.ndarray, float]]:
+    """XGBoost attributions via the booster's NATIVE TreeSHAP.
+
+    booster.predict(pred_contribs=True) is computed by xgboost itself: it
+    honors native categorical split semantics exactly and satisfies
+    Σφ + bias == margin to machine precision BY CONSTRUCTION. This removes
+    shap's Python-side XGBoost tree parser (and its UBJSON base_score
+    handling) from the primary attribution path — version drift between the
+    resolved xgboost/shap pair showed up as a 2.63e-03 additivity violation
+    (vs LightGBM's 1.78e-15) because shap walks categorical splits as plain
+    numeric code thresholds while native predict uses category set-membership.
+    Falls back to the shap explainer loudly when unavailable.
+    """
+    try:
+        import xgboost as xgb_lib
+        booster = model.get_booster()
+        dm = xgb_lib.DMatrix(Xin, enable_categorical=True)
+        contribs = booster.predict(dm, pred_contribs=True)
+        arr = np.asarray(contribs, dtype=float)
+        if arr.ndim == 3:      # (n, features+1, classes) — binary edge case
+            arr = arr[:, :, -1]
+        vec = np.asarray(arr[0, :-1], dtype=float).ravel()
+        base = float(arr[0, -1])
+        return vec, base
+    except Exception as e:
+        logger.warning(
+            "Native XGBoost pred_contribs failed (%s) — falling back to "
+            "shap.TreeExplainer for this member", e)
+        return None
+
+
 def _shap_vector(sv, n_cols: int):
     """Normalize one member's explainer output to a length-n_cols vector.
 
@@ -235,6 +266,8 @@ def compute_shap_per_game(
 
     # Build explainers ONCE (was per-game-per-member) and capture each
     # member's base value for the Σφ + base ≈ log-odds additivity check.
+    # XGBoost keeps its shap explainer ONLY as a fallback behind the native
+    # pred_contribs path (see _native_xgb_contribs).
     explainers: dict[str, tuple[Any, Optional[float]]] = {}
     if has_shap:
         for name, model in models.items():
@@ -246,9 +279,13 @@ def compute_shap_per_game(
                 base = float(np.ravel(ev)[-1]) if ev is not None else None
                 explainers[name] = (ex, base)
             except Exception as e:
+                if name == "xgboost":
+                    logger.info("shap TreeExplainer unavailable for xgboost (%s) — native pred_contribs remains primary", e)
+                    continue
                 logger.warning("TreeExplainer init failed for %s: %s", name, e)
 
     additivity_diffs: dict[str, list[float]] = {}
+    shap_path_used: dict[str, str] = {}
     warned_no_members = False
 
     for idx, row in games.iterrows():
@@ -263,11 +300,22 @@ def compute_shap_per_game(
                 if name not in explainers:
                     continue
                 try:
-                    explainer, base = explainers[name]
                     Xin = _model_input(name, idx)
-                    sv = _shap_vector(explainer.shap_values(Xin), n_full)
+                    sv = None
+                    if name == "xgboost":
+                        native = _native_xgb_contribs(model, Xin)
+                        if native is not None:
+                            sv, base = native
+                            shap_path_used[name] = "native_pred_contribs"
+                        else:
+                            sv = None
+                    if sv is None and name in explainers:
+                        explainer, base = explainers[name]
+                        sv = _shap_vector(explainer.shap_values(Xin), n_full)
+                        if sv is not None and name == "xgboost":
+                            shap_path_used[name] = "shap_TreeExplainer_fallback"
                     if sv is None:
-                        continue  # _shap_vector already logged the mismatch loudly
+                        continue  # loud logging already happened upstream
                     tree_shaps.append(sv)
                     # End-to-end additivity spot-check on margin-space members:
                     # Σφ + base must reconstruct the model's own log-odds.
@@ -336,9 +384,9 @@ def compute_shap_per_game(
         worst = max(diffs)
         log = logger.info if worst < 1e-4 else logger.warning
         log(
-            "SHAP additivity [%s]: worst |Σφ + base − log-odds| = %.2e "
+            "SHAP additivity [%s via %s]: worst |Σφ + base − log-odds| = %.2e "
             "over %d games%s",
-            name, worst, len(diffs),
+            name, shap_path_used.get(name, "?"), worst, len(diffs),
             "" if worst < 1e-4 else " — INVESTIGATE input/dtype fidelity",
         )
 

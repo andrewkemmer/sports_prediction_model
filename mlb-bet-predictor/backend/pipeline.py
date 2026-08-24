@@ -559,7 +559,15 @@ _OBSERVED_WEATHER_SOURCES = {
     "open_meteo_archive",
     "open_meteo_forecast_past",
     "noaa_isd",
+    # Official park-reported conditions (gameData.weather). Real observation,
+    # but only wind fills honestly — the feed has no humidity, so air_density
+    # stays NULL for these records by the module's no-fabrication rule.
+    "statsapi_gamefeed",
 }
+
+# Fill games the Open-Meteo archive could not observe from the per-game
+# StatsAPI feed (paced ~2.5 req/s, one-off per cached game_pk).
+STATSAPI_WEATHER_FILL = True
 
 
 def _load_weather_cache(path: Path) -> dict[int, dict]:
@@ -704,6 +712,37 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         else:
             logger.warning("Weather history: no authoritative start times matched")
 
+        # Gap filler: the per-game feed needs neither coordinates nor a
+        # first-pitch time, so it also reaches games skipped above for lack
+        # of a start time. Only decided OPEN-AIR uncached games are targeted;
+        # domes legitimately carry default-zero wind and NULL density.
+        if STATSAPI_WEATHER_FILL:
+            gap_rows = []
+            for idx, r in subset.iterrows():
+                if pd.to_numeric(r.get("dome_is_neutral"), errors="coerce") == 1:
+                    continue
+                pk = int(pks.loc[idx])
+                if pk not in cache:
+                    gap_rows.append((pk, r.get("home_team"), str(r.get("venue", "") or "")))
+            if gap_rows:
+                from results import fetch_statsapi_weather
+                from weather import statsapi_weather_to_record
+                feed_wx = fetch_statsapi_weather([g[0] for g in gap_rows])
+                filled = 0
+                for pk, home_team, venue in gap_rows:
+                    parsed = feed_wx.get(pk)
+                    if not parsed:
+                        continue
+                    rec = statsapi_weather_to_record(parsed, home_team, venue)
+                    if rec.get("available"):
+                        cache[pk] = {k: rec.get(k) for k in _WEATHER_CACHE_COLS}
+                        filled += 1
+                logger.info(
+                    "StatsAPI weather filler: %d/%d gap games recovered from "
+                    "official park observations", filled, len(gap_rows))
+                if filled:
+                    _save_weather_cache(_weather_cache_path(), cache)
+
     # Apply using the authoritative game_pk key. apply_weather_features also
     # accepts game_id/index aliases for slate and legacy frames.
     by_pk: dict[int, dict] = {}
@@ -815,7 +854,9 @@ def run_daily_pipeline(
         # application so the two weather-driven features are applied on top
         # of fresh diffs afterwards.
         logger.info("Recomputing all diff features from raw home/away columns")
-        games = add_diff_features(games)
+        # Final computation: official results already applied, so record
+        # columns must exist — a missing win_pct_diff here is a real problem.
+        games = add_diff_features(games, require_records=True)
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see

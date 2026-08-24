@@ -7,9 +7,11 @@ averaging raw outputs of mixed shapes raised 'inhomogeneous shape'.
 _shap_vector reconciles every known shape; compute_shap_per_game now
 also reports attributions from the FAVORED team's perspective.
 """
+import math
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from backend.explainability import _shap_vector
 
@@ -48,6 +50,84 @@ class TestShapVector(unittest.TestCase):
         avg = np.mean(vecs, axis=0)
         self.assertEqual(avg.shape, (self.N,))
         np.testing.assert_allclose(avg[:3], [1.0, 1.5, 2.0])
+
+
+class TestNativeXgbContribs(unittest.TestCase):
+    """Primary XGBoost attribution path must be the booster's OWN TreeSHAP.
+
+    Production evidence: shap's Python-side XGBoost parser walked categorical
+    splits as numeric code thresholds while native predict uses category
+    set-membership — under one Colab-resolved xgboost/shap pair that diverged
+    to a 2.63e-03 additivity violation (LightGBM: 1.78e-15). pred_contribs is
+    computed by xgboost itself, so Σφ + bias == margin exactly regardless of
+    library pairing.
+    """
+
+    def setUp(self):
+        try:
+            import xgboost as xgb_lib  # noqa: F401
+            import shap  # noqa: F401
+        except ImportError:
+            self.skipTest("xgboost/shap not installed")
+        from backend.explainability import (
+            _add_team_ids,
+            _ensure_shap_xgb_compat,
+            FEATURE_COLS,
+            TREE_CATEGORICAL_COLS,
+            _tree_dataframe,
+        )
+        _ensure_shap_xgb_compat()
+        self.FEATURE_COLS = FEATURE_COLS
+        self.TREE_CATEGORICAL_COLS = TREE_CATEGORICAL_COLS
+        self._tree_dataframe = _tree_dataframe
+        self._add_team_ids = _add_team_ids
+
+    def _tiny_model(self):
+        import xgboost as xgb_lib
+        rng = np.random.default_rng(3)
+        n = 300
+        num = rng.normal(size=(n, 4))
+        team = rng.integers(0, 6, size=n)
+        y = ((num[:, 0] > 0).astype(int) ^ (team % 2))
+        cols = [f"f{i}" for i in range(4)]
+        df_num = pd.DataFrame(num, columns=cols)
+        ids = pd.DataFrame({"home_team_id": team, "away_team_id": (team + 1) % 6})
+        frame = self._tree_dataframe(df_num, ids.to_numpy(), list(cols))
+        m = xgb_lib.XGBClassifier(
+            n_estimators=40, max_depth=3, enable_categorical=True,
+            random_state=0,
+        )
+        m.fit(frame, y)
+        return m, frame
+
+    def test_native_contribs_exact_additivity_and_width(self):
+        import xgboost as xgb_lib
+        from backend.explainability import _native_xgb_contribs
+
+        model, frame = self._tiny_model()
+        row = frame.iloc[[3]]
+        out = _native_xgb_contribs(model, row)
+        self.assertIsNotNone(out)
+        sv, base = out
+        n_feat = frame.shape[1]
+        self.assertEqual(sv.size, n_feat)
+
+        p = float(model.predict_proba(row)[0, 1])
+        target = math.log(p) - math.log(1 - p)
+        self.assertLess(abs(float(sv.sum()) + base - target), 1e-5,
+                        "native TreeSHAP must reconstruct the margin exactly")
+
+    def test_native_failure_falls_back_loudly(self):
+        """When the booster path is unavailable the caller must see it."""
+        from backend.explainability import _native_xgb_contribs
+
+        class _Broken:
+            def get_booster(self):
+                raise RuntimeError("no booster")
+
+        with self.assertLogs("backend.explainability", level="WARNING"):
+            out = _native_xgb_contribs(_Broken(), pd.DataFrame({"a": [1]}))
+        self.assertIsNone(out)
 
 
 class TestXgbBaseScoreShim(unittest.TestCase):

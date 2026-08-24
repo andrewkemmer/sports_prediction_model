@@ -1358,6 +1358,7 @@ RAW_COLUMN_ALIASES: dict[str, list[str]] = {
 def add_diff_features(
     game_df: pd.DataFrame,
     weather_data: dict | None = None,
+    require_records: bool = False,
 ) -> pd.DataFrame:
     """Compute all 35 model features from the raw home/away columns.
 
@@ -1466,9 +1467,16 @@ def add_diff_features(
     elif "home_win_pct" in df.columns and "away_win_pct" in df.columns:
         df["win_pct_diff"] = (pd.to_numeric(df["home_win_pct"], errors="coerce")
                               - pd.to_numeric(df["away_win_pct"], errors="coerce"))
+    elif require_records:
+        df["win_pct_diff"] = np.nan
+        logger.warning(
+            "win_pct_diff: record/win-pct columns missing on FINAL computation "
+            "— feature ships as NaN; verify official-results overlay ran")
     else:
         df["win_pct_diff"] = np.nan
-        logger.warning("win_pct_diff: record/win-pct columns missing, set to NaN")
+        logger.debug(
+            "win_pct_diff: record/win-pct columns not present yet at this stage "
+            "— expected pre-overlay; diffs are recomputed after official results")
 
     # ── 3–24. Straight home − away diffs (exact spec-sheet order)
     simple_diffs = [

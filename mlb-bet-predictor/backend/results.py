@@ -293,3 +293,69 @@ def refresh_range(cache_start: date, cache_end: date,
     tail_start = max(cache_start, requested_end -
                      timedelta(days=RESULTS_TAIL_REFRESH_DAYS - 1))
     return tail_start, max(requested_end, cache_end)
+
+
+# ── Official park weather (StatsAPI game feed) ─────────────────────────────
+
+STATSAPI_GAME_FEED_URL = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
+
+
+def fetch_statsapi_weather(
+    game_pks,
+    timeout: int = 15,
+    pause_sec: float = 0.4,
+) -> dict[int, dict]:
+    """Official park-reported weather from each game's live-feed endpoint.
+
+    ``gameData.weather`` carries the stadium's OWN observation:
+    ``{"condition": str, "temp": F, "wind": "9 mph, In from CF"}``. This is
+    the gap-filler for games the Open-Meteo archive could not observe — it
+    needs no coordinates and no first-pitch time, only the game_pk.
+
+    Paced one request per ``pause_sec`` with a single retry per game.
+    Returns ``{pk: {"temp_f", "wind_mph", "wind_text"}}``; failed or
+    weather-less games are simply absent from the result (loudly counted).
+    """
+    import re
+    import time as _time
+
+    out: dict[int, dict] = {}
+    pks = [int(pk) for pk in game_pks]
+    failures = 0
+    for i, pk in enumerate(pks):
+        payload = None
+        for attempt in (1, 2):
+            try:
+                resp = requests.get(
+                    STATSAPI_GAME_FEED_URL.format(pk=pk), timeout=timeout)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    break
+                failures += 0  # non-200 retried once below
+            except requests.RequestException:
+                pass
+            if attempt == 1:
+                _time.sleep(pause_sec * 2)
+        wx = ((payload or {}).get("gameData") or {}).get("weather") or {}
+        wind_text = str(wx.get("wind") or "")
+        mph_m = re.search(r"(\d+(?:\.\d+)?)\s*mph", wind_text, re.IGNORECASE)
+        temp_f = wx.get("temp")
+        if temp_f is None and mph_m is None:
+            failures += 1
+            continue
+        try:
+            temp_f = float(temp_f) if temp_f is not None else None
+        except (TypeError, ValueError):
+            temp_f = None
+        out[pk] = {
+            "temp_f": temp_f,
+            "wind_mph": float(mph_m.group(1)) if mph_m else None,
+            "wind_text": wind_text,
+        }
+        if i + 1 < len(pks):
+            _time.sleep(pause_sec)
+    if pks:
+        logger.info(
+            "StatsAPI game-feed weather: %d/%d games reported conditions "
+            "(%d unusable)", len(out), len(pks), failures)
+    return out

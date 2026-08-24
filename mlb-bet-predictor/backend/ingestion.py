@@ -81,7 +81,19 @@ def _warn_if_core_season_chunk_empty(chunk_start: date, chunk_end: date,
     the April–September core means data silently went missing for real
     games — exactly the failure mode that produced wrong frozen finals
     before the StatsAPI overlay existed.
+
+    EXCEPTION — future-dated chunks: when the chunk lies entirely at or
+    beyond today, there are no completed games to post yet (upcoming-slate
+    runs include the run date in their range), so emptiness is EXPECTED.
+    Downgrade to DEBUG instead of blanket-suppressing; past-dated chunks
+    keep the full warning.
     """
+    if chunk_start >= date.today():
+        logger.debug(
+            "Statcast chunk %s → %s empty (%s) — entirely future-dated; "
+            "no completed games can exist yet",
+            chunk_start, chunk_end, reason)
+        return
     mid = chunk_start + (chunk_end - chunk_start) / 2
     if mid.month in _REGULAR_SEASON_CORE_MONTHS:
         logger.warning(

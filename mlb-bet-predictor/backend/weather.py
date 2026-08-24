@@ -634,6 +634,7 @@ def _fetch_batched_weather(
     locations: list[tuple[str, dict]],
     start_date: date,
     end_date: date,
+    needed_days: set | None = None,
 ) -> dict[tuple[str, date], dict[str, list]]:
     """Fetch historical weather in paced multi-coordinate date batches.
 
@@ -642,8 +643,19 @@ def _fetch_batched_weather(
     window for all stadiums, then fills only recent archive gaps from the
     forecast past window. Missing responses remain missing; no climatology is
     promoted to an observed record.
+
+    ``needed_days`` (dates that actually have games) lets the loop SKIP
+    windows containing no games — MLB's Nov–Feb off-season otherwise costs
+    ~10 pointless 14-day batch requests per full-history run, each of which
+    Open-Meteo answers with 429s under pacing. ``None`` preserves the old
+    fetch-everything behavior for callers without game-date knowledge.
     """
     import time
+
+    def _window_has_games(a: date, b: date) -> bool:
+        if needed_days is None:
+            return True
+        return any(a <= d <= b for d in needed_days)
 
     by_key: dict[tuple[str, date], dict[str, list]] = {}
     if not locations or start_date > end_date:
@@ -651,6 +663,7 @@ def _fetch_batched_weather(
 
     today = date.today()
     archive_end = min(end_date, today - timedelta(days=1))
+    skipped_windows = 0
 
     # Archive requests contain only dates that are definitely historical.
     # Never send today's or a future slate to the archive endpoint.
@@ -658,6 +671,12 @@ def _fetch_batched_weather(
         for batch_start in range(0, (archive_end - start_date).days + 1, _WEATHER_BATCH_DAYS):
             chunk_start = start_date + timedelta(days=batch_start)
             chunk_end = min(chunk_start + timedelta(days=_WEATHER_BATCH_DAYS - 1), archive_end)
+            if not _window_has_games(chunk_start, chunk_end):
+                skipped_windows += 1
+                logger.debug(
+                    "Weather archive window %s → %s skipped: no scheduled games",
+                    chunk_start, chunk_end)
+                continue
             for i in range(0, len(locations), _WEATHER_BATCH_SIZE):
                 batch = locations[i:i + _WEATHER_BATCH_SIZE]
                 by_key.update(_fetch_batch_range(
@@ -672,7 +691,7 @@ def _fetch_batched_weather(
     # the forecast endpoint's observed-past window, still using PIT cutoffs.
     recent_start = max(start_date, today - timedelta(days=91))
     recent_end = min(end_date, today)
-    if recent_start <= recent_end:
+    if recent_start <= recent_end and _window_has_games(recent_start, recent_end):
         recent_days = {
             recent_start + timedelta(days=i)
             for i in range((recent_end - recent_start).days + 1)
@@ -699,6 +718,11 @@ def _fetch_batched_weather(
         )
         for key, series in future.items():
             by_key.setdefault(key, series)
+    if skipped_windows:
+        logger.info(
+            "Weather batches: skipped %d gameless window(s) (%s→%s span) — "
+            "no Open-Meteo requests sent for them",
+            skipped_windows, start_date, archive_end)
     return by_key
 
 
@@ -826,7 +850,10 @@ def fetch_games_weather(
 
     min_day = min(start.date() for _, _, _, start in targets) - timedelta(days=1)
     max_day = max(start.date() for _, _, _, start in targets)
-    series_by_key = _fetch_batched_weather(list(locations.items()), min_day, max_day)
+    series_by_key = _fetch_batched_weather(
+        list(locations.items()), min_day, max_day,
+        needed_days={s.date() for _, _, _, s in targets},
+    )
 
     for result_key, team_code, info, start in targets:
         series = series_by_key.get((team_code, start.date()))
@@ -864,6 +891,78 @@ def fetch_day_weather(
 ) -> dict[str, dict]:
     """Backward-compatible alias for :func:`fetch_games_weather`."""
     return fetch_games_weather(games_df)
+
+
+# ── StatsAPI game-feed gap filler ──────────────────────────────────────────
+
+STATSAPI_GAMEFEED_SOURCE = "statsapi_gamefeed"
+
+
+def _wind_phrase_deg(text: str, bearing: float) -> float | None:
+    """Estimate wind direction from the feed's compass phrase.
+
+    StatsAPI phrases look like ``"9 mph, In from CF"`` / ``"12 mph, Out to
+    LF"`` / ``"8 mph, L to RF"``. Mapped relative to the outfield bearing:
+    blowing OUT → tailwind (bearing), IN → headwind (+180°), L/R → crosswind
+    (±45°). Unrecognized phrases return None rather than guessing.
+    """
+    t = text.lower()
+    if "out" in t:
+        return float(bearing)
+    if "in" in t:
+        return float((bearing + 180) % 360)
+    if " l" in t or t.startswith("l"):
+        return float((bearing - 45) % 360)
+    if " r" in t or t.startswith("r"):
+        return float((bearing + 45) % 360)
+    return None
+
+
+def statsapi_weather_to_record(
+    parsed: dict,
+    home_team: str,
+    venue: str = "",
+) -> dict:
+    """Convert :func:`results.fetch_statsapi_weather` output to a cache record.
+
+    Honest-fill rules mirror the module's null contract:
+      * wind_multiplier only when BOTH an mph value and a recognizable
+        direction phrase exist (real observation → real calculation);
+      * air_density stays NULL — gameData.weather carries no humidity and the
+        density formula refuses to fabricate RH;
+      * ``available`` is True only when the wind multiplier exists, since the
+        wind feature is the gap being filled.
+    Returns the record with ``available=False`` (and reason in ``source``)
+    when nothing usable was parsed.
+    """
+    info = STADIUMS.get(_resolve_team_code(home_team, venue))
+    temp_f = parsed.get("temp_f")
+    mph = parsed.get("wind_mph")
+    text = parsed.get("wind_text", "")
+
+    temp_c = (temp_f - 32.0) * 5.0 / 9.0 if temp_f is not None else None
+    kmh = mph * 1.60934 if mph is not None else None
+    mult = None
+    deg = None
+    if info is not None and kmh is not None:
+        deg = _wind_phrase_deg(text, info["bearing"])
+        if deg is not None:
+            mult = compute_wind_multiplier(deg, kmh, info["bearing"])
+
+    available = mult is not None
+    return {
+        "available": available,
+        "source": STATSAPI_GAMEFEED_SOURCE if available else "statsapi_gamefeed_unusable",
+        "temp_c": temp_c,
+        "rh_pct": None,
+        "wind_speed_kmh": kmh,
+        "wind_direction_deg": deg,
+        "pressure_hpa": None,
+        "air_density": None,
+        "wind_multiplier": mult,
+        "stadium_alt_m": info["alt_m"] if info else None,
+        "stadium_bearing": info["bearing"] if info else None,
+    }
 
 
 # ── Climatology fallback ────────────────────────────────────────────────────
@@ -922,8 +1021,15 @@ def apply_weather_features(
 
     sea_level_rho = 1.225
     n_applied = 0
+    # Series-safe: df.get returns None when the column is absent, and
+    # to_numeric(None) yields a scalar nan — .iloc on it then crashes.
+    # Absent inputs mean the formulas produce NULL, never a fabricated value.
     era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    if not isinstance(era, pd.Series):
+        era = pd.Series(np.nan, index=df.index)
     velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
+    if not isinstance(velo, pd.Series):
+        velo = pd.Series(np.nan, index=df.index)
     # Preserve values already attached by another weather pass. A fetch often
     # covers only a subset (for example, cache misses), and absence from that
     # subset is not evidence that a prior valid observation should be erased.

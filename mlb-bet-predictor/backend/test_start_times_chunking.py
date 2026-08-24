@@ -169,6 +169,7 @@ class TestWeatherHistoryCoverageGate(unittest.TestCase):
         with \
             patch.object(pipeline, "_weather_cache_path",
                          return_value=Path(tmp.name) / "wx.parquet"), \
+            patch.object(pipeline, "STATSAPI_WEATHER_FILL", False), \
             patch("results.fetch_game_start_times", return_value={102: "2026-08-02T23:10:00Z"}), \
             patch("weather.fetch_games_weather", return_value={}), \
             self.assertLogs("pipeline", level="WARNING") as logs:
