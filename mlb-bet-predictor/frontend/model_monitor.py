@@ -8,6 +8,7 @@ history table.
 
 from __future__ import annotations
 
+import html
 from datetime import date
 
 import altair as alt
@@ -119,6 +120,7 @@ st.markdown(
 # ---------------------------------------------------------------------------
 st.markdown("### Feature Drift Analysis (PSI Scores)")
 drift = mon.get("feature_drift", [])
+features_metadata = mon.get("features_metadata", {}) or {}
 if drift:
     has_weights = any(r.get("weight_pct") is not None for r in drift)
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
@@ -134,11 +136,23 @@ if drift:
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
         label = utils.describe_feature(r.get("feature", "")) or r.get("feature", "")
+        # Hover tooltip from the backend-generated features_metadata artifact
+        # (definition/formula/source/window/units/direction/members). Row
+        # content unchanged — the tooltip is additive; unknown features fall
+        # back to the existing blurb plus a 'no detailed metadata' note.
+        feat_meta = features_metadata.get(r.get("feature", ""))
+        if feat_meta:
+            tip = html.escape(feat_meta.get("tooltip", ""), quote=False)
+        else:
+            tip = html.escape(label + "\n(no detailed metadata)", quote=False)
+        feature_cell = (
+            f"<span title='{tip}' style='cursor:help;'>{r.get('feature','')}</span>"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{label}</div>"
+        )
         weight_cell = f"<td>{utils.feature_weight_pct(r)}</td>" if has_weights else ""
         rows.append(
             f"<tr>"
-            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
-            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;margin-top:1px;'>{label}</div></td>"
+            f"<td style='color:#E2E8F0;'>{feature_cell}</td>"
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"

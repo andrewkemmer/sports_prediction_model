@@ -49,6 +49,7 @@ from data_ingestion import (
     filter_prior,
 )
 from explainability import compute_feature_coverage, compute_feature_drift, compute_rolling_brier, compute_shap_per_game
+from feature_metadata import generate_features_metadata
 from calibration import is_identity
 from features import add_diff_features
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
@@ -430,6 +431,7 @@ def _model_monitor_json(
     ensemble: Optional[list] = None,
     coverage_df: Optional[pd.DataFrame] = None,
     rolling_brier: Optional[dict] = None,
+    features_metadata: Optional[dict] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -495,6 +497,10 @@ def _model_monitor_json(
             "calibrator_is_identity": (rolling_brier or {}).get("calibrator_is_identity"),
             "map_scope_note": (rolling_brier or {}).get("map_scope_note"),
         } if rolling_brier else {},
+        # Rich per-feature metadata (definition/formula/source/window/units/
+        # direction/derived members) for drift-table tooltips. One source of
+        # truth generated from FEATURE_COLS — see feature_metadata.py.
+        "features_metadata": (features_metadata or {}).get("features", {}),
         # Candidate models behind the ensemble: name, blend weight (sums to
         # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
         "ensemble": ensemble if ensemble is not None else last_ensemble_info(),
@@ -1100,6 +1106,7 @@ def run_daily_pipeline(
             and "home_win_prob_model" in all_predictions.columns
         )
         rolling_brier: Optional[dict] = None
+        features_metadata: Optional[dict] = None
         day_final = (
             "home_win" in target_games.columns
             and "home_win_prob_model" in target_games.columns
@@ -1132,6 +1139,12 @@ def run_daily_pipeline(
             summary["artifacts"].append(
                 str(DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json")
             )
+        # Feature metadata (dashboard tooltips) — walks FEATURE_COLS itself so
+        # new features appear (or warn loudly); routing derived from live config.
+        features_metadata = generate_features_metadata(target_date_str)
+        summary["artifacts"].append(
+            str(DATA_DELIVERY_DIR / f"features_metadata_{target_date_str}.json")
+        )
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
@@ -1176,7 +1189,7 @@ def run_daily_pipeline(
             coverage_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier)
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier, features_metadata=features_metadata)
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync
