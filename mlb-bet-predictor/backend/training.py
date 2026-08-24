@@ -110,7 +110,7 @@ FEATURE_COLS = [
     # Missing observations stay NULL; dome wind is a valid neutral 0.
     "wind_advantage_flyball_factor",
     "air_density_velocity_boost",
-    # 27–30. Derived interaction features
+    # 29–32. Derived interaction features
     "bullpen_meltdown_risk",
     "pitcher_regression_indicator",
     "lineup_depth_multiplier",
