@@ -181,6 +181,31 @@ class TestWeatherFeatures(unittest.TestCase):
         self.assertIn("wind_advantage_flyball_factor", FEATURE_COLS)
         self.assertIn("air_density_velocity_boost", FEATURE_COLS)
 
+    def test_recompute_overwrites_stale_diff_values(self):
+        """Pre-built exports can carry column NAMES with stale values.
+        add_diff_features must rebuild every diff from raw inputs — presence
+        of a column never means its values are current (pipeline contract:
+        diffs are recomputed unconditionally on every load)."""
+        raw = _raw()
+        stale = {
+            "elo_diff": 999.0,
+            "sp_era_5g_diff": -123.0,
+            "win_pct_diff": 42.0,
+            "wind_advantage_flyball_factor": 7.0,
+            "air_density_velocity_boost": -7.0,
+        }
+        seeded = pd.concat([raw, pd.DataFrame([stale])], axis=1)
+        out = add_diff_features(seeded)
+        # elo_diff: 1520-1490 = 30; win_pct_diff: .60-.55 = .05;
+        # sp_era_5g_diff: 3.0-4.4 = -1.4 — all rebuilt from raw columns.
+        self.assertAlmostEqual(float(out.loc[0, "elo_diff"]), 30.0, places=6)
+        self.assertAlmostEqual(float(out.loc[0, "win_pct_diff"]), 0.05, places=6)
+        self.assertAlmostEqual(float(out.loc[0, "sp_era_5g_diff"]), -1.4, places=6)
+        # Weather-driven columns reset to NULL when no weather is supplied —
+        # a stale non-null value must not survive into a no-weather pass.
+        self.assertTrue(pd.isna(out.loc[0, "wind_advantage_flyball_factor"]))
+        self.assertTrue(pd.isna(out.loc[0, "air_density_velocity_boost"]))
+
 
 class TestPitEnrichment(unittest.TestCase):
     """Enriching DuckDB frames: Elo + records derived PIT, never fabricated."""

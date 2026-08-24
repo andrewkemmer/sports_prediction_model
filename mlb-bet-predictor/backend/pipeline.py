@@ -756,14 +756,6 @@ def run_daily_pipeline(
 
         logger.info("Loaded %d games", len(games))
 
-        # Ensure the canonical diff contract exists. Checking only elo_diff
-        # allowed stale exports to bypass recomputation while omitting the
-        # renamed cross-season 5-start pitcher fields.
-        _required_diff_cols = {"elo_diff", "sp_era_5g_diff", "sp_k9_5g_diff"}
-        if not _required_diff_cols <= set(games.columns):
-            logger.info("Canonical diff features missing — computing from raw home/away columns")
-            games = add_diff_features(games)
-
         # Official-results overlay (Step 1.5).  Authoritative scores and
         # finality from StatsAPI: corrects frozen mid-game finals
         # retroactively and NULLS any home_win attached to a game that is
@@ -787,12 +779,20 @@ def run_daily_pipeline(
         # load_game_features' 19:00 UTC fallback) are excluded via the
         # start_time_observed tag so we never fetch weather for the wrong
         # hour.
+        # ALWAYS recompute every diff feature from the raw home/away columns.
+        # Pre-built exports may contain column names with stale or
+        # schema-drifted values (e.g. win_pct_diff NaN from the DuckDB first
+        # pass, renamed pitcher windows, weather defaults) — presence of a
+        # column is never evidence its values are current. Recomputation is a
+        # cheap vectorized pass and runs exactly once, BEFORE any weather
+        # application so the two weather-driven features are applied on top
+        # of fresh diffs afterwards.
+        logger.info("Recomputing all diff features from raw home/away columns")
+        games = add_diff_features(games)
         if WEATHER_BACKFILL_ALL:
-            # Full-history weather mode: compute the diff features first with
-            # no weather, then the cache-backed backfill applies real
-            # point-in-time weather to every decided game (see
+            # Full-history weather mode: the cache-backed backfill applies
+            # real point-in-time weather to every decided game (see
             # _attach_weather_history) — no reliance on the trailing window.
-            games = add_diff_features(games)
             # add_diff_features may assign legacy dome-neutral defaults before
             # the real weather pass. Air density is not safely neutral indoors
             # without an observation, so clear it before applying cache data.
@@ -808,10 +808,9 @@ def run_daily_pipeline(
                 except Exception:
                     pass
         else:
-            # Build raw diffs first, then apply observed weather separately.
-            # This prevents the legacy dome default from fabricating an
-            # air-density value when the provider returns no observation.
-            games = add_diff_features(games)
+            # Apply observed weather separately from diffs: this prevents the
+            # legacy dome default from fabricating an air-density value when
+            # the provider returns no observation.
             games["air_density_velocity_boost"] = pd.NA
             if "start_time_utc" in games.columns:
                 real_start = games["start_time_utc"].notna()
