@@ -236,7 +236,25 @@ def compute_feature_drift(
         baseline_vals = baseline_games[col].dropna().values
         current_vals = current_games[col].dropna().values
 
-        if len(baseline_vals) == 0 or len(current_vals) == 0:
+        n_b, n_c = len(baseline_vals), len(current_vals)
+
+        if n_b == 0 or n_c == 0:
+            drift_rows.append({
+                "feature": col,
+                "current_mean": round(float(current_vals.mean()), 4) if n_c > 0 else 0.0,
+                "baseline_mean": round(float(baseline_vals.mean()), 4) if n_b > 0 else 0.0,
+                "psi": 0.0,
+                "psi_adjusted": 0.0,
+                "noise_floor": 0.0,
+                "mean_shift": 0.0,
+                "shift_se": 0.0,
+                "location_shift": False,
+                "status": "INSUFFICIENT",
+                "weight_pct": round(float(model_weights.get(col, 0.0)), 3)
+                              if model_weights else None,
+                "n_baseline": int(n_b),
+                "n_current": int(n_c),
+            })
             continue
 
         psi = compute_psi(baseline_vals, current_vals)
