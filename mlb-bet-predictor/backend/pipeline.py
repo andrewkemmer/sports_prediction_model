@@ -825,8 +825,11 @@ def run_daily_pipeline(
                         logger.warning(
                             "Weather fetch failed for history (features 30–31 stay NULL): %s", e
                         )
+                    # apply_weather_features is imported at module level; do NOT
+                    # re-import it here — a branch-local binding makes the name
+                    # function-local and crashes the slate path below with
+                    # UnboundLocalError when this branch never ran.
                     if weather:
-                        from weather import apply_weather_features
                         games = apply_weather_features(games, weather)
 
             # Weather backfill over decided history: real StatsAPI first pitches →
