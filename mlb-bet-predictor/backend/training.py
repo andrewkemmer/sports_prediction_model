@@ -450,6 +450,50 @@ UNK_TEAM_ID = 99
 # Default True = team IDs included (the production config).
 RF_WITH_TEAM_IDS = True
 
+# Logistic feature-set toggle. Default False: the 2026-08-24 ablation
+# (14 most recent walk-forward windows, 1206 pooled OOF games) showed the
+# diffs-only set equal-or-better for BOTH the member (logloss 0.6918 vs
+# 0.6936, AUC +0.0038, Brier −0.0008) and the blended ensemble (logloss
+# 0.6885 vs 0.6888; calibrated metrics also favor diffs-only). Set True
+# to restore diffs+raws; predict-time routing auto-detects either bundle.
+LOGISTIC_USE_RAW_COLS = False
+
+# The 24 raw home/away per-side columns that mirror existing diff twins.
+# Routing note: ONLY the logistic member honors LOGISTIC_USE_RAW_COLS — tree
+# members always receive them, and the MLP is untouched by this toggle.
+RAW_PER_SIDE_COLS = [
+    "home_elo", "away_elo",
+    "home_win_pct", "away_win_pct",
+    "sp_era_home", "sp_era_away",
+    "sp_k9_home", "sp_k9_away",
+    "sp_xwoba_home", "sp_xwoba_away",
+    "lineup_woba_mean_home", "lineup_woba_mean_away",
+    "lineup_woba_top3_home", "lineup_woba_top3_away",
+    "woba_30g_home", "woba_30g_away",
+    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+    "team_barrel_15g_home", "team_barrel_15g_away",
+    "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+]
+
+
+def _logistic_feature_cols() -> list[str]:
+    """Model-facing columns for the logistic member (canonical order).
+
+Diff-only under the default flag; the raw per-side columns remain
+available to tree members regardless of this toggle.
+"""
+    cols = list(FEATURE_COLS)
+    if LOGISTIC_USE_RAW_COLS:
+        return cols
+    raw = set(RAW_PER_SIDE_COLS)
+    return [c for c in cols if c not in raw]
+
+
+def _logistic_feature_indices() -> list[int]:
+    """Indices into a full-width FEATURE_COLS matrix for the logistic member."""
+    return [FEATURE_COLS.index(c) for c in _logistic_feature_cols()]
+
 def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
     """Attach stable integer team IDs for tree-member categorical routing."""
     import pandas as pd
@@ -676,7 +720,19 @@ def ensemble_predict(
         try:
             if name in ("logistic", "mlp"):
                 Xi, _ = _impute_median(X, medians)
-                Xuse = scaler.transform(Xi) if scaler is not None else Xi
+                Xu = scaler.transform(Xi) if scaler is not None else Xi
+                if name == "logistic":
+                    expected = getattr(model, "n_features_in_", Xu.shape[1])
+                    if expected != Xu.shape[1]:
+                        idx = _logistic_feature_indices()
+                        if len(idx) != expected:
+                            raise ValueError(
+                                f"logistic member expects {expected} columns "
+                                f"but LOGISTIC_USE_RAW_COLS routing yields "
+                                f"{len(idx)} — persisted bundle was trained "
+                                f"under a different flag value")
+                        Xu = Xu[:, idx]
+                Xuse = Xu
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
                 # _feature_matrix guarantees full FEATURE_COLS width/order.
@@ -848,8 +904,13 @@ def train_moneyline_ensemble(
         logger.warning("lightgbm not available, skipping LGBM member")
 
     # Logistic Regression
+    # LOGISTIC_USE_RAW_COLS routing: slice AFTER imputation+scaling so the
+    # stored full-width medians/scaler stay canonical; the model simply sees
+    # fewer columns. MLP keeps the full matrix regardless of this toggle.
+    _lr_idx = _logistic_feature_indices()
+    X_train_logistic = X_train_scaled[:, _lr_idx]
     lr = LogisticRegression(max_iter=1000, random_state=RANDOM_SEED)
-    lr.fit(X_train_scaled, y_train)
+    lr.fit(X_train_logistic, y_train)
     models["logistic"] = lr
     models["scaler"] = scaler
     models["impute_median"] = impute_medians
@@ -894,7 +955,9 @@ def train_moneyline_ensemble(
     for name, model in models.items():
         if name in ("scaler", "impute_median"):
             continue
-        if name in ("logistic", "mlp"):
+        if name == "logistic":
+            Xuse = X_val_scaled[:, _lr_idx]
+        elif name == "mlp":
             Xuse = X_val_scaled
         elif name == "xgboost":
             Xuse = X_val_xgb  # DataFrame with pd.Categorical team IDs
@@ -1060,6 +1123,11 @@ def walk_forward_evaluate(
     all_preds = []
     fold_metrics_list = []
     oof_members: dict[str, list[float]] = {}
+    # Per-member prequential calibrated twins: fold k's map (fitted strictly
+    # on PRIOR folds' blend pairs — the same map already applied to the blend)
+    # applied to each member's raw probabilities. Honest out-of-sample
+    # calibrated diagnostics without fitting anything extra.
+    oof_members_cal: dict[str, list[float]] = {}
     oof_y: list[float] = []
     # Blended raw probabilities and their PREQUENTIAL calibrated twins:
     # each fold's calibration comes from a Platt map fitted strictly on
@@ -1112,7 +1180,10 @@ def walk_forward_evaluate(
             np.asarray(fold_calibrated, dtype=float).tolist()
         )
         for name, p in member_probs.items():
-            oof_members.setdefault(name, []).extend(p.tolist())
+            p_arr = np.asarray(p, dtype=float)
+            oof_members.setdefault(name, []).extend(p_arr.tolist())
+            pc = np.asarray(apply_platt(p_arr, fold_cal), dtype=float)
+            oof_members_cal.setdefault(name, []).extend(pc.tolist())
 
         val_pred = val.copy()
         val_pred["home_win_prob_model"] = ensemble_prob
@@ -1221,6 +1292,14 @@ def walk_forward_evaluate(
                 "logloss": m.get("logloss"),
                 "n_eval": int(len(y_oof)),
             })
+            preds_cal = oof_members_cal.get(name)
+            if (preds_cal and len(preds_cal) == len(y_oof)):
+                mc = compute_metrics(y_oof, np.asarray(preds_cal, dtype=float))
+                entry.update({
+                    "brier_calibrated": mc.get("brier"),
+                    "logloss_calibrated": mc.get("logloss"),
+                    "ece_calibrated": mc.get("ece"),
+                })
         else:
             entry.update({"auc": None, "brier": None, "logloss": None, "n_eval": 0})
         _LAST_ENSEMBLE_INFO.append(entry)

@@ -69,6 +69,82 @@ class TestImputeMedian(unittest.TestCase):
         self.assertTrue(not np.isnan(Xi).any())
 
 
+class TestLogisticUseRawCols(unittest.TestCase):
+    """LOGISTIC_USE_RAW_COLS routes ONLY the logistic member's columns."""
+
+    def test_toggle_changes_exactly_the_24_raw_columns(self):
+        from backend.training import (
+            FEATURE_COLS, LOGISTIC_USE_RAW_COLS, RAW_PER_SIDE_COLS,
+            _logistic_feature_cols,
+        )
+        # Production default since the 2026-08-24 ablation: diffs-only.
+        self.assertFalse(LOGISTIC_USE_RAW_COLS)
+        self.assertEqual(len(RAW_PER_SIDE_COLS), 24)
+        self.assertTrue(set(RAW_PER_SIDE_COLS) <= set(FEATURE_COLS))
+        # Flag ON: full set (explicitly patched — default is now False).
+        with patch.object(backend_training, "LOGISTIC_USE_RAW_COLS", True):
+            self.assertEqual(_logistic_feature_cols(), list(FEATURE_COLS))
+        # Flag OFF: diffs-only, canonical order, exactly the raws removed.
+        with patch.object(backend_training, "LOGISTIC_USE_RAW_COLS", False):
+            subset = _logistic_feature_cols()
+        self.assertEqual(len(subset), len(FEATURE_COLS) - 24)
+        self.assertEqual(set(subset) & set(RAW_PER_SIDE_COLS), set())
+        self.assertEqual(
+            subset, [c for c in FEATURE_COLS if c not in set(RAW_PER_SIDE_COLS)])
+
+    def test_logistic_fit_matrix_excludes_raws_when_flag_off(self):
+        """Integration guard: logistic.fit NEVER sees raw per-side columns
+        while the flag is off — trees keep them regardless."""
+        from backend.training import FEATURE_COLS, _add_team_ids
+        rng = np.random.default_rng(11)
+        n = 80
+        games = pd.DataFrame({
+            "game_date": pd.date_range("2026-05-01", periods=n),
+            "home_team": ["NYY"] * n,
+            "away_team": ["BOS"] * n,
+            "home_win": [float(i % 2) for i in range(n)],
+            "total_runs": [7.0] * n,
+        })
+        for c in FEATURE_COLS:
+            games[c] = rng.normal(size=n)
+        games = _add_team_ids(games)
+
+        captured = {}
+
+        class _RecordingLR:
+            def __init__(self, **kw):
+                pass
+
+            def fit(self, X, y):
+                captured["shape"] = tuple(X.shape)
+                self.n_features_in_ = X.shape[1]
+                self.classes_ = np.array([0, 1])
+                return self
+
+            def predict_proba(self, X):
+                p = np.full((len(X), 2), 0.5)
+                return p
+
+        fold = {
+            "train_games": games.iloc[:50].copy(),
+            "val_games": games.iloc[50:].copy(),
+            "fold_idx": 0,
+            "val_start": games.iloc[50]["game_date"],
+            "val_end": games.iloc[-1]["game_date"],
+        }
+        try:
+            with patch.object(backend_training, "LOGISTIC_USE_RAW_COLS", False), \
+                 patch.object(backend_training, "LogisticRegression", _RecordingLR), \
+                 patch.object(backend_training, "walk_forward_splits",
+                              return_value=[fold]):
+                backend_training.walk_forward_evaluate(games, min_val_games=5)
+            expected = len(FEATURE_COLS) - 24
+            self.assertEqual(captured.get("shape", (0, 0))[1], expected,
+                             "logistic must receive exactly the diffs-only set")
+        finally:
+            set_adaptive_weights(None)
+
+
 class TestFeatureMatrixWidthInvariant(unittest.TestCase):
     """_feature_matrix must ALWAYS return len(FEATURE_COLS) columns.
 
