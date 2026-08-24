@@ -22,7 +22,15 @@ from config import (
     RANDOM_SEED,
     SHAP_GAME,
 )
-from training import FEATURE_COLS
+from training import (
+    FEATURE_COLS,
+    TREE_CATEGORICAL_COLS,
+    UNK_TEAM_ID,
+    _add_team_ids,
+    _categorical_matrix,
+    _impute_median,
+    _tree_dataframe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +81,36 @@ def compute_shap_per_game(
     # zero-fill would fabricate attributions for unobserved features.
     X = games[cols].to_numpy(dtype=float)
 
+    # Tree members were trained on numeric features PLUS team-ID categorical
+    # columns (58 + 2 = 60 wide). Feeding them a numeric-only matrix makes
+    # LightGBM fatal-error with a shape mismatch and silently misaligns the
+    # others. Build per-model inputs mirroring ensemble_predict's routing.
+    if not {"home_team_id", "away_team_id"} <= set(games.columns):
+        games = _add_team_ids(games)
+    X_cat = _categorical_matrix(games)
+    medians = models.get("impute_median")
+    n_full = X.shape[1] + len(TREE_CATEGORICAL_COLS)
+
+    def _model_input(name: str, i: int):
+        """Row-slice input shaped exactly like that member's training matrix."""
+        xn = X[i:i + 1]
+        xc = X_cat[i:i + 1]
+        if name == "xgboost":
+            Xi = _impute_median(xn, medians)[0] if medians is not None else xn
+            return _tree_dataframe(Xi, xc, cols)
+        if name == "lightgbm":
+            dfp = pd.DataFrame(xn, columns=cols)
+            for j, c in enumerate(TREE_CATEGORICAL_COLS):
+                dfp[c] = np.where(xc[:, j] < 0, UNK_TEAM_ID, xc[:, j]).astype(int)
+            return dfp
+        if name == "randomforest":
+            rf = models.get("randomforest")
+            n_feat = getattr(rf, "n_features_in_", None)
+            if n_feat is not None and n_feat == len(FEATURE_COLS):
+                return xn  # ablation RF trained without team IDs
+            return np.hstack([xn, xc])
+        return xn
+
     for idx, row in games.iterrows():
         game_id = row["game_id"]
         shap_values = {}
@@ -85,8 +123,9 @@ def compute_shap_per_game(
                 if name in ("scaler", "logistic", "impute_median"):
                     continue
                 try:
+                    Xin = _model_input(name, idx)
                     explainer = shap.TreeExplainer(model)
-                    sv = _shap_vector(explainer.shap_values(X[idx:idx + 1]), len(cols))
+                    sv = _shap_vector(explainer.shap_values(Xin), n_full)
                     if sv is not None:
                         tree_shaps.append(sv)
                 except Exception as e:
