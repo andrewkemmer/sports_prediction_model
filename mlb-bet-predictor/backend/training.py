@@ -559,7 +559,12 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
                 continue
         except Exception:
             continue
-        if len(imp) != len(FEATURE_COLS) or imp.sum() <= 0:
+        # Tree members trained with team-ID categoricals have larger
+        # feature-importance vectors; trim to numeric FEATURE_COLS only.
+        nfc = len(FEATURE_COLS)
+        if len(imp) >= nfc:
+            imp = imp[:nfc]
+        if len(imp) != nfc or imp.sum() <= 0:
             continue
         agg += (raw[name] / total) * (imp / imp.sum())
         contributed = True
@@ -588,11 +593,14 @@ def ensemble_predict(
         if name in ("scaler", "impute_median"):
             continue
         try:
-            if name in ("logistic", "mlp", "xgboost"):
+            if name in ("logistic", "mlp"):
                 Xi, _ = _impute_median(X, medians)
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
-            elif name == "lightgbm":
-                Xuse = X_tree  # includes team-ID categoricals
+            elif name == "xgboost":
+                Xi, _ = _impute_median(X, medians)
+                Xuse = np.hstack([Xi, X_cat])  # imputed numeric + team IDs
+            elif name in ("randomforest", "lightgbm"):
+                Xuse = X_tree  # RF: integer team IDs; LGBM: native categoricals
             else:
                 Xuse = X
             members[name] = model.predict_proba(Xuse)[:, 1]
@@ -669,9 +677,17 @@ def train_moneyline_ensemble(
         X_val_scaled = scaler.transform(X_val_lr)
 
     # Build tree-member feature matrices: numeric diffs + team-ID categoricals.
-    # LightGBM gets native categorical support; XGBoost/RF get numeric-only.
+    # All three tree members receive team IDs. LightGBM uses native categorical
+    # support; XGBoost and RandomForest treat them as integers (the small
+    # cardinality — 30 teams — works fine as ordinal-like bins without one-hot).
     X_train_tree = np.hstack([X_train, X_cat_train])
     X_val_tree = np.hstack([X_val, X_cat_val]) if X_val is not None else None
+    # Imputed-numeric + categorical (XGBoost/RF: impute NaN, keep team IDs).
+    X_train_lr_tree = np.hstack([X_train_lr, X_cat_train])
+    if X_val is not None:
+        X_val_lr_tree = np.hstack([X_val_lr, X_cat_val])
+    else:
+        X_val_lr_tree = None
 
     models = {}
 
@@ -690,15 +706,14 @@ def train_moneyline_ensemble(
                 n_estimators=XGBOOST_FOLD_ROUNDS,
                 early_stopping_rounds=XGBOOST_EARLY_STOP,
             )
-            X_val_lr_for_xgb, _ = _impute_median(X_val, impute_medians)
             xgb.fit(
-                X_train_lr, y_train,
-                eval_set=[(X_val_lr_for_xgb, y_val)],
+                X_train_lr_tree, y_train,
+                eval_set=[(X_val_lr_tree, y_val)],
                 verbose=False,
             )
         else:
             xgb = XGBClassifier(**XGBOOST_PARAMS)
-            xgb.fit(X_train_lr, y_train, verbose=False)
+            xgb.fit(X_train_lr_tree, y_train, verbose=False)
         models["xgboost"] = xgb
     except ImportError:
         logger.warning("xgboost not available, skipping XGB member")
@@ -732,7 +747,7 @@ def train_moneyline_ensemble(
             n_estimators=300, min_samples_leaf=20,
             random_state=RANDOM_SEED, n_jobs=-1,
         )
-        rf.fit(X_train_lr, y_train)
+        rf.fit(X_train_lr_tree, y_train)
         models["randomforest"] = rf
     except Exception as e:
         logger.warning("RandomForest member failed: %s", e)
@@ -763,10 +778,12 @@ def train_moneyline_ensemble(
             continue
         if name in ("logistic", "mlp"):
             Xuse = X_val_scaled
+        elif name in ("xgboost", "randomforest"):
+            Xuse = X_val_lr_tree  # imputed numeric + team IDs
         elif name == "lightgbm":
-            Xuse = X_val_tree  # includes team-ID categoricals
+            Xuse = X_val_tree  # native categorical support
         else:
-            Xuse = X_val  # xgboost, randomforest: numeric-only
+            Xuse = X_val
         probs.append(model.predict_proba(Xuse)[:, 1])
         wts.append(weights[name])
 
