@@ -399,11 +399,17 @@ _TEAM_ABBR_TO_ID: dict[str, int] = {}
 _TEAM_ID_TO_ABBR: dict[int, str] = {}
 
 def _team_id(abbr: str) -> int:
-    """Convert a 3-letter team abbreviation to a stable integer ID."""
+    """Convert a 3-letter team abbreviation to a stable integer ID.
+
+    Unknown abbreviations (expansion teams, All-Star rosters) map to 0
+    (the first observed team) instead of -1, keeping categorical columns
+    valid for XGBoost/LightGBM. At predict time, an unseen team is routed
+    to the most-common training bin — a safe fallback that never crashes.
+    """
     if abbr in _TEAM_ABBR_TO_ID:
         return _TEAM_ABBR_TO_ID[abbr]
     if not isinstance(abbr, str) or len(abbr) < 2:
-        return -1
+        return 0  # fallback: first known team
     tid = len(_TEAM_ABBR_TO_ID)
     _TEAM_ABBR_TO_ID[abbr] = tid
     _TEAM_ID_TO_ABBR[tid] = abbr
@@ -413,6 +419,11 @@ def _team_id(abbr: str) -> int:
 # native categorical handling in LightGBM. Logistic/MLP must not receive
 # raw team IDs (one-hot would starve on ~4k rows with 30 categories).
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+
+# RF ablation toggle: set False to train RandomForest WITHOUT team IDs
+# (for measuring the marginal benefit of team IDs on the RF member).
+# Default True = team IDs included (the production config).
+RF_WITH_TEAM_IDS = True
 
 def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
     """Attach stable integer team IDs for tree-member categorical routing."""
@@ -426,6 +437,31 @@ def _categorical_matrix(df: "pd.DataFrame") -> "np.ndarray":
     """Extract categorical-feature matrix (team IDs, for tree members)."""
     import numpy as np
     return df[TREE_CATEGORICAL_COLS].to_numpy(dtype=int)
+
+
+def _tree_dataframe(
+    X_num: "np.ndarray",
+    X_cat: "np.ndarray",
+    numeric_cols: list[str],
+) -> "pd.DataFrame":
+    """Build a DataFrame with named numeric + categorical columns.
+
+    Numeric columns preserve their names from FEATURE_COLS. Team-ID columns
+    are converted to pandas Categorical (XGBoost) / kept as int (LightGBM
+    uses categorical_feature= by name). Unknown team IDs (from predict-time
+    expansion teams) are already mapped to 0 by _team_id, so no NaN reaches
+    the categorical constructor.
+    """
+    import pandas as pd
+    import numpy as np
+    df = pd.DataFrame(X_num, columns=numeric_cols)
+    for i, c in enumerate(TREE_CATEGORICAL_COLS):
+        vals = X_cat[:, i]
+        # Safety: replace any lingering negatives (shouldn't happen after
+        # _team_id fix, but belt-and-suspenders) with 0.
+        vals = np.where(vals < 0, 0, vals)
+        df[c] = pd.Categorical(vals)
+    return df
 
 
 
@@ -598,14 +634,22 @@ def ensemble_predict(
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
+                num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
+                Xuse = _tree_dataframe(Xi, X_cat, num_cols_in_data)
+            elif name == "lightgbm":
                 import pandas as pd
                 num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
-                _df = pd.DataFrame(Xi, columns=num_cols_in_data)
+                _df = pd.DataFrame(X, columns=num_cols_in_data)
                 for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
-                    _df[c_] = pd.Categorical(X_cat[:, i])
+                    _df[c_] = X_cat[:, i].astype(int)
                 Xuse = _df
-            elif name in ("randomforest", "lightgbm"):
-                Xuse = X_tree  # RF: integer team IDs; LGBM: native categoricals
+            elif name == "randomforest":
+                # If model was trained without team IDs (ablation), it expects
+                # FEATURE_COLS dimensions. Detect from model's n_features_in_.
+                if hasattr(model, "n_features_in_") and model.n_features_in_ == len(FEATURE_COLS):
+                    Xuse = X  # ablation: numeric only
+                else:
+                    Xuse = X_tree  # production: numeric + int team IDs
             else:
                 Xuse = X
             members[name] = model.predict_proba(Xuse)[:, 1]
@@ -705,20 +749,12 @@ def train_moneyline_ensemble(
     try:
         from xgboost import XGBClassifier
         from config import XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP
-        # XGBoost: build DataFrame with category-dtype team IDs so
-        # enable_categorical=True routes them natively (no one-hot).
-        # Must build column-by-column: np.hstack would cast ints → float64,
-        # and xgboost rejects float categories.
+        # XGBoost: named DataFrame with pd.Categorical team-ID columns.
+        # enable_categorical=True (in XGBOOST_PARAMS) picks them up natively.
         num_cols_in_data = [c for c in FEATURE_COLS if c in train.columns]
-        xgb_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
-        import pandas as pd
-        X_train_xgb = pd.DataFrame(X_train_lr, columns=num_cols_in_data)
-        for i, c in enumerate(TREE_CATEGORICAL_COLS):
-            X_train_xgb[c] = pd.Categorical(X_cat_train[:, i])
+        X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, num_cols_in_data)
         if X_val is not None:
-            X_val_xgb = pd.DataFrame(X_val_lr, columns=num_cols_in_data)
-            for i, c in enumerate(TREE_CATEGORICAL_COLS):
-                X_val_xgb[c] = pd.Categorical(X_cat_val[:, i])
+            X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, num_cols_in_data)
             xgb = XGBClassifier(
                 **XGBOOST_PARAMS,
                 n_estimators=XGBOOST_FOLD_ROUNDS,
@@ -736,16 +772,26 @@ def train_moneyline_ensemble(
     except ImportError:
         logger.warning("xgboost not available, skipping XGB member")
 
-    # LightGBM
+    # LightGBM — native categorical support via named columns.
+    # DataFrame with int team-ID columns + categorical_feature by NAME.
     try:
         from lightgbm import LGBMClassifier
+        import pandas as pd
+        num_cols_in_data = [c for c in FEATURE_COLS if c in train.columns]
+        lgbm_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
+        X_train_lgbm = pd.DataFrame(X_train, columns=num_cols_in_data)
+        for i, c in enumerate(TREE_CATEGORICAL_COLS):
+            X_train_lgbm[c] = X_cat_train[:, i].astype(int)
         lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
-        cat_idx = list(range(len(FEATURE_COLS), len(FEATURE_COLS) + len(TREE_CATEGORICAL_COLS)))
         if X_val is not None:
-            lgbm.fit(X_train_tree, y_train, eval_set=[(X_val_tree, y_val)],
-                     categorical_feature=cat_idx)
+            X_val_lgbm = pd.DataFrame(X_val, columns=num_cols_in_data)
+            for i, c in enumerate(TREE_CATEGORICAL_COLS):
+                X_val_lgbm[c] = X_cat_val[:, i].astype(int)
+            lgbm.fit(X_train_lgbm, y_train, eval_set=[(X_val_lgbm, y_val)],
+                     categorical_feature=TREE_CATEGORICAL_COLS)
         else:
-            lgbm.fit(X_train_tree, y_train, categorical_feature=cat_idx)
+            lgbm.fit(X_train_lgbm, y_train,
+                     categorical_feature=TREE_CATEGORICAL_COLS)
         models["lightgbm"] = lgbm
     except ImportError:
         logger.warning("lightgbm not available, skipping LGBM member")
@@ -765,7 +811,10 @@ def train_moneyline_ensemble(
             n_estimators=300, min_samples_leaf=20,
             random_state=RANDOM_SEED, n_jobs=-1,
         )
-        rf.fit(X_train_lr_tree, y_train)
+        if RF_WITH_TEAM_IDS:
+            rf.fit(X_train_lr_tree, y_train)
+        else:
+            rf.fit(X_train_lr, y_train)  # ablation: numeric only
         models["randomforest"] = rf
     except Exception as e:
         logger.warning("RandomForest member failed: %s", e)
@@ -796,10 +845,15 @@ def train_moneyline_ensemble(
             continue
         if name in ("logistic", "mlp"):
             Xuse = X_val_scaled
-        elif name in ("xgboost", "randomforest"):
-            Xuse = X_val_lr_tree  # imputed numeric + team IDs
+        elif name == "xgboost":
+            Xuse = X_val_xgb  # DataFrame with pd.Categorical team IDs
+        elif name == "randomforest":
+            if RF_WITH_TEAM_IDS:
+                Xuse = X_val_lr_tree
+            else:
+                Xuse = X_val_lr  # ablation: numeric only
         elif name == "lightgbm":
-            Xuse = X_val_tree  # native categorical support
+            Xuse = X_val_lgbm  # DataFrame with int team IDs + cat names
         else:
             Xuse = X_val
         probs.append(model.predict_proba(Xuse)[:, 1])
