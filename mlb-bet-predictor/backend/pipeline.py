@@ -624,6 +624,18 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         subset = games[need]
         gd = pd.to_datetime(games["game_date"], errors="coerce")
         starts = fetch_game_start_times(gd[need].min().date(), gd[need].max().date())
+        # Loud coverage gate: a silently truncated schedule source is how an
+        # ENTIRE SEASON of weather features went null while every log line
+        # looked healthy (2470/2477 'fetched' — of only the games attempted).
+        need_pks_all = [int(p) for p in pks[need].dropna()]
+        matched_n = sum(1 for pk in need_pks_all if pk in starts)
+        if need_pks_all and matched_n < 0.8 * len(need_pks_all):
+            logger.warning(
+                "Weather history: start times matched only %d/%d decided "
+                "games (%s→%s) — schedule source may be truncating or "
+                "failing; open-air weather stays NULL for unmatched games",
+                matched_n, len(need_pks_all),
+                gd[need].min().date(), gd[need].max().date())
         rows: list[dict] = []
         row_idx: list[Any] = []
         for idx, r in subset.iterrows():

@@ -21,6 +21,10 @@ import requests
 logger = logging.getLogger(__name__)
 
 STATSAPI_SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
+# The schedule endpoint truncates responses for long ranges (observed:
+# a 20-month request returned only ~8.5 months). Stay well under the
+# cutoff — same convention as the Statcast chunked pulls.
+SCHEDULE_CHUNK_DAYS = 60
 RESULTS_TAIL_REFRESH_DAYS = 3
 
 
@@ -222,30 +226,47 @@ def fetch_game_start_times(start_date: date, end_date: date,
     weather backfill: Statcast-derived history carries only fabricated
     19:00-UTC placeholders, and weather must be sampled strictly before the
     REAL first pitch to stay point-in-time honest.  Empty dict on failure.
-    """
-    try:
-        resp = requests.get(
-            STATSAPI_SCHEDULE_URL,
-            params={
-                "sportId": 1,
-                "startDate": start_date.isoformat(),
-                "endDate": end_date.isoformat(),
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except (requests.RequestException, ValueError) as exc:
-        logger.warning("StatsAPI start times unavailable (%s)", exc)
-        return {}
 
+    The schedule endpoint SILENTLY TRUNCATES long date ranges (a single
+    2025-01-01→2026-08-23 request returns only 2025-02-20→2025-11-01),
+    which starved every post-truncation game of a start time and left the
+    weather features null for an entire season while every log line looked
+    healthy. Query in bounded chunks and merge so coverage is complete.
+    """
     out: dict[int, str] = {}
-    for day in data.get("dates", []):
-        for g in day.get("games", []):
-            pk = g.get("gamePk")
-            dt = g.get("gameDate")
-            if pk and dt:
-                out[int(pk)] = dt
+    chunk_start = start_date
+    while chunk_start <= end_date:
+        chunk_end = min(chunk_start + timedelta(days=SCHEDULE_CHUNK_DAYS - 1),
+                        end_date)
+        try:
+            resp = requests.get(
+                STATSAPI_SCHEDULE_URL,
+                params={
+                    "sportId": 1,
+                    "startDate": chunk_start.isoformat(),
+                    "endDate": chunk_end.isoformat(),
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning("StatsAPI start times unavailable for %s→%s (%s)",
+                           chunk_start, chunk_end, exc)
+            chunk_start = chunk_end + timedelta(days=1)
+            continue
+        n_before = len(out)
+        for day in data.get("dates", []):
+            for g in day.get("games", []):
+                pk = g.get("gamePk")
+                dt = g.get("gameDate")
+                if pk and dt:
+                    out[int(pk)] = dt
+        logger.info("StatsAPI schedule %s→%s: %d games (%d new)",
+                    chunk_start, chunk_end,
+                    sum(len(d.get("games", [])) for d in data.get("dates", [])),
+                    len(out) - n_before)
+        chunk_start = chunk_end + timedelta(days=1)
     return out
 
 
