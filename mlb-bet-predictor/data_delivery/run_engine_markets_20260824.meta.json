@@ -1,0 +1,209 @@
+{
+  "alpha_home": 0.272,
+  "alpha_away": 0.3516,
+  "n_draws": 10000,
+  "seed": 42,
+  "total_line": 8.5,
+  "run_line_margin": 1.5,
+  "fit_check": {
+    "home": [
+      {
+        "k": 0,
+        "modeled_p": 0.0537,
+        "observed_p": 0.0598
+      },
+      {
+        "k": 1,
+        "modeled_p": 0.1083,
+        "observed_p": 0.1085
+      },
+      {
+        "k": 2,
+        "modeled_p": 0.1389,
+        "observed_p": 0.1263
+      },
+      {
+        "k": 3,
+        "modeled_p": 0.1442,
+        "observed_p": 0.1344
+      },
+      {
+        "k": 4,
+        "modeled_p": 0.1321,
+        "observed_p": 0.1333
+      },
+      {
+        "k": 5,
+        "modeled_p": 0.1112,
+        "observed_p": 0.1185
+      },
+      {
+        "k": 6,
+        "modeled_p": 0.0883,
+        "observed_p": 0.0978
+      },
+      {
+        "k": 7,
+        "modeled_p": 0.0669,
+        "observed_p": 0.0651
+      },
+      {
+        "k": 8,
+        "modeled_p": 0.049,
+        "observed_p": 0.051
+      },
+      {
+        "k": 9,
+        "modeled_p": 0.0349,
+        "observed_p": 0.0362
+      },
+      {
+        "k": 10,
+        "modeled_p": 0.0243,
+        "observed_p": 0.022
+      },
+      {
+        "k": 11,
+        "modeled_p": 0.0166,
+        "observed_p": 0.0176
+      },
+      {
+        "k": 12,
+        "modeled_p": 0.0111,
+        "observed_p": 0.0102
+      },
+      {
+        "k": ">=10",
+        "modeled_p": 0.0519,
+        "observed_p": 0.0691
+      },
+      {
+        "k": "<=1",
+        "modeled_p": 0.1619,
+        "observed_p": 0.1683
+      }
+    ],
+    "away": [
+      {
+        "k": 0,
+        "modeled_p": 0.0714,
+        "observed_p": 0.0737
+      },
+      {
+        "k": 1,
+        "modeled_p": 0.1228,
+        "observed_p": 0.1173
+      },
+      {
+        "k": 2,
+        "modeled_p": 0.1427,
+        "observed_p": 0.1391
+      },
+      {
+        "k": 3,
+        "modeled_p": 0.1393,
+        "observed_p": 0.1398
+      },
+      {
+        "k": 4,
+        "modeled_p": 0.1231,
+        "observed_p": 0.1205
+      },
+      {
+        "k": 5,
+        "modeled_p": 0.1019,
+        "observed_p": 0.0932
+      },
+      {
+        "k": 6,
+        "modeled_p": 0.0806,
+        "observed_p": 0.08
+      },
+      {
+        "k": 7,
+        "modeled_p": 0.0615,
+        "observed_p": 0.0656
+      },
+      {
+        "k": 8,
+        "modeled_p": 0.0458,
+        "observed_p": 0.0505
+      },
+      {
+        "k": 9,
+        "modeled_p": 0.0334,
+        "observed_p": 0.0366
+      },
+      {
+        "k": 10,
+        "modeled_p": 0.0239,
+        "observed_p": 0.0313
+      },
+      {
+        "k": 11,
+        "modeled_p": 0.0169,
+        "observed_p": 0.0185
+      },
+      {
+        "k": 12,
+        "modeled_p": 0.0118,
+        "observed_p": 0.0125
+      },
+      {
+        "k": ">=10",
+        "modeled_p": 0.0526,
+        "observed_p": 0.0837
+      },
+      {
+        "k": "<=1",
+        "modeled_p": 0.1941,
+        "observed_p": 0.191
+      }
+    ]
+  },
+  "mc_se_examples": {
+    "first_game": 0.004993,
+    "median": 0.004992,
+    "max": 0.005
+  },
+  "market_over_8_5": {
+    "engine_logloss": 0.68982,
+    "engine_brier": 0.24835,
+    "engine_ece_raw": 0.0168,
+    "engine_ece_calibrated": 0.00463,
+    "engine_logloss_calibrated": 0.69018,
+    "baseline_rate": 0.4859,
+    "baseline_logloss": 0.69275,
+    "baseline_brier": 0.2498,
+    "beats_baseline_logloss": true
+  },
+  "market_home_cover_1_5": {
+    "engine_logloss": 0.64911,
+    "engine_brier": 0.2284,
+    "engine_ece_raw": 0.01722,
+    "engine_ece_calibrated": 0.01733,
+    "engine_logloss_calibrated": 0.64936,
+    "baseline_rate": 0.3584,
+    "baseline_logloss": 0.65247,
+    "baseline_brier": 0.22994,
+    "beats_baseline_logloss": true
+  },
+  "market_derived_moneyline": {
+    "engine_logloss": 0.6958,
+    "engine_brier": 0.25133,
+    "engine_ece_raw": 0.06657,
+    "engine_ece_calibrated": 0.01431,
+    "engine_logloss_calibrated": 0.68808,
+    "baseline_rate": 0.5352,
+    "baseline_logloss": 0.69066,
+    "baseline_brier": 0.24876,
+    "beats_baseline_logloss": false
+  },
+  "agreement_vs_moneyline": {
+    "n_merged": 4074,
+    "correlation": 0.3613,
+    "mean_abs_diff": 0.0867,
+    "share_gt_0_08": 0.5204,
+    "share_gt_0_10": 0.3849
+  }
+}
