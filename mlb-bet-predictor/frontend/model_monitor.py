@@ -380,35 +380,96 @@ else:
 # Rolling Brier score timeline
 # ---------------------------------------------------------------------------
 st.markdown("### Rolling Brier Score (Last 30 Days)")
-brier = mon.get("rolling_brier", [])
-baseline = mon.get("brier_baseline", 0.23)
-baseline_version = mon.get("brier_baseline_version", "v3.2.0")
+brier = mon.get("rolling_brier", []) or []
+rb_meta = mon.get("rolling_brier_meta", {}) or {}
+baseline = mon.get("brier_baseline")
+baseline_label = mon.get("brier_baseline_label", "Baseline")
 if brier:
     bdf = pd.DataFrame(brier)
     bdf["date"] = pd.to_datetime(bdf["date"])
     line = alt.Chart(bdf).mark_line(point=alt.OverlayMarkDef(filled=True, size=40), color="#F97316", strokeWidth=2.2).encode(
         x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d")),
-        y=alt.Y("brier:Q", title="Brier Score", scale=alt.Scale(zero=False)),
+        y=alt.Y("brier:Q", title="Brier Score", scale=alt.Scale(zero=False, domain=[
+            max(0.10, float(bdf["brier"].min()) - 0.02),
+            min(0.40, float(bdf["brier"].max()) + 0.02),
+        ]) if len(bdf) > 1 else alt.Scale(zero=False)),
     )
-    base_df = pd.DataFrame({"x": [bdf["date"].min(), bdf["date"].max()], "y": [baseline, baseline]})
-    base_line = alt.Chart(base_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x="x:T", y=alt.Y("y:Q", scale=alt.Scale(zero=False)),
+    layers = []
+    if baseline is not None:
+        base_df = pd.DataFrame({"x": [bdf["date"].min(), bdf["date"].max()], "y": [baseline, baseline]})
+        layers.append(alt.Chart(base_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
+            x="x:T", y=alt.Y("y:Q", scale=alt.Scale(zero=False)),
+        ))
+    layers.append(line)
+    utils.show_chart(alt.layer(*layers).properties(height=300))
+    window_days = rb_meta.get("window_days", 30)
+    min_games = rb_meta.get("min_games_per_day", "—")
+    sparse_note = (
+        f" · {rb_meta['excluded_sparse_days']} sparse days excluded"
+        if isinstance(rb_meta.get("excluded_sparse_days"), int) and rb_meta["excluded_sparse_days"]
+        else ""
     )
-    utils.show_chart(alt.layer(base_line, line).properties(height=300))
-    st.caption(f"Orange: Brier Score · dashed: Baseline ({baseline_version} = {baseline})")
+    calib_note = " · calibrated probabilities" if rb_meta.get("calibrator_is_identity") is False else " · probabilities (no calibration map deployed)"
+    st.caption(
+        f"Orange: mean Brier over the trailing {window_days} days of decided games "
+        f"(≥{min_games} games/day{sparse_note}){calib_note}."
+        + (f" Dashed: {baseline_label} = {baseline:.4f}." if baseline is not None else "")
+    )
+    map_note = rb_meta.get("map_scope_note")
+    if map_note:
+        st.caption(f"⚠️ {map_note}")
 else:
-    st.info("No rolling Brier data available.")
+    st.info(
+        "No rolling Brier data available yet — the series appears once a run "
+        "ships decided walk-forward predictions in predictions_history."
+    )
 
 # ---------------------------------------------------------------------------
 # Model version history
 # ---------------------------------------------------------------------------
 st.markdown("### Model Version History")
-history = mon.get("version_history", [])
+history = mon.get("version_history", []) or []
 if history:
-    vdf = pd.DataFrame(history)[["version", "date", "auc", "brier", "notes"]].rename(
-        columns={"version": "VERSION", "date": "DATE", "auc": "ACC", "brier": "BRIER", "notes": "NOTES"}
+    _W_ABBR = {
+        "xgboost": "xgb", "lightgbm": "lgb", "logistic": "log",
+        "randomforest": "rf", "mlp": "mlp",
+    }
+
+    def _weights_str(row: dict) -> str:
+        w = row.get("weights") or {}
+        if not isinstance(w, dict) or not w:
+            return "—"
+        parts = sorted(w.items(), key=lambda kv: -float(kv[1]))
+        return " / ".join(
+            f"{_W_ABBR.get(name, name)} {100 * float(v):.0f}%"
+            for name, v in parts if float(v) > 0
+        ) or "—"
+
+    def _fmt(row: dict, key: str, digits: int = 4) -> str:
+        v = row.get(key)
+        return f"{float(v):.{digits}f}" if isinstance(v, (int, float)) else "—"
+
+    rows = []
+    for row in history:
+        cal = row.get("calibration") or {}
+        cal_str = (
+            f"a={float(cal['a']):.3f}, b={float(cal['b']):.3f}"
+            if isinstance(cal, dict) and "a" in cal else "identity/none"
+        )
+        rows.append({
+            "VERSION": row.get("version", "—"),
+            "DATE": _fmt_date(str(row.get("date", ""))),
+            "WEIGHTS": _weights_str(row),
+            "AUC": _fmt(row, "auc"),
+            "LOGLOSS": _fmt(row, "logloss"),
+            "CAL. ECE": _fmt(row, "ece_calibrated"),
+            "CAL. MAP": cal_str,
+        })
+    st.table(pd.DataFrame(rows).reset_index(drop=True))
+    st.caption(
+        "One row per retrain — OOF-earned ensemble weights, pooled walk-forward "
+        "metrics (raw AUC/logloss; CAL. ECE is prequential-calibrated), and the "
+        "deployed Platt map. Legacy rows show AUC/Brier only."
     )
-    vdf["DATE"] = vdf["DATE"].map(lambda d: _fmt_date(str(d)))
-    st.table(vdf.reset_index(drop=True))
 else:
-    st.info("No version history available.")
+    st.info("No version history yet — it appears after the first run with version snapshots.")

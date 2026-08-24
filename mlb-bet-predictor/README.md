@@ -176,6 +176,22 @@ forward week by week; each training fold is the *entire expanding* history
 strictly before that window. Metrics (AUC, Brier, LogLoss, ECE, calibration
 buckets) are pooled across validation folds — never from data the model saw.
 
+### The three probability quantities (read this before charting)
+
+`predictions_history_<date>.csv` and the ensemble expose **three distinct
+probabilities**. Every consumer must know which one it holds:
+
+| # | Quantity | Where | Use for |
+|---|---|---|---|
+| 1 | **Raw blend** | `home_win_prob_model` column | Internal: input to the deployed map; the axis the reliability diagram bins on |
+| 2 | **Prequential calibrated** | `home_win_prob_model_calibrated` column | Honest scoring ONLY (each game scored by the Platt map fitted on prior folds). Metrics — never display |
+| 3 | **Deployed / user-facing** | σ(a·logit(p_raw)+b) with the global map from `calibration_<date>.json → params` (fit on ALL OOF games) | Display everywhere: Today's Games win %, Prediction History MODEL PICK %, rolling Brier |
+
+**Never mix (2) and (3) in the same chart or comparison.** They are different
+maps fitted on different data (up to ~0.11 apart per game): (2) is honest for
+scoring but was never deployed; (3) is what users see but is mildly optimistic
+on recent OOF games because its map saw them during fitting.
+
 ## 4. Tests
 
 ```bash

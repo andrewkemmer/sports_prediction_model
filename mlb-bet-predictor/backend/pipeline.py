@@ -48,7 +48,7 @@ from data_ingestion import (
     load_game_events,
     filter_prior,
 )
-from explainability import compute_feature_coverage, compute_feature_drift, compute_shap_per_game
+from explainability import compute_feature_coverage, compute_feature_drift, compute_rolling_brier, compute_shap_per_game
 from calibration import is_identity
 from features import add_diff_features
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
@@ -66,6 +66,7 @@ from training import (
     set_calibration,
     should_retrain,
     update_model_history,
+    update_model_version_history,
     walk_forward_evaluate,
 )
 
@@ -371,6 +372,15 @@ def _predictions_history_csv(
     Feeds the Calibration page's per-game history table (the same games that
     feed the reliability diagram). Point-in-time safe by construction: each
     prediction comes from the fold trained strictly on prior games.
+
+    Column semantics (see README "The three probability quantities"):
+      * home_win_prob_model            → (1) RAW OOF blend. Input to maps.
+      * home_win_prob_model_calibrated → (2) PER-FOLD PREQUENTIAL map, fitted
+        on prior folds only. Honest for scoring/metrics; NEVER display.
+      * deployed/user-facing (3) is NOT a column: consumers compute
+        σ(a·logit(raw)+b) with the global map in calibration_<date>.json.
+        Display this one everywhere.
+    Never mix (2) and (3) in the same chart or comparison.
     """
     import numpy as np
     if oof is None or oof.empty or "home_win_prob_model" not in getattr(oof, "columns", []):
@@ -419,6 +429,7 @@ def _model_monitor_json(
     version: str = "v3.2.1",
     ensemble: Optional[list] = None,
     coverage_df: Optional[pd.DataFrame] = None,
+    rolling_brier: Optional[dict] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -430,6 +441,21 @@ def _model_monitor_json(
     if history_path.exists():
         with open(history_path) as f:
             history = json.load(f)
+
+    # Version-history snapshots (weights + metrics + calibration params per
+    # run); falls back to legacy model_history rows for pre-snapshot runs.
+    vh_path = DATA_DELIVERY_DIR / "model_version_history.json"
+    version_history = []
+    if vh_path.exists():
+        try:
+            with open(vh_path) as f:
+                version_history = json.load(f)
+            if not isinstance(version_history, list):
+                version_history = []
+        except ValueError:
+            version_history = []
+    if not version_history:
+        version_history = list(history) if isinstance(history, list) else []
 
     # Drift summary
     n_warns = int((drift_df["status"] == "WARN").sum()) if not drift_df.empty else 0
@@ -452,10 +478,29 @@ def _model_monitor_json(
         # Visual backstop for silent data starvation — see compute_feature_coverage.
         "feature_coverage": coverage_df.to_dict(orient="records")
                                if coverage_df is not None and not coverage_df.empty else [],
+        # Rolling trailing-window Brier over decided OOF games (calibrated p).
+        # See compute_rolling_brier; series is [] when history can't support
+        # it and the frontend renders its empty state.
+        "rolling_brier": (rolling_brier or {}).get("series", []),
+        "brier_baseline": (rolling_brier or {}).get("history_mean_brier"),
+        "brier_baseline_label": (
+            f"History mean ({(rolling_brier or {}).get('n_games_total', 0)} games)"
+            if rolling_brier and rolling_brier.get("history_mean_brier") is not None
+            else "Baseline"
+        ),
+        "rolling_brier_meta": {
+            "window_days": (rolling_brier or {}).get("window_days"),
+            "min_games_per_day": (rolling_brier or {}).get("min_games_per_day"),
+            "excluded_sparse_days": (rolling_brier or {}).get("excluded_sparse_days"),
+            "calibrator_is_identity": (rolling_brier or {}).get("calibrator_is_identity"),
+            "map_scope_note": (rolling_brier or {}).get("map_scope_note"),
+        } if rolling_brier else {},
         # Candidate models behind the ensemble: name, blend weight (sums to
         # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
         "ensemble": ensemble if ensemble is not None else last_ensemble_info(),
         "model_history": history,
+        # The Model Monitor page's Model Version History table reads this key.
+        "version_history": version_history,
     }
 
     with open(path, "w") as f:
@@ -955,6 +1000,13 @@ def run_daily_pipeline(
                 pooled_metrics, version,
                 notes=f"walk-forward through {target_date_str} ({len(train_games)} games)",
             )
+            # Version-history snapshot: only after the ensemble persisted
+            # cleanly, with the run's own roster + deployed map (no partials).
+            update_model_version_history(
+                pooled_metrics, version,
+                ensemble_info=last_ensemble_info(),
+                calibrator=get_last_calibrator(),
+            )
             summary["metrics"] = pooled_metrics
         else:
             best_models = ensemble["models"] if ensemble else {}
@@ -1047,6 +1099,7 @@ def run_daily_pipeline(
             and len(all_predictions) > 0
             and "home_win_prob_model" in all_predictions.columns
         )
+        rolling_brier: Optional[dict] = None
         day_final = (
             "home_win" in target_games.columns
             and "home_win_prob_model" in target_games.columns
@@ -1070,6 +1123,15 @@ def run_daily_pipeline(
             hist_path = _predictions_history_csv(all_predictions, target_date_str)
             if hist_path is not None:
                 summary["artifacts"].append(str(hist_path))
+            # Rolling Brier series over the same OOF history — computed from
+            # the raw blend through the DEPLOYED calibrator (get_last_calibrator
+            # holds exactly the map predict-time and the charts use).
+            rolling_brier = compute_rolling_brier(
+                all_predictions, target_date_str, calibrator=get_last_calibrator()
+            )
+            summary["artifacts"].append(
+                str(DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json")
+            )
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
@@ -1114,7 +1176,7 @@ def run_daily_pipeline(
             coverage_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df)
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier)
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync

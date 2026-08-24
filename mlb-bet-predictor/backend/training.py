@@ -7,6 +7,7 @@ Implements expanding-window walk-forward splits, multi-target heads
 from __future__ import annotations
 
 import json
+import os
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -1441,3 +1442,86 @@ def update_model_history(
 
     with open(history_path, "w") as f:
         json.dump(history, f, indent=2)
+
+VERSION_HISTORY_CAP = 20
+VERSION_HISTORY_FILE = "model_version_history.json"
+
+
+def update_model_version_history(
+    metrics: dict,
+    version: str,
+    ensemble_info: Optional[list] = None,
+    calibrator: dict | None = None,
+) -> Optional[Path]:
+    """Append/merge one snapshot row into model_version_history.json.
+
+    Row = version, date, per-member ensemble weights, pooled walk-forward
+    metrics (raw + calibrated variants), and the deployed calibration params.
+    Re-running the same version REPLACES its row (merge by version). The file
+    keeps the last VERSION_HISTORY_CAP rows. Write is atomic (tmp + rename)
+    so a crash can never leave a truncated artifact behind; a row is only
+    written when ALL inputs are present — never a partial snapshot.
+    """
+    if not metrics or not version:
+        logger.warning("Version history: missing metrics/version — no row written")
+        return None
+    if not ensemble_info:
+        logger.warning(
+            "Version history: no ensemble roster for %s — no row written "
+            "(weights would be fabricated)", version,
+        )
+        return None
+
+    weights = {
+        str(e["name"]): round(float(e.get("weight") or 0.0), 4)
+        for e in ensemble_info
+        if e.get("name") is not None and e.get("weight") is not None
+    }
+    if not weights:
+        logger.warning("Version history: roster carries no usable weights — skipped")
+        return None
+
+    metric_keys = (
+        "auc", "brier", "logloss", "ece",
+        "brier_calibrated", "logloss_calibrated", "ece_calibrated",
+    )
+    row: dict = {
+        "version": version,
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "weights": weights,
+        **{k: metrics[k] for k in metric_keys if k in metrics},
+    }
+    if isinstance(calibrator, dict) and calibrator.get("a") is not None:
+        try:
+            row["calibration"] = {
+                "a": float(calibrator["a"]),
+                "b": float(calibrator["b"]),
+                "n": int(calibrator.get("n", 0)),
+            }
+        except (TypeError, ValueError):
+            pass  # deployed map stays absent rather than half-recorded
+
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / VERSION_HISTORY_FILE
+    history: list = []
+    if path.exists():
+        try:
+            with open(path) as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                history = loaded
+        except ValueError:
+            logger.warning("Version history file corrupt — starting fresh")
+            history = []
+
+    history = [r for r in history if r.get("version") != version]
+    history.append(row)
+    history.sort(key=lambda r: str(r.get("date", "")))
+    history = history[-VERSION_HISTORY_CAP:]
+
+    tmp_path = path.with_suffix(".json.tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(history, f, indent=2)
+    os.replace(tmp_path, path)  # atomic: readers never see partial JSON
+    logger.info("Version history: %d versions recorded (%s latest)", len(history), version)
+    return path

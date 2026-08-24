@@ -665,3 +665,144 @@ def compute_feature_coverage(
     else:
         logger.info("Feature coverage: all %d feature-window pairs OK", len(df))
     return df
+
+
+ROLLING_BRIER_WINDOW_DAYS = 30
+ROLLING_BRIER_MIN_GAMES_PER_DAY = 5
+
+
+def compute_rolling_brier(
+    history_df: Optional[pd.DataFrame],
+    target_date_str: str,
+    calibrator: Optional[dict] = None,
+    window_days: int = ROLLING_BRIER_WINDOW_DAYS,
+    min_games_per_day: int = ROLLING_BRIER_MIN_GAMES_PER_DAY,
+) -> dict:
+    """Rolling trailing-window Brier series from walk-forward OOF history.
+
+    Per game: brier = (p - y)^2 where p is the FINAL blended probability
+    passed through the DEPLOYED Platt map — exactly the number the dashboard
+    displays everywhere else (Today's Games win %, Prediction History MODEL
+    PICK %). Raw blend or single-member probabilities are never used here.
+
+    Daily Brier = mean over that game date; days with fewer than
+    ``min_games_per_day`` decided games are excluded as sparse (counted in
+    ``excluded_sparse_days``, never silently averaged in). The series point
+    at each qualifying date d is the mean per-game Brier over ALL games in
+    the trailing ``window_days`` calendar days [d - window_days + 1, d] —
+    a game-count-free calendar window, so off-days between game dates simply
+    contribute nothing instead of breaking or NaN-ing the series.
+
+    Returns an artifact dict (also written to rolling_brier_<date>.json);
+    ``series`` is [] when no data supports it (with a loud warning logged).
+    """
+    from calibration import apply_platt  # same module training.py deploys
+
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+
+    result: dict = {
+        "window_days": int(window_days),
+        "min_games_per_day": int(min_games_per_day),
+        "source_column": "home_win_prob_model",
+        "calibration": "deployed Platt map σ(a·logit(p)+b) via apply_platt",
+        # The deployed map is fit on ALL OOF games, including recent ones, so
+        # the newest ~window_days of points are mildly optimistic vs honest
+        # prequential scoring (per-fold maps). Surfaced on the panel.
+        "map_scope_note": (
+            "Recent points use the deployed map (fit on all OOF games) and are "
+            "not directly comparable to prequential-calibrated metrics like "
+            "logloss_calibrated."
+        ),
+        "calibrator_is_identity": None,
+        "n_points": 0,
+        "n_games_total": 0,
+        "excluded_sparse_days": 0,
+        "history_mean_brier": None,
+        "series": [],
+    }
+
+    if history_df is None or history_df.empty:
+        logger.warning(
+            "Rolling Brier: predictions history missing/empty — series will "
+            "be empty (dashboard shows the empty state; do not fabricate data)"
+        )
+        _write_rolling_brier(result, target_date_str)
+        return result
+
+    dates = pd.to_datetime(history_df.get("game_date"), errors="coerce")
+    y = pd.to_numeric(history_df.get("home_win"), errors="coerce")
+    p_raw = pd.to_numeric(history_df["home_win_prob_model"], errors="coerce")
+    ok = dates.notna() & y.notna() & p_raw.notna() & y.isin([0, 1])
+    df = pd.DataFrame({
+        "date": dates[ok].dt.normalize(),
+        "y": y[ok].astype(int),
+        "p_cal": apply_platt(p_raw[ok].to_numpy(dtype=float), calibrator),
+    })
+    if df.empty:
+        logger.warning(
+            "Rolling Brier: no DECIDED games with finite probabilities in "
+            "history (%d rows scanned) — series empty", len(history_df)
+        )
+        _write_rolling_brier(result, target_date_str)
+        return result
+
+    # Identity-map detection for honest artifact metadata.
+    try:
+        from calibration import is_identity
+        result["calibrator_is_identity"] = bool(is_identity(calibrator))
+    except Exception:  # pragma: no cover - metadata only
+        pass
+
+    df["brier"] = (df["p_cal"] - df["y"]) ** 2
+    daily = df.groupby("date")["brier"].agg(["mean", "size"])
+    qualifying = daily[daily["size"] >= min_games_per_day]
+    result["excluded_sparse_days"] = int((daily["size"] < min_games_per_day).sum())
+    # Exclusion is consistent everywhere: sparse-day games never contribute
+    # to a series point's trailing-window mean either.
+    df_q = df[df["date"].isin(qualifying.index)]
+    result["n_games_total"] = int(len(df))
+    result["n_games_in_series"] = int(len(df_q))
+    result["history_mean_brier"] = round(float(df["brier"].mean()), 6)
+
+    span = pd.Timedelta(days=window_days - 1)
+    series: list[dict] = []
+    for day, row in qualifying.sort_index().iterrows():
+        mask = (df_q["date"] >= day - span) & (df_q["date"] <= day)
+        window_games = df_q[mask]
+        if window_games.empty:  # defensive; qualifying ⊆ df by construction
+            continue
+        series.append({
+            "date": day.strftime("%Y-%m-%d"),
+            "brier": round(float(window_games["brier"].mean()), 6),
+            "games": int(len(window_games)),
+        })
+    result["n_points"] = len(series)
+    result["series"] = series
+
+    if series:
+        logger.info(
+            "Rolling Brier: %d points (%s → %s), %d games, %d sparse days "
+            "excluded (<%d games/day), mean %.4f",
+            len(series), series[0]["date"], series[-1]["date"],
+            result["n_games_total"], result["excluded_sparse_days"],
+            min_games_per_day, result["history_mean_brier"],
+        )
+    else:
+        logger.warning(
+            "Rolling Brier: %d decided-game days but none reached the "
+            "%d-game minimum — series empty",
+            len(daily), min_games_per_day,
+        )
+
+    _write_rolling_brier(result, target_date_str)
+    return result
+
+
+def _write_rolling_brier(result: dict, target_date_str: str) -> None:
+    out_path = DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json"
+    try:
+        import json
+        with open(out_path, "w") as f:
+            json.dump(result, f, indent=2)
+    except OSError as exc:  # pragma: no cover - disk issues shouldn't kill run
+        logger.error("Rolling Brier artifact write failed: %s", exc)
