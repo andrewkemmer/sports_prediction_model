@@ -7,6 +7,7 @@ and PSI (Population Stability Index) feature-drift computation.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any, Optional
 
@@ -34,6 +35,45 @@ from training import (
 
 logger = logging.getLogger(__name__)
 
+_SHAP_XGB_SHIM_APPLIED = False
+
+
+def _ensure_shap_xgb_compat() -> None:
+    """Make shap's XGBoost loader parse xgboost ≥2 UBJSON dumps.
+
+    xgboost 2+ serializes ``learner_model_param.base_score`` inside the raw
+    UBJ model bytes as a bracketed string (e.g. ``'[5.25E-1]'``). shap's
+    ``XGBTreeModelLoader`` does ``float(...)`` on it and crashes with
+    ``ValueError: could not convert string to float``, killing every
+    XGBoost attribution. Wrap the decoder once to normalize that field;
+    idempotent and harmless for other boosters.
+    """
+    global _SHAP_XGB_SHIM_APPLIED
+    if _SHAP_XGB_SHIM_APPLIED:
+        return
+    _SHAP_XGB_SHIM_APPLIED = True
+    try:
+        import shap.explainers._tree as st
+    except Exception:
+        return
+    if getattr(st, "_mlb_base_score_shim", False):
+        return
+    orig = st.decode_ubjson_buffer
+
+    def _decode_fixed(fd):
+        jm = orig(fd)
+        p = jm.get("learner", {}).get("learner_model_param", {})
+        bs = p.get("base_score")
+        if isinstance(bs, str) and bs.startswith("[") and bs.endswith("]"):
+            try:
+                p["base_score"] = float(bs[1:-1])
+            except ValueError:
+                pass
+        return jm
+
+    st.decode_ubjson_buffer = _decode_fixed
+    st._mlb_base_score_shim = True
+
 
 # ── SHAP per-game attributions ──────────────────────────────────────────────
 
@@ -54,7 +94,17 @@ def _shap_vector(sv, n_cols: int):
     if arr.ndim == 2 and arr.shape[0] == 1:
         arr = arr[0]
     vec = arr.ravel()
-    return vec if vec.size == n_cols else None
+    if vec.size != n_cols:
+        # LOUD failure: silent None here is exactly how the 58-vs-60 shape bug
+        # slipped through — a member quietly vanished from attributions.
+        logger.warning(
+            "SHAP size mismatch: explainer returned %d values, expected %d — "
+            "member input does not match its fit-time width/dtype; "
+            "excluding it from attributions.",
+            vec.size, n_cols,
+        )
+        return None
+    return vec
 
 def compute_shap_per_game(
     models: dict[str, Any],
@@ -71,6 +121,7 @@ def compute_shap_per_game(
 
     try:
         import shap
+        _ensure_shap_xgb_compat()
         has_shap = True
     except ImportError:
         has_shap = False
@@ -111,6 +162,35 @@ def compute_shap_per_game(
             return np.hstack([xn, xc])
         return xn
 
+    def _member_logit(name: str, model: Any, Xin: Any) -> Optional[float]:
+        """Model's raw log-odds for one row (additivity-check target)."""
+        if not hasattr(model, "predict_proba"):
+            return None
+        try:
+            p = float(model.predict_proba(Xin)[0, 1])
+        except Exception:
+            return None
+        p = min(max(p, 1e-12), 1 - 1e-12)
+        return math.log(p) - math.log(1 - p)
+
+    # Build explainers ONCE (was per-game-per-member) and capture each
+    # member's base value for the Σφ + base ≈ log-odds additivity check.
+    explainers: dict[str, tuple[Any, Optional[float]]] = {}
+    if has_shap:
+        for name, model in models.items():
+            if name in ("scaler", "logistic", "impute_median"):
+                continue
+            try:
+                ex = shap.TreeExplainer(model)
+                ev = getattr(ex, "expected_value", None)
+                base = float(np.ravel(ev)[-1]) if ev is not None else None
+                explainers[name] = (ex, base)
+            except Exception as e:
+                logger.warning("TreeExplainer init failed for %s: %s", name, e)
+
+    additivity_diffs: dict[str, list[float]] = {}
+    warned_no_members = False
+
     for idx, row in games.iterrows():
         game_id = row["game_id"]
         shap_values = {}
@@ -120,16 +200,32 @@ def compute_shap_per_game(
             # Collect SHAP from tree-based models
             tree_shaps = []
             for name, model in models.items():
-                if name in ("scaler", "logistic", "impute_median"):
+                if name not in explainers:
                     continue
                 try:
+                    explainer, base = explainers[name]
                     Xin = _model_input(name, idx)
-                    explainer = shap.TreeExplainer(model)
                     sv = _shap_vector(explainer.shap_values(Xin), n_full)
-                    if sv is not None:
-                        tree_shaps.append(sv)
+                    if sv is None:
+                        continue  # _shap_vector already logged the mismatch loudly
+                    tree_shaps.append(sv)
+                    # End-to-end additivity spot-check on margin-space members:
+                    # Σφ + base must reconstruct the model's own log-odds.
+                    if idx < 3 and name in ("xgboost", "lightgbm") and base is not None:
+                        target = _member_logit(name, model, Xin)
+                        if target is not None:
+                            additivity_diffs.setdefault(name, []).append(
+                                abs(float(sv.sum()) + base - target)
+                            )
                 except Exception as e:
-                    logger.debug("SHAP failed for %s on model %s: %s", game_id, name, e)
+                    logger.warning("SHAP failed for %s on model %s: %s", game_id, name, e)
+
+            if not tree_shaps and not warned_no_members:
+                warned_no_members = True
+                logger.warning(
+                    "No tree member produced SHAP values — attributions will be "
+                    "written as zeros. Check member inputs vs fit-time shapes."
+                )
 
             if tree_shaps:
                 avg_shap = np.mean(tree_shaps, axis=0)
@@ -146,6 +242,13 @@ def compute_shap_per_game(
                     perspective_team = away if isinstance(away, str) and away else "AWAY"
                 for i, col in enumerate(cols):
                     shap_values[col] = round(float(avg_shap[i]), 6)
+                # Surface team-ID contributions: they carry real ensemble
+                # weight, so omitting them would make the importance view lie.
+                # IDs sit AFTER numeric cols in every member's input builder.
+                for j, tcol in enumerate(TREE_CATEGORICAL_COLS):
+                    pos = len(cols) + j
+                    if pos < len(avg_shap):
+                        shap_values[tcol] = round(float(avg_shap[pos]), 6)
             else:
                 for col in cols:
                     shap_values[col] = 0.0
@@ -168,6 +271,16 @@ def compute_shap_per_game(
         df = pd.DataFrame(rows)
         out_path = DATA_DELIVERY_DIR / f"{SHAP_GAME}_{game_id}.csv"
         df.to_csv(out_path, index=False)
+
+    for name, diffs in additivity_diffs.items():
+        worst = max(diffs)
+        log = logger.info if worst < 1e-4 else logger.warning
+        log(
+            "SHAP additivity [%s]: worst |Σφ + base − log-odds| = %.2e "
+            "over %d games%s",
+            name, worst, len(diffs),
+            "" if worst < 1e-4 else " — INVESTIGATE input/dtype fidelity",
+        )
 
     logger.info("SHAP attributions written for %d games", len(games))
 
