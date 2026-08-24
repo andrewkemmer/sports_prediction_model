@@ -263,8 +263,21 @@ else:
         # Sync game-level features CSV (dashboard uses it for final scores).
         # pbp_level_features.parquet is NOT synced: ~7.6 MB per run and
         # nothing in the dashboard reads it. It stays in /content/mlb_clean_data.
-        if csv_path.exists():
-            _stage(csv_path, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
+        # Two copies can exist: the PRE-weather Phase-3.5 export in out_dir
+        # and the pipeline's post-weather re-export in data_delivery/ (which
+        # also carries game_id/start_time columns). Stage whichever is NEWER
+        # — staging the stale out_dir copy unconditionally used to overwrite
+        # the enriched one every run, so shipped weather features stayed at
+        # dome-zeros/nulls even when training saw real values in memory.
+        _csv_candidates = [
+            p for p in (
+                Path.cwd() / "data_delivery" / csv_path.name,
+                csv_path,
+            ) if p.exists()
+        ]
+        if _csv_candidates:
+            _csv_src = max(_csv_candidates, key=lambda p: p.stat().st_mtime)
+            _stage(_csv_src, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
         # Sync every artifact THIS run regenerated in data_delivery/, including
         # the models/ subdir (trained ensemble joblib the dashboard loads). The
         # fresh clone starts with the repo's old files, so compare mtimes to

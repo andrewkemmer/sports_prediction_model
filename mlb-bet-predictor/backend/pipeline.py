@@ -847,6 +847,13 @@ def run_daily_pipeline(
         # models trained on (the Phase-3.5 export runs before any weather
         # pass and would otherwise ship dome-default zeros/nulls only).
         try:
+            _w_cov = int(games["wind_advantage_flyball_factor"].notna().sum()) if "wind_advantage_flyball_factor" in games else 0
+            _a_cov = int(games["air_density_velocity_boost"].notna().sum()) if "air_density_velocity_boost" in games else 0
+            logger.info(
+                "Re-exporting features CSV with applied weather "
+                "(wind coverage %d/%d, air-density %d/%d)",
+                _w_cov, len(games), _a_cov, len(games),
+            )
             games.to_csv(DATA_DELIVERY_DIR / "game_level_features.csv", index=False)
             logger.info("Refreshed game_level_features.csv with applied weather")
         except Exception as exc:
