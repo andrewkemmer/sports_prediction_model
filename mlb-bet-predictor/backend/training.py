@@ -339,13 +339,27 @@ def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
     """Feature matrix preserving NaN.
 
     Missing observations stay NULL: XGBoost/LightGBM route them natively and
-    zero-filling fabricated signal (a 0 mph fastball, a 0.000 wOBA). Only the
+    zero-filling fabricates signal (a 0 mph fastball, a 0.000 wOBA). Only the
     logistic/MLP members — which cannot consume NaN — get train-median
     imputation, applied at predict time via the medians stored in the models
     dict. Team IDs route through a separate categorical path (LightGBM).
+
+    WIDTH IS AN INVARIANT: the result is ALWAYS len(FEATURE_COLS) wide in
+    canonical FEATURE_COLS order. Columns absent from ``df`` come back as
+    all-NaN (never silently dropped) with one loud warning — a narrower-than-
+    fit-time matrix is how SHAP attributions went quietly empty on synthetic
+    slates, and column-name labels elsewhere assume this exact width/order.
     """
-    cols = [c for c in FEATURE_COLS if c in df.columns]
-    return df[cols].to_numpy(dtype=float)
+    missing = [c for c in FEATURE_COLS if c not in df.columns]
+    if missing:
+        logger.warning(
+            "Feature matrix: %d/%d expected columns absent (%s%s) — filled as "
+            "NULL (tree members route NaN; logistic/mlp impute); investigate "
+            "the source frame",
+            len(missing), len(FEATURE_COLS), ", ".join(missing[:6]),
+            " …" if len(missing) > 6 else "",
+        )
+    return df.reindex(columns=FEATURE_COLS).to_numpy(dtype=float)
 
 
 def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -665,11 +679,11 @@ def ensemble_predict(
                 Xuse = scaler.transform(Xi) if scaler is not None else Xi
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
-                num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
-                Xuse = _tree_dataframe(Xi, X_cat, num_cols_in_data)
+                # _feature_matrix guarantees full FEATURE_COLS width/order.
+                Xuse = _tree_dataframe(Xi, X_cat, list(FEATURE_COLS))
             elif name == "lightgbm":
                 import pandas as pd
-                num_cols_in_data = [c for c in FEATURE_COLS if c in games.columns]
+                num_cols_in_data = list(FEATURE_COLS)
                 _df = pd.DataFrame(X, columns=num_cols_in_data)
                 for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
                     vals = np.where(X_cat[:, i] < 0, UNK_TEAM_ID, X_cat[:, i])
@@ -783,7 +797,8 @@ def train_moneyline_ensemble(
         from config import XGBOOST_FOLD_ROUNDS, XGBOOST_EARLY_STOP
         # XGBoost: named DataFrame with pd.Categorical team-ID columns.
         # enable_categorical=True (in XGBOOST_PARAMS) picks them up natively.
-        num_cols_in_data = [c for c in FEATURE_COLS if c in train.columns]
+        # Labels mirror _feature_matrix's guaranteed width/order.
+        num_cols_in_data = list(FEATURE_COLS)
         X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, num_cols_in_data)
         if X_val is not None:
             X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, num_cols_in_data)
@@ -809,7 +824,7 @@ def train_moneyline_ensemble(
     try:
         from lightgbm import LGBMClassifier
         import pandas as pd
-        num_cols_in_data = [c for c in FEATURE_COLS if c in train.columns]
+        num_cols_in_data = list(FEATURE_COLS)
         lgbm_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
         X_train_lgbm = pd.DataFrame(X_train, columns=num_cols_in_data)
         for i, c in enumerate(TREE_CATEGORICAL_COLS):
@@ -1129,7 +1144,13 @@ def walk_forward_evaluate(
     global _LAST_CALIBRATOR
     _LAST_CALIBRATOR = final_calibrator
     if p_cal_prequential.size == len(y_oof_all) and len(y_oof_all) > 0:
-        m_cal = compute_metrics(y_oof_all, apply_platt(p_cal_prequential, final_calibrator))
+        # Score the PREQUENTIAL column directly. Each point was corrected by
+        # a map fitted strictly on PRIOR folds — exactly how the deployed
+        # final map behaves on unseen games. Composing final_calibrator on
+        # top instead evaluates G(platt_k(raw_k)): a double correction no
+        # production path ever applies, which flatters the reported numbers
+        # (empirically verified: brier 0.2473 double-applied vs 0.2715 honest).
+        m_cal = compute_metrics(y_oof_all, p_cal_prequential)
         pooled["brier_calibrated"] = m_cal["brier"]
         pooled["logloss_calibrated"] = m_cal["logloss"]
         pooled["ece_calibrated"] = m_cal["ece"]

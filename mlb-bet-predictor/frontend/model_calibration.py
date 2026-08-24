@@ -303,6 +303,13 @@ else:
 # Reliability table
 # ---------------------------------------------------------------------------
 st.markdown("### Reliability Diagram — Binned Data")
+# Prequential calibrated buckets (each point corrected by a map fitted on
+# strictly PRIOR folds) shown alongside the raw view, so overconfidence can
+# be judged at BOTH stages of the deployed chain.
+_cal_buckets = {
+    b.get("bucket"): b
+    for b in ((cal.get("calibration") or {}).get("calibration_buckets_calibrated") or [])
+}
 if curve_df.empty:
     st.info("No reliability data available.")
 else:
@@ -311,8 +318,14 @@ else:
         gap = r["gap"]
         gap_color = utils.PRIMARY if gap > 0 else utils.RED
         gap_txt = f"{gap:+.3f}"
+        _cb = _cal_buckets.get(r["bucket"])
+        cal_cell = (
+            f"<td style='color:#34D399;'>{_cb['mean_predicted']:.3f}</td>"
+            if _cb else "<td style='color:#475569;'>—</td>"
+        )
         rows.append(
             f"<tr><td>{r['bucket']}</td><td>{r['mean_predicted']:.3f}</td>"
+            f"{cal_cell}"
             f"<td>{r['mean_actual']:.3f}</td><td>{int(r['count'])}</td>"
             f"<td style='color:{gap_color};font-weight:700;'>{gap_txt}</td></tr>"
         )
@@ -325,19 +338,22 @@ else:
         tot_color = utils.PRIMARY if gap_tot > 0 else utils.RED
         rows.append(
             f"<tr style='border-top:2px solid #334155;font-weight:700;'><td>TOTAL</td>"
-            f"<td>{mp_tot:.3f}</td><td>{ma_tot:.3f}</td><td>{n_tot}</td>"
+            f"<td>{mp_tot:.3f}</td><td style='color:#64748B;'>—</td>"
+            f"<td>{ma_tot:.3f}</td><td>{n_tot}</td>"
             f"<td style='color:{tot_color};font-weight:700;'>{gap_tot:+.3f}</td></tr>"
         )
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
-            <thead><tr><th>BUCKET</th><th>MEAN PREDICTED</th><th>MEAN ACTUAL</th><th>COUNT</th><th>GAP</th></tr></thead>
+            <thead><tr><th>BUCKET</th><th>MEAN PREDICTED (RAW)</th><th>CALIBRATED</th>
+            <th>MEAN ACTUAL</th><th>COUNT</th><th>GAP (RAW)</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
+          CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment.
         </div>
         """,
         unsafe_allow_html=True,
@@ -368,9 +384,27 @@ else:
         st.info("No games in the selected date range.")
     else:
         acc_rng = float(pd.to_numeric(view["correct"], errors="coerce").mean() * 100)
+        # Display probabilities through the DEPLOYED Platt map σ(a·logit(p)+b)
+        # so MODEL PICK % matches Today's Games and the green calibration
+        # curve exactly. Picks are unchanged: the map is monotone increasing,
+        # so argmax(raw) == argmax(calibrated).
+        _cal_sec_h = cal.get("calibration") or {}
+        _p_disp = pd.to_numeric(view["home_win_prob_model"], errors="coerce")
+        try:
+            if _cal_sec_h.get("method") == "platt":
+                _ah = float((_cal_sec_h.get("params") or {}).get("a"))
+                _bh = float((_cal_sec_h.get("params") or {}).get("b"))
+                _pc = _p_disp.clip(1e-6, 1 - 1e-6)
+                _z = _ah * np.log(_pc / (1 - _pc)) + _bh
+                _p_disp = 1.0 / (1.0 + np.exp(-_z))
+                _cal_note = " · probabilities are post-calibration σ(a·logit(p)+b)"
+            else:
+                _cal_note = ""
+        except (TypeError, ValueError):
+            _cal_note = ""
         st.caption(
             f"{n_rng:,} games · {acc_rng:.1f}% picks correct · most recent first — "
-            "scroll for older results"
+            "scroll for older results" + _cal_note
         )
         rows = []
         for _, r in view.iterrows():
@@ -381,7 +415,7 @@ else:
                 res = f"<td style='color:{utils.PRIMARY};font-weight:700;'>✓</td>"
             else:
                 res = f"<td style='color:{utils.RED};font-weight:700;'>✗</td>"
-            prob = r.get("home_win_prob_model")
+            prob = _p_disp.loc[r.name] if r.name in _p_disp.index else r.get("home_win_prob_model")
             pick_prob = prob if str(r.get("model_pick")) == str(r.get("home_team")) else 1 - prob
             score = "—"
             hs, asc = r.get("home_score"), r.get("away_score")

@@ -7,15 +7,26 @@ Verifies that:
 - Median imputation fits on train and applies consistently at predict time
 - walk_forward_evaluate publishes a roster via last_ensemble_info()
 """
+import importlib
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
+from backend import calibration as backend_calibration
+from backend import training as backend_training
+from backend.calibration import apply_platt, is_identity
+
+# training.py imports the TOP-LEVEL ``calibration`` module (backend dir on
+# sys.path), which is a distinct module object from ``backend.calibration``.
+# Guards read constants from their own module, so both copies must be patched.
+calibration_toplevel = importlib.import_module("calibration")
 from backend.training import (
     _impute_median,
     _member_weights,
+    compute_metrics,
+    get_last_calibrator,
     last_ensemble_info,
     set_adaptive_weights,
     walk_forward_evaluate,
@@ -56,6 +67,114 @@ class TestImputeMedian(unittest.TestCase):
         Xi, med = _impute_median(X)
         self.assertEqual(med[0], 0.0)
         self.assertTrue(not np.isnan(Xi).any())
+
+
+class TestFeatureMatrixWidthInvariant(unittest.TestCase):
+    """_feature_matrix must ALWAYS return len(FEATURE_COLS) columns.
+
+    The old filtered-subset behavior silently produced narrower matrices when
+    the source frame lacked feature columns (synthetic slates did exactly
+    that), which is how SHAP attributions went quietly empty. Absence must
+    be loud; width must be invariant.
+    """
+
+    def test_missing_columns_become_nan_not_dropped(self):
+        from backend.training import FEATURE_COLS, _feature_matrix
+        df = pd.DataFrame({FEATURE_COLS[0]: [1.0, 2.0]})
+        with self.assertLogs("backend.training", level="WARNING"):
+            X = _feature_matrix(df)
+        self.assertEqual(X.shape, (2, len(FEATURE_COLS)))
+        # Present column lands in canonical position 0.
+        self.assertEqual(X[0, 0], 1.0)
+        # Every absent column is all-NaN — never dropped, never zero-filled.
+        self.assertTrue(np.isnan(X[:, 1:]).all())
+
+    def test_full_frame_is_canonical_order(self):
+        from backend.training import FEATURE_COLS, _feature_matrix
+        shuffled = {c: [float(i)] for i, c in enumerate(reversed(FEATURE_COLS))}
+        X = _feature_matrix(pd.DataFrame(shuffled))
+        self.assertEqual(X.shape, (1, len(FEATURE_COLS)))
+        # Column named FEATURE_COLS[-1] carries value 0 → sits at last position.
+        self.assertEqual(X[0, -1], 0.0)
+        self.assertEqual(X[0, 0], float(len(FEATURE_COLS) - 1))
+
+
+class TestCalibratedMetricsArePrequential(unittest.TestCase):
+    """Reported *_calibrated metrics must score the PREQUENTIAL column only.
+
+    Regression: the old code composed final_calibrator on top of the already
+    per-fold-corrected values — G(platt_k(raw_k)) — a double correction no
+    production path applies, flattering ECE/logloss/brier (verified live:
+    0.2473 reported vs 0.2715 honest on a synthetic run).
+    """
+
+    def test_reported_calibrated_equals_prequential_column(self):
+        # Overconfident member: claims 0.34–0.93, actual win rates stay ≤60% —
+        # so the fitted Platt map shrinks (a>1 after logit rescale) and is
+        # decisively non-identity.
+        probs_a = np.array([0.92, 0.88, 0.84, 0.80, 0.76, 0.62, 0.58, 0.54, 0.44, 0.34])
+        y_a = np.array([1, 0, 1, 1, 0, 0, 1, 0, 0, 0], dtype=float)
+        probs_b = np.array([0.93, 0.87, 0.81, 0.77, 0.71, 0.66, 0.61, 0.57, 0.51,
+                            0.47, 0.42, 0.38, 0.63, 0.72, 0.49])
+        y_b = np.array([1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0], dtype=float)
+
+        hw = np.array([float(i % 2) for i in range(40)])
+        hw[10:20] = y_a   # fold A validation labels
+        hw[25:40] = y_b   # fold B validation labels
+        games = pd.DataFrame({
+            "game_date": pd.date_range("2026-06-01", periods=40, freq="D"),
+            "home_win": hw,
+        })
+        fold_a = {
+            "train_games": games.iloc[:10].copy(),
+            "val_games": games.iloc[10:20].copy(),
+            "fold_idx": 0,
+            "val_start": games.iloc[10]["game_date"],
+            "val_end": games.iloc[19]["game_date"],
+        }
+        fold_b = {
+            "train_games": games.iloc[:25].copy(),
+            "val_games": games.iloc[25:40].copy(),
+            "fold_idx": 1,
+            "val_start": games.iloc[25]["game_date"],
+            "val_end": games.iloc[39]["game_date"],
+        }
+
+        def fake_predict(models, val):
+            p = probs_a if len(val) == 10 else probs_b
+            return p, {"logistic": p}, {"logistic": 1.0}
+
+        try:
+            with patch("backend.training.walk_forward_splits",
+                       return_value=[fold_a, fold_b]), \
+                 patch("backend.training.train_moneyline_ensemble",
+                       return_value=({"logistic": object()}, {})), \
+                 patch("backend.training.ensemble_predict",
+                       side_effect=fake_predict), \
+                 patch.object(backend_training, "MIN_OOF_FOR_FIT", 5), \
+                 patch.object(backend_calibration, "MIN_OOF_FOR_FIT", 5), \
+                 patch.object(calibration_toplevel, "MIN_OOF_FOR_FIT", 5):
+                _, pooled, combined = walk_forward_evaluate(games, min_val_games=0)
+            final_map = get_last_calibrator()
+            self.assertFalse(is_identity(final_map))
+
+            y = combined["home_win"].to_numpy(dtype=float)
+            preq = combined["home_win_prob_model_calibrated"].to_numpy(dtype=float)
+            honest = compute_metrics(y, preq)["brier"]
+            double = compute_metrics(y, apply_platt(preq, final_map))["brier"]
+
+            # THE contract: reported value == honest prequential estimate
+            # (compute_metrics rounds, so compare at its precision).
+            self.assertAlmostEqual(
+                pooled["brier_calibrated"], honest, places=3,
+                msg="reported calibrated metrics must equal the prequential column")
+            # And they must NOT be the double-applied composition.
+            self.assertGreater(abs(double - pooled["brier_calibrated"]), 1e-3,
+                               "final map must not be composed onto prequential values")
+        finally:
+            set_adaptive_weights(None)
+            from backend.training import set_calibration
+            set_calibration(None)
 
 
 class TestFinalModelTraining(unittest.TestCase):

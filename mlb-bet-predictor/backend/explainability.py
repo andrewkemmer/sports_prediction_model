@@ -178,10 +178,19 @@ def compute_shap_per_game(
         has_shap = False
         logger.warning("shap not available; writing zero-attribution CSVs")
 
-    cols = [c for c in FEATURE_COLS if c in games.columns]
+    # Full FEATURE_COLS width in canonical order — mirrors the training/
+    # predict matrices (see _feature_matrix). A narrower matrix here is what
+    # made SHAP attributions come back empty while logs looked healthy.
+    missing = [c for c in FEATURE_COLS if c not in games.columns]
+    if missing:
+        logger.warning(
+            "SHAP input: %d/%d expected columns absent (%s%s) — filled as NULL",
+            len(missing), len(FEATURE_COLS), ", ".join(missing[:6]),
+            " …" if len(missing) > 6 else "")
+    cols = list(FEATURE_COLS)
     # Preserve NaN: tree explainers handle missing values natively and a
     # zero-fill would fabricate attributions for unobserved features.
-    X = games[cols].to_numpy(dtype=float)
+    X = games.reindex(columns=FEATURE_COLS).to_numpy(dtype=float)
 
     # Tree members were trained on numeric features PLUS team-ID categorical
     # columns (58 + 2 = 60 wide). Feeding them a numeric-only matrix makes
@@ -530,4 +539,81 @@ def compute_feature_drift(
         float(df["noise_floor"].mean()) if "noise_floor" in df.columns else float("nan"),
     )
 
+    return df
+
+
+def compute_feature_coverage(
+    baseline_games: pd.DataFrame,
+    current_games: pd.DataFrame,
+    target_date_str: str,
+) -> pd.DataFrame:
+    """Per-feature non-null coverage per drift window → coverage CSV.
+
+    This is the visual backstop for the 'healthy logs, empty data' bug class:
+    a fetcher can silently starve a season (the 2026 weather truncation did
+    exactly that) while PSI rows show plausible-looking zeros. This table
+    makes absence visible per feature × window.
+
+    For the two weather-driven features it also separates MEASURED values
+    from DEFAULT-filled ones, so legitimate zeros can't mask starvation:
+      * wind_advantage_flyball_factor: the dome branch writes an exact 0.0
+        without any observation — counted as ``default_zero``. Any other
+        non-null value came from a fetched record (a real dome observation
+        is wm×era ≈ tiny-but-nonzero float, so exact 0.0 + dome is a
+        reliable default signature).
+      * air_density_velocity_boost: only ever written from a fetched
+        observation (domes stay NULL) — non-null ⇒ measured.
+    All other features: non-null is reported as measured.
+    """
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _window_rows(games: pd.DataFrame, window: str) -> list[dict]:
+        rows: list[dict] = []
+        if games is None or games.empty:
+            return rows
+        dome = pd.to_numeric(games.get("dome_is_neutral"), errors="coerce") \
+            if "dome_is_neutral" in games.columns else pd.Series(np.nan, index=games.index)
+        for col in FEATURE_COLS:
+            if col not in games.columns:
+                continue
+            vals = pd.to_numeric(games[col], errors="coerce")
+            n_total = int(len(vals))
+            nonnull = vals.notna()
+            n_nonnull = int(nonnull.sum())
+            n_default = 0
+            if col == "wind_advantage_flyball_factor":
+                n_default = int((nonnull & (vals == 0.0) & (dome == 1)).sum())
+            n_measured = n_nonnull - n_default
+            pct_nonnull = round(100.0 * n_nonnull / n_total, 1) if n_total else 0.0
+            pct_measured = round(100.0 * n_measured / n_total, 1) if n_total else 0.0
+            status = "OK" if pct_measured >= 80.0 else (
+                "LOW_COVERAGE" if pct_measured >= 25.0 else "STARVED")
+            rows.append({
+                "feature": col,
+                "window": window,
+                "n_games": n_total,
+                "n_nonnull": n_nonnull,
+                "pct_nonnull": pct_nonnull,
+                "n_measured": n_measured,
+                "pct_measured": pct_measured,
+                "n_default_zero": n_default,
+                "status": status,
+            })
+        return rows
+
+    cov_rows = _window_rows(current_games, "current")
+    cov_rows += _window_rows(baseline_games, "baseline")
+    df = pd.DataFrame(cov_rows)
+    out_path = DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"
+    df.to_csv(out_path, index=False)
+
+    starved = df[df["status"] != "OK"]
+    if not starved.empty:
+        worst = starved.sort_values("pct_measured").head(5)
+        detail = "; ".join(
+            f"{r.feature}/{r.window}={r.pct_measured:.0f}% measured"
+            for r in worst.itertuples())
+        logger.warning("Feature coverage gaps: %s", detail)
+    else:
+        logger.info("Feature coverage: all %d feature-window pairs OK", len(df))
     return df
