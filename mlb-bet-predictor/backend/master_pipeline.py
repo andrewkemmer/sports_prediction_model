@@ -84,7 +84,7 @@ except OSError:
 
 _banner("PHASE 0", "Environment Setup")
 print("📦 Installing dependencies...")
-_run("pip install -q pandas numpy scikit-learn xgboost lightgbm shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
+_run("pip install -q pandas numpy scikit-learn xgboost lightgbm optuna shap joblib gitpython pybaseball requests tqdm pyarrow duckdb", check=False)
 print("  ✅ Done")
 
 # Clone fresh
