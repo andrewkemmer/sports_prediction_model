@@ -417,6 +417,32 @@ _PER_SIDE_FAMILIES = {
     "team_exitvelo_15g": ("Team average exit velocity", "mph", "higher = better"),
 }
 
+# Momentum form-delta families (recent window − season-to-date baseline, per
+# side). Tuple: (label, units, direction, window). Direction is from the
+# DELTA's perspective: positive = recent better than the season baseline
+# (for cost stats like ERA/WHIP a positive delta means worse).
+_FORM_DELTA_FAMILIES = {
+    "sp_era_delta": ("SP ERA momentum (last 5 starts − season)", "ERA runs", "negative = hot streak (recent better)", "5g − season"),
+    "sp_k9_delta": ("SP K/9 momentum (last 5 starts − season)", "K/9", "positive = strikeout surge", "5g − season"),
+    "sp_bb9_delta": ("SP BB/9 momentum (30g − season)", "BB/9", "negative = control improvement", "30g − season"),
+    "sp_whip_delta": ("SP WHIP momentum (30g − season)", "WHIP", "negative = form improvement", "30g − season"),
+    "sp_xwoba_delta": ("SP xwOBA-allowed momentum (30g − season)", "xwOBA", "negative = recent better", "30g − season"),
+    "sp_fbvelo_delta": ("SP fastball velo momentum (3g − season)", "mph", "positive = velo up (stuff gains)", "3g − season"),
+    "sp_fbpct_delta": ("SP fastball-usage momentum (3g − season)", "share (0–1)", "n/a (mix signal)", "3g − season"),
+    "sp_whiff_delta": ("SP whiff-rate momentum (3g − season)", "rate (0–1)", "positive = swing-and-miss surge", "3g − season"),
+    "woba_delta": ("Team wOBA momentum (30g − season)", "wOBA points", "positive = lineup heating up", "30g − season"),
+    "team_iso_delta": ("Team ISO momentum (30g − season)", "ISO points", "positive = power surge", "30g − season"),
+    "team_k_rate_delta": ("Team strikeout-rate momentum (30g − season)", "rate (0–1)", "negative = K% down (better contact)", "30g − season"),
+    "team_bb_rate_delta": ("Team walk-rate momentum (30g − season)", "rate (0–1)", "positive = more patience", "30g − season"),
+    "team_barrel_delta": ("Team barrel-rate momentum (15g − season)", "rate (0–1)", "positive = quality-of-contact surge", "15g − season"),
+    "team_hardhit_delta": ("Team hard-hit-rate momentum (15g − season)", "rate (0–1)", "positive = contact quality up", "15g − season"),
+    "team_exitvelo_delta": ("Team exit-velocity momentum (15g − season)", "mph", "positive = velo up", "15g − season"),
+    "bullpen_whip_delta": ("Bullpen WHIP momentum (10g − season)", "WHIP", "negative = pen tightening up", "10g − season"),
+    "bullpen_era_delta": ("Bullpen ERA momentum (10g − season)", "ERA runs", "negative = recent better", "10g − season"),
+    "lineup_woba_mean_delta": ("Lineup wOBA momentum (today's lineup − season lineup)", "wOBA points", "positive = current lineup stronger than season average", "per-game lineup − season"),
+    "lineup_woba_top3_delta": ("Top-3 wOBA momentum (today's top-3 − season top-3)", "wOBA points", "positive = star power up today", "per-game lineup − season"),
+}
+
 
 def _rich_entry(name: str) -> Optional[dict[str, str]]:
     """Authored entry, or a synthesized one for *_home/*_away family members."""
@@ -426,11 +452,30 @@ def _rich_entry(name: str) -> Optional[dict[str, str]]:
     for suffix in ("_home", "_away"):
         if name.endswith(suffix):
             base = name[: -len(suffix)]
+            side = "home" if suffix == "_home" else "away"
+            fam = _FORM_DELTA_FAMILIES.get(base)
+            if fam:
+                label, units, direction, window = fam
+                return {
+                    "summary": f"{label} — {side} team",
+                    "definition": (
+                        f"Momentum form-delta column: the {side} club's recent "
+                        f"window minus its season-to-date baseline, so the "
+                        f"model sees hot streaks/slumps directly instead of "
+                        f"only the levels. Continuous (no binary flags); "
+                        f"trees learn their own thresholds. Computed from the "
+                        f"same shifted per-game stats as the level twins."
+                    ),
+                    "formula": f"{base}_recent_{side} − {base}_season_{side}",
+                    "source": "Statcast aggregates via DuckDB feature engineering",
+                    "window": window,
+                    "units": units,
+                    "direction": f"{direction} ({side} side)",
+                }
             fam = _PER_SIDE_FAMILIES.get(base)
             if not fam:
                 return None
             label, units, direction = fam
-            side = "home" if suffix == "_home" else "away"
             return {
                 "summary": f"{label} — {side} team",
                 "definition": (

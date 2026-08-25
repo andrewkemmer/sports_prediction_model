@@ -362,7 +362,14 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
             LAG(n_pitches, 1) OVER w AS _s_n,
             LAG(whiffs, 1) OVER w AS _s_whiffs,
             LAG(xwoba_vs_l, 1) OVER ws AS _s_xl,
-            LAG(xwoba_vs_r, 1) OVER ws AS _s_xr
+            LAG(xwoba_vs_r, 1) OVER ws AS _s_xr,
+            -- Season-partitioned twins for the season-to-date baselines
+            -- (a season opener's LAG is NULL, so the prior October never
+            -- leaks into the expanding season mean).
+            LAG(fb_velo, 1) OVER ws AS _s_fb_velo_s,
+            LAG(fb_pct, 1) OVER ws AS _s_fb_pct_s,
+            LAG(n_pitches, 1) OVER ws AS _s_n_s,
+            LAG(whiffs, 1) OVER ws AS _s_whiffs_s
         FROM per_start
         WINDOW w AS (PARTITION BY pitcher ORDER BY game_date),
                ws AS (PARTITION BY pitcher, season ORDER BY game_date)
@@ -374,7 +381,13 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
             AVG(_s_fb_pct) OVER w3 AS sp_fbpct_3g,
             SUM(_s_whiffs) OVER w3 / NULLIF(SUM(_s_n) OVER w3, 0) AS sp_whiff_3g,
             AVG(_s_xl) OVER wall AS sp_xwoba_vs_l,
-            AVG(_s_xr) OVER wall AS sp_xwoba_vs_r
+            AVG(_s_xr) OVER wall AS sp_xwoba_vs_r,
+            -- Season-to-date stuff baselines (season-partitioned LAG twins,
+            -- so an opener's row is NULL and never averages the prior
+            -- October) — momentum companion for the 3g windows.
+            AVG(_s_fb_velo_s) OVER wall AS sp_fbvelo_std,
+            AVG(_s_fb_pct_s) OVER wall AS sp_fbpct_std,
+            SUM(_s_whiffs_s) OVER wall / NULLIF(SUM(_s_n_s) OVER wall, 0) AS sp_whiff_std
         FROM pitcher_stuff_raw
         WINDOW w3 AS (PARTITION BY pitcher ORDER BY game_date
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW),
@@ -573,15 +586,18 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     # April start rolls over the prior season's tail). All point-in-time
     # safe: the row holds the previous game's stats via LAG, so the current
     # game never enters its own feature.
-    con.execute("""
-        CREATE TABLE pitcher_shifted_season AS
+    con.execute("""        CREATE TABLE pitcher_shifted_season AS
         SELECT *,
             LAG(ip, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_ip,
             LAG(runs, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_runs,
-            LAG(ks, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_ks
+            LAG(ks, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_ks,
+            LAG(bbs, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_bbs,
+            LAG(hits_allowed, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hits,
+            LAG(hrs_allowed, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hrs,
+            LAG(hbps, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_hbps,
+            LAG(xwoba, 1) OVER (PARTITION BY pitcher, season ORDER BY game_date) AS _s_xwoba
         FROM (SELECT *, EXTRACT(YEAR FROM game_date) AS season FROM pitcher_game_stats)
     """)
-
     con.execute("""
         CREATE TABLE pitcher_season_rolling AS
         SELECT game_date, game_pk, pitcher,
@@ -621,6 +637,35 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM pitcher_season_rolling psr
         LEFT JOIN pitcher_5g_rolling p5
                ON psr.game_pk = p5.game_pk AND psr.pitcher = p5.pitcher
+    """)
+
+    # Season-to-date SP bb9/WHIP/xwOBA baselines — the momentum companion
+    # terms for the 30g SP windows. Built from the SAME shifted per-game
+    # stats as sp_era/sp_k9 above, season-partitioned cumulative so an
+    # April start never averages in the prior October (point-in-time safe:
+    # rows hold the PREVIOUS game's stats via LAG).
+    con.execute("""
+        CREATE TABLE pitcher_season_full AS
+        SELECT p.game_date, p.game_pk, p.pitcher,
+            SUM(_s_bbs) OVER w AS _s_bbs_s,
+            SUM(_s_hits) OVER w AS _s_hits_s,
+            SUM(_s_hrs) OVER w AS _s_hrs_s,
+            SUM(_s_hbps) OVER w AS _s_hbps_s,
+            SUM(_s_ks) OVER w AS _s_ks_s,
+            SUM(_s_ip) OVER w AS _s_ip_s,
+            SUM(_s_runs) OVER w AS _s_runs_s,
+            AVG(_s_xwoba) OVER w AS _s_xwoba_s
+        FROM pitcher_shifted_season p
+        WINDOW w AS (PARTITION BY pitcher, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("""
+        CREATE TABLE pitcher_season_std AS
+        SELECT game_date, game_pk, pitcher,
+            _s_bbs_s / NULLIF(_s_ip_s, 0) * 9.0 AS sp_bb9_std,
+            (_s_bbs_s + _s_hits_s) / NULLIF(_s_ip_s, 0) AS sp_whip_std,
+            _s_xwoba_s AS sp_xwoba_std
+        FROM pitcher_season_full
     """)
 
     con.execute("""
@@ -683,7 +728,38 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM team_off_shifted
         WINDOW w AS (PARTITION BY batting_team ORDER BY game_date
                      ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
-    """)    # 7. Bullpen rolling features
+    """)
+
+    # Season-to-date team offense baselines (momentum companion for the 30g
+    # windows). The LAG shift is season-partitioned so the 2026 opener's row
+    # is NULL and the expanding mean excludes all 2025 games.
+    con.execute("""
+        CREATE TABLE team_off_season AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_woba) OVER w AS team_woba_std,
+            AVG(_s_iso) OVER w AS team_iso_std,
+            AVG(_s_krate) OVER w AS team_k_rate_std,
+            AVG(_s_bbrate) OVER w AS team_bb_rate_std
+        FROM (SELECT game_date, game_pk, batting_team,
+                     EXTRACT(YEAR FROM game_date) AS season,
+                     LAG(team_woba_game, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_woba,
+                     LAG(team_iso_game, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_iso,
+                     LAG(team_k_rate_game, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_krate,
+                     LAG(team_bb_rate_game, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_bbrate
+              FROM team_offense_raw)
+        WINDOW w AS (PARTITION BY batting_team, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7. Bullpen rolling features
 
     # Reliever workload is attributed to the FIELDING team (Top half → home
     # team pitchers, Bottom half → away team), and BOTH starting pitchers are
@@ -810,6 +886,34 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                       ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
     """)
 
+    # Season-to-date bullpen baselines (momentum companion for the 10g/3g
+    # windows) — season-partitioned cumulative sums; the LAG shift is
+    # season-partitioned so a season opener never averages the prior season.
+    con.execute("""
+        CREATE TABLE bullpen_season AS
+        SELECT game_date, game_pk, team,
+            (SUM(_s_bbs) OVER w + SUM(_s_hits) OVER w)
+                / NULLIF(SUM(_s_ip) OVER w, 0) AS bullpen_whip_std,
+            SUM(_s_runs) OVER w / NULLIF(SUM(_s_ip) OVER w, 0) * 9.0 AS bullpen_era_std
+        FROM (SELECT game_date, game_pk, team,
+                     EXTRACT(YEAR FROM game_date) AS season,
+                     LAG(bullpen_bbs, 1) OVER (
+                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_bbs,
+                     LAG(bullpen_hits, 1) OVER (
+                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_hits,
+                     LAG(bullpen_ip, 1) OVER (
+                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_ip,
+                     LAG(bullpen_runs, 1) OVER (
+                         PARTITION BY team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_runs
+              FROM bullpen_raw)
+        WINDOW w AS (PARTITION BY team, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+
     _build_pitcher_stuff(con)
 
     # 7c. Team contact-form — barrel rate / hard-hit rate / avg exit velo over
@@ -857,6 +961,31 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         FROM team_contact_shifted
         WINDOW w15 AS (PARTITION BY batting_team ORDER BY game_date
                        ROWS BETWEEN 14 PRECEDING AND CURRENT ROW)
+    """)
+
+    # Season-to-date contact baselines (momentum companion for the 15g
+    # windows) — season-partitioned expanding mean of the same shifted
+    # per-game barrel/hard-hit/exit-velo stats.
+    con.execute("""
+        CREATE TABLE team_contact_season AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_barrel) OVER w AS team_barrel_std,
+            AVG(_s_hardhit) OVER w AS team_hardhit_std,
+            AVG(_s_exitvelo) OVER w AS team_exitvelo_std
+        FROM (SELECT game_date, game_pk, batting_team,
+                     EXTRACT(YEAR FROM game_date) AS season,
+                     LAG(barrel_rate, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_barrel,
+                     LAG(hardhit_rate, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_hardhit,
+                     LAG(exitvelo, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_exitvelo
+              FROM team_contact_raw)
+        WINDOW w AS (PARTITION BY batting_team, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
     # 7d. Opposing-lineup handedness share — fraction of a team's PAs taken by
@@ -975,12 +1104,34 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             FROM batter_ratings WHERE shrunk_woba IS NOT NULL
         ),
         top9 AS (SELECT * FROM ranked WHERE rn <= 9)
-        SELECT game_pk, batting_team,
+        SELECT game_date, game_pk, batting_team,
                AVG(shrunk_woba) AS lineup_woba_mean,
                AVG(CASE WHEN rn <= 3 THEN shrunk_woba END) AS lineup_woba_top3,
                STDDEV(shrunk_woba) AS lineup_woba_std
         FROM top9
-        GROUP BY game_pk, batting_team
+        GROUP BY game_date, game_pk, batting_team
+    """)
+
+    # Season-to-date lineup baselines (momentum companion for today's
+    # projected-lineup wOBA) — expanding mean of the team's PRIOR games'
+    # expected-lineup wOBA, season-partitioned (LAG-shifted: the current
+    # game's lineup never enters its own baseline).
+    con.execute("""
+        CREATE TABLE lineup_season AS
+        SELECT game_date, game_pk, batting_team,
+            AVG(_s_lwm) OVER w AS lineup_woba_mean_std,
+            AVG(_s_lwt) OVER w AS lineup_woba_top3_std
+        FROM (SELECT game_date, game_pk, batting_team,
+                     EXTRACT(YEAR FROM game_date) AS season,
+                     LAG(lineup_woba_mean, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_lwm,
+                     LAG(lineup_woba_top3, 1) OVER (
+                         PARTITION BY batting_team, EXTRACT(YEAR FROM game_date)
+                         ORDER BY game_date) AS _s_lwt
+              FROM lineup_agg)
+        WINDOW w AS (PARTITION BY batting_team, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
     # 7f. Lineup OPS split by opposing pitching hand — every hitter's
@@ -1115,7 +1266,49 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
             lh.lineup_woba_std AS lineup_woba_std_home,
             la.lineup_woba_mean AS lineup_woba_mean_away,
             la.lineup_woba_top3 AS lineup_woba_top3_away,
-            la.lineup_woba_std AS lineup_woba_std_away
+            la.lineup_woba_std AS lineup_woba_std_away,
+            -- Momentum form deltas: recent window − season-to-date baseline,
+            -- per side. Continuous (no binary flags); the model learns its
+            -- own thresholds. Computed here from the SAME shifted per-game
+            -- stats as the levels above (no parallel computation path).
+            sh.sp_era_5g - sh.sp_era AS sp_era_delta_home,
+            sh.sp_k9_5g - sh.sp_k9 AS sp_k9_delta_home,
+            ph.sp_bb9_30g - phs.sp_bb9_std AS sp_bb9_delta_home,
+            ph.sp_whip_30g - phs.sp_whip_std AS sp_whip_delta_home,
+            ph.sp_xwoba_30g - phs.sp_xwoba_std AS sp_xwoba_delta_home,
+            hst.sp_fbvelo_3g - hst.sp_fbvelo_std AS sp_fbvelo_delta_home,
+            hst.sp_fbpct_3g - hst.sp_fbpct_std AS sp_fbpct_delta_home,
+            hst.sp_whiff_3g - hst.sp_whiff_std AS sp_whiff_delta_home,
+            th.team_woba_30g - tosh.team_woba_std AS woba_delta_home,
+            th.team_iso_30g - tosh.team_iso_std AS team_iso_delta_home,
+            th.team_k_rate_30g - tosh.team_k_rate_std AS team_k_rate_delta_home,
+            th.team_bb_rate_30g - tosh.team_bb_rate_std AS team_bb_rate_delta_home,
+            ch.team_barrel_15g - tcsh.team_barrel_std AS team_barrel_delta_home,
+            ch.team_hardhit_15g - tcsh.team_hardhit_std AS team_hardhit_delta_home,
+            ch.team_exitvelo_15g - tcsh.team_exitvelo_std AS team_exitvelo_delta_home,
+            bh.bullpen_whip_10g - bpsh.bullpen_whip_std AS bullpen_whip_delta_home,
+            bh.bullpen_era_10g - bpsh.bullpen_era_std AS bullpen_era_delta_home,
+            lh.lineup_woba_mean - lsh.lineup_woba_mean_std AS lineup_woba_mean_delta_home,
+            lh.lineup_woba_top3 - lsh.lineup_woba_top3_std AS lineup_woba_top3_delta_home,
+            sa.sp_era_5g - sa.sp_era AS sp_era_delta_away,
+            sa.sp_k9_5g - sa.sp_k9 AS sp_k9_delta_away,
+            pa.sp_bb9_30g - pas.sp_bb9_std AS sp_bb9_delta_away,
+            pa.sp_whip_30g - pas.sp_whip_std AS sp_whip_delta_away,
+            pa.sp_xwoba_30g - pas.sp_xwoba_std AS sp_xwoba_delta_away,
+            ast.sp_fbvelo_3g - ast.sp_fbvelo_std AS sp_fbvelo_delta_away,
+            ast.sp_fbpct_3g - ast.sp_fbpct_std AS sp_fbpct_delta_away,
+            ast.sp_whiff_3g - ast.sp_whiff_std AS sp_whiff_delta_away,
+            ta.team_woba_30g - tosa.team_woba_std AS woba_delta_away,
+            ta.team_iso_30g - tosa.team_iso_std AS team_iso_delta_away,
+            ta.team_k_rate_30g - tosa.team_k_rate_std AS team_k_rate_delta_away,
+            ta.team_bb_rate_30g - tosa.team_bb_rate_std AS team_bb_rate_delta_away,
+            ca.team_barrel_15g - tcsa.team_barrel_std AS team_barrel_delta_away,
+            ca.team_hardhit_15g - tcsa.team_hardhit_std AS team_hardhit_delta_away,
+            ca.team_exitvelo_15g - tcsa.team_exitvelo_std AS team_exitvelo_delta_away,
+            ba.bullpen_whip_10g - bpsa.bullpen_whip_std AS bullpen_whip_delta_away,
+            ba.bullpen_era_10g - bpsa.bullpen_era_std AS bullpen_era_delta_away,
+            la.lineup_woba_mean - lsa.lineup_woba_mean_std AS lineup_woba_mean_delta_away,
+            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -1125,14 +1318,22 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN pitcher_season_features sa ON w.game_pk = sa.game_pk AND sa.pitcher = s.away_starter_id
         LEFT JOIN pitcher_features ph ON w.game_pk = ph.game_pk AND ph.pitcher = s.home_starter_id
         LEFT JOIN pitcher_features pa ON w.game_pk = pa.game_pk AND pa.pitcher = s.away_starter_id
+        LEFT JOIN pitcher_season_std phs ON w.game_pk = phs.game_pk AND phs.pitcher = s.home_starter_id
+        LEFT JOIN pitcher_season_std pas ON w.game_pk = pas.game_pk AND pas.pitcher = s.away_starter_id
         LEFT JOIN team_offense_rolling th ON w.game_pk = th.game_pk AND w.home_team = th.batting_team
         LEFT JOIN team_offense_rolling ta ON w.game_pk = ta.game_pk AND w.away_team = ta.batting_team
+        LEFT JOIN team_off_season tosh ON w.game_pk = tosh.game_pk AND w.home_team = tosh.batting_team
+        LEFT JOIN team_off_season tosa ON w.game_pk = tosa.game_pk AND w.away_team = tosa.batting_team
         LEFT JOIN bullpen_rolling bh ON w.game_pk = bh.game_pk AND w.home_team = bh.team
         LEFT JOIN bullpen_rolling ba ON w.game_pk = ba.game_pk AND w.away_team = ba.team
+        LEFT JOIN bullpen_season bpsh ON w.game_pk = bpsh.game_pk AND w.home_team = bpsh.team
+        LEFT JOIN bullpen_season bpsa ON w.game_pk = bpsa.game_pk AND w.away_team = bpsa.team
         LEFT JOIN pitcher_stuff hst ON w.game_pk = hst.game_pk AND hst.pitcher = s.home_starter_id
         LEFT JOIN pitcher_stuff ast ON w.game_pk = ast.game_pk AND ast.pitcher = s.away_starter_id
         LEFT JOIN team_contact_rolling ch ON w.game_pk = ch.game_pk AND w.home_team = ch.batting_team
         LEFT JOIN team_contact_rolling ca ON w.game_pk = ca.game_pk AND w.away_team = ca.batting_team
+        LEFT JOIN team_contact_season tcsh ON w.game_pk = tcsh.game_pk AND w.home_team = tcsh.batting_team
+        LEFT JOIN team_contact_season tcsa ON w.game_pk = tcsa.game_pk AND w.away_team = tcsa.batting_team
         LEFT JOIN team_hand_rolling hd ON w.game_pk = hd.game_pk AND w.away_team = hd.batting_team
         LEFT JOIN team_hand_rolling ha ON w.game_pk = ha.game_pk AND w.home_team = ha.batting_team
         LEFT JOIN bp_fatigue bf ON w.game_pk = bf.game_pk
@@ -1140,6 +1341,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN closer_avail cl ON w.game_pk = cl.game_pk
         LEFT JOIN lineup_agg lh ON w.game_pk = lh.game_pk AND w.home_team = lh.batting_team
         LEFT JOIN lineup_agg la ON w.game_pk = la.game_pk AND w.away_team = la.batting_team
+        LEFT JOIN lineup_season lsh ON w.game_pk = lsh.game_pk AND w.home_team = lsh.batting_team
+        LEFT JOIN lineup_season lsa ON w.game_pk = lsa.game_pk AND w.away_team = lsa.batting_team
         LEFT JOIN lineup_ops_agg loh ON w.game_pk = loh.game_pk AND w.home_team = loh.batting_team
         LEFT JOIN lineup_ops_agg loa ON w.game_pk = loa.game_pk AND w.away_team = loa.batting_team
     """)
@@ -1153,10 +1356,14 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
         "pitcher_shifted_season", "pitcher_season_rolling", "pitcher_5g_rolling",
         "pitcher_season_features", "pitcher_features",
         "team_offense_raw", "team_off_shifted", "team_offense_rolling",
-        "bullpen_raw", "bullpen_shifted", "bullpen_rolling",
+        "team_off_season",
+        "bullpen_raw", "bullpen_shifted", "bullpen_rolling", "bullpen_season",
         "bp_daily", "bp_fatigue",
         "pitcher_stuff_raw", "pitcher_stuff",
+        "pitcher_season_full", "pitcher_season_std",
         "team_contact_raw", "team_contact_shifted", "team_contact_rolling",
+        "team_contact_season",
+        "lineup_agg_shifted", "lineup_season",
         "team_hand_raw", "team_hand_shifted", "team_hand_rolling",
         "batter_game_stats", "batter_shifted", "batter_rolling",
         "batter_league", "batter_ratings", "lineup_agg",
@@ -1587,6 +1794,90 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
     if n_a < 0.5 * len(df):
         logger.warning("Env-level features: air_density_level only %.0f%% populated "
                        "— weather cache coverage may be low", 100 * n_a / len(df))
+    return df
+
+
+# ── Momentum form-delta features ─────────────────────────────────────────────
+# Continuous "recent window − season-to-date baseline" per side, per stat
+# family. The model learns its own thresholds (a binary ">10% improvement"
+# flag is strictly weaker — the trees can derive it from the continuous
+# version). Single computation point: the DuckDB layer ships the delta
+# columns in game_level; this helper is the fallback that computes them from
+# the shipped recent/season columns on frames that predate the refresh (e.g.
+# the committed CSV). Idempotent: an existing delta column is never
+# overwritten (the SQL-computed value is authoritative).
+
+# ABLATION VERDICT (2026-08): NOT SHIPPED into the moneyline. The WITH-vs-
+# WITHOUT measurement on the committed CSV (run_form_delta_ablation.py) lost
+# BOTH pooled OOF (0.6895/0.5494 vs 0.6867/0.5540) and the sealed 21-day
+# holdout (0.6829/0.5437 vs 0.6814/0.5529), so FEATURE_COLS excludes them.
+# The columns still ship in the artifact and the run engine drops them via
+# derive_run_features — re-test on a refreshed artifact before re-enabling.
+
+# (delta_base, recent_col_base, season_col_base, window_label)
+FORM_DELTA_SPECS: list[tuple[str, str, str, str]] = [
+    ("sp_era_delta",        "sp_era_5g",       "sp_era",             "last 5 starts − season to date"),
+    ("sp_k9_delta",         "sp_k9_5g",        "sp_k9",              "last 5 starts − season to date"),
+    ("sp_bb9_delta",        "sp_bb9",          "sp_bb9_std",         "last 30 starts − season to date"),
+    ("sp_whip_delta",       "sp_whip",         "sp_whip_std",        "last 30 starts − season to date"),
+    ("sp_xwoba_delta",      "sp_xwoba",        "sp_xwoba_std",       "last 30 starts − season to date"),
+    ("sp_fbvelo_delta",     "sp_fbvelo_3g",    "sp_fbvelo_std",      "last 3 starts − season to date"),
+    ("sp_fbpct_delta",      "sp_fbpct_3g",     "sp_fbpct_std",       "last 3 starts − season to date"),
+    ("sp_whiff_delta",      "sp_whiff_3g",     "sp_whiff_std",       "last 3 starts − season to date"),
+    ("woba_delta",          "woba_30g",        "team_woba_std",      "last 30 games − season to date"),
+    ("team_iso_delta",      "team_iso_30g",    "team_iso_std",       "last 30 games − season to date"),
+    ("team_k_rate_delta",   "team_k_rate_30g", "team_k_rate_std",    "last 30 games − season to date"),
+    ("team_bb_rate_delta",  "team_bb_rate_30g","team_bb_rate_std",   "last 30 games − season to date"),
+    ("team_barrel_delta",   "team_barrel_15g", "team_barrel_std",    "last 15 games − season to date"),
+    ("team_hardhit_delta",  "team_hardhit_15g","team_hardhit_std",   "last 15 games − season to date"),
+    ("team_exitvelo_delta", "team_exitvelo_15g","team_exitvelo_std", "last 15 games − season to date"),
+    ("bullpen_whip_delta",  "bullpen_whip_10g","bullpen_whip_std",   "last 10 games − season to date"),
+    ("bullpen_era_delta",   "bullpen_era_10g", "bullpen_era_std",    "last 10 games − season to date"),
+    ("lineup_woba_mean_delta", "lineup_woba_mean", "lineup_woba_mean_std", "today's lineup − season-to-date lineup"),
+    ("lineup_woba_top3_delta", "lineup_woba_top3", "lineup_woba_top3_std", "today's lineup − season-to-date lineup"),
+]
+
+# All 38 column names, canonical order (family-major, side-minor).
+FORM_DELTA_COLS: list[str] = [
+    f"{base}_{side}"
+    for base, *_ in FORM_DELTA_SPECS
+    for side in ("home", "away")
+]
+
+
+def add_form_delta_features(game_df: pd.DataFrame,
+                            inplace: bool = False) -> pd.DataFrame:
+    """Compute momentum form-delta columns (recent − season-to-date), per side.
+
+    For every spec in FORM_DELTA_SPECS, if the delta column is already present
+    (shipped by the DuckDB layer — authoritative) it is left untouched. If
+    missing, it is computed as ``recent_col_<side> − season_col_<side>`` when
+    BOTH source columns exist in the frame; otherwise the column is created as
+    all-NaN (thin early-season coverage is handled by the existing imputation
+    path — never fabricated).
+
+    On the committed pre-refresh CSV only the SP era/K9 deltas are computable
+    (those season baselines are shipped); the rest stay NaN until the next
+    pipeline run ships the season columns / deltas.
+
+    Returns the frame (same object when inplace=True, else a copy).
+    """
+    df = game_df if inplace else game_df.copy()
+    created: list[str] = []
+    for base, recent, season, _window in FORM_DELTA_SPECS:
+        for side in ("home", "away"):
+            col = f"{base}_{side}"
+            if col in df.columns:
+                continue  # SQL-shipped value is authoritative
+            r = f"{recent}_{side}"
+            s = f"{season}_{side}"
+            if r in df.columns and s in df.columns:
+                df[col] = pd.to_numeric(df[r], errors="coerce") - pd.to_numeric(df[s], errors="coerce")
+            else:
+                df[col] = np.nan
+            created.append(col)
+    if created:
+        logger.info("add_form_delta_features: computed %d delta column(s) missing from the frame", len(created))
     return df
 
 

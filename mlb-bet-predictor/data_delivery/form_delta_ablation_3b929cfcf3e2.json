@@ -1,0 +1,560 @@
+{
+  "schema": "form-delta-ablation/v1",
+  "commit_sha": "3b929cfcf3e2379bdcd53d05d17d529e683f93f5",
+  "data_sha256": "923816b70a5d74731d0688011d8fc9e015e60b88f19ff876d17b08fbe7713a02",
+  "holdout_days": 21,
+  "folds_declared": 48,
+  "folds_executed": 44,
+  "clip_eps": 1e-07,
+  "seed": 42,
+  "coverage": [
+    {
+      "column": "sp_era_delta_home",
+      "present": true,
+      "coverage": 0.9463
+    },
+    {
+      "column": "sp_era_delta_away",
+      "present": true,
+      "coverage": 0.9492
+    },
+    {
+      "column": "sp_k9_delta_home",
+      "present": true,
+      "coverage": 0.9463
+    },
+    {
+      "column": "sp_k9_delta_away",
+      "present": true,
+      "coverage": 0.9492
+    },
+    {
+      "column": "sp_bb9_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_bb9_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_whip_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_whip_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_xwoba_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_xwoba_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_fbvelo_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_fbvelo_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_fbpct_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_fbpct_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_whiff_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "sp_whiff_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "woba_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "woba_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_iso_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_iso_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_k_rate_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_k_rate_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_bb_rate_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_bb_rate_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_barrel_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_barrel_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_hardhit_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_hardhit_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_exitvelo_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "team_exitvelo_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "bullpen_whip_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "bullpen_whip_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "bullpen_era_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "bullpen_era_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "lineup_woba_mean_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "lineup_woba_mean_delta_away",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "lineup_woba_top3_delta_home",
+      "present": true,
+      "coverage": 0.0
+    },
+    {
+      "column": "lineup_woba_top3_delta_away",
+      "present": true,
+      "coverage": 0.0
+    }
+  ],
+  "variants": {
+    "WITHOUT": {
+      "n_cols": 58,
+      "folds_executed": 44,
+      "pooled": {
+        "blend": {
+          "auc": 0.554,
+          "brier": 0.2468,
+          "logloss": 0.6867,
+          "ece": 0.0169
+        },
+        "blend_calibrated": {
+          "auc": 0.549,
+          "brier": 0.2469,
+          "logloss": 0.6868,
+          "ece": 0.007
+        },
+        "xgboost": {
+          "auc": 0.5824,
+          "brier": 0.2442,
+          "logloss": 0.6813,
+          "ece": 0.0229
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5715,
+          "brier": 0.2455,
+          "logloss": 0.6841,
+          "ece": 0.0129
+        },
+        "lightgbm": {
+          "auc": 0.5348,
+          "brier": 0.2508,
+          "logloss": 0.695,
+          "ece": 0.0449
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5335,
+          "brier": 0.2487,
+          "logloss": 0.6906,
+          "ece": 0.0286
+        },
+        "logistic": {
+          "auc": 0.5438,
+          "brier": 0.2546,
+          "logloss": 0.7088,
+          "ece": 0.0511
+        },
+        "logistic_calibrated": {
+          "auc": 0.541,
+          "brier": 0.2521,
+          "logloss": 0.7027,
+          "ece": 0.0309
+        },
+        "randomforest": {
+          "auc": 0.5475,
+          "brier": 0.2479,
+          "logloss": 0.689,
+          "ece": 0.0236
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5414,
+          "brier": 0.2477,
+          "logloss": 0.6885,
+          "ece": 0.0127
+        },
+        "mlp": {
+          "auc": 0.5242,
+          "brier": 0.2637,
+          "logloss": 0.8026,
+          "ece": 0.0782
+        },
+        "mlp_calibrated": {
+          "auc": 0.5221,
+          "brier": 0.2587,
+          "logloss": 0.7908,
+          "ece": 0.0515
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5529,
+          "brier": 0.244,
+          "logloss": 0.6814,
+          "ece": 0.0679
+        },
+        "xgboost": {
+          "auc": 0.5592,
+          "brier": 0.2436,
+          "logloss": 0.6803,
+          "ece": 0.0761
+        },
+        "lightgbm": {
+          "auc": 0.5531,
+          "brier": 0.2451,
+          "logloss": 0.6835,
+          "ece": 0.0696
+        },
+        "logistic": {
+          "auc": 0.5472,
+          "brier": 0.2455,
+          "logloss": 0.6845,
+          "ece": 0.0555
+        },
+        "randomforest": {
+          "auc": 0.5525,
+          "brier": 0.2454,
+          "logloss": 0.684,
+          "ece": 0.0598
+        },
+        "mlp": {
+          "auc": 0.5294,
+          "brier": 0.2521,
+          "logloss": 0.6994,
+          "ece": 0.0568
+        }
+      },
+      "cols": [
+        "is_home",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "lineup_handedness_matchup_advantage",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away"
+      ]
+    },
+    "WITH": {
+      "n_cols": 62,
+      "folds_executed": 44,
+      "pooled": {
+        "blend": {
+          "auc": 0.5494,
+          "brier": 0.2481,
+          "logloss": 0.6895,
+          "ece": 0.0175
+        },
+        "blend_calibrated": {
+          "auc": 0.544,
+          "brier": 0.2478,
+          "logloss": 0.6889,
+          "ece": 0.0113
+        },
+        "xgboost": {
+          "auc": 0.5679,
+          "brier": 0.2451,
+          "logloss": 0.6832,
+          "ece": 0.0181
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5538,
+          "brier": 0.2468,
+          "logloss": 0.6868,
+          "ece": 0.0099
+        },
+        "lightgbm": {
+          "auc": 0.5342,
+          "brier": 0.2511,
+          "logloss": 0.6957,
+          "ece": 0.0462
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5286,
+          "brier": 0.2486,
+          "logloss": 0.6903,
+          "ece": 0.0193
+        },
+        "logistic": {
+          "auc": 0.5409,
+          "brier": 0.2595,
+          "logloss": 0.7524,
+          "ece": 0.0655
+        },
+        "logistic_calibrated": {
+          "auc": 0.533,
+          "brier": 0.2532,
+          "logloss": 0.7117,
+          "ece": 0.0271
+        },
+        "randomforest": {
+          "auc": 0.5482,
+          "brier": 0.2478,
+          "logloss": 0.6888,
+          "ece": 0.0212
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5373,
+          "brier": 0.248,
+          "logloss": 0.6891,
+          "ece": 0.0083
+        },
+        "mlp": {
+          "auc": 0.509,
+          "brier": 0.2642,
+          "logloss": 0.7471,
+          "ece": 0.088
+        },
+        "mlp_calibrated": {
+          "auc": 0.5087,
+          "brier": 0.2552,
+          "logloss": 0.7154,
+          "ece": 0.0418
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5437,
+          "brier": 0.2449,
+          "logloss": 0.6829,
+          "ece": 0.0566
+        },
+        "xgboost": {
+          "auc": 0.5518,
+          "brier": 0.2437,
+          "logloss": 0.6804,
+          "ece": 0.0684
+        },
+        "lightgbm": {
+          "auc": 0.5596,
+          "brier": 0.2437,
+          "logloss": 0.6805,
+          "ece": 0.0649
+        },
+        "logistic": {
+          "auc": 0.5429,
+          "brier": 0.2456,
+          "logloss": 0.6848,
+          "ece": 0.0942
+        },
+        "randomforest": {
+          "auc": 0.5465,
+          "brier": 0.2458,
+          "logloss": 0.6848,
+          "ece": 0.0484
+        },
+        "mlp": {
+          "auc": 0.4512,
+          "brier": 0.2661,
+          "logloss": 0.7305,
+          "ece": 0.1131
+        }
+      },
+      "cols": [
+        "is_home",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "lineup_handedness_matchup_advantage",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "sp_era_delta_home",
+        "sp_era_delta_away",
+        "sp_k9_delta_home",
+        "sp_k9_delta_away"
+      ]
+    }
+  }
+}

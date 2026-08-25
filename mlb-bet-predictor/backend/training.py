@@ -156,6 +156,15 @@ FEATURE_COLS = [
     # Team exit velocity (15-game)
     "team_exitvelo_15g_home",
     "team_exitvelo_15g_away",
+    # Momentum form deltas (recent window − season-to-date baseline, per side)
+    # are NOT in the active moneyline set: the 2026-08 ablation measured them
+    # negative (WITH loses BOTH pooled OOF and the sealed 21-day holdout vs the
+    # 58-column baseline; see run_form_delta_ablation.py and
+    # data_delivery/form_delta_ablation_<sha>.json). The 38 *_delta_* columns
+    # are still computed and shipped in the artifact (features.py SQL +
+    # add_form_delta_features, metadata authored) and excluded from the run
+    # engine by derive_run_features — re-enabling is a one-line append here
+    # after a re-test on a refreshed artifact.
 ]
 # Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))

@@ -78,6 +78,7 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
 
       drop  f  if f.endswith("_diff") and f != RUN_DIFF_EXCEPTION
          or  f in RUN_EXTRA_EXCLUSIONS
+         or  f ends with _delta_home/_delta_away (momentum form deltas)
 
     Everything else flows in automatically (new level/env features included
     without touching this file). Returns both lists so callers log the drops.
@@ -87,6 +88,12 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
         if f.endswith("_diff") and f != RUN_DIFF_EXCEPTION:
             dropped.append(f)
         elif f in RUN_EXTRA_EXCLUSIONS:
+            dropped.append(f)
+        elif f.endswith("_delta_home") or f.endswith("_delta_away"):
+            # Momentum form deltas (recent − season baseline) are matchup/form
+            # signal, not scoring LEVEL — moneyline-only per the 2026-08
+            # momentum feature set. Excluded here so the run engine's raw-only
+            # view stays byte-identical (GOLDEN RULE: levels + environment).
             dropped.append(f)
         else:
             run_feats.append(f)

@@ -51,7 +51,12 @@ from data_ingestion import (
 from explainability import compute_feature_coverage, compute_feature_drift, compute_rolling_brier, compute_shap_per_game
 from feature_metadata import generate_features_metadata
 from calibration import is_identity
-from features import add_diff_features, add_env_level_features, refine_dome_game_level
+from features import (
+    add_diff_features,
+    add_env_level_features,
+    add_form_delta_features,
+    refine_dome_game_level,
+)
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
@@ -912,6 +917,12 @@ def run_daily_pipeline(
         # Final computation: official results already applied, so record
         # columns must exist — a missing win_pct_diff here is a real problem.
         games = add_diff_features(games, require_records=True)
+        # Momentum form deltas (recent − season-to-date baseline). Idempotent:
+        # SQL-shipped columns win; missing ones are computed from the shipped
+        # recent/season columns when both exist (NaN otherwise — imputed by
+        # the existing paths). Moneyline-only: the run engine excludes
+        # *_delta_* columns in derive_run_features.
+        games = add_form_delta_features(games)
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see
@@ -1072,6 +1083,7 @@ def run_daily_pipeline(
                 # game_pk/game_id-aware applicator. This keeps missing weather
                 # NULL and avoids a second key contract in add_diff_features.
                 slate = add_diff_features(slate)
+                slate = add_form_delta_features(slate)
                 if weather:
                     slate = apply_weather_features(slate, weather)
                 games = pd.concat([games, slate], ignore_index=True)
