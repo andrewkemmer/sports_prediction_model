@@ -361,7 +361,9 @@ class TestRunEngineGuardrail(unittest.TestCase):
         self.assertEqual(len(kept), 29)
         self.assertEqual(len(dropped), len(full) - 29)
         dropped_deltas = [c for c in dropped if c.endswith(("_delta_home", "_delta_away"))]
-        self.assertEqual(len(dropped_deltas), 38)
+        # 38 momentum deltas (never re-enabled) + 4 SHIPPED Phase-2 lineup
+        # deltas (lineup_actual_*_delta_*) — all excluded from the run engine.
+        self.assertEqual(len(dropped_deltas), 42)
 
 
 if __name__ == "__main__":

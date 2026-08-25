@@ -1881,6 +1881,155 @@ def add_form_delta_features(game_df: pd.DataFrame,
     return df
 
 
+# ── Lineup-delta features (Phase 2, moneyline-only) ───────────────────────────
+# mean wOBA of tonight's ACTUAL starting 9 (and its top-3) minus the team's
+# season-to-date wOBA, per side. The model otherwise only sees season-average
+# lineup stats, so resting-star days are invisible. Sources:
+#   data_delivery/lineups.parquet      StatsAPI battingOrder per game (4,451/4,451)
+#   data_delivery/batter_woba.parquet  point-in-time batter sd-wOBA (prior games only)
+#   data_delivery/team_woba.parquet    point-in-time team sd-wOBA + top-3/top-5 regulars
+# Moneyline-only: derive_run_features excludes these columns from the run
+# engine's raw-only view.
+LINEUP_DELTA_COLS: list[str] = [
+    "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
+    "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
+    "lineup_rest_count_home", "lineup_rest_count_away",
+]
+LINEUP_MIN_PA = 20   # batters below this use the team season mean (never a 3-PA wOBA swing)
+LINEUP_REST_PA = 50  # "regular" floor for the top-5 rest-count
+LINEUP_TOP5_K = 5
+
+_lineup_cache: dict = {}
+
+
+def _load_lineup_cache() -> dict:
+    """Lazy-load the three lineup/wOBA artifacts (cached across calls)."""
+    if _lineup_cache:
+        return _lineup_cache
+    from pathlib import Path as _P
+    base = _P(__file__).resolve().parent.parent / "data_delivery"
+    try:
+        _lineup_cache["lineups"] = pd.read_parquet(base / "lineups.parquet")
+        _lineup_cache["batter"] = pd.read_parquet(base / "batter_woba.parquet")
+        _lineup_cache["team"] = pd.read_parquet(base / "team_woba.parquet")
+    except Exception as e:  # artifacts absent (pre-backfill env): degrade to NaN
+        logger.warning("add_lineup_delta_features: lineup artifacts unavailable (%s); columns stay NaN", e)
+        _lineup_cache.clear()
+        return {}
+    return _lineup_cache
+
+
+def add_lineup_delta_features(game_df: pd.DataFrame,
+                              inplace: bool = False,
+                              lineups_override: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Add the 6 lineup-delta columns (actual starting-9 wOBA vs team season).
+
+    Per side (home/away), per game:
+      lineup_actual_woba_delta = mean(actual 9's sd-wOBA) − team season sd-wOBA
+      lineup_actual_top3_delta = mean(top-3 of the actual 9) − team top-3 regulars
+      lineup_rest_count      = # of the team's top-5 wOBA regulars not in the
+                               actual 9 (resting-star days)
+
+    All inputs are point-in-time (batter/team wOBA through games strictly
+    before the game date — no lookahead, season-partitioned). Batters below
+    LINEUP_MIN_PA use the team season mean, so a rookie's 3-PA wOBA never
+    swings the feature; when the team baseline is itself missing the cell is
+    NaN and the existing imputation path handles it. Games without a lineup
+    row (no battingOrder in the backfill) get NaN — never fabricated.
+
+    Idempotent: existing columns are left untouched (SQL/other-shipped values
+    are authoritative). Returns the frame (same object when inplace=True).
+    """
+    df = game_df if inplace else game_df.copy()
+    missing = [c for c in LINEUP_DELTA_COLS if c not in df.columns]
+    if not missing:
+        return df
+    for c in missing:
+        df[c] = np.nan
+    if not {"game_pk", "game_date", "home_team", "away_team"}.issubset(df.columns):
+        logger.warning("add_lineup_delta_features: frame lacks game_pk/game_date/teams; columns stay NaN")
+        return df
+    caches = _load_lineup_cache()
+    if not caches:
+        return df
+    batters, teams = caches["batter"].copy(), caches["team"].copy()
+    lineups = (lineups_override if lineups_override is not None
+               else caches["lineups"])
+
+    date = pd.to_datetime(df["game_date"])
+    df["game_date"] = date
+    df["_season"] = date.dt.year
+    df["_gpk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
+    batters = batters.rename(columns={"season": "_season"})
+    teams = teams.rename(columns={"season": "_season"})
+    batters["batter"] = pd.to_numeric(batters["batter"], errors="coerce").astype("Int64")
+
+    for side, team_col, order_col, woba_col, top3_col, rest_col in (
+        ("home", "home_team", "home_order", "lineup_actual_woba_delta_home",
+         "lineup_actual_top3_delta_home", "lineup_rest_count_home"),
+        ("away", "away_team", "away_order", "lineup_actual_woba_delta_away",
+         "lineup_actual_top3_delta_away", "lineup_rest_count_away"),
+    ):
+        # game-level: team sd-wOBA + top-3/top-5 baselines as of the date
+        g = df[["_gpk", "_season", "game_date", team_col]].rename(
+            columns={team_col: "team"})
+        g = g.merge(teams, on=["_season", "game_date", "team"], how="left")
+        g = g.merge(lineups[["game_pk", order_col]].rename(columns={order_col: "order"}),
+                    left_on="_gpk", right_on="game_pk", how="left")
+
+        # explode to batter level; join point-in-time batter wOBA
+        exp = g[["_gpk", "_season", "game_date", "team", "sd_woba", "top3_woba",
+                 "top5_ids", "order"]].explode("order")
+        exp["batter"] = pd.to_numeric(exp["order"], errors="coerce").astype("Int64")
+        exp = exp.merge(
+            batters[["_season", "game_date", "batter", "sd_woba", "prior_pa"]],
+            on=["_season", "game_date", "batter"], how="left",
+            suffixes=("", "_b"))
+        # min-PA rule: effective wOBA = batter sd-wOBA, or the team season mean
+        eff = exp["sd_woba_b"].where(
+            exp["sd_woba_b"].notna() & (exp["prior_pa"] >= LINEUP_MIN_PA),
+            exp["sd_woba"])
+        exp["_eff"] = eff
+
+        # per-game aggregates
+        agg = exp.groupby("_gpk", as_index=False).agg(
+            actual_mean=("_eff", "mean"),
+            top3_mean=("_eff", lambda s: s.nlargest(3).mean()),
+            n_in_lineup=("batter", "count"),
+        )
+        g2 = g.merge(agg, on="_gpk", how="left")
+        # rest count: team's top-5 regulars not in tonight's 9
+        lineup_sets = (exp.groupby("_gpk")["batter"]
+                       .apply(lambda s: set(s.dropna().astype(int))))
+        rest = {}
+        for _, row in g2.iterrows():
+            gpk = row["_gpk"]
+            ids = row["top5_ids"]
+            if not isinstance(ids, str) or not ids.strip():
+                rest[gpk] = 0 if pd.notna(row["top5_ids"]) else np.nan
+                continue
+            try:
+                top5 = json.loads(ids)
+            except Exception:
+                rest[gpk] = np.nan
+                continue
+            cur = lineup_sets.get(gpk, set())
+            rest[gpk] = sum(1 for b in top5 if b not in cur)
+        g2["_rest"] = g2["_gpk"].map(rest)
+
+        if woba_col in missing:
+            df[woba_col] = g2["actual_mean"] - g2["sd_woba"]
+        if top3_col in missing:
+            df[top3_col] = g2["top3_mean"] - g2["top3_woba"]
+        if rest_col in missing:
+            df[rest_col] = g2["_rest"]
+
+    df = df.drop(columns=["_season", "_gpk"])
+    logger.info("add_lineup_delta_features: computed %d column(s) for %d games",
+                len(missing), len(df))
+    return df
+
+
 def add_diff_features(
     game_df: pd.DataFrame,
     weather_data: dict | None = None,

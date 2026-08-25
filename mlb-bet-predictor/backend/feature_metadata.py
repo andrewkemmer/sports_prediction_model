@@ -444,6 +444,15 @@ _FORM_DELTA_FAMILIES = {
 }
 
 
+# Phase 2 lineup-delta families (actual starting-9 wOBA vs team season, per
+# side). Tuple: (label, units, direction).
+_LINEUP_DELTA_FAMILIES = {
+    "lineup_actual_woba_delta": ("Lineup wOBA delta (actual 9 − team season)", "wOBA points", "positive = tonight's 9 better than the season-average lineup"),
+    "lineup_actual_top3_delta": ("Lineup top-3 wOBA delta (actual 9 top-3 − team top-3 regulars)", "wOBA points", "positive = star power up tonight"),
+    "lineup_rest_count": ("Resting regulars (team top-5 wOBA not in tonight's 9)", "count (0–5)", "higher = more stars resting"),
+}
+
+
 def _rich_entry(name: str) -> Optional[dict[str, str]]:
     """Authored entry, or a synthesized one for *_home/*_away family members."""
     if name in _RICH:
@@ -453,6 +462,27 @@ def _rich_entry(name: str) -> Optional[dict[str, str]]:
         if name.endswith(suffix):
             base = name[: -len(suffix)]
             side = "home" if suffix == "_home" else "away"
+            fam = _LINEUP_DELTA_FAMILIES.get(base)
+            if fam:
+                label, units, direction = fam
+                return {
+                    "summary": f"{label} — {side} team",
+                    "definition": (
+                        f"Lineup-delta column: the {side} club's ACTUAL starting "
+                        f"nine's season-to-date wOBA minus the team's own "
+                        f"season-to-date wOBA as of game day, so resting-star "
+                        f"days are visible to the model (the level columns only "
+                        f"see season-average lineup quality). Point-in-time: "
+                        f"batter/team wOBA through games strictly before the "
+                        f"game date — no lookahead. Batters below the min-PA "
+                        f"floor use the team season mean."
+                    ),
+                    "formula": name,
+                    "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+                    "window": "per-game lineup − season to date",
+                    "units": units,
+                    "direction": f"{direction} ({side} side)",
+                }
             fam = _FORM_DELTA_FAMILIES.get(base)
             if fam:
                 label, units, direction, window = fam

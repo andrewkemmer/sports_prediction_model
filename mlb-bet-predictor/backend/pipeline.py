@@ -55,6 +55,7 @@ from features import (
     add_diff_features,
     add_env_level_features,
     add_form_delta_features,
+    add_lineup_delta_features,
     refine_dome_game_level,
 )
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
@@ -107,6 +108,11 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
         "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
         "sp_id_home", "sp_id_away",
         "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice",
+        # Phase 2 lineup-delta features: a morning run may already have posted
+        # lineups; restore them onto an evening rebuild (they never go stale).
+        "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
+        "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
+        "lineup_rest_count_home", "lineup_rest_count_away",
     ) if c in prev.columns and c in slate.columns]
     if not carry_cols:
         return slate
@@ -126,6 +132,112 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
                 restored += 1
     if restored:
         logger.info("Carried forward %d slate details from earlier artifact", restored)
+    return slate
+
+
+def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame:
+    """Attach the 6 lineup-delta columns to today's slate from posted lineups.
+
+    Resolution: StatsAPI schedule for target_date maps (home, away) → game_pk
+    (the slate carries no StatsAPI game_pk — ESPN's game_id only), then the
+    live feed per game, paced like the roof fetcher (~2.2 req/s, one retry).
+    Games with a complete 9+9 battingOrder get REAL lineup-delta features
+    (same point-in-time math as training: batter/team sd-wOBA through games
+    strictly before today — no lookahead).
+
+    Projected fallback for games not yet posted (per the 2026-08-25 posting-
+    curve probe, away sides generally post ~2-3h before first pitch; a morning
+    slate is mostly projected): woba deltas = 0 (a projected lineup equal to
+    the team season mean makes the delta 0 by construction) and rest_count =
+    NaN (unknown → existing median imputation). Never fabricated; the actual-
+    vs-projected split is logged loudly so a projected-only morning is visible.
+    """
+    if slate is None or slate.empty:
+        return slate
+    slate = slate.reset_index(drop=True)  # posted-mask aligns by position below
+    import requests
+    import time as _time
+    from results import STATSAPI_SCHEDULE_URL  # same endpoint the weather backfill uses
+    _FEED = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
+
+    # 1) game_pk resolution from the StatsAPI schedule (one day, no chunking)
+    pk_by_teams: dict[tuple[str, str], int] = {}
+    try:
+        resp = requests.get(STATSAPI_SCHEDULE_URL,
+                            params={"sportId": 1,
+                                    "startDate": target_date.isoformat(),
+                                    "endDate": target_date.isoformat()},
+                            timeout=20)
+        resp.raise_for_status()
+        for g in (resp.json().get("dates") or [{}])[0].get("games") or []:
+            t = (g.get("teams") or {}).get("away") or {}
+            h = (g.get("teams") or {}).get("home") or {}
+            away = (t.get("team") or {}).get("abbreviation")
+            home = (h.get("team") or {}).get("abbreviation")
+            if home and away:
+                pk_by_teams[(home, away)] = int(g["gamePk"])
+    except Exception as e:
+        logger.warning("_fetch_slate_lineups: schedule resolution failed (%s); slate stays projected", e)
+        pk_by_teams = {}
+
+    # 2) per-game feed fetch (paced, one retry, cached per run)
+    def _feed(pk: int) -> dict | None:
+        for attempt in (0, 1):
+            try:
+                r = requests.get(_FEED.format(pk=pk), timeout=15)
+                if r.status_code == 200:
+                    return r.json()
+            except Exception:
+                pass
+            if attempt == 0:
+                _time.sleep(_LINEUP_PAUSE_SEC * 3)
+            _time.sleep(_LINEUP_PAUSE_SEC)
+        return None
+
+    def _orders(feed: dict | None) -> tuple[list[int], list[int]]:
+        out = []
+        if feed:
+            bs = ((feed.get("liveData") or {}).get("boxscore") or {})
+            teams_bs = bs.get("teams") or {}
+            for side in ("home", "away"):
+                try:
+                    order = [p["person"]["id"]
+                             for p in (teams_bs[side].get("battingOrder") or [])]
+                except Exception:
+                    order = []
+                out.append(order)
+        return (out[0] if out else [], out[1] if len(out) > 1 else [])
+
+    rows = []
+    for _, r in slate.iterrows():
+        teams_key = (r.get("home_team"), r.get("away_team"))
+        pk = pk_by_teams.get(teams_key)
+        if pk is None:
+            rows.append({"game_pk": pd.NA, "home_order": None, "away_order": None})
+            continue
+        feed = _feed(pk)
+        ho, ao = _orders(feed)
+        rows.append({"game_pk": int(pk), "home_order": ho or None,
+                     "away_order": ao or None})
+    lu = pd.DataFrame(rows)
+
+    # 3) real features where both sides posted; projected fallback otherwise
+    slate = add_lineup_delta_features(slate, lineups_override=lu)
+    from features import LINEUP_DELTA_COLS, LINEUP_TOP5_K
+    posted = lu["home_order"].notna() & lu["away_order"].notna()
+    n_actual = int(posted.sum())
+    for idx, r in slate.iterrows():
+        if not posted.iloc[idx]:
+            for c in ("lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
+                      "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away"):
+                slate.at[idx, c] = 0.0
+            # rest count is UNKNOWN pre-posting (median-imputed downstream)
+            slate.at[idx, "lineup_rest_count_home"] = pd.NA
+            slate.at[idx, "lineup_rest_count_away"] = pd.NA
+    logger.info(
+        "slate lineups: %d/%d ACTUAL (both sides posted), %d/%d projected "
+        "(not yet posted → deltas=0, rest_count imputed)",
+        n_actual, len(slate), len(slate) - n_actual, len(slate))
     return slate
 
 
@@ -629,6 +741,9 @@ _OBSERVED_WEATHER_SOURCES = {
 # StatsAPI feed (paced ~2.5 req/s, one-off per cached game_pk).
 STATSAPI_WEATHER_FILL = True
 
+# Lineup feed pacing (mirrors the roof-fetcher budget ~2.2 req/s).
+_LINEUP_PAUSE_SEC = 0.45
+
 
 def _load_weather_cache(path: Path) -> dict[int, dict]:
     if not path.exists():
@@ -923,6 +1038,10 @@ def run_daily_pipeline(
         # the existing paths). Moneyline-only: the run engine excludes
         # *_delta_* columns in derive_run_features.
         games = add_form_delta_features(games)
+        # Phase 2 lineup deltas (actual starting-9 wOBA − team season, per
+        # side) from data_delivery/lineups.parquet + batter/team sd-wOBA
+        # tables. Idempotent; moneyline-only (run engine excludes them).
+        games = add_lineup_delta_features(games)
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see
@@ -1084,6 +1203,7 @@ def run_daily_pipeline(
                 # NULL and avoids a second key contract in add_diff_features.
                 slate = add_diff_features(slate)
                 slate = add_form_delta_features(slate)
+                slate = _fetch_slate_lineups(slate, target_date)
                 if weather:
                     slate = apply_weather_features(slate, weather)
                 games = pd.concat([games, slate], ignore_index=True)

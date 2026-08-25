@@ -1,0 +1,220 @@
+"""
+Tests for Phase 2 lineup-delta moneyline features (actual starting-9 wOBA vs
+team season-to-date, per side).
+
+Covers:
+- build_batter_woba._point_in_time: prefix sums over strictly-earlier dates,
+  season-partitioned (the 2026 opener's row carries nothing from 2025) — the
+  no-lookahead core shared by the batter and team tables.
+- add_lineup_delta_features (with injected caches): delta identity
+  (mean of the actual 9's sd-wOBA − team sd-wOBA == feature), top-3 delta,
+  min-PA rule (a sub-floor batter uses the team season mean, never their own
+  tiny-sample wOBA), rest count (team's top-5 regulars not in the 9),
+  NaN when a game has no lineup row, idempotence (existing columns win).
+- Metadata: the 6 columns get synthesized authored entries (no placeholders).
+- Run-engine guardrail: derive_run_features drops the 6 lineup columns (the
+  run engine's raw-only view stays unchanged).
+"""
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import date
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import features as features_mod
+from build_batter_woba import _point_in_time
+from feature_metadata import _rich_entry
+from features import (
+    LINEUP_DELTA_COLS,
+    LINEUP_MIN_PA,
+    add_lineup_delta_features,
+)
+from run_engine import derive_run_features
+
+
+def _seed_caches():
+    """Inject tiny hand-built lineup/batter/team tables into the module cache.
+
+    Batter sd-wOBA is keyed by (season, game_date, batter) and is ALREADY the
+    point-in-time value (through games strictly before game_date) — exactly
+    what the builder's tables carry.
+    """
+    lineups = pd.DataFrame({
+        "game_pk": [101, 102, 103],
+        "home_order": [[1, 2, 3, 4, 5, 6, 7, 8, 9],
+                       [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                       [1, 2, 3, 4, 5, 6, 7, 8, 9]],
+        "away_order": [[21, 22, 23, 24, 25, 26, 27, 28, 29],
+                       [21, 22, 23, 24, 25, 26, 27, 28, 29],
+                       [21, 22, 23, 24, 25, 26, 27, 28, 29]],
+    })
+    # batters 1..9 (home): 1-4 hot (0.40), 5-9 league (0.32), all >= min-PA
+    # batter 7 below min-PA with a wild 3-PA 0.90 (must be ignored)
+    rows = []
+    for b in range(1, 10):
+        woba = 0.40 if b <= 4 else 0.32
+        pa = 200
+        if b == 7:
+            woba, pa = 0.90, 3  # below LINEUP_MIN_PA → team-mean fallback
+        rows.append({"season": 2026, "game_date": pd.Timestamp("2026-07-01"),
+                     "batter": b, "sd_woba": woba, "prior_pa": pa,
+                     "last_team": "HOM"})
+    for b in range(21, 30):
+        woba = 0.33 if b <= 25 else 0.31
+        rows.append({"season": 2026, "game_date": pd.Timestamp("2026-07-01"),
+                     "batter": b, "sd_woba": woba, "prior_pa": 200,
+                     "last_team": "AWY"})
+    batter = pd.DataFrame(rows)
+    teams = pd.DataFrame({
+        "season": [2026, 2026],
+        "game_date": [pd.Timestamp("2026-07-01"), pd.Timestamp("2026-07-01")],
+        "team": ["HOM", "AWY"],
+        "sd_woba": [0.315, 0.310],
+        "prior_pa": [3000, 2900],
+        "top3_woba": [0.385, 0.370],
+        "top5_ids": ['[1, 2, 3, 4, 5]', '[21, 22, 23, 24, 25]'],
+    })
+    features_mod._lineup_cache = {"lineups": lineups, "batter": batter,
+                                  "team": teams}
+
+
+class TestPointInTime(unittest.TestCase):
+    def test_prior_sums_exclude_current_date(self):
+        agg = pd.DataFrame({
+            "season": [2026, 2026, 2026, 2026],
+            "key": ["A", "A", "A", "A"],
+            "game_date": pd.to_datetime(["2026-04-01", "2026-04-02",
+                                         "2026-04-02", "2026-04-05"]),
+            "num": [10.0, 5.0, 5.0, 20.0],
+            "den": [40, 20, 20, 80],
+            "pa": [40, 20, 20, 80],
+        })
+        out = _point_in_time(agg, ["num", "den"], "pa")
+        out = out.sort_values("game_date")
+        # April 1 has no prior games (prior sums are 0; the caller's sd_woba
+        # = prior_num/prior_den is then NaN via the den>0 guard)
+        self.assertEqual(out.iloc[0]["prior_pa"], 0)
+        self.assertEqual(out.iloc[0]["prior_num"], 0.0)
+        # April 2 (both rows collapsed into one date) sees only April 1
+        self.assertEqual(out.iloc[1]["prior_pa"], 40)
+        self.assertEqual(out.iloc[1]["prior_num"], 10.0)
+        # April 5 sees April 1 + both April 2 rows (same-date fully excluded)
+        self.assertEqual(out.iloc[2]["prior_pa"], 80)
+        self.assertEqual(out.iloc[2]["prior_num"], 20.0)
+
+    def test_season_partition_no_cross_season_leak(self):
+        agg = pd.DataFrame({
+            "season": [2025, 2025, 2026],
+            "key": ["A", "A", "A"],
+            "game_date": pd.to_datetime(["2025-10-01", "2025-10-02",
+                                         "2026-03-20"]),
+            "num": [50.0, 60.0, 10.0],
+            "den": [200, 240, 40],
+            "pa": [200, 240, 40],
+        })
+        out = _point_in_time(agg, ["num", "den"], "pa")
+        opener = out[(out["season"] == 2026)].iloc[0]
+        self.assertEqual(opener["prior_pa"], 0)  # 2025 tail must not leak in
+        self.assertEqual(opener["prior_num"], 0.0)
+        last25 = out[(out["season"] == 2025)].sort_values("game_date").iloc[-1]
+        self.assertEqual(last25["prior_pa"], 200)
+
+
+class TestLineupDeltaFeatures(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _seed_caches()
+        cls.games = pd.DataFrame({
+            "game_pk": [101, 102, 103],
+            "game_date": ["2026-07-01", "2026-07-01", "2026-07-02"],
+            "home_team": ["HOM", "HOM", "HOM"],
+            "away_team": ["AWY", "AWY", "AWY"],
+        })
+        cls.out = add_lineup_delta_features(cls.games)
+
+    def test_columns_present(self):
+        for c in LINEUP_DELTA_COLS:
+            self.assertIn(c, self.out.columns)
+
+    def test_delta_identity(self):
+        # Home actual-9 effective wOBA: batters 1-4 @ 0.40, 5,6,8,9 @ 0.32,
+        # batter 7 (3 PA) falls back to the team mean 0.315.
+        eff = [0.40] * 4 + [0.32, 0.32, 0.315, 0.32, 0.32]
+        mean9 = np.mean(eff)
+        self.assertAlmostEqual(self.out.loc[0, "lineup_actual_woba_delta_home"],
+                               mean9 - 0.315, places=6)
+        # Away side
+        eff_a = [0.33] * 5 + [0.31] * 4
+        self.assertAlmostEqual(self.out.loc[0, "lineup_actual_woba_delta_away"],
+                               np.mean(eff_a) - 0.310, places=6)
+
+    def test_min_pa_rule_ignores_tiny_sample(self):
+        # batter 7 has a 3-PA 0.90 wOBA; the feature must use the team mean.
+        # Recompute without the rule (pure mean) would be higher than with it.
+        pure = np.mean([0.40] * 4 + [0.32, 0.32, 0.90, 0.32, 0.32])
+        with_rule = self.out.loc[0, "lineup_actual_woba_delta_home"] + 0.315
+        self.assertLess(with_rule, pure)  # 0.315 < 0.90 tamed the mean
+        self.assertAlmostEqual(with_rule, np.mean(
+            [0.40] * 4 + [0.32, 0.32, 0.315, 0.32, 0.32]), places=6)
+
+    def test_top3_delta(self):
+        # home top-3 of the actual 9 = 0.40, 0.40, 0.40 → mean 0.40
+        # team top-3 baseline = 0.385
+        self.assertAlmostEqual(self.out.loc[0, "lineup_actual_top3_delta_home"],
+                               0.40 - 0.385, places=6)
+        self.assertAlmostEqual(self.out.loc[0, "lineup_actual_top3_delta_away"],
+                               0.33 - 0.370, places=6)
+
+    def test_rest_count(self):
+        # home top-5 = [1,2,3,4,5], all in the lineup → 0
+        self.assertEqual(self.out.loc[0, "lineup_rest_count_home"], 0)
+        # away top-5 = [21..25], all in the lineup → 0
+        self.assertEqual(self.out.loc[0, "lineup_rest_count_away"], 0)
+
+    def test_rest_count_counts_missing_stars(self):
+        # game 102: home lineup missing 1, 2, 9 → rest_count = 2
+        _seed_caches()
+        lineups = features_mod._lineup_cache["lineups"].copy()
+        idx = lineups.index[lineups["game_pk"] == 102][0]
+        lineups.at[idx, "home_order"] = [3, 4, 5, 6, 7, 8, 9, 10, 11]
+        features_mod._lineup_cache["lineups"] = lineups
+        out = add_lineup_delta_features(self.games)
+        self.assertEqual(out.loc[1, "lineup_rest_count_home"], 2)
+        _seed_caches()
+
+    def test_missing_lineup_row_is_nan(self):
+        # game 103 has a date (2026-07-02) with no team/batter rows → the
+        # team baseline join yields NaN; feature must be NaN, not fabricated.
+        out = self.out
+        self.assertTrue(np.isnan(out.loc[2, "lineup_actual_woba_delta_home"]))
+
+    def test_idempotent_existing_columns_win(self):
+        df = self.games.copy()
+        df["lineup_actual_woba_delta_home"] = 123.0
+        out = add_lineup_delta_features(df)
+        self.assertEqual(out.loc[0, "lineup_actual_woba_delta_home"], 123.0)
+
+    def test_missing_key_columns_degrade_gracefully(self):
+        df = self.games.copy().drop(columns=["home_team"])
+        out = add_lineup_delta_features(df)
+        self.assertTrue(out["lineup_actual_woba_delta_home"].isna().all())
+
+
+class TestMetadataAndRunEngine(unittest.TestCase):
+    def test_metadata_synthesized(self):
+        for c in LINEUP_DELTA_COLS:
+            self.assertIsNotNone(_rich_entry(c), f"{c} missing metadata")
+
+    def test_run_engine_excludes_lineup_columns(self):
+        _, dropped = derive_run_features(LINEUP_DELTA_COLS)
+        self.assertEqual(set(dropped), set(LINEUP_DELTA_COLS))
+
+
+if __name__ == "__main__":
+    unittest.main()

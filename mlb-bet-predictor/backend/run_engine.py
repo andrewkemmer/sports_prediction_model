@@ -41,6 +41,12 @@ RUN_EXTRA_EXCLUSIONS = {
     "pitcher_regression_indicator",   # velo_diff × era_diff
     "lineup_depth_multiplier",        # woba_mean_diff × top3_diff
     "ace_efficiency_factor",          # k9_diff × whiff_diff
+    # Phase 2 lineup-delta features (actual starting-9 wOBA vs team season) —
+    # matchup/form signal, moneyline-only; excluded so the run engine's
+    # raw-only view stays byte-identical (GOLDEN RULE: levels + environment).
+    "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
+    "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
+    "lineup_rest_count_home", "lineup_rest_count_away",
 }
 # The one sanctioned _diff survivor: a PARK context multiplier, not a matchup gap.
 RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
