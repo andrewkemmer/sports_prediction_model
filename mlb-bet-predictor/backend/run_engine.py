@@ -1101,6 +1101,21 @@ def load_moneyline_probs(csv_path: Path) -> Optional[pd.DataFrame]:
 # ---------------------------------------------------------------------------
 # Phase 3 — production path: slate λ prediction + daily orchestration.
 # ---------------------------------------------------------------------------
+def _resolve_slate_key(slate: pd.DataFrame) -> str:
+    """Return 'game_pk' if present, else 'game_id'.
+
+    Pre-game ESPN slates carry ``game_id`` (e.g. "20260824_SF@BOS") but
+    not ``game_pk`` (StatsAPI — only available after first pitch).
+    """
+    if "game_pk" in slate.columns:
+        return "game_pk"
+    if "game_id" in slate.columns:
+        return "game_id"
+    raise KeyError(
+        "Slate frame has neither 'game_pk' nor 'game_id' — "
+        f"columns: {sorted(slate.columns.tolist())}")
+
+
 def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        final_fit_rounds: dict[str, int],
                        curves: dict[str, dict],
@@ -1115,7 +1130,22 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         return pd.DataFrame()
     from lightgbm import LGBMRegressor
 
-    out = slate_games[["game_pk", "game_date"]].copy()
+    # Guard: ensure required columns exist with an actionable message.
+    _required = ["game_date"]
+    _missing = [c for c in _required if c not in slate_games.columns]
+    if _missing:
+        raise KeyError(
+            f"Slate frame missing required column(s): {_missing} -- "
+            f"available: {sorted(slate_games.columns.tolist())}")
+
+    # Pre-game ESPN slates only have game_id, not game_pk; OOF rows always
+    # carry game_pk.  Unify by always emitting game_pk, populating from
+    # game_id when game_pk is absent.
+    _slate_key = _resolve_slate_key(slate_games)
+    out = slate_games[[_slate_key, "game_date"]].copy()
+    if _slate_key == "game_id":
+        out = out.rename(columns={"game_id": "game_pk"})
+    out["game_pk"] = out["game_pk"].astype(str)
     for tc in ("home_team", "away_team"):
         if tc in slate_games.columns:
             out[tc] = slate_games[tc]
@@ -1217,8 +1247,11 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         curves, n_draws=n_draws)
     if (not slate_frame.empty and ml_probs is not None
             and "home_win_prob_model" in target_games.columns):
-        tp_map = dict(zip(target_games["game_pk"],
+        # Use whichever key exists: game_pk (StatsAPI) or game_id (ESPN).
+        _tg_key = _resolve_slate_key(target_games)
+        tp_map = dict(zip(target_games[_tg_key],
                           target_games["home_win_prob_model"]))
+        # slate_frame already unified to game_pk by predict_slate_runs
         m = slate_frame["game_pk"].map(tp_map)
         known = m.notna()
         if known.any():

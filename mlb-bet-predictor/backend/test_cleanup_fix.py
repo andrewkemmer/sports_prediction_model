@@ -236,13 +236,13 @@ class TestRoofCachePersistence(TestCase):
 class TestRealArtifacts(TestCase):
     """Sanity check on the actual artifact files."""
 
-    def test_today_markets_exists(self):
-        csv = Path(__file__).resolve().parent.parent / "data_delivery" / "run_engine_markets_20260824.csv"
-        self.assertTrue(csv.exists(), "run_engine_markets_20260824.csv missing")
+    def test_game_level_features_exists(self):
+        csv = Path(__file__).resolve().parent.parent / "data_delivery" / "game_level_features.csv"
+        self.assertTrue(csv.exists(), "game_level_features.csv missing")
 
-    def test_today_oof_exists(self):
-        csv = Path(__file__).resolve().parent.parent / "data_delivery" / "run_engine_oof_20260824.csv"
-        self.assertTrue(csv.exists(), "run_engine_oof_20260824.csv missing")
+    def test_roof_cache_exists(self):
+        cache = Path(__file__).resolve().parent.parent / "data_delivery" / "statsapi_roof_cache.json"
+        self.assertTrue(cache.exists(), "statsapi_roof_cache.json missing")
 
 
 if __name__ == "__main__":

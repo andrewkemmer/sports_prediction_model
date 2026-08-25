@@ -684,6 +684,130 @@ class TestPredictSlateRuns(unittest.TestCase):
                                      {"home": 5, "away": 5}, {}, n_draws=100)
         self.assertTrue(out.empty)
 
+    def test_slate_with_game_id_only_produces_game_pk(self):
+        """Pre-game ESPN slates have game_id but NOT game_pk.  The
+        function must unify to game_pk so the artifact schema is consistent."""
+        rng = np.random.default_rng(61)
+        abbrs = ["NYY", "BOS"]
+        rows = []
+        for d in range(40):
+            date = pd.Timestamp("2026-04-01") + pd.Timedelta(days=d)
+            for g in range(4):
+                ht, at = abbrs[(d + g) % 2], abbrs[(d + g + 1) % 2]
+                hs, as_ = rng.poisson(4.5), rng.poisson(4.2)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 600000 + d * 4 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+
+        # Build a slate with ONLY game_id (no game_pk) — the ESPN path.
+        slate = decided.tail(3).drop(columns=["home_win", "home_score",
+                                              "away_score", "game_pk"]).copy()
+        slate["game_id"] = ["20260824_NYY@BOS", "20260824_LAD@SF",
+                             "20260824_SF@LAD"]
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        out = re_.predict_slate_runs(decided, slate,
+                                     {"home": 10, "away": 10},
+                                     {"home": curve, "away": curve},
+                                     n_draws=500, seed=2)
+        self.assertEqual(len(out), 3)
+        # game_pk must always be in the output
+        self.assertIn("game_pk", out.columns)
+        # game_pk values come from game_id
+        self.assertTrue(
+            all(out["game_pk"] == ["20260824_NYY@BOS", "20260824_LAD@SF",
+                                     "20260824_SF@LAD"]))
+        # artifact schema columns must all be present
+        for col in MARKET_COLUMNS_V3:
+            if col not in NULLABLE_MARKET_COLUMNS and col not in (
+                    "home_score", "away_score", "total_runs"):
+                self.assertIn(col, out.columns, col)
+                self.assertFalse(out[col].isna().any(), col)
+
+    def test_slate_missing_both_keys_raises_loud_error(self):
+        """A slate with neither game_pk nor game_id must raise a clear
+        error — not a bare KeyError with no message."""
+        slate = pd.DataFrame({
+            "game_date": ["2026-08-24"],
+            "home_team": ["NYY"],
+            "away_team": ["BOS"],
+        })
+        # Also need feature cols for the model to work
+        for c in FEATURE_COLS:
+            slate[c] = 0.0
+        decided = pd.DataFrame({
+            "game_pk": [500001],
+            "game_date": [pd.Timestamp("2026-04-01")],
+            "home_team": ["NYY"], "away_team": ["BOS"],
+            "home_score": [5], "away_score": [3],
+            "home_win": [1.0],
+        })
+        for c in FEATURE_COLS:
+            decided[c] = 0.0
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        with self.assertRaises(KeyError) as ctx:
+            re_.predict_slate_runs(decided, slate,
+                                    {"home": 5, "away": 5},
+                                    {"home": curve, "away": curve},
+                                    n_draws=100, seed=3)
+        msg = str(ctx.exception)
+        self.assertIn("neither", msg.lower())
+        self.assertIn("game_pk", msg)
+        self.assertIn("game_id", msg)
+
+    def test_run_engine_daily_with_game_id_slate_does_not_crash(self):
+        """E2E: predict_slate_runs on a game_id-only slate produces a
+        full-market-grid frame. Uses canned params to bypass OOF derivation
+        (which requires a larger dataset)."""
+        rng = np.random.default_rng(71)
+        abbrs = ["NYY", "BOS", "LAD", "SF"]
+        rows = []
+        for d in range(80):
+            date = pd.Timestamp("2026-04-01") + pd.Timedelta(days=d)
+            for g in range(6):
+                ht, at = abbrs[(d + g) % 4], abbrs[(d + g + 2) % 4]
+                hs, as_ = rng.poisson(4.5), rng.poisson(4.2)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 700000 + d * 6 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_),
+                            "total_runs": int(hs + as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+
+        # Slate with game_id only + home_win_prob_model
+        slate = decided.tail(4).drop(columns=["game_pk"]).copy()
+        slate["game_id"] = ["20260824_A@B", "20260824_C@D",
+                             "20260824_E@F", "20260824_G@H"]
+        slate["home_win_prob_model"] = [0.45, 0.52, 0.48, 0.55]
+
+        # Canned curve + rounds — avoid full OOF/market derivation
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        rounds = {"home": 10, "away": 10}
+        curves = {"home": curve, "away": curve}
+
+        out = re_.predict_slate_runs(
+            decided, slate, rounds, curves, n_draws=500)
+        self.assertFalse(out.empty, "Slate output empty")
+        self.assertIn("game_pk", out.columns,
+                      "game_pk missing from slate output")
+        # game_pk values come from game_id (ESPN path fallback)
+        self.assertTrue(
+            all(out["game_pk"] == ["20260824_A@B", "20260824_C@D",
+                                     "20260824_E@F", "20260824_G@H"]))
+        # All required non-nullable artifact columns present
+        for col in MARKET_COLUMNS_V3:
+            if col not in NULLABLE_MARKET_COLUMNS and col not in (
+                    "home_score", "away_score", "total_runs"):
+                self.assertIn(col, out.columns,
+                              f"{col} missing from slate output")
+                self.assertFalse(out[col].isna().any(),
+                                 f"{col} has NaNs in slate output")
+
 
 class TestRollingTotalsBrier(unittest.TestCase):
     def test_series_and_meta_shape(self):
