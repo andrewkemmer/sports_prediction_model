@@ -185,15 +185,19 @@ class TestMarketsPageStripped(unittest.TestCase):
     def setUp(self):
         self.src = (FRONTEND / "markets.py").read_text()
 
-    def test_seven_diagnostics_tabs_present(self):
+    def test_six_diagnostics_tabs_present(self):
         for label in ['"Distribution"', '"Relativized"', '"Pooled lines"',
-                      '"Money line (rounded)"', '"Overs picks"',
-                      '"Run-line picks"', '"Totals picks"']:
+                      '"Money line (rounded)"', '"Totals picks"',
+                      '"Run-line picks"']:
             self.assertIn(label, self.src, f"missing tab {label}")
+        # Overs picks tab dropped — Totals picks takes its place (superset)
+        self.assertNotIn('"Overs picks"', self.src)
         self.assertIn("import market_diagnostics as diag", self.src)
         self.assertIn("No decided OOF rows", self.src)
         self.assertIn("rounded_total_pairs", self.src)
         self.assertIn("totals_pick_table", self.src)
+        # Totals picks chart carries the pooled-win-rate reference line
+        self.assertIn("total_line=True", self.src)
 
     def test_flat_8_5_money_line_gone(self):
         self.assertNotIn('"Money line 8.5"', self.src)

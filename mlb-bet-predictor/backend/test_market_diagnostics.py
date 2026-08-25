@@ -456,6 +456,11 @@ class TestRealArtifactPushSmoke(unittest.TestCase):
         self.assertEqual(len(pairs), stats["n_games"] - stats["n_pushes"])
 
 
+def _spec_dump(chart) -> str:
+    import json
+    return json.dumps(chart.to_dict())
+
+
 class TestRenderSmoke(unittest.TestCase):
     """Each chart builder returns a NON-EMPTY altair object for a fixture."""
 
@@ -519,6 +524,23 @@ class TestRenderSmoke(unittest.TestCase):
         # Labels follow the 4-bucket convention (50–55 … 65+)
         self.assertEqual(built["table"]["bucket"].tolist(),
                          diag.TOTALS_PICK_LABELS)
+        # Default: no reference line (other charts unchanged)
+        self.assertNotIn('"rule"',
+                         _spec_dump(built["chart"]))
+
+    def test_totals_picks_total_line_at_pooled_rate(self):
+        import json
+        tp = diag.totals_pick_table(self.decided)
+        built = diag.chart_pick_buckets(
+            tp, "Totals picks", total_line=True)
+        dump = json.dumps(built["chart"].to_dict())
+        # Constant horizontal line at the POOLED win rate, not a bucket point
+        self.assertIn('"rule"', dump)
+        self.assertIn(f'"y": {tp["win_rate"] * 100}', dump)
+        # Labeled with n + pooled rate
+        self.assertIn(
+            f"Total (n={tp['n_games']:,}): {tp['win_rate'] * 100:.1f}%",
+            dump)
 
     def test_5_overs_picks_renders(self):
         built = diag.chart_pick_buckets(

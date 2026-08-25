@@ -562,9 +562,17 @@ def chart_calibration(curve: dict, title: str,
     return (diag + pts).properties(height=300, title=title)
 
 
-def chart_pick_buckets(table: dict, title: str) -> dict:
+def chart_pick_buckets(table: dict, title: str,
+                       total_line: bool = False) -> dict:
     """Returns {'chart': alt.Chart, 'table': pd.DataFrame} for dual-axis
-    rendering; count bars + accuracy line are layered in the page."""
+    rendering; count bars + accuracy line are layered in the page.
+
+    total_line=True overlays a CONSTANT horizontal reference line on the
+    accuracy axis at the pooled win rate (table['win_rate'], across ALL
+    picks — not a per-bucket point), labeled 'Total (n=…): …%', so the
+    overall hit rate is visible on the chart itself rather than only in the
+    caption. Other callers pass False (default) → unchanged behavior.
+    """
     tdf = pd.DataFrame(table["buckets"])
     if tdf.empty:
         return {"chart": alt.Chart(pd.DataFrame()).mark_bar(), "table": tdf}
@@ -577,6 +585,26 @@ def chart_pick_buckets(table: dict, title: str) -> dict:
                          point=alt.OverlayMarkDef(size=60)).encode(
         y=alt.Y("accuracy:Q", title="Actual hit %"),
         tooltip=["bucket", "count", "accuracy"])
-    return {"chart": alt.layer(bars, acc).resolve_scale(y="independent")
+    acc_layers = [acc]
+    if total_line:
+        rate = table.get("win_rate")
+        if isinstance(rate, (int, float)):
+            n = int(table.get("n_games") or 0)
+            yv = float(rate) * 100.0
+            label = f"Total (n={n:,}): {yv:.1f}%"
+            line_df = pd.DataFrame({"y": [yv]})
+            rule = alt.Chart(line_df).mark_rule(
+                color="#F59E0B", strokeDash=[6, 4], strokeWidth=2).encode(
+                y=alt.Y("y:Q"))
+            last_bucket = tdf["bucket"].iloc[-1]
+            txt = alt.Chart(pd.DataFrame({"bucket": [last_bucket],
+                                          "y": [yv]})).mark_text(
+                text=label, align="right", baseline="bottom",
+                color="#FBBF24", fontSize=11, dx=-8, dy=-4).encode(
+                x=alt.X("bucket:N", sort=list(tdf["bucket"])),
+                y=alt.Y("y:Q"))
+            acc_layers += [rule, txt]
+    acc_layer = alt.layer(*acc_layers)
+    return {"chart": alt.layer(bars, acc_layer).resolve_scale(y="independent")
             .properties(height=280, title=title),
             "table": tdf}

@@ -1,8 +1,8 @@
 """Page 5 — Today's Totals & Run Lines (run engine, Phase 3).
 
-Temporary UI simplification: this page renders ONLY the seven diagnostics
+Temporary UI simplification: this page renders ONLY the six diagnostics
 charts (Distribution, Relativized, Pooled lines, Money line (rounded),
-Overs picks, Run-line picks, Totals picks) from
+Totals picks, Run-line picks) from
 frontend/market_diagnostics.py — pure functions
 over run_engine_markets_<date>.csv; the render layer only draws what they
 produce. The per-game slate board, total/run-line selectors, calibration
@@ -104,8 +104,7 @@ if decided.empty:
 else:
     _tabs = st.tabs([
         "Distribution", "Relativized", "Pooled lines",
-        "Money line (rounded)", "Overs picks", "Run-line picks",
-        "Totals picks",
+        "Money line (rounded)", "Totals picks", "Run-line picks",
     ])
 
     with _tabs[0]:   # 1 — totals distribution fit-check
@@ -192,19 +191,30 @@ else:
                 "spread lives in the Relativized tab."
             )
 
-    with _tabs[4]:   # 5 — overs pick accuracy buckets
-        opicks = diag.overs_pick_table(decided, line=8.5)
-        if opicks["warning"] or not opicks["buckets"]:
-            st.warning(opicks.get("warning")
-                       or "No overs picks could be formed.")
+    with _tabs[4]:   # 5 — totals picks at each game's rounded line
+        tpicks = diag.totals_pick_table(decided)
+        if tpicks["warning"] or not tpicks["buckets"]:
+            st.warning(tpicks.get("warning")
+                       or "No totals picks could be formed.")
         else:
-            built = diag.chart_pick_buckets(opicks, "Overs picks @ 8.5")
+            built = diag.chart_pick_buckets(
+                tpicks, "Totals picks (per-game rounded line)",
+                total_line=True)
             utils.show_chart(built["chart"])
             st.table(built["table"])
             st.caption(
-                f"Pick rule: {opicks['pick_rule']} · {opicks['n_games']:,} "
-                "decided games. Hit rate is NOT calibration — it is binary "
-                "pick accuracy per favored-side confidence bucket."
+                f"Pick rule: {tpicks['pick_rule']} · {tpicks['n_games']:,} "
+                f"decided games · {tpicks['n_pushes']:,} pushes excluded "
+                f"({tpicks['push_rate']:.1%}) · pooled win rate: "
+                f"{tpicks['win_rate']:.1%}. Pushes are UNDER-favored games "
+                "landing exactly on the line (rounded line at/above the "
+                "expected total → under favored) and were "
+                "previously scored as wins — excluding them LOWERS the honest "
+                "win rate vs the inflated one (2026-08-24 artifact: 56.1% → 54.1%, "
+                "≈2,420 wins/4,314 → ≈2,200 wins/4,066). Every game is priced "
+                "at its own rounded total, so high-confidence buckets are "
+                "small. Hit rate is NOT calibration — it is binary pick "
+                "accuracy per favored-side confidence bucket."
             )
 
     with _tabs[5]:   # 6 — run-line pick accuracy buckets
@@ -221,27 +231,4 @@ else:
                 "decided games · hit rate is NOT calibration."
             )
 
-    with _tabs[6]:   # 7 — totals picks at each game's rounded line
-        tpicks = diag.totals_pick_table(decided)
-        if tpicks["warning"] or not tpicks["buckets"]:
-            st.warning(tpicks.get("warning")
-                       or "No totals picks could be formed.")
-        else:
-            built = diag.chart_pick_buckets(
-                tpicks, "Totals picks (per-game rounded line)")
-            utils.show_chart(built["chart"])
-            st.table(built["table"])
-            st.caption(
-                f"Pick rule: {tpicks['pick_rule']} · {tpicks['n_games']:,} "
-                f"decided games · {tpicks['n_pushes']:,} pushes excluded "
-                f"({tpicks['push_rate']:.1%}) · pooled win rate: "
-                f"{tpicks['win_rate']:.1%}. Pushes are UNDER-favored games "
-                "landing exactly on the line (rounded line at/above the "
-                "expected total → under favored) and were "
-                "previously scored as wins — excluding them LOWERS the honest "
-                "win rate vs the inflated one (2026-08-24 artifact: 56.1% → 54.1%, "
-                "≈2,420 wins/4,314 → ≈2,200 wins/4,066). Every game is priced "
-                "at its own rounded total, so high-confidence "
-                "buckets are small. Hit rate is NOT calibration — it is "
-                "binary pick accuracy per favored-side confidence bucket."
-            )
+
