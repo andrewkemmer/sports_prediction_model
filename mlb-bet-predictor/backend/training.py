@@ -933,14 +933,13 @@ def train_moneyline_ensemble(
         logger.warning("RandomForest member failed: %s", e)
 
     # MLP — small neural net with early stopping; diversity wildcard whose
-    # weight is earned (or starved) by the adaptive blend.
+    # weight is earned (or starved) by the adaptive blend. Params live in
+    # config.MLP_PARAMS (pre-tuning values; the Optuna study in
+    # tune_mlp_optuna.py may replace them with provenance).
     try:
         from sklearn.neural_network import MLPClassifier
-        mlp = MLPClassifier(
-            hidden_layer_sizes=(32, 16), alpha=0.01,
-            early_stopping=True, validation_fraction=0.15,
-            max_iter=300, random_state=RANDOM_SEED,
-        )
+        from config import MLP_PARAMS
+        mlp = MLPClassifier(**MLP_PARAMS)
         mlp.fit(X_train_scaled, y_train)
         models["mlp"] = mlp
     except Exception as e:

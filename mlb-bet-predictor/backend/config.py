@@ -133,6 +133,35 @@ LIGHTGBM_PARAMS = {
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
+# MLP member — small neural net with early stopping; the ensemble's
+# diversity wildcard whose weight is earned (or starved) by the adaptive
+# blend. Params below are the production values (hidden 32x16, alpha 0.01),
+# plus the sklearn defaults the fold trainer relied on implicitly. MLP
+# cannot consume NaN: train-fold-median imputation + StandardScaler, never
+# a native-NaN route.
+#
+# Optuna study (tune_mlp_optuna.py, 2026-08-25, 75 trials, same 44
+# walk-forward folds as production): best pooled OOF logloss 0.70992
+# (hidden 32x16, tanh, alpha 1.1e-3, adaptive lr 2.3e-3, batch 256,
+# max_iter 600, val 0.1, n_iter_no_change 10) vs current 0.79105 — the
+# winner's edge came from the tiny early folds. On the SEALED 21-day
+# holdout (refit on all pre-holdout games, the production condition) the
+# current config WON: logloss 0.70283 vs 0.71069, AUC 0.5263 vs 0.5066.
+# Verdict: NOT ADOPTED — the current config stays (honesty contract).
+MLP_PARAMS = {
+    "hidden_layer_sizes": (32, 16),
+    "alpha": 0.01,
+    "early_stopping": True,
+    "validation_fraction": 0.15,
+    "max_iter": 300,
+    "learning_rate": "constant",
+    "learning_rate_init": 0.001,
+    "batch_size": "auto",
+    "n_iter_no_change": 10,
+    "activation": "relu",
+    "random_state": RANDOM_SEED,
+}
+
 # Totals regression variants
 XGBOOST_REG_PARAMS = {
     "n_estimators": 200,
