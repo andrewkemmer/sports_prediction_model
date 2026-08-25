@@ -374,7 +374,7 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
 
     def test_fit_check_table_shape(self):
         fc2 = self.out["summary"]["fit_check_single_alpha"]["home"]
-        self.assertEqual(len(fc2), 15)  # k=0..12 plus >=10 and <=1 (Phase 2)
+        self.assertEqual(len(fc2), 15)  # k=0..12 plus ≥10 and ≤1 (Phase 2)
         fc3 = self.out["summary"]["fit_check_alpha_lambda"]["home"]
         self.assertEqual(len(fc3), 17)  # adds >=11 and >=12 tails
         for row in fc2 + fc3:
@@ -518,11 +518,11 @@ class TestTailMatchAndVariance(unittest.TestCase):
         y = rng.negative_binomial(inv_n, inv_n / (inv_n + lam)).astype(int)
         curve, _ = select_alpha_curve(y.astype(float), lam, seed=5)
         fc_curve = re_.fit_check_table_curve(y, lam, alpha_of(lam, curve))
-        tail_c = next(r for r in fc_curve if r["k"] == ">=10")
+        tail_c = next(r for r in fc_curve if r["k"] == "≥10")
         gap_curve = abs(tail_c["modeled_p"] - tail_c["observed_p"])
         single = fit_alpha(y.astype(float), lam)
         fc_single = fit_check_table(y.astype(float), lam, single)
-        tail_s = next(r for r in fc_single if r["k"] == ">=10")
+        tail_s = next(r for r in fc_single if r["k"] == "≥10")
         gap_single = abs(tail_s["modeled_p"] - tail_s["observed_p"])
         self.assertLess(gap_curve, gap_single)
         self.assertLess(gap_curve, 0.01)

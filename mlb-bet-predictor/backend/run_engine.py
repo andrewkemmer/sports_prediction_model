@@ -385,9 +385,9 @@ def fit_check_table(actual: np.ndarray, lam: np.ndarray, alpha: float,
     rows = [{"k": int(k), "modeled_p": round(float(m), 4),
              "observed_p": round(float(o), 4)}
             for k, m, o in zip(ks, modeled, observed)]
-    rows.append({"k": ">=10", "modeled_p": round(tail_ge10_m, 4),
+    rows.append({"k": "≥10", "modeled_p": round(tail_ge10_m, 4),
                  "observed_p": round(tail_ge10_o, 4)})
-    rows.append({"k": "<=1", "modeled_p": round(le1_m, 4),
+    rows.append({"k": "≤1", "modeled_p": round(le1_m, 4),
                  "observed_p": round(le1_o, 4)})
     return rows
 
@@ -858,9 +858,9 @@ def fit_check_table_curve(actual: np.ndarray, lam: np.ndarray,
              "observed_p": round(float((actual == k).mean()), 4)}
             for k, m in zip(K, modeled_k)]
     for t in (10, 11, 12):
-        rows.append({"k": f">={t}", "modeled_p": round(float(surv[:, t].mean()), 4),
+        rows.append({"k": f"≥{t}", "modeled_p": round(float(surv[:, t].mean()), 4),
                      "observed_p": round(float((actual >= t).mean()), 4)})
-    rows.append({"k": "<=1", "modeled_p": round(float(modeled_k[:2].sum()), 4),
+    rows.append({"k": "≤1", "modeled_p": round(float(modeled_k[:2].sum()), 4),
                  "observed_p": round(float((actual <= 1).mean()), 4)})
     return rows
 
@@ -1304,6 +1304,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         "market_metrics": {
             k.replace("market_", ""): v for k, v in summary.items()
             if k.startswith("market_") and isinstance(v, dict)
+            and not k.endswith("_holdout")  # holdout data nested in main entry
         },
         "rolling_totals_brier": totals_brier,
         "phase1": {"n_folds": s1["n_folds"], "n_games": s1["n_games"],
@@ -1408,7 +1409,7 @@ def main() -> None:
         print(f"  variance check: {s3['variance_check'][side]}")
         fc2 = {r["k"]: r for r in s3["fit_check_single_alpha"][side]}
         fc3 = {r["k"]: r for r in s3["fit_check_alpha_lambda"][side]}
-        order = list(range(13)) + [">=10", ">=11", ">=12", "<=1"]
+        order = list(range(13)) + ["≥10", "≥11", "≥12", "≤1"]
         print(f"  {'k':>5}{'single-a':>10}{'alpha(l)':>10}{'observed':>10}")
         for k in order:
             o = fc2.get(k, fc3.get(k, {})).get("observed_p")

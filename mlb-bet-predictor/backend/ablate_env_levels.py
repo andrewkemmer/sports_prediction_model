@@ -91,8 +91,8 @@ def _tails(oof: pd.DataFrame) -> dict:
         rows = {r["k"]: r for r in fit_check_table(y, lam, alpha)}
         out[side] = {
             "alpha": round(float(alpha), 4),
-            "p_le_1_model": round(rows["<=1"]["modeled_p"], 4),
-            "p_le_1_obs": round(rows["<=1"]["observed_p"], 4),
+            "p_le_1_model": round(rows["≤1"]["modeled_p"], 4),
+            "p_le_1_obs": round(rows["≤1"]["observed_p"], 4),
             "tail10_model": round(float(
                 y.size and sum(r["modeled_p"] for k, r in rows.items()
                                if isinstance(k, int) and k >= 10)), 4),

@@ -248,7 +248,7 @@ if fc3 and fc2:
         single = {r["k"]: r for r in fc2.get(side, []) if isinstance(r["k"], str)}
         for r in fc3.get(side, []):
             k = r.get("k")
-            if isinstance(k, str) and k.startswith(">="):
+            if isinstance(k, str) and k.startswith("≥"):
                 tail_rows.append({
                     "SIDE": side,
                     "TAIL": k,
