@@ -83,6 +83,14 @@ except ImportError:  # pragma: no cover - direct execution fallback
     )
 
 
+# Probability clip used everywhere, chosen to match production's
+# compute_metrics (training.py clips at 1e-7). The 1e-6 clip used in the
+# first study pass differed measurably on degenerate early-fold points
+# (pooled logloss 0.79105 vs 0.79879 on the current config) — reconciled
+# against walk_forward_evaluate and aligned.
+_EPS = 1e-7
+
+
 # ---------------------------------------------------------------------------
 # Data / folds — built through the PRODUCTION feature builders
 # ---------------------------------------------------------------------------
@@ -232,9 +240,9 @@ def main() -> None:
         pooled_pred, pooled_y, iters = [], [], []
         for fold in fold_data:
             proba, n_iter = fit_fold(params, fold)
-            pooled_pred.append(np.clip(proba, 1e-6, 1 - 1e-6))
+            pooled_pred.append(np.clip(proba, _EPS, 1 - _EPS))
             pooled_y.append(fold["y_val"])
-            iters.append(n_iter)
+        iters.append(n_iter)
         trial.set_user_attr("mean_n_iter", float(np.mean(iters)))
         trial.set_user_attr("median_n_iter", float(np.median(iters)))
         return log_loss(np.concatenate(pooled_y), np.concatenate(pooled_pred))
@@ -266,7 +274,7 @@ def main() -> None:
     cur_pred, cur_y = [], []
     for fold in fold_data:
         proba, _ = fit_fold(base_params(dict(MLP_PARAMS)), fold)
-        cur_pred.append(np.clip(proba, 1e-6, 1 - 1e-6))
+        cur_pred.append(np.clip(proba, _EPS, 1 - _EPS))
         cur_y.append(fold["y_val"])
     cur_y_all = np.concatenate(cur_y)
     cur_ll = log_loss(cur_y_all, np.concatenate(cur_pred))
@@ -290,7 +298,7 @@ def main() -> None:
         "y_train": refit_y.astype(float), "y_val": hold_y.astype(float),
     }
 
-    eps = 1e-6
+    eps = _EPS
     rows = []
 
     # Baseline: exact production config (config.MLP_PARAMS verbatim).

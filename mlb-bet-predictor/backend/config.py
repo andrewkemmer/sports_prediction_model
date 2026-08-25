@@ -143,11 +143,19 @@ LIGHTGBM_PARAMS = {
 # Optuna study (tune_mlp_optuna.py, 2026-08-25, 75 trials, same 44
 # walk-forward folds as production): best pooled OOF logloss 0.70992
 # (hidden 32x16, tanh, alpha 1.1e-3, adaptive lr 2.3e-3, batch 256,
-# max_iter 600, val 0.1, n_iter_no_change 10) vs current 0.79105 — the
+# max_iter 600, val 0.1, n_iter_no_change 10) vs current 0.79879 — the
 # winner's edge came from the tiny early folds. On the SEALED 21-day
 # holdout (refit on all pre-holdout games, the production condition) the
 # current config WON: logloss 0.70283 vs 0.71069, AUC 0.5263 vs 0.5066.
 # Verdict: NOT ADOPTED — the current config stays (honesty contract).
+#
+# Harness reconciliation (2026-08-25): per-fold MLP probabilities are
+# bit-identical to production's walk_forward_evaluate on the same folds
+# (logistic control 0.7052 matches to 4dp; AUC identical), and the pooled
+# numbers agree exactly once the tuner clips at the same 1e-7 as
+# compute_metrics (the 1e-6 clip had hidden 19 degenerate early-fold
+# points: 0.79105 vs 0.79879). The ~0.7076 figure from the v2026.08.24
+# run was a different data snapshot (47 folds), not a harness artifact.
 MLP_PARAMS = {
     "hidden_layer_sizes": (32, 16),
     "alpha": 0.01,

@@ -155,11 +155,11 @@ class TestFitAndObjective(unittest.TestCase):
         p1, _ = tune.fit_fold(params, f1)
         p2, _ = tune.fit_fold(params, f2)
         y_all = np.concatenate([f1["y_val"], f2["y_val"]])
-        p_all = np.concatenate([np.clip(p1, 1e-6, 1 - 1e-6),
-                                np.clip(p2, 1e-6, 1 - 1e-6)])
+        p_all = np.concatenate([np.clip(p1, tune._EPS, 1 - tune._EPS),
+                                np.clip(p2, tune._EPS, 1 - tune._EPS)])
         pooled = log_loss(y_all, p_all)
-        per_fold_mean = (log_loss(f1["y_val"], np.clip(p1, 1e-6, 1 - 1e-6))
-                         + log_loss(f2["y_val"], np.clip(p2, 1e-6, 1 - 1e-6))) / 2
+        per_fold_mean = (log_loss(f1["y_val"], np.clip(p1, tune._EPS, 1 - tune._EPS))
+                         + log_loss(f2["y_val"], np.clip(p2, tune._EPS, 1 - tune._EPS))) / 2
         # Pooled == manual pooled (objective formula), and the two differ on
         # this fixture (proving the test isn't vacuous).
         self.assertAlmostEqual(pooled, log_loss(y_all, p_all), places=12)
