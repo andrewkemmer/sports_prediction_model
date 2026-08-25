@@ -44,24 +44,42 @@ st.markdown(
 
 
 def _load_markets(ds):
+    """Fetch the run-engine markets CSV.  relpath is a bare filename —
+    _fetch_bytes prepends the repo subdir + data_delivery/ internally."""
+    import logging
+    _log = logging.getLogger("markets")
+    fname = f"run_engine_markets_{ds}.csv"
+    cfg = utils.get_source_config()
     try:
-        raw = utils._fetch_bytes(
-            f"data_delivery/run_engine_markets_{ds}.csv",
-            **utils.get_source_config(),
-        )
-        if raw:
-            return pd.read_csv(io.BytesIO(raw))
-    except Exception:
+        raw, src = utils._fetch_bytes(fname, **cfg)
+    except Exception as exc:
+        # Build the attempted URL for actionable diagnostics
+        url = utils._raw_url(fname, **cfg)
+        _log.error("Markets fetch exception for %s (%s): %s", fname, url, exc)
+        st.warning(f"Fetch error for run_engine_markets_{ds}.csv – see log.")
         return None
-    return None
+    if raw is None:
+        url = utils._raw_url(fname, **cfg)
+        _log.warning("Markets artifact not found: %s (URL: %s, source: %s)",
+                     fname, url, src)
+        return None
+    try:
+        return pd.read_csv(io.BytesIO(raw))
+    except Exception as exc:
+        _log.error("Markets CSV parse failed for %s: %s", fname, exc)
+        return None
 
 
 markets = _load_markets(date_str)
 re_block = (mon or {}).get("run_engine") or {}
 if markets is None or not len(markets):
+    url = utils._raw_url(f"run_engine_markets_{date_str}.csv",
+                         **utils.get_source_config())
     st.warning(
-        f"No run-engine markets artifact for {date_str} — the panel fills "
-        "after the next pipeline run ships run_engine_markets_*.csv."
+        f"No run-engine markets artifact for {date_str}. "
+        f"Attempted URL: `{url}`. "
+        "The panel fills after the next pipeline run ships "
+        "run_engine_markets_*.csv."
     )
     markets = pd.DataFrame()
 elif "kind" not in markets.columns:

@@ -401,8 +401,19 @@ def _pick_row(series: dict[str, list] | None, game_local_time: datetime | None) 
         }
 
     def _get(key: str) -> float:
-        vals = series.get(key, [])
-        return float(vals[idx]) if idx < len(vals) else np.nan
+        vals = series.get(key, []) or []
+        if idx >= len(vals):
+            return np.nan
+        v = vals[idx]
+        # Guard: Open-Meteo may return None for individual fields in a
+        # partial response (429 recovery, station gap, etc.).  float(None)
+        # is the crash vector from the v2026.08.24 run.
+        if v is None:
+            return np.nan
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return np.nan
 
     return {
         "temp_c": _get("temperature_2m"),

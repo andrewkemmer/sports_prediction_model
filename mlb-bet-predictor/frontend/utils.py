@@ -219,12 +219,19 @@ def _load_scores() -> pd.DataFrame:
 # Artifact loading (GitHub raw -> local sample fallback)
 # ---------------------------------------------------------------------------
 
+def _raw_url(relpath: str, owner: str, repo: str, branch: str) -> str:
+    """Return the raw.githubusercontent.com URL that _fetch_bytes would try."""
+    if owner and repo:
+        return (f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
+                f"/{REPO_SUBDIR}/data_delivery/{relpath}")
+    return f"<local:{LOCAL_DATA_DIR / relpath}>"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str):
     """Fetch one artifact. Returns (bytes | None, source)."""
     if owner and repo:
-        url = (f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
-               f"/{REPO_SUBDIR}/data_delivery/{relpath}")
+        url = _raw_url(relpath, owner, repo, branch)
         try:
             resp = requests.get(url, timeout=15)
             if resp.ok:
