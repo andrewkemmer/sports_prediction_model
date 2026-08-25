@@ -1,13 +1,19 @@
-"""MLP baseline rerun on the committed 44-fold CSV (post-reconciliation).
+"""MLP baseline rerun on the committed game_level_features.csv.
 
-Formal baseline at the clip-fix commit (6508bda). This is the reference run
-the MLP Optuna verdict rests on:
+v2 (refreshed snapshot): the daily Colab pipeline (2026-08-25,
+MLB_FULL_REPULL) regenerated the data — 4,451 games with weather features
+applied (was 4,441). The old baseline (baseline_mlp_6508bda10fb2.json) was
+deleted by pipeline cleanup. This script re-locks the baseline on the new
+snapshot:
 
-  * Data     : committed data_delivery/game_level_features.csv (NOT the old
-               47-fold Colab snapshot). SHA-256 is recorded in the output.
+  * Data     : committed data_delivery/game_level_features.csv; SHA-256 is
+               recorded in the output.
   * Folds    : identical machinery to the tuner / production —
                walk_forward_splits(RETRAIN_CADENCE_DAYS) filtered by
-               MIN_VAL_FOLD_GAMES; assert n_folds == 44.
+               MIN_VAL_FOLD_GAMES. Whatever the engine produces is ACCEPTED
+               (declared vs executed are both recorded); old fold counts are
+               NOT forced. On the refreshed snapshot the engine declares 48
+               and executes 44 (4 skipped for <40 val games).
   * Members  : DECISION (recorded in metadata) — the baseline is defined as
                logistic + MLP ONLY. xgb/lgbm/rf are skipped via an import
                patch; member OOF metrics come from each member's own
@@ -23,11 +29,16 @@ the MLP Optuna verdict rests on:
                configs (current MLP_PARAMS and the Optuna winner) are refit
                on ALL pre-holdout games and scored on the holdout last.
 
-Acceptance gates (from the reconciled harness cross-check, tolerance 2e-3):
+Acceptance gates (tolerance 2e-3) reference the OLD snapshot's numbers
+(from the reconciled harness cross-check on 4,441 games / 44 folds):
   logistic pooled:  logloss ~0.7052,  auc ~0.5437
   mlp pooled:       logloss ~0.7988,  auc ~0.5296
   per-fold max|dp| vs harness == 0.0 (bit-identical)
   holdout:          current ~0.70283/0.5263, winner ~0.71069/0.5066
+Numbers will shift slightly on the refreshed snapshot — drift is EXPECTED and
+reported, never silently adjusted. A 6th gate checks the decision-relevant
+outcome is preserved: holdout current beats winner (lower logloss, higher
+AUC).
 
 Emits data_delivery/baseline_mlp_<sha>.json and prints a PASS/FAIL gate list.
 A failing gate is FLAGGED, never silently fixed.
@@ -192,13 +203,13 @@ def main() -> None:
     tune_df = games[games["game_date"] < cutoff].reset_index(drop=True)
     hold_df = games[games["game_date"] >= cutoff].reset_index(drop=True)
 
-    folds = [
-        s for s in walk_forward_splits(tune_df, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
-        if len(s["val_games"]) >= MIN_VAL_FOLD_GAMES
-    ]
-    assert len(folds) == 44, f"n_folds={len(folds)} != 44 — wrong data snapshot?"
+    all_splits = walk_forward_splits(tune_df, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+    folds = [s for s in all_splits if len(s["val_games"]) >= MIN_VAL_FOLD_GAMES]
+    n_declared, n_executed = len(all_splits), len(folds)
+    # Whatever the engine produces is accepted — old fold counts are NOT forced.
     print(f"commit={sha[:12]}  data_sha={data_hash[:12]}  games={len(games)}  "
-          f"tuning={len(tune_df)}  holdout={len(hold_df)}  n_folds={len(folds)}")
+          f"tuning={len(tune_df)}  holdout={len(hold_df)}  "
+          f"folds declared={n_declared} executed={n_executed}")
 
     # ---------- per-fold bit-identical check + pooled (harness vs prod) -----
     per_fold = []
@@ -306,16 +317,26 @@ def main() -> None:
                       and abs(holdout["winner"]["auc"] - 0.5066) < GATE_TOL,
                       f"logloss={holdout['winner']['logloss']} "
                       f"auc={holdout['winner']['auc']}"))
+    hc, hw = holdout["current"], holdout["winner"]
+    gates.append(gate("holdout outcome preserved (current beats winner)",
+                      hc["logloss"] < hw["logloss"] and hc["auc"] > hw["auc"],
+                      f"current {hc['logloss']}/{hc['auc']} vs "
+                      f"winner {hw['logloss']}/{hw['auc']}"))
 
     def b64(a: np.ndarray) -> str:
         return base64.b64encode(np.asarray(a, dtype=np.float64).tobytes()).decode()
 
     result = {
-        "schema": "mlp-baseline/v1",
+        "schema": "mlp-baseline/v2",
         "commit_sha": sha,
         "data_file": str(data_path.relative_to(_BACKEND_DIR.parent)),
         "data_sha256": data_hash,
-        "n_folds": len(folds),
+        "n_folds_declared": n_declared,
+        "n_folds_executed": n_executed,
+        "reference_snapshot": ("baseline_mlp_6508bda10fb2.json (old 4,441-game "
+                               "snapshot / 44 folds) — gate targets reference "
+                               "those numbers; drift on the refreshed "
+                               "4,451-game CSV is expected and reported"),
         "n_games": int(len(games)),
         "n_tuning": int(len(tune_df)),
         "n_holdout": int(len(hold_df)),
