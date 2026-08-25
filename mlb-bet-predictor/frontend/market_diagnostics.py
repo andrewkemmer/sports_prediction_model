@@ -282,6 +282,48 @@ def runline_pick_table(decided: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Today's Games card enrichment (read-only over the slate rows)
+# ---------------------------------------------------------------------------
+RE_GRID_KEYS = (
+    ("home_expected_runs", "proj_home"),
+    ("away_expected_runs", "proj_away"),
+    ("p_over_8_5", "p_over"),
+    ("p_under_8_5", "p_under"),
+    ("p_home_cover_1_5", "p_home_cover"),
+)
+
+
+def run_engine_card_bits(game_id: str,
+                         slate_map: Optional[dict] = None) -> Optional[dict]:
+    """Run-engine projections for one Today's Games card, joined by
+    game_id == slate game_pk (the 145d841 ESPN-id convention).
+
+    Returns None when there is no slate row for this game — the card omits
+    the strip entirely (quiet, never fabricated). Returns a dict with
+    has_grid=False when the row exists but the line-grid columns are
+    missing — the card shows a quiet 'n/a'. p_away_cover is the exact
+    complement of p_home_cover (1 − p) because the artifact ships home-cover
+    columns only; the card labels it as such.
+    """
+    if not slate_map:
+        return None
+    row = slate_map.get(str(game_id))
+    if row is None:
+        return None
+    bits: dict[str, Any] = {}
+    for src, out in RE_GRID_KEYS:
+        v = row.get(src) if isinstance(row, dict) else getattr(row, src, None)
+        try:
+            bits[out] = None if v is None or pd.isna(v) else float(v)
+        except (TypeError, ValueError):
+            bits[out] = None
+    bits["has_grid"] = all(bits[k] is not None for _, k in RE_GRID_KEYS)
+    bits["p_away_cover"] = (None if bits["p_home_cover"] is None
+                            else 1.0 - bits["p_home_cover"])
+    return bits
+
+
+# ---------------------------------------------------------------------------
 # Altair builders (import-safe: pure functions of their data)
 # ---------------------------------------------------------------------------
 def chart_distribution(dist: dict) -> alt.Chart:

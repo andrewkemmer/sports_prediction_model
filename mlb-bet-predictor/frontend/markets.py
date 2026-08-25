@@ -1,24 +1,23 @@
 """Page 5 — Today's Totals & Run Lines (run engine, Phase 3).
 
-Per slate game: projected total and per-team expected runs, a LINE SELECTOR
-for the total (6.5–12.5) showing p_over/p_under at the chosen line, a run-line
-selector (−0.5…−3.5) with the favored side's cover probability, and the
-derived ML win% cross-referenced against the moneyline ensemble — including a
-CONFLICT badge when the two disagree beyond AGREEMENT_FILTER_DELTA.
+Temporary UI simplification: this page renders ONLY the six diagnostics
+charts (Distribution, Relativized, Pooled lines, Money line 8.5, Overs
+picks, Run-line picks) from frontend/market_diagnostics.py — pure functions
+over run_engine_markets_<date>.csv; the render layer only draws what they
+produce. The per-game slate board, total/run-line selectors, calibration
+table, rolling totals-Brier, tail fit-check, holdout verdict, and the
+derived-ML cross-reference are UN-RENDERED for now — nothing is deleted from
+the backend or the artifact, and the charts' empty states and loud warnings
+still fire exactly as before.
 
-The toggle reads the precomputed per-line probability GRID straight from
-run_engine_markets_<date>.csv — zero frontend math, works offline. Market
-calibration at the reference lines, the rolling totals-Brier timeline, the
-alpha(lambda) fit-check tails, and the sealed-holdout gate verdict render
-from model_monitor_<date>.json. Missing/stale artifacts produce loud warnings
-and graceful empty states — never fake data.
+Missing/stale artifacts produce loud warnings and graceful empty states —
+never fake data.
 """
 
 from __future__ import annotations
 
 import io
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -28,7 +27,6 @@ utils.inject_css()
 
 dates = utils.available_dates(**utils.get_source_config())
 date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
-mon = utils.load_model_monitor(date_str)
 
 st.markdown(
     "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
@@ -37,8 +35,9 @@ st.markdown(
 )
 st.markdown(
     "<div style='color:#94A3B8;margin:2px 0 14px;'>"
-    "Run-engine market probabilities from NB(λ, α(λ)) Monte Carlo — pick any "
-    "line; the grid is priced by the model, not the market.</div>",
+    "Run-engine model diagnostics from NB(λ, α(λ)) Monte Carlo over the "
+    "line grid — per-game projections and full probabilities live in "
+    "run_engine_markets_*.csv.</div>",
     unsafe_allow_html=True,
 )
 
@@ -71,7 +70,6 @@ def _load_markets(ds):
 
 
 markets = _load_markets(date_str)
-re_block = (mon or {}).get("run_engine") or {}
 if markets is None or not len(markets):
     url = utils._raw_url(f"run_engine_markets_{date_str}.csv",
                          **utils.get_source_config())
@@ -87,191 +85,6 @@ elif "kind" not in markets.columns:
         "Markets artifact predates Phase 3 (no line grid / slate rows). "
         "Waiting for the next pipeline run."
     )
-
-# ---------------------------------------------------------------------------
-# Line selectors — read precomputed grid columns, zero math
-# ---------------------------------------------------------------------------
-TOTAL_LINES = re_block.get("line_grid", {}).get("totals") or [
-    round(6.5 + 0.5 * i, 1) for i in range(13)
-]
-RUN_LINES = re_block.get("line_grid", {}).get("run_lines") or [-0.5, -1.5, -2.5, -3.5]
-
-
-def _line_key(prefix, line):
-    return f"{prefix}_{str(line).replace('.', '_')}"
-
-
-sel_total = st.slider(
-    "Total line (O/U)",
-    min_value=float(min(TOTAL_LINES)),
-    max_value=float(max(TOTAL_LINES)),
-    step=0.5,
-    value=8.5 if 8.5 in TOTAL_LINES else float(TOTAL_LINES[len(TOTAL_LINES) // 2]),
-    format="%.1f",
-)
-sel_run = st.select_slider("Run line (home favorite)", options=RUN_LINES,
-                           value=-1.5)
-
-over_col = _line_key("p_over", sel_total)
-under_col = _line_key("p_under", sel_total)
-cover_col = _line_key("p_home_cover", abs(sel_run))
-
-missing_cols = [c for c in (over_col, under_col, cover_col)
-                if c not in markets.columns]
-if missing_cols and len(markets):
-    st.warning(f"Artifact lacks columns {missing_cols} — cannot price that line.")
-
-# ---------------------------------------------------------------------------
-# Slate board
-# ---------------------------------------------------------------------------
-st.markdown("### Slate")
-slate = (markets[markets["kind"] == "slate"].copy()
-         if "kind" in markets.columns else pd.DataFrame())
-if slate.empty:
-    st.info(
-        "No slate rows yet — today's games are priced during the daily "
-        "pipeline run once the schedule and point-in-time features exist."
-    )
-else:
-    delta = float(re_block.get("agreement_delta", 0.08))
-    rows, conflicted = [], 0
-    for _, g in slate.iterrows():
-        p_over = float(g[over_col])
-        p_under = float(g[under_col])
-        p_cover = float(g[cover_col])
-        p_win_h = float(g["p_home_win_derived"])
-        ml_p = g.get("ml_win_prob")
-        conflict = bool(g.get("agreement_conflict")) and pd.notna(ml_p)
-        conflicted += int(conflict)
-        home_t = g.get("home_team", "Home")
-        away_t = g.get("away_team", "Away")
-        fav_team, fav_p = ((home_t, p_cover) if p_cover >= 1 - p_cover
-                           else (away_t, 1 - p_cover))
-        rows.append({
-            "GAME": f"{away_t} @ {home_t}",
-            "PROJ TOTAL": round(float(g["home_expected_runs"])
-                                + float(g["away_expected_runs"]), 2),
-            "L HOME": round(float(g["home_expected_runs"]), 2),
-            "L AWAY": round(float(g["away_expected_runs"]), 2),
-            f"P(OVER {sel_total})": round(p_over, 3),
-            f"P(UNDER {sel_total})": round(p_under, 3),
-            "FAVORITE": f"{fav_team} {sel_run:+.1f}".replace("+-", "-"),
-            f"P(COVER {sel_run})": round(fav_p, 3),
-            "DERIVED ML": f"{100 * p_win_h:.0f}% home",
-            "ML ENS": (f"{100 * float(ml_p):.0f}% home"
-                       if pd.notna(ml_p) else "-"),
-            "CONFLICT": "! CONFLICT" if conflict else "",
-        })
-    st.table(pd.DataFrame(rows).reset_index(drop=True))
-    n_draws = re_block.get("mc_meta", {}).get("n_draws", "-")
-    seed = re_block.get("mc_meta", {}).get("seed", "-")
-    st.caption(
-        f"{len(slate)} slate games · the toggle reads the precomputed grid "
-        f"(N={n_draws:,} draws, seed={seed}) · derived ML vs the moneyline "
-        f"ensemble; CONFLICT marks |Δp| > ±{delta:.2f}."
-    )
-    if conflicted:
-        st.warning(
-            f"{conflicted} game(s) flagged moneyline-vs-run-engine conflicts "
-            "— suppressed from any recommendation surface."
-        )
-    # Suppression hook: downstream recommendation consumers must filter on
-    # this session list. No betting engine exists; this is the contract.
-    suppressed = (slate[slate["agreement_conflict"] == True]["game_pk"]
-                  .astype(int).tolist()
-                  if "agreement_conflict" in slate.columns else [])
-    st.session_state["suppressed_game_pks"] = suppressed
-
-# ---------------------------------------------------------------------------
-# Market calibration + holdout gate
-# ---------------------------------------------------------------------------
-st.markdown("### Market calibration & holdout gate")
-metrics = re_block.get("market_metrics") or {}
-ref_rows = []
-for name, m in sorted(metrics.items()):
-    if not isinstance(m, dict):
-        continue
-    h = m.get("holdout") or {}
-    ref_rows.append({
-        "MARKET": name,
-        "LOGLOSS": m.get("engine_logloss"),
-        "BRIER": m.get("engine_brier"),
-        "ECE CAL": m.get("engine_ece_calibrated"),
-        "BASE LL": m.get("baseline_logloss"),
-        "HOLDOUT LL": h.get("engine_logloss"),
-        "HOLDOUT BASE LL": h.get("baseline_logloss"),
-        "BEATS BASE?": (
-            "YES" if h.get("beats_baseline_logloss") is True
-            else ("NO" if h.get("beats_baseline_logloss") is False else "-")
-        ),
-    })
-if ref_rows:
-    st.table(pd.DataFrame(ref_rows).reset_index(drop=True))
-    gate = re_block.get("holdout_gate") or {}
-    all_beat = gate.get("totals_beat_baselines_holdout")
-    verdict = ("YES — totals beat their baselines out-of-sample" if all_beat
-               else ("NO — totals failed to beat baselines out-of-sample"
-                     if all_beat is False else "pending"))
-    st.caption(
-        f"Sealed-holdout gate: last {gate.get('n_holdout', '-')} games "
-        f"(since {gate.get('cutoff', '-')}) were never used for alpha "
-        f"fitting — {verdict}. Reference lines 7.5/8.5/9.5 and -1.5/-2.5."
-    )
-else:
-    st.info("Market metrics appear after the next pipeline run embeds them.")
-
-# Rolling totals Brier — mirrors the moneyline rolling Brier panel.
-rtb_block = re_block.get("rolling_totals_brier") or {}
-rtb = rtb_block.get("series") or []
-if rtb:
-    bdf = pd.DataFrame(rtb)
-    bdf["date"] = pd.to_datetime(bdf["date"])
-    chart = alt.Chart(bdf).mark_line(color="#F59E0B", strokeWidth=2.2).encode(
-        x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %d")),
-        y=alt.Y("brier:Q", title="Totals Brier (trailing 30d)",
-                scale=alt.Scale(zero=False)),
-    ).properties(height=260)
-    utils.show_chart(chart)
-    hb = rtb_block.get("history_mean_brier")
-    if isinstance(hb, (int, float)):
-        st.caption(f"Trailing-30-day Brier of P(over 8.5) on decided OOF "
-                   f"games · history mean {hb:.4f}.")
-else:
-    st.info("Rolling totals Brier appears once decided OOF markets ship.")
-
-# Alpha(lambda) fit-check tails vs the Phase-2 single-alpha baseline.
-fc3 = re_block.get("fit_check_alpha_lambda") or {}
-fc2 = re_block.get("fit_check_single_alpha") or {}
-if fc3 and fc2:
-    tail_rows = []
-    for side in ("home", "away"):
-        single = {r["k"]: r for r in fc2.get(side, []) if isinstance(r["k"], str)}
-        for r in fc3.get(side, []):
-            k = r.get("k")
-            if isinstance(k, str) and k.startswith("≥"):
-                tail_rows.append({
-                    "SIDE": side,
-                    "TAIL": k,
-                    "SINGLE A": single.get(k, {}).get("modeled_p"),
-                    "A(LAMBDA)": r.get("modeled_p"),
-                    "OBSERVED": r.get("observed_p"),
-                })
-    if tail_rows:
-        st.markdown("#### Blowout-tail fit check (single alpha → alpha(lambda))")
-        st.table(pd.DataFrame(tail_rows).reset_index(drop=True))
-        var_bits = []
-        for s in ("home", "away"):
-            v = (re_block.get("variance_check") or {}).get(s)
-            if v:
-                var_bits.append(
-                    f"{s}: implied {v['implied_var']} vs observed "
-                    f"{v['observed_var']}")
-        st.caption(
-            "Modeled share of games with >=10/>=11/>=12 runs per team. The "
-            "Phase-2 single global alpha underestimated these tails; "
-            "alpha(lambda) should track OBSERVED. Variance check — "
-            + "; ".join(var_bits) + "."
-        )
 
 # ---------------------------------------------------------------------------
 # Diagnostics — six charts, computed by frontend/market_diagnostics.py

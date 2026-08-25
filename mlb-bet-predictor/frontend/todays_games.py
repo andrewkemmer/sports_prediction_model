@@ -4,6 +4,11 @@ Renders the daily game board: date ribbon with prev/next navigation, filter
 pills (All Games / Final / Live), the accuracy badge, and two-column game
 cards matching the reference dashboard (badge strips, probability bars,
 pitcher panels, ML/edge bar, collapsible SHAP features, outcome banner).
+
+Each card is enriched with run-engine projections from
+run_engine_markets_<date>.csv (slate rows joined by game_id == game_pk):
+projected team runs, the 8.5 O/U probability split, and the −1.5/+1.5 run
+line — quiet 'n/a' when the line grid is missing, never fabricated.
 """
 
 from __future__ import annotations
@@ -103,6 +108,32 @@ def _pitcher_box(name: str, era: str, k9: str) -> str:
             f'<div class="pstats">ERA {era} · K/9 {k9}</div></div>')
 
 
+def _runengine_html(bits, home_team: str, away_team: str) -> str:
+    """Run-engine strip on the game card — projections, 8.5 O/U, run line.
+
+    bits comes from market_diagnostics.run_engine_card_bits; None means no
+    slate row for this game (strip omitted), has_grid=False renders a quiet
+    'n/a'. Away +1.5 is the exact complement of home −1.5 (the artifact
+    ships home-cover columns only) — labeled as such.
+    """
+    if bits is None:
+        return ""
+    if not bits.get("has_grid"):
+        return ('<div class="fb-runengine"><span class="re-label">'
+                'RUN ENGINE</span><span class="re-na">n/a</span></div>')
+    return (
+        f'<div class="fb-runengine">'
+        f'<span class="re-label">RUN ENGINE</span>'
+        f'<span>Proj: {away_team} {bits["proj_away"]:.1f} – '
+        f'{home_team} {bits["proj_home"]:.1f}</span>'
+        f'<span>O/U 8.5: Over {bits["p_over"]:.0%} / '
+        f'Under {bits["p_under"]:.0%}</span>'
+        f'<span>RL: {home_team} −1.5 {bits["p_home_cover"]:.0%} · '
+        f'{away_team} +1.5 {bits["p_away_cover"]:.0%} (complement)</span>'
+        f'</div>'
+    )
+
+
 def _score_side(num, abbr: str, is_winner: bool) -> str:
     """Score column: green vertical bar to the left of the winning score
     (matches the reference dashboard), white number, abbreviation below."""
@@ -112,7 +143,7 @@ def _score_side(num, abbr: str, is_winner: bool) -> str:
             f'<div class="abbr">{abbr}</div></div>')
 
 
-def _card_html(g: pd.Series) -> str:
+def _card_html(g: pd.Series, re_bits=None) -> str:
     home_team, away_team = g["home_team"], g["away_team"]
     home_name = g.get("home_team_name", "") or home_team
     away_name = g.get("away_team_name", "") or away_team
@@ -223,9 +254,11 @@ def _card_html(g: pd.Series) -> str:
     banner = _banner_html(status, is_final, is_live, winner, pick, correct, is_coin_flip,
                           is_upset, home_team, away_team, g)
 
+    runengine = _runengine_html(re_bits, home_team, away_team)
+
     return (
         f'<div class="fb-card"><div class="fb-top">{top}</div>{score}{home_row}{away_row}'
-        f'{pregame}{pitchers}{venue}{odds}{banner}</div>'
+        f'{pregame}{pitchers}{venue}{odds}{runengine}{banner}</div>'
     )
 
 
@@ -266,6 +299,19 @@ def main() -> None:
 
     games = utils.load_todays_games(date_str)
     cal = utils.load_calibration(date_str)
+
+    # Run-engine slate rows keyed by game_pk (ESPN game_id pre-game — the
+    # 145d841 convention); joined to cards by game_id. Empty frame when the
+    # artifact is missing or predates Phase 3 → cards just omit the strip.
+    import market_diagnostics as diag  # noqa: E402  (pure, import-safe)
+    _markets = utils.load_run_engine_markets(date_str)
+    slate_map = {}
+    if len(_markets) and "kind" in _markets.columns:
+        _sl = _markets[_markets["kind"] == "slate"]
+        if len(_sl):
+            slate_map = {str(pk): rec
+                         for pk, rec in zip(_sl["game_pk"],
+                                            _sl.to_dict("records"))}
 
     history_view = False
     if games.empty:
@@ -351,7 +397,9 @@ def main() -> None:
         cols = st.columns(2)
         for col, (_, g) in zip(cols, filtered.iloc[i : i + 2].iterrows()):
             with col:
-                st.markdown(_card_html(g), unsafe_allow_html=True)
+                re_bits = diag.run_engine_card_bits(
+                    str(g.get("game_id", "")), slate_map)
+                st.markdown(_card_html(g, re_bits), unsafe_allow_html=True)
                 _shap_expander(g, date_str)
 
     st.caption("Model outputs are point-in-time — only data available before each "

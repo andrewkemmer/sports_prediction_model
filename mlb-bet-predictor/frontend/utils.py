@@ -344,6 +344,37 @@ def load_todays_games(date_str: str) -> pd.DataFrame:
     return normalize_games(df)
 
 
+def load_run_engine_markets(date_str: str) -> pd.DataFrame:
+    """Run-engine markets artifact for a date; empty frame when missing.
+
+    Mirrors markets._load_markets (bare filename — _fetch_bytes prepends the
+    repo subdir + data_delivery/). Today's Games joins slate rows by
+    game_id == game_pk to enrich the cards; missing/stale artifacts degrade
+    to an empty frame with a loud log line, never fabricated data.
+    """
+    import logging
+    _log = logging.getLogger("utils.run_engine")
+    fname = f"run_engine_markets_{date_str}.csv"
+    cfg = get_source_config()
+    try:
+        raw, src = _fetch_bytes(fname, **cfg)
+    except Exception as exc:
+        url = _raw_url(fname, **cfg)
+        _log.error("Run-engine markets fetch exception for %s (%s): %s",
+                   fname, url, exc)
+        return pd.DataFrame()
+    if raw is None:
+        url = _raw_url(fname, **cfg)
+        _log.warning("Run-engine markets artifact not found: %s (URL: %s, "
+                     "source: %s)", fname, url, src)
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(io.BytesIO(raw))
+    except Exception as exc:
+        _log.error("Run-engine markets CSV parse failed for %s: %s", fname, exc)
+        return pd.DataFrame()
+
+
 def load_prediction_history(date_str: str) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table)."""
     cfg = get_source_config()
@@ -758,6 +789,9 @@ def inject_css() -> None:
         .fb-venue {{ color: {SLATE}; font-size: 0.8rem; margin: 6px 0 2px; }}
         .fb-odds {{ display: flex; justify-content: space-between; align-items: center; margin: 4px 0 8px; color: {TEXT}; font-size: 0.85rem; }}
         .fb-odds .edge {{ font-weight: 700; }}
+        .fb-runengine {{ display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; background: #0F172A; border: 1px solid {BORDER}; border-radius: 9px; padding: 7px 10px; margin: 2px 0 8px; color: {TEXT}; font-size: 0.8rem; }}
+        .fb-runengine .re-label {{ color: {AMBER}; font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; }}
+        .fb-runengine .re-na {{ color: {SLATE}; font-style: italic; }}
         .fb-banner {{ border-radius: 10px; padding: 8px 12px; text-align: center; font-size: 0.85rem; font-weight: 700; }}
         .fb-banner.green {{ background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.45); color: #34D399; }}
         .fb-banner.red {{ background: rgba(239,68,68,.10); border: 1px solid rgba(239,68,68,.45); color: #F87171; }}
