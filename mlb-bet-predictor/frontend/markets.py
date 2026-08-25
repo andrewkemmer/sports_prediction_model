@@ -199,7 +199,7 @@ else:
         else:
             built = diag.chart_pick_buckets(
                 tpicks, "Totals picks (per-game rounded line)",
-                total_line=True)
+                total_line=True, acc_y_max=75.0)
             utils.show_chart(built["chart"])
             st.table(built["table"])
             st.caption(

@@ -562,8 +562,13 @@ def chart_calibration(curve: dict, title: str,
     return (diag + pts).properties(height=300, title=title)
 
 
+ACC_Y_AXIS_FLOOR = 75.0   # accuracy axis is in PERCENT units; floor in %
+ACC_Y_HEADROOM = 5.0      # points above the largest visible accuracy value
+
+
 def chart_pick_buckets(table: dict, title: str,
-                       total_line: bool = False) -> dict:
+                       total_line: bool = False,
+                       acc_y_max: Optional[float] = None) -> dict:
     """Returns {'chart': alt.Chart, 'table': pd.DataFrame} for dual-axis
     rendering; count bars + accuracy line are layered in the page.
 
@@ -571,7 +576,13 @@ def chart_pick_buckets(table: dict, title: str,
     accuracy axis at the pooled win rate (table['win_rate'], across ALL
     picks — not a per-bucket point), labeled 'Total (n=…): …%', so the
     overall hit rate is visible on the chart itself rather than only in the
-    caption. Other callers pass False (default) → unchanged behavior.
+    caption.
+
+    acc_y_max (percent units) floors the accuracy axis domain max so the
+    line doesn't ride the top edge when buckets cluster (e.g. ~54–57%): the
+    actual max is max(acc_y_max, largest accuracy value + headroom), so a
+    future bucket that genuinely exceeds the floor is never clipped. Other
+    callers pass the defaults (False / None) → unchanged behavior.
     """
     tdf = pd.DataFrame(table["buckets"])
     if tdf.empty:
@@ -581,9 +592,18 @@ def chart_pick_buckets(table: dict, title: str,
     bars = base.mark_bar(color="#3B82F6").encode(
         y=alt.Y("count:Q", title="Picks"),
         tooltip=["bucket", "count", "accuracy"])
+    acc_scale = None
+    if acc_y_max is not None:
+        vals = [float(v) for v in tdf["accuracy"].dropna()]
+        rate = table.get("win_rate")
+        if total_line and isinstance(rate, (int, float)):
+            vals.append(float(rate) * 100.0)
+        data_max = max(vals) if vals else 0.0
+        y_max = max(float(acc_y_max), data_max + ACC_Y_HEADROOM)
+        acc_scale = alt.Scale(domain=[0.0, y_max])
     acc = base.mark_line(color="#22C55E", strokeWidth=2.5,
                          point=alt.OverlayMarkDef(size=60)).encode(
-        y=alt.Y("accuracy:Q", title="Actual hit %"),
+        y=alt.Y("accuracy:Q", title="Actual hit %", scale=acc_scale),
         tooltip=["bucket", "count", "accuracy"])
     acc_layers = [acc]
     if total_line:

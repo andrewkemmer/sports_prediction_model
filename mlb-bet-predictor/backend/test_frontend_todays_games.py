@@ -197,7 +197,9 @@ class TestMarketsPageStripped(unittest.TestCase):
         self.assertIn("rounded_total_pairs", self.src)
         self.assertIn("totals_pick_table", self.src)
         # Totals picks chart carries the pooled-win-rate reference line
+        # and the accuracy-axis floor (line not pinned to the top)
         self.assertIn("total_line=True", self.src)
+        self.assertIn("acc_y_max=75.0", self.src)
 
     def test_flat_8_5_money_line_gone(self):
         self.assertNotIn('"Money line 8.5"', self.src)

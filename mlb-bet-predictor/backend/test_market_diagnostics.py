@@ -524,9 +524,11 @@ class TestRenderSmoke(unittest.TestCase):
         # Labels follow the 4-bucket convention (50–55 … 65+)
         self.assertEqual(built["table"]["bucket"].tolist(),
                          diag.TOTALS_PICK_LABELS)
-        # Default: no reference line (other charts unchanged)
-        self.assertNotIn('"rule"',
-                         _spec_dump(built["chart"]))
+        # Default: no reference line, no forced accuracy domain (other
+        # charts unchanged)
+        default_dump = _spec_dump(built["chart"])
+        self.assertNotIn('"rule"', default_dump)
+        self.assertNotIn('"domain"', default_dump)
 
     def test_totals_picks_total_line_at_pooled_rate(self):
         import json
@@ -541,6 +543,38 @@ class TestRenderSmoke(unittest.TestCase):
         self.assertIn(
             f"Total (n={tp['n_games']:,}): {tp['win_rate'] * 100:.1f}%",
             dump)
+
+    def test_accuracy_axis_floor_not_pinned_to_top(self):
+        import json
+        tp = diag.totals_pick_table(self.decided)
+        built = diag.chart_pick_buckets(
+            tp, "Totals picks", total_line=True, acc_y_max=75.0)
+        dump = json.dumps(built["chart"].to_dict())
+        # Accuracy axis is in PERCENT units; domain max >= 75 (the floor),
+        # extended with headroom above the largest visible value.
+        data_max = max(b["accuracy"] for b in tp["buckets"]
+                       if b["accuracy"] is not None)
+        y_max = max(75.0, max(data_max, tp["win_rate"] * 100) + 5.0)
+        self.assertGreaterEqual(y_max, 75.0)
+        self.assertIn(f'"domain": [0.0, {y_max}]', dump)
+        # The pooled-rate rule sits INSIDE the visible domain
+        self.assertLess(tp["win_rate"] * 100, y_max)
+        self.assertIn(f'"y": {tp["win_rate"] * 100}', dump)
+
+    def test_accuracy_axis_never_clips_real_values(self):
+        import json
+        # Five picks at 0.80 confidence, 4/5 hit → a genuine 80% bucket
+        p = np.full(5, 0.8)
+        hit = np.array([1, 1, 1, 1, 0], float)
+        table = diag.pick_buckets(p, hit, labels=diag.TOTALS_PICK_LABELS)
+        table["n_games"] = 5
+        table["win_rate"] = 0.8
+        built = diag.chart_pick_buckets(
+            table, "t", total_line=True, acc_y_max=75.0)
+        dump = json.dumps(built["chart"].to_dict())
+        # max(75, 80 + 5) = 85 — the 80% value is NOT clipped
+        self.assertIn('"domain": [0.0, 85.0]', dump)
+        self.assertIn('"y": 80.0', dump)
 
     def test_5_overs_picks_renders(self):
         built = diag.chart_pick_buckets(
