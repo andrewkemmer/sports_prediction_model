@@ -7,6 +7,21 @@ park-context term, and the four engineered interactions that are products of
 excluded diffs. The kept list is DERIVED from FEATURE_COLS at call time so new
 features flow in (and are logged); only the exclusion RULE lives here.
 
+2026-08 run-engine-native keep-list ablation (run_engine_keep_ablation.py,
+data_delivery/run_engine_keep_ablation_2bc3ba1*.json) — verdict: the 24
+matchup-gap _diff features STAY EXCLUDED (DO NOT SHIP). Restoring them (arm B,
+53 cols) improved the count objective on BOTH sides — home Δdev −0.0032 /
+ΔRMSE −0.0026; away Δdev −0.0131 / ΔRMSE −0.0084 (pooled OOF, 48 folds /
+4,354 games) — but DEGRADED the totals-market calibration the engine sells:
+prequential ECE-cal on the 6 reference lines rose 0.0119 → 0.0144 pooled
+(over_8_5 0.0109 → 0.0178) and again on the sealed 21-day holdout
+(over_7_5/8_5/9_5 +0.008/+0.010/+0.013); tail fit (P(X≤1)/P(X≥10), χ²/df)
+unchanged. The moneyline-side audit (feature_audit_3b929cfcf3e2.json)
+recommended restore through the binary harness — that result does NOT
+transfer to λ: the diff-level signal helps the count model but hurts the
+prices. Gate: B must beat A on core metrics on BOTH sides without degrading
+market calibration (ECE-cal, tail fit) — core won, calibration leg failed.
+
 One regularized LightGBM regressor (objective="poisson") per side, trained on
 the SAME fixed walk-forward folds as the moneyline pipeline. Pooled OOF scoring,
 baseline comparison vs constant league-mean, Pearson chi-square/dispersion
@@ -203,9 +218,13 @@ def run_oof(games: pd.DataFrame,
             retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
             min_val_games: int = MIN_VAL_FOLD_GAMES,
             include_level_env: bool = True,
+            run_features: Optional[list[str]] = None,
+            dropped: Optional[list[str]] = None,
             ) -> dict[str, Any]:
     """Walk-forward OOF for both side models on the moneyline pipeline's folds.
 
+    ``run_features`` / ``dropped`` override the derived keep-list (ablation
+    arms B/C/REF exercise the full 58-col view); None → derive_run_features.
     Returns rows (one per decided game), per-side metrics, baseline metrics,
     and the dispersion probe."""
     from training import walk_forward_splits
@@ -219,7 +238,9 @@ def run_oof(games: pd.DataFrame,
                 len(folds), len(games))
 
     frames = {
-        side: build_side_frame(games, side, include_level_env=include_level_env)
+        side: build_side_frame(games, side, run_features=run_features,
+                               dropped=dropped,
+                               include_level_env=include_level_env)
         for side in ("home", "away")}
     params = dict(RUN_LGBM_PARAMS)
 

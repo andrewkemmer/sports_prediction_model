@@ -1,0 +1,1288 @@
+{
+  "head_sha": "2bc3ba117c9813839202975007ca5581d0769482",
+  "data_file": "/home/daytona/codebase/mlb-bet-predictor/data_delivery/game_level_features.csv",
+  "data_sha256": "923816b70a5d74731d0688011d8fc9e015e60b88f19ff876d17b08fbe7713a02",
+  "n_games": 4354,
+  "n_folds": 48,
+  "arms": {
+    "A": {
+      "n_folds": 48,
+      "n_games": 4354,
+      "final_fit_rounds": {
+        "home": 15,
+        "away": 26
+      },
+      "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+      "home_model": {
+        "poisson_deviance": 2.23665,
+        "rmse": 3.11502,
+        "mae": 2.43894
+      },
+      "home_baseline": {
+        "poisson_deviance": 2.25865,
+        "rmse": 3.13039,
+        "mae": 2.45658
+      },
+      "away_model": {
+        "poisson_deviance": 2.48785,
+        "rmse": 3.2755,
+        "mae": 2.57576
+      },
+      "away_baseline": {
+        "poisson_deviance": 2.53232,
+        "rmse": 3.30612,
+        "mae": 2.60097
+      },
+      "home_pooled": {
+        "poisson_deviance": 2.23242,
+        "rmse": 3.13098,
+        "mae": 2.43619
+      },
+      "home_dispersion_ratio": 2.1846,
+      "away_pooled": {
+        "poisson_deviance": 2.49159,
+        "rmse": 3.29133,
+        "mae": 2.58176
+      },
+      "away_dispersion_ratio": 2.4811,
+      "arm": "A",
+      "label": "A (29 kept)",
+      "n_feature_cols": 29,
+      "kept": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away"
+      ],
+      "dropped": [],
+      "tails": {
+        "home": {
+          "alpha": 0.2709,
+          "chi2_df": 2.1846,
+          "p_le_1_model": 0.1613,
+          "p_le_1_obs": 0.1677,
+          "tail10_model": 0.052,
+          "tail10_obs": 0.0691
+        },
+        "away": {
+          "alpha": 0.3496,
+          "chi2_df": 2.4811,
+          "p_le_1_model": 0.1926,
+          "p_le_1_obs": 0.1906,
+          "tail10_model": 0.0529,
+          "tail10_obs": 0.0838
+        }
+      },
+      "markets": {
+        "market_derived_moneyline": {
+          "engine_logloss": 0.69448,
+          "engine_brier": 0.2507,
+          "engine_ece_raw": 0.07496,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68632,
+          "engine_ece_calibrated": 0.01751,
+          "beats_baseline_logloss": false
+        },
+        "market_derived_moneyline_holdout": {
+          "engine_logloss": 0.69448,
+          "engine_brier": 0.2507,
+          "engine_ece_raw": 0.07496,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68632,
+          "engine_ece_calibrated": 0.01751,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.69965,
+            "engine_brier": 0.25339,
+            "engine_ece_raw": 0.11498,
+            "baseline_rate": 0.5616,
+            "baseline_logloss": 0.68553,
+            "baseline_brier": 0.2462,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": false
+        },
+        "market_over_7_5": {
+          "engine_logloss": 0.68154,
+          "engine_brier": 0.24429,
+          "engine_ece_raw": 0.01698,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68308,
+          "engine_ece_calibrated": 0.01064,
+          "beats_baseline_logloss": true
+        },
+        "market_over_7_5_holdout": {
+          "engine_logloss": 0.68154,
+          "engine_brier": 0.24429,
+          "engine_ece_raw": 0.01698,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68308,
+          "engine_ece_calibrated": 0.01064,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68796,
+            "engine_brier": 0.24757,
+            "engine_ece_raw": 0.04671,
+            "baseline_rate": 0.5377,
+            "baseline_logloss": 0.69031,
+            "baseline_brier": 0.24858,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5": {
+          "engine_logloss": 0.68786,
+          "engine_brier": 0.24738,
+          "engine_ece_raw": 0.01297,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68878,
+          "engine_ece_calibrated": 0.01093,
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5_holdout": {
+          "engine_logloss": 0.68786,
+          "engine_brier": 0.24738,
+          "engine_ece_raw": 0.01297,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68878,
+          "engine_ece_calibrated": 0.01093,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68535,
+            "engine_brier": 0.24617,
+            "engine_ece_raw": 0.02681,
+            "baseline_rate": 0.4658,
+            "baseline_logloss": 0.6908,
+            "baseline_brier": 0.24883,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5": {
+          "engine_logloss": 0.66559,
+          "engine_brier": 0.23643,
+          "engine_ece_raw": 0.01098,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66638,
+          "engine_ece_calibrated": 0.00698,
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5_holdout": {
+          "engine_logloss": 0.66559,
+          "engine_brier": 0.23643,
+          "engine_ece_raw": 0.01098,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66638,
+          "engine_ece_calibrated": 0.00698,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.6555,
+            "engine_brier": 0.23141,
+            "engine_ece_raw": 0.05212,
+            "baseline_rate": 0.3733,
+            "baseline_logloss": 0.66068,
+            "baseline_brier": 0.23394,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5": {
+          "engine_logloss": 0.64863,
+          "engine_brier": 0.22824,
+          "engine_ece_raw": 0.01404,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64849,
+          "engine_ece_calibrated": 0.01235,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5_holdout": {
+          "engine_logloss": 0.64863,
+          "engine_brier": 0.22824,
+          "engine_ece_raw": 0.01404,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64849,
+          "engine_ece_calibrated": 0.01235,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.66916,
+            "engine_brier": 0.23832,
+            "engine_ece_raw": 0.04466,
+            "baseline_rate": 0.3938,
+            "baseline_logloss": 0.67043,
+            "baseline_brier": 0.23873,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5": {
+          "engine_logloss": 0.57817,
+          "engine_brier": 0.19503,
+          "engine_ece_raw": 0.01709,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57858,
+          "engine_ece_calibrated": 0.01312,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5_holdout": {
+          "engine_logloss": 0.57817,
+          "engine_brier": 0.19503,
+          "engine_ece_raw": 0.01709,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57858,
+          "engine_ece_calibrated": 0.01312,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.58025,
+            "engine_brier": 0.19606,
+            "engine_ece_raw": 0.02955,
+            "baseline_rate": 0.2705,
+            "baseline_logloss": 0.5838,
+            "baseline_brier": 0.19735,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        }
+      }
+    },
+    "B": {
+      "n_folds": 48,
+      "n_games": 4354,
+      "final_fit_rounds": {
+        "home": 12,
+        "away": 31
+      },
+      "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+      "home_model": {
+        "poisson_deviance": 2.23343,
+        "rmse": 3.11255,
+        "mae": 2.43786
+      },
+      "home_baseline": {
+        "poisson_deviance": 2.25865,
+        "rmse": 3.13039,
+        "mae": 2.45658
+      },
+      "away_model": {
+        "poisson_deviance": 2.47451,
+        "rmse": 3.26638,
+        "mae": 2.56912
+      },
+      "away_baseline": {
+        "poisson_deviance": 2.53232,
+        "rmse": 3.30612,
+        "mae": 2.60097
+      },
+      "home_pooled": {
+        "poisson_deviance": 2.22923,
+        "rmse": 3.12842,
+        "mae": 2.43517
+      },
+      "home_dispersion_ratio": 2.1787,
+      "away_pooled": {
+        "poisson_deviance": 2.47852,
+        "rmse": 3.28297,
+        "mae": 2.57566
+      },
+      "away_dispersion_ratio": 2.4673,
+      "arm": "B",
+      "label": "A + 24 diffs",
+      "n_feature_cols": 53,
+      "kept": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "travel_fatigue_diff",
+        "closer_availability_diff"
+      ],
+      "dropped": [
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "travel_fatigue_diff",
+        "closer_availability_diff"
+      ],
+      "tails": {
+        "home": {
+          "alpha": 0.2704,
+          "chi2_df": 2.1787,
+          "p_le_1_model": 0.161,
+          "p_le_1_obs": 0.1677,
+          "tail10_model": 0.052,
+          "tail10_obs": 0.0691
+        },
+        "away": {
+          "alpha": 0.3512,
+          "chi2_df": 2.4673,
+          "p_le_1_model": 0.1936,
+          "p_le_1_obs": 0.1906,
+          "tail10_model": 0.0527,
+          "tail10_obs": 0.0838
+        }
+      },
+      "markets": {
+        "market_derived_moneyline": {
+          "engine_logloss": 0.69453,
+          "engine_brier": 0.2507,
+          "engine_ece_raw": 0.07043,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68671,
+          "engine_ece_calibrated": 0.01413,
+          "beats_baseline_logloss": false
+        },
+        "market_derived_moneyline_holdout": {
+          "engine_logloss": 0.69453,
+          "engine_brier": 0.2507,
+          "engine_ece_raw": 0.07043,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68671,
+          "engine_ece_calibrated": 0.01413,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.69996,
+            "engine_brier": 0.25343,
+            "engine_ece_raw": 0.10758,
+            "baseline_rate": 0.5616,
+            "baseline_logloss": 0.68553,
+            "baseline_brier": 0.2462,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": false
+        },
+        "market_over_7_5": {
+          "engine_logloss": 0.6796,
+          "engine_brier": 0.24332,
+          "engine_ece_raw": 0.01822,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.67844,
+          "engine_ece_calibrated": 0.01567,
+          "beats_baseline_logloss": true
+        },
+        "market_over_7_5_holdout": {
+          "engine_logloss": 0.6796,
+          "engine_brier": 0.24332,
+          "engine_ece_raw": 0.01822,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.67844,
+          "engine_ece_calibrated": 0.01567,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68749,
+            "engine_brier": 0.24727,
+            "engine_ece_raw": 0.04239,
+            "baseline_rate": 0.5377,
+            "baseline_logloss": 0.69031,
+            "baseline_brier": 0.24858,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5": {
+          "engine_logloss": 0.6864,
+          "engine_brier": 0.24666,
+          "engine_ece_raw": 0.01509,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68556,
+          "engine_ece_calibrated": 0.01776,
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5_holdout": {
+          "engine_logloss": 0.6864,
+          "engine_brier": 0.24666,
+          "engine_ece_raw": 0.01509,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68556,
+          "engine_ece_calibrated": 0.01776,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68441,
+            "engine_brier": 0.2457,
+            "engine_ece_raw": 0.02397,
+            "baseline_rate": 0.4658,
+            "baseline_logloss": 0.6908,
+            "baseline_brier": 0.24883,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5": {
+          "engine_logloss": 0.66427,
+          "engine_brier": 0.23579,
+          "engine_ece_raw": 0.02347,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66319,
+          "engine_ece_calibrated": 0.00905,
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5_holdout": {
+          "engine_logloss": 0.66427,
+          "engine_brier": 0.23579,
+          "engine_ece_raw": 0.02347,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66319,
+          "engine_ece_calibrated": 0.00905,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.65366,
+            "engine_brier": 0.23057,
+            "engine_ece_raw": 0.03379,
+            "baseline_rate": 0.3733,
+            "baseline_logloss": 0.66068,
+            "baseline_brier": 0.23394,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5": {
+          "engine_logloss": 0.64827,
+          "engine_brier": 0.22801,
+          "engine_ece_raw": 0.01427,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64829,
+          "engine_ece_calibrated": 0.01632,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5_holdout": {
+          "engine_logloss": 0.64827,
+          "engine_brier": 0.22801,
+          "engine_ece_raw": 0.01427,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64829,
+          "engine_ece_calibrated": 0.01632,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.67044,
+            "engine_brier": 0.23881,
+            "engine_ece_raw": 0.0401,
+            "baseline_rate": 0.3938,
+            "baseline_logloss": 0.67043,
+            "baseline_brier": 0.23873,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5": {
+          "engine_logloss": 0.57818,
+          "engine_brier": 0.19495,
+          "engine_ece_raw": 0.01471,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57899,
+          "engine_ece_calibrated": 0.0137,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5_holdout": {
+          "engine_logloss": 0.57818,
+          "engine_brier": 0.19495,
+          "engine_ece_raw": 0.01471,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57899,
+          "engine_ece_calibrated": 0.0137,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.58186,
+            "engine_brier": 0.19665,
+            "engine_ece_raw": 0.00798,
+            "baseline_rate": 0.2705,
+            "baseline_logloss": 0.5838,
+            "baseline_brier": 0.19735,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        }
+      }
+    },
+    "C": {
+      "n_folds": 48,
+      "n_games": 4354,
+      "final_fit_rounds": {
+        "home": 14,
+        "away": 27
+      },
+      "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+      "home_model": {
+        "poisson_deviance": 2.24358,
+        "rmse": 3.11952,
+        "mae": 2.44316
+      },
+      "home_baseline": {
+        "poisson_deviance": 2.25865,
+        "rmse": 3.13039,
+        "mae": 2.45658
+      },
+      "away_model": {
+        "poisson_deviance": 2.48425,
+        "rmse": 3.27292,
+        "mae": 2.57396
+      },
+      "away_baseline": {
+        "poisson_deviance": 2.53232,
+        "rmse": 3.30612,
+        "mae": 2.60097
+      },
+      "home_pooled": {
+        "poisson_deviance": 2.2394,
+        "rmse": 3.13575,
+        "mae": 2.44042
+      },
+      "home_dispersion_ratio": 2.1901,
+      "away_pooled": {
+        "poisson_deviance": 2.48736,
+        "rmse": 3.28824,
+        "mae": 2.57969
+      },
+      "away_dispersion_ratio": 2.4749,
+      "arm": "C",
+      "label": "A + 5 composites",
+      "n_feature_cols": 34,
+      "kept": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "lineup_handedness_matchup_advantage",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor"
+      ],
+      "dropped": [
+        "lineup_handedness_matchup_advantage",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor"
+      ],
+      "tails": {
+        "home": {
+          "alpha": 0.2694,
+          "chi2_df": 2.1901,
+          "p_le_1_model": 0.1603,
+          "p_le_1_obs": 0.1677,
+          "tail10_model": 0.0522,
+          "tail10_obs": 0.0691
+        },
+        "away": {
+          "alpha": 0.3489,
+          "chi2_df": 2.4749,
+          "p_le_1_model": 0.1922,
+          "p_le_1_obs": 0.1906,
+          "tail10_model": 0.053,
+          "tail10_obs": 0.0838
+        }
+      },
+      "markets": {
+        "market_derived_moneyline": {
+          "engine_logloss": 0.69531,
+          "engine_brier": 0.2511,
+          "engine_ece_raw": 0.06892,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68739,
+          "engine_ece_calibrated": 0.01228,
+          "beats_baseline_logloss": false
+        },
+        "market_derived_moneyline_holdout": {
+          "engine_logloss": 0.69531,
+          "engine_brier": 0.2511,
+          "engine_ece_raw": 0.06892,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68739,
+          "engine_ece_calibrated": 0.01228,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.70046,
+            "engine_brier": 0.25377,
+            "engine_ece_raw": 0.12316,
+            "baseline_rate": 0.5616,
+            "baseline_logloss": 0.68553,
+            "baseline_brier": 0.2462,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": false
+        },
+        "market_over_7_5": {
+          "engine_logloss": 0.68086,
+          "engine_brier": 0.24396,
+          "engine_ece_raw": 0.02337,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68061,
+          "engine_ece_calibrated": 0.01079,
+          "beats_baseline_logloss": true
+        },
+        "market_over_7_5_holdout": {
+          "engine_logloss": 0.68086,
+          "engine_brier": 0.24396,
+          "engine_ece_raw": 0.02337,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68061,
+          "engine_ece_calibrated": 0.01079,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.69203,
+            "engine_brier": 0.2495,
+            "engine_ece_raw": 0.04009,
+            "baseline_rate": 0.5377,
+            "baseline_logloss": 0.69031,
+            "baseline_brier": 0.24858,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5": {
+          "engine_logloss": 0.68708,
+          "engine_brier": 0.24699,
+          "engine_ece_raw": 0.01257,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68653,
+          "engine_ece_calibrated": 0.00964,
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5_holdout": {
+          "engine_logloss": 0.68708,
+          "engine_brier": 0.24699,
+          "engine_ece_raw": 0.01257,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.68653,
+          "engine_ece_calibrated": 0.00964,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68944,
+            "engine_brier": 0.24817,
+            "engine_ece_raw": 0.02708,
+            "baseline_rate": 0.4658,
+            "baseline_logloss": 0.6908,
+            "baseline_brier": 0.24883,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5": {
+          "engine_logloss": 0.66503,
+          "engine_brier": 0.23614,
+          "engine_ece_raw": 0.01334,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66456,
+          "engine_ece_calibrated": 0.00871,
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5_holdout": {
+          "engine_logloss": 0.66503,
+          "engine_brier": 0.23614,
+          "engine_ece_raw": 0.01334,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66456,
+          "engine_ece_calibrated": 0.00871,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.6591,
+            "engine_brier": 0.23314,
+            "engine_ece_raw": 0.03103,
+            "baseline_rate": 0.3733,
+            "baseline_logloss": 0.66068,
+            "baseline_brier": 0.23394,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5": {
+          "engine_logloss": 0.64998,
+          "engine_brier": 0.22884,
+          "engine_ece_raw": 0.01111,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.65027,
+          "engine_ece_calibrated": 0.012,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5_holdout": {
+          "engine_logloss": 0.64998,
+          "engine_brier": 0.22884,
+          "engine_ece_raw": 0.01111,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.65027,
+          "engine_ece_calibrated": 0.012,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.6681,
+            "engine_brier": 0.23782,
+            "engine_ece_raw": 0.04854,
+            "baseline_rate": 0.3938,
+            "baseline_logloss": 0.67043,
+            "baseline_brier": 0.23873,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5": {
+          "engine_logloss": 0.57898,
+          "engine_brier": 0.19533,
+          "engine_ece_raw": 0.01423,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57928,
+          "engine_ece_calibrated": 0.01442,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5_holdout": {
+          "engine_logloss": 0.57898,
+          "engine_brier": 0.19533,
+          "engine_ece_raw": 0.01423,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.57928,
+          "engine_ece_calibrated": 0.01442,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.57993,
+            "engine_brier": 0.19595,
+            "engine_ece_raw": 0.00996,
+            "baseline_rate": 0.2705,
+            "baseline_logloss": 0.5838,
+            "baseline_brier": 0.19735,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        }
+      }
+    },
+    "REF": {
+      "n_folds": 48,
+      "n_games": 4354,
+      "final_fit_rounds": {
+        "home": 14,
+        "away": 21
+      },
+      "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+      "home_model": {
+        "poisson_deviance": 2.23311,
+        "rmse": 3.11191,
+        "mae": 2.43856
+      },
+      "home_baseline": {
+        "poisson_deviance": 2.25865,
+        "rmse": 3.13039,
+        "mae": 2.45658
+      },
+      "away_model": {
+        "poisson_deviance": 2.48548,
+        "rmse": 3.27362,
+        "mae": 2.57177
+      },
+      "away_baseline": {
+        "poisson_deviance": 2.53232,
+        "rmse": 3.30612,
+        "mae": 2.60097
+      },
+      "home_pooled": {
+        "poisson_deviance": 2.2291,
+        "rmse": 3.12822,
+        "mae": 2.436
+      },
+      "home_dispersion_ratio": 2.1798,
+      "away_pooled": {
+        "poisson_deviance": 2.48881,
+        "rmse": 3.28941,
+        "mae": 2.57738
+      },
+      "away_dispersion_ratio": 2.4864,
+      "arm": "REF",
+      "label": "58 cols (A+B+C)",
+      "n_feature_cols": 58,
+      "kept": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "lineup_handedness_matchup_advantage",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor"
+      ],
+      "dropped": [
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "lineup_handedness_matchup_advantage",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor"
+      ],
+      "tails": {
+        "home": {
+          "alpha": 0.2707,
+          "chi2_df": 2.1798,
+          "p_le_1_model": 0.1612,
+          "p_le_1_obs": 0.1677,
+          "tail10_model": 0.052,
+          "tail10_obs": 0.0691
+        },
+        "away": {
+          "alpha": 0.3516,
+          "chi2_df": 2.4864,
+          "p_le_1_model": 0.1938,
+          "p_le_1_obs": 0.1906,
+          "tail10_model": 0.0527,
+          "tail10_obs": 0.0838
+        }
+      },
+      "markets": {
+        "market_derived_moneyline": {
+          "engine_logloss": 0.69439,
+          "engine_brier": 0.25064,
+          "engine_ece_raw": 0.06775,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68661,
+          "engine_ece_calibrated": 0.01274,
+          "beats_baseline_logloss": false
+        },
+        "market_derived_moneyline_holdout": {
+          "engine_logloss": 0.69439,
+          "engine_brier": 0.25064,
+          "engine_ece_raw": 0.06775,
+          "baseline_rate": 0.5354,
+          "baseline_logloss": 0.69064,
+          "baseline_brier": 0.24875,
+          "engine_logloss_calibrated": 0.68661,
+          "engine_ece_calibrated": 0.01274,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.70034,
+            "engine_brier": 0.25362,
+            "engine_ece_raw": 0.115,
+            "baseline_rate": 0.5616,
+            "baseline_logloss": 0.68553,
+            "baseline_brier": 0.2462,
+            "beats_baseline_logloss": false
+          },
+          "beats_baseline_logloss": false
+        },
+        "market_over_7_5": {
+          "engine_logloss": 0.6805,
+          "engine_brier": 0.24378,
+          "engine_ece_raw": 0.01811,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68006,
+          "engine_ece_calibrated": 0.0148,
+          "beats_baseline_logloss": true
+        },
+        "market_over_7_5_holdout": {
+          "engine_logloss": 0.6805,
+          "engine_brier": 0.24378,
+          "engine_ece_raw": 0.01811,
+          "baseline_rate": 0.5583,
+          "baseline_logloss": 0.68633,
+          "baseline_brier": 0.2466,
+          "engine_logloss_calibrated": 0.68006,
+          "engine_ece_calibrated": 0.0148,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68641,
+            "engine_brier": 0.24673,
+            "engine_ece_raw": 0.04594,
+            "baseline_rate": 0.5377,
+            "baseline_logloss": 0.69031,
+            "baseline_brier": 0.24858,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5": {
+          "engine_logloss": 0.68745,
+          "engine_brier": 0.24718,
+          "engine_ece_raw": 0.01401,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.687,
+          "engine_ece_calibrated": 0.00957,
+          "beats_baseline_logloss": true
+        },
+        "market_over_8_5_holdout": {
+          "engine_logloss": 0.68745,
+          "engine_brier": 0.24718,
+          "engine_ece_raw": 0.01401,
+          "baseline_rate": 0.4853,
+          "baseline_logloss": 0.69271,
+          "baseline_brier": 0.24978,
+          "engine_logloss_calibrated": 0.687,
+          "engine_ece_calibrated": 0.00957,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.68507,
+            "engine_brier": 0.24601,
+            "engine_ece_raw": 0.03525,
+            "baseline_rate": 0.4658,
+            "baseline_logloss": 0.6908,
+            "baseline_brier": 0.24883,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5": {
+          "engine_logloss": 0.66514,
+          "engine_brier": 0.2362,
+          "engine_ece_raw": 0.0136,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66476,
+          "engine_ece_calibrated": 0.00679,
+          "beats_baseline_logloss": true
+        },
+        "market_over_9_5_holdout": {
+          "engine_logloss": 0.66514,
+          "engine_brier": 0.2362,
+          "engine_ece_raw": 0.0136,
+          "baseline_rate": 0.3946,
+          "baseline_logloss": 0.67075,
+          "baseline_brier": 0.23889,
+          "engine_logloss_calibrated": 0.66476,
+          "engine_ece_calibrated": 0.00679,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.65643,
+            "engine_brier": 0.23191,
+            "engine_ece_raw": 0.03465,
+            "baseline_rate": 0.3733,
+            "baseline_logloss": 0.66068,
+            "baseline_brier": 0.23394,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5": {
+          "engine_logloss": 0.64812,
+          "engine_brier": 0.22797,
+          "engine_ece_raw": 0.01534,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64802,
+          "engine_ece_calibrated": 0.01442,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_1_5_holdout": {
+          "engine_logloss": 0.64812,
+          "engine_brier": 0.22797,
+          "engine_ece_raw": 0.01534,
+          "baseline_rate": 0.3588,
+          "baseline_logloss": 0.6527,
+          "baseline_brier": 0.23005,
+          "engine_logloss_calibrated": 0.64802,
+          "engine_ece_calibrated": 0.01442,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.66988,
+            "engine_brier": 0.23857,
+            "engine_ece_raw": 0.03982,
+            "baseline_rate": 0.3938,
+            "baseline_logloss": 0.67043,
+            "baseline_brier": 0.23873,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5": {
+          "engine_logloss": 0.57854,
+          "engine_brier": 0.19509,
+          "engine_ece_raw": 0.01559,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.5795,
+          "engine_ece_calibrated": 0.01223,
+          "beats_baseline_logloss": true
+        },
+        "market_home_cover_2_5_holdout": {
+          "engine_logloss": 0.57854,
+          "engine_brier": 0.19509,
+          "engine_ece_raw": 0.01559,
+          "baseline_rate": 0.268,
+          "baseline_logloss": 0.58129,
+          "baseline_brier": 0.19619,
+          "engine_logloss_calibrated": 0.5795,
+          "engine_ece_calibrated": 0.01223,
+          "holdout": {
+            "n": 292,
+            "engine_logloss": 0.58091,
+            "engine_brier": 0.19629,
+            "engine_ece_raw": 0.00825,
+            "baseline_rate": 0.2705,
+            "baseline_logloss": 0.5838,
+            "baseline_brier": 0.19735,
+            "beats_baseline_logloss": true
+          },
+          "beats_baseline_logloss": true
+        }
+      }
+    }
+  },
+  "gate": [
+    "home: \u0394dev=-0.0032 \u0394RMSE=-0.0026 OK",
+    "away: \u0394dev=-0.0131 \u0394RMSE=-0.0084 OK",
+    "mean ECE-cal (6 ref lines): 0.0119 -> 0.0144 DEGRADED",
+    "home tail10 |gap|: 0.017 -> 0.017 OK",
+    "away tail10 |gap|: 0.031 -> 0.031 OK",
+    "VERDICT: DO NOT SHIP"
+  ]
+}
