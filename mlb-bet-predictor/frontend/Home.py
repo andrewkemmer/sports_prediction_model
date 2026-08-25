@@ -60,6 +60,7 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 pages = [
     st.Page("todays_games.py", title="Today's Games", icon="📅", url_path="todays-games", default=True),
+    st.Page("markets.py", title="Totals & Run Lines", icon="🎯", url_path="markets"),
     st.Page("power_rankings.py", title="Power Rankings", icon="🏆", url_path="power-rankings"),
     st.Page("model_calibration.py", title="Calibration", icon="📊", url_path="calibration"),
     st.Page("model_monitor.py", title="Model Monitor", icon="🛰️", url_path="model-monitor"),

@@ -1060,5 +1060,31 @@ def apply_weather_features(
         # pre-existing values and leave genuinely missing values as NULL.
     df["wind_advantage_flyball_factor"] = pd.Series(wind_vals, index=df.index, dtype="float64")
     df["air_density_velocity_boost"] = pd.Series(air_vals, index=df.index, dtype="float64")
+
+    # Standalone ENV-LEVEL columns (run engine Phase 3.5b): the LEVEL values
+    # behind the interactions, un-multiplied by any SP diff. Additive — the
+    # interaction columns above are untouched.
+    wm_col = pd.to_numeric(df.get("wind_advantage_flyball_factor"), errors="coerce")
+    era2 = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    park_wind = []
+    air_level = []
+    for i, (idx, row) in enumerate(df.iterrows()):
+        w = _lookup_weather(weather_data, row, idx)
+        if w.get("available"):
+            wm = w.get("wind_multiplier", np.nan)
+            ad = w.get("air_density", np.nan)
+            park_wind.append(float(wm) if pd.notna(wm) else np.nan)
+            air_level.append(float(ad) if pd.notna(ad) else np.nan)
+        else:
+            # No fetched observation: a dome's wind level is genuinely 0
+            # (only when the interaction confirms it), anything else UNKNOWN.
+            wv = wm_col.iloc[i] if isinstance(wm_col, pd.Series) else np.nan
+            ev = era2.iloc[i] if isinstance(era2, pd.Series) else np.nan
+            dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
+            park_wind.append(float(wv) if dome and pd.notna(wv)
+                             and abs(float(ev)) > 1e-12 else np.nan)
+            air_level.append(np.nan)
+    df["park_wind_factor"] = pd.Series(park_wind, index=df.index, dtype="float64")
+    df["air_density_level"] = pd.Series(air_level, index=df.index, dtype="float64")
     logger.info("Weather features applied to %d/%d games", n_applied, len(df))
     return df

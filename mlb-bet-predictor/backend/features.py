@@ -1266,6 +1266,16 @@ PARK_FACTORS_SLG = {
     "ATH": 99,
 }
 
+# Retractable-roof venues: venue-level DOME_STATUS=1 is only correct when the
+# roof is actually CLOSED. For these teams roof state is resolved PER GAME
+# from the StatsAPI feed condition ("Roof Open"/"Roof Closed"/"Indoor").
+# Fixed domes (TB) are always closed. MIN is a known data-quality anomaly:
+# Target Field has been open-air since 2010 yet DOME_STATUS says 1.
+RETRACTABLE_ROOF_TEAMS = frozenset(
+    {"ARI", "AZ", "HOU", "MIA", "MIL", "SEA", "TEX", "TOR"})
+FIXED_DOME_TEAMS = frozenset({"TB"})
+OPEN_AIR_MISLABELED = frozenset({"MIN"})  # flagged dome=1 but open-air
+
 # Dome/closed-roof flag: 1 if fixed dome, 0 if open-air.
 # Prevents the model from hallucinating weather impacts indoors.
 DOME_STATUS = {
@@ -1353,6 +1363,148 @@ RAW_COLUMN_ALIASES: dict[str, list[str]] = {
     "time_zones_crossed_last_3d_away": ["time_zones_crossed_last_3d_away",
                                         "travel_zones_crossed_last_3d_away"],
 }
+
+
+def roof_state_from_condition(condition) -> str | None:
+    """Map a StatsAPI gameData.weather.condition string to open/closed/None.
+
+    Retractable parks report conditions like "Roof Closed", "Roof Open",
+    "Indoor". Anything else (clear/cloudy/missing) is NOT a roof statement
+    -> None (unknown), which callers must treat loudly, never as closed.
+    """
+    if condition is None:
+        return None
+    text = str(condition).strip().lower()
+    if not text:
+        return None
+    if "roof closed" in text or text == "indoor" or "closed roof" in text:
+        return "closed"
+    if "roof open" in text or "open roof" in text:
+        return "open"
+    return None
+
+
+def refine_dome_game_level(df: pd.DataFrame,
+                           roof_states: dict | None = None) -> pd.DataFrame:
+    """Game-accurate roof flag column: dome_is_neutral_game.
+
+    Venue-level dome_is_neutral is kept UNTOUCHED. The refined column:
+      * fixed domes           -> 1 (always closed)
+      * retractable + known   -> 0 when OPEN (real weather applies),
+                                 1 when CLOSED
+      * retractable + unknown -> venue value + LOUD WARNING (never silently
+                                 assumed closed)
+      * open-air venues       -> 0 (includes the MIN mislabel correction)
+    ``roof_states`` maps game_pk -> "open"|"closed" (StatsAPI cache).
+    """
+    from collections import Counter
+
+    df = df.copy()
+    roof_states = roof_states or {}
+    refined = []
+    unknown_retractable = 0
+    unknown_teams = Counter()
+    for _, row in df.iterrows():
+        team = str(row.get("home_team", "")).upper().strip()
+        venue_dome = row.get("dome_is_neutral")
+        venue_dome = float(venue_dome) if pd.notna(venue_dome) else np.nan
+        if team in FIXED_DOME_TEAMS:
+            refined.append(1.0)
+        elif team in RETRACTABLE_ROOF_TEAMS:
+            state = roof_states.get(row.get("game_pk")) \
+                or roof_state_from_condition(row.get("statsapi_condition"))
+            if state == "open":
+                refined.append(0.0)
+            elif state == "closed":
+                refined.append(1.0)
+            else:
+                unknown_retractable += 1
+                unknown_teams[team] += 1
+                refined.append(venue_dome if pd.notna(venue_dome) else 1.0)
+        elif team in OPEN_AIR_MISLABELED:
+            refined.append(0.0)
+        else:
+            refined.append(venue_dome if pd.notna(venue_dome) else 0.0)
+    df["dome_is_neutral_game"] = pd.Series(refined, index=df.index,
+                                           dtype="float64")
+    n_open = int((df["dome_is_neutral_game"] == 0).sum())
+    logger.warning(
+        "Dome refinement: %d/%d games resolved; %d retractable games have "
+        "UNKNOWN roof state (teams: %s) - venue fallback applied, never "
+        "silently treated as closed",
+        len(df) - unknown_retractable, len(df), unknown_retractable,
+        dict(unknown_teams) if unknown_teams else "{}")
+    logger.info(
+        "Dome refinement: %d games play under real weather after refinement",
+        n_open)
+    return df
+
+
+def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Standalone environment-LEVEL columns for the run engine (additive).
+
+    - park_wind_factor / air_density_level: persisted natively going forward
+      by weather.apply_weather_features; here they are backfilled by EXACT
+      algebraic recovery from the shipped interactions
+        wind_advantage_flyball_factor = wind_multiplier x sp_era_diff
+        air_density_velocity_boost    = (air_density - 1.225) x sp_fbvelo_diff
+      wherever the diff denominator is non-trivial; otherwise NULL (a level
+      that was never observed is never fabricated). Dome wind is genuinely 0.
+    - park_factor_slug: pure park SLG factor - the SAME centered component
+      park_factor_slug_diff multiplies (extracted, not a parallel table).
+    Missing sources produce NULLs plus loud warnings - never silent zeros.
+    """
+    df = df.copy()
+    home_team = df["home_team"].astype(str).str.upper().str.strip()
+
+    pf_raw = home_team.map(PARK_FACTORS_SLG).astype(float)
+    df["park_factor_slug"] = (pf_raw - 100.0) / 100.0
+    missing_park = int(pf_raw.isna().sum())
+    if missing_park:
+        logger.warning(
+            "Env-level features: %d/%d rows have no PARK_FACTORS_SLG entry "
+            "for home_team - park_factor_slug left NULL",
+            missing_park, len(df))
+
+    era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
+    velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
+    waf = pd.to_numeric(df.get("wind_advantage_flyball_factor"),
+                        errors="coerce")
+    adv = pd.to_numeric(df.get("air_density_velocity_boost"), errors="coerce")
+    SEA_LEVEL_RHO = 1.225
+    EPS = 0.05
+
+    recover_wind = waf / era.where(era.abs() >= EPS)
+    dome_mask = pd.to_numeric(df.get("dome_is_neutral"),
+                              errors="coerce") == 1
+    recover_wind = recover_wind.where(~(dome_mask & waf.notna()), 0.0)
+    if "park_wind_factor" not in df.columns:
+        df["park_wind_factor"] = np.nan
+    df["park_wind_factor"] = df["park_wind_factor"].fillna(recover_wind)
+
+    recover_air = adv / velo.where(velo.abs() >= EPS) + SEA_LEVEL_RHO
+    # Physical sanity: sea-level air density is ~1.225 kg/m3; recovered
+    # levels outside [0.95, 1.35] are tiny-denominator arithmetic noise,
+    # not observations - NULL them loudly rather than ship garbage.
+    in_band = recover_air.between(0.95, 1.35)
+    n_oob = int((recover_air.notna() & ~in_band).sum())
+    if n_oob:
+        logger.warning(
+            "Env-level features: %d recovered air_density_level values "
+            "outside the physical band [0.95, 1.35] kg/m3 - NULLed",
+            n_oob)
+    recover_air = recover_air.where(in_band)
+    if "air_density_level" not in df.columns:
+        df["air_density_level"] = np.nan
+    df["air_density_level"] = df["air_density_level"].fillna(recover_air)
+
+    logger.info(
+        "Env-level features: park_wind_factor populated for %d/%d rows, "
+        "air_density_level for %d/%d rows (remainder NULL - no observable "
+        "level derivable)",
+        int(df["park_wind_factor"].notna().sum()), len(df),
+        int(df["air_density_level"].notna().sum()), len(df))
+    return df
 
 
 def add_diff_features(

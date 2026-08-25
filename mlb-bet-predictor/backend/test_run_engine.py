@@ -26,13 +26,23 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 import run_engine as re_
 from run_engine import (
-    MARKET_COLUMNS,
+    ALPHA_CAP,
+    ALPHA_MIN_BIN,
+    HOLDOUT_DAYS,
+    MARKET_COLUMNS_V3,
+    NULLABLE_MARKET_COLUMNS,
+    RUN_LINE_GRID,
+    TOTAL_LINE_GRID,
+    agreement_stats,
+    alpha_bins,
+    alpha_of,
     brier_score,
-    derive_markets,
     derive_markets_mc,
+    derive_markets_v3,
     derive_run_features,
     dispersion_ratio,
     ece_score,
+    eval_alpha_fit,
     fit_alpha,
     fit_check_table,
     nb_pmf,
@@ -40,6 +50,7 @@ from run_engine import (
     persist_oof,
     poisson_deviance,
     prequential_calibrate,
+    select_alpha_curve,
     split_side_view,
 )
 from training import FEATURE_COLS
@@ -322,26 +333,33 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
         as_ = rng.negative_binomial(3.0, 3.0 / (3.0 + lam_a)).astype(int)
         cls.oof = pd.DataFrame({
             "game_pk": np.arange(1000, 1000 + n),
-            "game_date": pd.date_range("2026-06-01", periods=n,
+            "game_date": pd.date_range("2026-03-01", periods=n,
                                        freq="D").strftime("%Y-%m-%d"),
-            "game_id": [f"d{i}_A@H" for i in range(n)],
             "fold_idx": np.repeat(np.arange(10), n // 10),
             "home_expected_runs": lam_h,
             "away_expected_runs": lam_a,
             "home_score": hs,
             "away_score": as_,
         })
-        ml = pd.DataFrame({
-            "game_id": cls.oof["game_id"],
+        cls.ml = pd.DataFrame({
+            "game_pk": cls.oof["game_pk"],
             "home_win_prob_model": rng.uniform(.3, .7, n),
         })
-        cls.out = derive_markets(cls.oof, moneyline_probs=ml, n_draws=2_000)
+        cls.out = derive_markets_v3(cls.oof, moneyline_probs=cls.ml,
+                                    n_draws=2_000)
 
     def test_summary_has_every_deliverable_block(self):
         s = self.out["summary"]
         self.assertIn("alpha_home", s)
         self.assertIn("alpha_away", s)
-        for key in ("market_over_8_5", "market_home_cover_1_5",
+        self.assertIn("phase2_single_alpha", s)
+        self.assertIn("fit_check_single_alpha", s)
+        self.assertIn("fit_check_alpha_lambda", s)
+        self.assertIn("variance_check", s)
+        self.assertIn("year_effect_home", s)
+        self.assertIn("mc_meta", s)
+        for key in ("market_over_7_5", "market_over_8_5", "market_over_9_5",
+                    "market_home_cover_1_5", "market_home_cover_2_5",
                     "market_derived_moneyline"):
             m = s[key]
             for field in ("engine_logloss", "engine_brier", "engine_ece_raw",
@@ -349,16 +367,43 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
                 self.assertIn(field, m, f"{key}.{field}")
         self.assertIn("agreement_vs_moneyline", s)
         a = s["agreement_vs_moneyline"]
-        for field in ("correlation", "mean_abs_diff", "share_gt_0_08",
-                      "share_gt_0_10", "n_merged"):
+        for field in ("delta_primary", "n", "mean_abs_diff",
+                      "share_gt_0_08", "share_gt_0_10",
+                      "n_flagged_0_08", "n_flagged_0_10"):
             self.assertIn(field, a)
 
     def test_fit_check_table_shape(self):
-        fc = self.out["summary"]["fit_check"]["home"]
-        self.assertEqual(len(fc), 15)  # k=0..12 plus >=10 and <=1 rows
-        for row in fc:
+        fc2 = self.out["summary"]["fit_check_single_alpha"]["home"]
+        self.assertEqual(len(fc2), 15)  # k=0..12 plus >=10 and <=1 (Phase 2)
+        fc3 = self.out["summary"]["fit_check_alpha_lambda"]["home"]
+        self.assertEqual(len(fc3), 17)  # adds >=11 and >=12 tails
+        for row in fc2 + fc3:
             self.assertIn("modeled_p", row)
             self.assertIn("observed_p", row)
+
+    def test_agreement_flags_and_hand_count(self):
+        mk = self.out["markets"]
+        self.assertIn("agreement_conflict", mk.columns)
+        diff = (mk["p_home_win_derived"] - mk["ml_win_prob"]).abs()
+        expected_n = int((diff > 0.08).sum())
+        stats = self.out["summary"]["agreement_vs_moneyline"]
+        self.assertEqual(stats["n_flagged_primary"], expected_n)
+        self.assertEqual(int(mk["agreement_conflict"].sum()), expected_n)
+        # Boundary honesty: diff of exactly delta must NOT flag.
+        self.assertEqual(agreement_stats(
+            np.array([0.5]), np.array([0.58]), delta=0.08)["n_flagged_primary"], 0)
+        self.assertEqual(agreement_stats(
+            np.array([0.5]), np.array([0.59]), delta=0.08)["n_flagged_primary"], 1)
+
+    def test_markets_frame_no_nans_and_consistent_targets(self):
+        mk = self.out["markets"]
+        required_cols = [c for c in MARKET_COLUMNS_V3
+                         if c not in NULLABLE_MARKET_COLUMNS]
+        self.assertFalse(mk[required_cols].isna().any().any())
+        total = mk["home_score"] + mk["away_score"]
+        self.assertTrue((mk["total_runs"] == total).all())
+        self.assertTrue((mk["p_over_8_5"] <= 1).all()
+                        and (mk["p_over_8_5"] >= 0).all())
 
     def test_markets_frame_no_nans_and_consistent_targets(self):
         mk = self.out["markets"]
@@ -374,12 +419,16 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
                                    self.out["summary"], out_dir=Path(tmp))
             self.assertTrue(path.exists())
             out = pd.read_csv(path)
-            self.assertEqual(list(out.columns), MARKET_COLUMNS)
-            self.assertFalse(out.isna().any().any())
+            self.assertEqual(list(out.columns), MARKET_COLUMNS_V3)
+            nullable = [c for c in MARKET_COLUMNS_V3
+                        if c in NULLABLE_MARKET_COLUMNS]
+            required = [c for c in MARKET_COLUMNS_V3 if c not in nullable]
+            self.assertFalse(out[required].isna().any().any())
             meta = json.loads((path.parent / "run_engine_markets_TEST.meta.json")
                               .read_text())
-            for field in ("alpha_home", "alpha_away", "n_draws", "seed",
-                          "total_line", "run_line_margin"):
+            for field in ("alpha_home", "alpha_away", "phase2_single_alpha",
+                          "n_draws", "seed", "mc_meta", "line_grid",
+                          "holdout_cutoff", "n_pre", "n_holdout"):
                 self.assertIn(field, meta)
 
     def test_nan_refusal(self):
@@ -389,6 +438,275 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
             with self.assertRaises(ValueError):
                 persist_markets(bad, "TEST", self.out["summary"],
                                 out_dir=Path(tmp))
+
+class TestAlphaCurveFits(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """Heteroskedastic synthetic: α(λ) = 0.05 + 0.09·λ (increasing)."""
+        rng = np.random.default_rng(0)
+        n = 4000
+        cls.lam = np.clip(rng.normal(4.5, 0.6, n), 2.8, 6.8)
+        true_a = np.clip(0.05 + 0.09 * cls.lam, 0, ALPHA_CAP)
+        inv_n = 1.0 / true_a
+        cls.y = rng.negative_binomial(
+            inv_n, inv_n / (inv_n + cls.lam)).astype(float)
+        cls.curve, cls.diag = select_alpha_curve(cls.y, cls.lam, seed=1)
+
+    def test_bins_respect_min_count(self):
+        bins = alpha_bins(self.y, self.lam)
+        self.assertGreaterEqual(len(bins), 2)
+        for b in bins:
+            self.assertGreaterEqual(b["count"], ALPHA_MIN_BIN)
+
+    def test_underfilled_bins_merge(self):
+        # 8 requested bins over a tight λ range → some must merge.
+        bins = re_.alpha_bins(np.concatenate([self.y, self.y]),
+                              np.concatenate([self.lam, self.lam]),
+                              n_bins=8, min_count=2000)
+        self.assertLess(len(bins), 8)
+        for b in bins:
+            self.assertGreaterEqual(b["count"], 2000)
+
+    def test_curve_non_negative_monotone_capped(self):
+        grid = np.linspace(1.0, 12.0, 200)
+        vals = alpha_of(grid, self.curve)
+        self.assertTrue((vals >= 0).all())
+        diffs = np.diff(vals)
+        # Monotone in ONE consistent direction (data decides rising vs falling).
+        self.assertTrue((diffs >= -1e-12).all() or (diffs <= 1e-12).all(),
+                        "curve must be monotone")
+        # This synthetic fixture has INCREASING true alpha — expect rising.
+        self.assertTrue((diffs >= -1e-12).all())
+        self.assertTrue((vals <= ALPHA_CAP).all())
+        extreme = alpha_of(np.array([50.0]), self.curve)[0]
+        self.assertLessEqual(extreme, ALPHA_CAP)
+
+    def test_falling_direction_supported(self):
+        """Away-style dispersion: alpha FALLS with lambda must survive."""
+        rng = np.random.default_rng(12)
+        lam = np.clip(rng.normal(4.4, 0.6, 4000), 2.8, 6.8)
+        true_a = np.clip(0.55 - 0.05 * lam, 0.05, ALPHA_CAP)
+        inv_n = 1.0 / true_a
+        y = rng.negative_binomial(inv_n, inv_n / (inv_n + lam)).astype(float)
+        curve, diag = select_alpha_curve(y, lam, seed=13)
+        grid = np.array([3.2, 4.2, 5.2])
+        vals = alpha_of(grid, curve)
+        self.assertGreater(vals[0], vals[-1],
+                           f"falling fixture should yield falling curve: {diag}")
+
+    def test_oob_selection_prefers_honest_tail(self):
+        chosen = self.diag["chosen"]
+        self.assertIn(chosen, ("piecewise", "linear", "power"))
+        # Chosen form's OOB tail gap must be the best available.
+        gaps = {f: self.diag[f]["tail_gap_avg"]
+                for f in ("piecewise", "linear", "power") if f in self.diag}
+        self.assertLessEqual(gaps[chosen], min(gaps.values()) + 1e-9)
+
+    def test_curve_beats_single_alpha_on_tail(self):
+        single = np.full(len(self.y), fit_alpha(self.y, self.lam))
+        ev_single = eval_alpha_fit(self.y, self.lam, single)
+        ev_curve = eval_alpha_fit(self.y, self.lam, alpha_of(self.lam, self.curve))
+        self.assertLess(ev_curve["tail_gap"], ev_single["tail_gap"])
+
+
+class TestTailMatchAndVariance(unittest.TestCase):
+    def test_fit_check_curve_closes_blowout_tail(self):
+        rng = np.random.default_rng(3)
+        lam = rng.uniform(4.4, 5.6, size=6000)
+        a_true = np.clip(0.10 + 0.06 * lam, 0, ALPHA_CAP)
+        inv_n = 1.0 / a_true
+        y = rng.negative_binomial(inv_n, inv_n / (inv_n + lam)).astype(int)
+        curve, _ = select_alpha_curve(y.astype(float), lam, seed=5)
+        fc_curve = re_.fit_check_table_curve(y, lam, alpha_of(lam, curve))
+        tail_c = next(r for r in fc_curve if r["k"] == ">=10")
+        gap_curve = abs(tail_c["modeled_p"] - tail_c["observed_p"])
+        single = fit_alpha(y.astype(float), lam)
+        fc_single = fit_check_table(y.astype(float), lam, single)
+        tail_s = next(r for r in fc_single if r["k"] == ">=10")
+        gap_single = abs(tail_s["modeled_p"] - tail_s["observed_p"])
+        self.assertLess(gap_curve, gap_single)
+        self.assertLess(gap_curve, 0.01)
+
+    def test_variance_still_matches_after_curve(self):
+        rng = np.random.default_rng(4)
+        lam = rng.uniform(4.0, 5.5, size=5000)
+        a_true = np.clip(0.08 + 0.07 * lam, 0, ALPHA_CAP)
+        inv_n = 1.0 / a_true
+        y = rng.negative_binomial(inv_n, inv_n / (inv_n + lam)).astype(float)
+        curve, _ = select_alpha_curve(y, lam, seed=6)
+        a = alpha_of(lam, curve)
+        implied = float((lam + a * lam ** 2).mean())   # var = λ + α·λ²
+        observed = float(y.var(ddof=0))
+        self.assertAlmostEqual(implied, observed, delta=0.15 * observed)
+
+
+class TestLineGridSemantics(unittest.TestCase):
+    def setUp(self):
+        rng = np.random.default_rng(9)
+        self.lam_h = np.clip(rng.normal(4.7, 0.4, 60), 3, 6.5)
+        self.lam_a = np.clip(rng.normal(4.3, 0.4, 60), 3, 6.5)
+        self.mc = derive_markets_mc(self.lam_h, self.lam_a, 0.30, 0.35,
+                                    n_draws=4000, seed=11)
+
+    def test_grid_at_85_matches_legacy_column_exactly(self):
+        col = TOTAL_LINE_GRID.index(8.5)
+        np.testing.assert_array_equal(self.mc["p_over_8_5"],
+                                      self.mc["p_over_grid"][:, col])
+
+    def test_toggle_reads_exact_per_line_values(self):
+        # Column naming contract the dashboard toggle relies on:
+        for line in (6.5, 9.0, 12.5):
+            col = TOTAL_LINE_GRID.index(line)
+            key = f"p_over_{str(line).replace('.', '_')}"
+            self.assertGreaterEqual(col, 0)
+            self.assertIn(key, MARKET_COLUMNS_V3)
+        for m in RUN_LINE_GRID:
+            self.assertIn(f"p_home_cover_{str(m).replace('.', '_')}",
+                          MARKET_COLUMNS_V3)
+
+    def test_under_is_complement_and_cover05_is_winprob(self):
+        i85 = TOTAL_LINE_GRID.index(8.5)
+        under = 1 - self.mc["p_over_grid"][:, i85]
+        np.testing.assert_allclose(under, 1 - self.mc["p_over_8_5"], atol=1e-12)
+        i05 = RUN_LINE_GRID.index(0.5)   # −0.5 ≡ home wins
+        np.testing.assert_array_equal(self.mc["p_home_win_derived"],
+                                      self.mc["p_cover_grid"][:, i05])
+
+    def test_probabilities_monotone_in_line_and_margin(self):
+        self.assertTrue((np.diff(self.mc["p_over_grid"], axis=1) <= 1e-12).all())
+        self.assertTrue((np.diff(self.mc["p_cover_grid"], axis=1) <= 1e-12).all())
+        self.assertTrue(((self.mc["p_cover_grid"] >= 0)
+                         & (self.mc["p_cover_grid"] <= 1)).all())
+
+
+class TestMultiLineScoring(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(31)
+        n = 300
+        lam_h = np.clip(rng.normal(4.6, 0.35, n), 2.5, 7)
+        lam_a = np.clip(rng.normal(4.35, 0.35, n), 2.5, 7)
+        hs = rng.negative_binomial(3.0, 3.0 / (3.0 + lam_h)).astype(int)
+        as_ = rng.negative_binomial(3.0, 3.0 / (3.0 + lam_a)).astype(int)
+        oof = pd.DataFrame({
+            "game_pk": np.arange(n),
+            "game_date": pd.date_range("2026-02-01", periods=n,
+                                       freq="D").strftime("%Y-%m-%d"),
+            "fold_idx": np.repeat(np.arange(10), n // 10),
+            "home_expected_runs": lam_h,
+            "away_expected_runs": lam_a,
+            "home_score": hs,
+            "away_score": as_,
+        })
+        cls.out = derive_markets_v3(oof, moneyline_probs=None, n_draws=1_000)
+        cls.oof = oof
+
+    def test_reference_lines_scored_with_holdout_twins(self):
+        s = self.out["summary"]
+        for key in ("market_over_7_5", "market_over_8_5", "market_over_9_5",
+                    "market_home_cover_1_5", "market_home_cover_2_5",
+                    "market_derived_moneyline"):
+            self.assertIn(key, s)
+            self.assertIn(f"{key}_holdout", s)
+            self.assertIn("holdout", s[f"{key}_holdout"])
+
+    def test_baseline_rate_equals_observed_share_per_line(self):
+        s = self.out["summary"]
+        total = self.oof["home_score"] + self.oof["away_score"]
+        for line in (7.5, 8.5, 9.5):
+            share = float((total >= line + 0.5).mean())
+            self.assertAlmostEqual(s[f"market_over_{str(line).replace('.', '_')}"]["baseline_rate"],
+                                   round(share, 4), places=4)
+        diff = self.oof["home_score"] - self.oof["away_score"]
+        for m in (1.5, 2.5):
+            share = float((diff >= m + 0.5).mean())
+            self.assertAlmostEqual(s[f"market_home_cover_{str(m).replace('.', '_')}"]["baseline_rate"],
+                                   round(share, 4), places=4)
+
+    def test_holdout_counts_add_up(self):
+        s = self.out["summary"]
+        self.assertEqual(s["n_pre"] + s["n_holdout"], len(self.oof))
+        h = s["market_over_8_5_holdout"]["holdout"]
+        self.assertEqual(h["n"], s["n_holdout"])
+
+    def test_alpha_fitted_pre_holdout_only(self):
+        s = self.out["summary"]
+        for side in ("home", "away"):
+            bins = s[f"alpha_{side}"]["selection"]["bins"]
+            self.assertLessEqual(sum(b["count"] for b in bins), s["n_pre"])
+            self.assertEqual(s[f"alpha_{side}"]["fitted_on"],
+                             "pre-holdout OOF only")
+
+    def test_no_moneyline_warns_but_ships(self):
+        mk = self.out["markets"]
+        self.assertIn("agreement_conflict", mk.columns)
+        self.assertFalse(mk["agreement_conflict"].any())
+
+
+class TestPredictSlateRuns(unittest.TestCase):
+    def test_slate_priced_through_same_machinery(self):
+        rng = np.random.default_rng(51)
+        abbrs = ["NYY", "BOS", "LAD", "SF"]
+        rows = []
+        for d in range(80):
+            date = pd.Timestamp("2026-04-01") + pd.Timedelta(days=d)
+            for g in range(6):
+                ht, at = abbrs[(d + g) % 4], abbrs[(d + g + 2) % 4]
+                hs, as_ = rng.poisson(4.6), rng.poisson(4.3)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 500000 + d * 6 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+        slate = decided.tail(3).drop(columns=["home_win", "home_score",
+                                             "away_score"]).copy()
+        slate["game_pk"] = [900001, 900002, 900003]
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        out = re_.predict_slate_runs(decided, slate,
+                                     {"home": 10, "away": 10},
+                                     {"home": curve, "away": curve},
+                                     n_draws=500, seed=1)
+        self.assertEqual(len(out), 3)
+        self.assertTrue((out["kind"] == "slate").all())
+        for col in MARKET_COLUMNS_V3:
+            if col not in NULLABLE_MARKET_COLUMNS and col not in (
+                    "home_score", "away_score", "total_runs"):
+                self.assertIn(col, out.columns, col)
+                self.assertFalse(out[col].isna().any(), col)
+        self.assertTrue((out["p_over_8_5"] > 0).all()
+                        and (out["p_over_8_5"] < 1).all())
+        self.assertTrue((out["home_expected_runs"] > 1).all())
+
+    def test_empty_slate_returns_empty(self):
+        out = re_.predict_slate_runs(pd.DataFrame(), pd.DataFrame(),
+                                     {"home": 5, "away": 5}, {}, n_draws=100)
+        self.assertTrue(out.empty)
+
+
+class TestRollingTotalsBrier(unittest.TestCase):
+    def test_series_and_meta_shape(self):
+        rng = np.random.default_rng(41)
+        days = pd.date_range("2026-04-01", periods=40, freq="D")
+        df = pd.DataFrame({
+            "kind": "oof",
+            "game_date": days.repeat(10).strftime("%Y-%m-%d"),   # 10 games/day
+            "total_runs": rng.integers(2, 16, 400),
+            "p_over_8_5": rng.uniform(.35, .65, 400),
+        })
+        out = re_.compute_rolling_totals_brier(df, window_days=30,
+                                               min_games_per_day=5)
+        self.assertGreater(len(out["series"]), 30)
+        self.assertIn("history_mean_brier", out)
+        for pt in out["series"]:
+            self.assertGreater(pt["brier"], 0)
+
+    def test_empty_history_loud_empty_state(self):
+        out = re_.compute_rolling_totals_brier(pd.DataFrame())
+        self.assertEqual(out["series"], [])
+        out = re_.compute_rolling_totals_brier(None)
+        self.assertEqual(out["series"], [])
 
 
 if __name__ == "__main__":

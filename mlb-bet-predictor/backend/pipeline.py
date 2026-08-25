@@ -51,7 +51,7 @@ from data_ingestion import (
 from explainability import compute_feature_coverage, compute_feature_drift, compute_rolling_brier, compute_shap_per_game
 from feature_metadata import generate_features_metadata
 from calibration import is_identity
-from features import add_diff_features
+from features import add_diff_features, add_env_level_features, refine_dome_game_level
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
@@ -432,6 +432,7 @@ def _model_monitor_json(
     coverage_df: Optional[pd.DataFrame] = None,
     rolling_brier: Optional[dict] = None,
     features_metadata: Optional[dict] = None,
+    run_engine: Optional[dict] = None,
 ) -> Path:
     """Write model_monitor_YYYYMMDD.json artifact."""
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
@@ -501,6 +502,9 @@ def _model_monitor_json(
         # direction/derived members) for drift-table tooltips. One source of
         # truth generated from FEATURE_COLS — see feature_metadata.py.
         "features_metadata": (features_metadata or {}).get("features", {}),
+        # Run-engine Phase 3: per-market metrics, α(λ) params + fit-checks,
+        # MC metadata, line-grid availability, agreement-filter stats.
+        "run_engine": run_engine or {},
         # Candidate models behind the ensemble: name, blend weight (sums to
         # 1.0 over deployed members), and pooled out-of-fold AUC/Brier/LogLoss.
         "ensemble": ensemble if ensemble is not None else last_ensemble_info(),
@@ -960,10 +964,28 @@ def run_daily_pipeline(
             except Exception as exc:
                 logger.warning("Weather backfill failed (features stay null): %s", exc)
 
-        # Re-export the feature frame now that weather has been applied, so
+            # Re-export the feature frame now that weather has been applied, so
         # the shipped game_level_features.csv matches the exact features the
         # models trained on (the Phase-3.5 export runs before any weather
         # pass and would otherwise ship dome-default zeros/nulls only).
+        # Phase-3.5b first: game-accurate roof flag + standalone env-LEVEL
+        # columns, ADDITIVE to the venue-level dome flag and the interaction
+        # features. Roof state comes from the StatsAPI cache; unknown
+        # retractable games fall back LOUDLY inside refine_dome_game_level,
+        # never silently treated as closed.
+        try:
+            roof_cache = DATA_DELIVERY_DIR / "statsapi_roof_cache.json"
+            roof_states = {}
+            if roof_cache.exists():
+                roof_states = {
+                    int(k): v for k, v in json.loads(
+                        roof_cache.read_text()).items()
+                    if v in ("open", "closed")}
+            games = refine_dome_game_level(games, roof_states=roof_states)
+            games = add_env_level_features(games)
+        except Exception as exc:
+            logger.warning("Env-level feature pass failed (level columns may "
+                           "be absent this run): %s", exc)
         try:
             _w_cov = int(games["wind_advantage_flyball_factor"].notna().sum()) if "wind_advantage_flyball_factor" in games else 0
             _a_cov = int(games["air_density_velocity_boost"].notna().sum()) if "air_density_velocity_boost" in games else 0
@@ -1146,6 +1168,20 @@ def run_daily_pipeline(
             str(DATA_DELIVERY_DIR / f"features_metadata_{target_date_str}.json")
         )
 
+        # Run engine (Phase 3): OOF re-derivation on the SAME fixed folds →
+        # α(λ) dispersion curves fitted PRE-HOLDOUT only → NB Monte-Carlo
+        # market grid (totals 6.5–12.5, run lines −0.5…−3.5) for OOF + today's
+        # slate → agreement conflicts vs the moneyline ensemble. Must never
+        # take down the rest of the run.
+        run_engine_block = None
+        try:
+            from run_engine import run_engine_daily
+            _re = run_engine_daily(games, target_games, target_date_str)
+            run_engine_block = _re["block"]
+            summary["artifacts"].extend(_re["artifacts"])
+        except Exception as e:
+            logger.error("Run engine failed (continuing): %s", e, exc_info=True)
+
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")
         # SHAP must never take down the run: drift + model monitor are more
@@ -1189,7 +1225,7 @@ def run_daily_pipeline(
             coverage_df = pd.DataFrame()
 
         # model monitor JSON
-        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier, features_metadata=features_metadata)
+        path = _model_monitor_json(pooled_metrics, drift_df, target_date_str, version=version, ensemble=last_ensemble_info(), coverage_df=coverage_df, rolling_brier=rolling_brier, features_metadata=features_metadata, run_engine=run_engine_block)
         summary["artifacts"].append(str(path))
 
         # 7. GitHub sync

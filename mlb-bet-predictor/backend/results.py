@@ -351,6 +351,9 @@ def fetch_statsapi_weather(
             "temp_f": temp_f,
             "wind_mph": float(mph_m.group(1)) if mph_m else None,
             "wind_text": wind_text,
+            # Roof state rides in the SAME condition field parks use:
+            # "Roof Closed" / "Roof Open" / "Indoor" at retractable venues.
+            "condition": (str(wx.get("condition") or "") or None),
         }
         if i + 1 < len(pks):
             _time.sleep(pause_sec)
