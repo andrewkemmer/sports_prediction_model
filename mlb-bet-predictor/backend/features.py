@@ -16,6 +16,7 @@ PIT compliance:
 from __future__ import annotations
 
 import gc
+import json
 import logging
 import resource
 from pathlib import Path
@@ -1382,6 +1383,31 @@ def roof_state_from_condition(condition) -> str | None:
     if "roof open" in text or "open roof" in text:
         return "open"
     return None
+
+
+
+def load_roof_cache(path) -> dict:
+    """Load the StatsAPI roof-state cache JSON -> {int(game_pk): "open"|"closed"|None}.
+
+    Deduplicates by int key (last wins) and warns loudly on duplicates.
+    Used by _fetch_roofs.py and the pipeline's roof-state loader.
+    """
+    from pathlib import Path as _P
+    p = _P(path)
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    cache: dict = {}
+    dups: int = 0
+    for k, v in raw.items():
+        pk = int(k)
+        if pk in cache:
+            dups += 1
+        cache[pk] = v
+    if dups:
+        logger.warning("load_roof_cache: %d duplicate keys in %s (last wins)",
+                        dups, p.name)
+    return cache
 
 
 def refine_dome_game_level(df: pd.DataFrame,
