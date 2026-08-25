@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import numpy as np
 
-from backend.weather import (
+from weather import (
     _get_with_retry,
     STADIUMS,
     compute_air_density,
@@ -145,7 +145,7 @@ class TestResolveTeamCode(unittest.TestCase):
 
 
 class TestFetchWeather(unittest.TestCase):
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_archive_api_called_for_past_dates(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
@@ -170,7 +170,7 @@ class TestFetchWeather(unittest.TestCase):
         call_url = mock_get.call_args[0][0]
         self.assertIn("archive-api", call_url)
 
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_strictly_prior_hour_selected(self, mock_get):
         """PIT: weather used must be observed strictly before first pitch —
         the hour in which the game starts is never used."""
@@ -198,7 +198,7 @@ class TestFetchWeather(unittest.TestCase):
         result = fetch_weather(40.83, -73.93, datetime(2025, 7, 15, 19, 0), date(2025, 7, 15))
         self.assertAlmostEqual(result["temp_c"], 23.0)
 
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_forecast_api_for_future(self, mock_get):
         mock_resp = MagicMock()
         future = date(2026, 8, 25)
@@ -221,14 +221,14 @@ class TestFetchWeather(unittest.TestCase):
         call_url = mock_get.call_args[0][0]
         self.assertIn("api.open-meteo.com/v1/forecast", call_url)
 
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_fetch_failure_returns_nan(self, mock_get):
         mock_get.side_effect = Exception("connection error")
         result = fetch_weather(40.83, -73.93, datetime(2025, 7, 15, 19, 0), date(2025, 7, 15))
         self.assertTrue(np.isnan(result["temp_c"]))
         self.assertTrue(np.isnan(result["wind_speed_kmh"]))
 
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_game_fetch_failure_is_unavailable(self, mock_get):
         mock_get.side_effect = Exception("rate limited")
         result = fetch_game_weather(
@@ -239,7 +239,7 @@ class TestFetchWeather(unittest.TestCase):
 
 
 class TestFetchGameWeather(unittest.TestCase):
-    @patch("backend.weather.fetch_weather")
+    @patch("weather.fetch_weather")
     def test_full_pipeline(self, mock_fetch):
         mock_fetch.return_value = {
             "temp_c": 22.0, "rh_pct": 55.0,
@@ -290,10 +290,10 @@ class TestBatchWeather(unittest.TestCase):
         self.assertEqual(parsed[("BOS", date(2025, 7, 15))]["_source"], "open_meteo_archive")
         self.assertEqual(parsed[("BOS", date(2025, 7, 15))]["temperature_2m"], [20.0, 21.0])
 
-    @patch("backend.weather._fetch_batch_range")
+    @patch("weather._fetch_batch_range")
     def test_rate_limited_batch_returns_no_observations(self, mock_batch):
         mock_batch.return_value = {}
-        from backend.weather import _fetch_batched_weather
+        from weather import _fetch_batched_weather
         locations = [("BOS", STADIUMS["BOS"])]
         result = _fetch_batched_weather(locations, date(2025, 7, 15), date(2025, 7, 15))
         self.assertEqual(result, {})
@@ -309,7 +309,7 @@ class TestGetWithRetry(unittest.TestCase):
         return m
 
     @patch("time.sleep", lambda *_: None)
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_recovers_after_429s(self, mock_get):
         mock_get.side_effect = [self._resp(429), self._resp(429),
                                 self._resp(200)]
@@ -318,7 +318,7 @@ class TestGetWithRetry(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 3)
 
     @patch("time.sleep", lambda *_: None)
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_gives_up_after_attempts(self, mock_get):
         mock_get.side_effect = [self._resp(429)] * 5
         resp = _get_with_retry("https://x/archive", {}, attempts=3)
@@ -326,7 +326,7 @@ class TestGetWithRetry(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 3)
 
     @patch("time.sleep", lambda *_: None)
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_non_retryable_status_returned_immediately(self, mock_get):
         mock_get.side_effect = [self._resp(400)]
         resp = _get_with_retry("https://x/archive", {}, attempts=3)
@@ -334,7 +334,7 @@ class TestGetWithRetry(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 1)
 
     @patch("time.sleep", lambda *_: None)
-    @patch("backend.weather.requests.get")
+    @patch("weather.requests.get")
     def test_network_exception_retried(self, mock_get):
         import requests as _rq
         mock_get.side_effect = [_rq.exceptions.ConnectionError(), self._resp(200)]

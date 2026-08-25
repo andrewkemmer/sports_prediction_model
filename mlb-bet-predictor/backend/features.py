@@ -1469,20 +1469,24 @@ def refine_dome_game_level(df: pd.DataFrame,
 def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
     """Standalone environment-LEVEL columns for the run engine (additive).
 
-    - park_wind_factor / air_density_level: persisted natively going forward
-      by weather.apply_weather_features; here they are backfilled by EXACT
-      algebraic recovery from the shipped interactions
-        wind_advantage_flyball_factor = wind_multiplier x sp_era_diff
-        air_density_velocity_boost    = (air_density - 1.225) x sp_fbvelo_diff
-      wherever the diff denominator is non-trivial; otherwise NULL (a level
-      that was never observed is never fabricated). Dome wind is genuinely 0.
-    - park_factor_slug: pure park SLG factor - the SAME centered component
-      park_factor_slug_diff multiplies (extracted, not a parallel table).
-    Missing sources produce NULLs plus loud warnings - never silent zeros.
+    - park_wind_factor: wind speed × sign(cos(wind_dir − park_bearing)),
+      derived from the weather cache raw fields (wind_speed_kmh,
+      wind_direction_deg, stadium_bearing). Dome/closed-roof = 0.
+    - air_density_level: raw air density (kg/m³) from the weather cache
+      (computed from temp_c, rh_pct, pressure_hpa, altitude_m).
+    - park_factor_slug: pure park SLG factor from PARK_FACTORS_SLG.
+
+    Coverage depends on the weather cache. The weather cache should cover
+    ~90%+ of decided games. NULLs mean no observation was available — never
+    fabricated. Missing sources produce NULLs plus loud warnings.
     """
+    import os
+    from pathlib import Path as _P
+
     df = df.copy()
     home_team = df["home_team"].astype(str).str.upper().str.strip()
 
+    # ── park_factor_slug (static, from PARK_FACTORS_SLG) ──────────────
     pf_raw = home_team.map(PARK_FACTORS_SLG).astype(float)
     df["park_factor_slug"] = (pf_raw - 100.0) / 100.0
     missing_park = int(pf_raw.isna().sum())
@@ -1492,44 +1496,70 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
             "for home_team - park_factor_slug left NULL",
             missing_park, len(df))
 
-    era = pd.to_numeric(df.get("sp_era_diff"), errors="coerce")
-    velo = pd.to_numeric(df.get("sp_fbvelo_diff"), errors="coerce")
-    waf = pd.to_numeric(df.get("wind_advantage_flyball_factor"),
-                        errors="coerce")
-    adv = pd.to_numeric(df.get("air_density_velocity_boost"), errors="coerce")
-    SEA_LEVEL_RHO = 1.225
-    EPS = 0.05
-
-    recover_wind = waf / era.where(era.abs() >= EPS)
-    dome_mask = pd.to_numeric(df.get("dome_is_neutral"),
-                              errors="coerce") == 1
-    recover_wind = recover_wind.where(~(dome_mask & waf.notna()), 0.0)
+    # ── park_wind_factor & air_density_level from weather cache ────────
+    # The weather cache stores per-game raw observations keyed by game_pk.
+    # We fill NULL level columns from it — no division of interactions.
     if "park_wind_factor" not in df.columns:
         df["park_wind_factor"] = np.nan
-    df["park_wind_factor"] = df["park_wind_factor"].fillna(recover_wind)
-
-    recover_air = adv / velo.where(velo.abs() >= EPS) + SEA_LEVEL_RHO
-    # Physical sanity: sea-level air density is ~1.225 kg/m3; recovered
-    # levels outside [0.95, 1.35] are tiny-denominator arithmetic noise,
-    # not observations - NULL them loudly rather than ship garbage.
-    in_band = recover_air.between(0.95, 1.35)
-    n_oob = int((recover_air.notna() & ~in_band).sum())
-    if n_oob:
-        logger.warning(
-            "Env-level features: %d recovered air_density_level values "
-            "outside the physical band [0.95, 1.35] kg/m3 - NULLed",
-            n_oob)
-    recover_air = recover_air.where(in_band)
     if "air_density_level" not in df.columns:
         df["air_density_level"] = np.nan
-    df["air_density_level"] = df["air_density_level"].fillna(recover_air)
 
+    _need_fill_w = df["park_wind_factor"].isna().any()
+    _need_fill_a = df["air_density_level"].isna().any()
+    if _need_fill_w or _need_fill_a:
+        cache_path = _P(__file__).resolve().parent.parent / "data_delivery" / "weather_history.parquet"
+        if not cache_path.exists() and os.getenv("MLB_CACHE_DIR"):
+            cache_path = _P(os.getenv("MLB_CACHE_DIR")) / "weather_history.parquet"
+        if cache_path.exists():
+            try:
+                wx_cache = pd.read_parquet(cache_path)
+                if "game_pk" in df.columns and "game_pk" in wx_cache.columns:
+                    wx_cache = wx_cache.copy()
+                    wx_cache["game_pk"] = pd.to_numeric(wx_cache["game_pk"], errors="coerce").astype("Int64")
+                    df["_gpk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
+                    wx_map = wx_cache.set_index("game_pk")
+
+                    if _need_fill_w:
+                        # park_wind_factor = wind_multiplier (already scaled
+                        # by speed, sign from bearing). Domes genuinely = 0.
+                        wm_series = pd.Series(np.nan, index=df.index, dtype=float)
+                        has_wx = df["_gpk"].isin(wx_map.index)
+                        matched = df.loc[has_wx, "_gpk"].map(wx_map["wind_multiplier"])
+                        wm_series[has_wx] = pd.to_numeric(matched, errors="coerce")
+                        # Dome closed-roof → genuinely 0 wind (valid observation)
+                        dome_col = "dome_is_neutral_game" if "dome_is_neutral_game" in df.columns else "dome_is_neutral"
+                        dome_mask = pd.to_numeric(df.get(dome_col), errors="coerce") == 1
+                        wm_series = wm_series.where(~(dome_mask & wm_series.isna()), 0.0)
+                        df["park_wind_factor"] = df["park_wind_factor"].fillna(wm_series)
+
+                    if _need_fill_a:
+                        # air_density_level = air_density (kg/m³ from raw fields)
+                        ad_series = pd.Series(np.nan, index=df.index, dtype=float)
+                        has_wx = df["_gpk"].isin(wx_map.index)
+                        matched = df.loc[has_wx, "_gpk"].map(wx_map["air_density"])
+                        ad_series[has_wx] = pd.to_numeric(matched, errors="coerce")
+                        df["air_density_level"] = df["air_density_level"].fillna(ad_series)
+
+                    df.drop(columns=["_gpk"], inplace=True, errors="ignore")
+            except Exception as exc:
+                logger.warning("Weather cache load failed for env-level features: %s", exc)
+        else:
+            logger.info("Env-level features: weather cache not found at %s; "
+                        "level columns rely on apply_weather_features fill", cache_path)
+
+    n_w = int(df["park_wind_factor"].notna().sum())
+    n_a = int(df["air_density_level"].notna().sum())
+    n_p = int(df["park_factor_slug"].notna().sum())
     logger.info(
-        "Env-level features: park_wind_factor populated for %d/%d rows, "
-        "air_density_level for %d/%d rows (remainder NULL - no observable "
-        "level derivable)",
-        int(df["park_wind_factor"].notna().sum()), len(df),
-        int(df["air_density_level"].notna().sum()), len(df))
+        "Env-level features (raw-derived): park_wind_factor %d/%d, "
+        "air_density_level %d/%d, park_factor_slug %d/%d",
+        n_w, len(df), n_a, len(df), n_p, len(df))
+    if n_w < 0.5 * len(df):
+        logger.warning("Env-level features: park_wind_factor only %.0f%% populated "
+                       "— weather cache coverage may be low", 100 * n_w / len(df))
+    if n_a < 0.5 * len(df):
+        logger.warning("Env-level features: air_density_level only %.0f%% populated "
+                       "— weather cache coverage may be low", 100 * n_a / len(df))
     return df
 
 

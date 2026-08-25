@@ -1076,13 +1076,11 @@ def apply_weather_features(
             park_wind.append(float(wm) if pd.notna(wm) else np.nan)
             air_level.append(float(ad) if pd.notna(ad) else np.nan)
         else:
-            # No fetched observation: a dome's wind level is genuinely 0
-            # (only when the interaction confirms it), anything else UNKNOWN.
-            wv = wm_col.iloc[i] if isinstance(wm_col, pd.Series) else np.nan
-            ev = era2.iloc[i] if isinstance(era2, pd.Series) else np.nan
+            # No fetched observation. Dome wind is genuinely 0 -- a valid
+            # observation, not derived from any interaction. Non-dome
+            # without weather: leave NULL (never fabricated).
             dome = pd.notna(row.get("dome_is_neutral")) and float(row["dome_is_neutral"]) == 1
-            park_wind.append(float(wv) if dome and pd.notna(wv)
-                             and abs(float(ev)) > 1e-12 else np.nan)
+            park_wind.append(0.0 if dome else np.nan)
             air_level.append(np.nan)
     df["park_wind_factor"] = pd.Series(park_wind, index=df.index, dtype="float64")
     df["air_density_level"] = pd.Series(air_level, index=df.index, dtype="float64")
