@@ -1,0 +1,515 @@
+{
+  "schema": "feature-audit/v1",
+  "commit_sha": "3b929cfcf3e2379bdcd53d05d17d529e683f93f5",
+  "data_sha256": "923816b70a5d74731d0688011d8fc9e015e60b88f19ff876d17b08fbe7713a02",
+  "holdout_days": 21,
+  "folds_declared": 48,
+  "folds_executed": 44,
+  "clip_eps": 1e-07,
+  "seed": 42,
+  "collinearity": [
+    {
+      "feature": "win_pct_diff",
+      "max_abs_corr": 0.643,
+      "vs": "away_elo",
+      "flag": false
+    },
+    {
+      "feature": "elo_diff",
+      "max_abs_corr": 0.731,
+      "vs": "away_elo",
+      "flag": false
+    },
+    {
+      "feature": "rest_days_diff",
+      "max_abs_corr": 0.032,
+      "vs": "home_elo",
+      "flag": false
+    },
+    {
+      "feature": "sp_era_diff",
+      "max_abs_corr": 0.792,
+      "vs": "sp_era_away",
+      "flag": false
+    },
+    {
+      "feature": "sp_era_5g_diff",
+      "max_abs_corr": 0.587,
+      "vs": "sp_era_away",
+      "flag": false
+    },
+    {
+      "feature": "sp_k9_diff",
+      "max_abs_corr": 0.683,
+      "vs": "sp_k9_home",
+      "flag": false
+    },
+    {
+      "feature": "sp_k9_5g_diff",
+      "max_abs_corr": 0.578,
+      "vs": "sp_k9_away",
+      "flag": false
+    },
+    {
+      "feature": "sp_fbvelo_diff",
+      "max_abs_corr": 0.701,
+      "vs": "air_density_velocity_boost",
+      "flag": false
+    },
+    {
+      "feature": "sp_fbpct_diff",
+      "max_abs_corr": 0.154,
+      "vs": "air_density_velocity_boost",
+      "flag": false
+    },
+    {
+      "feature": "sp_whiff_diff",
+      "max_abs_corr": 0.37,
+      "vs": "sp_k9_away",
+      "flag": false
+    },
+    {
+      "feature": "sp_xwoba_diff",
+      "max_abs_corr": 0.693,
+      "vs": "sp_xwoba_away",
+      "flag": false
+    },
+    {
+      "feature": "sp_xwoba_vs_l_diff",
+      "max_abs_corr": 0.35,
+      "vs": "sp_xwoba_away",
+      "flag": false
+    },
+    {
+      "feature": "lineup_woba_mean_diff",
+      "max_abs_corr": 0.713,
+      "vs": "lineup_woba_mean_away",
+      "flag": false
+    },
+    {
+      "feature": "lineup_woba_top3_diff",
+      "max_abs_corr": 0.711,
+      "vs": "lineup_woba_top3_away",
+      "flag": false
+    },
+    {
+      "feature": "lineup_woba_std_diff",
+      "max_abs_corr": 0.342,
+      "vs": "lineup_woba_top3_away",
+      "flag": false
+    },
+    {
+      "feature": "woba_30g_diff",
+      "max_abs_corr": 0.72,
+      "vs": "woba_30g_away",
+      "flag": false
+    },
+    {
+      "feature": "bullpen_whip_diff",
+      "max_abs_corr": 0.721,
+      "vs": "bullpen_whip_10g_away",
+      "flag": false
+    },
+    {
+      "feature": "bullpen_whip_3g_diff",
+      "max_abs_corr": 0.725,
+      "vs": "bullpen_whip_3g_away",
+      "flag": false
+    },
+    {
+      "feature": "bullpen_pitches_diff",
+      "max_abs_corr": 0.226,
+      "vs": "bullpen_whip_3g_away",
+      "flag": false
+    },
+    {
+      "feature": "team_barrel_diff",
+      "max_abs_corr": 0.735,
+      "vs": "team_barrel_15g_away",
+      "flag": false
+    },
+    {
+      "feature": "team_hardhit_diff",
+      "max_abs_corr": 0.548,
+      "vs": "team_exitvelo_15g_away",
+      "flag": false
+    },
+    {
+      "feature": "team_exitvelo_diff",
+      "max_abs_corr": 0.675,
+      "vs": "team_exitvelo_15g_away",
+      "flag": false
+    },
+    {
+      "feature": "lineup_handedness_matchup_advantage",
+      "max_abs_corr": 0.418,
+      "vs": "woba_30g_away",
+      "flag": false
+    },
+    {
+      "feature": "travel_fatigue_diff",
+      "max_abs_corr": 0.035,
+      "vs": "bullpen_whip_3g_away",
+      "flag": false
+    },
+    {
+      "feature": "closer_availability_diff",
+      "max_abs_corr": 0.043,
+      "vs": "away_elo",
+      "flag": false
+    },
+    {
+      "feature": "bullpen_meltdown_risk",
+      "max_abs_corr": 0.074,
+      "vs": "bullpen_whip_10g_home",
+      "flag": false
+    },
+    {
+      "feature": "pitcher_regression_indicator",
+      "max_abs_corr": 0.206,
+      "vs": "sp_era_away",
+      "flag": false
+    },
+    {
+      "feature": "lineup_depth_multiplier",
+      "max_abs_corr": 0.089,
+      "vs": "team_exitvelo_15g_home",
+      "flag": false
+    },
+    {
+      "feature": "ace_efficiency_factor",
+      "max_abs_corr": 0.065,
+      "vs": "sp_k9_home",
+      "flag": false
+    }
+  ],
+  "variants": {
+    "A": {
+      "n_cols": 29,
+      "pooled": {
+        "mlp": {
+          "logloss": 0.752347,
+          "auc": 0.518818,
+          "n": 4032
+        },
+        "logistic": {
+          "logloss": 0.72433,
+          "auc": 0.546415,
+          "n": 4032
+        }
+      },
+      "holdout": {
+        "mlp": {
+          "logloss": 0.705054,
+          "auc": 0.511589,
+          "n": 284
+        }
+      },
+      "cols": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away"
+      ]
+    },
+    "B": {
+      "n_cols": 53,
+      "pooled": {
+        "mlp": {
+          "logloss": 0.699024,
+          "auc": 0.534918,
+          "n": 4032
+        },
+        "logistic": {
+          "logloss": 0.731569,
+          "auc": 0.546288,
+          "n": 4032
+        }
+      },
+      "holdout": {
+        "mlp": {
+          "logloss": 0.68215,
+          "auc": 0.554815,
+          "n": 284
+        }
+      },
+      "cols": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "travel_fatigue_diff",
+        "closer_availability_diff"
+      ]
+    },
+    "C": {
+      "n_cols": 34,
+      "pooled": {
+        "mlp": {
+          "logloss": 0.71929,
+          "auc": 0.520267,
+          "n": 4032
+        },
+        "logistic": {
+          "logloss": 0.720461,
+          "auc": 0.546842,
+          "n": 4032
+        }
+      },
+      "holdout": {
+        "mlp": {
+          "logloss": 0.69465,
+          "auc": 0.524819,
+          "n": 284
+        }
+      },
+      "cols": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "lineup_handedness_matchup_advantage",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor"
+      ]
+    },
+    "D": {
+      "n_cols": 33,
+      "pooled": {
+        "mlp": {
+          "logloss": 0.733377,
+          "auc": 0.511054,
+          "n": 4032
+        },
+        "logistic": {
+          "logloss": 0.718486,
+          "auc": 0.54947,
+          "n": 4032
+        }
+      },
+      "holdout": {
+        "mlp": {
+          "logloss": 0.703173,
+          "auc": 0.518154,
+          "n": 284
+        }
+      },
+      "cols": [
+        "is_home",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "sp_xwoba_diff",
+        "woba_30g_diff",
+        "lineup_woba_mean_diff",
+        "elo_diff"
+      ]
+    },
+    "REF": {
+      "n_cols": 58,
+      "pooled": {
+        "mlp": {
+          "logloss": 0.802563,
+          "auc": 0.524233,
+          "n": 4032
+        },
+        "logistic": {
+          "logloss": 0.73421,
+          "auc": 0.544533,
+          "n": 4032
+        }
+      },
+      "holdout": {
+        "mlp": {
+          "logloss": 0.699405,
+          "auc": 0.529364,
+          "n": 284
+        }
+      },
+      "cols": [
+        "is_home",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "lineup_handedness_matchup_advantage",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away"
+      ]
+    }
+  }
+}
