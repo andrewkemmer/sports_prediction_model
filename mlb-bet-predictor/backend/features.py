@@ -1530,7 +1530,14 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
                         dome_col = "dome_is_neutral_game" if "dome_is_neutral_game" in df.columns else "dome_is_neutral"
                         dome_mask = pd.to_numeric(df.get(dome_col), errors="coerce") == 1
                         wm_series = wm_series.where(~(dome_mask & wm_series.isna()), 0.0)
-                        df["park_wind_factor"] = df["park_wind_factor"].fillna(wm_series)
+                        # Closed roof forces 0 ALWAYS - even when the cache
+                        # carries an outdoor wind value fetched at the stadium's
+                        # coordinates: the roof state, not the outdoor reading,
+                        # decides the wind.
+                        df["park_wind_factor"] = (
+                            df["park_wind_factor"].fillna(wm_series)
+                            .where(~dome_mask, 0.0)
+                        )
 
                     if _need_fill_a:
                         # air_density_level = air_density (kg/m³ from raw fields)
@@ -1546,6 +1553,26 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
         else:
             logger.info("Env-level features: weather cache not found at %s; "
                         "level columns rely on apply_weather_features fill", cache_path)
+
+    # Closed-roof/dome games are genuinely neutral for BOTH interaction
+    # components: outdoor readings fetched at a dome's coordinates must
+    # never price wind/air advantage indoors. The interaction columns were
+    # built earlier with the VENUE flag (or carried stale pre-cache
+    # values); correct them here with the GAME-level roof state so the
+    # run engine never trains on non-zero dome wind. Missing diff inputs
+    # stay NULL (never a fabricated 0).
+    dome_col2 = ("dome_is_neutral_game"
+                 if "dome_is_neutral_game" in df.columns
+                 else "dome_is_neutral")
+    dome_flag = pd.to_numeric(df.get(dome_col2), errors="coerce") == 1
+    if "wind_advantage_flyball_factor" in df.columns:
+        _era_ok = pd.to_numeric(df.get("sp_era_diff"),
+                               errors="coerce").notna()
+        df.loc[dome_flag & _era_ok, "wind_advantage_flyball_factor"] = 0.0
+    if "air_density_velocity_boost" in df.columns:
+        _velo_ok = pd.to_numeric(df.get("sp_fbvelo_diff"),
+                                 errors="coerce").notna()
+        df.loc[dome_flag & _velo_ok, "air_density_velocity_boost"] = 0.0
 
     n_w = int(df["park_wind_factor"].notna().sum())
     n_a = int(df["air_density_level"].notna().sum())

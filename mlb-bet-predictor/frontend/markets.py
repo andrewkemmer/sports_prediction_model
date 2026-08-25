@@ -145,11 +145,14 @@ else:
             st.warning(
                 "**Known limitation — deep-over region:** At lines well below "
                 "expected total (offset ≤ −2.0), p_over is high but the model "
-                "is overconfident. Measured gap: calibrated prediction ≈ 0.66 "
-                "vs actual ≈ 0.58 (≈ 0.08 shortfall, n ≈ 2,997). This is "
-                "weather-independent — it reflects a tail-pricing limitation "
-                "inherent to the mean-model's tight λ clustering interacting "
-                "with extreme offsets. Deep-over lines carry lower confidence."
+                "is overconfident. Measured gap (3.5c full-coverage re-check, "
+                "2026-08-24 OOF): prediction ≈ 0.66 vs actual ≈ 0.60 "
+                "(≈ 0.06 shortfall, n ≈ 4,156). This is "
+                "weather-independent — the gap is identical WITHOUT the "
+                "env-level features (+0.058 vs +0.054), reflecting a "
+                "tail-pricing limitation inherent to the mean-model's tight "
+                "λ clustering interacting with extreme offsets. Deep-over "
+                "lines carry lower confidence."
             )
 
     with _tabs[2]:   # 3 — pooled fixed lines

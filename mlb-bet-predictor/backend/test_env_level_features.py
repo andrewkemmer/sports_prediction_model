@@ -206,5 +206,170 @@ class TestConsistency(unittest.TestCase):
             self.assertAlmostEqual(wind_interaction, expected, places=2)
 
 
+class TestCommittedCacheCoverage(unittest.TestCase):
+    """Full-coverage gate at the COMMITTED cache path (data_delivery).
+
+    A fresh clone resolves data_delivery/weather_history.parquet (the
+    file-relative path, before the MLB_CACHE_DIR fallback); this is the
+    3.5c re-ablation's reproducibility contract.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from config import DATA_DELIVERY_DIR
+        csv_path = DATA_DELIVERY_DIR / "game_level_features.csv"
+        cache_path = DATA_DELIVERY_DIR / "weather_history.parquet"
+        cls._cache_present = cache_path.exists()
+        if cls._cache_present:
+            cls.df = pd.read_csv(csv_path)
+            cls.out = add_env_level_features(cls.df)
+
+    def test_cache_read_from_data_delivery(self):
+        self.assertTrue(self._cache_present,
+                        "committed cache missing — data_delivery/weather_history.parquet")
+
+    def test_full_coverage_floor(self):
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        self.assertGreaterEqual(
+            self.out["park_wind_factor"].notna().mean(), 0.90)
+        self.assertGreaterEqual(
+            self.out["air_density_level"].notna().mean(), 0.90)
+        self.assertEqual(self.out["park_factor_slug"].notna().mean(), 1.0)
+        self.assertEqual(self.out["dome_is_neutral_game"].notna().mean(), 1.0)
+
+    def test_decided_games_coverage_floor(self):
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        dec = self.out[self.out["home_win"].notna()]
+        self.assertGreaterEqual(dec["park_wind_factor"].notna().mean(), 0.90)
+        self.assertGreaterEqual(dec["air_density_level"].notna().mean(), 0.90)
+
+    def test_closed_dome_wind_forced_zero_even_with_cache_value(self):
+        """Regression: closed-dome games must get wind 0.0 ALWAYS, even when
+        the cache carries an outdoor wind value fetched at the stadium's
+        coordinates (the top-up exposed 86 leaking games)."""
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        closed = self.out["dome_is_neutral_game"].astype(float) == 1
+        self.assertGreater(int(closed.sum()), 0)
+        pw = pd.to_numeric(self.out["park_wind_factor"], errors="coerce")
+        self.assertEqual(int((pw[closed] == 0.0).sum()), int(closed.sum()))
+        self.assertEqual(int(pw[closed].isna().sum()), 0)
+        # And the cache really does hold outdoor wind for some closed games,
+        # so the assertion above is not vacuous.
+        wx = pd.read_parquet(self._cache_path())
+        self.assertGreater(int((wx["wind_multiplier"].abs() > 0.05).sum()), 0)
+
+    def _cache_path(self):
+        from config import DATA_DELIVERY_DIR
+        return DATA_DELIVERY_DIR / "weather_history.parquet"
+
+    def test_dome_gating_open_roof_receives_real_levels(self):
+        """Open-roof retractable games (venue-dome, game-open) receive real
+        weather levels; closed games get wind exactly 0."""
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        open_roof = ((self.out["dome_is_neutral"].astype(float) == 1)
+                     & (self.out["dome_is_neutral_game"].astype(float) == 0))
+        closed = self.out["dome_is_neutral_game"].astype(float) == 1
+        self.assertGreater(int(open_roof.sum()), 0)
+        pw = pd.to_numeric(self.out["park_wind_factor"], errors="coerce")
+        ad = pd.to_numeric(self.out["air_density_level"], errors="coerce")
+        self.assertEqual(int(pw[open_roof].notna().sum()), int(open_roof.sum()))
+        self.assertEqual(int(ad[open_roof].notna().sum()), int(open_roof.sum()))
+        self.assertEqual(int((pw[closed] == 0.0).sum()), int(closed.sum()))
+
+    def test_air_density_level_consistent_with_interaction(self):
+        """(air_density_level − 1.225) × sp_fbvelo_diff must reproduce
+        air_density_velocity_boost exactly on rows where both exist (the
+        level is the raw value; the interaction centers at sea level)."""
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        ad = pd.to_numeric(self.out["air_density_level"], errors="coerce")
+        velo = pd.to_numeric(self.out["sp_fbvelo_diff"], errors="coerce")
+        boost = pd.to_numeric(self.out["air_density_velocity_boost"],
+                              errors="coerce")
+        # Open-air rows only: closed-dome boosts are deliberately zeroed
+        # (game-level roof), so they would not reproduce the raw formula.
+        open_air = self.out["dome_is_neutral_game"].astype(float) == 0
+        m = (ad.notna() & velo.notna() & boost.notna() & open_air)
+        self.assertGreater(int(m.sum()), 0)
+        repro = (ad[m] - 1.225) * velo[m]
+        self.assertAlmostEqual(float((repro - boost[m]).abs().max()), 0.0,
+                               places=4)
+
+    def test_closed_dome_interactions_zeroed_game_level(self):
+        """Closed-roof games must have BOTH interaction components zeroed
+        (wind advantage + air-density boost) using the GAME-level roof flag
+        — the shipped CSV carries 77 closed-dome rows with non-zero outdoor
+        wind (stale venue-flag artifacts), and apply_weather_features would
+        regenerate them from the cache's outdoor readings on the next run.
+        Open-air games (including refined-open ones) keep real values."""
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        wint = pd.to_numeric(self.out["wind_advantage_flyball_factor"],
+                             errors="coerce")
+        boost = pd.to_numeric(self.out["air_density_velocity_boost"],
+                              errors="coerce")
+        dome = self.out["dome_is_neutral_game"].astype(float) == 1
+        open_air = ~dome
+        self.assertEqual(int((wint[dome].abs() > 1e-9).sum()), 0)
+        self.assertEqual(int((boost[dome].abs() > 1e-9).sum()), 0)
+        # Real wind survives on open-air games, incl. refined-open (MIN/SEA).
+        self.assertGreater(int((wint[open_air].abs() > 1e-9).sum()), 0)
+        refined_open = ((self.out["dome_is_neutral"].astype(float) == 1)
+                        & open_air)
+        self.assertGreater(int(refined_open.sum()), 0)
+        self.assertGreater(int((wint[refined_open].abs() > 1e-9).sum()), 0)
+
+    def test_wind_level_consistent_with_interaction(self):
+        """park_wind_factor × sp_era_diff reproduces
+        wind_advantage_flyball_factor; signs agree 100%."""
+        if not self._cache_present:
+            self.skipTest("committed cache missing")
+        pw = pd.to_numeric(self.out["park_wind_factor"], errors="coerce")
+        era = pd.to_numeric(self.out["sp_era_diff"], errors="coerce")
+        wint = pd.to_numeric(self.out["wind_advantage_flyball_factor"],
+                             errors="coerce")
+        # Compare on OPEN-AIR games (game-level roof flag 0) where both the
+        # level and the shipped interaction are real wind: they must agree
+        # exactly. Closed-dome rows are excluded — the level is correctly 0
+        # while the OLD shipped interaction for some closed games carries a
+        # non-zero outdoor reading (an artifact of the sparse pre-cache run;
+        # the production pipeline zeroes it), and refined-open games (e.g.
+        # MIN) legitimately diverge because the level uses the game-level
+        # roof state the old interaction never had.
+        open_air = self.out["dome_is_neutral_game"].astype(float) == 0
+        m = (pw.notna() & era.notna() & wint.notna()
+             & (era.abs() > 1e-9) & open_air)
+        self.assertGreater(int(m.sum()), 0)
+        repro = pw[m] * era[m]
+        self.assertAlmostEqual(float((repro - wint[m]).abs().max()), 0.0,
+                               places=4)
+        sign_w = np.sign(pw[m].to_numpy())
+        sign_i = np.sign((wint[m] / era[m]).to_numpy())
+        self.assertEqual(float((sign_w == sign_i).mean()), 1.0)
+
+
+class TestAblationDeterminism(unittest.TestCase):
+    """Same folds → same table: run_oof must be reproducible so the ablation
+    gate can be trusted as a WITH-vs-WITHOUT comparison on identical folds."""
+
+    def test_run_oof_deterministic_same_folds_same_table(self):
+        from config import DATA_DELIVERY_DIR
+        from run_engine import run_oof
+        df = pd.read_csv(DATA_DELIVERY_DIR / "game_level_features.csv")
+        # small slice keeps this a fast unit test; folds are chronological
+        df = df.sort_values("game_date").iloc[:900].reset_index(drop=True)
+        r1 = run_oof(df, include_level_env=False)
+        r2 = run_oof(df, include_level_env=False)
+        for s in ("home", "away"):
+            p1, p2 = r1["summary"][f"{s}_pooled"], r2["summary"][f"{s}_pooled"]
+            self.assertEqual(p1, p2)
+        self.assertEqual(r1["summary"]["n_folds"], r2["summary"]["n_folds"])
+        self.assertEqual(r1["summary"]["n_games"], r2["summary"]["n_games"])
+
+
 if __name__ == "__main__":
     unittest.main()

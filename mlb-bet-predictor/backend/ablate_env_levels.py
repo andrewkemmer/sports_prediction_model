@@ -34,7 +34,10 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import DATA_DELIVERY_DIR  # noqa: E402
-from features import refine_dome_game_level  # noqa: E402
+from features import (  # noqa: E402
+    add_env_level_features,
+    refine_dome_game_level,
+)
 from run_engine import (  # noqa: E402
     dispersion_ratio,
     fit_alpha,
@@ -71,6 +74,13 @@ def load_games() -> tuple[pd.DataFrame, dict]:
     before = df["dome_is_neutral"].astype(float)
     df = refine_dome_game_level(df, roof_states=roof_states)
     after = df["dome_is_neutral_game"].astype(float)
+    # Production-matching env-level fill: the deployed pipeline calls
+    # add_env_level_features right after the dome refinement, which fills
+    # park_wind_factor / air_density_level from the committed weather cache
+    # (data_delivery/weather_history.parquet). Without this the ablation
+    # would measure the stale sparse CSV instead of the full-coverage
+    # features the run engine actually trains on.
+    df = add_env_level_features(df)
     report = {
         "n_games": int(len(df)),
         "roof_states_known": len(roof_states),
