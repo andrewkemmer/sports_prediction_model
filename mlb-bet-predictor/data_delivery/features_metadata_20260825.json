@@ -1,6 +1,6 @@
 {
   "generated_for": "20260825",
-  "n_features": 58,
+  "n_features": 64,
   "warnings": [],
   "features": {
     "is_home": {
@@ -1022,6 +1022,114 @@
         "mlp"
       ],
       "tooltip": "What: Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_actual_woba_delta_home": {
+      "name": "lineup_actual_woba_delta_home",
+      "summary": "Lineup wOBA delta (actual 9 \u2212 team season) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_woba_delta_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = tonight's 9 better than the season-average lineup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_woba_delta_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = tonight's 9 better than the season-average lineup (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_woba_delta_away": {
+      "name": "lineup_actual_woba_delta_away",
+      "summary": "Lineup wOBA delta (actual 9 \u2212 team season) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_woba_delta_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = tonight's 9 better than the season-average lineup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_woba_delta_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = tonight's 9 better than the season-average lineup (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_top3_delta_home": {
+      "name": "lineup_actual_top3_delta_home",
+      "summary": "Lineup top-3 wOBA delta (actual 9 top-3 \u2212 team top-3 regulars) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_top3_delta_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = star power up tonight (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_top3_delta_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = star power up tonight (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_top3_delta_away": {
+      "name": "lineup_actual_top3_delta_away",
+      "summary": "Lineup top-3 wOBA delta (actual 9 top-3 \u2212 team top-3 regulars) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_top3_delta_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = star power up tonight (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_top3_delta_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = star power up tonight (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_rest_count_home": {
+      "name": "lineup_rest_count_home",
+      "summary": "Resting regulars (team top-5 wOBA not in tonight's 9) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_rest_count_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "count (0\u20135)",
+      "direction": "higher = more stars resting (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_rest_count_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: count (0\u20135)\nDirection: higher = more stars resting (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_rest_count_away": {
+      "name": "lineup_rest_count_away",
+      "summary": "Resting regulars (team top-5 wOBA not in tonight's 9) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_rest_count_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "count (0\u20135)",
+      "direction": "higher = more stars resting (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_rest_count_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: count (0\u20135)\nDirection: higher = more stars resting (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     }
   }
 }
