@@ -1,15 +1,15 @@
 {
   "date": "20260824",
   "version": "v2026.08.24",
-  "last_retrained": "2026-08-24",
-  "next_retrain": "2026-08-31",
+  "last_retrained": "2026-08-25",
+  "next_retrain": "2026-09-01",
   "metrics": {
-    "auc": 0.5597,
-    "brier": 0.2464,
-    "logloss": 0.686,
-    "ece": 0.0168,
-    "brier_calibrated": 0.2468,
-    "logloss_calibrated": 0.6867,
+    "auc": 0.5574,
+    "brier": 0.2466,
+    "logloss": 0.6864,
+    "ece": 0.0159,
+    "brier_calibrated": 0.247,
+    "logloss_calibrated": 0.687,
     "ece_calibrated": 0.0115
   },
   "drift_summary": {
@@ -24,879 +24,879 @@
       "baseline_mean": 1.0,
       "psi": 0.0,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.063158,
+      "noise_floor": 0.061224,
       "mean_shift": 0.0,
       "shift_se": 0.0,
       "location_shift": false,
       "status": "OK",
       "weight_pct": 0.0,
-      "n_baseline": 285,
-      "n_current": 95
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "win_pct_diff",
-      "current_mean": 0.0144,
-      "baseline_mean": -0.0004,
-      "psi": 0.277567,
-      "psi_adjusted": 0.214409,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.014781,
-      "shift_se": 0.012463,
+      "current_mean": 0.0133,
+      "baseline_mean": 0.0005,
+      "psi": 0.252109,
+      "psi_adjusted": 0.190885,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.012819,
+      "shift_se": 0.012282,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.784,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.764,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "elo_diff",
-      "current_mean": 25.9703,
-      "baseline_mean": -1.4514,
-      "psi": 0.307175,
-      "psi_adjusted": 0.244017,
-      "noise_floor": 0.063158,
-      "mean_shift": 27.421753,
-      "shift_se": 14.091919,
+      "current_mean": 24.0401,
+      "baseline_mean": -0.1141,
+      "psi": 0.322204,
+      "psi_adjusted": 0.26098,
+      "noise_floor": 0.061224,
+      "mean_shift": 24.154206,
+      "shift_se": 13.85833,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.566,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.782,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "rest_days_diff",
       "current_mean": 0.0,
-      "baseline_mean": 0.014,
-      "psi": 0.025287,
+      "baseline_mean": 0.0136,
+      "psi": 0.0245,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.014035,
-      "shift_se": 0.048317,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.013605,
+      "shift_se": 0.046835,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.946,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.011,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "sp_era_diff",
-      "current_mean": -0.0825,
-      "baseline_mean": 0.0486,
-      "psi": 0.131196,
-      "psi_adjusted": 0.0655,
-      "noise_floor": 0.065696,
-      "mean_shift": -0.131136,
-      "shift_se": 0.353814,
+      "current_mean": -0.0738,
+      "baseline_mean": 0.0055,
+      "psi": 0.134462,
+      "psi_adjusted": 0.070855,
+      "noise_floor": 0.063607,
+      "mean_shift": -0.079302,
+      "shift_se": 0.348816,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.028,
-      "n_baseline": 277,
-      "n_current": 91
+      "weight_pct": 2.066,
+      "n_baseline": 286,
+      "n_current": 94
     },
     {
       "feature": "sp_era_5g_diff",
-      "current_mean": -0.0047,
-      "baseline_mean": -0.1162,
-      "psi": 0.168532,
-      "psi_adjusted": 0.103067,
-      "noise_floor": 0.065465,
-      "mean_shift": 0.111427,
-      "shift_se": 0.522173,
+      "current_mean": -0.0796,
+      "baseline_mean": -0.125,
+      "psi": 0.08969,
+      "psi_adjusted": 0.0263,
+      "noise_floor": 0.06339,
+      "mean_shift": 0.045379,
+      "shift_se": 0.512949,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.408,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 2.01,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "sp_k9_diff",
-      "current_mean": 0.068,
-      "baseline_mean": -0.0072,
-      "psi": 0.168792,
-      "psi_adjusted": 0.103096,
-      "noise_floor": 0.065696,
-      "mean_shift": 0.075207,
-      "shift_se": 0.448093,
+      "current_mean": 0.0536,
+      "baseline_mean": -0.0264,
+      "psi": 0.095922,
+      "psi_adjusted": 0.032315,
+      "noise_floor": 0.063607,
+      "mean_shift": 0.079984,
+      "shift_se": 0.448923,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.727,
-      "n_baseline": 277,
-      "n_current": 91
+      "weight_pct": 1.824,
+      "n_baseline": 286,
+      "n_current": 94
     },
     {
       "feature": "sp_k9_5g_diff",
-      "current_mean": 0.3225,
-      "baseline_mean": -0.1247,
-      "psi": 0.047395,
+      "current_mean": 0.2452,
+      "baseline_mean": -0.0919,
+      "psi": 0.030334,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.065465,
-      "mean_shift": 0.447189,
-      "shift_se": 0.644604,
+      "noise_floor": 0.06339,
+      "mean_shift": 0.337121,
+      "shift_se": 0.63368,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.095,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 1.911,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "sp_fbvelo_diff",
-      "current_mean": 0.2127,
-      "baseline_mean": 0.0334,
-      "psi": 0.08138,
-      "psi_adjusted": 0.015366,
-      "noise_floor": 0.066014,
-      "mean_shift": 0.179293,
-      "shift_se": 0.544282,
+      "current_mean": 0.2796,
+      "baseline_mean": 0.0667,
+      "psi": 0.109838,
+      "psi_adjusted": 0.045934,
+      "noise_floor": 0.063904,
+      "mean_shift": 0.212821,
+      "shift_se": 0.540304,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.904,
-      "n_baseline": 281,
-      "n_current": 90
+      "weight_pct": 1.813,
+      "n_baseline": 290,
+      "n_current": 93
     },
     {
       "feature": "sp_fbpct_diff",
-      "current_mean": 0.0225,
-      "baseline_mean": -0.0079,
-      "psi": 0.185311,
-      "psi_adjusted": 0.119846,
-      "noise_floor": 0.065465,
-      "mean_shift": 0.030441,
-      "shift_se": 0.024641,
+      "current_mean": 0.0193,
+      "baseline_mean": -0.0085,
+      "psi": 0.153142,
+      "psi_adjusted": 0.089752,
+      "noise_floor": 0.06339,
+      "mean_shift": 0.027827,
+      "shift_se": 0.024333,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.415,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 1.467,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "sp_whiff_diff",
-      "current_mean": 0.0036,
-      "baseline_mean": -0.0015,
-      "psi": 0.12208,
-      "psi_adjusted": 0.056615,
-      "noise_floor": 0.065465,
-      "mean_shift": 0.00501,
-      "shift_se": 0.007982,
+      "current_mean": 0.0029,
+      "baseline_mean": -0.001,
+      "psi": 0.075386,
+      "psi_adjusted": 0.011996,
+      "noise_floor": 0.06339,
+      "mean_shift": 0.00387,
+      "shift_se": 0.007912,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.97,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 1.774,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "sp_xwoba_diff",
-      "current_mean": -0.003,
-      "baseline_mean": -0.0005,
-      "psi": 0.212458,
-      "psi_adjusted": 0.146993,
-      "noise_floor": 0.065465,
-      "mean_shift": -0.002544,
-      "shift_se": 0.012329,
+      "current_mean": -0.004,
+      "baseline_mean": -0.0012,
+      "psi": 0.207161,
+      "psi_adjusted": 0.143771,
+      "noise_floor": 0.06339,
+      "mean_shift": -0.00278,
+      "shift_se": 0.012184,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.412,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 2.429,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "sp_xwoba_vs_l_diff",
-      "current_mean": -0.0015,
-      "baseline_mean": 0.0026,
-      "psi": 0.119581,
-      "psi_adjusted": 0.053885,
-      "noise_floor": 0.065696,
-      "mean_shift": -0.004147,
-      "shift_se": 0.012497,
+      "current_mean": -0.002,
+      "baseline_mean": 0.0012,
+      "psi": 0.079214,
+      "psi_adjusted": 0.015607,
+      "noise_floor": 0.063607,
+      "mean_shift": -0.003164,
+      "shift_se": 0.012307,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.167,
-      "n_baseline": 277,
-      "n_current": 91
+      "weight_pct": 2.284,
+      "n_baseline": 286,
+      "n_current": 94
     },
     {
       "feature": "lineup_woba_mean_diff",
-      "current_mean": 0.0039,
-      "baseline_mean": -0.0004,
-      "psi": 0.163438,
-      "psi_adjusted": 0.10028,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.004271,
-      "shift_se": 0.002902,
+      "current_mean": 0.0038,
+      "baseline_mean": -0.0002,
+      "psi": 0.153864,
+      "psi_adjusted": 0.09264,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.004085,
+      "shift_se": 0.002836,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.393,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.546,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_woba_top3_diff",
-      "current_mean": 0.0045,
+      "current_mean": 0.0037,
       "baseline_mean": 0.003,
-      "psi": 0.072098,
-      "psi_adjusted": 0.00894,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.001477,
-      "shift_se": 0.004228,
+      "psi": 0.064147,
+      "psi_adjusted": 0.002923,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.000735,
+      "shift_se": 0.004192,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.454,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.287,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_woba_std_diff",
-      "current_mean": 0.0015,
+      "current_mean": 0.0016,
       "baseline_mean": -0.0004,
-      "psi": 0.107716,
-      "psi_adjusted": 0.044558,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.001892,
-      "shift_se": 0.001839,
+      "psi": 0.121981,
+      "psi_adjusted": 0.060757,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.001968,
+      "shift_se": 0.001812,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.616,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.348,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "woba_30g_diff",
-      "current_mean": 0.0074,
-      "baseline_mean": -0.0012,
-      "psi": 0.19429,
-      "psi_adjusted": 0.131132,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.008605,
-      "shift_se": 0.005191,
+      "current_mean": 0.007,
+      "baseline_mean": -0.0005,
+      "psi": 0.174742,
+      "psi_adjusted": 0.113518,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.007538,
+      "shift_se": 0.005127,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.228,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.25,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "bullpen_whip_diff",
-      "current_mean": 0.0107,
-      "baseline_mean": 0.0003,
-      "psi": 0.361343,
-      "psi_adjusted": 0.297903,
-      "noise_floor": 0.06344,
-      "mean_shift": 0.010469,
-      "shift_se": 0.067818,
+      "current_mean": 0.0073,
+      "baseline_mean": -0.0015,
+      "psi": 0.325566,
+      "psi_adjusted": 0.264077,
+      "noise_floor": 0.061489,
+      "mean_shift": 0.008799,
+      "shift_se": 0.066572,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.338,
-      "n_baseline": 280,
-      "n_current": 95
+      "weight_pct": 2.265,
+      "n_baseline": 289,
+      "n_current": 98
     },
     {
       "feature": "bullpen_whip_3g_diff",
       "current_mean": -0.0602,
-      "baseline_mean": -0.0786,
-      "psi": 0.125032,
-      "psi_adjusted": 0.061592,
-      "noise_floor": 0.06344,
-      "mean_shift": 0.018463,
-      "shift_se": 0.117306,
+      "baseline_mean": -0.0731,
+      "psi": 0.099511,
+      "psi_adjusted": 0.036572,
+      "noise_floor": 0.062939,
+      "mean_shift": 0.012987,
+      "shift_se": 0.116402,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.926,
-      "n_baseline": 280,
+      "weight_pct": 2.269,
+      "n_baseline": 289,
       "n_current": 95
     },
     {
       "feature": "bullpen_pitches_diff",
-      "current_mean": 12.3474,
-      "baseline_mean": 4.1895,
-      "psi": 0.108216,
-      "psi_adjusted": 0.045058,
-      "noise_floor": 0.063158,
-      "mean_shift": 8.157895,
-      "shift_se": 11.684252,
+      "current_mean": 12.102,
+      "baseline_mean": 2.8163,
+      "psi": 0.138975,
+      "psi_adjusted": 0.077751,
+      "noise_floor": 0.061224,
+      "mean_shift": 9.285714,
+      "shift_se": 11.560981,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.922,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.312,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_barrel_diff",
-      "current_mean": 0.003,
-      "baseline_mean": -0.0003,
-      "psi": 0.252314,
-      "psi_adjusted": 0.189156,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.003291,
-      "shift_se": 0.002091,
+      "current_mean": 0.0028,
+      "baseline_mean": -0.0004,
+      "psi": 0.270014,
+      "psi_adjusted": 0.20879,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.003228,
+      "shift_se": 0.002066,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.255,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.367,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_hardhit_diff",
-      "current_mean": 0.0143,
-      "baseline_mean": -0.0032,
-      "psi": 0.196418,
-      "psi_adjusted": 0.13326,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.017496,
-      "shift_se": 0.009277,
+      "current_mean": 0.0151,
+      "baseline_mean": -0.0026,
+      "psi": 0.191041,
+      "psi_adjusted": 0.129817,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.01776,
+      "shift_se": 0.009058,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.809,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.79,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_exitvelo_diff",
-      "current_mean": 0.1019,
-      "baseline_mean": -0.0133,
-      "psi": 0.152096,
-      "psi_adjusted": 0.088938,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.115167,
-      "shift_se": 0.3211,
+      "current_mean": 0.1608,
+      "baseline_mean": -0.0033,
+      "psi": 0.162613,
+      "psi_adjusted": 0.101389,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.164119,
+      "shift_se": 0.31574,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.097,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.332,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_handedness_matchup_advantage",
       "current_mean": 0.0256,
-      "baseline_mean": 0.0031,
-      "psi": 0.19869,
-      "psi_adjusted": 0.135532,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.022518,
-      "shift_se": 0.018758,
+      "baseline_mean": 0.0032,
+      "psi": 0.188538,
+      "psi_adjusted": 0.125863,
+      "noise_floor": 0.062675,
+      "mean_shift": 0.022429,
+      "shift_se": 0.018589,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.449,
-      "n_baseline": 285,
+      "weight_pct": 1.519,
+      "n_baseline": 294,
       "n_current": 95
     },
     {
       "feature": "travel_fatigue_diff",
-      "current_mean": -0.1579,
-      "baseline_mean": -0.1298,
-      "psi": 0.001943,
+      "current_mean": -0.1531,
+      "baseline_mean": -0.1259,
+      "psi": 0.003426,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.02807,
-      "shift_se": 0.106915,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.027211,
+      "shift_se": 0.10522,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.036,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.026,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "closer_availability_diff",
       "current_mean": 0.0,
-      "baseline_mean": -0.0175,
-      "psi": 0.006072,
+      "baseline_mean": -0.0136,
+      "psi": 0.005869,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.017544,
-      "shift_se": 0.057016,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.013605,
+      "shift_se": 0.055995,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.002,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.004,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "dome_is_neutral",
-      "current_mean": 0.3579,
-      "baseline_mean": 0.2772,
-      "psi": 0.0,
+      "current_mean": 0.3571,
+      "baseline_mean": 0.2823,
+      "psi": 0.026276,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.080702,
-      "shift_se": 0.081205,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.07483,
+      "shift_se": 0.080261,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.046,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.048,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "park_factor_slug_diff",
       "current_mean": -0.0001,
       "baseline_mean": 0.0002,
-      "psi": 0.21112,
-      "psi_adjusted": 0.147962,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.000253,
-      "shift_se": 0.000158,
+      "psi": 0.157959,
+      "psi_adjusted": 0.096735,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.000239,
+      "shift_se": 0.000154,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.579,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.621,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "wind_advantage_flyball_factor",
-      "current_mean": 0.0187,
-      "baseline_mean": 0.0007,
-      "psi": 0.130701,
-      "psi_adjusted": 0.065005,
-      "noise_floor": 0.065696,
-      "mean_shift": 0.018025,
-      "shift_se": 0.065577,
+      "current_mean": 0.0208,
+      "baseline_mean": 0.0021,
+      "psi": 0.12583,
+      "psi_adjusted": 0.062223,
+      "noise_floor": 0.063607,
+      "mean_shift": 0.018728,
+      "shift_se": 0.064005,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.022,
-      "n_baseline": 277,
-      "n_current": 91
+      "weight_pct": 0.633,
+      "n_baseline": 286,
+      "n_current": 94
     },
     {
       "feature": "air_density_velocity_boost",
-      "current_mean": 0.014,
-      "baseline_mean": 0.0088,
-      "psi": 0.081155,
-      "psi_adjusted": 0.015141,
-      "noise_floor": 0.066014,
-      "mean_shift": 0.005191,
-      "shift_se": 0.057634,
+      "current_mean": 0.0084,
+      "baseline_mean": 0.004,
+      "psi": 0.059517,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063904,
+      "mean_shift": 0.004362,
+      "shift_se": 0.056777,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.016,
-      "n_baseline": 281,
-      "n_current": 90
+      "weight_pct": 1.759,
+      "n_baseline": 290,
+      "n_current": 93
     },
     {
       "feature": "bullpen_meltdown_risk",
-      "current_mean": 6.7899,
-      "baseline_mean": 4.0799,
-      "psi": 0.227369,
-      "psi_adjusted": 0.163929,
-      "noise_floor": 0.06344,
-      "mean_shift": 2.709948,
-      "shift_se": 4.250663,
+      "current_mean": 7.0003,
+      "baseline_mean": 3.8198,
+      "psi": 0.195696,
+      "psi_adjusted": 0.134207,
+      "noise_floor": 0.061489,
+      "mean_shift": 3.180512,
+      "shift_se": 4.183514,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.353,
-      "n_baseline": 280,
-      "n_current": 95
+      "weight_pct": 2.464,
+      "n_baseline": 289,
+      "n_current": 98
     },
     {
       "feature": "pitcher_regression_indicator",
-      "current_mean": 0.6014,
-      "baseline_mean": -0.7498,
-      "psi": 0.107443,
-      "psi_adjusted": 0.041429,
-      "noise_floor": 0.066014,
-      "mean_shift": 1.351168,
-      "shift_se": 1.884083,
+      "current_mean": 0.0578,
+      "baseline_mean": -0.8113,
+      "psi": 0.078492,
+      "psi_adjusted": 0.014588,
+      "noise_floor": 0.063904,
+      "mean_shift": 0.869129,
+      "shift_se": 1.873452,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.85,
-      "n_baseline": 281,
-      "n_current": 90
+      "weight_pct": 0.817,
+      "n_baseline": 290,
+      "n_current": 93
     },
     {
       "feature": "lineup_depth_multiplier",
       "current_mean": 0.0002,
       "baseline_mean": 0.0003,
-      "psi": 0.073235,
-      "psi_adjusted": 0.010077,
-      "noise_floor": 0.063158,
-      "mean_shift": -6.4e-05,
-      "shift_se": 8.2e-05,
+      "psi": 0.066035,
+      "psi_adjusted": 0.004811,
+      "noise_floor": 0.061224,
+      "mean_shift": -5.9e-05,
+      "shift_se": 8.1e-05,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.243,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.224,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "ace_efficiency_factor",
-      "current_mean": 0.0859,
-      "baseline_mean": 0.1021,
-      "psi": 0.090124,
-      "psi_adjusted": 0.024659,
-      "noise_floor": 0.065465,
-      "mean_shift": -0.016221,
-      "shift_se": 0.034357,
+      "current_mean": 0.0888,
+      "baseline_mean": 0.1026,
+      "psi": 0.090991,
+      "psi_adjusted": 0.027601,
+      "noise_floor": 0.06339,
+      "mean_shift": -0.013789,
+      "shift_se": 0.033839,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.014,
-      "n_baseline": 281,
-      "n_current": 91
+      "weight_pct": 1.387,
+      "n_baseline": 290,
+      "n_current": 94
     },
     {
       "feature": "home_elo",
-      "current_mean": 1512.5405,
-      "baseline_mean": 1499.7467,
-      "psi": 0.282374,
-      "psi_adjusted": 0.219216,
-      "noise_floor": 0.063158,
-      "mean_shift": 12.793746,
-      "shift_se": 9.661352,
+      "current_mean": 1511.2157,
+      "baseline_mean": 1500.4303,
+      "psi": 0.254661,
+      "psi_adjusted": 0.193437,
+      "noise_floor": 0.061224,
+      "mean_shift": 10.785396,
+      "shift_se": 9.485279,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.379,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.313,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "away_elo",
-      "current_mean": 1486.5701,
-      "baseline_mean": 1501.1981,
-      "psi": 0.288736,
-      "psi_adjusted": 0.225578,
-      "noise_floor": 0.063158,
-      "mean_shift": -14.628007,
-      "shift_se": 9.593411,
+      "current_mean": 1487.1756,
+      "baseline_mean": 1500.5444,
+      "psi": 0.24406,
+      "psi_adjusted": 0.182836,
+      "noise_floor": 0.061224,
+      "mean_shift": -13.368811,
+      "shift_se": 9.483311,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.889,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.041,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "home_win_pct",
-      "current_mean": 0.5088,
-      "baseline_mean": 0.5004,
-      "psi": 0.147207,
-      "psi_adjusted": 0.084049,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.008382,
-      "shift_se": 0.011216,
+      "current_mean": 0.5079,
+      "baseline_mean": 0.5011,
+      "psi": 0.158047,
+      "psi_adjusted": 0.096823,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.006861,
+      "shift_se": 0.010997,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.74,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.795,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "away_win_pct",
-      "current_mean": 0.491,
-      "baseline_mean": 0.501,
-      "psi": 0.201944,
-      "psi_adjusted": 0.138786,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.009951,
-      "shift_se": 0.010778,
+      "current_mean": 0.4915,
+      "baseline_mean": 0.5005,
+      "psi": 0.2349,
+      "psi_adjusted": 0.173676,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.008997,
+      "shift_se": 0.010677,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.242,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.274,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "sp_era_home",
-      "current_mean": 3.9053,
-      "baseline_mean": 4.1189,
-      "psi": 0.199504,
-      "psi_adjusted": 0.134634,
-      "noise_floor": 0.06487,
-      "mean_shift": -0.213544,
-      "shift_se": 0.249019,
+      "current_mean": 3.9116,
+      "baseline_mean": 4.0959,
+      "psi": 0.158836,
+      "psi_adjusted": 0.096004,
+      "noise_floor": 0.062832,
+      "mean_shift": -0.184275,
+      "shift_se": 0.243874,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.548,
-      "n_baseline": 282,
-      "n_current": 92
+      "weight_pct": 1.614,
+      "n_baseline": 291,
+      "n_current": 95
     },
     {
       "feature": "sp_era_away",
-      "current_mean": 4.0036,
-      "baseline_mean": 4.0596,
-      "psi": 0.117086,
-      "psi_adjusted": 0.053142,
-      "noise_floor": 0.063944,
-      "mean_shift": -0.055998,
-      "shift_se": 0.24053,
+      "current_mean": 4.0009,
+      "baseline_mean": 4.0795,
+      "psi": 0.115165,
+      "psi_adjusted": 0.053202,
+      "noise_floor": 0.061963,
+      "mean_shift": -0.078637,
+      "shift_se": 0.238389,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.908,
-      "n_baseline": 280,
-      "n_current": 94
+      "weight_pct": 1.858,
+      "n_baseline": 289,
+      "n_current": 97
     },
     {
       "feature": "sp_k9_home",
-      "current_mean": 8.648,
-      "baseline_mean": 8.6861,
-      "psi": 0.075587,
-      "psi_adjusted": 0.010717,
-      "noise_floor": 0.06487,
-      "mean_shift": -0.038143,
-      "shift_se": 0.315371,
+      "current_mean": 8.6395,
+      "baseline_mean": 8.7005,
+      "psi": 0.073648,
+      "psi_adjusted": 0.010816,
+      "noise_floor": 0.062832,
+      "mean_shift": -0.060959,
+      "shift_se": 0.313905,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.449,
-      "n_baseline": 282,
-      "n_current": 92
+      "weight_pct": 2.408,
+      "n_baseline": 291,
+      "n_current": 95
     },
     {
       "feature": "sp_k9_away",
-      "current_mean": 8.5417,
-      "baseline_mean": 8.6881,
-      "psi": 0.080691,
-      "psi_adjusted": 0.016747,
-      "noise_floor": 0.063944,
-      "mean_shift": -0.1464,
-      "shift_se": 0.319269,
+      "current_mean": 8.5486,
+      "baseline_mean": 8.7217,
+      "psi": 0.106079,
+      "psi_adjusted": 0.044116,
+      "noise_floor": 0.061963,
+      "mean_shift": -0.173144,
+      "shift_se": 0.31646,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.989,
-      "n_baseline": 280,
-      "n_current": 94
+      "weight_pct": 2.055,
+      "n_baseline": 289,
+      "n_current": 97
     },
     {
       "feature": "sp_xwoba_home",
-      "current_mean": 0.3054,
-      "baseline_mean": 0.3111,
-      "psi": 0.124488,
-      "psi_adjusted": 0.059674,
-      "noise_floor": 0.064814,
-      "mean_shift": -0.005695,
-      "shift_se": 0.00883,
+      "current_mean": 0.3051,
+      "baseline_mean": 0.3107,
+      "psi": 0.122861,
+      "psi_adjusted": 0.060082,
+      "noise_floor": 0.062779,
+      "mean_shift": -0.005572,
+      "shift_se": 0.008701,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.878,
-      "n_baseline": 283,
-      "n_current": 92
+      "weight_pct": 1.808,
+      "n_baseline": 292,
+      "n_current": 95
     },
     {
       "feature": "sp_xwoba_away",
-      "current_mean": 0.3087,
-      "baseline_mean": 0.3119,
-      "psi": 0.128718,
-      "psi_adjusted": 0.064945,
-      "noise_floor": 0.063773,
-      "mean_shift": -0.003211,
-      "shift_se": 0.00861,
+      "current_mean": 0.3093,
+      "baseline_mean": 0.3121,
+      "psi": 0.12374,
+      "psi_adjusted": 0.061937,
+      "noise_floor": 0.061803,
+      "mean_shift": -0.002868,
+      "shift_se": 0.008483,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.844,
-      "n_baseline": 283,
-      "n_current": 94
+      "weight_pct": 2.579,
+      "n_baseline": 292,
+      "n_current": 97
     },
     {
       "feature": "lineup_woba_mean_home",
-      "current_mean": 0.347,
-      "baseline_mean": 0.3467,
-      "psi": 0.120418,
-      "psi_adjusted": 0.05726,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.00033,
-      "shift_se": 0.001898,
+      "current_mean": 0.3471,
+      "baseline_mean": 0.3468,
+      "psi": 0.103457,
+      "psi_adjusted": 0.042233,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.000325,
+      "shift_se": 0.001846,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.965,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.05,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_woba_mean_away",
-      "current_mean": 0.3431,
-      "baseline_mean": 0.3471,
-      "psi": 0.135227,
-      "psi_adjusted": 0.072069,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.003941,
-      "shift_se": 0.002037,
+      "current_mean": 0.3432,
+      "baseline_mean": 0.347,
+      "psi": 0.125996,
+      "psi_adjusted": 0.064772,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.003761,
+      "shift_se": 0.002011,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.562,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.355,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_woba_top3_home",
-      "current_mean": 0.3549,
-      "baseline_mean": 0.358,
-      "psi": 0.24516,
-      "psi_adjusted": 0.182002,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.003129,
-      "shift_se": 0.002687,
+      "current_mean": 0.3541,
+      "baseline_mean": 0.3582,
+      "psi": 0.232949,
+      "psi_adjusted": 0.171725,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.004061,
+      "shift_se": 0.00267,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.635,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.572,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "lineup_woba_top3_away",
       "current_mean": 0.3504,
-      "baseline_mean": 0.355,
-      "psi": 0.221509,
-      "psi_adjusted": 0.158351,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.004606,
-      "shift_se": 0.003137,
+      "baseline_mean": 0.3552,
+      "psi": 0.203984,
+      "psi_adjusted": 0.14276,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.004796,
+      "shift_se": 0.00308,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.799,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.016,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "woba_30g_home",
-      "current_mean": 0.3034,
-      "baseline_mean": 0.302,
-      "psi": 0.241256,
-      "psi_adjusted": 0.178098,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.001392,
-      "shift_se": 0.003316,
+      "current_mean": 0.3035,
+      "baseline_mean": 0.3022,
+      "psi": 0.258435,
+      "psi_adjusted": 0.197211,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.001257,
+      "shift_se": 0.003245,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.507,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.456,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "woba_30g_away",
-      "current_mean": 0.2959,
-      "baseline_mean": 0.3031,
-      "psi": 0.272782,
-      "psi_adjusted": 0.209624,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.007213,
-      "shift_se": 0.003634,
+      "current_mean": 0.2965,
+      "baseline_mean": 0.3028,
+      "psi": 0.219986,
+      "psi_adjusted": 0.158762,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.006281,
+      "shift_se": 0.003604,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.97,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.991,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "bullpen_whip_10g_home",
-      "current_mean": 1.3365,
-      "baseline_mean": 1.3427,
-      "psi": 0.059873,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.063213,
-      "mean_shift": -0.006278,
-      "shift_se": 0.041942,
+      "current_mean": 1.3364,
+      "baseline_mean": 1.3379,
+      "psi": 0.093548,
+      "psi_adjusted": 0.032271,
+      "noise_floor": 0.061277,
+      "mean_shift": -0.001515,
+      "shift_se": 0.041566,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 3.129,
-      "n_baseline": 284,
-      "n_current": 95
+      "weight_pct": 3.25,
+      "n_baseline": 293,
+      "n_current": 98
     },
     {
       "feature": "bullpen_whip_10g_away",
-      "current_mean": 1.3257,
-      "baseline_mean": 1.3399,
-      "psi": 0.339471,
-      "psi_adjusted": 0.276088,
-      "noise_floor": 0.063383,
-      "mean_shift": -0.014216,
-      "shift_se": 0.044978,
+      "current_mean": 1.3291,
+      "baseline_mean": 1.3369,
+      "psi": 0.318758,
+      "psi_adjusted": 0.257322,
+      "noise_floor": 0.061436,
+      "mean_shift": -0.007807,
+      "shift_se": 0.0441,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.863,
-      "n_baseline": 281,
-      "n_current": 95
+      "weight_pct": 1.626,
+      "n_baseline": 290,
+      "n_current": 98
     },
     {
       "feature": "bullpen_whip_3g_home",
       "current_mean": 1.2598,
-      "baseline_mean": 1.3186,
-      "psi": 0.118509,
-      "psi_adjusted": 0.055296,
-      "noise_floor": 0.063213,
-      "mean_shift": -0.058802,
-      "shift_se": 0.078528,
+      "baseline_mean": 1.3193,
+      "psi": 0.111497,
+      "psi_adjusted": 0.04877,
+      "noise_floor": 0.062727,
+      "mean_shift": -0.05951,
+      "shift_se": 0.077916,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.662,
-      "n_baseline": 284,
+      "weight_pct": 1.722,
+      "n_baseline": 293,
       "n_current": 95
     },
     {
       "feature": "bullpen_whip_3g_away",
       "current_mean": 1.32,
-      "baseline_mean": 1.3969,
-      "psi": 0.187776,
-      "psi_adjusted": 0.124393,
-      "noise_floor": 0.063383,
-      "mean_shift": -0.076953,
-      "shift_se": 0.081858,
+      "baseline_mean": 1.3922,
+      "psi": 0.167839,
+      "psi_adjusted": 0.104953,
+      "noise_floor": 0.062886,
+      "mean_shift": -0.072221,
+      "shift_se": 0.081179,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.944,
-      "n_baseline": 281,
+      "weight_pct": 2.136,
+      "n_baseline": 290,
       "n_current": 95
     },
     {
       "feature": "team_barrel_15g_home",
-      "current_mean": 0.024,
-      "baseline_mean": 0.022,
-      "psi": 0.272673,
-      "psi_adjusted": 0.209515,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.002038,
-      "shift_se": 0.001545,
+      "current_mean": 0.0239,
+      "baseline_mean": 0.0219,
+      "psi": 0.34961,
+      "psi_adjusted": 0.288386,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.001982,
+      "shift_se": 0.001522,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.126,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 2.163,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_barrel_15g_away",
-      "current_mean": 0.021,
-      "baseline_mean": 0.0223,
-      "psi": 0.180036,
-      "psi_adjusted": 0.116878,
-      "noise_floor": 0.063158,
-      "mean_shift": -0.001253,
-      "shift_se": 0.001403,
+      "current_mean": 0.0211,
+      "baseline_mean": 0.0224,
+      "psi": 0.114838,
+      "psi_adjusted": 0.053614,
+      "noise_floor": 0.061224,
+      "mean_shift": -0.001246,
+      "shift_se": 0.001382,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.858,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.986,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_exitvelo_15g_home",
-      "current_mean": 87.9176,
-      "baseline_mean": 87.7466,
-      "psi": 0.235031,
-      "psi_adjusted": 0.171873,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.170935,
-      "shift_se": 0.224901,
+      "current_mean": 87.9136,
+      "baseline_mean": 87.7443,
+      "psi": 0.239902,
+      "psi_adjusted": 0.178678,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.169221,
+      "shift_se": 0.221069,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.884,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 0.676,
+      "n_baseline": 294,
+      "n_current": 98
     },
     {
       "feature": "team_exitvelo_15g_away",
-      "current_mean": 87.8157,
-      "baseline_mean": 87.7599,
-      "psi": 0.085458,
-      "psi_adjusted": 0.0223,
-      "noise_floor": 0.063158,
-      "mean_shift": 0.055768,
-      "shift_se": 0.22899,
+      "current_mean": 87.7527,
+      "baseline_mean": 87.7476,
+      "psi": 0.039224,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.061224,
+      "mean_shift": 0.005102,
+      "shift_se": 0.226385,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.162,
-      "n_baseline": 285,
-      "n_current": 95
+      "weight_pct": 1.852,
+      "n_baseline": 294,
+      "n_current": 98
     }
   ],
   "feature_coverage": [
     {
       "feature": "is_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -904,10 +904,10 @@
     {
       "feature": "win_pct_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -915,10 +915,10 @@
     {
       "feature": "elo_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -926,10 +926,10 @@
     {
       "feature": "rest_days_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -937,109 +937,109 @@
     {
       "feature": "sp_era_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_5g_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_5g_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbvelo_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 90,
-      "pct_nonnull": 94.7,
-      "n_measured": 90,
-      "pct_measured": 94.7,
+      "n_games": 98,
+      "n_nonnull": 93,
+      "pct_nonnull": 94.9,
+      "n_measured": 93,
+      "pct_measured": 94.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbpct_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_whiff_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_vs_l_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1047,10 +1047,10 @@
     {
       "feature": "lineup_woba_top3_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1058,10 +1058,10 @@
     {
       "feature": "lineup_woba_std_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1069,10 +1069,10 @@
     {
       "feature": "woba_30g_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1080,10 +1080,10 @@
     {
       "feature": "bullpen_whip_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1091,21 +1091,21 @@
     {
       "feature": "bullpen_whip_3g_diff",
       "window": "current",
-      "n_games": 95,
+      "n_games": 98,
       "n_nonnull": 95,
-      "pct_nonnull": 100.0,
+      "pct_nonnull": 96.9,
       "n_measured": 95,
-      "pct_measured": 100.0,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_pitches_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1113,10 +1113,10 @@
     {
       "feature": "team_barrel_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1124,10 +1124,10 @@
     {
       "feature": "team_hardhit_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1135,10 +1135,10 @@
     {
       "feature": "team_exitvelo_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1146,21 +1146,21 @@
     {
       "feature": "lineup_handedness_matchup_advantage",
       "window": "current",
-      "n_games": 95,
+      "n_games": 98,
       "n_nonnull": 95,
-      "pct_nonnull": 100.0,
+      "pct_nonnull": 96.9,
       "n_measured": 95,
-      "pct_measured": 100.0,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "travel_fatigue_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1168,10 +1168,10 @@
     {
       "feature": "closer_availability_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1179,10 +1179,10 @@
     {
       "feature": "dome_is_neutral",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1190,10 +1190,10 @@
     {
       "feature": "park_factor_slug_diff",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1201,32 +1201,32 @@
     {
       "feature": "wind_advantage_flyball_factor",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 88,
-      "pct_measured": 92.6,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 91,
+      "pct_measured": 92.9,
       "n_default_zero": 3,
       "status": "OK"
     },
     {
       "feature": "air_density_velocity_boost",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 90,
-      "pct_nonnull": 94.7,
-      "n_measured": 90,
-      "pct_measured": 94.7,
+      "n_games": 98,
+      "n_nonnull": 93,
+      "pct_nonnull": 94.9,
+      "n_measured": 93,
+      "pct_measured": 94.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_meltdown_risk",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1234,21 +1234,21 @@
     {
       "feature": "pitcher_regression_indicator",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 90,
-      "pct_nonnull": 94.7,
-      "n_measured": 90,
-      "pct_measured": 94.7,
+      "n_games": 98,
+      "n_nonnull": 93,
+      "pct_nonnull": 94.9,
+      "n_measured": 93,
+      "pct_measured": 94.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_depth_multiplier",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1256,21 +1256,21 @@
     {
       "feature": "ace_efficiency_factor",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 91,
-      "pct_nonnull": 95.8,
-      "n_measured": 91,
-      "pct_measured": 95.8,
+      "n_games": 98,
+      "n_nonnull": 94,
+      "pct_nonnull": 95.9,
+      "n_measured": 94,
+      "pct_measured": 95.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "home_elo",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1278,10 +1278,10 @@
     {
       "feature": "away_elo",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1289,10 +1289,10 @@
     {
       "feature": "home_win_pct",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1300,10 +1300,10 @@
     {
       "feature": "away_win_pct",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1311,76 +1311,76 @@
     {
       "feature": "sp_era_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 92,
-      "pct_nonnull": 96.8,
-      "n_measured": 92,
-      "pct_measured": 96.8,
+      "n_games": 98,
+      "n_nonnull": 95,
+      "pct_nonnull": 96.9,
+      "n_measured": 95,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 94,
-      "pct_nonnull": 98.9,
-      "n_measured": 94,
-      "pct_measured": 98.9,
+      "n_games": 98,
+      "n_nonnull": 97,
+      "pct_nonnull": 99.0,
+      "n_measured": 97,
+      "pct_measured": 99.0,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 92,
-      "pct_nonnull": 96.8,
-      "n_measured": 92,
-      "pct_measured": 96.8,
+      "n_games": 98,
+      "n_nonnull": 95,
+      "pct_nonnull": 96.9,
+      "n_measured": 95,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 94,
-      "pct_nonnull": 98.9,
-      "n_measured": 94,
-      "pct_measured": 98.9,
+      "n_games": 98,
+      "n_nonnull": 97,
+      "pct_nonnull": 99.0,
+      "n_measured": 97,
+      "pct_measured": 99.0,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 92,
-      "pct_nonnull": 96.8,
-      "n_measured": 92,
-      "pct_measured": 96.8,
+      "n_games": 98,
+      "n_nonnull": 95,
+      "pct_nonnull": 96.9,
+      "n_measured": 95,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 94,
-      "pct_nonnull": 98.9,
-      "n_measured": 94,
-      "pct_measured": 98.9,
+      "n_games": 98,
+      "n_nonnull": 97,
+      "pct_nonnull": 99.0,
+      "n_measured": 97,
+      "pct_measured": 99.0,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1388,10 +1388,10 @@
     {
       "feature": "lineup_woba_mean_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1399,10 +1399,10 @@
     {
       "feature": "lineup_woba_top3_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1410,10 +1410,10 @@
     {
       "feature": "lineup_woba_top3_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1421,10 +1421,10 @@
     {
       "feature": "woba_30g_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1432,10 +1432,10 @@
     {
       "feature": "woba_30g_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1443,10 +1443,10 @@
     {
       "feature": "bullpen_whip_10g_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1454,10 +1454,10 @@
     {
       "feature": "bullpen_whip_10g_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1465,32 +1465,32 @@
     {
       "feature": "bullpen_whip_3g_home",
       "window": "current",
-      "n_games": 95,
+      "n_games": 98,
       "n_nonnull": 95,
-      "pct_nonnull": 100.0,
+      "pct_nonnull": 96.9,
       "n_measured": 95,
-      "pct_measured": 100.0,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_3g_away",
       "window": "current",
-      "n_games": 95,
+      "n_games": 98,
       "n_nonnull": 95,
-      "pct_nonnull": 100.0,
+      "pct_nonnull": 96.9,
       "n_measured": 95,
-      "pct_measured": 100.0,
+      "pct_measured": 96.9,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "team_barrel_15g_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1498,10 +1498,10 @@
     {
       "feature": "team_barrel_15g_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1509,10 +1509,10 @@
     {
       "feature": "team_exitvelo_15g_home",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1520,10 +1520,10 @@
     {
       "feature": "team_exitvelo_15g_away",
       "window": "current",
-      "n_games": 95,
-      "n_nonnull": 95,
+      "n_games": 98,
+      "n_nonnull": 98,
       "pct_nonnull": 100.0,
-      "n_measured": 95,
+      "n_measured": 98,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1531,10 +1531,10 @@
     {
       "feature": "is_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1542,10 +1542,10 @@
     {
       "feature": "win_pct_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1553,10 +1553,10 @@
     {
       "feature": "elo_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1564,10 +1564,10 @@
     {
       "feature": "rest_days_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1575,21 +1575,21 @@
     {
       "feature": "sp_era_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 277,
-      "pct_nonnull": 97.2,
-      "n_measured": 277,
-      "pct_measured": 97.2,
+      "n_games": 294,
+      "n_nonnull": 286,
+      "pct_nonnull": 97.3,
+      "n_measured": 286,
+      "pct_measured": 97.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_5g_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1597,21 +1597,21 @@
     {
       "feature": "sp_k9_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 277,
-      "pct_nonnull": 97.2,
-      "n_measured": 277,
-      "pct_measured": 97.2,
+      "n_games": 294,
+      "n_nonnull": 286,
+      "pct_nonnull": 97.3,
+      "n_measured": 286,
+      "pct_measured": 97.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_5g_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1619,10 +1619,10 @@
     {
       "feature": "sp_fbvelo_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1630,10 +1630,10 @@
     {
       "feature": "sp_fbpct_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1641,10 +1641,10 @@
     {
       "feature": "sp_whiff_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1652,10 +1652,10 @@
     {
       "feature": "sp_xwoba_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1663,21 +1663,21 @@
     {
       "feature": "sp_xwoba_vs_l_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 277,
-      "pct_nonnull": 97.2,
-      "n_measured": 277,
-      "pct_measured": 97.2,
+      "n_games": 294,
+      "n_nonnull": 286,
+      "pct_nonnull": 97.3,
+      "n_measured": 286,
+      "pct_measured": 97.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1685,10 +1685,10 @@
     {
       "feature": "lineup_woba_top3_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1696,10 +1696,10 @@
     {
       "feature": "lineup_woba_std_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1707,10 +1707,10 @@
     {
       "feature": "woba_30g_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1718,32 +1718,32 @@
     {
       "feature": "bullpen_whip_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 280,
-      "pct_nonnull": 98.2,
-      "n_measured": 280,
-      "pct_measured": 98.2,
+      "n_games": 294,
+      "n_nonnull": 289,
+      "pct_nonnull": 98.3,
+      "n_measured": 289,
+      "pct_measured": 98.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_3g_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 280,
-      "pct_nonnull": 98.2,
-      "n_measured": 280,
-      "pct_measured": 98.2,
+      "n_games": 294,
+      "n_nonnull": 289,
+      "pct_nonnull": 98.3,
+      "n_measured": 289,
+      "pct_measured": 98.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_pitches_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1751,10 +1751,10 @@
     {
       "feature": "team_barrel_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1762,10 +1762,10 @@
     {
       "feature": "team_hardhit_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1773,10 +1773,10 @@
     {
       "feature": "team_exitvelo_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1784,10 +1784,10 @@
     {
       "feature": "lineup_handedness_matchup_advantage",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1795,10 +1795,10 @@
     {
       "feature": "travel_fatigue_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1806,10 +1806,10 @@
     {
       "feature": "closer_availability_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1817,10 +1817,10 @@
     {
       "feature": "dome_is_neutral",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1828,10 +1828,10 @@
     {
       "feature": "park_factor_slug_diff",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1839,21 +1839,21 @@
     {
       "feature": "wind_advantage_flyball_factor",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 277,
-      "pct_nonnull": 97.2,
-      "n_measured": 275,
-      "pct_measured": 96.5,
+      "n_games": 294,
+      "n_nonnull": 286,
+      "pct_nonnull": 97.3,
+      "n_measured": 284,
+      "pct_measured": 96.6,
       "n_default_zero": 2,
       "status": "OK"
     },
     {
       "feature": "air_density_velocity_boost",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1861,21 +1861,21 @@
     {
       "feature": "bullpen_meltdown_risk",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 280,
-      "pct_nonnull": 98.2,
-      "n_measured": 280,
-      "pct_measured": 98.2,
+      "n_games": 294,
+      "n_nonnull": 289,
+      "pct_nonnull": 98.3,
+      "n_measured": 289,
+      "pct_measured": 98.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "pitcher_regression_indicator",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1883,10 +1883,10 @@
     {
       "feature": "lineup_depth_multiplier",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1894,10 +1894,10 @@
     {
       "feature": "ace_efficiency_factor",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -1905,10 +1905,10 @@
     {
       "feature": "home_elo",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1916,10 +1916,10 @@
     {
       "feature": "away_elo",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1927,10 +1927,10 @@
     {
       "feature": "home_win_pct",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1938,10 +1938,10 @@
     {
       "feature": "away_win_pct",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1949,54 +1949,54 @@
     {
       "feature": "sp_era_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 282,
-      "pct_nonnull": 98.9,
-      "n_measured": 282,
-      "pct_measured": 98.9,
+      "n_games": 294,
+      "n_nonnull": 291,
+      "pct_nonnull": 99.0,
+      "n_measured": 291,
+      "pct_measured": 99.0,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 280,
-      "pct_nonnull": 98.2,
-      "n_measured": 280,
-      "pct_measured": 98.2,
+      "n_games": 294,
+      "n_nonnull": 289,
+      "pct_nonnull": 98.3,
+      "n_measured": 289,
+      "pct_measured": 98.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 282,
-      "pct_nonnull": 98.9,
-      "n_measured": 282,
-      "pct_measured": 98.9,
+      "n_games": 294,
+      "n_nonnull": 291,
+      "pct_nonnull": 99.0,
+      "n_measured": 291,
+      "pct_measured": 99.0,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 280,
-      "pct_nonnull": 98.2,
-      "n_measured": 280,
-      "pct_measured": 98.2,
+      "n_games": 294,
+      "n_nonnull": 289,
+      "pct_nonnull": 98.3,
+      "n_measured": 289,
+      "pct_measured": 98.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 283,
+      "n_games": 294,
+      "n_nonnull": 292,
       "pct_nonnull": 99.3,
-      "n_measured": 283,
+      "n_measured": 292,
       "pct_measured": 99.3,
       "n_default_zero": 0,
       "status": "OK"
@@ -2004,10 +2004,10 @@
     {
       "feature": "sp_xwoba_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 283,
+      "n_games": 294,
+      "n_nonnull": 292,
       "pct_nonnull": 99.3,
-      "n_measured": 283,
+      "n_measured": 292,
       "pct_measured": 99.3,
       "n_default_zero": 0,
       "status": "OK"
@@ -2015,10 +2015,10 @@
     {
       "feature": "lineup_woba_mean_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2026,10 +2026,10 @@
     {
       "feature": "lineup_woba_mean_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2037,10 +2037,10 @@
     {
       "feature": "lineup_woba_top3_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2048,10 +2048,10 @@
     {
       "feature": "lineup_woba_top3_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2059,10 +2059,10 @@
     {
       "feature": "woba_30g_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2070,10 +2070,10 @@
     {
       "feature": "woba_30g_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2081,21 +2081,21 @@
     {
       "feature": "bullpen_whip_10g_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 284,
-      "pct_nonnull": 99.6,
-      "n_measured": 284,
-      "pct_measured": 99.6,
+      "n_games": 294,
+      "n_nonnull": 293,
+      "pct_nonnull": 99.7,
+      "n_measured": 293,
+      "pct_measured": 99.7,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_10g_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -2103,21 +2103,21 @@
     {
       "feature": "bullpen_whip_3g_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 284,
-      "pct_nonnull": 99.6,
-      "n_measured": 284,
-      "pct_measured": 99.6,
+      "n_games": 294,
+      "n_nonnull": 293,
+      "pct_nonnull": 99.7,
+      "n_measured": 293,
+      "pct_measured": 99.7,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_3g_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 281,
+      "n_games": 294,
+      "n_nonnull": 290,
       "pct_nonnull": 98.6,
-      "n_measured": 281,
+      "n_measured": 290,
       "pct_measured": 98.6,
       "n_default_zero": 0,
       "status": "OK"
@@ -2125,10 +2125,10 @@
     {
       "feature": "team_barrel_15g_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2136,10 +2136,10 @@
     {
       "feature": "team_barrel_15g_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2147,10 +2147,10 @@
     {
       "feature": "team_exitvelo_15g_home",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2158,10 +2158,10 @@
     {
       "feature": "team_exitvelo_15g_away",
       "window": "baseline",
-      "n_games": 285,
-      "n_nonnull": 285,
+      "n_games": 294,
+      "n_nonnull": 294,
       "pct_nonnull": 100.0,
-      "n_measured": 285,
+      "n_measured": 294,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2170,1486 +2170,1486 @@
   "rolling_brier": [
     {
       "date": "2025-04-24",
-      "brier": 0.272386,
+      "brier": 0.274486,
       "games": 9
     },
     {
       "date": "2025-04-25",
-      "brier": 0.271911,
+      "brier": 0.273816,
       "games": 22
     },
     {
       "date": "2025-04-26",
-      "brier": 0.258963,
+      "brier": 0.261407,
       "games": 38
     },
     {
       "date": "2025-04-27",
-      "brier": 0.248921,
+      "brier": 0.249699,
       "games": 54
     },
     {
       "date": "2025-04-28",
-      "brier": 0.25266,
+      "brier": 0.251637,
       "games": 62
     },
     {
       "date": "2025-04-29",
-      "brier": 0.24457,
+      "brier": 0.24543,
       "games": 76
     },
     {
       "date": "2025-04-30",
-      "brier": 0.2458,
+      "brier": 0.246494,
       "games": 92
     },
     {
       "date": "2025-05-01",
-      "brier": 0.249829,
+      "brier": 0.251289,
       "games": 103
     },
     {
       "date": "2025-05-02",
-      "brier": 0.245467,
+      "brier": 0.247353,
       "games": 118
     },
     {
       "date": "2025-05-03",
-      "brier": 0.248225,
+      "brier": 0.24964,
       "games": 132
     },
     {
       "date": "2025-05-04",
-      "brier": 0.25051,
+      "brier": 0.251043,
       "games": 148
     },
     {
       "date": "2025-05-05",
-      "brier": 0.247349,
+      "brier": 0.247689,
       "games": 157
     },
     {
       "date": "2025-05-06",
-      "brier": 0.246063,
+      "brier": 0.24666,
       "games": 172
     },
     {
       "date": "2025-05-07",
-      "brier": 0.244358,
+      "brier": 0.245406,
       "games": 187
     },
     {
       "date": "2025-05-08",
-      "brier": 0.242017,
+      "brier": 0.243166,
       "games": 196
     },
     {
       "date": "2025-05-09",
-      "brier": 0.242441,
+      "brier": 0.243459,
       "games": 211
     },
     {
       "date": "2025-05-10",
-      "brier": 0.244063,
+      "brier": 0.245156,
       "games": 226
     },
     {
       "date": "2025-05-11",
-      "brier": 0.245978,
+      "brier": 0.247097,
       "games": 241
     },
     {
       "date": "2025-05-12",
-      "brier": 0.246318,
+      "brier": 0.247647,
       "games": 252
     },
     {
       "date": "2025-05-13",
-      "brier": 0.244406,
+      "brier": 0.245751,
       "games": 265
     },
     {
       "date": "2025-05-14",
-      "brier": 0.245575,
+      "brier": 0.246754,
       "games": 282
     },
     {
       "date": "2025-05-15",
-      "brier": 0.244978,
+      "brier": 0.246205,
       "games": 288
     },
     {
       "date": "2025-05-16",
-      "brier": 0.244498,
+      "brier": 0.245698,
       "games": 303
     },
     {
       "date": "2025-05-17",
-      "brier": 0.245036,
+      "brier": 0.246311,
       "games": 318
     },
     {
       "date": "2025-05-18",
-      "brier": 0.245536,
+      "brier": 0.246955,
       "games": 333
     },
     {
       "date": "2025-05-19",
-      "brier": 0.245573,
+      "brier": 0.247089,
       "games": 345
     },
     {
       "date": "2025-05-20",
-      "brier": 0.245166,
+      "brier": 0.24654,
       "games": 359
     },
     {
       "date": "2025-05-21",
-      "brier": 0.244911,
+      "brier": 0.246187,
       "games": 373
     },
     {
       "date": "2025-05-22",
-      "brier": 0.244455,
+      "brier": 0.245758,
       "games": 381
     },
     {
       "date": "2025-05-23",
-      "brier": 0.24474,
+      "brier": 0.245938,
       "games": 396
     },
     {
       "date": "2025-05-24",
-      "brier": 0.243331,
+      "brier": 0.244321,
       "games": 403
     },
     {
       "date": "2025-05-25",
-      "brier": 0.242923,
+      "brier": 0.243975,
       "games": 405
     },
     {
       "date": "2025-05-26",
-      "brier": 0.242024,
+      "brier": 0.242923,
       "games": 401
     },
     {
       "date": "2025-05-27",
-      "brier": 0.241235,
+      "brier": 0.242274,
       "games": 400
     },
     {
       "date": "2025-05-28",
-      "brier": 0.241153,
+      "brier": 0.242447,
       "games": 406
     },
     {
       "date": "2025-05-29",
-      "brier": 0.242612,
+      "brier": 0.243578,
       "games": 397
     },
     {
       "date": "2025-05-30",
-      "brier": 0.242477,
+      "brier": 0.243426,
       "games": 396
     },
     {
       "date": "2025-05-31",
-      "brier": 0.241221,
+      "brier": 0.241901,
       "games": 400
     },
     {
       "date": "2025-06-01",
-      "brier": 0.241358,
+      "brier": 0.241798,
       "games": 400
     },
     {
       "date": "2025-06-02",
-      "brier": 0.241157,
+      "brier": 0.241623,
       "games": 393
     },
     {
       "date": "2025-06-03",
-      "brier": 0.240998,
+      "brier": 0.241704,
       "games": 392
     },
     {
       "date": "2025-06-04",
-      "brier": 0.242796,
+      "brier": 0.243626,
       "games": 397
     },
     {
       "date": "2025-06-05",
-      "brier": 0.24289,
+      "brier": 0.243564,
       "games": 395
     },
     {
       "date": "2025-06-06",
-      "brier": 0.243565,
+      "brier": 0.243979,
       "games": 395
     },
     {
       "date": "2025-06-07",
-      "brier": 0.245414,
+      "brier": 0.245864,
       "games": 401
     },
     {
       "date": "2025-06-08",
-      "brier": 0.244571,
+      "brier": 0.245216,
       "games": 401
     },
     {
       "date": "2025-06-09",
-      "brier": 0.243699,
+      "brier": 0.244345,
       "games": 395
     },
     {
       "date": "2025-06-10",
-      "brier": 0.24362,
+      "brier": 0.243994,
       "games": 395
     },
     {
       "date": "2025-06-11",
-      "brier": 0.242606,
+      "brier": 0.242954,
       "games": 399
     },
     {
       "date": "2025-06-12",
-      "brier": 0.242966,
+      "brier": 0.243353,
       "games": 394
     },
     {
       "date": "2025-06-13",
-      "brier": 0.24113,
+      "brier": 0.241503,
       "games": 392
     },
     {
       "date": "2025-06-14",
-      "brier": 0.241681,
+      "brier": 0.242028,
       "games": 401
     },
     {
       "date": "2025-06-15",
-      "brier": 0.242,
+      "brier": 0.242333,
       "games": 401
     },
     {
       "date": "2025-06-16",
-      "brier": 0.241815,
+      "brier": 0.242036,
       "games": 393
     },
     {
       "date": "2025-06-17",
-      "brier": 0.241574,
+      "brier": 0.241687,
       "games": 393
     },
     {
       "date": "2025-06-18",
-      "brier": 0.241942,
+      "brier": 0.241821,
       "games": 393
     },
     {
       "date": "2025-06-19",
-      "brier": 0.24283,
+      "brier": 0.242655,
       "games": 395
     },
     {
       "date": "2025-06-20",
-      "brier": 0.243573,
+      "brier": 0.243208,
       "games": 396
     },
     {
       "date": "2025-06-21",
-      "brier": 0.243619,
+      "brier": 0.243281,
       "games": 403
     },
     {
       "date": "2025-06-22",
-      "brier": 0.243233,
+      "brier": 0.242826,
       "games": 403
     },
     {
       "date": "2025-06-23",
-      "brier": 0.244235,
+      "brier": 0.243792,
       "games": 396
     },
     {
       "date": "2025-06-24",
-      "brier": 0.243564,
+      "brier": 0.242917,
       "games": 396
     },
     {
       "date": "2025-06-25",
-      "brier": 0.244109,
+      "brier": 0.243616,
       "games": 399
     },
     {
       "date": "2025-06-26",
-      "brier": 0.245451,
+      "brier": 0.245019,
       "games": 393
     },
     {
       "date": "2025-06-27",
-      "brier": 0.24592,
+      "brier": 0.245537,
       "games": 394
     },
     {
       "date": "2025-06-28",
-      "brier": 0.24616,
+      "brier": 0.245789,
       "games": 404
     },
     {
       "date": "2025-06-29",
-      "brier": 0.246918,
+      "brier": 0.246443,
       "games": 404
     },
     {
       "date": "2025-06-30",
-      "brier": 0.24716,
+      "brier": 0.246628,
       "games": 397
     },
     {
       "date": "2025-07-01",
-      "brier": 0.24742,
+      "brier": 0.24714,
       "games": 394
     },
     {
       "date": "2025-07-02",
-      "brier": 0.245899,
+      "brier": 0.245401,
       "games": 405
     },
     {
       "date": "2025-07-03",
-      "brier": 0.245071,
+      "brier": 0.244489,
       "games": 400
     },
     {
       "date": "2025-07-04",
-      "brier": 0.244249,
+      "brier": 0.243784,
       "games": 401
     },
     {
       "date": "2025-07-05",
-      "brier": 0.244733,
+      "brier": 0.244203,
       "games": 403
     },
     {
       "date": "2025-07-06",
-      "brier": 0.24481,
+      "brier": 0.244171,
       "games": 403
     },
     {
       "date": "2025-07-07",
-      "brier": 0.244375,
+      "brier": 0.243458,
       "games": 398
     },
     {
       "date": "2025-07-08",
-      "brier": 0.244422,
+      "brier": 0.243472,
       "games": 398
     },
     {
       "date": "2025-07-09",
-      "brier": 0.244583,
+      "brier": 0.24378,
       "games": 403
     },
     {
       "date": "2025-07-10",
-      "brier": 0.244007,
+      "brier": 0.243506,
       "games": 398
     },
     {
       "date": "2025-07-11",
-      "brier": 0.245351,
+      "brier": 0.24484,
       "games": 399
     },
     {
       "date": "2025-07-12",
-      "brier": 0.245546,
+      "brier": 0.245079,
       "games": 406
     },
     {
       "date": "2025-07-13",
-      "brier": 0.246946,
+      "brier": 0.24652,
       "games": 406
     },
     {
       "date": "2025-07-18",
-      "brier": 0.246782,
+      "brier": 0.246414,
       "games": 357
     },
     {
       "date": "2025-07-19",
-      "brier": 0.246882,
+      "brier": 0.246771,
       "games": 356
     },
     {
       "date": "2025-07-20",
-      "brier": 0.246667,
+      "brier": 0.246835,
       "games": 356
     },
     {
       "date": "2025-07-21",
-      "brier": 0.246848,
+      "brier": 0.246951,
       "games": 356
     },
     {
       "date": "2025-07-22",
-      "brier": 0.246528,
+      "brier": 0.246771,
       "games": 356
     },
     {
       "date": "2025-07-23",
-      "brier": 0.247038,
+      "brier": 0.247649,
       "games": 362
     },
     {
       "date": "2025-07-24",
-      "brier": 0.24801,
+      "brier": 0.248729,
       "games": 352
     },
     {
       "date": "2025-07-25",
-      "brier": 0.249638,
+      "brier": 0.250056,
       "games": 351
     },
     {
       "date": "2025-07-26",
-      "brier": 0.251414,
+      "brier": 0.251699,
       "games": 358
     },
     {
       "date": "2025-07-27",
-      "brier": 0.25061,
+      "brier": 0.250772,
       "games": 358
     },
     {
       "date": "2025-07-28",
-      "brier": 0.251276,
+      "brier": 0.251422,
       "games": 358
     },
     {
       "date": "2025-07-29",
-      "brier": 0.249371,
+      "brier": 0.249581,
       "games": 359
     },
     {
       "date": "2025-07-30",
-      "brier": 0.249175,
+      "brier": 0.249599,
       "games": 366
     },
     {
       "date": "2025-08-01",
-      "brier": 0.250223,
+      "brier": 0.250813,
       "games": 351
     },
     {
       "date": "2025-08-02",
-      "brier": 0.250697,
+      "brier": 0.251574,
       "games": 356
     },
     {
       "date": "2025-08-03",
-      "brier": 0.251167,
+      "brier": 0.251732,
       "games": 355
     },
     {
       "date": "2025-08-04",
-      "brier": 0.250784,
+      "brier": 0.251516,
       "games": 353
     },
     {
       "date": "2025-08-05",
-      "brier": 0.25014,
+      "brier": 0.251195,
       "games": 353
     },
     {
       "date": "2025-08-06",
-      "brier": 0.250914,
+      "brier": 0.252179,
       "games": 358
     },
     {
       "date": "2025-08-08",
-      "brier": 0.251865,
+      "brier": 0.252574,
       "games": 344
     },
     {
       "date": "2025-08-09",
-      "brier": 0.251162,
+      "brier": 0.251801,
       "games": 350
     },
     {
       "date": "2025-08-10",
-      "brier": 0.250094,
+      "brier": 0.250614,
       "games": 349
     },
     {
       "date": "2025-08-11",
-      "brier": 0.249732,
+      "brier": 0.250322,
       "games": 345
     },
     {
       "date": "2025-08-12",
-      "brier": 0.249215,
+      "brier": 0.249947,
       "games": 345
     },
     {
       "date": "2025-08-13",
-      "brier": 0.250837,
+      "brier": 0.251587,
       "games": 360
     },
     {
       "date": "2025-08-14",
-      "brier": 0.250829,
+      "brier": 0.25151,
       "games": 367
     },
     {
       "date": "2025-08-15",
-      "brier": 0.250986,
+      "brier": 0.251621,
       "games": 382
     },
     {
       "date": "2025-08-16",
-      "brier": 0.250301,
+      "brier": 0.251044,
       "games": 397
     },
     {
       "date": "2025-08-17",
-      "brier": 0.250119,
+      "brier": 0.250728,
       "games": 397
     },
     {
       "date": "2025-08-18",
-      "brier": 0.250194,
+      "brier": 0.250766,
       "games": 394
     },
     {
       "date": "2025-08-19",
-      "brier": 0.249444,
+      "brier": 0.249973,
       "games": 395
     },
     {
       "date": "2025-08-20",
-      "brier": 0.24946,
+      "brier": 0.250018,
       "games": 394
     },
     {
       "date": "2025-08-21",
-      "brier": 0.24959,
+      "brier": 0.250214,
       "games": 388
     },
     {
       "date": "2025-08-22",
-      "brier": 0.248982,
+      "brier": 0.249276,
       "games": 388
     },
     {
       "date": "2025-08-23",
-      "brier": 0.248439,
+      "brier": 0.248622,
       "games": 397
     },
     {
       "date": "2025-08-24",
-      "brier": 0.24784,
+      "brier": 0.248193,
       "games": 398
     },
     {
       "date": "2025-08-25",
-      "brier": 0.24612,
+      "brier": 0.246585,
       "games": 395
     },
     {
       "date": "2025-08-26",
-      "brier": 0.246426,
+      "brier": 0.24675,
       "games": 395
     },
     {
       "date": "2025-08-27",
-      "brier": 0.244778,
+      "brier": 0.244996,
       "games": 395
     },
     {
       "date": "2025-08-28",
-      "brier": 0.245075,
+      "brier": 0.245456,
       "games": 387
     },
     {
       "date": "2025-08-29",
-      "brier": 0.245225,
+      "brier": 0.24542,
       "games": 387
     },
     {
       "date": "2025-08-30",
-      "brier": 0.245795,
+      "brier": 0.246019,
       "games": 402
     },
     {
       "date": "2025-08-31",
-      "brier": 0.246842,
+      "brier": 0.247092,
       "games": 402
     },
     {
       "date": "2025-09-01",
-      "brier": 0.246609,
+      "brier": 0.24652,
       "games": 400
     },
     {
       "date": "2025-09-02",
-      "brier": 0.246521,
+      "brier": 0.246608,
       "games": 400
     },
     {
       "date": "2025-09-03",
-      "brier": 0.246877,
+      "brier": 0.246922,
       "games": 402
     },
     {
       "date": "2025-09-04",
-      "brier": 0.247498,
+      "brier": 0.247353,
       "games": 393
     },
     {
       "date": "2025-09-05",
-      "brier": 0.246494,
+      "brier": 0.246443,
       "games": 393
     },
     {
       "date": "2025-09-06",
-      "brier": 0.246941,
+      "brier": 0.246756,
       "games": 408
     },
     {
       "date": "2025-09-07",
-      "brier": 0.247908,
+      "brier": 0.247787,
       "games": 408
     },
     {
       "date": "2025-09-08",
-      "brier": 0.247501,
+      "brier": 0.247275,
       "games": 403
     },
     {
       "date": "2025-09-09",
-      "brier": 0.247442,
+      "brier": 0.247264,
       "games": 403
     },
     {
       "date": "2025-09-10",
-      "brier": 0.248021,
+      "brier": 0.247718,
       "games": 407
     },
     {
       "date": "2025-09-11",
-      "brier": 0.247144,
+      "brier": 0.246854,
       "games": 401
     },
     {
       "date": "2025-09-12",
-      "brier": 0.245743,
+      "brier": 0.245208,
       "games": 401
     },
     {
       "date": "2025-09-13",
-      "brier": 0.245236,
+      "brier": 0.24489,
       "games": 409
     },
     {
       "date": "2025-09-14",
-      "brier": 0.244109,
+      "brier": 0.243885,
       "games": 409
     },
     {
       "date": "2025-09-15",
-      "brier": 0.24486,
+      "brier": 0.244575,
       "games": 403
     },
     {
       "date": "2025-09-16",
-      "brier": 0.244141,
+      "brier": 0.243778,
       "games": 404
     },
     {
       "date": "2025-09-17",
-      "brier": 0.24312,
+      "brier": 0.242871,
       "games": 407
     },
     {
       "date": "2025-09-18",
-      "brier": 0.242953,
+      "brier": 0.242557,
       "games": 401
     },
     {
       "date": "2025-09-19",
-      "brier": 0.244204,
+      "brier": 0.243669,
       "games": 402
     },
     {
       "date": "2025-09-20",
-      "brier": 0.244336,
+      "brier": 0.24366,
       "games": 409
     },
     {
       "date": "2025-09-21",
-      "brier": 0.245417,
+      "brier": 0.244756,
       "games": 409
     },
     {
       "date": "2025-09-23",
-      "brier": 0.245182,
+      "brier": 0.24448,
       "games": 395
     },
     {
       "date": "2025-09-24",
-      "brier": 0.245156,
+      "brier": 0.244446,
       "games": 397
     },
     {
       "date": "2025-09-25",
-      "brier": 0.244509,
+      "brier": 0.24394,
       "games": 394
     },
     {
       "date": "2025-09-26",
-      "brier": 0.245057,
+      "brier": 0.244419,
       "games": 394
     },
     {
       "date": "2025-09-27",
-      "brier": 0.244905,
+      "brier": 0.244404,
       "games": 401
     },
     {
       "date": "2025-09-28",
-      "brier": 0.243482,
+      "brier": 0.243083,
       "games": 401
     },
     {
       "date": "2026-03-27",
-      "brier": 0.238235,
+      "brier": 0.236019,
       "games": 8
     },
     {
       "date": "2026-03-28",
-      "brier": 0.232708,
+      "brier": 0.233219,
       "games": 23
     },
     {
       "date": "2026-03-29",
-      "brier": 0.236727,
+      "brier": 0.237591,
       "games": 35
     },
     {
       "date": "2026-03-30",
-      "brier": 0.244399,
+      "brier": 0.245054,
       "games": 50
     },
     {
       "date": "2026-03-31",
-      "brier": 0.245074,
+      "brier": 0.246036,
       "games": 64
     },
     {
       "date": "2026-04-01",
-      "brier": 0.24199,
+      "brier": 0.242775,
       "games": 79
     },
     {
       "date": "2026-04-03",
-      "brier": 0.24189,
+      "brier": 0.241903,
       "games": 93
     },
     {
       "date": "2026-04-04",
-      "brier": 0.242359,
+      "brier": 0.242131,
       "games": 108
     },
     {
       "date": "2026-04-05",
-      "brier": 0.24486,
+      "brier": 0.24506,
       "games": 124
     },
     {
       "date": "2026-04-06",
-      "brier": 0.246122,
+      "brier": 0.246297,
       "games": 137
     },
     {
       "date": "2026-04-07",
-      "brier": 0.245895,
+      "brier": 0.246433,
       "games": 152
     },
     {
       "date": "2026-04-08",
-      "brier": 0.246528,
+      "brier": 0.247242,
       "games": 167
     },
     {
       "date": "2026-04-09",
-      "brier": 0.247783,
+      "brier": 0.248309,
       "games": 173
     },
     {
       "date": "2026-04-10",
-      "brier": 0.247614,
+      "brier": 0.247945,
       "games": 188
     },
     {
       "date": "2026-04-11",
-      "brier": 0.247836,
+      "brier": 0.248352,
       "games": 203
     },
     {
       "date": "2026-04-12",
-      "brier": 0.248846,
+      "brier": 0.249176,
       "games": 218
     },
     {
       "date": "2026-04-13",
-      "brier": 0.247513,
+      "brier": 0.247826,
       "games": 228
     },
     {
       "date": "2026-04-14",
-      "brier": 0.24811,
+      "brier": 0.24834,
       "games": 243
     },
     {
       "date": "2026-04-15",
-      "brier": 0.247449,
+      "brier": 0.247734,
       "games": 258
     },
     {
       "date": "2026-04-16",
-      "brier": 0.248137,
+      "brier": 0.248369,
       "games": 268
     },
     {
       "date": "2026-04-17",
-      "brier": 0.24853,
+      "brier": 0.248683,
       "games": 283
     },
     {
       "date": "2026-04-18",
-      "brier": 0.24852,
+      "brier": 0.248755,
       "games": 298
     },
     {
       "date": "2026-04-19",
-      "brier": 0.249484,
+      "brier": 0.249773,
       "games": 313
     },
     {
       "date": "2026-04-20",
-      "brier": 0.248923,
+      "brier": 0.24923,
       "games": 323
     },
     {
       "date": "2026-04-21",
-      "brier": 0.249373,
+      "brier": 0.249579,
       "games": 338
     },
     {
       "date": "2026-04-22",
-      "brier": 0.24896,
+      "brier": 0.249051,
       "games": 353
     },
     {
       "date": "2026-04-23",
-      "brier": 0.248618,
+      "brier": 0.248732,
       "games": 362
     },
     {
       "date": "2026-04-24",
-      "brier": 0.24879,
+      "brier": 0.248908,
       "games": 376
     },
     {
       "date": "2026-04-25",
-      "brier": 0.249079,
+      "brier": 0.249174,
       "games": 390
     },
     {
       "date": "2026-04-26",
-      "brier": 0.249553,
+      "brier": 0.249728,
       "games": 398
     },
     {
       "date": "2026-04-27",
-      "brier": 0.250565,
+      "brier": 0.250681,
       "games": 391
     },
     {
       "date": "2026-04-28",
-      "brier": 0.251053,
+      "brier": 0.251093,
       "games": 394
     },
     {
       "date": "2026-04-29",
-      "brier": 0.250639,
+      "brier": 0.25071,
       "games": 392
     },
     {
       "date": "2026-04-30",
-      "brier": 0.250749,
+      "brier": 0.25067,
       "games": 389
     },
     {
       "date": "2026-05-01",
-      "brier": 0.250957,
+      "brier": 0.250864,
       "games": 389
     },
     {
       "date": "2026-05-02",
-      "brier": 0.250357,
+      "brier": 0.250272,
       "games": 404
     },
     {
       "date": "2026-05-03",
-      "brier": 0.250276,
+      "brier": 0.250324,
       "games": 405
     },
     {
       "date": "2026-05-04",
-      "brier": 0.249637,
+      "brier": 0.249737,
       "games": 402
     },
     {
       "date": "2026-05-05",
-      "brier": 0.248836,
+      "brier": 0.248997,
       "games": 399
     },
     {
       "date": "2026-05-06",
-      "brier": 0.248424,
+      "brier": 0.248683,
       "games": 401
     },
     {
       "date": "2026-05-07",
-      "brier": 0.248505,
+      "brier": 0.248772,
       "games": 396
     },
     {
       "date": "2026-05-08",
-      "brier": 0.248375,
+      "brier": 0.248572,
       "games": 396
     },
     {
       "date": "2026-05-09",
-      "brier": 0.247436,
+      "brier": 0.247731,
       "games": 404
     },
     {
       "date": "2026-05-10",
-      "brier": 0.247426,
+      "brier": 0.247785,
       "games": 404
     },
     {
       "date": "2026-05-11",
-      "brier": 0.248187,
+      "brier": 0.248452,
       "games": 395
     },
     {
       "date": "2026-05-12",
-      "brier": 0.247004,
+      "brier": 0.247529,
       "games": 395
     },
     {
       "date": "2026-05-13",
-      "brier": 0.24759,
+      "brier": 0.248068,
       "games": 400
     },
     {
       "date": "2026-05-14",
-      "brier": 0.246721,
+      "brier": 0.247336,
       "games": 396
     },
     {
       "date": "2026-05-15",
-      "brier": 0.246928,
+      "brier": 0.24757,
       "games": 396
     },
     {
       "date": "2026-05-16",
-      "brier": 0.24687,
+      "brier": 0.247328,
       "games": 401
     },
     {
       "date": "2026-05-17",
-      "brier": 0.246816,
+      "brier": 0.24723,
       "games": 401
     },
     {
       "date": "2026-05-18",
-      "brier": 0.246261,
+      "brier": 0.246453,
       "games": 400
     },
     {
       "date": "2026-05-19",
-      "brier": 0.24503,
+      "brier": 0.245208,
       "games": 400
     },
     {
       "date": "2026-05-20",
-      "brier": 0.245511,
+      "brier": 0.245658,
       "games": 405
     },
     {
       "date": "2026-05-21",
-      "brier": 0.244883,
+      "brier": 0.245226,
       "games": 397
     },
     {
       "date": "2026-05-22",
-      "brier": 0.245701,
+      "brier": 0.246141,
       "games": 396
     },
     {
       "date": "2026-05-23",
-      "brier": 0.24621,
+      "brier": 0.246627,
       "games": 401
     },
     {
       "date": "2026-05-24",
-      "brier": 0.24632,
+      "brier": 0.246892,
       "games": 402
     },
     {
       "date": "2026-05-25",
-      "brier": 0.246143,
+      "brier": 0.246852,
       "games": 401
     },
     {
       "date": "2026-05-26",
-      "brier": 0.24557,
+      "brier": 0.246392,
       "games": 400
     },
     {
       "date": "2026-05-27",
-      "brier": 0.24458,
+      "brier": 0.245495,
       "games": 407
     },
     {
       "date": "2026-05-28",
-      "brier": 0.244292,
+      "brier": 0.245214,
       "games": 398
     },
     {
       "date": "2026-05-29",
-      "brier": 0.243222,
+      "brier": 0.244193,
       "games": 400
     },
     {
       "date": "2026-05-30",
-      "brier": 0.243428,
+      "brier": 0.244495,
       "games": 404
     },
     {
       "date": "2026-05-31",
-      "brier": 0.243264,
+      "brier": 0.244354,
       "games": 404
     },
     {
       "date": "2026-06-01",
-      "brier": 0.24417,
+      "brier": 0.245276,
       "games": 398
     },
     {
       "date": "2026-06-02",
-      "brier": 0.244473,
+      "brier": 0.24564,
       "games": 398
     },
     {
       "date": "2026-06-03",
-      "brier": 0.245855,
+      "brier": 0.247006,
       "games": 401
     },
     {
       "date": "2026-06-04",
-      "brier": 0.246876,
+      "brier": 0.247826,
       "games": 397
     },
     {
       "date": "2026-06-05",
-      "brier": 0.247013,
+      "brier": 0.247942,
       "games": 397
     },
     {
       "date": "2026-06-06",
-      "brier": 0.245991,
+      "brier": 0.246756,
       "games": 401
     },
     {
       "date": "2026-06-07",
-      "brier": 0.245825,
+      "brier": 0.246573,
       "games": 401
     },
     {
       "date": "2026-06-08",
-      "brier": 0.245861,
+      "brier": 0.246578,
       "games": 395
     },
     {
       "date": "2026-06-09",
-      "brier": 0.245905,
+      "brier": 0.24675,
       "games": 395
     },
     {
       "date": "2026-06-10",
-      "brier": 0.24553,
+      "brier": 0.246364,
       "games": 404
     },
     {
       "date": "2026-06-11",
-      "brier": 0.245932,
+      "brier": 0.246575,
       "games": 396
     },
     {
       "date": "2026-06-12",
-      "brier": 0.245884,
+      "brier": 0.246446,
       "games": 396
     },
     {
       "date": "2026-06-13",
-      "brier": 0.246605,
+      "brier": 0.247077,
       "games": 400
     },
     {
       "date": "2026-06-14",
-      "brier": 0.24763,
+      "brier": 0.247911,
       "games": 399
     },
     {
       "date": "2026-06-15",
-      "brier": 0.24666,
+      "brier": 0.2472,
       "games": 394
     },
     {
       "date": "2026-06-16",
-      "brier": 0.246174,
+      "brier": 0.246809,
       "games": 394
     },
     {
       "date": "2026-06-17",
-      "brier": 0.24665,
+      "brier": 0.247329,
       "games": 394
     },
     {
       "date": "2026-06-18",
-      "brier": 0.24737,
+      "brier": 0.248019,
       "games": 387
     },
     {
       "date": "2026-06-19",
-      "brier": 0.246689,
+      "brier": 0.247331,
       "games": 386
     },
     {
       "date": "2026-06-20",
-      "brier": 0.24782,
+      "brier": 0.248347,
       "games": 393
     },
     {
       "date": "2026-06-21",
-      "brier": 0.247095,
+      "brier": 0.247556,
       "games": 393
     },
     {
       "date": "2026-06-22",
-      "brier": 0.247104,
+      "brier": 0.247648,
       "games": 391
     },
     {
       "date": "2026-06-23",
-      "brier": 0.246666,
+      "brier": 0.247172,
       "games": 391
     },
     {
       "date": "2026-06-24",
-      "brier": 0.246371,
+      "brier": 0.246785,
       "games": 394
     },
     {
       "date": "2026-06-25",
-      "brier": 0.246884,
+      "brier": 0.247111,
       "games": 387
     },
     {
       "date": "2026-06-26",
-      "brier": 0.24714,
+      "brier": 0.247327,
       "games": 387
     },
     {
       "date": "2026-06-27",
-      "brier": 0.247754,
+      "brier": 0.247821,
       "games": 396
     },
     {
       "date": "2026-06-28",
-      "brier": 0.249031,
+      "brier": 0.24904,
       "games": 396
     },
     {
       "date": "2026-06-29",
-      "brier": 0.248705,
+      "brier": 0.248773,
       "games": 394
     },
     {
       "date": "2026-06-30",
-      "brier": 0.248578,
+      "brier": 0.2486,
       "games": 394
     },
     {
       "date": "2026-07-01",
-      "brier": 0.247965,
+      "brier": 0.24802,
       "games": 399
     },
     {
       "date": "2026-07-02",
-      "brier": 0.24807,
+      "brier": 0.248096,
       "games": 393
     },
     {
       "date": "2026-07-03",
-      "brier": 0.247012,
+      "brier": 0.247184,
       "games": 391
     },
     {
       "date": "2026-07-04",
-      "brier": 0.245854,
+      "brier": 0.245878,
       "games": 397
     },
     {
       "date": "2026-07-05",
-      "brier": 0.24635,
+      "brier": 0.246282,
       "games": 397
     },
     {
       "date": "2026-07-06",
-      "brier": 0.248067,
+      "brier": 0.248034,
       "games": 391
     },
     {
       "date": "2026-07-07",
-      "brier": 0.247684,
+      "brier": 0.247664,
       "games": 392
     },
     {
       "date": "2026-07-08",
-      "brier": 0.247549,
+      "brier": 0.247594,
       "games": 399
     },
     {
       "date": "2026-07-09",
-      "brier": 0.247335,
+      "brier": 0.247194,
       "games": 397
     },
     {
       "date": "2026-07-10",
-      "brier": 0.247078,
+      "brier": 0.246915,
       "games": 396
     },
     {
       "date": "2026-07-11",
-      "brier": 0.247066,
+      "brier": 0.246819,
       "games": 405
     },
     {
       "date": "2026-07-12",
-      "brier": 0.247033,
+      "brier": 0.24685,
       "games": 405
     },
     {
       "date": "2026-07-17",
-      "brier": 0.247272,
+      "brier": 0.247489,
       "games": 351
     },
     {
       "date": "2026-07-18",
-      "brier": 0.24635,
+      "brier": 0.246521,
       "games": 358
     },
     {
       "date": "2026-07-19",
-      "brier": 0.246862,
+      "brier": 0.246938,
       "games": 360
     },
     {
       "date": "2026-07-20",
-      "brier": 0.245242,
+      "brier": 0.245371,
       "games": 361
     },
     {
       "date": "2026-07-21",
-      "brier": 0.245889,
+      "brier": 0.246201,
       "games": 360
     },
     {
       "date": "2026-07-22",
-      "brier": 0.2461,
+      "brier": 0.246415,
       "games": 365
     },
     {
       "date": "2026-07-23",
-      "brier": 0.246219,
+      "brier": 0.246346,
       "games": 355
     },
     {
       "date": "2026-07-24",
-      "brier": 0.246652,
+      "brier": 0.246851,
       "games": 354
     },
     {
       "date": "2026-07-25",
-      "brier": 0.246158,
+      "brier": 0.246438,
       "games": 361
     },
     {
       "date": "2026-07-26",
-      "brier": 0.246926,
+      "brier": 0.246937,
       "games": 361
     },
     {
       "date": "2026-07-27",
-      "brier": 0.246191,
+      "brier": 0.246413,
       "games": 357
     },
     {
       "date": "2026-07-28",
-      "brier": 0.246327,
+      "brier": 0.24635,
       "games": 357
     },
     {
       "date": "2026-07-29",
-      "brier": 0.246386,
+      "brier": 0.246373,
       "games": 360
     },
     {
       "date": "2026-07-30",
-      "brier": 0.246886,
+      "brier": 0.247024,
       "games": 355
     },
     {
       "date": "2026-07-31",
-      "brier": 0.247675,
+      "brier": 0.247484,
       "games": 356
     },
     {
       "date": "2026-08-01",
-      "brier": 0.247505,
+      "brier": 0.247247,
       "games": 362
     },
     {
       "date": "2026-08-02",
-      "brier": 0.247711,
+      "brier": 0.247373,
       "games": 364
     },
     {
       "date": "2026-08-03",
-      "brier": 0.248399,
+      "brier": 0.24838,
       "games": 357
     },
     {
       "date": "2026-08-04",
-      "brier": 0.246871,
+      "brier": 0.24691,
       "games": 357
     },
     {
       "date": "2026-08-05",
-      "brier": 0.245882,
+      "brier": 0.24599,
       "games": 364
     },
     {
       "date": "2026-08-06",
-      "brier": 0.246051,
+      "brier": 0.246446,
       "games": 359
     },
     {
       "date": "2026-08-07",
-      "brier": 0.246645,
+      "brier": 0.247169,
       "games": 359
     },
     {
       "date": "2026-08-08",
-      "brier": 0.247753,
+      "brier": 0.248319,
       "games": 361
     },
     {
       "date": "2026-08-09",
-      "brier": 0.247665,
+      "brier": 0.248479,
       "games": 362
     },
     {
       "date": "2026-08-10",
-      "brier": 0.247656,
+      "brier": 0.248241,
       "games": 356
     },
     {
       "date": "2026-08-11",
-      "brier": 0.247687,
+      "brier": 0.247927,
       "games": 356
     },
     {
       "date": "2026-08-12",
-      "brier": 0.247134,
+      "brier": 0.247212,
       "games": 371
     },
     {
       "date": "2026-08-13",
-      "brier": 0.247488,
+      "brier": 0.247655,
       "games": 380
     },
     {
       "date": "2026-08-14",
-      "brier": 0.247709,
+      "brier": 0.2479,
       "games": 394
     },
     {
       "date": "2026-08-15",
-      "brier": 0.248508,
+      "brier": 0.248636,
       "games": 409
     },
     {
       "date": "2026-08-16",
-      "brier": 0.248636,
+      "brier": 0.248558,
       "games": 410
     },
     {
       "date": "2026-08-17",
-      "brier": 0.248573,
+      "brier": 0.248624,
       "games": 406
     },
     {
       "date": "2026-08-18",
-      "brier": 0.248446,
+      "brier": 0.248317,
       "games": 405
     },
     {
       "date": "2026-08-19",
-      "brier": 0.249236,
+      "brier": 0.248672,
       "games": 405
     },
     {
       "date": "2026-08-20",
-      "brier": 0.248891,
+      "brier": 0.248053,
       "games": 401
     },
     {
       "date": "2026-08-21",
-      "brier": 0.247161,
+      "brier": 0.246412,
       "games": 399
     },
     {
       "date": "2026-08-22",
-      "brier": 0.247014,
+      "brier": 0.246184,
       "games": 409
     },
     {
       "date": "2026-08-23",
-      "brier": 0.2459,
+      "brier": 0.245126,
       "games": 409
     }
   ],
-  "brier_baseline": 0.246079,
+  "brier_baseline": 0.246202,
   "brier_baseline_label": "History mean (4016 games)",
   "rolling_brier_meta": {
     "window_days": 30,
@@ -3658,61 +3658,1084 @@
     "calibrator_is_identity": false,
     "map_scope_note": "Recent points use the deployed map (fit on all OOF games) and are not directly comparable to prequential-calibrated metrics like logloss_calibrated."
   },
+  "features_metadata": {
+    "is_home": {
+      "name": "is_home",
+      "summary": "Always 1 \u2014 anchors the ~53% MLB home-field win advantage",
+      "definition": "Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.",
+      "formula": "1",
+      "source": "Feature engineering: static column added to every game row",
+      "window": "n/a (constant)",
+      "units": "binary",
+      "direction": "n/a (constant)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.\nFormula: 1\nSource: Feature engineering: static column added to every game row\nWindow: n/a (constant) \u00b7 Units: binary\nDirection: n/a (constant)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "win_pct_diff": {
+      "name": "win_pct_diff",
+      "summary": "Home win% \u2212 away win% (smoothed to .500 early season)",
+      "definition": "Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.",
+      "formula": "smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)",
+      "source": "DuckDB feature engineering: official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.\nFormula: smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)\nSource: DuckDB feature engineering: official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "elo_diff": {
+      "name": "elo_diff",
+      "summary": "Home Elo \u2212 away Elo (skill-gap anchor, updated each game)",
+      "definition": "Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).",
+      "formula": "home_elo \u2212 away_elo",
+      "source": "DuckDB feature engineering: Elo engine over full game log",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).\nFormula: home_elo \u2212 away_elo\nSource: DuckDB feature engineering: Elo engine over full game log\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "rest_days_diff": {
+      "name": "rest_days_diff",
+      "summary": "Home rest days \u2212 away rest days (schedule fatigue)",
+      "definition": "Days since each team's previous game.",
+      "formula": "rest_days_home \u2212 rest_days_away",
+      "source": "Schedule: gap between consecutive game dates",
+      "window": "per-game",
+      "units": "days",
+      "direction": "higher = home advantage (more rested)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_era_diff": {
+      "name": "sp_era_diff",
+      "summary": "Home SP season-to-date ERA \u2212 away SP",
+      "definition": "Starting-pitcher quality gap on season-long earned-run average.",
+      "formula": "sp_era_home \u2212 sp_era_away",
+      "source": "Statcast pitching aggregates (season to date)",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = home advantage (ERA is a cost)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Starting-pitcher quality gap on season-long earned-run average.\nFormula: sp_era_home \u2212 sp_era_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = home advantage (ERA is a cost)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_era_5g_diff": {
+      "name": "sp_era_5g_diff",
+      "summary": "Home SP last-5-start ERA \u2212 away SP (recent form)",
+      "definition": "Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.",
+      "formula": "sp_era_5g_home \u2212 sp_era_5g_away",
+      "source": "Statcast pitching aggregates (last-5-start window)",
+      "window": "5g",
+      "units": "ERA runs",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_k9_diff": {
+      "name": "sp_k9_diff",
+      "summary": "Home SP season-to-date K/9 \u2212 away SP",
+      "definition": "Strikeout rate gap: strikeouts per 9 innings, season to date.",
+      "formula": "sp_k9_home \u2212 sp_k9_away",
+      "source": "Statcast pitching aggregates (season to date)",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Strikeout rate gap: strikeouts per 9 innings, season to date.\nFormula: sp_k9_home \u2212 sp_k9_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_k9_5g_diff": {
+      "name": "sp_k9_5g_diff",
+      "summary": "Home SP last-5-start K/9 \u2212 away SP (recent form)",
+      "definition": "Strikeout-rate gap over each pitcher's last 5 starts.",
+      "formula": "sp_k9_5g_home \u2212 sp_k9_5g_away",
+      "source": "Statcast pitching aggregates (last-5-start window)",
+      "window": "5g",
+      "units": "K/9",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Strikeout-rate gap over each pitcher's last 5 starts.\nFormula: sp_k9_5g_home \u2212 sp_k9_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_fbvelo_diff": {
+      "name": "sp_fbvelo_diff",
+      "summary": "Home SP fastball velo (last 3 starts) \u2212 away SP (mph)",
+      "definition": "Average four-seam/fastball velocity gap over recent starts.",
+      "formula": "sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away",
+      "source": "Statcast pitch-level: mean fastball speed, last-3-start window",
+      "window": "3g",
+      "units": "mph",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_fbpct_diff": {
+      "name": "sp_fbpct_diff",
+      "summary": "Home SP fastball usage (last 3 starts) \u2212 away SP",
+      "definition": "How heavily each pitcher is leaning on the fastball right now.",
+      "formula": "sp_fbpct_3g_home \u2212 sp_fbpct_3g_away",
+      "source": "Statcast pitch-level: fastball share of pitches, last-3-start window",
+      "window": "3g",
+      "units": "share (0\u20131)",
+      "direction": "n/a (mix signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: How heavily each pitcher is leaning on the fastball right now.\nFormula: sp_fbpct_3g_home \u2212 sp_fbpct_3g_away\nSource: Statcast pitch-level: fastball share of pitches, last-3-start window\nWindow: 3g \u00b7 Units: share (0\u20131)\nDirection: n/a (mix signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_whiff_diff": {
+      "name": "sp_whiff_diff",
+      "summary": "Home SP whiff rate (last 3 starts) \u2212 away SP",
+      "definition": "Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.",
+      "formula": "sp_whiff_3g_home \u2212 sp_whiff_3g_away",
+      "source": "Statcast pitch-level: whiffs / swings, last-3-start window",
+      "window": "3g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.\nFormula: sp_whiff_3g_home \u2212 sp_whiff_3g_away\nSource: Statcast pitch-level: whiffs / swings, last-3-start window\nWindow: 3g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_xwoba_diff": {
+      "name": "sp_xwoba_diff",
+      "summary": "Home SP last-6-start xwOBA allowed \u2212 away SP",
+      "definition": "Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.",
+      "formula": "sp_xwoba_home \u2212 sp_xwoba_away",
+      "source": "Statcast xwOBA on balls in play + K/BB, last-6-start window",
+      "window": "6g",
+      "units": "xwOBA",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.\nFormula: sp_xwoba_home \u2212 sp_xwoba_away\nSource: Statcast xwOBA on balls in play + K/BB, last-6-start window\nWindow: 6g \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_xwoba_vs_l_diff": {
+      "name": "sp_xwoba_vs_l_diff",
+      "summary": "Home SP xwOBA vs LHB (season to date) \u2212 away SP",
+      "definition": "Platoon exposure: expected production allowed specifically to left-handed batters.",
+      "formula": "sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away",
+      "source": "Statcast xwOBA split by batter handedness (season)",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Platoon exposure: expected production allowed specifically to left-handed batters.\nFormula: sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away\nSource: Statcast xwOBA split by batter handedness (season)\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_mean_diff": {
+      "name": "lineup_woba_mean_diff",
+      "summary": "Home lineup avg wOBA \u2212 away lineup avg wOBA",
+      "definition": "Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).",
+      "formula": "lineup_woba_mean_home \u2212 lineup_woba_mean_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).\nFormula: lineup_woba_mean_home \u2212 lineup_woba_mean_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_top3_diff": {
+      "name": "lineup_woba_top3_diff",
+      "summary": "Home top-3 hitter wOBA \u2212 away top-3 hitter wOBA",
+      "definition": "Star-power gap at the top of the card.",
+      "formula": "lineup_woba_top3_home \u2212 lineup_woba_top3_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Star-power gap at the top of the card.\nFormula: lineup_woba_top3_home \u2212 lineup_woba_top3_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_std_diff": {
+      "name": "lineup_woba_std_diff",
+      "summary": "Home lineup wOBA dispersion \u2212 away lineup dispersion",
+      "definition": "Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.",
+      "formula": "lineup_woba_std_home \u2212 lineup_woba_std_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points (std)",
+      "direction": "n/a (shape signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.\nFormula: lineup_woba_std_home \u2212 lineup_woba_std_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points (std)\nDirection: n/a (shape signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "woba_30g_diff": {
+      "name": "woba_30g_diff",
+      "summary": "Home team 30-game wOBA \u2212 away team 30-game wOBA",
+      "definition": "Team-level offensive form over the trailing month.",
+      "formula": "woba_30g_home \u2212 woba_30g_away",
+      "source": "Statcast team batting aggregates",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_whip_diff": {
+      "name": "bullpen_whip_diff",
+      "summary": "Home bullpen 10-game WHIP \u2212 away bullpen (lower = better)",
+      "definition": "Relief corps baserunner allowance over the last 10 games.",
+      "formula": "bullpen_whip_10g_home \u2212 bullpen_whip_10g_away",
+      "source": "Statcast relief-pitching aggregates",
+      "window": "10g",
+      "units": "WHIP",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Relief corps baserunner allowance over the last 10 games.\nFormula: bullpen_whip_10g_home \u2212 bullpen_whip_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_whip_3g_diff": {
+      "name": "bullpen_whip_3g_diff",
+      "summary": "Home bullpen 3-game WHIP \u2212 away bullpen (short-term form)",
+      "definition": "Very recent bullpen form; noisy but catches slumps fast.",
+      "formula": "bullpen_whip_3g_home \u2212 bullpen_whip_3g_away",
+      "source": "Statcast relief-pitching aggregates",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_whip_3g_home \u2212 bullpen_whip_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_pitches_diff": {
+      "name": "bullpen_pitches_diff",
+      "summary": "Home bullpen 3-day pitch count \u2212 away (fatigue signal)",
+      "definition": "Cumulative relief workload over the last three days \u2014 availability and fatigue.",
+      "formula": "bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away",
+      "source": "Statcast pitch counts by reliever by date",
+      "window": "3d",
+      "units": "pitches",
+      "direction": "lower = home advantage (fresher arms)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Cumulative relief workload over the last three days \u2014 availability and fatigue.\nFormula: bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away\nSource: Statcast pitch counts by reliever by date\nWindow: 3d \u00b7 Units: pitches\nDirection: lower = home advantage (fresher arms)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_barrel_diff": {
+      "name": "team_barrel_diff",
+      "summary": "Home barrel% (15g) \u2212 away barrel% (quality of contact)",
+      "definition": "Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).",
+      "formula": "team_barrel_15g_home \u2212 team_barrel_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_hardhit_diff": {
+      "name": "team_hardhit_diff",
+      "summary": "Home hard-hit% (15g) \u2212 away hard-hit%",
+      "definition": "Share of batted balls \u226595 mph over the last 15 games.",
+      "formula": "team_hardhit_15g_home \u2212 team_hardhit_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Share of batted balls \u226595 mph over the last 15 games.\nFormula: team_hardhit_15g_home \u2212 team_hardhit_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_exitvelo_diff": {
+      "name": "team_exitvelo_diff",
+      "summary": "Home avg exit velo (15g) \u2212 away avg exit velo (mph)",
+      "definition": "Average exit velocity on balls in play \u2014 raw-contact strength.",
+      "formula": "team_exitvelo_15g_home \u2212 team_exitvelo_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Average exit velocity on balls in play \u2014 raw-contact strength.\nFormula: team_exitvelo_15g_home \u2212 team_exitvelo_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_handedness_matchup_advantage": {
+      "name": "lineup_handedness_matchup_advantage",
+      "summary": "Lineup OPS vs tonight's opposing starter hand, home \u2212 away",
+      "definition": "How productive each lineup is specifically against the handedness it faces tonight.",
+      "formula": "ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)",
+      "source": "Statcast hitter splits vs LHP/RHP + confirmed starter hand",
+      "window": "season to date",
+      "units": "OPS",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: How productive each lineup is specifically against the handedness it faces tonight.\nFormula: ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)\nSource: Statcast hitter splits vs LHP/RHP + confirmed starter hand\nWindow: season to date \u00b7 Units: OPS\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "travel_fatigue_diff": {
+      "name": "travel_fatigue_diff",
+      "summary": "Home timezone crossings (last 3 days) \u2212 away (schedule fatigue)",
+      "definition": "Travel wear: timezone crossings in the last 72 hours per club.",
+      "formula": "time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away",
+      "source": "Schedule geography: venue timezone changes",
+      "window": "3d",
+      "units": "crossings",
+      "direction": "lower = home advantage (less travel)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Travel wear: timezone crossings in the last 72 hours per club.\nFormula: time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away\nSource: Schedule geography: venue timezone changes\nWindow: 3d \u00b7 Units: crossings\nDirection: lower = home advantage (less travel)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "closer_availability_diff": {
+      "name": "closer_availability_diff",
+      "summary": "Home closer available \u2212 away closer available (late-inning edge)",
+      "definition": "Whether each club's primary closer is rested and usable tonight.",
+      "formula": "closer_available_home \u2212 closer_available_away",
+      "source": "Recent reliever usage (2-day rest heuristic)",
+      "window": "per-game",
+      "units": "binary",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Whether each club's primary closer is rested and usable tonight.\nFormula: closer_available_home \u2212 closer_available_away\nSource: Recent reliever usage (2-day rest heuristic)\nWindow: per-game \u00b7 Units: binary\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "dome_is_neutral": {
+      "name": "dome_is_neutral",
+      "summary": "1 if home park is a fixed dome/closed roof, 0 if open-air",
+      "definition": "Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.",
+      "formula": "1 if venue in DOMED_VENUES else 0",
+      "source": "Static venue table",
+      "window": "n/a (venue attribute)",
+      "units": "binary",
+      "direction": "n/a (gate flag)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "park_factor_slug_diff": {
+      "name": "park_factor_slug_diff",
+      "summary": "Home park SLG factor \u00d7 lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
+      "definition": "Interaction: does tonight's park amplify whichever lineup holds the star-power edge?",
+      "formula": "(home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff",
+      "source": "DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA",
+      "window": "season (park) \u00d7 season (lineup)",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Interaction: does tonight's park amplify whichever lineup holds the star-power edge?\nFormula: (home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA\nWindow: season (park) \u00d7 season (lineup) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "wind_advantage_flyball_factor": {
+      "name": "wind_advantage_flyball_factor",
+      "summary": "Wind direction multiplier \u00d7 SP ERA diff (flyball risk in windy conditions)",
+      "definition": "Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).",
+      "formula": "wind_direction_multiplier \u00d7 sp_era_diff",
+      "source": "Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing",
+      "window": "per-game (observed)",
+      "units": "index",
+      "direction": "higher = more flyball risk against the home SP",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_era_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "air_density_velocity_boost": {
+      "name": "air_density_velocity_boost",
+      "summary": "Stadium air density \u00d7 SP velo diff (cold/thin air affects velocity)",
+      "definition": "Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.",
+      "formula": "air_density_factor \u00d7 sp_fbvelo_diff",
+      "source": "Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo",
+      "window": "per-game (observed)",
+      "units": "index",
+      "direction": "higher = home advantage (velocity edge amplified)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.\nFormula: air_density_factor \u00d7 sp_fbvelo_diff\nSource: Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = home advantage (velocity edge amplified)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_meltdown_risk": {
+      "name": "bullpen_meltdown_risk",
+      "summary": "Bullpen pitches diff \u00d7 WHIP diff (overworked + low quality = meltdown)",
+      "definition": "Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.",
+      "formula": "bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff",
+      "source": "DuckDB feature engineering: workload \u00d7 form interaction",
+      "window": "3d \u00d7 3g",
+      "units": "index",
+      "direction": "higher = home-side meltdown risk (negative for home)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "pitcher_regression_indicator": {
+      "name": "pitcher_regression_indicator",
+      "summary": "SP velo diff \u00d7 ERA diff (physical drop vs surface results = regression)",
+      "definition": "Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.",
+      "formula": "sp_fbvelo_diff \u00d7 sp_era_diff",
+      "source": "DuckDB feature engineering: velo \u00d7 results interaction",
+      "window": "season \u00d7 3g",
+      "units": "index",
+      "direction": "n/a (regression signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_depth_multiplier": {
+      "name": "lineup_depth_multiplier",
+      "summary": "Lineup mean wOBA diff \u00d7 top-3 wOBA diff (star power \u00d7 depth)",
+      "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
+      "formula": "lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff",
+      "source": "DuckDB feature engineering: depth \u00d7 star-power interaction",
+      "window": "season to date (shrunk)",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "ace_efficiency_factor": {
+      "name": "ace_efficiency_factor",
+      "summary": "SP K/9 diff \u00d7 whiff rate diff (high strikeout volume from raw stuff)",
+      "definition": "Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.",
+      "formula": "sp_k9_diff \u00d7 sp_whiff_diff",
+      "source": "DuckDB feature engineering: volume \u00d7 stuff interaction",
+      "window": "season \u00d7 3g",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.\nFormula: sp_k9_diff \u00d7 sp_whiff_diff\nSource: DuckDB feature engineering: volume \u00d7 stuff interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "home_elo": {
+      "name": "home_elo",
+      "summary": "Home team Elo rating (level)",
+      "definition": "Absolute strength level of the home club (the diff version carries the matchup signal).",
+      "formula": "home_elo",
+      "source": "DuckDB feature engineering: Elo engine",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "n/a (level; diff is the matchup term)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Absolute strength level of the home club (the diff version carries the matchup signal).\nFormula: home_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level; diff is the matchup term)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "away_elo": {
+      "name": "away_elo",
+      "summary": "Away team Elo rating (level)",
+      "definition": "Absolute strength level of the away club.",
+      "formula": "away_elo",
+      "source": "DuckDB feature engineering: Elo engine",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Absolute strength level of the away club.\nFormula: away_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "home_win_pct": {
+      "name": "home_win_pct",
+      "summary": "Home team season win% (level)",
+      "definition": "Raw season record quality of the home club.",
+      "formula": "smoothed_win_pct(home_wins, home_losses)",
+      "source": "Official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Raw season record quality of the home club.\nFormula: smoothed_win_pct(home_wins, home_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "away_win_pct": {
+      "name": "away_win_pct",
+      "summary": "Away team season win% (level)",
+      "definition": "Raw season record quality of the away club.",
+      "formula": "smoothed_win_pct(away_wins, away_losses)",
+      "source": "Official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Raw season record quality of the away club.\nFormula: smoothed_win_pct(away_wins, away_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_era_home": {
+      "name": "sp_era_home",
+      "summary": "Starting-pitcher earned-run average \u2014 home team",
+      "definition": "Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_era_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = better for that side for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_era_away": {
+      "name": "sp_era_away",
+      "summary": "Starting-pitcher earned-run average \u2014 away team",
+      "definition": "Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_era_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = better for that side for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_k9_home": {
+      "name": "sp_k9_home",
+      "summary": "Starting-pitcher strikeouts per 9 innings \u2014 home team",
+      "definition": "Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_k9_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_k9_away": {
+      "name": "sp_k9_away",
+      "summary": "Starting-pitcher strikeouts per 9 innings \u2014 away team",
+      "definition": "Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_k9_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_xwoba_home": {
+      "name": "sp_xwoba_home",
+      "summary": "Expected wOBA allowed by the starter \u2014 home team",
+      "definition": "Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_xwoba_away": {
+      "name": "sp_xwoba_away",
+      "summary": "Expected wOBA allowed by the starter \u2014 away team",
+      "definition": "Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_mean_home": {
+      "name": "lineup_woba_mean_home",
+      "summary": "Projected lineup average wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_mean_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_mean_away": {
+      "name": "lineup_woba_mean_away",
+      "summary": "Projected lineup average wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_mean_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_top3_home": {
+      "name": "lineup_woba_top3_home",
+      "summary": "Top-3 hitters' projected wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_top3_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_top3_away": {
+      "name": "lineup_woba_top3_away",
+      "summary": "Top-3 hitters' projected wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_top3_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "woba_30g_home": {
+      "name": "woba_30g_home",
+      "summary": "Team offensive wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "woba_30g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "woba_30g_away": {
+      "name": "woba_30g_away",
+      "summary": "Team offensive wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "woba_30g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_10g_home": {
+      "name": "bullpen_whip_10g_home",
+      "summary": "Bullpen walks+hits per inning \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_10g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "WHIP",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_10g_away": {
+      "name": "bullpen_whip_10g_away",
+      "summary": "Bullpen walks+hits per inning \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_10g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "WHIP",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_3g_home": {
+      "name": "bullpen_whip_3g_home",
+      "summary": "Bullpen walks+hits per inning, short form \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_3g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_3g_away": {
+      "name": "bullpen_whip_3g_away",
+      "summary": "Bullpen walks+hits per inning, short form \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_3g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_barrel_15g_home": {
+      "name": "team_barrel_15g_home",
+      "summary": "Team barreled-ball rate \u2014 home team",
+      "definition": "Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_barrel_15g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_barrel_15g_away": {
+      "name": "team_barrel_15g_away",
+      "summary": "Team barreled-ball rate \u2014 away team",
+      "definition": "Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_barrel_15g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_exitvelo_15g_home": {
+      "name": "team_exitvelo_15g_home",
+      "summary": "Team average exit velocity \u2014 home team",
+      "definition": "Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_exitvelo_15g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_exitvelo_15g_away": {
+      "name": "team_exitvelo_15g_away",
+      "summary": "Team average exit velocity \u2014 away team",
+      "definition": "Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_exitvelo_15g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    }
+  },
+  "run_engine": {},
   "ensemble": [
     {
       "name": "xgboost",
-      "weight": 0.4501,
-      "auc": 0.5709,
-      "brier": 0.2447,
-      "logloss": 0.6823,
+      "weight": 0.45,
+      "auc": 0.5682,
+      "brier": 0.2449,
+      "logloss": 0.6828,
       "n_eval": 4016,
-      "brier_calibrated": 0.2454,
-      "logloss_calibrated": 0.6839,
-      "ece_calibrated": 0.0171
+      "brier_calibrated": 0.2458,
+      "logloss_calibrated": 0.6846,
+      "ece_calibrated": 0.0199
     },
     {
       "name": "lightgbm",
-      "weight": 0.1469,
-      "auc": 0.5426,
-      "brier": 0.2499,
-      "logloss": 0.6931,
+      "weight": 0.1076,
+      "auc": 0.5389,
+      "brier": 0.2504,
+      "logloss": 0.6944,
       "n_eval": 4016,
-      "brier_calibrated": 0.2495,
-      "logloss_calibrated": 0.6922,
-      "ece_calibrated": 0.0339
+      "brier_calibrated": 0.2499,
+      "logloss_calibrated": 0.693,
+      "ece_calibrated": 0.0297
     },
     {
       "name": "logistic",
-      "weight": 0.1747,
-      "auc": 0.5452,
-      "brier": 0.2512,
-      "logloss": 0.6968,
+      "weight": 0.187,
+      "auc": 0.5472,
+      "brier": 0.251,
+      "logloss": 0.6964,
       "n_eval": 4016,
-      "brier_calibrated": 0.2505,
-      "logloss_calibrated": 0.695,
-      "ece_calibrated": 0.0384
+      "brier_calibrated": 0.2502,
+      "logloss_calibrated": 0.6943,
+      "ece_calibrated": 0.0339
     },
     {
       "name": "randomforest",
-      "weight": 0.1529,
-      "auc": 0.5432,
-      "brier": 0.2486,
-      "logloss": 0.6905,
+      "weight": 0.1471,
+      "auc": 0.5436,
+      "brier": 0.2484,
+      "logloss": 0.6901,
       "n_eval": 4016,
-      "brier_calibrated": 0.2488,
-      "logloss_calibrated": 0.6909,
-      "ece_calibrated": 0.0206
+      "brier_calibrated": 0.2486,
+      "logloss_calibrated": 0.6904,
+      "ece_calibrated": 0.0166
     },
     {
       "name": "mlp",
-      "weight": 0.0754,
-      "auc": 0.5302,
-      "brier": 0.2562,
-      "logloss": 0.7076,
+      "weight": 0.1083,
+      "auc": 0.539,
+      "brier": 0.2539,
+      "logloss": 0.7026,
       "n_eval": 4016,
-      "brier_calibrated": 0.2539,
-      "logloss_calibrated": 0.7021,
-      "ece_calibrated": 0.056
+      "brier_calibrated": 0.2516,
+      "logloss_calibrated": 0.6969,
+      "ece_calibrated": 0.0482
     }
   ],
   "model_history": [
@@ -3744,29 +4767,39 @@
       "ece": 0.0168,
       "ece_calibrated": 0.0115,
       "notes": "walk-forward through 20260824 (4441 games)"
+    },
+    {
+      "version": "v2026.08.24",
+      "date": "2026-08-25",
+      "auc": 0.5574,
+      "brier": 0.2466,
+      "logloss": 0.6864,
+      "ece": 0.0159,
+      "ece_calibrated": 0.0115,
+      "notes": "walk-forward through 20260824 (4441 games)"
     }
   ],
   "version_history": [
     {
       "version": "v2026.08.24",
-      "date": "2026-08-24",
+      "date": "2026-08-25",
       "weights": {
-        "xgboost": 0.4501,
-        "lightgbm": 0.1469,
-        "logistic": 0.1747,
-        "randomforest": 0.1529,
-        "mlp": 0.0754
+        "xgboost": 0.45,
+        "lightgbm": 0.1076,
+        "logistic": 0.187,
+        "randomforest": 0.1471,
+        "mlp": 0.1083
       },
-      "auc": 0.5597,
-      "brier": 0.2464,
-      "logloss": 0.686,
-      "ece": 0.0168,
-      "brier_calibrated": 0.2468,
-      "logloss_calibrated": 0.6867,
+      "auc": 0.5574,
+      "brier": 0.2466,
+      "logloss": 0.6864,
+      "ece": 0.0159,
+      "brier_calibrated": 0.247,
+      "logloss_calibrated": 0.687,
       "ece_calibrated": 0.0115,
       "calibration": {
-        "a": 0.826255,
-        "b": -0.033338,
+        "a": 0.801644,
+        "b": -0.029056,
         "n": 4016
       }
     }
