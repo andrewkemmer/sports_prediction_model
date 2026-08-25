@@ -113,20 +113,25 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
 
     bits comes from market_diagnostics.run_engine_card_bits; None means no
     slate row for this game (strip omitted), has_grid=False renders a quiet
-    'n/a'. Away +1.5 is the exact complement of home −1.5 (the artifact
-    ships home-cover columns only) — labeled as such.
+    'n/a'. The O/U split is priced at the game's OWN rounded total
+    (bits["total_line"], nearest 0.5 of λ_home + λ_away) and notes when the
+    line was clamped to the shipped grid. Away +1.5 is the exact complement
+    of home −1.5 (the artifact ships home-cover columns only) — labeled as
+    such.
     """
     if bits is None:
         return ""
     if not bits.get("has_grid"):
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
+    ou_label = (f'O/U {bits["total_line"]:.1f}'
+                + (" (clamped)" if bits.get("clamped") else ""))
     return (
         f'<div class="fb-runengine">'
         f'<span class="re-label">RUN ENGINE</span>'
         f'<span>Proj: {away_team} {bits["proj_away"]:.1f} – '
         f'{home_team} {bits["proj_home"]:.1f}</span>'
-        f'<span>O/U 8.5: Over {bits["p_over"]:.0%} / '
+        f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
         f'Under {bits["p_under"]:.0%}</span>'
         f'<span>RL: {home_team} −1.5 {bits["p_home_cover"]:.0%} · '
         f'{away_team} +1.5 {bits["p_away_cover"]:.0%} (complement)</span>'

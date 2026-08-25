@@ -28,7 +28,44 @@ import numpy as np
 import pandas as pd
 
 TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
+TOTAL_GRID_LO = TOTAL_GRID[0]
+TOTAL_GRID_HI = TOTAL_GRID[-1]
 RUN_COVER_COL = "p_home_cover_1_5"
+TOTALS_PICK_LABELS = ["50-55", "55-60", "60-65", "65+"]
+
+
+def round_to_half(x: float) -> float:
+    """Round to the nearest 0.5, ties away from zero (round half up).
+
+    Totals lines are quoted in half-increments, so a projected total of
+    9.3 prices at 9.5 (9.3 * 2 = 18.6 → 19 → 9.5). Uses floor/ceil on
+    (2x + 0.5) instead of Python's banker's-rounding round(), and avoids
+    float drift on exact halves (8.25 → 16.5 → 17 → 8.5).
+    """
+    if x < 0:
+        return math.ceil(x * 2 - 0.5) / 2.0
+    return math.floor(x * 2 + 0.5) / 2.0
+
+
+def clamp_to_grid(line: float) -> tuple[float, bool]:
+    """Clamp a total line into the shipped grid; returns (line, clamped).
+
+    The grid ships half-steps 6.5 … 12.5, so any rounded line inside the
+    range is already a real grid line; only lines outside clamp to the
+    nearest edge (the caller notes it — never fabricated).
+    """
+    if line < TOTAL_GRID_LO:
+        return TOTAL_GRID_LO, True
+    if line > TOTAL_GRID_HI:
+        return TOTAL_GRID_HI, True
+    return line, False
+
+
+def grid_over_under_cols(line: float) -> tuple[str, str]:
+    """p_over / p_under column names for a (grid) total line, e.g. 9.5 →
+    p_over_9_5 / p_under_9_5; 10.0 → p_over_10_0 / p_under_10_0."""
+    key = str(line).replace(".", "_")
+    return f"p_over_{key}", f"p_under_{key}"
 OFFSET_EDGES = [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
 BUCKET_EDGES = [50, 55, 60, 65, 70, 75, 101]
 BUCKET_LABELS = ["50-55", "55-60", "60-65", "65-70", "70-75", "75+"]
@@ -168,6 +205,80 @@ def relativized_pairs(decided: pd.DataFrame,
     return pd.concat(frames, ignore_index=True)
 
 
+def _rounded_lines(decided: pd.DataFrame) -> np.ndarray:
+    """Per-game rounded total line (nearest 0.5 of λ_home + λ_away, clamped
+    to the shipped grid) — shared by pairs, picks, and push detection."""
+    exp_h = decided["home_expected_runs"].to_numpy(float)
+    exp_a = decided["away_expected_runs"].to_numpy(float)
+    return np.array([clamp_to_grid(round_to_half(h + a))[0]
+                     for h, a in zip(exp_h, exp_a)])
+
+
+def push_stats(decided: pd.DataFrame) -> dict:
+    """Whole-number-line PUSHES: total_runs == the game's rounded total.
+
+    A push is neither a win nor a loss for either side, so win rates must
+    exclude these games from BOTH numerator and denominator. Empirically the
+    pushed games are UNDER-favored games landing exactly on the line: the
+    rounded line sits at/above the expected total (line ≥ λ_home + λ_away),
+    so p_under > p_over, and the old scoring counted the push as an UNDER
+    win (total == line → not over). Excluding them is why the honest pooled
+    win rate runs BELOW the inflated one (2026-08-24 artifact: 56.1% →
+    54.1%, ≈2,420 wins/4,314 → ≈2,200 wins/4,066). Only whole-number lines
+    can tie (totals are integers; a 9.5 line can't push). Returns counts +
+    rate for captions — never fabricated.
+    """
+    empty = {"n_games": 0, "n_pushes": 0, "push_rate": 0.0}
+    if not len(decided) or "total_runs" not in decided.columns:
+        return empty
+    if ({"home_expected_runs", "away_expected_runs"}
+            .difference(decided.columns)):
+        return empty
+    n = len(decided)
+    lines = _rounded_lines(decided)
+    total = decided["total_runs"].to_numpy(float)
+    n_pushes = int((total == lines).sum())
+    return {"n_games": n, "n_pushes": n_pushes,
+            "push_rate": round(n_pushes / n, 4) if n else 0.0}
+
+
+def rounded_total_pairs(decided: pd.DataFrame) -> pd.DataFrame:
+    """(p_over, outcome) pairs at each game's OWN rounded total line.
+
+    Mirrors how the Relativized tab prices each game at its own expected
+    total, but at the half-step line a bettor actually quotes: nearest 0.5
+    of λ_home + λ_away (round half up), clamped to the shipped grid. One
+    row per non-push game: PUSHES (total == line, whole-number lines only)
+    are excluded from the win-rate pairs — neither wins nor losses (see
+    push_stats for the count/rate). Rows whose grid column is missing are
+    skipped loudly by the caller's empty state — never fabricated.
+    """
+    if not len(decided) or "total_runs" not in decided.columns:
+        return pd.DataFrame(columns=["p", "y", "line"])
+    if ({"home_expected_runs", "away_expected_runs"}
+            .difference(decided.columns)):
+        return pd.DataFrame(columns=["p", "y", "line"])
+    total = decided["total_runs"].to_numpy(float)
+    lines = _rounded_lines(decided)
+    rows = []
+    for i in range(len(decided)):
+        line = lines[i]
+        if total[i] == line:          # push — excluded from win rates
+            continue
+        over_col, _ = grid_over_under_cols(line)
+        if over_col not in decided.columns:
+            continue
+        p = float(decided[over_col].iloc[i])
+        if pd.isna(p):
+            continue
+        # Over at a total line means strictly more runs than line + 0.5.
+        y = float(total[i] >= line + 0.5)
+        rows.append({"p": p, "y": y, "line": line})
+    if not rows:
+        return pd.DataFrame(columns=["p", "y", "line"])
+    return pd.DataFrame(rows)
+
+
 def fixed_line_pairs(decided: pd.DataFrame,
                      lines: tuple[float, ...]) -> pd.DataFrame:
     """(p_over, outcome) pairs at fixed published lines, one row per
@@ -264,6 +375,73 @@ def overs_pick_table(decided: pd.DataFrame, line: float = 8.5) -> dict:
     return out
 
 
+def totals_pick_table(decided: pd.DataFrame) -> dict:
+    """Favored-side pick at each game's rounded total line.
+
+    pick = over if P(over own rounded total) ≥ 0.5 else under; confidence
+    = max(p_over, 1 − p_over). Bucketed by that confidence (50–55, 55–60,
+    60–65, 65+). PUSHES (total == whole-number line) are excluded from the
+    buckets and the pooled win_rate — neither wins nor losses — and reported
+    as n_pushes / push_rate. Pushed games are UNDER-favored games landing
+    exactly on the line (rounded line at/above the expected total → under
+    favored), previously scored as wins, so excluding them LOWERS the
+    honest win_rate vs the inflated one. win_rate is the POOLED accuracy
+    across every non-push pick: hit rate is NOT calibration, and
+    high-confidence buckets are small because every game sits at its own
+    line.
+    """
+    if not len(decided) or "total_runs" not in decided.columns:
+        return {"buckets": [], "n_games": 0, "n_pushes": 0,
+                "push_rate": 0.0,
+                "warning": "Missing outcomes or expected totals."}
+    if ({"home_expected_runs", "away_expected_runs"}
+            .difference(decided.columns)):
+        return {"buckets": [], "n_games": 0, "n_pushes": 0,
+                "push_rate": 0.0,
+                "warning": "Missing expected-runs columns."}
+    total = decided["total_runs"].to_numpy(float)
+    lines = _rounded_lines(decided)
+    p_arr = np.full(len(decided), np.nan)
+    line_arr = np.full(len(decided), np.nan)
+    for i in range(len(decided)):
+        line = lines[i]
+        over_col, _ = grid_over_under_cols(line)
+        if over_col in decided.columns:
+            v = decided[over_col].iloc[i]
+            if not pd.isna(v):
+                p_arr[i] = float(v)
+                line_arr[i] = line
+    ok = ~np.isnan(p_arr)
+    # Pushes (total == whole-number line) are UNDER-favored games landing
+    # exactly on the line — neither wins nor losses — excluded from the
+    # win-rate denominator and the accuracy buckets.
+    is_push = (total == line_arr) & ok
+    non_push = ok & ~is_push
+    n = int(non_push.sum())
+    n_pushes = int(is_push.sum())
+    if not n:
+        return {"buckets": [], "n_games": 0, "n_pushes": n_pushes,
+                "push_rate": (round(n_pushes / (n + n_pushes), 4)
+                              if (n + n_pushes) else 0.0),
+                "warning": "No non-push games with a rounded-total grid "
+                            "column."}
+    p = p_arr[non_push]
+    line_v = line_arr[non_push]
+    total_v = total[non_push]
+    pick_over = p >= 0.5
+    hit = (pick_over.astype(float)
+           == (total_v >= line_v + 0.5).astype(float))
+    out = pick_buckets(np.maximum(p, 1 - p), hit.astype(float),
+                       labels=TOTALS_PICK_LABELS)
+    out["n_games"] = n
+    out["n_pushes"] = n_pushes
+    out["push_rate"] = round(n_pushes / (n + n_pushes), 4)
+    out["win_rate"] = round(float(hit.mean()), 4)
+    out["pick_rule"] = ("over if P(over own rounded total) >= 0.5, "
+                        "else under")
+    return out
+
+
 def runline_pick_table(decided: pd.DataFrame,
                        margin_col: str = RUN_COVER_COL) -> dict:
     if not len(decided) or margin_col not in decided.columns \
@@ -284,13 +462,15 @@ def runline_pick_table(decided: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Today's Games card enrichment (read-only over the slate rows)
 # ---------------------------------------------------------------------------
-RE_GRID_KEYS = (
-    ("home_expected_runs", "proj_home"),
-    ("away_expected_runs", "proj_away"),
-    ("p_over_8_5", "p_over"),
-    ("p_under_8_5", "p_under"),
-    ("p_home_cover_1_5", "p_home_cover"),
-)
+
+
+def _num(row, key: str) -> Optional[float]:
+    """Coerce a row value to float; None for missing/NaN/non-numeric."""
+    v = row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+    try:
+        return None if v is None or pd.isna(v) else float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def run_engine_card_bits(game_id: str,
@@ -298,28 +478,45 @@ def run_engine_card_bits(game_id: str,
     """Run-engine projections for one Today's Games card, joined by
     game_id == slate game_pk (the 145d841 ESPN-id convention).
 
-    Returns None when there is no slate row for this game — the card omits
-    the strip entirely (quiet, never fabricated). Returns a dict with
-    has_grid=False when the row exists but the line-grid columns are
-    missing — the card shows a quiet 'n/a'. p_away_cover is the exact
-    complement of p_home_cover (1 − p) because the artifact ships home-cover
-    columns only; the card labels it as such.
+    The O/U split is priced at the game's OWN rounded total — nearest 0.5
+    of home_expected_runs + away_expected_runs (e.g. 4.9 + 4.4 = 9.3 →
+    9.5) — pulled from the grid columns at that line (p_over_9_5 /
+    p_under_9_5). Lines outside the shipped grid clamp to the nearest edge
+    with clamped=True (the card notes it). Never fabricated: missing
+    columns / NaN degrade has_grid to False (quiet 'n/a') and a missing
+    slate row returns None (strip omitted). p_away_cover is the exact
+    complement of p_home_cover (1 − p) because the artifact ships
+    home-cover columns only; the card labels it as such.
     """
     if not slate_map:
         return None
     row = slate_map.get(str(game_id))
     if row is None:
         return None
-    bits: dict[str, Any] = {}
-    for src, out in RE_GRID_KEYS:
-        v = row.get(src) if isinstance(row, dict) else getattr(row, src, None)
-        try:
-            bits[out] = None if v is None or pd.isna(v) else float(v)
-        except (TypeError, ValueError):
-            bits[out] = None
-    bits["has_grid"] = all(bits[k] is not None for _, k in RE_GRID_KEYS)
-    bits["p_away_cover"] = (None if bits["p_home_cover"] is None
-                            else 1.0 - bits["p_home_cover"])
+    proj_home = _num(row, "home_expected_runs")
+    proj_away = _num(row, "away_expected_runs")
+    p_home_cover = _num(row, RUN_COVER_COL)
+    bits: dict[str, Any] = {
+        "proj_home": proj_home,
+        "proj_away": proj_away,
+        "total_line": None,
+        "clamped": False,
+        "p_over": None,
+        "p_under": None,
+        "p_home_cover": p_home_cover,
+        "p_away_cover": (None if p_home_cover is None
+                         else 1.0 - p_home_cover),
+        "has_grid": False,
+    }
+    if proj_home is not None and proj_away is not None:
+        line, clamped = clamp_to_grid(round_to_half(proj_home + proj_away))
+        over_col, under_col = grid_over_under_cols(line)
+        p_over = _num(row, over_col)
+        p_under = _num(row, under_col)
+        if p_over is not None and p_under is not None:
+            bits.update({"total_line": line, "clamped": clamped,
+                         "p_over": p_over, "p_under": p_under,
+                         "has_grid": True})
     return bits
 
 

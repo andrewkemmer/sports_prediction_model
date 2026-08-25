@@ -179,6 +179,190 @@ class TestPickBuckets(unittest.TestCase):
         self.assertEqual(out["buckets"], [])
 
 
+class TestRoundToHalfAndGrid(unittest.TestCase):
+    """Explicit rounding rule: nearest 0.5, ties round half up."""
+
+    def test_rounding_rule(self):
+        cases = [(9.3, 9.5), (9.4, 9.5), (9.6, 9.5), (9.8, 10.0),
+                 (8.25, 8.5), (8.0, 8.0), (8.75, 9.0), (9.2709, 9.5)]
+        for raw, expected in cases:
+            self.assertEqual(diag.round_to_half(raw), expected,
+                             f"round_to_half({raw}) != {expected}")
+
+    def test_half_tie_rounds_up(self):
+        # 8.25*2 = 16.5 → ties away from zero → 17 → 8.5 (NOT banker's 8.0)
+        self.assertEqual(diag.round_to_half(8.25), 8.5)
+
+    def test_clamp_to_grid_edges(self):
+        self.assertEqual(diag.clamp_to_grid(6.0), (6.5, True))
+        self.assertEqual(diag.clamp_to_grid(13.0), (12.5, True))
+        self.assertEqual(diag.clamp_to_grid(9.5), (9.5, False))
+
+    def test_grid_column_names(self):
+        self.assertEqual(diag.grid_over_under_cols(9.5),
+                         ("p_over_9_5", "p_under_9_5"))
+        self.assertEqual(diag.grid_over_under_cols(10.0),
+                         ("p_over_10_0", "p_under_10_0"))
+
+
+class TestRoundedTotalPairs(unittest.TestCase):
+    def test_lines_are_own_rounded_totals(self):
+        df = make_grid_df(n=40)
+        df["total_runs"] = 9
+        stats = diag.push_stats(df)
+        pairs = diag.rounded_total_pairs(df)
+        # One pair per NON-PUSH game (some games round to 9.0 == total → push)
+        self.assertEqual(len(pairs), stats["n_games"] - stats["n_pushes"])
+        exp = (df["home_expected_runs"] + df["away_expected_runs"])
+        want_all = [diag.round_to_half(v) for v in exp]
+        mask = (df["total_runs"].to_numpy(float) != np.array(want_all))
+        want = [w for w, keep in zip(want_all, mask) if keep]
+        self.assertEqual(pairs["line"].tolist(), want)
+        self.assertTrue(((pairs["p"] >= 0) & (pairs["p"] <= 1)).all())
+        self.assertTrue(pairs["y"].isin((0.0, 1.0)).all())
+
+    def test_outcome_is_strictly_over_line(self):
+        df = pd.DataFrame({
+            "game_pk": [0, 1], "kind": ["oof", "oof"],
+            "home_expected_runs": [4.5, 4.6], "away_expected_runs": [4.5, 4.4],
+            "total_runs": [10, 8],
+        })
+        for g in diag.TOTAL_GRID:
+            df[f"p_over_{str(g).replace('.', '_')}"] = 0.5
+        # Both round to 9.0; over at 9.0 requires total >= 9.5 (10+)
+        pairs = diag.rounded_total_pairs(df)
+        self.assertEqual(pairs["line"].tolist(), [9.0, 9.0])
+        self.assertEqual(pairs["y"].tolist(), [1.0, 0.0])
+
+    def test_missing_grid_column_rows_skipped(self):
+        df = make_grid_df(n=10)
+        df["total_runs"] = 9
+        df = df.drop(columns=["p_over_9_0"])
+        pairs = diag.rounded_total_pairs(df)
+        # Only games rounding to lines other than 9.0 survive
+        self.assertGreaterEqual(len(pairs), 0)
+        self.assertLess(len(pairs), 10)
+        self.assertTrue((pairs["line"] != 9.0).all())
+
+    def test_empty_input_loud_warning(self):
+        pairs = diag.rounded_total_pairs(pd.DataFrame())
+        self.assertEqual(len(pairs), 0)
+        pairs = diag.rounded_total_pairs(
+            make_grid_df(n=5).drop(columns=["home_expected_runs"]))
+        self.assertEqual(len(pairs), 0)
+
+
+class TestPushExclusion(unittest.TestCase):
+    """Whole-number-line pushes (total == rounded line) are neither wins
+    nor losses — excluded from win rates, reported in push_rate. The card's
+    Over/Under display is untouched (still exactly two, summing to 1)."""
+
+    def _decided(self, rows):
+        return pd.DataFrame(rows)
+
+    def test_pick_table_excludes_push(self):
+        rows = [
+            # PUSH: total 9 == rounded line 9.0 (4.5 + 4.5)
+            {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 9, "p_over_9_0": 0.52},
+            # over hit: 10 >= 9.5
+            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 10, "p_over_9_0": 0.52},
+            # over miss: 8 < 9.5
+            {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 8, "p_over_9_0": 0.52},
+        ]
+        out = diag.totals_pick_table(self._decided(rows))
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_games"], 2)        # push dropped
+        self.assertEqual(out["n_pushes"], 1)
+        self.assertAlmostEqual(out["push_rate"], 1 / 3, places=4)
+        self.assertAlmostEqual(out["win_rate"], 0.5)  # 1 hit / 2 non-push
+        self.assertEqual(sum(b["count"] for b in out["buckets"]), 2)
+
+    def test_pairs_exclude_push_rows(self):
+        rows = [
+            {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 9, "p_over_9_0": 0.52},
+            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 10, "p_over_9_0": 0.52},
+        ]
+        pairs = diag.rounded_total_pairs(self._decided(rows))
+        self.assertEqual(len(pairs), 1)             # push row dropped
+        self.assertEqual(pairs.iloc[0]["y"], 1.0)
+        self.assertEqual(pairs.iloc[0]["line"], 9.0)
+
+    def test_half_line_never_pushes(self):
+        # Line 9.5 cannot push: integer totals never equal 9.5. Total 9 at
+        # line 9.5 is an OVER MISS (9 < 10), correctly counted — not a push.
+        rows = [{"game_pk": 0, "kind": "oof", "home_expected_runs": 4.7,
+                 "away_expected_runs": 4.8, "total_runs": 9, "p_over_9_5": 0.62}]
+        out = diag.totals_pick_table(self._decided(rows))
+        self.assertEqual(out["n_pushes"], 0)
+        self.assertEqual(out["n_games"], 1)
+        self.assertAlmostEqual(out["win_rate"], 0.0)   # over pick missed
+
+    def test_push_stats_helper(self):
+        rows = [
+            {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 9},     # push
+            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 10},
+            {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.7,
+             "away_expected_runs": 4.8, "total_runs": 10},    # line 9.5
+        ]
+        stats = diag.push_stats(self._decided(rows))
+        self.assertEqual(stats["n_games"], 3)
+        self.assertEqual(stats["n_pushes"], 1)
+        self.assertAlmostEqual(stats["push_rate"], 1 / 3, places=4)
+        # Empty input → zeros, no crash
+        self.assertEqual(diag.push_stats(pd.DataFrame())["n_pushes"], 0)
+
+
+class TestTotalsPickTable(unittest.TestCase):
+    def test_hand_computed_buckets_and_win_rate(self):
+        rows = [
+            # home, away, total, p_over at own rounded line
+            {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 10, "p_over_9_0": 0.52},
+            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.6,
+             "away_expected_runs": 4.4, "total_runs": 8, "p_over_9_0": 0.42},
+            {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.7,
+             "away_expected_runs": 4.8, "total_runs": 11, "p_over_9_5": 0.62},
+            {"game_pk": 3, "kind": "oof", "home_expected_runs": 5.0,
+             "away_expected_runs": 5.0, "total_runs": 5, "p_over_10_0": 0.72},
+            {"game_pk": 4, "kind": "oof", "home_expected_runs": 4.8,
+             "away_expected_runs": 4.7, "total_runs": 9, "p_over_9_5": 0.53},
+        ]
+        decided = pd.DataFrame(rows)
+        out = diag.totals_pick_table(decided)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_games"], 5)
+        by = {b["bucket"]: b for b in out["buckets"]}
+        # A over@0.52 hit (10 >= 9.5) + E over@0.53 MISS (9 < 10) → 2 picks, 50%
+        self.assertEqual(by["50-55"]["count"], 2)
+        self.assertAlmostEqual(by["50-55"]["accuracy"], 50.0)
+        # B under@0.58 (0.42 < 0.5) hit (8 < 9.5) → 55-60
+        self.assertEqual(by["55-60"]["count"], 1)
+        self.assertAlmostEqual(by["55-60"]["accuracy"], 100.0)
+        # C over@0.62 hit (11 >= 10) → 60-65
+        self.assertEqual(by["60-65"]["count"], 1)
+        self.assertAlmostEqual(by["60-65"]["accuracy"], 100.0)
+        # D over@0.72 MISS (5 < 10.5) → 65+
+        self.assertEqual(by["65+"]["count"], 1)
+        self.assertAlmostEqual(by["65+"]["accuracy"], 0.0)
+        self.assertAlmostEqual(out["win_rate"], 0.6)  # 3/5 pooled
+        self.assertIn("rounded total", out["pick_rule"])
+
+    def test_missing_columns_warn_not_crash(self):
+        out = diag.totals_pick_table(
+            make_grid_df(n=5).drop(columns=["home_expected_runs"]))
+        self.assertIsNotNone(out["warning"])
+        self.assertEqual(out["buckets"], [])
+        out = diag.totals_pick_table(pd.DataFrame())
+        self.assertIsNotNone(out["warning"])
+
+
 class TestOversAndRunlineTables(unittest.TestCase):
     def setUp(self):
         rng = np.random.default_rng(7)
@@ -242,6 +426,36 @@ class TestTotalDistribution(unittest.TestCase):
         self.assertEqual(dist["observed"], [])
 
 
+class TestRealArtifactPushSmoke(unittest.TestCase):
+    """Read-only smoke over the shipped OOF artifact: pushes detected,
+    excluded from win rates, reported in push_rate."""
+
+    def test_real_oof_push_stats_and_win_rate(self):
+        dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        m_path = dd / "run_engine_markets_20260824.csv"
+        if not m_path.exists():
+            self.skipTest("local run-engine artifact absent in this workspace")
+        markets = pd.read_csv(m_path)
+        decided = diag.decided_rows(markets)
+        self.assertGreater(len(decided), 4000)
+        stats = diag.push_stats(decided)
+        self.assertEqual(stats["n_games"], len(decided))
+        # Whole-number lines are common (9.0), so pushes must exist on the
+        # real artifact — and win rate must exclude them.
+        self.assertGreater(stats["n_pushes"], 0)
+        self.assertLess(stats["push_rate"], 0.10)
+        tp = diag.totals_pick_table(decided)
+        self.assertIsNone(tp["warning"])
+        self.assertEqual(tp["n_pushes"], stats["n_pushes"])
+        self.assertEqual(tp["n_games"] + tp["n_pushes"],
+                         stats["n_games"],
+                         "win-rate denominator excludes pushes exactly")
+        self.assertAlmostEqual(tp["push_rate"], stats["push_rate"], places=4)
+        # Pairs: every push excluded, one pair per non-push game.
+        pairs = diag.rounded_total_pairs(decided)
+        self.assertEqual(len(pairs), stats["n_games"] - stats["n_pushes"])
+
+
 class TestRenderSmoke(unittest.TestCase):
     """Each chart builder returns a NON-EMPTY altair object for a fixture."""
 
@@ -288,6 +502,23 @@ class TestRenderSmoke(unittest.TestCase):
         self.assertLess(max(xs85) - min(xs85), max(xs_rel) - min(xs_rel))
         chart = diag.chart_calibration(m85c2, "t", x_domain=[0.30, 0.70])
         self._assert_chart_has_data(chart)
+
+    def test_4b_rounded_money_line_renders_one_pair_per_game(self):
+        curve = diag.calibration_curve(
+            diag.rounded_total_pairs(self.decided), n_bins=20, min_count=10)
+        self.assertEqual(curve["n_pairs"], len(self.decided))
+        self.assertGreaterEqual(len(curve["bins"]), 2)
+        self._assert_chart_has_data(
+            diag.chart_calibration(curve, "Per-game rounded total"))
+
+    def test_7_totals_picks_renders(self):
+        built = diag.chart_pick_buckets(
+            diag.totals_pick_table(self.decided), "Totals picks")
+        self._assert_chart_has_data(built["chart"])
+        self.assertFalse(built["table"].empty)
+        # Labels follow the 4-bucket convention (50–55 … 65+)
+        self.assertEqual(built["table"]["bucket"].tolist(),
+                         diag.TOTALS_PICK_LABELS)
 
     def test_5_overs_picks_renders(self):
         built = diag.chart_pick_buckets(

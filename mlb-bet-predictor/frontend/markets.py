@@ -1,8 +1,9 @@
 """Page 5 — Today's Totals & Run Lines (run engine, Phase 3).
 
-Temporary UI simplification: this page renders ONLY the six diagnostics
-charts (Distribution, Relativized, Pooled lines, Money line 8.5, Overs
-picks, Run-line picks) from frontend/market_diagnostics.py — pure functions
+Temporary UI simplification: this page renders ONLY the seven diagnostics
+charts (Distribution, Relativized, Pooled lines, Money line (rounded),
+Overs picks, Run-line picks, Totals picks) from
+frontend/market_diagnostics.py — pure functions
 over run_engine_markets_<date>.csv; the render layer only draws what they
 produce. The per-game slate board, total/run-line selectors, calibration
 table, rolling totals-Brier, tail fit-check, holdout verdict, and the
@@ -103,7 +104,8 @@ if decided.empty:
 else:
     _tabs = st.tabs([
         "Distribution", "Relativized", "Pooled lines",
-        "Money line 8.5", "Overs picks", "Run-line picks",
+        "Money line (rounded)", "Overs picks", "Run-line picks",
+        "Totals picks",
     ])
 
     with _tabs[0]:   # 1 — totals distribution fit-check
@@ -165,29 +167,29 @@ else:
                 "line games pooled in."
             )
 
-    with _tabs[3]:   # 4 — fixed money line only, zoomed
-        m85 = diag.fixed_line_pairs(decided, (8.5,))
-        m85c = diag.calibration_curve(m85)
-        if m85c["warning"]:
-            st.warning(m85c["warning"])
+    with _tabs[3]:   # 4 — per-game rounded-total money line, pooled
+        mrt = diag.rounded_total_pairs(decided)
+        mrtc = diag.calibration_curve(mrt)
+        if mrtc["warning"]:
+            st.warning(mrtc["warning"])
         else:
             utils.show_chart(diag.chart_calibration(
-                m85c, "Line 8.5 only",
-                x_domain=[0.40, 0.60]))
+                mrtc, "Per-game rounded total"))
+            xs = [b["mean_pred"] for b in mrtc["bins"]]
+            _ps = diag.push_stats(decided)
             st.caption(
-                "The x-axis is zoomed to 0.40–0.60 and the blob is NARROW BY "
-                "CONSTRUCTION: at a fixed line most games project near the "
-                "league mean, so predicted probabilities cluster tightly. "
-                "This is what a bettor actually sees at the money line — the "
-                "wide spread lives in the Relativized tab."
-            )
-            st.warning(
-                "**Known limitation — deep-over side:** When the 8.5 line sits "
-                "well above a game's expected total (p_over high, deep over "
-                "region), the model overstates the probability. At offset −2.0, "
-                "calibrated pred ≈ 0.66 vs actual ≈ 0.58 (gap ≈ 0.08, "
-                "weather-independent). Treat high-confidence over picks at "
-                "this line with caution."
+                f"Each game priced at ITS OWN rounded total — nearest 0.5 of "
+                f"λ_home + λ_away (round half up; lines outside the shipped "
+                f"6.5–12.5 grid clamp to the edge) — then pooled. "
+                f"{_ps['n_games']:,} games · {_ps['n_pushes']:,} pushes "
+                f"excluded ({_ps['push_rate']:.1%}) · predicted range "
+                f"{min(xs):.2f}–{max(xs):.2f}. Pushes are UNDER-favored "
+                "games landing exactly on the line (rounded line at/above "
+                "the expected total → under favored) — excluded from the "
+                "curve because they are neither wins nor losses. Every game "
+                "sits at its own line, so probabilities concentrate near "
+                "the money line by construction — the wide calibration "
+                "spread lives in the Relativized tab."
             )
 
     with _tabs[4]:   # 5 — overs pick accuracy buckets
@@ -217,4 +219,29 @@ else:
             st.caption(
                 f"Pick rule: {rpicks['pick_rule']} · {rpicks['n_games']:,} "
                 "decided games · hit rate is NOT calibration."
+            )
+
+    with _tabs[6]:   # 7 — totals picks at each game's rounded line
+        tpicks = diag.totals_pick_table(decided)
+        if tpicks["warning"] or not tpicks["buckets"]:
+            st.warning(tpicks.get("warning")
+                       or "No totals picks could be formed.")
+        else:
+            built = diag.chart_pick_buckets(
+                tpicks, "Totals picks (per-game rounded line)")
+            utils.show_chart(built["chart"])
+            st.table(built["table"])
+            st.caption(
+                f"Pick rule: {tpicks['pick_rule']} · {tpicks['n_games']:,} "
+                f"decided games · {tpicks['n_pushes']:,} pushes excluded "
+                f"({tpicks['push_rate']:.1%}) · pooled win rate: "
+                f"{tpicks['win_rate']:.1%}. Pushes are UNDER-favored games "
+                "landing exactly on the line (rounded line at/above the "
+                "expected total → under favored) and were "
+                "previously scored as wins — excluding them LOWERS the honest "
+                "win rate vs the inflated one (2026-08-24 artifact: 56.1% → 54.1%, "
+                "≈2,420 wins/4,314 → ≈2,200 wins/4,066). Every game is priced "
+                "at its own rounded total, so high-confidence "
+                "buckets are small. Hit rate is NOT calibration — it is "
+                "binary pick accuracy per favored-side confidence bucket."
             )
