@@ -1143,15 +1143,19 @@ def load_moneyline_probs(csv_path: Path) -> Optional[pd.DataFrame]:
 # Phase 3 — production path: slate λ prediction + daily orchestration.
 # ---------------------------------------------------------------------------
 def _resolve_slate_key(slate: pd.DataFrame) -> str:
-    """Return 'game_pk' if present, else 'game_id'.
+    """Return 'game_pk' if usable, else 'game_id' if usable, else raise.
 
     Pre-game ESPN slates carry ``game_id`` (e.g. "20260824_SF@BOS") but
-    not ``game_pk`` (StatsAPI — only available after first pitch).
+    not ``game_pk`` (StatsAPI — only available after first pitch). A
+    ``game_pk`` column counts as usable only if it actually holds at least
+    one non-null value: a column that exists but is empty/all-NaN (an ESPN
+    game_id that never resolved onto the StatsAPI feed) MUST fall back to
+    ``game_id`` — otherwise empty keys ride through to persist_markets as
+    NaNs and refuse the artifact (the 145d841 discipline).
     """
-    if "game_pk" in slate.columns:
-        return "game_pk"
-    if "game_id" in slate.columns:
-        return "game_id"
+    for col in ("game_pk", "game_id"):
+        if col in slate.columns and slate[col].notna().any():
+            return col
     raise KeyError(
         "Slate frame has neither 'game_pk' nor 'game_id' — "
         f"columns: {sorted(slate.columns.tolist())}")
@@ -1181,12 +1185,35 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
 
     # Pre-game ESPN slates only have game_id, not game_pk; OOF rows always
     # carry game_pk.  Unify by always emitting game_pk, populating from
-    # game_id when game_pk is absent.
+    # game_id when game_pk is absent.  A ``game_pk`` column that exists but
+    # is empty/all-NaN (an ESPN game_id that never resolved) must fall back
+    # to game_id per-row; rows that resolve to NEITHER key are dropped with
+    # a loud warning so an unresolvable slate row never reaches
+    # persist_markets as a NaN game_pk.
+    from pandas import isna as _pd_isna
     _slate_key = _resolve_slate_key(slate_games)
     out = slate_games[[_slate_key, "game_date"]].copy()
     if _slate_key == "game_id":
         out = out.rename(columns={"game_id": "game_pk"})
-    out["game_pk"] = out["game_pk"].astype(str)
+    # Per-row resolution (the 145d841 discipline): prefer game_pk where it
+    # holds a value, else fall back to game_id (a ``game_pk`` column can be
+    # present-but-null for an ESPN game_id that never resolved). Emit clean
+    # string keys so a numeric game_pk like 900111 never stringifies to the
+    # float form '900111.0' inside the markets artifact. Row count is kept
+    # fixed here so the model/grid assignments below stay position-aligned;
+    # truly-unresolvable rows are dropped (with a loud log) at the end.
+    _pks: list[object] = []
+    for _i in out.index:
+        _v = out.at[_i, "game_pk"]
+        if _pd_isna(_v) and "game_id" in slate_games.columns:
+            _v = slate_games.at[_i, "game_id"]
+        if _v is None or _pd_isna(_v):
+            _pks.append(None)
+            continue
+        if isinstance(_v, float) and _v == int(_v):
+            _v = int(_v)
+        _pks.append(str(_v))
+    out["game_pk"] = _pks
     for tc in ("home_team", "away_team"):
         if tc in slate_games.columns:
             out[tc] = slate_games[tc]
@@ -1223,6 +1250,17 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     out["total_runs"] = pd.NA
     out["agreement_conflict"] = False
     out["ml_win_prob"] = np.nan
+    # Drop rows still without a resolvable key (loud, honest) — an
+    # unresolvable ESPN game_id must never be persisted as a NaN game_pk.
+    # Done last so the grid rows above stay position-aligned with slate_games.
+    unresolved = out["game_pk"].isna()
+    if unresolved.any():
+        n = int(unresolved.sum())
+        logger.warning(
+            "predict_slate_runs: dropping %d unresolvable slate row(s) "
+            "(no game_pk/game_id) — excluded from the markets artifact "
+            "rather than persisted with a NaN key", n)
+        out = out[~unresolved].reset_index(drop=True)
     return out
 
 

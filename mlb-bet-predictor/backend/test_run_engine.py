@@ -808,6 +808,130 @@ class TestPredictSlateRuns(unittest.TestCase):
                 self.assertFalse(out[col].isna().any(),
                                  f"{col} has NaNs in slate output")
 
+    def test_all_nan_game_pk_column_falls_back_to_game_id(self):
+        """A slate with game_pk present but entirely NaN must resolve game_pk
+        from game_id (the 145d841 discipline) instead of riding empty keys
+        through to persist_markets as NaN."""
+        rng = np.random.default_rng(81)
+        abbrs = ["NYY", "BOS"]
+        rows = []
+        for d in range(40):
+            date = pd.Timestamp("2026-05-01") + pd.Timedelta(days=d)
+            for g in range(4):
+                ht, at = abbrs[(d + g) % 2], abbrs[(d + g + 1) % 2]
+                hs, as_ = rng.poisson(4.5), rng.poisson(4.2)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 810000 + d * 4 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+
+        # Slate with game_pk column PRESENT but all-NaN, plus a valid game_id.
+        slate = decided.tail(3).drop(columns=["home_win", "home_score",
+                                              "away_score", "game_pk"]).copy()
+        slate["game_id"] = ["20260824_NYY@BOS", "20260824_LAD@SF",
+                             "20260824_SF@LAD"]
+        slate["game_pk"] = np.nan
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        out = re_.predict_slate_runs(decided, slate,
+                                     {"home": 10, "away": 10},
+                                     {"home": curve, "away": curve},
+                                     n_draws=500, seed=5)
+        self.assertEqual(len(out), 3)
+        self.assertIn("game_pk", out.columns)
+        # Every row resolves to a non-empty game_pk (from game_id), none NaN.
+        self.assertTrue(out["game_pk"].notna().all())
+        self.assertFalse(
+            (out["game_pk"].astype(str).str.strip() == "").any())
+        self.assertTrue(
+            all(out["game_pk"] == ["20260824_NYY@BOS", "20260824_LAD@SF",
+                                     "20260824_SF@LAD"]))
+
+    def test_partial_nan_game_pk_backfills_from_game_id(self):
+        """A slate with a PARTIALLY-NaN game_pk column: the NaN rows fall
+        back to game_id; no NaN game_pk survives to the output."""
+        rng = np.random.default_rng(82)
+        abbrs = ["NYY", "BOS"]
+        rows = []
+        for d in range(40):
+            date = pd.Timestamp("2026-05-01") + pd.Timedelta(days=d)
+            for g in range(4):
+                ht, at = abbrs[(d + g) % 2], abbrs[(d + g + 1) % 2]
+                hs, as_ = rng.poisson(4.5), rng.poisson(4.2)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 820000 + d * 4 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+
+        slate = decided.tail(3).drop(columns=["home_win", "home_score",
+                                              "away_score", "game_pk"]).copy()
+        slate["game_id"] = ["20260824_NYY@BOS", "20260824_LAD@SF",
+                             "20260824_SF@LAD"]
+        # One row resolves (kept), two never resolve a game_pk -> fall back.
+        slate["game_pk"] = [900111, np.nan, np.nan]
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        out = re_.predict_slate_runs(decided, slate,
+                                     {"home": 10, "away": 10},
+                                     {"home": curve, "away": curve},
+                                     n_draws=500, seed=6)
+        self.assertEqual(len(out), 3)
+        self.assertTrue(out["game_pk"].notna().all())
+        self.assertEqual(str(out["game_pk"].iloc[0]), "900111")
+        self.assertEqual(out["game_pk"].iloc[1], "20260824_LAD@SF")
+        self.assertEqual(out["game_pk"].iloc[2], "20260824_SF@LAD")
+
+    def test_unresolvable_slate_row_dropped_loudly_not_nan(self):
+        """A slate row with NEITHER a game_pk nor a game_id (genuinely
+        unresolvable ESPN id) is dropped with a loud log — never persisted
+        as a NaN game_pk."""
+        rng = np.random.default_rng(83)
+        abbrs = ["NYY", "BOS"]
+        rows = []
+        for d in range(40):
+            date = pd.Timestamp("2026-05-01") + pd.Timedelta(days=d)
+            for g in range(4):
+                ht, at = abbrs[(d + g) % 2], abbrs[(d + g + 1) % 2]
+                hs, as_ = rng.poisson(4.5), rng.poisson(4.2)
+                row = {c: float(rng.normal()) for c in FEATURE_COLS}
+                row.update({"game_pk": 830000 + d * 4 + g,
+                            "game_date": date, "home_team": ht,
+                            "away_team": at, "home_win": float(hs > as_),
+                            "home_score": int(hs), "away_score": int(as_)})
+                rows.append(row)
+        decided = pd.DataFrame(rows)
+
+        slate = decided.tail(3).drop(columns=["home_win", "home_score",
+                                              "away_score", "game_pk"]).copy()
+        # One row resolvable via game_id; two rows have NEITHER key.
+        slate["game_id"] = ["20260824_NYY@BOS", np.nan, np.nan]
+        slate["game_pk"] = [np.nan, np.nan, np.nan]
+        curve = {"form": "linear", "a": 0.25, "b": 0.01}
+        with self.assertLogs(level="WARNING") as cm:
+            out = re_.predict_slate_runs(decided, slate,
+                                         {"home": 10, "away": 10},
+                                         {"home": curve, "away": curve},
+                                         n_draws=500, seed=7)
+        # 2 unresolvable rows dropped with a loud warning.
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out["game_pk"].iloc[0]), "20260824_NYY@BOS")
+        self.assertIn("unresolvable", "".join(cm.output).lower())
+        self.assertTrue(out["game_pk"].notna().all())
+
+    def test_resolve_slate_key_ignores_all_nan_column(self):
+        """Direct: _resolve_slate_key must NOT return 'game_pk' for a column
+        that exists but carries only NaN — it falls back to 'game_id'."""
+        feats = {c: 0.0 for c in FEATURE_COLS}
+        slate = pd.DataFrame([{**feats, "game_id": "20260824_A@B",
+                               "game_pk": np.nan},
+                              {**feats, "game_id": "20260824_C@D",
+                               "game_pk": np.nan}])
+        self.assertEqual(re_._resolve_slate_key(slate), "game_id")
+
 
 class TestRollingTotalsBrier(unittest.TestCase):
     def test_series_and_meta_shape(self):
