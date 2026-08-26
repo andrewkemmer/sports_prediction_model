@@ -30,6 +30,8 @@ from training import (
     TREE_CATEGORICAL_COLS,
     UNK_TEAM_ID,
     _TEAM_ABBR_TO_ID,
+    _cat_known_ids,
+    _cat_unk_for,
 )
 from config import XGBOOST_PARAMS
 import tune_xgboost_optuna as tune
@@ -75,11 +77,16 @@ class TestTreeFrameRouting(unittest.TestCase):
         for col in TREE_CATEGORICAL_COLS:
             self.assertIsInstance(frame[col].dtype, pd.CategoricalDtype,
                                   f"{col} must be pd.Categorical, not int")
-        # Explicit category set: every known ID + the reserved UNK slot.
-        expected_cats = set(_TEAM_ABBR_TO_ID.values()) | {UNK_TEAM_ID}
+        # Per-column explicit category set: every ID seen in THAT space +
+        # its own reserved UNK slot (team/venue/starter vocabularies never
+        # leak into each other).
         for col in TREE_CATEGORICAL_COLS:
-            self.assertTrue(expected_cats.issubset(set(frame[col].cat.categories)),
-                            f"{col} category set missing known/UNK ids")
+            cats = set(frame[col].cat.categories)
+            self.assertTrue(
+                set(_cat_known_ids(col)).issubset(cats),
+                f"{col} category set missing its own known/UNK ids")
+            self.assertIn(_cat_unk_for(col), cats,
+                          f"{col} missing its reserved UNK slot")
 
     def test_unknown_and_negative_ids_clamp_to_unk(self):
         df = _synthetic_games(6)
@@ -98,6 +105,16 @@ class TestTreeFrameRouting(unittest.TestCase):
         codes_away = frame[TREE_CATEGORICAL_COLS[1]].cat.codes.to_numpy()
         cats_away = list(frame[TREE_CATEGORICAL_COLS[1]].cat.categories)
         self.assertEqual(cats_away[codes_away[1]], UNK_TEAM_ID)
+
+    def test_venue_and_starter_columns_unk_safe_when_sources_missing(self):
+        """Synthetic frames have no venue/starter source columns — the
+        categorical columns must still exist, all mapping to their own UNK
+        slots (never the team vocabulary, never a crash)."""
+        df = _synthetic_games(8)
+        ids = tune._add_team_ids(df)
+        for col in ("venue_id", "home_starter_cat_id", "away_starter_cat_id"):
+            self.assertIn(col, ids.columns)
+            self.assertEqual(int(ids[col].iloc[0]), _cat_unk_for(col))
 
 
 class TestBaseParams(unittest.TestCase):

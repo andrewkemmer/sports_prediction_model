@@ -91,7 +91,16 @@ class TestNativeXgbContribs(unittest.TestCase):
         y = ((num[:, 0] > 0).astype(int) ^ (team % 2))
         cols = [f"f{i}" for i in range(4)]
         df_num = pd.DataFrame(num, columns=cols)
-        ids = pd.DataFrame({"home_team_id": team, "away_team_id": (team + 1) % 6})
+        # Full production categorical layout (TREE_CATEGORICAL_COLS = 5):
+        # team pair + venue + the two starter slots. The helper routes every
+        # column by name, so the fixture must match the deployed width.
+        ids = pd.DataFrame({
+            "home_team_id": team,
+            "away_team_id": (team + 1) % 6,
+            "venue_id": rng.integers(0, 4, size=n),
+            "home_starter_cat_id": rng.integers(0, 12, size=n),
+            "away_starter_cat_id": rng.integers(0, 12, size=n),
+        })
         frame = self._tree_dataframe(df_num, ids.to_numpy(), list(cols))
         m = xgb_lib.XGBClassifier(
             n_estimators=40, max_depth=3, enable_categorical=True,

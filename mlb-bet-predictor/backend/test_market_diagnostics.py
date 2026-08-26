@@ -531,9 +531,10 @@ class TestAccuracyAxisAlwaysIndependent(unittest.TestCase):
 
 class TestRealArtifactRunlineAxis(unittest.TestCase):
     """On the shipped artifact, the Run-line picks accuracy line must rise
-    across confidence buckets (50.0 → 92.9 on 20260825) and sit on its own
-    independent right-side accuracy axis — the regression rendered it on
-    the count scale with no accuracy axis."""
+    across confidence buckets (52.7 → 93.8 on the refreshed 20260825
+    artifact; was 50.0 → 92.9 before the pipeline's 2026-08-26 re-run) and
+    sit on its own independent right-side accuracy axis — the regression
+    rendered it on the count scale with no accuracy axis."""
 
     def test_runline_line_rises_with_own_axis(self):
         dd = Path(__file__).resolve().parents[1] / "data_delivery"
@@ -543,8 +544,10 @@ class TestRealArtifactRunlineAxis(unittest.TestCase):
         decided = diag.decided_rows(pd.read_csv(m_path))
         rp = diag.runline_pick_table(decided)
         accs = [b["accuracy"] for b in rp["buckets"]]
-        # The table's accuracy rises 50.0 → 92.9 across buckets.
-        self.assertAlmostEqual(accs[0], 50.0, places=1)
+        # The table's accuracy rises ~52.7 → ~93.8 across buckets (exact
+        # bucket-0 value tracks the artifact snapshot — this is a data
+        # assertion, not the chart contract under test).
+        self.assertAlmostEqual(accs[0], 52.7, places=1)
         self.assertGreaterEqual(accs[-1], 92.0)
         self.assertEqual(accs, sorted(accs), "line must rise, not fall")
         # The chart must plot that accuracy on its own independent axis

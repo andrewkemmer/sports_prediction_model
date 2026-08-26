@@ -62,6 +62,13 @@ RUN_EXTRA_EXCLUSIONS = {
     "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
     "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
     "lineup_rest_count_home", "lineup_rest_count_away",
+    # Categorical-context columns (venue + the two starter IDs) — moneyline
+    # TREE_CATEGORICAL_COLS inputs only, not scoring LEVELS. They are not in
+    # FEATURE_COLS today; named here so the rule also drops them if they ever
+    # enter a frame the run engine derives from (kept/dropped lists from
+    # FEATURE_COLS stay byte-identical — asserted in
+    # test_categorical_venue_starters.py).
+    "venue", "home_starter_id", "away_starter_id",
 }
 # The one sanctioned _diff survivor: a PARK context multiplier, not a matchup gap.
 RUN_DIFF_EXCEPTION = "park_factor_slug_diff"

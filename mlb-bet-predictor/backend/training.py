@@ -429,8 +429,9 @@ def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
 def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract feature matrix, categorical matrix, and target.
 
-    Returns (X_numeric, X_categorical, y). X_categorical carries team IDs
-    for tree members that use native categorical support (LightGBM).
+    Returns (X_numeric, X_categorical, y). X_categorical carries the full
+    TREE_CATEGORICAL_COLS set (team + venue + starter IDs) for tree members
+    that use native categorical support (LightGBM/XGBoost).
     """
     df = _add_team_ids(df)
     X = _feature_matrix(df)
@@ -499,15 +500,47 @@ def _team_id(abbr: str) -> int:
     return tid
 
 # Tree-member-only categorical columns. NOT in FEATURE_COLS — they get
-# native categorical handling in LightGBM. Logistic/MLP must not receive
-# raw team IDs (one-hot would starve on ~4k rows with 30 categories).
+# native categorical handling in LightGBM (categorical_feature= BY NAME) and
+# XGBoost (enable_categorical + pd.Categorical dtype). Logistic/MLP must not
+# receive them (one-hot would starve on ~4k rows).
+#
+# ADOPTED SET (production): the 2 team IDs ONLY. Venue + the two starter IDs
+# (venue_id / home_starter_cat_id / away_starter_cat_id) were measured as
+# native categoricals in the 2026-08-26 ablation — all available at slate
+# time (venue always; starters from probable-pitcher data) — but the gate
+# was a clear DON'T ADOPT: the 5-col set degraded sealed-holdout logloss
+# (+0.0005) and ECE-cal (+0.0068) vs the team-only baseline. See
+# data_delivery/categorical_ablation_<sha>.json. The full set stays available
+# as FULL_TREE_CATEGORICAL_COLS for the ablation harness (WITH arm) and any
+# future re-test; flip the toggle below to re-enable it (re-ablate first).
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
 
-# Dedicated "unknown team" category ID.  Never collides with a real team because
-# it sits above the MLB team-space (~30 teams).  Unknown / invalid / predict-time
-# expansion-team abbreviations map here instead of silently aliasing a real team
-# (e.g. 0 = NYY).  With near-zero training presence, trees learn a neutral weight.
+# The full candidate set (teams + venue + starters) measured but NOT adopted.
+# Exercise it via the harness / tests by patching TREE_CATEGORICAL_COLS to
+# this list (which is what run_categorical_ablation.py does for the WITH arm).
+FULL_TREE_CATEGORICAL_COLS = [
+    "home_team_id",
+    "away_team_id",
+    "venue_id",
+    "home_starter_cat_id",
+    "away_starter_cat_id",
+]
+
+# RF keeps ONLY the team-ID pair as integer features (sklearn has no native
+# categoricals). Slicing is by INDEX into the active TREE_CATEGORICAL_COLS,
+# so the team pair must stay the first two entries (asserted in tests).
+RF_TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+
+# Dedicated "unknown" category IDs, one per categorical space. Each sits above
+# its real category count (teams ~30, venues ~29, starters ~430) and is never
+# auto-assigned (mappers skip the whole reserved set below), so an unknown /
+# invalid / predict-time value maps to a dedicated near-zero-presence category
+# instead of silently aliasing a real one. With near-zero training presence,
+# trees learn a neutral weight for it.
 UNK_TEAM_ID = 99
+UNK_VENUE_ID = 98
+UNK_STARTER_ID = 97
+_RESERVED_CAT_IDS = frozenset({UNK_TEAM_ID, UNK_VENUE_ID, UNK_STARTER_ID})
 
 # RF ablation toggle: set False to train RandomForest WITHOUT team IDs
 # (for measuring the marginal benefit of team IDs on the RF member).
@@ -558,12 +591,106 @@ def _logistic_feature_indices() -> list[int]:
     """Indices into a full-width FEATURE_COLS matrix for the logistic member."""
     return [FEATURE_COLS.index(c) for c in _logistic_feature_cols()]
 
+# Venue / starter categorical mappers — same lazy auto-ID contract as
+# _team_id, each with its own reserved UNK slot.
+_VENUE_NAME_TO_ID: dict[str, int] = {}
+_VENUE_ID_TO_NAME: dict[int, str] = {}
+_STARTER_RAW_TO_ID: dict[object, int] = {}
+_STARTER_ID_TO_RAW: dict[int, object] = {}
+
+
+def _next_unreserved(n: int) -> int:
+    """Next auto-ID skipping every reserved UNK slot (97/98/99)."""
+    while n in _RESERVED_CAT_IDS:
+        n += 1
+    return n
+
+
+def _venue_id(venue: object) -> int:
+    """Map a venue name to a stable integer category ID.
+
+    The literal 'Unknown' / blank / non-string values map to UNK_VENUE_ID — a
+    dedicated near-zero-presence category, never a real park."""
+    if venue in _VENUE_NAME_TO_ID:
+        return _VENUE_NAME_TO_ID[venue]
+    if not isinstance(venue, str) or not venue.strip() \
+            or venue.strip().lower() == "unknown":
+        return UNK_VENUE_ID
+    name = venue.strip()
+    vid = _next_unreserved(len(_VENUE_NAME_TO_ID))
+    _VENUE_NAME_TO_ID[name] = vid
+    _VENUE_ID_TO_NAME[vid] = name
+    return vid
+
+
+def _starter_id(raw: object) -> int:
+    """Map an MLB player ID (e.g. 684007) to a compact categorical index.
+
+    Raw IDs are large sparse ints; remapping to a dense space keeps the
+    XGBoost category vocabulary small and stable. Missing / non-numeric /
+    predict-time callups never seen in training map to UNK_STARTER_ID."""
+    if raw in _STARTER_RAW_TO_ID:
+        return _STARTER_RAW_TO_ID[raw]
+    try:
+        if raw is None or pd.isna(raw):
+            return UNK_STARTER_ID
+        f = float(raw)
+        if not np.isfinite(f) or not f.is_integer():
+            return UNK_STARTER_ID
+        key = int(f)
+        if key < 0:
+            return UNK_STARTER_ID
+    except (TypeError, ValueError):
+        return UNK_STARTER_ID
+    if key in _STARTER_RAW_TO_ID:
+        return _STARTER_RAW_TO_ID[key]
+    sid = _next_unreserved(len(_STARTER_RAW_TO_ID))
+    _STARTER_RAW_TO_ID[key] = sid
+    _STARTER_ID_TO_RAW[sid] = key
+    return sid
+
+
+def _cat_unk_for(col: str) -> int:
+    """The reserved UNK slot for a categorical column name."""
+    if col == "venue_id":
+        return UNK_VENUE_ID
+    if col in ("home_starter_cat_id", "away_starter_cat_id"):
+        return UNK_STARTER_ID
+    return UNK_TEAM_ID
+
+
+def _cat_known_ids(col: str) -> list[int]:
+    """Explicit XGBoost category vocabulary for a categorical column: every
+    ID seen in that space plus its reserved UNK slot."""
+    if col == "venue_id":
+        return sorted(set(_VENUE_ID_TO_NAME) | {UNK_VENUE_ID})
+    if col in ("home_starter_cat_id", "away_starter_cat_id"):
+        return sorted(set(_STARTER_ID_TO_RAW) | {UNK_STARTER_ID})
+    return sorted(set(_TEAM_ID_TO_ABBR) | {UNK_TEAM_ID})
+
+
 def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
-    """Attach stable integer team IDs for tree-member categorical routing."""
+    """Attach stable integer categorical IDs for tree-member routing.
+
+    Adds the full TREE_CATEGORICAL_COLS set: team IDs (from home/away_team),
+    venue ID (from the venue column) and the two starter category IDs (from
+    home/away_starter_id). Frames missing a source column get that column's
+    reserved UNK slot (slate rows before probable-pitcher announcements, and
+    synthetic test frames) — never an error, never a fabricated real value."""
     import pandas as pd
     df = df.copy()
     df["home_team_id"] = df["home_team"].apply(_team_id)
     df["away_team_id"] = df["away_team"].apply(_team_id)
+    df["venue_id"] = (df["venue"].apply(_venue_id)
+                       if "venue" in df.columns else UNK_VENUE_ID)
+    if "home_starter_id" in df.columns:
+        df["home_starter_cat_id"] = df["home_starter_id"].apply(_starter_id)
+    else:
+        df["home_starter_cat_id"] = UNK_STARTER_ID
+    if "away_starter_id" in df.columns:
+        df["away_starter_cat_id"] = df["away_starter_id"].apply(_starter_id)
+    else:
+        df["away_starter_cat_id"] = UNK_STARTER_ID
     # Belt-and-suspenders: no real team abbreviation may map to the
     # reserved UNK slot.  The auto-generation skip prevents this in
     # normal operation; this guard catches corruption before training.
@@ -576,44 +703,55 @@ def _add_team_ids(df: "pd.DataFrame") -> "pd.DataFrame":
             )
     return df
 
-def _categorical_matrix(df: "pd.DataFrame") -> "np.ndarray":
-    """Extract categorical-feature matrix (team IDs, for tree members)."""
+def _categorical_matrix(df: "pd.DataFrame",
+                         cols: "Optional[list[str]]" = None) -> "np.ndarray":
+    """Extract categorical-feature matrix (default: the full TREE_CATEGORICAL
+    set; pass a subset e.g. RF_TREE_CATEGORICAL_COLS for the RF integer path)."""
     import numpy as np
-    return df[TREE_CATEGORICAL_COLS].to_numpy(dtype=int)
+    use = TREE_CATEGORICAL_COLS if cols is None else cols
+    return df[use].to_numpy(dtype=int)
 
 
 def _tree_dataframe(
     X_num: "np.ndarray",
     X_cat: "np.ndarray",
     numeric_cols: list[str],
+    vocabs: "Optional[dict[str, list[int]]]" = None,
 ) -> "pd.DataFrame":
     """Build a DataFrame with named numeric + categorical columns.
 
-    Numeric columns preserve their names from FEATURE_COLS. Team-ID columns
-    are converted to pandas Categorical with an explicit category set that
-    always includes UNK_TEAM_ID (so XGBoost never throws "unseen category"
-    at predict time). LightGBM gets plain ints + categorical_feature= by name.
-    Unknown team IDs are mapped to UNK_TEAM_ID by _team_id — a dedicated
-    category that never aliases a real team.
+    Numeric columns preserve their names from FEATURE_COLS. Categorical
+    columns become pandas Categorical with an explicit category set (so
+    XGBoost never throws "unseen category" at predict time); LightGBM gets
+    plain ints + categorical_feature= by name.
+
+    ``vocabs``: the per-column category vocabulary the model was FIT with
+    (stored on the models dict as "categorical_vocab"). When provided,
+    any value outside that vocabulary — predict-time newcomers like callup
+    starters or expansion venues — is clamped to the column's reserved UNK
+    slot instead of auto-assigning a fresh category XGBoost never saw
+    (which raises "Found a category not in the training set"). When None
+    (training-time frame construction, tuners), categories derive from the
+    current global ID maps — safe because those callers populate the maps
+    before building the frame.
     """
     import pandas as pd
     import numpy as np
 
-    # Explicit category set: every known team ID + UNK_TEAM_ID.  This
-    # guarantees XGBoost never sees an "unseen category" at predict time
-    # even when no training row carries UNK_TEAM_ID.  The set is stable
-    # because _TEAM_ID_TO_ABBR is populated during _add_team_ids before
-    # _tree_dataframe is called (both train and predict paths).
-    known_ids = sorted(set(_TEAM_ID_TO_ABBR.keys()) | {UNK_TEAM_ID})
-
     df = pd.DataFrame(X_num, columns=numeric_cols)
     for i, c in enumerate(TREE_CATEGORICAL_COLS):
         vals = X_cat[:, i].copy()
-        # Safety: clamp any lingering negatives / sub-0 values to UNK_TEAM_ID
-        # instead of the first real team.  (Should never fire after the
-        # _team_id fix, but belt-and-suspenders.)
-        vals = np.where(vals < 0, UNK_TEAM_ID, vals)
-        df[c] = pd.Categorical(vals, categories=known_ids)
+        unk = _cat_unk_for(c)
+        # Safety: clamp any lingering negatives / sub-0 values to this
+        # column's UNK slot instead of the first real category.
+        vals = np.where(vals < 0, unk, vals)
+        vocab = (vocabs or {}).get(c)
+        if vocab is not None:
+            known = np.asarray(sorted(set(vocab)), dtype=int)
+            vals = np.where(np.isin(vals, known), vals, unk)
+            df[c] = pd.Categorical(vals, categories=sorted(set(vocab)))
+        else:
+            df[c] = pd.Categorical(vals, categories=_cat_known_ids(c))
     return df
 
 
@@ -699,7 +837,8 @@ def _member_weights(member_names: list[str]) -> dict[str, float]:
     before the first full evaluation). Members that failed to train
     contribute 0% and the remainder renormalizes to exactly 1.0.
     """
-    names = [n for n in member_names if n not in ("scaler", "impute_median")]
+    names = [n for n in member_names
+             if n not in ("scaler", "impute_median", "categorical_vocab")]
     source = _LAST_ADAPTIVE_WEIGHTS or ENSEMBLE_WEIGHTS
     raw = {n: float(source.get(n, 0.0)) for n in names}
     # A candidate with no earned weight still gets its static prior so it
@@ -726,7 +865,7 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
     |coefficient|. Returns None when no member exposes importances.
     """
     members = {n: m for n, m in ml_models.items()
-               if n not in ("scaler", "impute_median")}
+               if n not in ("scaler", "impute_median", "categorical_vocab")}
     if not members:
         return None
     eff = _member_weights(list(members.keys()))
@@ -773,13 +912,16 @@ def ensemble_predict(
     games = _add_team_ids(games)
     X = _feature_matrix(games)
     X_cat = _categorical_matrix(games)
-    X_tree = np.hstack([X, X_cat])
+    # RF stays on the team-ID pair only (see train_moneyline_ensemble);
+    # LGB/XGB build their own full-width frames below.
+    _rf_idx = [TREE_CATEGORICAL_COLS.index(c) for c in RF_TREE_CATEGORICAL_COLS]
+    X_tree = np.hstack([X, X_cat[:, _rf_idx]])
     scaler = ml_models.get("scaler")
     medians = ml_models.get("impute_median")
 
     members: dict[str, np.ndarray] = {}
     for name, model in ml_models.items():
-        if name in ("scaler", "impute_median"):
+        if name in ("scaler", "impute_median", "categorical_vocab"):
             continue
         try:
             if name in ("logistic", "mlp"):
@@ -800,13 +942,22 @@ def ensemble_predict(
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
                 # _feature_matrix guarantees full FEATURE_COLS width/order.
-                Xuse = _tree_dataframe(Xi, X_cat, list(FEATURE_COLS))
+                # Clamp to the fit-time vocabulary so predict-time newcomers
+                # (callup starters etc.) route to UNK instead of crashing
+                # XGBoost's "category not in the training set" check.
+                Xuse = _tree_dataframe(Xi, X_cat, list(FEATURE_COLS),
+                                       vocabs=ml_models.get("categorical_vocab"))
             elif name == "lightgbm":
                 import pandas as pd
                 num_cols_in_data = list(FEATURE_COLS)
                 _df = pd.DataFrame(X, columns=num_cols_in_data)
+                _vocab = ml_models.get("categorical_vocab") or {}
                 for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
-                    vals = np.where(X_cat[:, i] < 0, UNK_TEAM_ID, X_cat[:, i])
+                    vals = np.where(X_cat[:, i] < 0, _cat_unk_for(c_), X_cat[:, i])
+                    v = _vocab.get(c_)
+                    if v is not None:
+                        known = np.asarray(sorted(set(v)), dtype=int)
+                        vals = np.where(np.isin(vals, known), vals, _cat_unk_for(c_))
                     _df[c_] = vals.astype(int)
                 Xuse = _df
             elif name == "randomforest":
@@ -891,16 +1042,21 @@ def train_moneyline_ensemble(
         X_val_lr, _ = _impute_median(X_val, impute_medians)
         X_val_scaled = scaler.transform(X_val_lr)
 
-    # Build tree-member feature matrices: numeric diffs + team-ID categoricals.
-    # All three tree members receive team IDs. LightGBM uses native categorical
-    # support; XGBoost and RandomForest treat them as integers (the small
-    # cardinality — 30 teams — works fine as ordinal-like bins without one-hot).
+    # Build tree-member feature matrices: numeric diffs + categoricals.
+    # LightGBM + XGBoost receive the FULL TREE_CATEGORICAL_COLS set natively
+    # (by name / pd.Categorical). RandomForest has no native categoricals and
+    # stays on the TEAM-ID pair only (integers — the small cardinality, ~30
+    # teams, works fine as ordinal-like bins), so its n_features_in_ stays
+    # 65 + 2 and the predict-time routing below can detect it unchanged.
+    _rf_idx = [TREE_CATEGORICAL_COLS.index(c) for c in RF_TREE_CATEGORICAL_COLS]
+    X_cat_rf_train = X_cat_train[:, _rf_idx]
+    X_cat_rf_val = X_cat_val[:, _rf_idx] if X_cat_val is not None else None
     X_train_tree = np.hstack([X_train, X_cat_train])
     X_val_tree = np.hstack([X_val, X_cat_val]) if X_val is not None else None
-    # Imputed-numeric + categorical (XGBoost/RF: impute NaN, keep team IDs).
-    X_train_lr_tree = np.hstack([X_train_lr, X_cat_train])
+    # Imputed-numeric + team categoricals (RandomForest: impute NaN, keep IDs).
+    X_train_lr_tree = np.hstack([X_train_lr, X_cat_rf_train])
     if X_val is not None:
-        X_val_lr_tree = np.hstack([X_val_lr, X_cat_val])
+        X_val_lr_tree = np.hstack([X_val_lr, X_cat_rf_val])
     else:
         X_val_lr_tree = None
 
@@ -949,14 +1105,14 @@ def train_moneyline_ensemble(
         X_train_lgbm = pd.DataFrame(X_train, columns=num_cols_in_data)
         for i, c in enumerate(TREE_CATEGORICAL_COLS):
             X_train_lgbm[c] = np.where(
-                X_cat_train[:, i] < 0, UNK_TEAM_ID, X_cat_train[:, i]
+                X_cat_train[:, i] < 0, _cat_unk_for(c), X_cat_train[:, i]
             ).astype(int)
         lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
         if X_val is not None:
             X_val_lgbm = pd.DataFrame(X_val, columns=num_cols_in_data)
             for i, c in enumerate(TREE_CATEGORICAL_COLS):
                 X_val_lgbm[c] = np.where(
-                    X_cat_val[:, i] < 0, UNK_TEAM_ID, X_cat_val[:, i]
+                    X_cat_val[:, i] < 0, _cat_unk_for(c), X_cat_val[:, i]
                 ).astype(int)
             lgbm.fit(X_train_lgbm, y_train, eval_set=[(X_val_lgbm, y_val)],
                      categorical_feature=TREE_CATEGORICAL_COLS)
@@ -1008,6 +1164,15 @@ def train_moneyline_ensemble(
     except Exception as e:
         logger.warning("MLP member failed: %s", e)
 
+    # Record the categorical vocabulary the tree members were FIT with (the
+    # global ID maps as of this fit, i.e. train+val for fold fits, train for
+    # fit-only refits). Predict-time frames clamp unseen values to UNK against
+    # this vocabulary, so a callup starter at slate time can never crash
+    # XGBoost or alias a training category.
+    models["categorical_vocab"] = {
+        c: _cat_known_ids(c) for c in TREE_CATEGORICAL_COLS
+    }
+
     # A fit-only refit has no honest holdout metric to report.
     if X_val is None:
         return models, {}
@@ -1016,7 +1181,7 @@ def train_moneyline_ensemble(
     weights = _member_weights(list(models.keys()))
     probs, wts = [], []
     for name, model in models.items():
-        if name in ("scaler", "impute_median"):
+        if name in ("scaler", "impute_median", "categorical_vocab"):
             continue
         if name == "logistic":
             Xuse = X_val_scaled[:, _lr_idx]
@@ -1437,7 +1602,7 @@ def walk_forward_evaluate(
     # AUC/Brier/LogLoss across all evaluation folds.
     final_members = {
         n for n in (best_models or {})
-        if n not in ("scaler", "impute_median")
+        if n not in ("scaler", "impute_median", "categorical_vocab")
     }
     raw_w = {
         n: float(adaptive.get(n, 0.0)) if adaptive

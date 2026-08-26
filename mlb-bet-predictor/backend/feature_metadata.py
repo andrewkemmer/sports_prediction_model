@@ -477,6 +477,62 @@ _LINEUP_DELTA_FAMILIES = {
 }
 
 
+# Categorical-context columns (TREE_CATEGORICAL_COLS inputs, NOT in
+# FEATURE_COLS — so they live in a dedicated payload section rather than the
+# FEATURE_COLS walk, which would trip the stale-entry warning). Emitted as
+# payload["categorical_context"] with the same tooltip schema; additive for
+# frontend consumers that only read payload["features"].
+_CATEGORICAL_CONTEXT: dict[str, dict[str, str]] = {
+    "venue": {
+        "summary": "Home ballpark — native categorical for LGB/XGB tree members",
+        "definition": (
+            "The game's venue name, encoded as a stable integer category for "
+            "the LightGBM/XGBoost members (native categorical, never one-hot). "
+            "Park context (dome, altitude, dimensions) is a real input the "
+            "numeric level features only approximate; the literal 'Unknown' "
+            "value and predict-time newcomers map to a dedicated UNK category."
+        ),
+        "formula": "venue name → venue_id (stable int category, UNK-safe)",
+        "source": "game_level_features.csv venue column; slate rows carry the scheduled venue",
+        "window": "n/a (game context)",
+        "units": "categorical",
+        "direction": "context only — trees learn per-park splits",
+    },
+    "home_starter_id": {
+        "summary": "Home starting pitcher (MLB player ID) — native categorical for LGB/XGB",
+        "definition": (
+            "The home starter's MLB StatsAPI player ID, remapped to a compact "
+            "integer category for the LightGBM/XGBoost members (native "
+            "categorical, never one-hot). Pitcher identity carries skill level "
+            "the numeric diffs (ERA/K9/xwOBA) only approximate, especially for "
+            "elite or struggling arms. Starters never seen in training "
+            "(callups, trades, spot starts) map to a dedicated UNK category."
+        ),
+        "formula": "home_starter_id → home_starter_cat_id (dense int category, UNK-safe)",
+        "source": "Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id",
+        "window": "per game",
+        "units": "categorical",
+        "direction": "context only — trees learn per-pitcher splits",
+    },
+    "away_starter_id": {
+        "summary": "Away starting pitcher (MLB player ID) — native categorical for LGB/XGB",
+        "definition": (
+            "The away starter's MLB StatsAPI player ID, remapped to a compact "
+            "integer category for the LightGBM/XGBoost members (native "
+            "categorical, never one-hot). Mirror of home_starter_id; same "
+            "shared player→category map, so the same pitcher is the same "
+            "category on either side. Unseen starters map to a dedicated UNK "
+            "category."
+        ),
+        "formula": "away_starter_id → away_starter_cat_id (dense int category, UNK-safe)",
+        "source": "Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv away_starter_id",
+        "window": "per game",
+        "units": "categorical",
+        "direction": "context only — trees learn per-pitcher splits",
+    },
+}
+
+
 def _rich_entry(name: str) -> Optional[dict[str, str]]:
     """Authored entry, or a synthesized one for *_home/*_away family members."""
     if name in _RICH:
@@ -634,11 +690,17 @@ def generate_features_metadata(target_date_str: str,
                                out_dir: Optional[Path] = None) -> dict:
     """Generate and persist the artifact; returns the embedded-ready dict."""
     meta, warns = build_features_metadata()
+    ctx: dict[str, dict] = {}
+    for name, entry in _CATEGORICAL_CONTEXT.items():
+        row = {"name": name, **entry, "members": ["xgboost", "lightgbm"]}
+        row["tooltip"] = format_tooltip(row)
+        ctx[name] = row
     payload = {
         "generated_for": target_date_str,
         "n_features": len(meta),
         "warnings": warns,
         "features": meta,
+        "categorical_context": ctx,
     }
     out_path = (out_dir or DATA_DELIVERY_DIR) / f"features_metadata_{target_date_str}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)

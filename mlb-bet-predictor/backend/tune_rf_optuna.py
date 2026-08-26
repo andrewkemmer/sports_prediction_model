@@ -75,6 +75,8 @@ if str(_BACKEND_DIR.parent) not in sys.path:
 try:
     from training import (
         FEATURE_COLS,
+        RF_TREE_CATEGORICAL_COLS,
+        TREE_CATEGORICAL_COLS,
         _attach_oof_run_margins,
         _impute_median,
         _prepare_features,
@@ -92,6 +94,8 @@ try:
 except ImportError:  # pragma: no cover - direct execution fallback
     from backend.training import (
         FEATURE_COLS,
+        RF_TREE_CATEGORICAL_COLS,
+        TREE_CATEGORICAL_COLS,
         _attach_oof_run_margins,
         _impute_median,
         _prepare_features,
@@ -252,16 +256,18 @@ def _build_margins(tune_df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 def prepare_fold(tr: pd.DataFrame, va: pd.DataFrame) -> dict:
     """The exact production RF input layout: train-median-imputed full-width
-    numeric matrix hstacked with integer team-ID categoricals (the same
-    matrix production fits X_train_lr_tree on). RF never sees NaN and never
-    sees StandardScaler output (unlike MLP)."""
+    numeric matrix hstacked with integer TEAM-ID categoricals (the same
+    matrix production fits X_train_lr_tree on — RF stays on the team pair
+    while LGB/XGB get the full TREE_CATEGORICAL_COLS set). RF never sees NaN
+    and never sees StandardScaler output (unlike MLP)."""
     X_tr, X_cat_tr, y_tr = _prepare_features(tr)
     X_va, X_cat_va, y_va = _prepare_features(va)
     X_tr_i, med = _impute_median(X_tr)
     X_va_i, _ = _impute_median(X_va, med)
+    rf_idx = [TREE_CATEGORICAL_COLS.index(c) for c in RF_TREE_CATEGORICAL_COLS]
     return {
-        "X_train": np.hstack([X_tr_i, X_cat_tr]),
-        "X_val": np.hstack([X_va_i, X_cat_va]),
+        "X_train": np.hstack([X_tr_i, X_cat_tr[:, rf_idx]]),
+        "X_val": np.hstack([X_va_i, X_cat_va[:, rf_idx]]),
         "y_train": y_tr.astype(float),
         "y_val": y_va.astype(float),
         "medians": med,
