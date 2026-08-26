@@ -170,6 +170,21 @@ MLP_PARAMS = {
     "random_state": RANDOM_SEED,
 }
 
+# Random Forest member — bagged trees, decorrelated from boosting errors;
+# ~20% of the blend weight before adaptive re-weighting. sklearn trees
+# cannot consume NaN: train-fold-median imputation (the same imputed
+# matrix logistic/MLP use), plus integer team-ID categoricals when
+# RF_WITH_TEAM_IDS is on (the production default). Values below are
+# byte-identical to the inline config the fold trainer used before the
+# 2026-08 extraction — the Optuna study (tune_rf_optuna.py) may replace
+# them with provenance after its sealed-holdout gate.
+RF_PARAMS = {
+    "n_estimators": 300,
+    "min_samples_leaf": 20,
+    "random_state": RANDOM_SEED,
+    "n_jobs": -1,
+}
+
 # Totals regression variants
 XGBOOST_REG_PARAMS = {
     "n_estimators": 200,

@@ -981,12 +981,12 @@ def train_moneyline_ensemble(
 
     # Random Forest — bagged trees, decorrelated from boosting errors.
     # sklearn trees cannot consume NaN: use the train-median-imputed matrix.
+    # Params live in config.RF_PARAMS (pre-tuning values; the Optuna study
+    # in tune_rf_optuna.py may replace them with provenance).
     try:
         from sklearn.ensemble import RandomForestClassifier
-        rf = RandomForestClassifier(
-            n_estimators=300, min_samples_leaf=20,
-            random_state=RANDOM_SEED, n_jobs=-1,
-        )
+        from config import RF_PARAMS
+        rf = RandomForestClassifier(**RF_PARAMS)
         if RF_WITH_TEAM_IDS:
             rf.fit(X_train_lr_tree, y_train)
         else:
