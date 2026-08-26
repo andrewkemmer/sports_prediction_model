@@ -1973,13 +1973,27 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
     Idempotent: existing columns are left untouched (SQL/other-shipped values
     are authoritative). Returns the frame (same object when inplace=True).
 
-    ``require_caches=True`` (the TRAINING path) fails LOUD with a
-    FileNotFoundError naming the missing artifact(s) instead of degrading to
-    NaN — a fresh clone without lineups/batter_woba/team_woba parquet must
-    never silently train with the feature dead.
+    ``require_caches=True`` (the TRAINING path) fails LOUD instead of
+    degrading to NaN: (1) FileNotFoundError naming the missing artifact(s)
+    when lineups/batter_woba/team_woba parquet are absent; (2) all-NaN
+    placeholder columns shipped by a prior broken run are recomputed and
+    overwritten (real values stay authoritative); (3) RuntimeError after
+    enrichment if any of the 6 columns is still absent/all-NaN — stale
+    caches or an empty game_pk join must never train the feature dead.
+    The slate path (require_caches=False) keeps the graceful NaN fallback:
+    projected-only mornings are by design.
     """
     df = game_df if inplace else game_df.copy()
     missing = [c for c in LINEUP_DELTA_COLS if c not in df.columns]
+    if require_caches:
+        # Dead-placeholder guard (the v26 "computed 0 column(s)" incident):
+        # a prior run that shipped the 6 columns as ALL-NaN (the rebind bug
+        # re-saved them into game_level_features.csv) must NOT be treated as
+        # already enriched — recompute and overwrite them on the training
+        # path. Real values stay authoritative (idempotence preserved).
+        dead = [c for c in LINEUP_DELTA_COLS
+                if c in df.columns and bool(df[c].isna().all())]
+        missing = sorted(set(missing) | set(dead))
     if not missing:
         return df
     for c in missing:
@@ -1988,11 +2002,14 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
         logger.warning("add_lineup_delta_features: frame lacks game_pk/game_date/teams; columns stay NaN")
         return df
     if require_caches:
-        missing = _missing_lineup_artifacts()
-        if missing:
+        # NOTE: use a SEPARATE name here — rebinding `missing` to the file-
+        # absence list used to blank the assignment guards below, so the
+        # columns were computed but never written (the v26 "computed 0").
+        absent_files = _missing_lineup_artifacts()
+        if absent_files:
             raise FileNotFoundError(
                 "lineup-delta feature: REQUIRED committed runtime inputs "
-                "missing from data_delivery: " + ", ".join(missing) +
+                "missing from data_delivery: " + ", ".join(absent_files) +
                 ". Without them the 6 lineup_actual_* columns stay NaN and the "
                 "shipped moneyline feature trains DEAD. Restore these files "
                 "(they are protected from Phase 6 cleanup) or rebuild them via "
@@ -2077,6 +2094,22 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
             df[rest_col] = g2["_rest"]
 
     df = df.drop(columns=["_season", "_gpk"])
+    if require_caches:
+        # Zero-column sentinel (the missing guard): if ANY of the 6 shipped
+        # columns is absent or ALL-NaN after enrichment, the caches loaded
+        # but produced nothing (stale artifacts / empty game_pk join). Fail
+        # LOUD — never a quiet "computed 0" log on the training path.
+        dead = [c for c in LINEUP_DELTA_COLS
+                if c not in df.columns or bool(df[c].isna().all())]
+        if dead:
+            raise RuntimeError(
+                "lineup-delta feature: TRAINING-path enrichment produced NO "
+                "live values for " + ", ".join(dead) +
+                " even though the committed caches loaded (lineups.parquet, "
+                "batter_woba.parquet, team_woba.parquet) — the artifacts are "
+                "stale or the game_pk join is empty. Refusing to train with "
+                "the shipped moneyline feature DEAD; refresh/rebuild the "
+                "caches before training.")
     logger.info("add_lineup_delta_features: computed %d column(s) for %d games",
                 len(missing), len(df))
     return df

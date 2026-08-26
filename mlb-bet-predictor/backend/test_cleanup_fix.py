@@ -150,6 +150,31 @@ class TestCleanupProtection(TestCase):
         self.assertEqual(stale, [], "pbp_chunks/ must never be pruned")
         self.assertEqual(prot, 2)
 
+    def test_all_four_lineup_inputs_protected_while_stale_pruned(self):
+        """The 4 lineup-delta runtime inputs (lineups.parquet,
+        batter_woba.parquet, team_woba.parquet, pbp_chunks/) are NEVER
+        deleted by cleanup, while stale date-stamped artifacts still are —
+        the v26 protection regression sentinel."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/lineups.parquet",
+            "mlb-bet-predictor/data_delivery/batter_woba.parquet",
+            "mlb-bet-predictor/data_delivery/team_woba.parquet",
+            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260824")
+        self.assertEqual(prot, 4, "all 4 lineup inputs must be protected")
+        # The stale date-stamped artifacts are still pruned (cleanup's job).
+        self.assertEqual(stale, [
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+        ])
+        stale_names = {s.rsplit("/", 1)[-1] for s in stale}
+        self.assertFalse(stale_names
+                         & {"lineups.parquet", "batter_woba.parquet",
+                            "team_woba.parquet"})
+
     def test_lineup_inputs_protected_even_with_stale_others(self):
         """Protecting the lineup inputs must NOT disable the cleanup's real
         job: stale date-stamped artifacts are still pruned alongside."""

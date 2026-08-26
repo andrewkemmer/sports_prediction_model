@@ -260,6 +260,28 @@ class TestProductionWiring(unittest.TestCase):
         self.assertIn("away", rounds)
         self.assertGreater(rounds["home"], 0)
 
+    def test_slate_attach_with_game_id_only_board(self):
+        """Pre-game ESPN boards carry game_id (no game_pk) — the slate margin
+        attach must synthesize game_pk from game_id (the 145d841 slate-key
+        convention) so refit_run_margins AND the merge both work (v26
+        regression: KeyError ('game_pk') left today's board without the
+        shipped margin feature)."""
+        import pipeline
+        import training
+        games = _synthetic_games(seed=21)
+        # Board = the last 3 games, ESPN-style: game_id only, no game_pk.
+        board = games.tail(3).drop(columns=["game_pk"]).copy()
+        board["game_id"] = ["20260824_NYY@BOS", "20260824_LAD@SF",
+                            "20260824_SF@LAD"]
+        training.set_last_margin_rounds({"home": 8, "away": 8})
+        out = pipeline._attach_slate_run_margins(board, games)
+        self.assertIn(bom.MARGIN_COL, out.columns)
+        # Every board row gets a REAL (non-NaN) margin — no silent loss.
+        self.assertEqual(out[bom.MARGIN_COL].notna().sum(), len(board))
+        # The board now carries game_pk derived from game_id.
+        self.assertIn("game_pk", out.columns)
+        self.assertEqual(out["game_pk"].tolist(), board["game_id"].tolist())
+
 
 def _run_wfe(games):
     """Run walk_forward_evaluate and return (models, pooled, combined)."""

@@ -255,6 +255,78 @@ class TestMissingArtifactsFailLoud(unittest.TestCase):
         self.assertTrue(out["lineup_actual_woba_delta_home"].isna().all())
 
 
+class TestTrainingPathGuard(unittest.TestCase):
+    """v26 "computed 0 column(s)" incident regression: the TRAINING path
+    (require_caches=True) must never silently train with dead lineup columns.
+    Covers (1) all-NaN placeholder columns shipped by a prior broken run are
+    RECOMPUTED + overwritten, (2) real values stay authoritative, (3) a
+    loaded-but-stale cache (empty team baseline → all-NaN) raises a
+    descriptive RuntimeError naming the caches, (4) the slate path
+    (require_caches=False) keeps the graceful NaN fallback."""
+
+    @classmethod
+    def setUpClass(cls):
+        _seed_caches()
+        cls.games = pd.DataFrame({
+            "game_pk": [101, 102, 103],
+            "game_date": ["2026-07-01", "2026-07-01", "2026-07-02"],
+            "home_team": ["HOM", "HOM", "HOM"],
+            "away_team": ["AWY", "AWY", "AWY"],
+        })
+
+    def tearDown(self):
+        _seed_caches()   # restore the canonical caches after each test
+
+    def test_all_nan_placeholder_recomputed_on_training_path(self):
+        # The v26 game_level_features.csv ships the 6 columns as all-NaN
+        # placeholders (the rebind bug re-saved them). require_caches=True
+        # must RECOMPUTE + overwrite them — not early-return on "present".
+        df = self.games.copy()
+        for c in LINEUP_DELTA_COLS:
+            df[c] = np.nan
+        out = add_lineup_delta_features(df, require_caches=True)
+        self.assertGreater(
+            out["lineup_actual_woba_delta_home"].notna().mean(), 0.5)
+        self.assertAlmostEqual(
+            out.loc[0, "lineup_actual_woba_delta_home"],
+            np.mean([0.40] * 4 + [0.32, 0.32, 0.315, 0.32, 0.32]) - 0.315,
+            places=6)
+
+    def test_real_values_untouched_on_training_path(self):
+        # A genuinely computed value is authoritative even with
+        # require_caches=True — only all-NaN placeholders are overwritten.
+        df = self.games.copy()
+        df["lineup_actual_woba_delta_home"] = 123.0
+        out = add_lineup_delta_features(df, require_caches=True)
+        self.assertEqual(out.loc[0, "lineup_actual_woba_delta_home"], 123.0)
+
+    def test_stale_caches_raise_on_training_path(self):
+        # Caches are PRESENT (file guard passes) but the team baseline is
+        # empty → every feature stays NaN → the zero-column sentinel must
+        # raise a descriptive RuntimeError naming the caches, never a quiet
+        # "computed 0" log.
+        stale = features_mod._lineup_cache.copy()
+        stale["team"] = stale["team"].iloc[0:0]   # empty team baseline
+        features_mod._lineup_cache = stale
+        with self.assertRaises(RuntimeError) as cm:
+            add_lineup_delta_features(self.games, require_caches=True)
+        msg = str(cm.exception)
+        self.assertIn("TRAINING-path enrichment produced NO live values", msg)
+        self.assertIn("lineup_actual_woba_delta_home", msg)
+        for name in ("lineups.parquet", "batter_woba.parquet",
+                     "team_woba.parquet"):
+            self.assertIn(name, msg)
+
+    def test_slate_path_graceful_with_stale_caches(self):
+        # Same stale caches WITHOUT require_caches (the slate path): the
+        # projected-only fallback stays NaN and never raises.
+        stale = features_mod._lineup_cache.copy()
+        stale["team"] = stale["team"].iloc[0:0]
+        features_mod._lineup_cache = stale
+        out = add_lineup_delta_features(self.games)
+        self.assertTrue(out["lineup_actual_woba_delta_home"].isna().all())
+
+
 class TestFreshCloneCoverage(unittest.TestCase):
     """With the committed runtime inputs present, the enrichment computes the
     6 columns at full coverage on the committed game CSV (fresh-cache load)."""

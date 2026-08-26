@@ -111,9 +111,20 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
         return out
 
     from build_oof_margin import MARGIN_COL as _BOM_MARGIN, refit_run_margins
-    from run_engine import run_oof
+    from run_engine import run_oof, _resolve_slate_key
     from training import FEATURE_COLS, get_last_margin_rounds
     assert _BOM_MARGIN == MARGIN_COL and MARGIN_COL in FEATURE_COLS
+
+    # Pre-game ESPN boards carry game_id only (no StatsAPI game_pk) — the
+    # 145d841 slate-key convention. refit_run_margins and the margin merge
+    # below are keyed by game_pk (the run engine's slate rows carry the
+    # ESPN id AS game_pk), so synthesize game_pk from game_id when absent;
+    # otherwise the attach dies with KeyError('game_pk') and today's board
+    # silently loses the shipped margin feature (the v26 error).
+    _slate_key = _resolve_slate_key(target_games)
+    if _slate_key == "game_id":
+        target_games = target_games.copy()
+        target_games["game_pk"] = target_games["game_id"]
 
     decided = games[games["home_win"].notna()]
     rounds = get_last_margin_rounds()
