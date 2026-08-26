@@ -1,6 +1,6 @@
 {
   "generated_for": "20260825",
-  "n_features": 64,
+  "n_features": 65,
   "warnings": [],
   "features": {
     "is_home": {
@@ -1130,6 +1130,24 @@
         "logistic"
       ],
       "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_rest_count_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: count (0\u20135)\nDirection: higher = more stars resting (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "run_margin_diff": {
+      "name": "run_margin_diff",
+      "summary": "Run engine's expected-run margin: \u03bb_home \u2212 \u03bb_away (Poisson per-side)",
+      "definition": "One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.",
+      "formula": "\u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)",
+      "source": "Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py",
+      "window": "per-game (model output, strictly-prior training window)",
+      "units": "expected runs",
+      "direction": "positive = run engine expects the home club to outscore",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     }
   }
 }
