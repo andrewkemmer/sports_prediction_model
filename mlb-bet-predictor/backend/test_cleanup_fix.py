@@ -35,7 +35,7 @@ _PROTECTED_DELIVERY_NAMES = {
     "batter_woba.parquet",
     "team_woba.parquet",
 }
-_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/")
+_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/", "run_engine_monitor_")
 _DATE_RE = re.compile(r"_(\d{8})")
 
 
@@ -193,6 +193,44 @@ class TestCleanupProtection(TestCase):
             "mlb-bet-predictor/data_delivery/calibration_20260819.json", stale)
         self.assertEqual(len(stale), 2)
         self.assertEqual(prot, 2)
+
+    def test_run_engine_monitor_protected_while_stale_pruned(self):
+        """Every dated run_engine_monitor_<date>.json survives cleanup via the
+        prefix rule (the monitor artifact must never be reset run-to-run — it
+        feeds the rolling per-line history, the same as model_history.json for
+        the moneyline), while stale non-protected date-stamped files
+        (features_metadata_<stale>.json, etc.) are still pruned."""
+        tracked = [
+            # Monitors from past days must survive so the next run folds them
+            # into the rolling series (not just today's, which the date-gate
+            # would keep anyway).
+            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260822.json",
+            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260823.json",
+            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260824.json",
+            # Stale non-protected date-stamped files must still prune.
+            "mlb-bet-predictor/data_delivery/features_metadata_20260818.json",
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+        ]
+        seen = set()  # none staged this run -> reliance on protection, not seen
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertEqual(prot, 3, "all dated run_engine_monitor files protected")
+        # Every monitor (including 20260824, which the date-gate alone would
+        # keep) must be BOTH protected AND absent from stale.
+        for sd in ("20260822", "20260823", "20260824"):
+            self.assertNotIn(
+                f"mlb-bet-predictor/data_delivery/run_engine_monitor_{sd}.json",
+                stale, "dated monitor must never be classified stale")
+        # The monitor files are NOT counted as same-day keeps either — they go
+        # through the protection path so the prefix rule is what saves them.
+        stale_names = {s.rsplit("/", 1)[-1] for s in stale}
+        self.assertFalse(any("run_engine_monitor" in n for n in stale_names))
+        # Stale non-protected date-stamped artifacts still prune.
+        self.assertEqual(stale, [
+            "mlb-bet-predictor/data_delivery/features_metadata_20260818.json",
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+        ])
 
 
 class TestDateGating(TestCase):

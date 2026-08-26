@@ -339,7 +339,13 @@ _PROTECTED_DELIVERY_NAMES = {
     "batter_woba.parquet",
     "team_woba.parquet",
 }
-_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/")
+# Prefix-protected. ``run_engine_monitor_<date>.json`` is date-stamped so the
+# bare date-gate would delete each day's monitor before the next run builds
+# its rolling per-line series — resetting the monitor's history every day.
+# Prefix-protect it (the same way model_history.json is name-protected for
+# the moneyline monitor's history leg) so every dated monitor survives and
+# the next day folds today's stats into the cumulative-by-date series.
+_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/", "run_engine_monitor_")
 
 # Current run date in YYYYMMDD for date-gating.
 _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"
