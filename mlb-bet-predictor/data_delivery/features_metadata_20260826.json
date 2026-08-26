@@ -1149,5 +1149,52 @@
       ],
       "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     }
+  },
+  "categorical_context": {
+    "venue": {
+      "name": "venue",
+      "summary": "Home ballpark \u2014 native categorical for LGB/XGB tree members",
+      "definition": "The game's venue name, encoded as a stable integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Park context (dome, altitude, dimensions) is a real input the numeric level features only approximate; the literal 'Unknown' value and predict-time newcomers map to a dedicated UNK category.",
+      "formula": "venue name \u2192 venue_id (stable int category, UNK-safe)",
+      "source": "game_level_features.csv venue column; slate rows carry the scheduled venue",
+      "window": "n/a (game context)",
+      "units": "categorical",
+      "direction": "context only \u2014 trees learn per-park splits",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: The game's venue name, encoded as a stable integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Park context (dome, altitude, dimensions) is a real input the numeric level features only approximate; the literal 'Unknown' value and predict-time newcomers map to a dedicated UNK category.\nFormula: venue name \u2192 venue_id (stable int category, UNK-safe)\nSource: game_level_features.csv venue column; slate rows carry the scheduled venue\nWindow: n/a (game context) \u00b7 Units: categorical\nDirection: context only \u2014 trees learn per-park splits\nConsumed by: xgboost, lightgbm"
+    },
+    "home_starter_id": {
+      "name": "home_starter_id",
+      "summary": "Home starting pitcher (MLB player ID) \u2014 native categorical for LGB/XGB",
+      "definition": "The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (ERA/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.",
+      "formula": "home_starter_id \u2192 home_starter_cat_id (dense int category, UNK-safe)",
+      "source": "Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id",
+      "window": "per game",
+      "units": "categorical",
+      "direction": "context only \u2014 trees learn per-pitcher splits",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: The home starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Pitcher identity carries skill level the numeric diffs (ERA/K9/xwOBA) only approximate, especially for elite or struggling arms. Starters never seen in training (callups, trades, spot starts) map to a dedicated UNK category.\nFormula: home_starter_id \u2192 home_starter_cat_id (dense int category, UNK-safe)\nSource: Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv home_starter_id\nWindow: per game \u00b7 Units: categorical\nDirection: context only \u2014 trees learn per-pitcher splits\nConsumed by: xgboost, lightgbm"
+    },
+    "away_starter_id": {
+      "name": "away_starter_id",
+      "summary": "Away starting pitcher (MLB player ID) \u2014 native categorical for LGB/XGB",
+      "definition": "The away starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Mirror of home_starter_id; same shared player\u2192category map, so the same pitcher is the same category on either side. Unseen starters map to a dedicated UNK category.",
+      "formula": "away_starter_id \u2192 away_starter_cat_id (dense int category, UNK-safe)",
+      "source": "Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv away_starter_id",
+      "window": "per game",
+      "units": "categorical",
+      "direction": "context only \u2014 trees learn per-pitcher splits",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: The away starter's MLB StatsAPI player ID, remapped to a compact integer category for the LightGBM/XGBoost members (native categorical, never one-hot). Mirror of home_starter_id; same shared player\u2192category map, so the same pitcher is the same category on either side. Unseen starters map to a dedicated UNK category.\nFormula: away_starter_id \u2192 away_starter_cat_id (dense int category, UNK-safe)\nSource: Probable-pitcher data (StatsAPI), announced well before first pitch; game_level_features.csv away_starter_id\nWindow: per game \u00b7 Units: categorical\nDirection: context only \u2014 trees learn per-pitcher splits\nConsumed by: xgboost, lightgbm"
+    }
   }
 }
