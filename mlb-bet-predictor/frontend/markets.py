@@ -18,6 +18,7 @@ never fake data.
 from __future__ import annotations
 
 import io
+import json
 
 import pandas as pd
 import streamlit as st
@@ -233,5 +234,219 @@ else:
                 f"Pick rule: {rpicks['pick_rule']} · {rpicks['n_games']:,} "
                 "decided games · hit rate is NOT calibration."
             )
+
+
+# ---------------------------------------------------------------------------
+# Prediction history — every game (game totals & run lines)
+# ---------------------------------------------------------------------------
+@st.cache_data(ttl=3600, show_spinner=False)
+def _team_map() -> pd.DataFrame:
+    """game_pk → (home_team, away_team) from game_level_features.csv.
+
+    The markets artifact carries game_pk + scores but no team names; the
+    matchups come from the shipped game-level features (100% game_pk
+    overlap on the current artifact). Mirrors utils._load_scores' fetch
+    pattern; empty frame when the artifact is unavailable (the caller
+    warns loudly and skips the tables — never fabricated)."""
+    cfg = utils.get_source_config()
+    raw, _ = utils._fetch_bytes("game_level_features.csv", **cfg)
+    if raw is None:
+        return pd.DataFrame(columns=["game_pk", "home_team", "away_team"])
+    try:
+        gl = pd.read_csv(io.BytesIO(raw), usecols=lambda c: c in (
+            "game_pk", "home_team", "away_team"))
+        gl = gl.dropna(subset=["game_pk"]).drop_duplicates("game_pk")
+        return gl.set_index("game_pk")
+    except Exception:
+        return pd.DataFrame(columns=["game_pk", "home_team", "away_team"])
+
+
+def _market_prob_note(date_str: str) -> str:
+    """Honest calibration label for the shipped grid probabilities.
+
+    The markets artifact ships RAW grid columns; the meta JSON records
+    prequentially CALIBRATED metrics (engine_*_calibrated) but does not
+    ship per-row Platt maps (and the CSV rows carry no fold id to apply
+    one), so the displayed probabilities are raw. If a future meta ships
+    a usable Platt section, this notes post-calibration instead — it
+    never claims calibration that is not there."""
+    cfg = utils.get_source_config()
+    raw, _ = utils._fetch_bytes(f"run_engine_markets_{date_str}.meta.json",
+                                **cfg)
+    if raw is not None:
+        try:
+            meta = json.loads(raw)
+        except Exception:
+            meta = {}
+        for k, v in (meta or {}).items():
+            if "calibr" in str(k).lower() and isinstance(v, dict) \
+                    and "a" in v and "b" in v:
+                return (" · probabilities are post-calibration "
+                        "σ(a·logit(p)+b)")
+    return (" · probabilities are RAW (no calibration map shipped in "
+            "the run-engine artifact)")
+
+
+def _result_cell(correct) -> str:
+    """✓/✗ RESULT cell, '—' for pushes (neither wins nor loses)."""
+    if pd.isna(correct):
+        return "<td>—</td>"
+    if bool(correct):
+        return f"<td style='color:{utils.PRIMARY};font-weight:700;'>✓</td>"
+    return f"<td style='color:{utils.RED};font-weight:700;'>✗</td>"
+
+
+def _score_cell(row) -> str:
+    if pd.notna(row.get("home_score")) and pd.notna(row.get("away_score")):
+        return f"{int(row['away_score'])}–{int(row['home_score'])}"
+    return "—"
+
+
+def _date_str(raw) -> str:
+    d = pd.to_datetime(raw, errors="coerce")
+    return d.strftime("%b %d, %Y") if pd.notna(d) else "—"
+
+
+def _render_totals_history(tot: pd.DataFrame, teams: pd.DataFrame,
+                           start_d, end_d, cal_note: str) -> None:
+    """Game-totals prediction history: DATE | MATCHUP | SCORE (A–H) |
+    LINE (O/U X.5) | MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT.
+    Most recent first in a fixed-height scroll container; header win rate
+    recomputes from the filtered rows; pushes excluded from the win rate
+    and counted in the caption (same semantics as the diagnostics)."""
+    view = diag.filter_history_frame(tot, start_d, end_d)
+    view = view.sort_values("game_date", ascending=False)
+    if not len(view):
+        st.markdown("#### Game Totals — Prediction History")
+        st.info("No games in the selected date range.")
+        return
+    stats = diag.history_win_rate(view)
+    rate = stats["win_rate"]
+    rate_txt = f"{rate * 100:.1f}% picks correct" if rate is not None \
+        else "no priced games"
+    push_txt = (
+        f" · {stats['n_pushes']:,} push(es) excluded — total == whole-"
+        "number line, neither wins nor loses") if stats["n_pushes"] else ""
+    st.markdown("#### Game Totals — Prediction History")
+    st.caption(
+        f"{stats['n_games']:,} games · {rate_txt} · most recent first — "
+        f"scroll for older results{push_txt}{cal_note}"
+    )
+    rows = []
+    for _, r in view.iterrows():
+        away = teams["away_team"].get(r["game_pk"], "—")
+        home = teams["home_team"].get(r["game_pk"], "—")
+        rows.append(
+            f"<tr><td>{_date_str(r['game_date'])}</td>"
+            f"<td>{away} @ {home}</td>"
+            f"<td>{_score_cell(r)}</td>"
+            f"<td>O/U {r['line']:.1f}</td>"
+            f"<td>{r['pick']} {r['line']:.1f} ({r['pick_prob']:.0%})</td>"
+            f"<td>{r['winner']}</td>{_result_cell(r['correct'])}</tr>"
+        )
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <div style="max-height:480px;overflow-y:auto;">
+            <table class="fb-table">
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+              <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
+              <th>RESULT</th></tr></thead>
+              <tbody>{''.join(rows)}</tbody>
+            </table>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_runline_history(rl: pd.DataFrame, teams: pd.DataFrame,
+                            start_d, end_d, cal_note: str) -> None:
+    """Run-line (−1.5/+1.5) prediction history: DATE | MATCHUP |
+    SCORE (A–H) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
+    WINNER | RESULT. Half-run lines never push, so every decided game
+    counts toward the win rate (noted in the caption)."""
+    view = diag.filter_history_frame(rl, start_d, end_d)
+    view = view.sort_values("game_date", ascending=False)
+    if not len(view):
+        st.markdown("#### Run Lines — Prediction History")
+        st.info("No games in the selected date range.")
+        return
+    stats = diag.history_win_rate(view)
+    rate = stats["win_rate"]
+    rate_txt = f"{rate * 100:.1f}% picks correct" if rate is not None \
+        else "no priced games"
+    st.markdown("#### Run Lines — Prediction History")
+    st.caption(
+        f"{stats['n_games']:,} games · {rate_txt} · most recent first — "
+        f"scroll for older results · half-run lines never push, so every "
+        f"decided game counts{cal_note}"
+    )
+    rows = []
+    for _, r in view.iterrows():
+        away = teams["away_team"].get(r["game_pk"], "—")
+        home = teams["home_team"].get(r["game_pk"], "—")
+        if r["pick"] == "home":
+            pick_txt = f"{home} −1.5 ({r['pick_prob']:.0%})"
+            winner_txt = home
+        else:
+            pick_txt = f"{away} +1.5 ({r['pick_prob']:.0%})"
+            winner_txt = away
+        rows.append(
+            f"<tr><td>{_date_str(r['game_date'])}</td>"
+            f"<td>{away} @ {home}</td>"
+            f"<td>{_score_cell(r)}</td>"
+            f"<td>RL −1.5/+1.5</td>"
+            f"<td>{pick_txt}</td>"
+            f"<td>{winner_txt}</td>{_result_cell(r['correct'])}</tr>"
+        )
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <div style="max-height:480px;overflow-y:auto;">
+            <table class="fb-table">
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+              <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
+              <th>RESULT</th></tr></thead>
+              <tbody>{''.join(rows)}</tbody>
+            </table>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+st.markdown("### Prediction History — Totals & Run Lines")
+if decided.empty:
+    st.info(
+        "No decided OOF rows in the run-engine markets artifact — the "
+        "totals/run-line history fills after a run that ships decided "
+        "games. Nothing is fabricated in the meantime."
+    )
+else:
+    tot = diag.totals_history_frame(decided)
+    rl = diag.runline_history_frame(decided)
+    teams = _team_map()
+    if teams.empty:
+        st.warning(
+            "Team-name artifact (game_level_features.csv) is unavailable "
+            "— the history tables need matchups and are skipped. Nothing "
+            "is fabricated."
+        )
+    else:
+        _dts = pd.to_datetime(decided["game_date"], errors="coerce").dropna()
+        lo, hi = _dts.min().date(), _dts.max().date()
+        fc1, fc2, _ = st.columns([1, 1, 2])
+        start_d = fc1.date_input("History start date", value=lo,
+                                 min_value=lo, max_value=hi)
+        end_d = fc2.date_input("History end date", value=hi,
+                               min_value=lo, max_value=hi)
+        if start_d > end_d:
+            start_d, end_d = end_d, start_d
+        _cal_note = _market_prob_note(date_str)
+        _render_totals_history(tot, teams, start_d, end_d, _cal_note)
+        _render_runline_history(rl, teams, start_d, end_d, _cal_note)
 
 

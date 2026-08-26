@@ -460,6 +460,160 @@ def runline_pick_table(decided: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Prediction-history row builders — game totals & run lines (read-only)
+# ---------------------------------------------------------------------------
+def _col_or(df: pd.DataFrame, name: str, default: Any = np.nan):
+    """Column value when present, else a constant (fixtures may omit it)."""
+    return df[name] if name in df.columns else default
+
+
+def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
+    """Per-game rows for the game-totals prediction-history table.
+
+    Each row is priced at the game's OWN rounded total — nearest 0.5 of
+    λ_home + λ_away, clamped to the shipped grid — the SAME line the
+    diagnostics' totals-picks chart uses, so the two agree exactly.
+    pick = Over if p_over(line) >= 0.5 else Under (the diagnostics tie
+    convention; p_under is the exact mirror 1 − p_over); pick_prob is the
+    favored side's probability. winner = Over when total_runs > line,
+    Under when total_runs < line, Push when total_runs == line
+    (whole-number lines only — integer totals can never equal an X.5
+    line). Push rows carry correct = NaN so win rates exclude them from
+    BOTH numerator and denominator, matching the diagnostics push
+    handling. Rows whose grid column is missing/NaN cannot be priced and
+    are DROPPED — never fabricated.
+    """
+    empty = pd.DataFrame(columns=["game_pk", "game_date", "home_score",
+                                  "away_score", "total_runs", "line",
+                                  "pick", "pick_prob", "winner",
+                                  "correct"])
+    if not len(decided) or "total_runs" not in decided.columns:
+        return empty
+    if ({"home_expected_runs", "away_expected_runs"}
+            .difference(decided.columns)):
+        return empty
+    total = decided["total_runs"].to_numpy(float)
+    lines = _rounded_lines(decided)
+    hs = _col_or(decided, "home_score")
+    as_ = _col_or(decided, "away_score")
+    gd = _col_or(decided, "game_date")
+    pk = _col_or(decided, "game_pk")
+    rows = []
+    for i in range(len(decided)):
+        line = lines[i]
+        over_col, _ = grid_over_under_cols(line)
+        if over_col not in decided.columns:
+            continue
+        p = decided[over_col].iloc[i]
+        if pd.isna(p):
+            continue
+        p = float(p)
+        pick = "Over" if p >= 0.5 else "Under"
+        pick_prob = p if pick == "Over" else 1.0 - p
+        t = total[i]
+        if t == line:
+            winner = "Push"
+        else:
+            winner = "Over" if t > line else "Under"
+        correct = (float(pick == winner) if winner != "Push" else np.nan)
+        rows.append({
+            "game_pk": pk.iloc[i],
+            "game_date": gd.iloc[i],
+            "home_score": hs.iloc[i],
+            "away_score": as_.iloc[i],
+            "total_runs": t,
+            "line": line,
+            "pick": pick,
+            "pick_prob": round(pick_prob, 6),
+            "winner": winner,
+            "correct": correct,
+        })
+    if not rows:
+        return empty
+    return pd.DataFrame(rows)
+
+
+def runline_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
+    """Per-game rows for the run-line (−1.5/+1.5) prediction-history table.
+
+    pick = home −1.5 when p_home_cover_1_5 >= 0.5 else away +1.5
+    (pick_prob = the favored side's probability, complement of the shipped
+    home-cover column). winner = HOME when home_score − away_score >= 2,
+    AWAY otherwise — a 1-run home win is an away +1.5 win. Half-run lines
+    never push, so every priced game has a definite winner (no push
+    handling, noted in the caption). Rows missing the cover column or a
+    NaN cover probability are DROPPED — never fabricated.
+    """
+    empty = pd.DataFrame(columns=["game_pk", "game_date", "home_score",
+                                  "away_score", "pick", "pick_prob",
+                                  "winner", "correct"])
+    if not len(decided) or RUN_COVER_COL not in decided.columns:
+        return empty
+    if {"home_score", "away_score"}.difference(decided.columns):
+        return empty
+    p = decided[RUN_COVER_COL].to_numpy(float)
+    margin = (decided["home_score"].to_numpy(float)
+              - decided["away_score"].to_numpy(float))
+    gd = _col_or(decided, "game_date")
+    pk = _col_or(decided, "game_pk")
+    rows = []
+    for i in range(len(decided)):
+        if pd.isna(p[i]):
+            continue
+        pick = "home" if p[i] >= 0.5 else "away"
+        pick_prob = p[i] if pick == "home" else 1.0 - p[i]
+        winner = "home" if margin[i] >= 2 else "away"
+        rows.append({
+            "game_pk": pk.iloc[i],
+            "game_date": gd.iloc[i],
+            "home_score": decided["home_score"].iloc[i],
+            "away_score": decided["away_score"].iloc[i],
+            "pick": pick,
+            "pick_prob": round(float(pick_prob), 6),
+            "winner": winner,
+            "correct": float(pick == winner),
+        })
+    if not rows:
+        return empty
+    return pd.DataFrame(rows)
+
+
+def filter_history_frame(frame: pd.DataFrame, start_date: Any,
+                         end_date: Any) -> pd.DataFrame:
+    """Rows with game_date within [start_date, end_date] (inclusive).
+
+    Pure date filter over the history frames (start/end as date or
+    datetime-like); the render layer sorts most-recent-first.
+    """
+    if not len(frame) or "game_date" not in frame.columns:
+        return frame.copy()
+    dts = pd.to_datetime(frame["game_date"], errors="coerce").dt.date
+    keep = (dts >= start_date) & (dts <= end_date)
+    return frame[keep].reset_index(drop=True)
+
+
+def history_win_rate(frame: pd.DataFrame) -> dict:
+    """Header stats: n_games (non-push denominator) + pooled correct rate.
+
+    Push rows carry correct = NaN (totals whole-number-line pushes) and
+    are excluded from BOTH numerator and denominator; run-line rows never
+    push, so every row counts. Returns {"n_games", "win_rate",
+    "n_pushes"} — win_rate is None when no decided (non-push) rows.
+    """
+    if not len(frame) or "correct" not in frame.columns:
+        return {"n_games": 0, "win_rate": None, "n_pushes": 0}
+    ok = frame["correct"].notna()
+    n = int(ok.sum())
+    wins = float(frame.loc[ok, "correct"].sum()) if n else 0.0
+    n_pushes = 0
+    if "winner" in frame.columns:
+        n_pushes = int((frame["winner"] == "Push").sum())
+    return {"n_games": n,
+            "win_rate": (round(wins / n, 6) if n else None),
+            "n_pushes": n_pushes}
+
+
+# ---------------------------------------------------------------------------
 # Today's Games card enrichment (read-only over the slate rows)
 # ---------------------------------------------------------------------------
 
