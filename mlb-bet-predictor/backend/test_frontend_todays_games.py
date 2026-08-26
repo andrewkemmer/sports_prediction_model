@@ -226,7 +226,7 @@ class TestMarketsPageStripped(unittest.TestCase):
             "Blowout-tail fit check",
             "CONFLICT", "suppressed_game_pks",
             "P(OVER ", "P(COVER ", "DERIVED ML",
-            "Holdout", "agreement_delta",
+            "agreement_delta",
         ]:
             self.assertNotIn(marker, self.src,
                              f"removed panel marker still rendered: {marker}")

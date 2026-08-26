@@ -1034,6 +1034,12 @@ def derive_markets_v3(oof: pd.DataFrame,
         p_cal = prequential_calibrate(yv, p, fold_idx)
         row["engine_logloss_calibrated"] = round(log_loss(yv, p_cal), 5)
         row["engine_ece_calibrated"] = ece_score(yv, p_cal)
+        # Pooled mean of the PREQUENTIALLY-CALIBRATED probability vector. This
+        # is the "predicted mean" the monitor shows next to base_rate so the
+        # calibration spread (mean prediction vs mean outcome) is explicit.
+        # Purely additive — no scoring math changed.
+        row["predicted_mean"] = round(float(np.mean(p_cal)), 4)
+        row["n"] = int(len(yv))  # pooled game count scored for this line
         if mask is not None and mask.any():
             ph = p[mask]
             yh = yv[mask]
@@ -1347,8 +1353,23 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
 
     combined = (pd.concat([markets, slate_frame], ignore_index=True)
                 if not slate_frame.empty else markets)
-    mkt_path = persist_markets(combined, target_date_str, summary)
+    # Persist the markets artifact LAST so a persist failure leaves the OOF +
+    # monitor block intact and loudly flags markets_persisted=False (never a
+    # silent stale serve). Task 0's row-resolution fix makes this path robust
+    # to unresolvable slate rows; this wraps it defensively regardless.
     oof_path = persist_oof(oof, target_date_str)
+    markets_persisted = True
+    markets_persist_error: Optional[str] = None
+    mkt_path: Optional[Path] = None
+    try:
+        mkt_path = persist_markets(combined, target_date_str, summary)
+    except Exception as exc:
+        markets_persisted = False
+        markets_persist_error = f"{type(exc).__name__}: {exc}"
+        logger.error(
+            "Run engine: markets persist FAILED — "
+            "run_engine_markets_%s.csv NOT written (monitor must flag it): %s",
+            target_date_str, exc, exc_info=True)
     totals_brier = compute_rolling_totals_brier(combined)
 
     s1 = result["summary"]
@@ -1392,11 +1413,15 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                        "away": s1["away_dispersion_ratio"]},
                    "final_fit_rounds": s1["final_fit_rounds"]},
     }
-    artifacts = [
-        str(mkt_path), str(oof_path),
-        str(DATA_DELIVERY_DIR / f"run_engine_markets_{target_date_str}.meta.json"),
-    ]
-    return {"block": monitor_block, "artifacts": artifacts}
+    artifacts = [str(oof_path)]
+    if mkt_path is not None:
+        artifacts.append(str(mkt_path))
+        artifacts.append(
+            str(DATA_DELIVERY_DIR
+                / f"run_engine_markets_{target_date_str}.meta.json"))
+    return {"block": monitor_block, "artifacts": artifacts,
+            "markets_persisted": markets_persisted,
+            "markets_persist_error": markets_persist_error}
 
 
 def _print_phase2(s: dict[str, Any],

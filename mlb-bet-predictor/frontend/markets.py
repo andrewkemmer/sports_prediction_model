@@ -449,3 +449,251 @@ else:
         _render_runline_history(rl, teams, start_d, end_d, _cal_note)
 
 
+
+
+
+# ---------------------------------------------------------------------------
+# Run-Line & Totals Monitor — per-line calibration cards, fit panel,
+# rolling history from run_engine_monitor_YYYYMMDD.json
+# ---------------------------------------------------------------------------
+# The moneyline monitor lives in model_monitor_*.json (model_monitor.py).
+# This is its run-engine counterpart: per-reference-line calibration stats,
+# distributional fit diagnostics (alpha, chi-squared, tail checks), and a
+# rolling per-line history.  The file is protected from Phase-6 cleanup by
+# the ``run_engine_monitor_`` prefix in _PROTECTED_DELIVERY_PREFIXES.
+
+import datetime as _dt  # noqa: E402 — page-level, after existing imports
+
+_MONITOR_LINES = (
+    ("over_7_5",  "Over 7.5"),
+    ("over_8_5",  "Over 8.5"),
+    ("over_9_5",  "Over 9.5"),
+    ("home_cover_1_5", "Home cover -1.5"),
+    ("home_cover_2_5", "Home cover -2.5"),
+    ("derived_moneyline", "Derived ML"),
+)
+
+
+def _load_run_engine_monitor(ds: str) -> dict | None:
+    """Load run_engine_monitor_YYYYMMDD.json from data_delivery."""
+    import logging as _lg
+    _log = _lg.getLogger("markets")
+    fname = f"run_engine_monitor_{ds}.json"
+    cfg = utils.get_source_config()
+    try:
+        raw, src = utils._fetch_bytes(fname, **cfg)
+    except Exception as exc:
+        url = utils._raw_url(fname, **cfg)
+        _log.error("Monitor fetch exception for %s (%s): %s", fname, url, exc)
+        st.warning(f"Fetch error for {fname} -- see log.")
+        return None
+    if raw is None:
+        url = utils._raw_url(fname, **cfg)
+        _log.warning("Monitor artifact not found: %s (URL: %s, source: %s)",
+                     fname, url, src)
+        return None
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        _log.error("Monitor JSON parse failed for %s: %s", fname, exc)
+        return None
+
+
+def _fmt(v, nd=3, pct=False) -> str:
+    """Format a numeric value for display; None/dash for missing."""
+    if v is None:
+        return "--"
+    if pct:
+        return f"{v * 100:.1f}%"
+    if isinstance(v, float):
+        return f"{v:.{nd}f}"
+    return str(v)
+
+
+def _ec_indicator(raw: float | None, cal: float | None) -> str:
+    """Color-coded ECE badge: green < 0.01, yellow < 0.02, red >= 0.02."""
+    val = cal if cal is not None else raw
+    if val is None:
+        return "⚪"
+    if val < 0.01:
+        return "🟢"
+    if val < 0.02:
+        return "🟡"
+    return "🔴"
+
+
+def _render_monitor_cards(per_line: dict) -> None:
+    """Render per-line calibration cards in a 3-column grid."""
+    items = [(k, label) for k, label in _MONITOR_LINES if k in per_line]
+    if not items:
+        st.info("No per-line calibration data in the monitor artifact.")
+        return
+
+    n_cols = 3
+    for row_start in range(0, len(items), n_cols):
+        row = items[row_start:row_start + n_cols]
+        cols = st.columns(n_cols)
+        for i, (key, label) in enumerate(row):
+            card = per_line[key]
+            h = card.get("holdout") or {}
+            badge = _ec_indicator(
+                card.get("ece_raw"), card.get("ece_calibrated"))
+            with cols[i]:
+                st.markdown(f"**{label}** {badge}")
+                c1, c2 = st.columns(2)
+                c1.metric("Pooled ECE-cal", _fmt(card.get("ece_calibrated")))
+                c2.metric("Holdout ECE-cal",
+                          _fmt(h.get("ece_calibrated")) if h else "--")
+                c1, c2 = st.columns(2)
+                c1.metric("Pooled Brier", _fmt(card.get("brier")))
+                c2.metric("Holdout Brier",
+                          _fmt(h.get("brier")) if h else "--")
+                c1, c2 = st.columns(2)
+                c1.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
+                c2.metric("Holdout Logloss",
+                          _fmt(h.get("logloss"), 4) if h else "--")
+                c1, c2 = st.columns(2)
+                c1.metric("Base rate", _fmt(card.get("base_rate"), 4))
+                c2.metric("Predicted mean",
+                          _fmt(card.get("predicted_mean"), 4))
+                st.caption(f"n = {card.get('n', '--'):,} pooled"
+                           + (f" / {h.get('n', 0):,} holdout" if h else ""))
+
+
+def _render_fit_panel(fit: dict) -> None:
+    """Render distributional fit diagnostics (alpha, chi2/df, tail checks)."""
+    if not fit:
+        st.info("No fit diagnostics in the monitor artifact.")
+        return
+
+    st.markdown("#### Distributional Fit (NB Monte Carlo)")
+
+    # Alpha per side
+    a_h = fit.get("alpha_home") or {}
+    a_a = fit.get("alpha_away") or {}
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("alpha_home", _fmt(a_h.get("alpha_hat"), 4))
+    c2.metric("chi2/df_home", _fmt(fit.get("chi2_per_df_home"), 2))
+    c3.metric("alpha_away", _fmt(a_a.get("alpha_hat"), 4))
+    c4.metric("chi2/df_away", _fmt(fit.get("chi2_per_df_away"), 2))
+
+    # Tail checks from fit tables
+    for side_label, side_key in [("Home", "home"), ("Away", "away")]:
+        tbl = (fit.get("fit_tables") or {}).get(side_key)
+        if not tbl:
+            continue
+        tail_rows = [r for r in tbl if r.get("k") in ("<={1}", ">={10}")]
+        if tail_rows:
+            parts = []
+            for r in tail_rows:
+                k_label = str(r.get("k", "")).replace("<={1}", "k<=1").replace(
+                    ">={10}", "k>=10")
+                parts.append(
+                    f"{k_label}: obs={r.get('observed', '--'):.3f} "
+                    f"mod={r.get('modeled', '--'):.3f}")
+            st.caption(f"**{side_label}** tail: " + " | ".join(parts))
+
+    # Variance check
+    vc = fit.get("variance_check") or {}
+    if vc:
+        st.caption(
+            f"Variance check: home_raw={vc.get('home_raw_var', '--')}, "
+            f"home_NB={vc.get('home_nb_var', '--')}, "
+            f"away_raw={vc.get('away_raw_var', '--')}, "
+            f"away_NB={vc.get('away_nb_var', '--')}")
+
+    # Monte Carlo metadata
+    mc = fit.get("mc_meta") or {}
+    if mc:
+        st.caption(
+            f"Monte Carlo: {mc.get('n_samples', '--'):,} samples, "
+            f"seed={mc.get('seed', '--')}")
+
+
+def _render_rolling_history(rolling: dict) -> None:
+    """Render per-line rolling ECE-calibrated history as a compact table."""
+    if not rolling:
+        st.info("No rolling history yet (first build starts empty).")
+        return
+
+    has_data = any(len(v) > 0 for v in rolling.values())
+    if not has_data:
+        st.info("Rolling history is empty (will populate on subsequent runs).")
+        return
+
+    st.markdown("#### Rolling ECE-Calibrated History (per line)")
+    rows = []
+    for key, label in _MONITOR_LINES:
+        series = rolling.get(key) or []
+        if not series:
+            continue
+        # Show last 10 points
+        recent = series[-10:]
+        for pt in recent:
+            rows.append({
+                "Line": label,
+                "Date": pt.get("date", "--"),
+                "ECE-cal": _fmt(pt.get("ece_calibrated")),
+                "Brier": _fmt(pt.get("brier")),
+                "Logloss": _fmt(pt.get("logloss"), 4),
+                "Pred mean": _fmt(pt.get("predicted_mean")),
+                "n": pt.get("n", 0),
+            })
+    if rows:
+        rdf = pd.DataFrame(rows)
+        st.dataframe(rdf, use_container_width=True, hide_index=True)
+    else:
+        st.info("No rolling history points yet.")
+
+
+# ── Monitor section (appended after prediction history) ──────────────────
+st.markdown("---")
+st.markdown("### Run-Line & Totals Monitor")
+st.caption(
+    "Run-engine per-line calibration + distributional fit + rolling "
+    "history from run_engine_monitor_*.json.  **Honesty note:** run-engine "
+    "ECE-calibrated is typically ~0.014-0.018 pooled / ~0.05 holdout -- "
+    "weaker than the moneyline monitor's.  This is the actual calibration "
+    "quality; no styling hides it.")
+
+monitor = _load_run_engine_monitor(date_str)
+if monitor is None:
+    url = utils._raw_url(
+        f"run_engine_monitor_{date_str}.json", **utils.get_source_config())
+    st.warning(
+        f"No run-engine monitor artifact for {date_str}. "
+        f"Attempted URL: `{url}`. "
+        "The monitor fills after the next pipeline run ships "
+        "run_engine_monitor_*.csv.")
+else:
+    # Markets-persisted flag
+    persisted = monitor.get("markets_persisted", True)
+    persist_err = monitor.get("markets_persist_error")
+    if not persisted:
+        st.error(
+            f"**Markets CSV was NOT persisted for {date_str}**: "
+            f"{persist_err or 'unknown error'}.  "
+            "The monitor data below is from the in-memory summary; "
+            "downstream consumers should not trust the markets artifact.")
+    elif persist_err:
+        st.warning(
+            f"Markets persist warning: {persist_err} (but CSV was written).")
+
+    # Per-line calibration cards
+    per_line = monitor.get("per_line") or {}
+    if per_line:
+        _render_monitor_cards(per_line)
+    else:
+        st.info("No per-line calibration data in this monitor artifact.")
+
+    # Fit panel
+    fit = monitor.get("fit") or {}
+    if fit:
+        with st.expander("Distributional Fit Diagnostics", expanded=False):
+            _render_fit_panel(fit)
+
+    # Rolling history
+    rolling = monitor.get("rolling") or {}
+    with st.expander("Rolling History (last 10 points per line)",
+                     expanded=False):
+        _render_rolling_history(rolling)

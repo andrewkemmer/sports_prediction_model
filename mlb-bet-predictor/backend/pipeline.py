@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 def _attach_slate_run_margins(target_games: pd.DataFrame,
                               games: pd.DataFrame) -> pd.DataFrame:
     """Attach run_margin_diff to the prediction board BEFORE moneyline
-    inference (shipped feature — training-time OOF margins alone don't help
+    inference (shipped feature -- training-time OOF margins alone don't help
     the slate).
 
     Slate margins use the run engine's PRODUCTION slate convention: a
@@ -99,7 +99,7 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     saw the game. Falls back to a fresh run_oof for the round counts when no
     walk-forward ran this process (cached-ensemble path). Frames without the
     run-engine inputs keep an all-NaN margin (imputed by existing paths)
-    with a loud warning — never a fabricated 0.
+    with a loud warning -- never a fabricated 0.
     """
     from training import FEATURE_COLS
     if MARGIN_COL not in FEATURE_COLS:
@@ -107,7 +107,7 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     _missing = {"game_pk", "home_score", "away_score"} - set(games.columns)
     if _missing:
         logger.warning(
-            "run_margin_diff: slate attach skipped — games frame lacks %s; "
+            "run_margin_diff: slate attach skipped -- games frame lacks %s; "
             "margin stays all-NaN (imputed by existing paths)",
             sorted(_missing))
         out = target_games.copy()
@@ -119,7 +119,7 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     from training import FEATURE_COLS, get_last_margin_rounds
     assert _BOM_MARGIN == MARGIN_COL and MARGIN_COL in FEATURE_COLS
 
-    # Pre-game ESPN boards carry game_id only (no StatsAPI game_pk) — the
+    # Pre-game ESPN boards carry game_id only (no StatsAPI game_pk) -- the
     # 145d841 slate-key convention. refit_run_margins and the margin merge
     # below are keyed by game_pk (the run engine's slate rows carry the
     # ESPN id AS game_pk), so synthesize game_pk from game_id when absent;
@@ -134,7 +134,7 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     rounds = get_last_margin_rounds()
     if not rounds:
         logger.info(
-            "run_margin_diff: no walk-forward margin rounds in this process — "
+            "run_margin_diff: no walk-forward margin rounds in this process -- "
             "deriving them from a fresh run-engine OOF")
         try:
             rounds = run_oof(decided)["summary"]["final_fit_rounds"]
@@ -164,7 +164,7 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
 
     The margin column lives ONLY in the margin-enriched training frame
     (build_oof_margin.oof_run_margins, attached inside
-    walk_forward_evaluate) — it never lands in game_level_features.csv. The
+    walk_forward_evaluate) -- it never lands in game_level_features.csv. The
     drift step slices its windows from that CSV, so without this enrichment
     compute_feature_drift silently omits run_margin_diff's row from the PSI
     table (the one numeric moneyline feature missing from drift). Uses the
@@ -174,7 +174,7 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
     stay NaN → imputed at training; here they are excluded from the drift
     distribution with honest coverage counts.
 
-    A failed derivation warns loudly and returns the frame unchanged — the
+    A failed derivation warns loudly and returns the frame unchanged -- the
     margin row is then omitted from drift, never fabricated.
     """
     if MARGIN_COL not in FEATURE_COLS:
@@ -190,7 +190,7 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
         return enriched
     except Exception as exc:
         logger.warning(
-            "run_margin_diff: drift margin attach failed (%s) — margin "
+            "run_margin_diff: drift margin attach failed (%s) -- margin "
             "row omitted from drift, drift continues", exc)
         return decided
 
@@ -254,11 +254,11 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     """Attach the 6 lineup-delta columns to today's slate from posted lineups.
 
     Resolution: StatsAPI schedule for target_date maps (home, away) → game_pk
-    (the slate carries no StatsAPI game_pk — ESPN's game_id only), then the
+    (the slate carries no StatsAPI game_pk -- ESPN's game_id only), then the
     live feed per game, paced like the roof fetcher (~2.2 req/s, one retry).
     Games with a complete 9+9 battingOrder get REAL lineup-delta features
     (same point-in-time math as training: batter/team sd-wOBA through games
-    strictly before today — no lookahead).
+    strictly before today -- no lookahead).
 
     Projected fallback for games not yet posted (per the 2026-08-25 posting-
     curve probe, away sides generally post ~2-3h before first pitch; a morning
@@ -371,7 +371,7 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         "venue", "model_pick", "home_win",
         # Finals for finished games (ESPN results merged onto the slate)
         "home_score", "away_score", "total_runs",
-        # Game state from ESPN — drives Live/Final status on the dashboard
+        # Game state from ESPN -- drives Live/Final status on the dashboard
         "game_state", "game_status_detail",
     ]
     cols = [c for c in out_cols if c in games.columns]
@@ -385,7 +385,7 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     path = DATA_DELIVERY_DIR / f"{POWER_RANKINGS}_{target_date_str}.csv"
 
     teams = games["home_team"].unique()
-    # Ties/postponements carry home_win = NULL — they are not wins or losses
+    # Ties/postponements carry home_win = NULL -- they are not wins or losses
     # and must not crash int() conversion or distort percentages.
     decided = games[games["home_win"].notna()]
     rankings = []
@@ -409,7 +409,7 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
         away_wins = int(away_games["home_win"].sum()) if not away_games.empty else 0
         away_pct = round(1 - away_wins / max(away_count, 1), 3) if away_count > 0 else 0.5
 
-        # L10 — last 10 DECIDED games
+        # L10 -- last 10 DECIDED games
         recent = team_games.tail(10)
         l10_wins = 0
         for _, g in recent.iterrows():
@@ -505,8 +505,8 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
                 _raw_fav = _np.maximum(yp[okc.values], 1.0 - yp[okc.values])
                 _cal_fav = _np.maximum(y_cal[okc].values, 1.0 - y_cal[okc].values)
                 for b in row["buckets"]:
-                    lo = float(b["bucket"].split("–")[0]) / 100.0
-                    hi = float(b["bucket"].split("–")[1].rstrip("%")) / 100.0
+                    lo = float(b["bucket"].split("--")[0]) / 100.0
+                    hi = float(b["bucket"].split("--")[1].rstrip("%")) / 100.0
                     mask = (_raw_fav >= lo) & (_raw_fav < hi)
                     if hi >= 0.999:
                         mask |= _raw_fav == hi
@@ -599,7 +599,7 @@ def _calibration_json(
 def _predictions_history_csv(
     oof: Optional[pd.DataFrame], target_date_str: str
 ) -> Optional[Path]:
-    """Write predictions_history_YYYYMMDD.csv — every walk-forward OOF game
+    """Write predictions_history_YYYYMMDD.csv -- every walk-forward OOF game
     prediction with its actual result.
 
     Feeds the Calibration page's per-game history table (the same games that
@@ -710,7 +710,7 @@ def _model_monitor_json(
         },
         "feature_drift": drift_df.to_dict(orient="records") if not drift_df.empty else [],
         # Per-feature non-null coverage per window (measured vs default-filled).
-        # Visual backstop for silent data starvation — see compute_feature_coverage.
+        # Visual backstop for silent data starvation -- see compute_feature_coverage.
         "feature_coverage": coverage_df.to_dict(orient="records")
                                if coverage_df is not None and not coverage_df.empty else [],
         # Rolling trailing-window Brier over decided OOF games (calibrated p).
@@ -732,7 +732,7 @@ def _model_monitor_json(
         } if rolling_brier else {},
         # Rich per-feature metadata (definition/formula/source/window/units/
         # direction/derived members) for drift-table tooltips. One source of
-        # truth generated from FEATURE_COLS — see feature_metadata.py.
+        # truth generated from FEATURE_COLS -- see feature_metadata.py.
         "features_metadata": (features_metadata or {}).get("features", {}),
         # Run-engine Phase 3: per-market metrics, α(λ) params + fit-checks,
         # MC metadata, line-grid availability, agreement-filter stats.
@@ -747,6 +747,169 @@ def _model_monitor_json(
 
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+    return path
+
+
+# The 6 run-engine reference markets the monitor scores (mirrors
+# TOTAL_REF_LINES + RUN_REF_LINES + the derived moneyline).
+_RUN_ENGINE_MONITOR_LINES = (
+    "over_7_5", "over_8_5", "over_9_5",
+    "home_cover_1_5", "home_cover_2_5", "derived_moneyline",
+)
+
+# How many recent daily points each line's rolling series keeps.
+RUN_ENGINE_MONITOR_ROLLING_DAYS = 45
+
+
+def _iso_from_ymd(ymd: str) -> str:
+    """Normalize a YYYYMMDD stamp to an ISO YYYY-MM-DD date string."""
+    s = str(ymd).strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s  # already ISO (or unparseable -- safe to pass through)
+
+
+def _run_engine_fit_block(block: Optional[dict]) -> dict:
+    """Extract the distributional-fit block for the monitor from the daily
+    run engine's monitor block (α per side, χ²/df, per-side observed-vs--modeled
+    NB PMF tables incl. the ">=10"/"<=1" tail rows, variance check)."""
+    if not block:
+        return {}
+    dispersion = (block.get("phase1") or {}).get("dispersion_ratio") or {}
+    hg = block.get("holdout_gate") or {}
+    return {
+        "alpha_home": block.get("alpha_home"),
+        "alpha_away": block.get("alpha_away"),
+        "dispersion_chi2_per_df": {
+            "home": dispersion.get("home"),
+            "away": dispersion.get("away"),
+        },
+        "fit_tables": (block.get("fit_check_alpha_lambda") or {}),
+        "variance_check": block.get("variance_check"),
+        "mc_meta": block.get("mc_meta"),
+        "line_grid": block.get("line_grid"),
+        "holdout_gate": {
+            "cutoff": hg.get("cutoff"),
+            "n_pre": hg.get("n_pre"),
+            "n_holdout": hg.get("n_holdout"),
+        },
+    }
+
+
+def _run_engine_monitor_json(
+    block: Optional[dict],
+    target_date_str: str,
+    markets_persisted: bool,
+    markets_persist_error: Optional[str],
+) -> Path:
+    """Write run_engine_monitor_YYYYMMDD.json -- the Run-Line & Totals Monitor.
+
+    Schema (run-engine-monitor/v1). ``block`` is run_engine_daily's
+    monitor-embed dict; the flags are its markets_persisted passthrough.
+
+      per_line:  {line: {n, base_rate, predicted_mean, ece_raw,
+                          ece_calibrated, brier, logloss, holdout{...}}}
+                 ``predicted_mean`` is the pooled PREQUENTIALLY-CALIBRATED
+                 mean probability (score_at field) shown beside ``base_rate``
+                 so the calibration spread (mean prediction vs mean outcome)
+                 is explicit.
+      rolling:   {line: [{date, ece_calibrated, brier, logloss,
+                         predicted_mean, n}]} cumulative-by-date series
+                 folded from prior monitor files (protected by the
+                 run_engine_monitor_ prefix in _PROTECTED_DELIVERY_PREFIXES
+                 so they survive cleanup), trimmed to the last 45 days.
+                 First build is empty; the renderer must handle [].
+      fit:       alpha_home/alpha_away (curve), dispersion chi2/df per side,
+                 per-side fit tables (observed vs modeled NB PMF incl. the
+                 ">=10"/"<=1" tail rows), mc meta, n_pre/n_holdout.
+      markets_persisted/markets_persist_error: passthrough -- the monitor
+                 MUST say loudly when today's markets CSV did not persist
+                 (never silently serve stale data).
+    """
+    DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    path = DATA_DELIVERY_DIR / f"run_engine_monitor_{target_date_str}.json"
+
+    per_line: dict[str, dict] = {}
+    if block:
+        mets = block.get("market_metrics") or {}
+        for line in _RUN_ENGINE_MONITOR_LINES:
+            card = mets.get(line)
+            if not isinstance(card, dict):
+                continue
+            per_line[line] = {
+                "n": int(card.get("n", 0)),
+                "base_rate": card.get("baseline_rate"),
+                "predicted_mean": card.get("predicted_mean"),
+                "ece_raw": card.get("engine_ece_raw"),
+                "ece_calibrated": card.get("engine_ece_calibrated"),
+                "brier": card.get("engine_brier"),
+                "logloss": card.get("engine_logloss"),
+                "logloss_calibrated": card.get("engine_logloss_calibrated"),
+                "holdout": card.get("holdout"),
+            }
+
+    # Rolling per-line series: fold prior monitor files (protected by the
+    # run_engine_monitor_ prefix so cleanup never deletes them), append today's
+    # point, dedupe by date, trim to the last RUN_ENGINE_MONITOR_ROLLING_DAYS.
+    rolling: dict[str, list[dict]] = {ln: [] for ln in _RUN_ENGINE_MONITOR_LINES}
+    try:
+        by_line: dict[str, dict[str, dict]] = {
+            ln: {} for ln in _RUN_ENGINE_MONITOR_LINES}
+        if DATA_DELIVERY_DIR.exists():
+            for p in DATA_DELIVERY_DIR.glob("run_engine_monitor_*.json"):
+                if p.name == path.name:
+                    continue
+                try:
+                    j = json.loads(p.read_text())
+                except Exception:
+                    continue
+                fdate = _iso_from_ymd(str(j.get("date") or p.stem.replace(
+                    "run_engine_monitor_", "")))
+                for ln in _RUN_ENGINE_MONITOR_LINES:
+                    pc = (j.get("per_line") or {}).get(ln)
+                    if not isinstance(pc, dict):
+                        continue
+                    by_line[ln][fdate] = {
+                        "date": fdate,
+                        "ece_calibrated": pc.get("ece_calibrated"),
+                        "brier": pc.get("brier"),
+                        "logloss": pc.get("logloss"),
+                        "predicted_mean": pc.get("predicted_mean"),
+                        "n": int(pc.get("n", 0)),
+                    }
+        today_ymd = _iso_from_ymd(target_date_str)
+        for ln in _RUN_ENGINE_MONITOR_LINES:
+            pc = per_line.get(ln)
+            if pc is None:
+                continue
+            by_line[ln][today_ymd] = {
+                "date": today_ymd,
+                "ece_calibrated": pc.get("ece_calibrated"),
+                "brier": pc.get("brier"),
+                "logloss": pc.get("logloss"),
+                "predicted_mean": pc.get("predicted_mean"),
+                "n": int(pc.get("n", 0)),
+            }
+        for ln in _RUN_ENGINE_MONITOR_LINES:
+            series = sorted(by_line[ln].values(), key=lambda r: r["date"])
+            rolling[ln] = series[-RUN_ENGINE_MONITOR_ROLLING_DAYS:]
+    except Exception as e:
+        logger.warning("Run-engine monitor: rolling fold skipped (%s)", e)
+
+    data = {
+        "schema": "run-engine-monitor/v1",
+        "date": target_date_str,
+        "markets_persisted": bool(markets_persisted),
+        "markets_persist_error": markets_persist_error,
+        "per_line": per_line,
+        "rolling": rolling,
+        "fit": _run_engine_fit_block(block),
+    }
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    _nroll = len(next(iter(rolling.values()))) if rolling else 0
+    logger.info("Run-engine monitor: %d lines, rolling %d days -> %s",
+                len(per_line), _nroll, path.name)
     return path
 
 
@@ -772,7 +935,7 @@ def _attach_recent_weather(games: pd.DataFrame, target_date: date) -> pd.DataFra
     so first fetch each game's REAL first pitch from StatsAPI; weather is
     then sampled strictly before it (Open-Meteo archive, with a recent-past
     forecast fallback and climatology as last resort).  Without this,
-    wind/air-density features are null for all history except dome zeros —
+    wind/air-density features are null for all history except dome zeros --
     collapsing their drift sample to ~1/3 of the other features.
     """
     from results import fetch_game_start_times
@@ -791,8 +954,8 @@ def _attach_recent_weather(games: pd.DataFrame, target_date: date) -> pd.DataFra
         return games
 
     # Real first pitches keyed by StatsAPI game_pk (the same authoritative
-    # identifier the results overlay uses).  Rows without one — or without a
-    # matching official start — are skipped: never sample at a fabricated hour.
+    # identifier the results overlay uses).  Rows without one -- or without a
+    # matching official start -- are skipped: never sample at a fabricated hour.
     starts = fetch_game_start_times(subset["game_date"].min().date(),
                                     subset["game_date"].max().date())
 
@@ -815,7 +978,7 @@ def _attach_recent_weather(games: pd.DataFrame, target_date: date) -> pd.DataFra
         # apply_weather_features key results by it when game_id is absent.
         row_idx.append(idx)
     if not rows:
-        logger.warning("Weather backfill: no authoritative start times matched — skipped")
+        logger.warning("Weather backfill: no authoritative start times matched -- skipped")
         return games
 
     wx_df = pd.DataFrame(rows, index=row_idx)
@@ -847,7 +1010,7 @@ _OBSERVED_WEATHER_SOURCES = {
     "open_meteo_forecast_past",
     "noaa_isd",
     # Official park-reported conditions (gameData.weather). Real observation,
-    # but only wind fills honestly — the feed has no humidity, so air_density
+    # but only wind fills honestly -- the feed has no humidity, so air_density
     # stays NULL for these records by the module's no-fabrication rule.
     "statsapi_gamefeed",
 }
@@ -866,12 +1029,12 @@ def _load_weather_cache(path: Path) -> dict[int, dict]:
     try:
         df = pd.read_parquet(path)
     except Exception as exc:
-        logger.warning("Weather cache unreadable (%s) — rebuilding", exc)
+        logger.warning("Weather cache unreadable (%s) -- rebuilding", exc)
         return {}
     if "source" not in df.columns:
         # Legacy caches predate provenance and may contain climatology values
         # marked available=True. Never reuse them as observed weather.
-        logger.warning("Weather cache has no source column — invalidating legacy cache")
+        logger.warning("Weather cache has no source column -- invalidating legacy cache")
         return {}
     out: dict[int, dict] = {}
     for _, r in df.iterrows():
@@ -929,7 +1092,7 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
         starts = fetch_game_start_times(gd[need].min().date(), gd[need].max().date())
         # Loud coverage gate: a silently truncated schedule source is how an
         # ENTIRE SEASON of weather features went null while every log line
-        # looked healthy (2470/2477 'fetched' — of only the games attempted).
+        # looked healthy (2470/2477 'fetched' -- of only the games attempted).
         # Checked PER CALENDAR YEAR because the failure was season-specific:
         # 2025 matched 100% while 2026 matched ~1%. An aggregate ratio over
         # both years would have diluted the dead season into a single pass.
@@ -945,7 +1108,7 @@ def _attach_weather_history(games: pd.DataFrame, target_date: date) -> pd.DataFr
             if yr_pks and matched_yr < 0.8 * len(yr_pks):
                 logger.warning(
                     "Weather history: start times matched only %d/%d decided "
-                    "games in %d (%s→%s) — schedule source may be truncating "
+                    "games in %d (%s→%s) -- schedule source may be truncating "
                     "or failing; open-air weather stays NULL for unmatched games",
                     matched_yr, len(yr_pks), int(year),
                     gd[need][yr_mask].min().date(), gd[need][yr_mask].max().date())
@@ -1076,7 +1239,7 @@ def run_daily_pipeline(
                the target date).
         games: Pre-built game DataFrame (from features.py). When provided,
                skips load_game_events() and uses this data for training.
-        min_train_days: Warm-up period — skip validation folds that start
+        min_train_days: Warm-up period -- skip validation folds that start
                before this many days of history (prevents tiny-training-fold noise).
         pbp_df: Optional pitch-level frame used to map probable-pitcher names
                to their rolling stat lines when predicting today's slate.
@@ -1115,7 +1278,7 @@ def run_daily_pipeline(
         # Official-results overlay (Step 1.5).  Authoritative scores and
         # finality from StatsAPI: corrects frozen mid-game finals
         # retroactively and NULLS any home_win attached to a game that is
-        # not officially final — a partial score can never ship as a final
+        # not officially final -- a partial score can never ship as a final
         # (the same guarantee features.build_features provides).
         try:
             from results import apply_official_results, fetch_mlb_results
@@ -1127,36 +1290,36 @@ def run_daily_pipeline(
         except Exception as exc:
             logger.warning("Official results overlay failed on history: %s", exc)
 
-        # Real point-in-time weather for features 30–31 (wind advantage,
+        # Real point-in-time weather for features 30--31 (wind advantage,
         # air density).  One Open-Meteo request per (stadium, day); games
         # without a strictly-prior observation get NULL weather features
         # (never a fabricated 0).  Weather is only attached when the frame
-        # carries GENUINELY observed start times — fabricated defaults (e.g.
+        # carries GENUINELY observed start times -- fabricated defaults (e.g.
         # load_game_features' 19:00 UTC fallback) are excluded via the
         # start_time_observed tag so we never fetch weather for the wrong
         # hour.
         # ALWAYS recompute every diff feature from the raw home/away columns.
         # Pre-built exports may contain column names with stale or
         # schema-drifted values (e.g. win_pct_diff NaN from the DuckDB first
-        # pass, renamed pitcher windows, weather defaults) — presence of a
+        # pass, renamed pitcher windows, weather defaults) -- presence of a
         # column is never evidence its values are current. Recomputation is a
         # cheap vectorized pass and runs exactly once, BEFORE any weather
         # application so the two weather-driven features are applied on top
         # of fresh diffs afterwards.
         logger.info("Recomputing all diff features from raw home/away columns")
         # Final computation: official results already applied, so record
-        # columns must exist — a missing win_pct_diff here is a real problem.
+        # columns must exist -- a missing win_pct_diff here is a real problem.
         games = add_diff_features(games, require_records=True)
         # Momentum form deltas (recent − season-to-date baseline). Idempotent:
         # SQL-shipped columns win; missing ones are computed from the shipped
-        # recent/season columns when both exist (NaN otherwise — imputed by
+        # recent/season columns when both exist (NaN otherwise -- imputed by
         # the existing paths). Moneyline-only: the run engine excludes
         # *_delta_* columns in derive_run_features.
         games = add_form_delta_features(games)
         # Phase 2 lineup deltas (actual starting-9 wOBA − team season, per
         # side) from data_delivery/lineups.parquet + batter/team sd-wOBA
         # tables. Idempotent; moneyline-only (run engine excludes them).
-        # require_caches=True: the feature is SHIPPED — a fresh clone missing
+        # require_caches=True: the feature is SHIPPED -- a fresh clone missing
         # the committed artifacts must fail LOUD (FileNotFoundError naming the
         # file), never silently train with dead columns (see aead200/42ef3f7
         # cleanup incident).
@@ -1164,7 +1327,7 @@ def run_daily_pipeline(
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see
-            # _attach_weather_history) — no reliance on the trailing window.
+            # _attach_weather_history) -- no reliance on the trailing window.
             # add_diff_features may assign legacy dome-neutral defaults before
             # the real weather pass. Air density is not safely neutral indoors
             # without an observation, so clear it before applying cache data.
@@ -1194,10 +1357,10 @@ def run_daily_pipeline(
                         weather = fetch_games_weather(games.loc[real_start])
                     except Exception as e:
                         logger.warning(
-                            "Weather fetch failed for history (features 30–31 stay NULL): %s", e
+                            "Weather fetch failed for history (features 30--31 stay NULL): %s", e
                         )
                     # apply_weather_features is imported at module level; do NOT
-                    # re-import it here — a branch-local binding makes the name
+                    # re-import it here -- a branch-local binding makes the name
                     # function-local and crashes the slate path below with
                     # UnboundLocalError when this branch never ran.
                     if weather:
@@ -1303,12 +1466,12 @@ def run_daily_pipeline(
             # Statcast-derived history ends at the last PLAYED game, so on a
             # normal pre-game run there are zero rows for today. Build today's
             # real schedule with each team/pitcher's latest point-in-time
-            # state carried forward — never recycle yesterday's completed
+            # state carried forward -- never recycle yesterday's completed
             # games as "today" again.
             slate = build_upcoming_slate(games, target_date, pbp_df=pbp_df)
             if not slate.empty:
                 logger.info(
-                    "No completed games on %s — built %d-game upcoming slate "
+                    "No completed games on %s -- built %d-game upcoming slate "
                     "(pre-game PIT features)", target_date_str, len(slate),
                 )
                 # Fetch point-in-time weather for the slate, then compute diff features
@@ -1329,12 +1492,12 @@ def run_daily_pipeline(
                 target_games = slate.copy()
             else:
                 logger.warning(
-                    "No games found for %s (schedule fetch empty) — falling "
+                    "No games found for %s (schedule fetch empty) -- falling "
                     "back to most recent games", target_date_str,
                 )
                 target_games = games.tail(15).copy()
 
-        # ESPN drops probablePitcher once games start — restore the pitching
+        # ESPN drops probablePitcher once games start -- restore the pitching
         # matchup and lines published by an earlier same-day run before they
         # get overwritten.
         target_games = _carry_forward_slate_details(target_games, target_date_str)
@@ -1342,7 +1505,7 @@ def run_daily_pipeline(
         # Official-results overlay on today's board.  Slate rows carry no
         # StatsAPI game_pk, so the overlay falls back to (date + teams).
         # Live/preview games get home_win=NULL; finals get authoritative
-        # scores — never a mid-game snapshot as a final.
+        # scores -- never a mid-game snapshot as a final.
         try:
             from results import apply_official_results, fetch_mlb_results
             _d = pd.to_datetime(target_games.get("game_date"), errors="coerce").dropna()
@@ -1363,7 +1526,7 @@ def run_daily_pipeline(
             target_games = _attach_slate_run_margins(target_games, games)
         except Exception as exc:
             logger.error(
-                "run_margin_diff slate attach failed (%s) — margin stays "
+                "run_margin_diff slate attach failed (%s) -- margin stays "
                 "all-NaN (imputed by existing paths), prediction continues", exc)
 
         target_games = predict_games(best_models, target_games)
@@ -1379,7 +1542,7 @@ def run_daily_pipeline(
         path = _power_rankings_csv(games, target_date_str)
         summary["artifacts"].append(str(path))
 
-        # calibration JSON — written on EVERY run.  The walk-forward OOF frame
+        # calibration JSON -- written on EVERY run.  The walk-forward OOF frame
         # carries thousands of PIT-safe predicted-vs-actual pairs regardless
         # of whether tonight's slate has finished, so a pre-game-only run must
         # still ship a fresh artifact (Phase 6 prunes stale calibration files,
@@ -1403,7 +1566,7 @@ def run_daily_pipeline(
                 min_len = min(len(y_true), len(y_pred))
                 cal_yt, cal_yp = y_true[:min_len], y_pred[:min_len]
             else:
-                # No finals yet today: fall back to OOF pairs only — labels
+                # No finals yet today: fall back to OOF pairs only -- labels
                 # are real outcomes from completed games, never fabricated.
                 _ot = pd.to_numeric(all_predictions["home_win"], errors="coerce")
                 _op = pd.to_numeric(all_predictions["home_win_prob_model"], errors="coerce")
@@ -1414,7 +1577,7 @@ def run_daily_pipeline(
             hist_path = _predictions_history_csv(all_predictions, target_date_str)
             if hist_path is not None:
                 summary["artifacts"].append(str(hist_path))
-            # Rolling Brier series over the same OOF history — computed from
+            # Rolling Brier series over the same OOF history -- computed from
             # the raw blend through the DEPLOYED calibrator (get_last_calibrator
             # holds exactly the map predict-time and the charts use).
             rolling_brier = compute_rolling_brier(
@@ -1423,7 +1586,7 @@ def run_daily_pipeline(
             summary["artifacts"].append(
                 str(DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json")
             )
-        # Feature metadata (dashboard tooltips) — walks FEATURE_COLS itself so
+        # Feature metadata (dashboard tooltips) -- walks FEATURE_COLS itself so
         # new features appear (or warn loudly); routing derived from live config.
         features_metadata = generate_features_metadata(target_date_str)
         summary["artifacts"].append(
@@ -1432,15 +1595,29 @@ def run_daily_pipeline(
 
         # Run engine (Phase 3): OOF re-derivation on the SAME fixed folds →
         # α(λ) dispersion curves fitted PRE-HOLDOUT only → NB Monte-Carlo
-        # market grid (totals 6.5–12.5, run lines −0.5…−3.5) for OOF + today's
+        # market grid (totals 6.5--12.5, run lines −0.5…−3.5) for OOF + today's
         # slate → agreement conflicts vs the moneyline ensemble. Must never
         # take down the rest of the run.
         run_engine_block = None
         try:
             from run_engine import run_engine_daily
             _re = run_engine_daily(games, target_games, target_date_str)
-            run_engine_block = _re["block"]
-            summary["artifacts"].extend(_re["artifacts"])
+            run_engine_block = _re.get("block")
+            summary["artifacts"].extend(_re.get("artifacts") or [])
+            # Run-Line & Totals Monitor artifact: per-line calibration
+            # + fit + rolling history + markets_persisted flag. run_engine_
+            # daily returns markets_persisted=False (with a reason) when
+            # the markets CSV persist failed so the monitor says so loudly
+            # instead of silently serving stale data. Protected from
+            # phase-6 cleanup by the run_engine_monitor_ prefix.
+            try:
+                _rem = _run_engine_monitor_json(
+                    run_engine_block, target_date_str,
+                    _re.get("markets_persisted", False),
+                    _re.get("markets_persist_error"))
+                summary["artifacts"].append(str(_rem))
+            except Exception as mex:
+                logger.error("Run-engine monitor write failed: %s", mex)
         except Exception as e:
             logger.error("Run engine failed (continuing): %s", e, exc_info=True)
 
@@ -1458,7 +1635,7 @@ def run_daily_pipeline(
         # window (~3x the current window, min 250 games). Comparing against
         # all history instead made every cumulative feature (elo, win_pct,
         # run_diff) look like ALERT drift, because those distributions widen
-        # structurally as a season matures — a property of the feature, not
+        # structurally as a season matures -- a property of the feature, not
         # model health. Adjacent-but-not-tiny keeps it apples-to-apples while
         # giving quantile bin edges enough samples to be stable.
         # Decided games ONLY: pre-game slate rows carry the latest PIT state
@@ -1472,7 +1649,7 @@ def run_daily_pipeline(
         decided = decided.sort_values("game_date")
         gd = pd.to_datetime(decided["game_date"])
         # run_margin_diff is the shipped moneyline feature that exists ONLY
-        # in the margin-enriched training frame — it never lands in
+        # in the margin-enriched training frame -- it never lands in
         # game_level_features.csv, so without enrichment the drift step
         # would silently omit its row. Attach leakage-free OOF margins on
         # the moneyline's own fold split (run engine READ-ONLY) so the
