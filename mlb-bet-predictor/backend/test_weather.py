@@ -304,6 +304,39 @@ class TestBatchWeather(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(mock_batch.call_count, 1)
 
+    def test_batch_failure_returns_empty_but_logs_codes(self):
+        """A persistent batch failure returns {} (contributing nothing to the
+        caller's cache — no partial loss) AND the failing locations are named
+        in the WARNING so the StatsAPI gap filler knows exactly what to
+        recover."""
+        from weather import _fetch_batch_range
+
+        def _resp(status):
+            import requests as _rq
+            m = MagicMock()
+            m.status_code = status
+            m.headers = {}
+            def _rf():
+                if status >= 400:
+                    raise _rq.exceptions.HTTPError(f"{status} Client Error")
+            m.raise_for_status = _rf
+            return m
+
+        # A 429 that exhausts its retries returns the 429 to the batch caller.
+        with patch("time.sleep", lambda *_: None), \
+             patch("weather.requests.get") as mock_get, \
+             self.assertLogs("weather", level="WARNING") as logs:
+            mock_get.return_value = _resp(429)
+            src = _fetch_batch_range(
+                [("BOS", STADIUMS["BOS"]), ("NYY", STADIUMS["NYY"])],
+                date(2025, 7, 15), date(2025, 7, 15), source="open_meteo_archive")
+        # Persistent 429 -> the batch contributes nothing (no partial loss).
+        self.assertEqual(src, {})
+        # The failed locations are spelled out for the gap filler.
+        joined = "\n".join(logs.output)
+        self.assertIn("BOS", joined)
+        self.assertIn("NYY", joined)
+
 
 class TestGetWithRetry(unittest.TestCase):
     """429/5xx responses must retry with backoff, not degrade to climatology."""
@@ -346,6 +379,87 @@ class TestGetWithRetry(unittest.TestCase):
         resp = _get_with_retry("https://x/archive", {}, attempts=3)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(mock_get.call_count, 2)
+
+    # ------------------------------------------------------------------
+    # 429 rate-limit hardening (2026-08-26): deeper backoff ladder, an
+    # authoritative Retry-After, and fail-fast on non-retriable statuses.
+    # ------------------------------------------------------------------
+    @patch("time.sleep")
+    @patch("weather.requests.get")
+    def test_429_retries_with_exponential_backoff(self, mock_get, mock_sleep):
+        """429s retry through the full 5-attempt ladder with 2**attempt
+        backoff + jitter (1/2/4/8/16s base), recovering on the last attempt."""
+        side = [self._resp(429)] * 4 + [self._resp(200)]
+        mock_get.side_effect = side
+        resp = _get_with_retry("https://x/archive", {})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 5)
+        sleeps = [s[0][0] for s in mock_sleep.call_args_list]
+        self.assertEqual(len(sleeps), 4)
+        # Backoff base is 2**attempt with <=0.5s jitter.
+        bases = [2 ** a for a in range(4)]
+        for got, base in zip(sleeps, bases):
+            self.assertTrue(base <= got < base + 0.51,
+                            f"backoff {got} not within [{base},{base+0.51})")
+
+    @patch("time.sleep")
+    @patch("weather.requests.get")
+    def test_retry_after_is_authoritative_floor(self, mock_get, mock_sleep):
+        """When the API returns Retry-After, the wait must be at least that
+        long even if it exceeds the local exponential backoff."""
+        resp_429 = self._resp(429)
+        resp_429.headers = {"Retry-After": "30"}  # longer than the 16s max ladder
+        mock_get.side_effect = [resp_429, self._resp(200)]
+        resp = _get_with_retry("https://x/archive", {})
+        self.assertEqual(resp.status_code, 200)
+        wait = mock_sleep.call_args_list[0][0][0]
+        self.assertGreaterEqual(wait, 30.0)
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("weather.requests.get")
+    def test_non_retriable_status_fails_fast(self, mock_get):
+        """A non-retriable 4xx must return immediately — no retry spent on a
+        permanent error."""
+        for status in (400, 401, 403, 404):
+            mock_get.reset_mock()
+            mock_get.side_effect = [self._resp(status)] * 3
+            resp = _get_with_retry("https://x/archive", {})
+            self.assertEqual(resp.status_code, status)
+            self.assertEqual(mock_get.call_count, 1,
+                             f"{status} must not be retried")
+
+    @patch("time.sleep", lambda *_: None)
+    @patch("weather.requests.get")
+    def test_stable_5xx_still_retried_but_429_gives_up_after_ladder(self, mock_get):
+        """503s are transient and retried; a sustained 429 exhausts the 5-
+        attempt ladder (returns the 429, not a fabricated success)."""
+        mock_get.side_effect = [self._resp(503), self._resp(200)]
+        resp = _get_with_retry("https://x/archive", {})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock_get.call_count, 2)
+
+        mock_get.reset_mock()
+        mock_get.side_effect = [self._resp(429)] * 6
+        resp = _get_with_retry("https://x/archive", {})
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(mock_get.call_count, 5)  # 5 attempts, no more
+
+    def test_batch_pacing_constants(self):
+        """The batch constants must reflect the 2026-08-26 rate-limit
+        hardening: batch size halved and an inter-batch pause that keeps
+        requests under the per-minute quota."""
+        from weather import (
+            _WEATHER_BATCH_SIZE,
+            _WEATHER_BATCH_PAUSE_SEC,
+            _WEATHER_BATCH_DAYS,
+            _WEATHER_BACKOFF_BASE_SEC,
+            _WEATHER_RETRY_DEFAULT_ATTEMPTS,
+        )
+        self.assertEqual(_WEATHER_BATCH_DAYS, 14)
+        self.assertLessEqual(_WEATHER_BATCH_SIZE, 15)
+        self.assertGreaterEqual(_WEATHER_BATCH_PAUSE_SEC, 1.0)
+        self.assertGreaterEqual(_WEATHER_RETRY_DEFAULT_ATTEMPTS, 5)
+        self.assertGreaterEqual(_WEATHER_BACKOFF_BASE_SEC, 2.0)
 
 
 if __name__ == "__main__":

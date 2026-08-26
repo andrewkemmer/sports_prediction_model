@@ -255,17 +255,41 @@ _HOURLY_KEYS = (
 )
 
 
-def _get_with_retry(url: str, params: dict, attempts: int = 3,
+# Retriable transient statuses (rate limiting + gateway errors that Open-Meteo
+# serves under load). Non-retriable 4xx (e.g. 400 bad-request) and stable 5xx
+# return immediately — wasting retries on those only delays real failures.
+_RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
+
+# Exponential backoff base delays (seconds) per retry: 1s/2s/4s/8s/16s across
+# 5 attempts, plus a small random jitter so retrying clients don't re-cluster
+# on the same second. 429 batches in recent runs exhausted 2 retries at ~1-2s
+# before Open-Meteo's per-minute quota reset — the deeper 5-attempt ladder
+# (to 16s) gives a burst the time to drain instead of dropping the whole batch.
+_WEATHER_BACKOFF_BASE_SEC = 2.0
+_WEATHER_RETRY_MAX_JITTER_SEC = 0.5
+_WEATHER_RETRY_DEFAULT_ATTEMPTS = 5
+
+
+def _get_with_retry(url: str, params: dict, attempts: int = _WEATHER_RETRY_DEFAULT_ATTEMPTS,
                     timeout: int = 15):
-    """GET with exponential backoff and server-directed retry delays."""
+    """GET with exponential backoff and server-directed retry delays.
+
+    Retries only on the transient ``_RETRIABLE_STATUSES`` (429/502/503/504):
+    each retry waits ``2**attempt`` + jitter, or the API's ``Retry-After``
+    when it returns one (whichever is longer — Retry-After is authoritative
+    for rate limits). Non-retriable 4xx/5xx return immediately (fail fast).
+    Network exceptions are retried with the same backoff and re-raised if
+    every attempt fails.
+    """
     import random
     import time
     last_exc = None
     for attempt in range(attempts):
         try:
             resp = requests.get(url, params=params, timeout=timeout)
-            if resp.status_code in (429, 502, 503, 504) and attempt < attempts - 1:
-                wait = (2 ** attempt) + random.uniform(0, 0.5)
+            if resp.status_code in _RETRIABLE_STATUSES and attempt < attempts - 1:
+                wait = (_WEATHER_BACKOFF_BASE_SEC ** attempt) + random.uniform(
+                    0, _WEATHER_RETRY_MAX_JITTER_SEC)
                 try:
                     retry_after = float(resp.headers.get("Retry-After", ""))
                     wait = max(wait, retry_after)
@@ -282,7 +306,8 @@ def _get_with_retry(url: str, params: dict, attempts: int = 3,
         except requests.RequestException as e:
             last_exc = e
             if attempt < attempts - 1:
-                time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+                time.sleep((_WEATHER_BACKOFF_BASE_SEC ** attempt) + random.uniform(
+                    0, _WEATHER_RETRY_MAX_JITTER_SEC))
     if last_exc is not None:
         raise last_exc
     return resp
@@ -538,8 +563,14 @@ def fetch_game_weather(
 
 
 _WEATHER_BATCH_DAYS = 14
-_WEATHER_BATCH_SIZE = 30
-_WEATHER_BATCH_PAUSE_SEC = 0.5
+# Batch size halved 30 -> 15 and pause raised 0.5 -> 1.0s (2026-08-26):
+# 30-location archive batches under a 0.5s pause burst past Open-Meteo's
+# per-minute quota (recurring 429s dropped whole batches — ~134 v26 games).
+# Smaller batches + a steady 1s inter-batch gap stay comfortably under the
+# quota while keeping total wall-clock sane (~15 locations/request, pausing
+# only between batches).
+_WEATHER_BATCH_SIZE = 15
+_WEATHER_BATCH_PAUSE_SEC = 1.0
 
 
 def _utc_naive(value: datetime | pd.Timestamp | str) -> datetime | None:
@@ -634,9 +665,16 @@ def _fetch_batch_range(
         resp.raise_for_status()
         return _parse_batch_response(resp.json(), locations, source)
     except Exception as exc:
+        # Name the exact stadiums that failed so the StatsAPI game-feed gap
+        # filler (and anyone debugging 429 gaps) knows precisely what to
+        # recover. An unsuccessful batch contributes nothing to the caller's
+        # cache (``by_key.update`` only sees the returned {}), so already-
+        # fetched batches are never lost.
+        codes = ",".join(code for code, _ in locations)
         logger.warning(
-            "Weather batch failed (%s → %s, %d locations, source=%s): %s",
-            start_date, end_date, len(locations), source, exc,
+            "Weather batch failed (%s → %s, %d locations, source=%s): %s "
+            "[locations: %s]",
+            start_date, end_date, len(locations), source, exc, codes,
         )
         return {}
 
