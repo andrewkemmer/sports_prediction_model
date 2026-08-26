@@ -62,6 +62,7 @@ from weather import apply_weather_features, fetch_day_weather, fetch_games_weath
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
+    MARGIN_COL,
     compute_metrics,
     calibration_buckets,
     feature_importance_weights,
@@ -78,6 +79,67 @@ from training import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_slate_run_margins(target_games: pd.DataFrame,
+                              games: pd.DataFrame) -> pd.DataFrame:
+    """Attach run_margin_diff to the prediction board BEFORE moneyline
+    inference (shipped feature — training-time OOF margins alone don't help
+    the slate).
+
+    Slate margins use the run engine's PRODUCTION slate convention: a
+    fit-only refit of both per-side Poisson models on ALL decided games at
+    the median fold round count from the moneyline's own walk-forward
+    (build_oof_margin.refit_run_margins). Every predicted game is strictly
+    future relative to that fit, so no margin can come from a model that
+    saw the game. Falls back to a fresh run_oof for the round counts when no
+    walk-forward ran this process (cached-ensemble path). Frames without the
+    run-engine inputs keep an all-NaN margin (imputed by existing paths)
+    with a loud warning — never a fabricated 0.
+    """
+    from training import FEATURE_COLS
+    if MARGIN_COL not in FEATURE_COLS:
+        return target_games
+    _missing = {"game_pk", "home_score", "away_score"} - set(games.columns)
+    if _missing:
+        logger.warning(
+            "run_margin_diff: slate attach skipped — games frame lacks %s; "
+            "margin stays all-NaN (imputed by existing paths)",
+            sorted(_missing))
+        out = target_games.copy()
+        out[MARGIN_COL] = np.nan
+        return out
+
+    from build_oof_margin import MARGIN_COL as _BOM_MARGIN, refit_run_margins
+    from run_engine import run_oof
+    from training import FEATURE_COLS, get_last_margin_rounds
+    assert _BOM_MARGIN == MARGIN_COL and MARGIN_COL in FEATURE_COLS
+
+    decided = games[games["home_win"].notna()]
+    rounds = get_last_margin_rounds()
+    if not rounds:
+        logger.info(
+            "run_margin_diff: no walk-forward margin rounds in this process — "
+            "deriving them from a fresh run-engine OOF")
+        try:
+            rounds = run_oof(decided)["summary"]["final_fit_rounds"]
+        except Exception as exc:
+            logger.error("run_margin_diff: run_oof round derivation failed (%s); "
+                         "margin stays all-NaN", exc)
+            out = target_games.copy()
+            out[MARGIN_COL] = np.nan
+            return out
+
+    margins = refit_run_margins(decided, target_games, rounds)
+    out = target_games.copy()
+    out = out.drop(columns=[MARGIN_COL] if MARGIN_COL in out.columns else [])
+    out = out.merge(margins[["game_pk", MARGIN_COL]], on="game_pk", how="left")
+    logger.info(
+        "run_margin_diff: slate margins attached (fit-only refit on %d decided "
+        "games at median rounds %s); coverage %.1f%% of %d board rows",
+        len(decided), {k: int(v) for k, v in rounds.items()},
+        100 * float(out[MARGIN_COL].notna().mean()), len(out))
+    return out
 
 
 def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
@@ -1239,6 +1301,17 @@ def run_daily_pipeline(
                         all_predictions = apply_official_results(all_predictions, _res)
         except Exception as exc:
             logger.warning("Official results overlay failed on slate: %s", exc)
+
+        # Shipped run-margin feature: attach the slate margins (fit-only
+        # refit on all decided games at the walk-forward median round count)
+        # so the moneyline board predicts with the same feature the model
+        # trained on. Never lets a margin from a model that saw the game in.
+        try:
+            target_games = _attach_slate_run_margins(target_games, games)
+        except Exception as exc:
+            logger.error(
+                "run_margin_diff slate attach failed (%s) — margin stays "
+                "all-NaN (imputed by existing paths), prediction continues", exc)
 
         target_games = predict_games(best_models, target_games)
 

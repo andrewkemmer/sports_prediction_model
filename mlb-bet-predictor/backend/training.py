@@ -50,6 +50,30 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+# Run-margin feature column (λ_home − λ_away from the run engine's per-side
+# Poisson models, out-of-fold on the moneyline's own split). Kept in sync
+# with build_oof_margin.MARGIN_COL; the value lives here so feature_metadata
+# and the run-engine derivation both stay in one canonical place.
+MARGIN_COL = "run_margin_diff"
+
+# Median early-stopping round counts (home/away) from the most recent OOF
+# margin build inside walk_forward_evaluate. The slate/inference path reuses
+# them for its fit-only refit so a fresh run-engine OOF is not needed every
+# day; None until the first walk-forward margin build.
+_LAST_MARGIN_ROUNDS: dict | None = None
+
+
+def set_last_margin_rounds(rounds: dict | None) -> None:
+    """Record the median fold round counts used for the OOF margin build."""
+    global _LAST_MARGIN_ROUNDS
+    _LAST_MARGIN_ROUNDS = dict(rounds) if rounds else None
+
+
+def get_last_margin_rounds() -> dict | None:
+    """Median fold round counts from the most recent margin build (or None)."""
+    return dict(_LAST_MARGIN_ROUNDS) if _LAST_MARGIN_ROUNDS else None
+
+
 # Features used for model input — all diff/computed features.
 # Diff convention: home − away (positive = home advantage).
 #
@@ -180,6 +204,21 @@ FEATURE_COLS = [
     "lineup_actual_top3_delta_away",
     "lineup_rest_count_home",
     "lineup_rest_count_away",
+    # 63. Run-engine expected-run margin — SHIPPED 2026-08-26: the ablation
+    # cleared the sealed-21-day-holdout gate (holdout logloss 0.6774 → 0.6765,
+    # AUC 0.5780 → 0.5786; ECE-cal 0.0626 → 0.0554; pooled OOF logloss
+    # 0.6839 → 0.6830 / AUC 0.5669 → 0.5694; see run_margin_ablation.py and
+    # data_delivery/margin_ablation_<sha>.json). One column, computed
+    # OUT-OF-FOLD on the MONEYLINE'S OWN fold split: λ_home − λ_away from the
+    # run engine's per-side LightGBM Poisson models (its unchanged 29-feature
+    # levels+env view), so no game's margin ever comes from a model that saw
+    # it. Computed at training time by _attach_oof_run_margins() in
+    # walk_forward_evaluate; slate margins come from a fit-only refit on all
+    # decided games at the median fold round count (pipeline._attach_slate_
+    # run_margins). The run engine itself can never consume it: the *_diff
+    # rule in derive_run_features drops it (and the ablation's LAMBDAS
+    # variant showed λ_home/λ_away add nothing beyond the margin).
+    "run_margin_diff",
 ]
 # Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
@@ -1105,6 +1144,106 @@ def train_run_line_model(
     return {"models": models, "metrics": metrics}
 
 
+# ── Run-margin enrichment (moneyline-only, leakage-free) ──────────────────
+
+def _attach_oof_run_margins(
+    games: pd.DataFrame,
+    splits: list[dict[str, Any]],
+    min_val_games: int,
+    max_eval_folds: int,
+    retrain_cadence_days: int,
+    min_train_days: int,
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Compute + attach the out-of-fold run margin on the CALLER'S folds.
+
+    run_margin_diff = λ_home − λ_away, where the λs come from the run
+    engine's per-side Poisson models (build_oof_margin.oof_run_margins — the
+    run engine's own 29-feature levels+env view, READ-ONLY). For each fold
+    the run engine trains on that fold's TRAIN games only and predicts that
+    fold's VAL games, so every game's margin comes from a model trained
+    strictly before it (fold-boundary asserted inside oof_run_margins).
+
+    Games outside any executed fold's val window (warm-up rows, folds below
+    the min-val gate) get NO margin → NaN → the moneyline's existing
+    imputation path (trees route NaN; logistic/MLP train-median). The
+    coverage is logged loudly, never papered over.
+
+    Returns (enriched COPY of games, regenerated splits over the enriched
+    frame). Fold GEOMETRY is asserted identical to the input splits —
+    walk_forward_splits is a pure function of game_date/home_win, so the
+    only difference is the attached margin columns.
+
+    Frames without the run-engine inputs (game_pk/home_score/away_score —
+    e.g. synthetic test frames) get an all-NaN margin column and a loud
+    warning instead of a crash: the production training path always carries
+    scores, and silently dropping the column would be worse.
+    """
+    _missing_cols = {"game_pk", "home_score", "away_score"} - set(games.columns)
+    if _missing_cols:
+        logger.warning(
+            "run_margin_diff: frame lacks %s — margin stays all-NaN (imputed "
+            "by existing paths); a production frame must carry these",
+            sorted(_missing_cols))
+        out = games.copy()
+        out[MARGIN_COL] = np.nan
+        return out, _regenerate_splits(out, splits, min_val_games,
+                                       retrain_cadence_days, max_eval_folds,
+                                       min_train_days)
+
+    exec_folds = [s for s in splits if len(s["val_games"]) >= min_val_games]
+    if not exec_folds:
+        logger.warning("run_margin_diff: no executed folds — margin stays all-NaN")
+        out = games.copy()
+        out[MARGIN_COL] = np.nan
+        return out, splits
+
+    from build_oof_margin import MARGIN_COL as _BOM_MARGIN, oof_run_margins
+    assert _BOM_MARGIN == MARGIN_COL
+    decided = games[games["home_win"].notna()].reset_index(drop=True)
+    margins, rounds, uncov = oof_run_margins(decided, exec_folds)
+    set_last_margin_rounds(rounds)
+
+    out = games.copy()
+    out = out.drop(columns=[MARGIN_COL] if MARGIN_COL in out.columns else [])
+    out = out.merge(margins[["game_pk", MARGIN_COL]], on="game_pk", how="left")
+
+    regen = _regenerate_splits(out, splits, min_val_games,
+                               retrain_cadence_days, max_eval_folds,
+                               min_train_days)
+    if len(regen) != len(exec_folds) or not all(
+        a["fold_idx"] == b["fold_idx"]
+        and pd.Timestamp(a["val_start"]) == pd.Timestamp(b["val_start"])
+        and a["val_games"]["game_pk"].tolist()
+        == b["val_games"]["game_pk"].tolist()
+        for a, b in zip(regen, exec_folds)):
+        raise AssertionError(
+            "run_margin_diff: enriched-frame folds desynced from margin-build "
+            "folds (walk_forward_splits changed?) — refusing to train on a "
+            "misaligned split")
+
+    covered = float(out[MARGIN_COL].notna().mean())
+    logger.info(
+        "run_margin_diff: OOF margins attached on the moneyline's own folds "
+        "(run engine READ-ONLY, 29-feature view); coverage %.1f%% of %d rows, "
+        "%d decided game(s) uncovered (NaN → imputation); median rounds %s",
+        100 * covered, len(out), uncov,
+        {k: int(v) for k, v in rounds.items()})
+    return out, regen
+
+
+def _regenerate_splits(out: pd.DataFrame, splits: list[dict[str, Any]],
+                       min_val_games: int, retrain_cadence_days: int,
+                       max_eval_folds: int,
+                       min_train_days: int) -> list[dict[str, Any]]:
+    """Re-split the (possibly enriched) frame with the caller's geometry
+    parameters so every train/val slice carries the attached columns."""
+    return [
+        s for s in walk_forward_splits(
+            out, retrain_cadence_days=retrain_cadence_days,
+            max_eval_folds=max_eval_folds, min_train_days=min_train_days)
+        if len(s["val_games"]) >= min_val_games]
+
+
 # ── Full walk-forward evaluation ────────────────────────────────────────────
 
 def walk_forward_evaluate(
@@ -1132,6 +1271,16 @@ def walk_forward_evaluate(
     # run's adaptive weights can change the current run's fold predictions.
     _LAST_ADAPTIVE_WEIGHTS.clear()
     splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
+
+    # Shipped run-margin feature: attach leakage-free OOF margins on exactly
+    # these folds before any training happens, and regenerate the splits over
+    # the enriched frame (geometry asserted identical inside). The final
+    # fit-only refit below then sees the same column. Skipped with a loud
+    # warning when the frame lacks run-engine inputs.
+    if MARGIN_COL in FEATURE_COLS and splits:
+        games, splits = _attach_oof_run_margins(
+            games, splits, min_val_games, max_eval_folds,
+            retrain_cadence_days, min_train_days)
 
     if not splits:
         logger.warning("No walk-forward splits generated; training on full data")

@@ -402,6 +402,30 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "win% (0–1)",
         "direction": "n/a (level)",
     },
+    # ---- run-engine margin (SHIPPED 2026-08-26, see margin_ablation_*.json)
+    "run_margin_diff": {
+        "summary": "Run engine's expected-run margin: λ_home − λ_away (Poisson per-side)",
+        "definition": (
+            "One column: the run engine's per-side LightGBM Poisson models' "
+            "expected runs for the home club minus the away club — a MODEL "
+            "OUTPUT from a different feature view (levels + environment, no "
+            "diffs), so it is genuinely decorrelated from the existing "
+            "matchup columns rather than a linear combo of them. Computed "
+            "OUT-OF-FOLD on the moneyline's own walk-forward split: each "
+            "game's margin comes from a run-engine model trained strictly "
+            "before it (fold-boundary asserted), so the moneyline never "
+            "trains on a margin from a model that saw that game. Slate/"
+            "inference margins use a fit-only refit on all decided games at "
+            "the median fold round count. The run engine itself can never "
+            "consume the column: derive_run_features drops every *_diff "
+            "except park_factor_slug_diff."
+        ),
+        "formula": "λ_home − λ_away (run engine per-side Poisson, OOF on the moneyline folds)",
+        "source": "Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py",
+        "window": "per-game (model output, strictly-prior training window)",
+        "units": "expected runs",
+        "direction": "positive = run engine expects the home club to outscore",
+    },
 }
 
 _PER_SIDE_FAMILIES = {

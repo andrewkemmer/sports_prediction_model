@@ -2,13 +2,16 @@
 
 Covers the 2026-08 keep-list decision:
 - derive_run_features routing matches the adopted (DON'T SHIP) outcome, and the
-  ship-outcome variant is exactly kept + 24 diffs (53 cols) — both sides of the
-  decision are pinned so a future rule change is a deliberate, tested act.
+  ship-outcome variant is exactly kept + 25 diffs (54 cols, incl. the shipped
+  run_margin_diff) — both sides of the decision are pinned so a future rule
+  change is a deliberate, tested act.
 - Same folds → identical table (run_oof determinism).
 - Market-level scoring harness on a fixture: reference lines exist, base rates
   correct, ECE-cal computed with no holdout leakage.
-- Regressions: moneyline FEATURE_COLS stays 64; run_oof default call path
-  (no explicit feature list) unchanged; α(λ)/MC market path still derives.
+- Regressions: moneyline FEATURE_COLS is 65 (run_margin_diff shipped
+  2026-08-26, excluded from the run view by the *_diff rule — the 29-col
+  keep-list is unchanged); run_oof default call path (no explicit feature
+  list) unchanged; α(λ)/MC market path still derives.
 """
 from __future__ import annotations
 
@@ -65,8 +68,11 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
         lineup = [d for d in dropped if "lineup_actual" in d
                   or "lineup_rest_count" in d]
         self.assertEqual(len(keep), 29, "kept view must stay 29 cols")
-        self.assertEqual(len(dropped), 35)
-        self.assertEqual(len(diffs), 24)
+        # 25 diffs = the original 24 matchup-gap diffs + run_margin_diff
+        # (shipped 2026-08-26, moneyline-only, excluded by the same *_diff
+        # rule) — the kept view is byte-identical to pre-margin.
+        self.assertEqual(len(dropped), 36)
+        self.assertEqual(len(diffs), 25)
         self.assertEqual(len(composites), 5)
         self.assertEqual(len(lineup), 6)
         # No _diff in the kept view except the sanctioned survivor.
@@ -87,12 +93,13 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
             self.assertIn(f, RUN_EXTRA_EXCLUSIONS)
 
     def test_ship_outcome_exact_sets(self):
-        """Hypothetical ship rule (kept + 24 diffs) — 53 cols, no lineup."""
+        """Hypothetical ship rule (kept + 25 diffs incl. run_margin_diff) —
+        54 cols, no lineup."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         diffs = [d for d in dropped if d.endswith("_diff")]
         ship = list(keep) + diffs
-        self.assertEqual(len(ship), 53)
-        self.assertEqual(len(set(ship)), 53, "ship variant must not duplicate")
+        self.assertEqual(len(ship), 54)
+        self.assertEqual(len(set(ship)), 54, "ship variant must not duplicate")
         for f in diffs:
             self.assertTrue(f.endswith("_diff"))
             self.assertNotEqual(f, "park_factor_slug_diff")
@@ -163,15 +170,20 @@ class TestMarketHarnessFixture(unittest.TestCase):
 
 
 class TestRegressions(unittest.TestCase):
-    def test_moneyline_feature_cols_still_64(self):
-        self.assertEqual(len(FEATURE_COLS), 64)
+    def test_moneyline_feature_cols_now_65_with_margin(self):
+        """The run-margin feature SHIPPED (2026-08-26, sealed-holdout gate
+        passed) — FEATURE_COLS grew to 65 and carries run_margin_diff."""
+        self.assertEqual(len(FEATURE_COLS), 65)
+        self.assertIn("run_margin_diff", FEATURE_COLS)
 
     def test_default_run_oof_path_unchanged(self):
         """run_features=None must still derive the 29-col rule (backward
-        compatible hook — the ablation arm A path)."""
+        compatible hook — the ablation arm A path). Dropped is 36 now: the
+        original 35 + run_margin_diff, which the *_diff rule excludes — the
+        KEPT view is byte-identical to pre-margin."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertEqual(len(keep), 29)
-        self.assertEqual(len(dropped), 35)
+        self.assertEqual(len(dropped), 36)
 
     def test_alpha_lambda_mc_path_still_derives(self):
         """derive_markets_v3 still produces α(λ) curves + full grid + holdout
