@@ -613,6 +613,68 @@ def history_win_rate(frame: pd.DataFrame) -> dict:
             "n_pushes": n_pushes}
 
 
+def build_team_map(game_level: pd.DataFrame) -> dict:
+    """Dual-keyed team map from the game-level features frame.
+
+    Keys are int(StatsAPI game_pk) AND str(ESPN game_id) — the
+    145d841 slate-key convention — so a markets-artifact key resolves
+    either way (the markets CSV mixes numeric game_pk with ESPN
+    game_id slate rows in ONE object-dtype column). Rows missing either
+    team name are skipped; duplicate keys keep the first occurrence.
+    Returns {} (never raises) when the frame is empty/missing columns.
+    """
+    out: dict = {}
+    if not len(game_level) or {"home_team", "away_team"}.difference(
+            game_level.columns):
+        return out
+    for _, r in game_level.iterrows():
+        if pd.isna(r["home_team"]) or pd.isna(r["away_team"]):
+            continue
+        tup = (str(r["away_team"]), str(r["home_team"]))  # away, home
+        pk = r.get("game_pk")
+        if pd.notna(pk):
+            try:
+                out.setdefault(int(float(pk)), tup)
+            except (TypeError, ValueError):
+                pass
+        gid = r.get("game_id")
+        if pd.notna(gid):
+            out.setdefault(str(gid).strip(), tup)
+    return out
+
+
+def resolve_matchup_teams(team_map: dict, key: Any) -> tuple:
+    """(away, home) for one markets-artifact game key.
+
+    The _resolve_slate_key discipline (145d841): the numeric StatsAPI
+    game_pk wins (the key may arrive as int, float 778485.0, or the
+    object-dtype string '778485.0' from a mixed column); an ESPN
+    game_id string (e.g. '20260826_TB@DET') is the fallback. Returns
+    ("—", "—") only when the key resolves NEITHER way — the render
+    layer's honest placeholder for a genuinely unresolvable row, never
+    a fabricated team.
+    """
+    if key is None or (isinstance(key, float) and pd.isna(key)):
+        return ("—", "—")
+    if isinstance(key, (int, np.integer)):
+        cand = int(key)
+    elif isinstance(key, float):
+        cand = int(key) if key.is_integer() else None
+    else:
+        s = str(key).strip()
+        try:
+            cand = int(float(s))
+        except ValueError:
+            cand = None
+    if cand is not None and cand in team_map:
+        return team_map[cand]
+    if isinstance(key, str):
+        hit = team_map.get(key.strip())
+        if hit is not None:
+            return hit
+    return ("—", "—")
+
+
 # ---------------------------------------------------------------------------
 # Today's Games card enrichment (read-only over the slate rows)
 # ---------------------------------------------------------------------------

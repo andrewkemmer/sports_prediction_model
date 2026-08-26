@@ -240,25 +240,26 @@ else:
 # Prediction history — every game (game totals & run lines)
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
-def _team_map() -> pd.DataFrame:
-    """game_pk → (home_team, away_team) from game_level_features.csv.
+def _team_map() -> dict:
+    """Dual-keyed team map from game_level_features.csv.
 
-    The markets artifact carries game_pk + scores but no team names; the
-    matchups come from the shipped game-level features (100% game_pk
-    overlap on the current artifact). Mirrors utils._load_scores' fetch
-    pattern; empty frame when the artifact is unavailable (the caller
-    warns loudly and skips the tables — never fabricated)."""
+    The markets artifact carries game keys + scores but no team names;
+    the matchups come from the shipped game-level features, which carry
+    BOTH StatsAPI game_pk and ESPN game_id — so a markets key resolves
+    either way (build_team_map keys by int(game_pk) AND str(game_id),
+    the 145d841 slate-key discipline). Empty dict when the artifact is
+    unavailable (the caller warns loudly and skips the tables — never
+    fabricated)."""
     cfg = utils.get_source_config()
     raw, _ = utils._fetch_bytes("game_level_features.csv", **cfg)
     if raw is None:
-        return pd.DataFrame(columns=["game_pk", "home_team", "away_team"])
+        return {}
     try:
         gl = pd.read_csv(io.BytesIO(raw), usecols=lambda c: c in (
-            "game_pk", "home_team", "away_team"))
-        gl = gl.dropna(subset=["game_pk"]).drop_duplicates("game_pk")
-        return gl.set_index("game_pk")
+            "game_pk", "game_id", "home_team", "away_team"))
+        return diag.build_team_map(gl)
     except Exception:
-        return pd.DataFrame(columns=["game_pk", "home_team", "away_team"])
+        return {}
 
 
 def _market_prob_note(date_str: str) -> str:
@@ -307,7 +308,7 @@ def _date_str(raw) -> str:
     return d.strftime("%b %d, %Y") if pd.notna(d) else "—"
 
 
-def _render_totals_history(tot: pd.DataFrame, teams: pd.DataFrame,
+def _render_totals_history(tot: pd.DataFrame, teams: dict,
                            start_d, end_d, cal_note: str) -> None:
     """Game-totals prediction history: DATE | MATCHUP | SCORE (A–H) |
     LINE (O/U X.5) | MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT.
@@ -334,8 +335,7 @@ def _render_totals_history(tot: pd.DataFrame, teams: pd.DataFrame,
     )
     rows = []
     for _, r in view.iterrows():
-        away = teams["away_team"].get(r["game_pk"], "—")
-        home = teams["home_team"].get(r["game_pk"], "—")
+        away, home = diag.resolve_matchup_teams(teams, r["game_pk"])
         rows.append(
             f"<tr><td>{_date_str(r['game_date'])}</td>"
             f"<td>{away} @ {home}</td>"
@@ -361,7 +361,7 @@ def _render_totals_history(tot: pd.DataFrame, teams: pd.DataFrame,
     )
 
 
-def _render_runline_history(rl: pd.DataFrame, teams: pd.DataFrame,
+def _render_runline_history(rl: pd.DataFrame, teams: dict,
                             start_d, end_d, cal_note: str) -> None:
     """Run-line (−1.5/+1.5) prediction history: DATE | MATCHUP |
     SCORE (A–H) | LINE (RL −1.5/+1.5) | MODEL PICK (TEAM ±1.5 (p%)) |
@@ -385,8 +385,7 @@ def _render_runline_history(rl: pd.DataFrame, teams: pd.DataFrame,
     )
     rows = []
     for _, r in view.iterrows():
-        away = teams["away_team"].get(r["game_pk"], "—")
-        home = teams["home_team"].get(r["game_pk"], "—")
+        away, home = diag.resolve_matchup_teams(teams, r["game_pk"])
         if r["pick"] == "home":
             pick_txt = f"{home} −1.5 ({r['pick_prob']:.0%})"
             winner_txt = home
@@ -429,7 +428,7 @@ else:
     tot = diag.totals_history_frame(decided)
     rl = diag.runline_history_frame(decided)
     teams = _team_map()
-    if teams.empty:
+    if not teams:
         st.warning(
             "Team-name artifact (game_level_features.csv) is unavailable "
             "— the history tables need matchups and are skipped. Nothing "

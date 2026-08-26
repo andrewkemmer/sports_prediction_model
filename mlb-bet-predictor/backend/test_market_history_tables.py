@@ -263,6 +263,108 @@ class TestRealArtifactHistorySmoke(unittest.TestCase):
         self.assertTrue(0.55 < stats["win_rate"] < 0.70)  # ~64% shipped
 
 
+class TestMatchupResolution(unittest.TestCase):
+    """Team-name join for the history tables — the markets artifact's
+    game_pk column is OBJECT dtype (numeric StatsAPI game_pk mixed with
+    ESPN game_id slate rows in one column), so the lookup must normalize
+    the key: int/float/'float-string' game_pk resolves via the int map,
+    ESPN game_id via the string map (145d841 slate-key discipline), and
+    the "—" fallback remains ONLY for genuinely unresolvable rows."""
+
+    def _glf(self):
+        return pd.DataFrame({
+            "game_pk": [778485, 823422, None, 999999],
+            "game_id": ["20260825_HOU@CLE", "20260825_STL@PHI",
+                        "20260826_TB@DET", None],
+            "home_team": ["CLE", "PHI", "DET", None],
+            "away_team": ["HOU", "STL", "TB", None],
+        })
+
+    def test_int_game_pk_resolves(self):
+        tm = diag.build_team_map(self._glf())
+        self.assertEqual(diag.resolve_matchup_teams(tm, 778485),
+                         ("HOU", "CLE"))
+        # numpy integer keys (pandas object/Int64 cells) also resolve.
+        self.assertEqual(diag.resolve_matchup_teams(tm, np.int64(823422)),
+                         ("STL", "PHI"))
+
+    def test_float_and_float_string_keys_resolve(self):
+        # The markets artifact parses the mixed column as object: numeric
+        # cells arrive as float (778485.0) or, in some pipelines, the
+        # string '778485.0' — both must hit the int map.
+        tm = diag.build_team_map(self._glf())
+        self.assertEqual(diag.resolve_matchup_teams(tm, 778485.0),
+                         ("HOU", "CLE"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, np.float64(823422.0)),
+                         ("STL", "PHI"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, "823422.0"),
+                         ("STL", "PHI"))
+
+    def test_game_id_fallback_resolves(self):
+        # ESPN game_id key (the 145d841 slate-key convention) resolves
+        # through the string map when it exists in the features frame.
+        tm = diag.build_team_map(self._glf())
+        self.assertEqual(diag.resolve_matchup_teams(tm, "20260825_HOU@CLE"),
+                         ("HOU", "CLE"))
+
+    def test_unresolvable_keys_stay_dash(self):
+        tm = diag.build_team_map(self._glf())
+        self.assertEqual(diag.resolve_matchup_teams(tm, 123456), ("—", "—"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, 778485.5), ("—", "—"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, "nonsense_id"),
+                         ("—", "—"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, None), ("—", "—"))
+        self.assertEqual(diag.resolve_matchup_teams(tm, np.nan), ("—", "—"))
+
+    def test_build_team_map_dual_keyed_and_skips_garbage(self):
+        tm = diag.build_team_map(self._glf())
+        # Same game reachable by BOTH its game_pk and its game_id.
+        self.assertEqual(tm[778485], ("HOU", "CLE"))
+        self.assertEqual(tm["20260825_HOU@CLE"], ("HOU", "CLE"))
+        self.assertEqual(tm[823422], ("STL", "PHI"))
+        # game_id-only row (NaN game_pk) still joinable by id; missing
+        # team names / NaN game_id rows are skipped, not fabricated.
+        self.assertEqual(tm["20260826_TB@DET"], ("TB", "DET"))
+        self.assertNotIn(999999, tm)
+        self.assertNotIn("20260825_STL@PHI_x", tm)
+
+    def test_empty_frame_returns_empty_map(self):
+        self.assertEqual(diag.build_team_map(pd.DataFrame()), {})
+        self.assertEqual(diag.build_team_map(
+            pd.DataFrame({"game_pk": [1]})), {})   # no team cols
+
+
+class TestRealArtifactMatchups(unittest.TestCase):
+    """Real-artifact smoke: every decided history row resolves to real
+    team names (no "— @ —"), using the shipped markets + features CSVs."""
+
+    @classmethod
+    def setUpClass(cls):
+        dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        m_path = dd / "run_engine_markets_20260826.csv"
+        g_path = dd / "game_level_features.csv"
+        if not m_path.exists() or not g_path.exists():
+            raise unittest.SkipTest("local run-engine artifacts absent")
+        cls.tm = diag.build_team_map(
+            pd.read_csv(g_path, usecols=lambda c: c in (
+                "game_pk", "game_id", "home_team", "away_team")))
+        cls.decided = diag.decided_rows(pd.read_csv(m_path))
+
+    def test_every_decided_row_resolves(self):
+        self.assertGreater(len(self.decided), 4000)
+        bad = [k for k in self.decided["game_pk"]
+               if diag.resolve_matchup_teams(self.tm, k) == ("—", "—")]
+        self.assertEqual(bad, [],
+                         f"{len(bad)} decided rows with no team names")
+
+    def test_matchup_format_is_away_at_home(self):
+        away, home = diag.resolve_matchup_teams(
+            self.tm, self.decided["game_pk"].iloc[0])
+        self.assertNotIn("—", (away, home))
+        self.assertEqual(away, str(away).strip())
+        self.assertNotEqual(away, home)
+
+
 class TestRenderSmokeSourceInspection(unittest.TestCase):
     """markets.py must render both tables with one shared date-picker pair
     and loud honest empty states — verified by source inspection (no
@@ -295,6 +397,22 @@ class TestRenderSmokeSourceInspection(unittest.TestCase):
         # markets.py only RENDERS what the pure functions produce.
         self.assertIn("diag.totals_history_frame(decided)", self.src)
         self.assertIn("diag.runline_history_frame(decided)", self.src)
+
+    def test_team_lookup_uses_normalized_key_discipline(self):
+        # The render layer resolves matchups through the pure
+        # resolve_matchup_teams helper (dual-keyed map) — it must not
+        # fall back to a raw per-column .get() that misses on the
+        # object-dtype game_pk.
+        with open(FRONTEND / "market_diagnostics.py") as f:
+            dsrc = f.read()
+        for fn in ("def build_team_map(", "def resolve_matchup_teams("):
+            self.assertIn(fn, dsrc)
+        self.assertIn("diag.resolve_matchup_teams(teams, r[\"game_pk\"])",
+                      self.src)
+        self.assertIn("diag.build_team_map(gl)", self.src)
+        self.assertNotIn("teams[\"away_team\"].get(r[\"game_pk\"]",
+                        self.src)
+        self.assertNotIn(".set_index(\"game_pk\")", self.src)
 
     def test_no_fabrication_on_missing_artifacts(self):
         # Empty decided games → honest empty state, never invented rows
