@@ -27,8 +27,15 @@ _PROTECTED_DELIVERY_NAMES = {
     "statsapi_roof_cache.json",
     "model_history.json",
     "model_version_history.json",
+    # Lineup-delta feature runtime inputs (Phase 2, shipped in aead200; the
+    # daily pipeline CONSUMES them and never rebuilds them). Dateless names →
+    # the date-gate can't save them → exact-name protect (42ef3f7 deleted
+    # them; pipeline now fails loud without them).
+    "lineups.parquet",
+    "batter_woba.parquet",
+    "team_woba.parquet",
 }
-_PROTECTED_DELIVERY_PREFIXES = ("models/",)
+_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/")
 _DATE_RE = re.compile(r"_(\d{8})")
 
 
@@ -114,6 +121,53 @@ class TestCleanupProtection(TestCase):
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertEqual(stale, [])
         self.assertEqual(prot, 4)
+
+    def test_lineup_parquet_inputs_protected(self):
+        """Lineup-delta runtime inputs (lineups/batter_woba/team_woba parquet)
+        must NEVER be pruned — they are dateless, unseen-by-the-run inputs the
+        daily pipeline only consumes (42ef3f7 deleted them; pipeline now fails
+        loud without them)."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/lineups.parquet",
+            "mlb-bet-predictor/data_delivery/batter_woba.parquet",
+            "mlb-bet-predictor/data_delivery/team_woba.parquet",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertEqual(stale, [],
+                         "lineup runtime inputs must never be classified stale")
+        self.assertEqual(prot, 3)
+
+    def test_pbp_chunks_prefix_protected(self):
+        """Every pbp_chunks/*.parquet survives via the prefix rule, even
+        though the range dates in their names look date-ish."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2026-08-18_2026-08-24.parquet",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertEqual(stale, [], "pbp_chunks/ must never be pruned")
+        self.assertEqual(prot, 2)
+
+    def test_lineup_inputs_protected_even_with_stale_others(self):
+        """Protecting the lineup inputs must NOT disable the cleanup's real
+        job: stale date-stamped artifacts are still pruned alongside."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/lineups.parquet",
+            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertIn(
+            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            stale)
+        self.assertIn(
+            "mlb-bet-predictor/data_delivery/calibration_20260819.json", stale)
+        self.assertEqual(len(stale), 2)
+        self.assertEqual(prot, 2)
 
 
 class TestDateGating(TestCase):

@@ -331,8 +331,15 @@ _PROTECTED_DELIVERY_NAMES = {
     "statsapi_roof_cache.json",
     "model_history.json",
     "model_version_history.json",
+    # Lineup-delta feature runtime inputs (Phase 2, shipped in aead200). The
+    # daily pipeline CONSUMES these; only the standalone builders regenerate
+    # them. Dateless names → the date-gate can never save them → exact-name
+    # protect (42ef3f7 deleted them; pipeline now fails loud without them).
+    "lineups.parquet",
+    "batter_woba.parquet",
+    "team_woba.parquet",
 }
-_PROTECTED_DELIVERY_PREFIXES = ("models/",)
+_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/")
 
 # Current run date in YYYYMMDD for date-gating.
 _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"

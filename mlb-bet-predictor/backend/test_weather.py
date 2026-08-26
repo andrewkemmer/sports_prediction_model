@@ -2,7 +2,7 @@
 Tests for weather.py — Open-Meteo fetching, air density, wind multiplier.
 """
 import unittest
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -201,10 +201,13 @@ class TestFetchWeather(unittest.TestCase):
     @patch("weather.requests.get")
     def test_forecast_api_for_future(self, mock_get):
         mock_resp = MagicMock()
-        future = date(2026, 8, 25)
+        # A genuinely-future date (date.today() + 7): a hardcoded date drifts
+        # into the past as the wall clock advances and flips the endpoint.
+        future = date.today() + timedelta(days=7)
+        fs = future.strftime("%Y-%m-%d")
         mock_resp.json.return_value = {
             "hourly": {
-                "time": [f"2026-08-25T{h:02d}:00" for h in range(24)],
+                "time": [f"{fs}T{h:02d}:00" for h in range(24)],
                 "temperature_2m": [20.0] * 24,
                 "relative_humidity_2m": [50] * 24,
                 "wind_speed_10m": [10.0] * 24,
@@ -215,7 +218,9 @@ class TestFetchWeather(unittest.TestCase):
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
-        result = fetch_weather(40.83, -73.93, datetime(2026, 8, 25, 19, 0), future)
+        result = fetch_weather(
+            40.83, -73.93, datetime.combine(future, datetime.min.time()).replace(hour=19),
+            future)
         self.assertEqual(result["temp_c"], 20.0)
 
         call_url = mock_get.call_args[0][0]

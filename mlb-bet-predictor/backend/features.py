@@ -1899,21 +1899,53 @@ LINEUP_MIN_PA = 20   # batters below this use the team season mean (never a 3-PA
 LINEUP_REST_PA = 50  # "regular" floor for the top-5 rest-count
 LINEUP_TOP5_K = 5
 
+# Required committed runtime inputs (shipped with aead200). The daily
+# pipeline CONSUMES these — only the standalone builders (backfill_lineups.py,
+# fetch_pbp_chunks.py, build_batter_woba.py) regenerate them — so a fresh
+# clone MUST contain them. They are exact-name protected from the Phase 6
+# cleanup (master_pipeline._PROTECTED_DELIVERY_NAMES / _PREFIXES).
+_LINEUP_REQUIRED_FILES = ("lineups.parquet", "batter_woba.parquet",
+                          "team_woba.parquet")
 _lineup_cache: dict = {}
 
 
+def _lineup_base_dir():
+    from pathlib import Path as _P
+    return _P(__file__).resolve().parent.parent / "data_delivery"
+
+
+def _missing_lineup_artifacts() -> list[str]:
+    """Names of the required lineup/wOBA artifacts absent from data_delivery."""
+    base = _lineup_base_dir()
+    return [n for n in _LINEUP_REQUIRED_FILES if not (base / n).exists()]
+
+
 def _load_lineup_cache() -> dict:
-    """Lazy-load the three lineup/wOBA artifacts (cached across calls)."""
+    """Lazy-load the three lineup/wOBA artifacts (cached across calls).
+
+    On missing artifacts, degrades to {} WITH a warning naming the files —
+    the caller decides whether that is acceptable (require_caches=True on the
+    training path turns the same condition into a loud error instead)."""
     if _lineup_cache:
         return _lineup_cache
-    from pathlib import Path as _P
-    base = _P(__file__).resolve().parent.parent / "data_delivery"
+    base = _lineup_base_dir()
+    missing = [n for n in _LINEUP_REQUIRED_FILES if not (base / n).exists()]
+    if missing:
+        logger.warning(
+            "add_lineup_delta_features: lineup artifacts unavailable (%s); "
+            "columns stay NaN — the shipped lineup-delta feature is DEAD on "
+            "this run (training path should pass require_caches=True to fail "
+            "loud instead)", ", ".join(missing))
+        _lineup_cache.clear()
+        return {}
     try:
         _lineup_cache["lineups"] = pd.read_parquet(base / "lineups.parquet")
         _lineup_cache["batter"] = pd.read_parquet(base / "batter_woba.parquet")
         _lineup_cache["team"] = pd.read_parquet(base / "team_woba.parquet")
-    except Exception as e:  # artifacts absent (pre-backfill env): degrade to NaN
-        logger.warning("add_lineup_delta_features: lineup artifacts unavailable (%s); columns stay NaN", e)
+    except Exception as e:  # present but unreadable: degrade to NaN
+        logger.warning(
+            "add_lineup_delta_features: lineup artifacts failed to load (%s); "
+            "columns stay NaN", e)
         _lineup_cache.clear()
         return {}
     return _lineup_cache
@@ -1921,7 +1953,8 @@ def _load_lineup_cache() -> dict:
 
 def add_lineup_delta_features(game_df: pd.DataFrame,
                               inplace: bool = False,
-                              lineups_override: pd.DataFrame | None = None) -> pd.DataFrame:
+                              lineups_override: pd.DataFrame | None = None,
+                              require_caches: bool = False) -> pd.DataFrame:
     """Add the 6 lineup-delta columns (actual starting-9 wOBA vs team season).
 
     Per side (home/away), per game:
@@ -1939,6 +1972,11 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
 
     Idempotent: existing columns are left untouched (SQL/other-shipped values
     are authoritative). Returns the frame (same object when inplace=True).
+
+    ``require_caches=True`` (the TRAINING path) fails LOUD with a
+    FileNotFoundError naming the missing artifact(s) instead of degrading to
+    NaN — a fresh clone without lineups/batter_woba/team_woba parquet must
+    never silently train with the feature dead.
     """
     df = game_df if inplace else game_df.copy()
     missing = [c for c in LINEUP_DELTA_COLS if c not in df.columns]
@@ -1949,8 +1987,22 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
     if not {"game_pk", "game_date", "home_team", "away_team"}.issubset(df.columns):
         logger.warning("add_lineup_delta_features: frame lacks game_pk/game_date/teams; columns stay NaN")
         return df
+    if require_caches:
+        missing = _missing_lineup_artifacts()
+        if missing:
+            raise FileNotFoundError(
+                "lineup-delta feature: REQUIRED committed runtime inputs "
+                "missing from data_delivery: " + ", ".join(missing) +
+                ". Without them the 6 lineup_actual_* columns stay NaN and the "
+                "shipped moneyline feature trains DEAD. Restore these files "
+                "(they are protected from Phase 6 cleanup) or rebuild them via "
+                "backfill_lineups.py + build_batter_woba.py before training.")
     caches = _load_lineup_cache()
     if not caches:
+        if require_caches:
+            raise FileNotFoundError(
+                "lineup-delta feature: cache load failed (see warnings above); "
+                "refusing to train without the shipped lineup-delta inputs")
         return df
     batters, teams = caches["batter"].copy(), caches["team"].copy()
     lineups = (lineups_override if lineups_override is not None

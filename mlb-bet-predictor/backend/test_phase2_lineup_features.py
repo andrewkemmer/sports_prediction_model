@@ -216,5 +216,68 @@ class TestMetadataAndRunEngine(unittest.TestCase):
         self.assertEqual(set(dropped), set(LINEUP_DELTA_COLS))
 
 
+class TestMissingArtifactsFailLoud(unittest.TestCase):
+    """The 42ef3f7 cleanup incident: artifacts absent → the TRAINING path must
+    fail LOUD (FileNotFoundError naming the missing file), never silently
+    project/train with dead columns."""
+
+    def setUp(self):
+        import tempfile
+        self._saved_cache = features_mod._lineup_cache
+        self._saved_base = features_mod._lineup_base_dir
+        self._tmp = tempfile.TemporaryDirectory()
+        features_mod._lineup_cache = {}
+        features_mod._lineup_base_dir = lambda: Path(self._tmp.name)
+        self.df = pd.DataFrame({
+            "game_pk": [700001, 700002],
+            "game_date": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+            "home_team": ["HOM", "HOM"],
+            "away_team": ["AWY", "AWY"],
+        })
+
+    def tearDown(self):
+        features_mod._lineup_cache = self._saved_cache
+        features_mod._lineup_base_dir = self._saved_base
+        self._tmp.cleanup()
+
+    def test_require_caches_raises_naming_missing_files(self):
+        with self.assertRaises(FileNotFoundError) as cm:
+            features_mod.add_lineup_delta_features(self.df, require_caches=True)
+        msg = str(cm.exception)
+        for name in features_mod._LINEUP_REQUIRED_FILES:
+            self.assertIn(name, msg, f"error must name {name}")
+        self.assertIn("REQUIRED", msg)
+        self.assertIn("DEAD", msg)
+
+    def test_default_still_degrades_to_nan(self):
+        """Non-training callers (slate, tests) keep the graceful NaN path."""
+        out = features_mod.add_lineup_delta_features(self.df)
+        self.assertTrue(out["lineup_actual_woba_delta_home"].isna().all())
+
+
+class TestFreshCloneCoverage(unittest.TestCase):
+    """With the committed runtime inputs present, the enrichment computes the
+    6 columns at full coverage on the committed game CSV (fresh-cache load)."""
+
+    def test_six_columns_computed_at_high_coverage(self):
+        csv = Path(__file__).resolve().parents[1] / "data_delivery" / "game_level_features.csv"
+        missing = features_mod._missing_lineup_artifacts()
+        if not csv.exists() or missing:
+            self.skipTest(
+                f"committed artifacts absent (csv={csv.exists()}, missing={missing})")
+        features_mod._lineup_cache = {}  # force a fresh disk load
+        df = pd.read_csv(csv)
+        out = features_mod.add_lineup_delta_features(df, require_caches=True)
+        for c in LINEUP_DELTA_COLS:
+            self.assertIn(c, out.columns)
+            cov = out[c].notna().mean()
+            self.assertGreaterEqual(
+                cov, 0.95,
+                f"{c} coverage {cov:.1%} — feature would train dead on this artifact set")
+        # rest count is NaN for games without a lineup row; deltas must be real
+        # (never the projected 0.0-only / all-NaN state)
+        self.assertGreater(out["lineup_actual_woba_delta_home"].nunique(), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

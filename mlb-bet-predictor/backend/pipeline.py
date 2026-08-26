@@ -1041,7 +1041,11 @@ def run_daily_pipeline(
         # Phase 2 lineup deltas (actual starting-9 wOBA − team season, per
         # side) from data_delivery/lineups.parquet + batter/team sd-wOBA
         # tables. Idempotent; moneyline-only (run engine excludes them).
-        games = add_lineup_delta_features(games)
+        # require_caches=True: the feature is SHIPPED — a fresh clone missing
+        # the committed artifacts must fail LOUD (FileNotFoundError naming the
+        # file), never silently train with dead columns (see aead200/42ef3f7
+        # cleanup incident).
+        games = add_lineup_delta_features(games, require_caches=True)
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see

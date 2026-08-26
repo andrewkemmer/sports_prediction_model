@@ -302,16 +302,21 @@ class TestRealCsvCoverage(unittest.TestCase):
             self.assertGreater(covk, 0.5,
                                f"sp_k9_delta_{side} coverage {covk:.3f}")
 
-    def test_other_deltas_are_nan_until_refresh(self):
-        # The 34 deltas whose season baselines are not yet shipped are NaN by
-        # design (the next pipeline run regenerates the CSV with them).
+    def test_all_deltas_shipped_after_refresh(self):
+        # The 2026-08-25 pipeline refresh (605013a) regenerated the CSV with
+        # the SQL-computed deltas, fulfilling the original "NaN until refresh"
+        # contract — every family now ships (identity vs recent−season is
+        # proven by the SQL fixture tests; these columns stay OUT of
+        # FEATURE_COLS per the don't-ship verdict).
         for base, _r, _s, _w in FORM_DELTA_SPECS:
-            if base in ("sp_era_delta", "sp_k9_delta"):
-                continue
             for side in ("home", "away"):
-                self.assertTrue(
-                    pd.isna(self.games[f"{base}_{side}"]).all(),
-                    f"{base}_{side} should be all-NaN on the committed CSV")
+                col = f"{base}_{side}"
+                self.assertIn(col, self.games.columns,
+                              f"{col} missing from refreshed CSV")
+                cov = self.games[col].notna().mean()
+                self.assertGreater(
+                    cov, 0.5,
+                    f"{col} coverage {cov:.3f} — expected the refresh to ship it")
 
 
 class TestPlumbing(unittest.TestCase):
