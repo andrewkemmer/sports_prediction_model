@@ -461,6 +461,115 @@ def _spec_dump(chart) -> str:
     return json.dumps(chart.to_dict())
 
 
+class TestAccuracyAxisAlwaysIndependent(unittest.TestCase):
+    """The accuracy line must ALWAYS get its own independent right-side
+    y-axis with a real scale/domain — compiled-spec assertions, no
+    Streamlit. A regression passed scale=None on the default path, which
+    serializes to "scale": null in vega-lite ("disable the scale, drop the
+    axis"), so the Run-line picks line rendered on the count scale with no
+    accuracy axis."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decided = add_outcomes(make_grid_df(n=120))
+
+    @staticmethod
+    def _units(spec):
+        out = []
+
+        def walk(layers):
+            for ly in layers:
+                if "layer" in ly:
+                    walk(ly["layer"])
+                else:
+                    out.append(ly)
+        walk(spec.get("layer", []))
+        return out
+
+    def _accuracy_unit(self, built):
+        spec = built["chart"].to_dict()
+        units = self._units(spec)
+        acc = [u for u in units
+               if u.get("encoding", {}).get("y", {}).get("field") == "accuracy"]
+        self.assertEqual(len(acc), 1, "exactly one accuracy unit")
+        return spec, acc[0]["encoding"]["y"]
+
+    def test_default_build_two_independent_scales_accuracy_field(self):
+        built = diag.chart_pick_buckets(
+            diag.runline_pick_table(self.decided), "Run-line picks")
+        spec, y = self._accuracy_unit(built)
+        # TWO independent y-scales: count (bars) + accuracy (line).
+        self.assertEqual(spec["resolve"]["scale"]["y"], "independent")
+        y_fields = [u["encoding"]["y"]["field"] for u in self._units(spec)
+                    if "y" in u.get("encoding", {})]
+        self.assertIn("count", y_fields)
+        self.assertIn("accuracy", y_fields)
+        # The line plots ACCURACY (not count) with a REAL scale — never
+        # "scale": null.
+        self.assertEqual(y["field"], "accuracy")
+        self.assertIsInstance(y.get("scale"), dict)
+        self.assertIsNotNone(y["scale"].get("domain"))
+
+    def test_default_build_accuracy_domain_covers_bucket_range(self):
+        built = diag.chart_pick_buckets(
+            diag.runline_pick_table(self.decided), "Run-line picks")
+        _, y = self._accuracy_unit(built)
+        domain = y["scale"]["domain"]
+        table_acc = built["table"]["accuracy"].dropna().tolist()
+        self.assertGreaterEqual(domain[1], max(table_acc),
+                                "accuracy axis must not clip the buckets")
+        self.assertGreaterEqual(domain[1], 90.0)   # full 0–100% scale
+
+    def test_no_null_scale_in_any_build(self):
+        for kwargs in ({}, {"total_line": True, "acc_y_max": 75.0}):
+            built = diag.chart_pick_buckets(
+                diag.totals_pick_table(self.decided), "t", **kwargs)
+            dump = _spec_dump(built["chart"])
+            self.assertNotIn('"scale": null', dump,
+                             f"null scale leaks into spec with {kwargs}")
+
+
+class TestRealArtifactRunlineAxis(unittest.TestCase):
+    """On the shipped artifact, the Run-line picks accuracy line must rise
+    across confidence buckets (50.0 → 92.9 on 20260825) and sit on its own
+    independent right-side accuracy axis — the regression rendered it on
+    the count scale with no accuracy axis."""
+
+    def test_runline_line_rises_with_own_axis(self):
+        dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        m_path = dd / "run_engine_markets_20260825.csv"
+        if not m_path.exists():
+            self.skipTest("local run-engine artifact absent")
+        decided = diag.decided_rows(pd.read_csv(m_path))
+        rp = diag.runline_pick_table(decided)
+        accs = [b["accuracy"] for b in rp["buckets"]]
+        # The table's accuracy rises 50.0 → 92.9 across buckets.
+        self.assertAlmostEqual(accs[0], 50.0, places=1)
+        self.assertGreaterEqual(accs[-1], 92.0)
+        self.assertEqual(accs, sorted(accs), "line must rise, not fall")
+        # The chart must plot that accuracy on its own independent axis
+        # with a domain that includes the bucket range.
+        built = diag.chart_pick_buckets(rp, "Run-line picks at −1.5")
+        spec = built["chart"].to_dict()
+        self.assertEqual(spec["resolve"]["scale"]["y"], "independent")
+        units = []
+
+        def walk(layers):
+            for ly in layers:
+                if "layer" in ly:
+                    walk(ly["layer"])
+                else:
+                    units.append(ly)
+        walk(spec.get("layer", []))
+        acc_y = [u["encoding"]["y"] for u in units
+                 if u.get("encoding", {}).get("y", {}).get("field") == "accuracy"]
+        self.assertEqual(len(acc_y), 1)
+        self.assertEqual(acc_y[0]["field"], "accuracy")
+        self.assertIsInstance(acc_y[0].get("scale"), dict)
+        domain = acc_y[0]["scale"]["domain"]
+        self.assertGreaterEqual(domain[1], max(accs))
+
+
 class TestRenderSmoke(unittest.TestCase):
     """Each chart builder returns a NON-EMPTY altair object for a fixture."""
 
@@ -524,11 +633,13 @@ class TestRenderSmoke(unittest.TestCase):
         # Labels follow the 4-bucket convention (50–55 … 65+)
         self.assertEqual(built["table"]["bucket"].tolist(),
                          diag.TOTALS_PICK_LABELS)
-        # Default: no reference line, no forced accuracy domain (other
-        # charts unchanged)
+        # Default build: no reference line (that's the total_line=True
+        # amber rule), but the accuracy axis is ALWAYS present with an
+        # explicit domain (the fix for the Run-line picks regression —
+        # scale=None serialized to "scale": null and dropped the axis).
         default_dump = _spec_dump(built["chart"])
         self.assertNotIn('"rule"', default_dump)
-        self.assertNotIn('"domain"', default_dump)
+        self.assertIn('"domain": [0.0, 100.0]', default_dump)
 
     def test_totals_picks_total_line_at_pooled_rate(self):
         import json

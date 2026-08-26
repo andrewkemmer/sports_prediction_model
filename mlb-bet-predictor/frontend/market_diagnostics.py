@@ -582,7 +582,15 @@ def chart_pick_buckets(table: dict, title: str,
     line doesn't ride the top edge when buckets cluster (e.g. ~54–57%): the
     actual max is max(acc_y_max, largest accuracy value + headroom), so a
     future bucket that genuinely exceeds the floor is never clipped. Other
-    callers pass the defaults (False / None) → unchanged behavior.
+    callers pass the defaults (False / None) → the accuracy axis still gets
+    an explicit full 0–100% domain.
+
+    The accuracy line ALWAYS carries a real scale with an explicit domain.
+    A regression passed scale=None on the default path, which serializes to
+    "scale": null in the vega-lite spec — vega-lite treats that as "disable
+    the scale and drop the axis", so the line rendered on the count scale
+    with no right-side accuracy axis. Every path now emits a real scale, so
+    the independent right-side accuracy axis is always present.
     """
     tdf = pd.DataFrame(table["buckets"])
     if tdf.empty:
@@ -592,15 +600,21 @@ def chart_pick_buckets(table: dict, title: str,
     bars = base.mark_bar(color="#3B82F6").encode(
         y=alt.Y("count:Q", title="Picks"),
         tooltip=["bucket", "count", "accuracy"])
-    acc_scale = None
+    # Accuracy axis domain (percent units) — ALWAYS a real scale. Never
+    # emit scale=None: it serializes to "scale": null, which vega-lite
+    # treats as "disable the scale, drop the axis" (the Run-line picks
+    # regression). Explicit domain: 0–100% by default (never clips a rate
+    # ≤ 100), or the acc_y_max floor with headroom when the caller asks.
+    vals = [float(v) for v in tdf["accuracy"].dropna()]
+    rate = table.get("win_rate")
+    if total_line and isinstance(rate, (int, float)):
+        vals.append(float(rate) * 100.0)
+    data_max = max(vals) if vals else 0.0
     if acc_y_max is not None:
-        vals = [float(v) for v in tdf["accuracy"].dropna()]
-        rate = table.get("win_rate")
-        if total_line and isinstance(rate, (int, float)):
-            vals.append(float(rate) * 100.0)
-        data_max = max(vals) if vals else 0.0
         y_max = max(float(acc_y_max), data_max + ACC_Y_HEADROOM)
-        acc_scale = alt.Scale(domain=[0.0, y_max])
+    else:
+        y_max = 100.0
+    acc_scale = alt.Scale(domain=[0.0, y_max])
     acc = base.mark_line(color="#22C55E", strokeWidth=2.5,
                          point=alt.OverlayMarkDef(size=60)).encode(
         y=alt.Y("accuracy:Q", title="Actual hit %", scale=acc_scale),
