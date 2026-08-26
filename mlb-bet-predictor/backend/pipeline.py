@@ -30,6 +30,7 @@ from config import (
     DATA_DELIVERY_DIR,
     DATE_FMT,
     DATE_READABLE_FMT,
+    MIN_VAL_FOLD_GAMES,
     MODEL_MONITOR,
     POWER_RANKINGS,
     RETRAIN_CADENCE_DAYS,
@@ -62,7 +63,9 @@ from weather import apply_weather_features, fetch_day_weather, fetch_games_weath
 from training import last_ensemble_info
 from github_sync import sync_artifacts
 from training import (
+    FEATURE_COLS,
     MARGIN_COL,
+    _attach_oof_run_margins,
     compute_metrics,
     calibration_buckets,
     feature_importance_weights,
@@ -76,6 +79,7 @@ from training import (
     update_model_history,
     update_model_version_history,
     walk_forward_evaluate,
+    walk_forward_splits,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,6 +155,44 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
         len(decided), {k: int(v) for k, v in rounds.items()},
         100 * float(out[MARGIN_COL].notna().mean()), len(out))
     return out
+
+
+def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
+    """Attach leakage-free OOF run margins to the drift frame so the
+    shipped run_margin_diff feature is drift-monitored like every other
+    numeric feature.
+
+    The margin column lives ONLY in the margin-enriched training frame
+    (build_oof_margin.oof_run_margins, attached inside
+    walk_forward_evaluate) — it never lands in game_level_features.csv. The
+    drift step slices its windows from that CSV, so without this enrichment
+    compute_feature_drift silently omits run_margin_diff's row from the PSI
+    table (the one numeric moneyline feature missing from drift). Uses the
+    SAME machinery as training (walk_forward_splits + _attach_oof_run_margins,
+    run engine READ-ONLY), so every game's margin comes from a model trained
+    strictly before it. Games outside executed folds (early warm-up rows)
+    stay NaN → imputed at training; here they are excluded from the drift
+    distribution with honest coverage counts.
+
+    A failed derivation warns loudly and returns the frame unchanged — the
+    margin row is then omitted from drift, never fabricated.
+    """
+    if MARGIN_COL not in FEATURE_COLS:
+        return decided
+    try:
+        _splits = walk_forward_splits(
+            decided, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+        if not _splits:
+            return decided
+        enriched, _ = _attach_oof_run_margins(
+            decided, _splits, MIN_VAL_FOLD_GAMES, 0,
+            RETRAIN_CADENCE_DAYS, 0)
+        return enriched
+    except Exception as exc:
+        logger.warning(
+            "run_margin_diff: drift margin attach failed (%s) — margin "
+            "row omitted from drift, drift continues", exc)
+        return decided
 
 
 def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> pd.DataFrame:
@@ -1429,6 +1471,15 @@ def run_daily_pipeline(
         # mixes arbitrary seasons into the baseline window.
         decided = decided.sort_values("game_date")
         gd = pd.to_datetime(decided["game_date"])
+        # run_margin_diff is the shipped moneyline feature that exists ONLY
+        # in the margin-enriched training frame — it never lands in
+        # game_level_features.csv, so without enrichment the drift step
+        # would silently omit its row. Attach leakage-free OOF margins on
+        # the moneyline's own fold split (run engine READ-ONLY) so the
+        # drift windows carry the same values the model saw; games outside
+        # executed folds stay NaN (imputed at training) and are excluded
+        # from the distribution with honest coverage counts.
+        decided = _attach_drift_run_margins(decided)
         current = decided[gd >= cutoff]
         prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior

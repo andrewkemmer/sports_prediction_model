@@ -19,6 +19,7 @@ import pandas as pd
 from backend import explainability
 from backend.explainability import compute_psi, psi_status, psi_noise_floor, compute_feature_drift
 from backend.config import PSI_WARN_THRESHOLD, PSI_ALERT_THRESHOLD
+from pipeline import _attach_drift_run_margins
 
 
 class TestPSIComputation(unittest.TestCase):
@@ -197,3 +198,109 @@ class TestPSINoiseFloor(unittest.TestCase):
         self.assertEqual(row["status"], "ALERT")
         self.assertGreater(float(row["psi_adjusted"]), PSI_ALERT_THRESHOLD)
         self.assertTrue(bool(row["location_shift"]))
+
+
+class TestRunMarginDiffDriftRow(unittest.TestCase):
+    """The shipped run_margin_diff feature must appear in the drift table
+    like any other numeric feature once its values are present: finite PSI,
+    means from non-NaN rows only, honest coverage counts (early warm-up
+    games are NaN → imputed at training; the drift distribution must
+    exclude them, never impute them)."""
+
+    @staticmethod
+    def _fixture():
+        rng = np.random.RandomState(7)
+        n = 400
+        base = pd.DataFrame({
+            "elo_diff": rng.normal(0, 1, n),
+            "run_margin_diff": rng.normal(0.2, 0.5, n),
+        })
+        cur = pd.DataFrame({
+            "elo_diff": rng.normal(0, 1, n),
+            "run_margin_diff": rng.normal(0.2, 0.5, n),
+        })
+        cur.loc[::5, "run_margin_diff"] = np.nan   # warm-up style NaN
+        base.loc[::7, "run_margin_diff"] = np.nan
+        return base, cur
+
+    def _drift_row(self, base, cur):
+        tmp = Path(tempfile.mkdtemp())
+        with patch.object(explainability, "DATA_DELIVERY_DIR", tmp):
+            df = compute_feature_drift(base, cur, "20990102")
+        rows = df[df["feature"] == "run_margin_diff"]
+        self.assertEqual(len(rows), 1, "run_margin_diff row must be present")
+        return rows.iloc[0]
+
+    def test_row_present_with_finite_psi(self):
+        """run_margin_diff gets a REAL drift row: finite PSI (never the
+        dead 0.0/INSUFFICIENT placeholder), and a same-distribution fixture
+        stays OK-sized."""
+        row = self._drift_row(*self._fixture())
+        self.assertTrue(np.isfinite(float(row["psi"])))
+        self.assertGreaterEqual(float(row["psi"]), 0.0)
+        self.assertLess(float(row["psi"]), 0.15)   # identical windows ≈ 0
+        self.assertNotEqual(row["status"], "INSUFFICIENT")
+
+    def test_means_and_counts_use_non_nan_rows(self):
+        """current/baseline means and n counts come from the non-NaN rows
+        only — NaN is excluded from the distribution, never imputed."""
+        base, cur = self._fixture()
+        row = self._drift_row(base, cur)
+        exp_b = float(base["run_margin_diff"].dropna().mean())
+        exp_c = float(cur["run_margin_diff"].dropna().mean())
+        self.assertAlmostEqual(float(row["baseline_mean"]),
+                               round(exp_b, 4), places=4)
+        self.assertAlmostEqual(float(row["current_mean"]),
+                               round(exp_c, 4), places=4)
+        self.assertEqual(int(row["n_baseline"]),
+                         int(base["run_margin_diff"].notna().sum()))
+        self.assertEqual(int(row["n_current"]),
+                         int(cur["run_margin_diff"].notna().sum()))
+
+
+class TestDriftMarginAttachWiring(unittest.TestCase):
+    """The pipeline drift step must enrich the decided frame with OOF run
+    margins before slicing windows (so run_margin_diff's row appears), and
+    a failed derivation must never take down drift — the frame returns
+    unchanged and the margin row is omitted, never fabricated."""
+
+    def _decided(self):
+        return pd.DataFrame({
+            "game_pk": [1, 2, 3, 4],
+            "game_date": pd.to_datetime(
+                ["2026-07-01", "2026-07-08", "2026-07-15", "2026-07-22"]),
+            "home_win": [1.0, 0.0, 1.0, 0.0],
+            "home_score": [3, 2, 5, 1],
+            "away_score": [1, 4, 2, 6],
+        })
+
+    def test_successful_attach_adds_margin_column(self):
+        decided = self._decided()
+
+        def _fake_attach(games, splits, *a, **k):
+            out = games.copy()
+            out["run_margin_diff"] = [0.4, -0.2, 0.1, -0.5]
+            return out, splits
+
+        with patch("pipeline._attach_oof_run_margins",
+                   side_effect=_fake_attach), \
+             patch("pipeline.walk_forward_splits",
+                   return_value=[{"fold_idx": 0}]):
+            out = _attach_drift_run_margins(decided)
+        self.assertIn("run_margin_diff", out.columns)
+        self.assertEqual(list(out["run_margin_diff"]), [0.4, -0.2, 0.1, -0.5])
+
+    def test_failed_attach_returns_frame_unchanged(self):
+        decided = self._decided()
+        with patch("pipeline._attach_oof_run_margins",
+                   side_effect=RuntimeError("derivation failed")), \
+             patch("pipeline.walk_forward_splits",
+                   return_value=[{"fold_idx": 0}]):
+            out = _attach_drift_run_margins(decided)
+        self.assertNotIn("run_margin_diff", out.columns)
+        self.assertEqual(len(out), len(decided))
+        self.assertTrue((out["game_pk"] == decided["game_pk"]).all())
+
+
+if __name__ == "__main__":
+    unittest.main()
