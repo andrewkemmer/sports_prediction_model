@@ -1,23 +1,21 @@
 {
-  "date": "20260826",
-  "version": "v2026.08.26",
+  "date": "20260825",
+  "version": "v2026.08.25",
   "last_retrained": "2026-08-26",
   "next_retrain": "2026-09-02",
   "metrics": {
-    "auc": 0.5618,
-    "brier": 0.2459,
-    "logloss": 0.6848,
-    "ece": 0.0126,
-    "brier_calibrated": 0.2463,
-    "logloss_calibrated": 0.6857,
-    "ece_calibrated": 0.0086
+    "auc": 0.5676,
+    "brier": 0.2451,
+    "logloss": 0.6833,
+    "ece": 0.009,
+    "brier_calibrated": 0.2456,
+    "logloss_calibrated": 0.6843,
+    "ece_calibrated": 0.0109
   },
   "drift_summary": {
     "warnings": 0,
-    "alerts": 1,
-    "features": [
-      "woba_30g_away"
-    ]
+    "alerts": 0,
+    "features": []
   },
   "feature_drift": [
     {
@@ -26,984 +24,969 @@
       "baseline_mean": 1.0,
       "psi": 0.0,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
+      "noise_floor": 0.055046,
       "mean_shift": 0.0,
       "shift_se": 0.0,
       "location_shift": false,
       "status": "OK",
       "weight_pct": 0.0,
-      "n_baseline": 282,
-      "n_current": 94
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "win_pct_diff",
-      "current_mean": 0.0085,
-      "baseline_mean": 0.0015,
-      "psi": 0.408393,
-      "psi_adjusted": 0.344563,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.006942,
-      "shift_se": 0.012527,
+      "current_mean": 0.008,
+      "baseline_mean": 0.0005,
+      "psi": 0.328509,
+      "psi_adjusted": 0.273463,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.007513,
+      "shift_se": 0.011753,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.95,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 2.381,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "elo_diff",
-      "current_mean": 18.0041,
-      "baseline_mean": 2.4827,
-      "psi": 0.263165,
-      "psi_adjusted": 0.199335,
-      "noise_floor": 0.06383,
-      "mean_shift": 15.521342,
-      "shift_se": 14.055811,
+      "current_mean": 17.909,
+      "baseline_mean": 1.0846,
+      "psi": 0.284757,
+      "psi_adjusted": 0.229711,
+      "noise_floor": 0.055046,
+      "mean_shift": 16.824354,
+      "shift_se": 13.240529,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.098,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 2.065,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "rest_days_diff",
-      "current_mean": 0.0213,
-      "baseline_mean": 0.0,
-      "psi": 0.000316,
+      "current_mean": 0.0,
+      "baseline_mean": 0.0122,
+      "psi": 0.021993,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.021277,
-      "shift_se": 0.047064,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.012232,
+      "shift_se": 0.042102,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.009,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.013,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "sp_era_diff",
-      "current_mean": 0.1028,
-      "baseline_mean": 0.0787,
-      "psi": 0.070267,
-      "psi_adjusted": 0.003783,
-      "noise_floor": 0.066484,
-      "mean_shift": 0.024066,
-      "shift_se": 0.346145,
+      "current_mean": 0.0909,
+      "baseline_mean": -0.0644,
+      "psi": 0.100898,
+      "psi_adjusted": 0.04389,
+      "noise_floor": 0.057008,
+      "mean_shift": 0.155309,
+      "shift_se": 0.325089,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.901,
-      "n_baseline": 273,
-      "n_current": 90
+      "weight_pct": 1.99,
+      "n_baseline": 318,
+      "n_current": 105
     },
     {
       "feature": "sp_era_5g_diff",
-      "current_mean": -0.1597,
-      "baseline_mean": -0.1006,
-      "psi": 0.224525,
-      "psi_adjusted": 0.15828,
-      "noise_floor": 0.066245,
-      "mean_shift": -0.059168,
-      "shift_se": 0.486941,
+      "current_mean": 0.0354,
+      "baseline_mean": -0.2413,
+      "psi": 0.178427,
+      "psi_adjusted": 0.121595,
+      "noise_floor": 0.056832,
+      "mean_shift": 0.276717,
+      "shift_se": 0.491046,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.921,
-      "n_baseline": 277,
-      "n_current": 90
+      "weight_pct": 2.319,
+      "n_baseline": 322,
+      "n_current": 105
     },
     {
       "feature": "sp_k9_diff",
-      "current_mean": -0.1835,
-      "baseline_mean": -0.0347,
-      "psi": 0.077758,
-      "psi_adjusted": 0.011274,
-      "noise_floor": 0.066484,
-      "mean_shift": -0.148842,
-      "shift_se": 0.454707,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.708,
-      "n_baseline": 273,
-      "n_current": 90
-    },
-    {
-      "feature": "sp_k9_5g_diff",
-      "current_mean": -0.0829,
-      "baseline_mean": -0.1507,
-      "psi": 0.06337,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.066245,
-      "mean_shift": 0.067842,
-      "shift_se": 0.64334,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.821,
-      "n_baseline": 277,
-      "n_current": 90
-    },
-    {
-      "feature": "sp_fbvelo_diff",
-      "current_mean": 0.2146,
-      "baseline_mean": -0.0693,
-      "psi": 0.137344,
-      "psi_adjusted": 0.070537,
-      "noise_floor": 0.066807,
-      "mean_shift": 0.283875,
-      "shift_se": 0.544569,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.938,
-      "n_baseline": 277,
-      "n_current": 89
-    },
-    {
-      "feature": "sp_fbpct_diff",
-      "current_mean": 0.0138,
-      "baseline_mean": -0.0116,
-      "psi": 0.105094,
-      "psi_adjusted": 0.038849,
-      "noise_floor": 0.066245,
-      "mean_shift": 0.025408,
-      "shift_se": 0.025049,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.552,
-      "n_baseline": 277,
-      "n_current": 90
-    },
-    {
-      "feature": "sp_whiff_diff",
-      "current_mean": 0.0033,
-      "baseline_mean": -0.0017,
-      "psi": 0.135352,
-      "psi_adjusted": 0.069107,
-      "noise_floor": 0.066245,
-      "mean_shift": 0.005014,
-      "shift_se": 0.008012,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 0.562,
-      "n_baseline": 277,
-      "n_current": 90
-    },
-    {
-      "feature": "sp_xwoba_diff",
-      "current_mean": 0.0036,
-      "baseline_mean": 0.0006,
-      "psi": 0.268553,
-      "psi_adjusted": 0.202308,
-      "noise_floor": 0.066245,
-      "mean_shift": 0.003026,
-      "shift_se": 0.012449,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 2.421,
-      "n_baseline": 277,
-      "n_current": 90
-    },
-    {
-      "feature": "sp_xwoba_vs_l_diff",
-      "current_mean": 0.001,
-      "baseline_mean": 0.0035,
-      "psi": 0.118749,
-      "psi_adjusted": 0.052265,
-      "noise_floor": 0.066484,
-      "mean_shift": -0.002502,
-      "shift_se": 0.012476,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 2.172,
-      "n_baseline": 273,
-      "n_current": 90
-    },
-    {
-      "feature": "lineup_woba_mean_diff",
-      "current_mean": 0.0026,
-      "baseline_mean": -0.0008,
-      "psi": 0.141477,
-      "psi_adjusted": 0.077647,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.003468,
-      "shift_se": 0.002864,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.786,
-      "n_baseline": 282,
-      "n_current": 94
-    },
-    {
-      "feature": "lineup_woba_top3_diff",
-      "current_mean": 0.0022,
-      "baseline_mean": 0.0019,
-      "psi": 0.048432,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.000322,
-      "shift_se": 0.004302,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.667,
-      "n_baseline": 282,
-      "n_current": 94
-    },
-    {
-      "feature": "lineup_woba_std_diff",
-      "current_mean": 0.0007,
-      "baseline_mean": -0.0003,
-      "psi": 0.080477,
-      "psi_adjusted": 0.016647,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.000994,
-      "shift_se": 0.001848,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 2.267,
-      "n_baseline": 282,
-      "n_current": 94
-    },
-    {
-      "feature": "woba_30g_diff",
-      "current_mean": 0.0068,
-      "baseline_mean": -0.002,
-      "psi": 0.182052,
-      "psi_adjusted": 0.118222,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.008807,
-      "shift_se": 0.005038,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 1.559,
-      "n_baseline": 282,
-      "n_current": 94
-    },
-    {
-      "feature": "bullpen_whip_diff",
-      "current_mean": -0.0011,
-      "baseline_mean": -0.0048,
-      "psi": 0.230099,
-      "psi_adjusted": 0.165981,
-      "noise_floor": 0.064118,
-      "mean_shift": 0.003673,
-      "shift_se": 0.066587,
-      "location_shift": false,
-      "status": "OK",
-      "weight_pct": 2.625,
-      "n_baseline": 277,
-      "n_current": 94
-    },
-    {
-      "feature": "bullpen_whip_3g_diff",
-      "current_mean": -0.0825,
-      "baseline_mean": -0.071,
-      "psi": 0.061069,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.064118,
-      "mean_shift": -0.011511,
-      "shift_se": 0.122327,
+      "current_mean": -0.2278,
+      "baseline_mean": -0.0194,
+      "psi": 0.070284,
+      "psi_adjusted": 0.013276,
+      "noise_floor": 0.057008,
+      "mean_shift": -0.208381,
+      "shift_se": 0.428697,
       "location_shift": false,
       "status": "OK",
       "weight_pct": 1.711,
-      "n_baseline": 277,
-      "n_current": 94
+      "n_baseline": 318,
+      "n_current": 105
+    },
+    {
+      "feature": "sp_k9_5g_diff",
+      "current_mean": -0.1292,
+      "baseline_mean": -0.039,
+      "psi": 0.048838,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.056832,
+      "mean_shift": -0.090165,
+      "shift_se": 0.601191,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.615,
+      "n_baseline": 322,
+      "n_current": 105
+    },
+    {
+      "feature": "sp_fbvelo_diff",
+      "current_mean": 0.2064,
+      "baseline_mean": 0.0958,
+      "psi": 0.059963,
+      "psi_adjusted": 0.002719,
+      "noise_floor": 0.057244,
+      "mean_shift": 0.110628,
+      "shift_se": 0.508291,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.163,
+      "n_baseline": 322,
+      "n_current": 104
+    },
+    {
+      "feature": "sp_fbpct_diff",
+      "current_mean": 0.0085,
+      "baseline_mean": -0.0067,
+      "psi": 0.065491,
+      "psi_adjusted": 0.008659,
+      "noise_floor": 0.056832,
+      "mean_shift": 0.015223,
+      "shift_se": 0.023573,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.575,
+      "n_baseline": 322,
+      "n_current": 105
+    },
+    {
+      "feature": "sp_whiff_diff",
+      "current_mean": 0.001,
+      "baseline_mean": -0.0008,
+      "psi": 0.053527,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.056832,
+      "mean_shift": 0.001809,
+      "shift_se": 0.007545,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.678,
+      "n_baseline": 322,
+      "n_current": 105
+    },
+    {
+      "feature": "sp_xwoba_diff",
+      "current_mean": 0.0037,
+      "baseline_mean": -0.0042,
+      "psi": 0.2184,
+      "psi_adjusted": 0.161568,
+      "noise_floor": 0.056832,
+      "mean_shift": 0.007873,
+      "shift_se": 0.011579,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.95,
+      "n_baseline": 322,
+      "n_current": 105
+    },
+    {
+      "feature": "sp_xwoba_vs_l_diff",
+      "current_mean": 0.0002,
+      "baseline_mean": -0.0003,
+      "psi": 0.110439,
+      "psi_adjusted": 0.053431,
+      "noise_floor": 0.057008,
+      "mean_shift": 0.000545,
+      "shift_se": 0.011543,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.935,
+      "n_baseline": 318,
+      "n_current": 105
+    },
+    {
+      "feature": "lineup_woba_mean_diff",
+      "current_mean": 0.0031,
+      "baseline_mean": -0.0002,
+      "psi": 0.136367,
+      "psi_adjusted": 0.081321,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.00333,
+      "shift_se": 0.002641,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.722,
+      "n_baseline": 327,
+      "n_current": 109
+    },
+    {
+      "feature": "lineup_woba_top3_diff",
+      "current_mean": 0.0025,
+      "baseline_mean": 0.0019,
+      "psi": 0.038482,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.000622,
+      "shift_se": 0.004027,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.495,
+      "n_baseline": 327,
+      "n_current": 109
+    },
+    {
+      "feature": "lineup_woba_std_diff",
+      "current_mean": 0.0009,
+      "baseline_mean": -0.0002,
+      "psi": 0.054795,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.001141,
+      "shift_se": 0.001724,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.371,
+      "n_baseline": 327,
+      "n_current": 109
+    },
+    {
+      "feature": "woba_30g_diff",
+      "current_mean": 0.0064,
+      "baseline_mean": 0.0001,
+      "psi": 0.121174,
+      "psi_adjusted": 0.066128,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.006316,
+      "shift_se": 0.004811,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.705,
+      "n_baseline": 327,
+      "n_current": 109
+    },
+    {
+      "feature": "bullpen_whip_diff",
+      "current_mean": 0.0055,
+      "baseline_mean": -0.0014,
+      "psi": 0.21335,
+      "psi_adjusted": 0.158047,
+      "noise_floor": 0.055303,
+      "mean_shift": 0.006942,
+      "shift_se": 0.061484,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.189,
+      "n_baseline": 321,
+      "n_current": 109
+    },
+    {
+      "feature": "bullpen_whip_3g_diff",
+      "current_mean": -0.0682,
+      "baseline_mean": -0.0481,
+      "psi": 0.060864,
+      "psi_adjusted": 0.005561,
+      "noise_floor": 0.055303,
+      "mean_shift": -0.020057,
+      "shift_se": 0.113325,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.354,
+      "n_baseline": 321,
+      "n_current": 109
     },
     {
       "feature": "bullpen_pitches_diff",
-      "current_mean": 20.0745,
-      "baseline_mean": 3.0071,
-      "psi": 0.137942,
-      "psi_adjusted": 0.074112,
-      "noise_floor": 0.06383,
-      "mean_shift": 17.067376,
-      "shift_se": 11.832769,
+      "current_mean": 19.8991,
+      "baseline_mean": 3.2813,
+      "psi": 0.134284,
+      "psi_adjusted": 0.079238,
+      "noise_floor": 0.055046,
+      "mean_shift": 16.617737,
+      "shift_se": 11.116073,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.594,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 2.108,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_barrel_diff",
-      "current_mean": 0.0013,
-      "baseline_mean": 0.0002,
-      "psi": 0.152512,
-      "psi_adjusted": 0.088682,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.001044,
-      "shift_se": 0.002112,
+      "current_mean": 0.0019,
+      "baseline_mean": -0.0002,
+      "psi": 0.203463,
+      "psi_adjusted": 0.148417,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.002147,
+      "shift_se": 0.001966,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.872,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.711,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_hardhit_diff",
-      "current_mean": 0.0176,
-      "baseline_mean": -0.0038,
-      "psi": 0.157728,
-      "psi_adjusted": 0.093898,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.021416,
-      "shift_se": 0.00926,
+      "current_mean": 0.0157,
+      "baseline_mean": -0.0024,
+      "psi": 0.114411,
+      "psi_adjusted": 0.059365,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.018069,
+      "shift_se": 0.008368,
       "location_shift": true,
       "status": "OK",
-      "weight_pct": 2.34,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.693,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_exitvelo_diff",
-      "current_mean": 0.4121,
-      "baseline_mean": -0.0849,
-      "psi": 0.079241,
-      "psi_adjusted": 0.015411,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.496926,
-      "shift_se": 0.321883,
+      "current_mean": 0.3207,
+      "baseline_mean": 0.0034,
+      "psi": 0.126556,
+      "psi_adjusted": 0.07151,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.317322,
+      "shift_se": 0.293675,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.493,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.542,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "lineup_handedness_matchup_advantage",
-      "current_mean": 0.0153,
-      "baseline_mean": 0.0011,
-      "psi": 0.243386,
-      "psi_adjusted": 0.179556,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.014159,
-      "shift_se": 0.018686,
+      "current_mean": 0.0202,
+      "baseline_mean": 0.0036,
+      "psi": 0.195632,
+      "psi_adjusted": 0.140586,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.016619,
+      "shift_se": 0.016879,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.526,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.366,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "travel_fatigue_diff",
-      "current_mean": -0.1596,
-      "baseline_mean": -0.1277,
-      "psi": 1.5e-05,
+      "current_mean": -0.156,
+      "baseline_mean": -0.1162,
+      "psi": 0.000599,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.031915,
-      "shift_se": 0.106938,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.039755,
+      "shift_se": 0.101337,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.996,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.151,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "closer_availability_diff",
-      "current_mean": 0.0319,
-      "baseline_mean": -0.0284,
-      "psi": 0.021159,
+      "current_mean": 0.0092,
+      "baseline_mean": -0.0092,
+      "psi": 0.000815,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.060284,
-      "shift_se": 0.05745,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.018349,
+      "shift_se": 0.052802,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.005,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.007,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "dome_is_neutral",
-      "current_mean": 0.3617,
-      "baseline_mean": 0.2872,
-      "psi": 0.0,
+      "current_mean": 0.3578,
+      "baseline_mean": 0.2813,
+      "psi": 0.027378,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.074468,
-      "shift_se": 0.082332,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.076453,
+      "shift_se": 0.076034,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.049,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.036,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "park_factor_slug_diff",
       "current_mean": -0.0001,
       "baseline_mean": 0.0002,
-      "psi": 0.224164,
-      "psi_adjusted": 0.160334,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.000251,
-      "shift_se": 0.000155,
+      "psi": 0.225177,
+      "psi_adjusted": 0.170131,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.00025,
+      "shift_se": 0.000137,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.379,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.394,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "wind_advantage_flyball_factor",
-      "current_mean": -0.0055,
-      "baseline_mean": 0.0061,
-      "psi": 0.109305,
-      "psi_adjusted": 0.042821,
-      "noise_floor": 0.066484,
-      "mean_shift": -0.011587,
-      "shift_se": 0.054713,
+      "current_mean": -0.0009,
+      "baseline_mean": 0.0064,
+      "psi": 0.118743,
+      "psi_adjusted": 0.061735,
+      "noise_floor": 0.057008,
+      "mean_shift": -0.007299,
+      "shift_se": 0.054186,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.181,
-      "n_baseline": 273,
-      "n_current": 90
+      "weight_pct": 1.835,
+      "n_baseline": 318,
+      "n_current": 105
     },
     {
       "feature": "air_density_velocity_boost",
-      "current_mean": 0.0231,
-      "baseline_mean": -0.0005,
-      "psi": 0.245749,
-      "psi_adjusted": 0.178942,
-      "noise_floor": 0.066807,
-      "mean_shift": 0.023675,
-      "shift_se": 0.04982,
+      "current_mean": 0.0059,
+      "baseline_mean": -0.0143,
+      "psi": 0.21038,
+      "psi_adjusted": 0.153136,
+      "noise_floor": 0.057244,
+      "mean_shift": 0.020241,
+      "shift_se": 0.046916,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.756,
-      "n_baseline": 277,
-      "n_current": 89
+      "weight_pct": 1.18,
+      "n_baseline": 322,
+      "n_current": 104
     },
     {
       "feature": "bullpen_meltdown_risk",
-      "current_mean": 6.955,
-      "baseline_mean": 4.111,
-      "psi": 0.212839,
-      "psi_adjusted": 0.148721,
-      "noise_floor": 0.064118,
-      "mean_shift": 2.844054,
-      "shift_se": 4.262646,
+      "current_mean": 6.8047,
+      "baseline_mean": 3.5094,
+      "psi": 0.154061,
+      "psi_adjusted": 0.098758,
+      "noise_floor": 0.055303,
+      "mean_shift": 3.29533,
+      "shift_se": 3.92749,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.285,
-      "n_baseline": 277,
-      "n_current": 94
+      "weight_pct": 1.657,
+      "n_baseline": 321,
+      "n_current": 109
     },
     {
       "feature": "pitcher_regression_indicator",
-      "current_mean": -1.0174,
-      "baseline_mean": 0.119,
-      "psi": 0.074986,
-      "psi_adjusted": 0.008179,
-      "noise_floor": 0.066807,
-      "mean_shift": -1.136449,
-      "shift_se": 1.534427,
+      "current_mean": -0.5403,
+      "baseline_mean": -0.8029,
+      "psi": 0.050278,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.057244,
+      "mean_shift": 0.26254,
+      "shift_se": 1.747633,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.754,
-      "n_baseline": 277,
-      "n_current": 89
+      "weight_pct": 0.426,
+      "n_baseline": 322,
+      "n_current": 104
     },
     {
       "feature": "lineup_depth_multiplier",
       "current_mean": 0.0002,
       "baseline_mean": 0.0003,
-      "psi": 0.119011,
-      "psi_adjusted": 0.055181,
-      "noise_floor": 0.06383,
-      "mean_shift": -4.5e-05,
-      "shift_se": 7.9e-05,
+      "psi": 0.12625,
+      "psi_adjusted": 0.071204,
+      "noise_floor": 0.055046,
+      "mean_shift": -4.8e-05,
+      "shift_se": 7.3e-05,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.414,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.419,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "ace_efficiency_factor",
-      "current_mean": 0.0786,
-      "baseline_mean": 0.1033,
-      "psi": 0.133455,
-      "psi_adjusted": 0.06721,
-      "noise_floor": 0.066245,
-      "mean_shift": -0.024667,
-      "shift_se": 0.034119,
+      "current_mean": 0.0811,
+      "baseline_mean": 0.1082,
+      "psi": 0.151734,
+      "psi_adjusted": 0.094902,
+      "noise_floor": 0.056832,
+      "mean_shift": -0.027025,
+      "shift_se": 0.032069,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.457,
-      "n_baseline": 277,
-      "n_current": 90
+      "weight_pct": 1.503,
+      "n_baseline": 322,
+      "n_current": 105
     },
     {
       "feature": "home_elo",
-      "current_mean": 1506.2557,
-      "baseline_mean": 1502.0639,
-      "psi": 0.15088,
-      "psi_adjusted": 0.08705,
-      "noise_floor": 0.06383,
-      "mean_shift": 4.191765,
-      "shift_se": 9.925306,
+      "current_mean": 1506.5861,
+      "baseline_mean": 1501.236,
+      "psi": 0.137091,
+      "psi_adjusted": 0.082045,
+      "noise_floor": 0.055046,
+      "mean_shift": 5.350114,
+      "shift_se": 9.036063,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.634,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 2.153,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "away_elo",
-      "current_mean": 1488.2516,
-      "baseline_mean": 1499.5812,
-      "psi": 0.14222,
-      "psi_adjusted": 0.07839,
-      "noise_floor": 0.06383,
-      "mean_shift": -11.329577,
-      "shift_se": 9.800827,
+      "current_mean": 1488.6771,
+      "baseline_mean": 1500.1514,
+      "psi": 0.128087,
+      "psi_adjusted": 0.073041,
+      "noise_floor": 0.055046,
+      "mean_shift": -11.47424,
+      "shift_se": 9.062931,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.589,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.557,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "home_win_pct",
-      "current_mean": 0.5034,
-      "baseline_mean": 0.502,
-      "psi": 0.14616,
-      "psi_adjusted": 0.08233,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.001387,
-      "shift_se": 0.011369,
+      "current_mean": 0.5033,
+      "baseline_mean": 0.5011,
+      "psi": 0.086055,
+      "psi_adjusted": 0.031009,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.002208,
+      "shift_se": 0.010381,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.056,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.784,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "away_win_pct",
-      "current_mean": 0.4929,
-      "baseline_mean": 0.5,
-      "psi": 0.479503,
-      "psi_adjusted": 0.415673,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.007167,
-      "shift_se": 0.010924,
+      "current_mean": 0.4934,
+      "baseline_mean": 0.5005,
+      "psi": 0.222681,
+      "psi_adjusted": 0.167635,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.007092,
+      "shift_se": 0.010244,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.006,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.511,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "sp_era_home",
-      "current_mean": 3.9926,
-      "baseline_mean": 4.134,
-      "psi": 0.119137,
-      "psi_adjusted": 0.054037,
-      "noise_floor": 0.0651,
-      "mean_shift": -0.141421,
-      "shift_se": 0.249715,
+      "current_mean": 3.9879,
+      "baseline_mean": 4.0667,
+      "psi": 0.142759,
+      "psi_adjusted": 0.086771,
+      "noise_floor": 0.055988,
+      "mean_shift": -0.078778,
+      "shift_se": 0.226595,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.493,
-      "n_baseline": 278,
-      "n_current": 92
+      "weight_pct": 1.514,
+      "n_baseline": 323,
+      "n_current": 107
     },
     {
       "feature": "sp_era_away",
-      "current_mean": 3.9242,
-      "baseline_mean": 4.0442,
-      "psi": 0.070591,
-      "psi_adjusted": 0.005432,
-      "noise_floor": 0.065159,
-      "mean_shift": -0.120047,
-      "shift_se": 0.237988,
+      "current_mean": 3.9263,
+      "baseline_mean": 4.1196,
+      "psi": 0.067843,
+      "psi_adjusted": 0.011812,
+      "noise_floor": 0.056031,
+      "mean_shift": -0.193247,
+      "shift_se": 0.22553,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.54,
-      "n_baseline": 277,
-      "n_current": 92
+      "weight_pct": 1.727,
+      "n_baseline": 322,
+      "n_current": 107
     },
     {
       "feature": "sp_k9_home",
-      "current_mean": 8.6463,
-      "baseline_mean": 8.6496,
-      "psi": 0.078355,
-      "psi_adjusted": 0.013255,
-      "noise_floor": 0.0651,
-      "mean_shift": -0.00326,
-      "shift_se": 0.316952,
+      "current_mean": 8.5692,
+      "baseline_mean": 8.6984,
+      "psi": 0.030409,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.055988,
+      "mean_shift": -0.129133,
+      "shift_se": 0.293222,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.983,
-      "n_baseline": 278,
-      "n_current": 92
+      "weight_pct": 1.726,
+      "n_baseline": 323,
+      "n_current": 107
     },
     {
       "feature": "sp_k9_away",
-      "current_mean": 8.8144,
-      "baseline_mean": 8.668,
-      "psi": 0.085885,
-      "psi_adjusted": 0.020726,
-      "noise_floor": 0.065159,
-      "mean_shift": 0.146434,
-      "shift_se": 0.323523,
+      "current_mean": 8.7829,
+      "baseline_mean": 8.7041,
+      "psi": 0.061686,
+      "psi_adjusted": 0.005655,
+      "noise_floor": 0.056031,
+      "mean_shift": 0.07882,
+      "shift_se": 0.306211,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.921,
-      "n_baseline": 277,
-      "n_current": 92
+      "weight_pct": 1.643,
+      "n_baseline": 322,
+      "n_current": 107
     },
     {
       "feature": "sp_xwoba_home",
-      "current_mean": 0.3075,
-      "baseline_mean": 0.312,
-      "psi": 0.168296,
-      "psi_adjusted": 0.103254,
-      "noise_floor": 0.065042,
-      "mean_shift": -0.004547,
-      "shift_se": 0.0089,
+      "current_mean": 0.3088,
+      "baseline_mean": 0.3093,
+      "psi": 0.09029,
+      "psi_adjusted": 0.034345,
+      "noise_floor": 0.055945,
+      "mean_shift": -0.000497,
+      "shift_se": 0.008131,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.736,
-      "n_baseline": 279,
-      "n_current": 92
+      "weight_pct": 1.735,
+      "n_baseline": 324,
+      "n_current": 107
     },
     {
       "feature": "sp_xwoba_away",
-      "current_mean": 0.3042,
-      "baseline_mean": 0.3117,
-      "psi": 0.062162,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.064984,
-      "mean_shift": -0.007518,
-      "shift_se": 0.008684,
+      "current_mean": 0.3053,
+      "baseline_mean": 0.3136,
+      "psi": 0.066764,
+      "psi_adjusted": 0.010862,
+      "noise_floor": 0.055902,
+      "mean_shift": -0.008285,
+      "shift_se": 0.00801,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.028,
-      "n_baseline": 280,
-      "n_current": 92
+      "weight_pct": 1.619,
+      "n_baseline": 325,
+      "n_current": 107
     },
     {
       "feature": "lineup_woba_mean_home",
-      "current_mean": 0.3461,
-      "baseline_mean": 0.3463,
-      "psi": 0.132261,
-      "psi_adjusted": 0.068431,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.000169,
-      "shift_se": 0.001904,
+      "current_mean": 0.3464,
+      "baseline_mean": 0.347,
+      "psi": 0.048688,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.000556,
+      "shift_se": 0.001764,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.355,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 2.126,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "lineup_woba_mean_away",
-      "current_mean": 0.3435,
-      "baseline_mean": 0.3471,
-      "psi": 0.123554,
-      "psi_adjusted": 0.059724,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.003636,
-      "shift_se": 0.002057,
-      "location_shift": false,
+      "current_mean": 0.3433,
+      "baseline_mean": 0.3472,
+      "psi": 0.142986,
+      "psi_adjusted": 0.08794,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.003886,
+      "shift_se": 0.001889,
+      "location_shift": true,
       "status": "OK",
-      "weight_pct": 1.901,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.834,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "lineup_woba_top3_home",
-      "current_mean": 0.3535,
-      "baseline_mean": 0.3572,
-      "psi": 0.234744,
-      "psi_adjusted": 0.170914,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.003709,
-      "shift_se": 0.002743,
+      "current_mean": 0.3537,
+      "baseline_mean": 0.3581,
+      "psi": 0.356845,
+      "psi_adjusted": 0.301799,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.004426,
+      "shift_se": 0.002572,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.815,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.814,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "lineup_woba_top3_away",
-      "current_mean": 0.3513,
-      "baseline_mean": 0.3553,
-      "psi": 0.183602,
-      "psi_adjusted": 0.119772,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.004032,
-      "shift_se": 0.003274,
+      "current_mean": 0.3512,
+      "baseline_mean": 0.3562,
+      "psi": 0.125431,
+      "psi_adjusted": 0.070385,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.005048,
+      "shift_se": 0.002971,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.68,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.5,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "woba_30g_home",
       "current_mean": 0.3024,
-      "baseline_mean": 0.3016,
-      "psi": 0.185291,
-      "psi_adjusted": 0.121461,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.000742,
-      "shift_se": 0.003253,
+      "baseline_mean": 0.3029,
+      "psi": 0.138763,
+      "psi_adjusted": 0.083717,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.000452,
+      "shift_se": 0.003115,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.938,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.447,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "woba_30g_away",
-      "current_mean": 0.2955,
-      "baseline_mean": 0.3036,
-      "psi": 0.319215,
-      "psi_adjusted": 0.255385,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.008065,
-      "shift_se": 0.003597,
-      "location_shift": true,
-      "status": "ALERT",
-      "weight_pct": 2.384,
-      "n_baseline": 282,
-      "n_current": 94
+      "current_mean": 0.296,
+      "baseline_mean": 0.3028,
+      "psi": 0.211398,
+      "psi_adjusted": 0.156352,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.006768,
+      "shift_se": 0.0034,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.7,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "bullpen_whip_10g_home",
-      "current_mean": 1.3214,
-      "baseline_mean": 1.341,
-      "psi": 0.076491,
-      "psi_adjusted": 0.012604,
-      "noise_floor": 0.063887,
-      "mean_shift": -0.019592,
-      "shift_se": 0.040965,
+      "current_mean": 1.3304,
+      "baseline_mean": 1.3384,
+      "psi": 0.043065,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.055088,
+      "mean_shift": -0.008078,
+      "shift_se": 0.03911,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.551,
-      "n_baseline": 281,
-      "n_current": 94
+      "weight_pct": 2.287,
+      "n_baseline": 326,
+      "n_current": 109
     },
     {
       "feature": "bullpen_whip_10g_away",
-      "current_mean": 1.3225,
-      "baseline_mean": 1.3432,
-      "psi": 0.212341,
-      "psi_adjusted": 0.148282,
-      "noise_floor": 0.064059,
-      "mean_shift": -0.02067,
-      "shift_se": 0.045666,
+      "current_mean": 1.3249,
+      "baseline_mean": 1.3389,
+      "psi": 0.131123,
+      "psi_adjusted": 0.075863,
+      "noise_floor": 0.05526,
+      "mean_shift": -0.014062,
+      "shift_se": 0.041946,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.783,
-      "n_baseline": 278,
-      "n_current": 94
+      "weight_pct": 1.505,
+      "n_baseline": 322,
+      "n_current": 109
     },
     {
       "feature": "bullpen_whip_3g_home",
-      "current_mean": 1.252,
-      "baseline_mean": 1.3211,
-      "psi": 0.147981,
-      "psi_adjusted": 0.084094,
-      "noise_floor": 0.063887,
-      "mean_shift": -0.06917,
-      "shift_se": 0.078928,
+      "current_mean": 1.2578,
+      "baseline_mean": 1.3274,
+      "psi": 0.073844,
+      "psi_adjusted": 0.018756,
+      "noise_floor": 0.055088,
+      "mean_shift": -0.069625,
+      "shift_se": 0.073353,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.595,
-      "n_baseline": 281,
-      "n_current": 94
+      "weight_pct": 1.481,
+      "n_baseline": 326,
+      "n_current": 109
     },
     {
       "feature": "bullpen_whip_3g_away",
-      "current_mean": 1.3345,
-      "baseline_mean": 1.3919,
-      "psi": 0.206334,
-      "psi_adjusted": 0.142275,
-      "noise_floor": 0.064059,
-      "mean_shift": -0.057398,
-      "shift_se": 0.088097,
+      "current_mean": 1.3259,
+      "baseline_mean": 1.3764,
+      "psi": 0.119807,
+      "psi_adjusted": 0.064547,
+      "noise_floor": 0.05526,
+      "mean_shift": -0.050489,
+      "shift_se": 0.079562,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.068,
-      "n_baseline": 278,
-      "n_current": 94
+      "weight_pct": 1.8,
+      "n_baseline": 322,
+      "n_current": 109
     },
     {
       "feature": "team_barrel_15g_home",
-      "current_mean": 0.0234,
+      "current_mean": 0.0236,
       "baseline_mean": 0.0221,
-      "psi": 0.232158,
-      "psi_adjusted": 0.168328,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.001297,
-      "shift_se": 0.001572,
+      "psi": 0.245015,
+      "psi_adjusted": 0.189969,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.001548,
+      "shift_se": 0.001421,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 2.025,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.809,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_barrel_15g_away",
-      "current_mean": 0.0221,
-      "baseline_mean": 0.0219,
-      "psi": 0.120288,
-      "psi_adjusted": 0.056458,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.000253,
-      "shift_se": 0.001381,
+      "current_mean": 0.0217,
+      "baseline_mean": 0.0223,
+      "psi": 0.072237,
+      "psi_adjusted": 0.017191,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.000599,
+      "shift_se": 0.001318,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 0.485,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 0.663,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_exitvelo_15g_home",
-      "current_mean": 88.0299,
-      "baseline_mean": 87.7233,
-      "psi": 0.348572,
-      "psi_adjusted": 0.284742,
-      "noise_floor": 0.06383,
-      "mean_shift": 0.306588,
-      "shift_se": 0.227241,
+      "current_mean": 87.9855,
+      "baseline_mean": 87.758,
+      "psi": 0.335148,
+      "psi_adjusted": 0.280102,
+      "noise_floor": 0.055046,
+      "mean_shift": 0.227463,
+      "shift_se": 0.2089,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.772,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.313,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "team_exitvelo_15g_away",
-      "current_mean": 87.6178,
-      "baseline_mean": 87.8082,
-      "psi": 0.147578,
-      "psi_adjusted": 0.083748,
-      "noise_floor": 0.06383,
-      "mean_shift": -0.190338,
-      "shift_se": 0.231444,
+      "current_mean": 87.6647,
+      "baseline_mean": 87.7546,
+      "psi": 0.084014,
+      "psi_adjusted": 0.028968,
+      "noise_floor": 0.055046,
+      "mean_shift": -0.089859,
+      "shift_se": 0.209787,
       "location_shift": false,
       "status": "OK",
-      "weight_pct": 1.36,
-      "n_baseline": 282,
-      "n_current": 94
+      "weight_pct": 1.427,
+      "n_baseline": 327,
+      "n_current": 109
     },
     {
       "feature": "lineup_actual_woba_delta_home",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "current_mean": 0.0035,
+      "baseline_mean": 0.0026,
+      "psi": 0.157434,
+      "psi_adjusted": 0.0958,
+      "noise_floor": 0.061634,
+      "mean_shift": 0.000854,
+      "shift_se": 0.001812,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 2.56,
+      "n_baseline": 327,
+      "n_current": 94
     },
     {
       "feature": "lineup_actual_woba_delta_away",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "current_mean": 0.0021,
+      "baseline_mean": 0.0039,
+      "psi": 0.100912,
+      "psi_adjusted": 0.039278,
+      "noise_floor": 0.061634,
+      "mean_shift": -0.001796,
+      "shift_se": 0.002097,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 2.586,
+      "n_baseline": 327,
+      "n_current": 94
     },
     {
       "feature": "lineup_actual_top3_delta_home",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "current_mean": -0.0127,
+      "baseline_mean": -0.0164,
+      "psi": 0.267696,
+      "psi_adjusted": 0.206062,
+      "noise_floor": 0.061634,
+      "mean_shift": 0.00368,
+      "shift_se": 0.002835,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 2.247,
+      "n_baseline": 327,
+      "n_current": 94
     },
     {
       "feature": "lineup_actual_top3_delta_away",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "current_mean": -0.0176,
+      "baseline_mean": -0.0163,
+      "psi": 0.210214,
+      "psi_adjusted": 0.14858,
+      "noise_floor": 0.061634,
+      "mean_shift": -0.001246,
+      "shift_se": 0.003062,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 1.245,
+      "n_baseline": 327,
+      "n_current": 94
     },
     {
       "feature": "lineup_rest_count_home",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
+      "current_mean": 1.8723,
+      "baseline_mean": 1.7615,
+      "psi": 0.036882,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "noise_floor": 0.061634,
+      "mean_shift": 0.110873,
+      "shift_se": 0.192123,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 0.078,
+      "n_baseline": 327,
+      "n_current": 94
     },
     {
       "feature": "lineup_rest_count_away",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
+      "current_mean": 1.9149,
+      "baseline_mean": 1.7615,
+      "psi": 0.041287,
       "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
+      "noise_floor": 0.061634,
+      "mean_shift": 0.153426,
+      "shift_se": 0.197568,
       "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 0.0,
-      "n_baseline": 0,
-      "n_current": 0
-    },
-    {
-      "feature": "run_margin_diff",
-      "current_mean": 0.0,
-      "baseline_mean": 0.0,
-      "psi": 0.0,
-      "psi_adjusted": 0.0,
-      "noise_floor": 0.0,
-      "mean_shift": 0.0,
-      "shift_se": 0.0,
-      "location_shift": false,
-      "status": "INSUFFICIENT",
-      "weight_pct": 4.534,
-      "n_baseline": 0,
-      "n_current": 0
+      "status": "OK",
+      "weight_pct": 1.344,
+      "n_baseline": 327,
+      "n_current": 94
     }
   ],
   "feature_coverage": [
     {
       "feature": "is_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1011,10 +994,10 @@
     {
       "feature": "win_pct_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1022,10 +1005,10 @@
     {
       "feature": "elo_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1033,10 +1016,10 @@
     {
       "feature": "rest_days_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1044,109 +1027,109 @@
     {
       "feature": "sp_era_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_5g_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_5g_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbvelo_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 89,
-      "pct_nonnull": 94.7,
-      "n_measured": 89,
-      "pct_measured": 94.7,
+      "n_games": 109,
+      "n_nonnull": 104,
+      "pct_nonnull": 95.4,
+      "n_measured": 104,
+      "pct_measured": 95.4,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbpct_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_whiff_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_vs_l_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1154,10 +1137,10 @@
     {
       "feature": "lineup_woba_top3_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1165,10 +1148,10 @@
     {
       "feature": "lineup_woba_std_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1176,10 +1159,10 @@
     {
       "feature": "woba_30g_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1187,10 +1170,10 @@
     {
       "feature": "bullpen_whip_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1198,10 +1181,10 @@
     {
       "feature": "bullpen_whip_3g_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1209,10 +1192,10 @@
     {
       "feature": "bullpen_pitches_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1220,10 +1203,10 @@
     {
       "feature": "team_barrel_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1231,10 +1214,10 @@
     {
       "feature": "team_hardhit_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1242,10 +1225,10 @@
     {
       "feature": "team_exitvelo_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1253,10 +1236,10 @@
     {
       "feature": "lineup_handedness_matchup_advantage",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1264,10 +1247,10 @@
     {
       "feature": "travel_fatigue_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1275,10 +1258,10 @@
     {
       "feature": "closer_availability_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1286,10 +1269,10 @@
     {
       "feature": "dome_is_neutral",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1297,10 +1280,10 @@
     {
       "feature": "park_factor_slug_diff",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1308,32 +1291,32 @@
     {
       "feature": "wind_advantage_flyball_factor",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 63,
-      "pct_measured": 67.0,
-      "n_default_zero": 27,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 74,
+      "pct_measured": 67.9,
+      "n_default_zero": 31,
       "status": "LOW_COVERAGE"
     },
     {
       "feature": "air_density_velocity_boost",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 89,
-      "pct_nonnull": 94.7,
-      "n_measured": 89,
-      "pct_measured": 94.7,
+      "n_games": 109,
+      "n_nonnull": 104,
+      "pct_nonnull": 95.4,
+      "n_measured": 104,
+      "pct_measured": 95.4,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_meltdown_risk",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1341,21 +1324,21 @@
     {
       "feature": "pitcher_regression_indicator",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 89,
-      "pct_nonnull": 94.7,
-      "n_measured": 89,
-      "pct_measured": 94.7,
+      "n_games": 109,
+      "n_nonnull": 104,
+      "pct_nonnull": 95.4,
+      "n_measured": 104,
+      "pct_measured": 95.4,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_depth_multiplier",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1363,21 +1346,21 @@
     {
       "feature": "ace_efficiency_factor",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 90,
-      "pct_nonnull": 95.7,
-      "n_measured": 90,
-      "pct_measured": 95.7,
+      "n_games": 109,
+      "n_nonnull": 105,
+      "pct_nonnull": 96.3,
+      "n_measured": 105,
+      "pct_measured": 96.3,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "home_elo",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1385,10 +1368,10 @@
     {
       "feature": "away_elo",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1396,10 +1379,10 @@
     {
       "feature": "home_win_pct",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1407,10 +1390,10 @@
     {
       "feature": "away_win_pct",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1418,76 +1401,76 @@
     {
       "feature": "sp_era_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 92,
-      "pct_nonnull": 97.9,
-      "n_measured": 92,
-      "pct_measured": 97.9,
+      "n_games": 109,
+      "n_nonnull": 107,
+      "pct_nonnull": 98.2,
+      "n_measured": 107,
+      "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1495,10 +1478,10 @@
     {
       "feature": "lineup_woba_mean_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1506,10 +1489,10 @@
     {
       "feature": "lineup_woba_top3_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1517,10 +1500,10 @@
     {
       "feature": "lineup_woba_top3_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1528,10 +1511,10 @@
     {
       "feature": "woba_30g_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1539,10 +1522,10 @@
     {
       "feature": "woba_30g_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1550,10 +1533,10 @@
     {
       "feature": "bullpen_whip_10g_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1561,10 +1544,10 @@
     {
       "feature": "bullpen_whip_10g_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1572,10 +1555,10 @@
     {
       "feature": "bullpen_whip_3g_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1583,10 +1566,10 @@
     {
       "feature": "bullpen_whip_3g_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1594,10 +1577,10 @@
     {
       "feature": "team_barrel_15g_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1605,10 +1588,10 @@
     {
       "feature": "team_barrel_15g_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1616,10 +1599,10 @@
     {
       "feature": "team_exitvelo_15g_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1627,10 +1610,10 @@
     {
       "feature": "team_exitvelo_15g_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 94,
+      "n_games": 109,
+      "n_nonnull": 109,
       "pct_nonnull": 100.0,
-      "n_measured": 94,
+      "n_measured": 109,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1638,87 +1621,76 @@
     {
       "feature": "lineup_actual_woba_delta_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_woba_delta_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_top3_delta_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_top3_delta_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_rest_count_home",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_rest_count_away",
       "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 109,
+      "n_nonnull": 94,
+      "pct_nonnull": 86.2,
+      "n_measured": 94,
+      "pct_measured": 86.2,
       "n_default_zero": 0,
-      "status": "STARVED"
-    },
-    {
-      "feature": "run_margin_diff",
-      "window": "current",
-      "n_games": 94,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
-      "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "is_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1726,10 +1698,10 @@
     {
       "feature": "win_pct_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1737,10 +1709,10 @@
     {
       "feature": "elo_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1748,10 +1720,10 @@
     {
       "feature": "rest_days_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1759,109 +1731,109 @@
     {
       "feature": "sp_era_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 273,
-      "pct_nonnull": 96.8,
-      "n_measured": 273,
-      "pct_measured": 96.8,
+      "n_games": 327,
+      "n_nonnull": 318,
+      "pct_nonnull": 97.2,
+      "n_measured": 318,
+      "pct_measured": 97.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_5g_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 273,
-      "pct_nonnull": 96.8,
-      "n_measured": 273,
-      "pct_measured": 96.8,
+      "n_games": 327,
+      "n_nonnull": 318,
+      "pct_nonnull": 97.2,
+      "n_measured": 318,
+      "pct_measured": 97.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_5g_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbvelo_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_fbpct_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_whiff_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_vs_l_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 273,
-      "pct_nonnull": 96.8,
-      "n_measured": 273,
-      "pct_measured": 96.8,
+      "n_games": 327,
+      "n_nonnull": 318,
+      "pct_nonnull": 97.2,
+      "n_measured": 318,
+      "pct_measured": 97.2,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1869,10 +1841,10 @@
     {
       "feature": "lineup_woba_top3_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1880,10 +1852,10 @@
     {
       "feature": "lineup_woba_std_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1891,10 +1863,10 @@
     {
       "feature": "woba_30g_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1902,10 +1874,10 @@
     {
       "feature": "bullpen_whip_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
+      "n_games": 327,
+      "n_nonnull": 321,
       "pct_nonnull": 98.2,
-      "n_measured": 277,
+      "n_measured": 321,
       "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
@@ -1913,10 +1885,10 @@
     {
       "feature": "bullpen_whip_3g_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
+      "n_games": 327,
+      "n_nonnull": 321,
       "pct_nonnull": 98.2,
-      "n_measured": 277,
+      "n_measured": 321,
       "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
@@ -1924,10 +1896,10 @@
     {
       "feature": "bullpen_pitches_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1935,10 +1907,10 @@
     {
       "feature": "team_barrel_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1946,10 +1918,10 @@
     {
       "feature": "team_hardhit_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1957,10 +1929,10 @@
     {
       "feature": "team_exitvelo_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1968,10 +1940,10 @@
     {
       "feature": "lineup_handedness_matchup_advantage",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1979,10 +1951,10 @@
     {
       "feature": "travel_fatigue_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -1990,10 +1962,10 @@
     {
       "feature": "closer_availability_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2001,10 +1973,10 @@
     {
       "feature": "dome_is_neutral",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2012,10 +1984,10 @@
     {
       "feature": "park_factor_slug_diff",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2023,32 +1995,32 @@
     {
       "feature": "wind_advantage_flyball_factor",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 273,
-      "pct_nonnull": 96.8,
-      "n_measured": 226,
-      "pct_measured": 80.1,
-      "n_default_zero": 47,
+      "n_games": 327,
+      "n_nonnull": 318,
+      "pct_nonnull": 97.2,
+      "n_measured": 265,
+      "pct_measured": 81.0,
+      "n_default_zero": 53,
       "status": "OK"
     },
     {
       "feature": "air_density_velocity_boost",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_meltdown_risk",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
+      "n_games": 327,
+      "n_nonnull": 321,
       "pct_nonnull": 98.2,
-      "n_measured": 277,
+      "n_measured": 321,
       "pct_measured": 98.2,
       "n_default_zero": 0,
       "status": "OK"
@@ -2056,21 +2028,21 @@
     {
       "feature": "pitcher_regression_indicator",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_depth_multiplier",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2078,21 +2050,21 @@
     {
       "feature": "ace_efficiency_factor",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "home_elo",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2100,10 +2072,10 @@
     {
       "feature": "away_elo",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2111,10 +2083,10 @@
     {
       "feature": "home_win_pct",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2122,10 +2094,10 @@
     {
       "feature": "away_win_pct",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2133,76 +2105,76 @@
     {
       "feature": "sp_era_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 278,
-      "pct_nonnull": 98.6,
-      "n_measured": 278,
-      "pct_measured": 98.6,
+      "n_games": 327,
+      "n_nonnull": 323,
+      "pct_nonnull": 98.8,
+      "n_measured": 323,
+      "pct_measured": 98.8,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_era_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 278,
-      "pct_nonnull": 98.6,
-      "n_measured": 278,
-      "pct_measured": 98.6,
+      "n_games": 327,
+      "n_nonnull": 323,
+      "pct_nonnull": 98.8,
+      "n_measured": 323,
+      "pct_measured": 98.8,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_k9_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 277,
-      "pct_nonnull": 98.2,
-      "n_measured": 277,
-      "pct_measured": 98.2,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 279,
-      "pct_nonnull": 98.9,
-      "n_measured": 279,
-      "pct_measured": 98.9,
+      "n_games": 327,
+      "n_nonnull": 324,
+      "pct_nonnull": 99.1,
+      "n_measured": 324,
+      "pct_measured": 99.1,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "sp_xwoba_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 280,
-      "pct_nonnull": 99.3,
-      "n_measured": 280,
-      "pct_measured": 99.3,
+      "n_games": 327,
+      "n_nonnull": 325,
+      "pct_nonnull": 99.4,
+      "n_measured": 325,
+      "pct_measured": 99.4,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "lineup_woba_mean_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2210,10 +2182,10 @@
     {
       "feature": "lineup_woba_mean_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2221,10 +2193,10 @@
     {
       "feature": "lineup_woba_top3_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2232,10 +2204,10 @@
     {
       "feature": "lineup_woba_top3_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2243,10 +2215,10 @@
     {
       "feature": "woba_30g_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2254,10 +2226,10 @@
     {
       "feature": "woba_30g_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2265,54 +2237,54 @@
     {
       "feature": "bullpen_whip_10g_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 281,
-      "pct_nonnull": 99.6,
-      "n_measured": 281,
-      "pct_measured": 99.6,
+      "n_games": 327,
+      "n_nonnull": 326,
+      "pct_nonnull": 99.7,
+      "n_measured": 326,
+      "pct_measured": 99.7,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_10g_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 278,
-      "pct_nonnull": 98.6,
-      "n_measured": 278,
-      "pct_measured": 98.6,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_3g_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 281,
-      "pct_nonnull": 99.6,
-      "n_measured": 281,
-      "pct_measured": 99.6,
+      "n_games": 327,
+      "n_nonnull": 326,
+      "pct_nonnull": 99.7,
+      "n_measured": 326,
+      "pct_measured": 99.7,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "bullpen_whip_3g_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 278,
-      "pct_nonnull": 98.6,
-      "n_measured": 278,
-      "pct_measured": 98.6,
+      "n_games": 327,
+      "n_nonnull": 322,
+      "pct_nonnull": 98.5,
+      "n_measured": 322,
+      "pct_measured": 98.5,
       "n_default_zero": 0,
       "status": "OK"
     },
     {
       "feature": "team_barrel_15g_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2320,10 +2292,10 @@
     {
       "feature": "team_barrel_15g_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2331,10 +2303,10 @@
     {
       "feature": "team_exitvelo_15g_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2342,10 +2314,10 @@
     {
       "feature": "team_exitvelo_15g_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 282,
+      "n_games": 327,
+      "n_nonnull": 327,
       "pct_nonnull": 100.0,
-      "n_measured": 282,
+      "n_measured": 327,
       "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
@@ -2353,1564 +2325,1553 @@
     {
       "feature": "lineup_actual_woba_delta_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_woba_delta_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_top3_delta_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_actual_top3_delta_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_rest_count_home",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     },
     {
       "feature": "lineup_rest_count_away",
       "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
+      "n_games": 327,
+      "n_nonnull": 327,
+      "pct_nonnull": 100.0,
+      "n_measured": 327,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
-      "status": "STARVED"
-    },
-    {
-      "feature": "run_margin_diff",
-      "window": "baseline",
-      "n_games": 282,
-      "n_nonnull": 0,
-      "pct_nonnull": 0.0,
-      "n_measured": 0,
-      "pct_measured": 0.0,
-      "n_default_zero": 0,
-      "status": "STARVED"
+      "status": "OK"
     }
   ],
   "rolling_brier": [
     {
       "date": "2025-04-24",
-      "brier": 0.272727,
+      "brier": 0.279851,
       "games": 9
     },
     {
       "date": "2025-04-25",
-      "brier": 0.275708,
+      "brier": 0.277639,
       "games": 22
     },
     {
       "date": "2025-04-26",
-      "brier": 0.266592,
+      "brier": 0.26794,
       "games": 38
     },
     {
       "date": "2025-04-27",
-      "brier": 0.253718,
+      "brier": 0.25412,
       "games": 54
     },
     {
       "date": "2025-04-28",
-      "brier": 0.25504,
+      "brier": 0.254781,
       "games": 62
     },
     {
       "date": "2025-04-29",
-      "brier": 0.248264,
+      "brier": 0.247697,
       "games": 76
     },
     {
       "date": "2025-04-30",
-      "brier": 0.248864,
+      "brier": 0.249756,
       "games": 92
     },
     {
       "date": "2025-05-01",
-      "brier": 0.254079,
+      "brier": 0.255193,
       "games": 103
     },
     {
       "date": "2025-05-02",
-      "brier": 0.249616,
+      "brier": 0.249289,
       "games": 118
     },
     {
       "date": "2025-05-03",
-      "brier": 0.251691,
+      "brier": 0.251487,
       "games": 132
     },
     {
       "date": "2025-05-04",
-      "brier": 0.252494,
+      "brier": 0.252251,
       "games": 148
     },
     {
       "date": "2025-05-05",
-      "brier": 0.249132,
+      "brier": 0.248869,
       "games": 157
     },
     {
       "date": "2025-05-06",
-      "brier": 0.2476,
+      "brier": 0.248272,
       "games": 172
     },
     {
       "date": "2025-05-07",
-      "brier": 0.24681,
+      "brier": 0.246677,
       "games": 187
     },
     {
       "date": "2025-05-08",
-      "brier": 0.243964,
+      "brier": 0.243969,
       "games": 196
     },
     {
       "date": "2025-05-09",
-      "brier": 0.243781,
+      "brier": 0.24422,
       "games": 211
     },
     {
       "date": "2025-05-10",
-      "brier": 0.245872,
+      "brier": 0.246434,
       "games": 226
     },
     {
       "date": "2025-05-11",
-      "brier": 0.247554,
+      "brier": 0.248671,
       "games": 241
     },
     {
       "date": "2025-05-12",
-      "brier": 0.248142,
+      "brier": 0.249502,
       "games": 252
     },
     {
       "date": "2025-05-13",
-      "brier": 0.245934,
+      "brier": 0.247288,
       "games": 265
     },
     {
       "date": "2025-05-14",
-      "brier": 0.246655,
+      "brier": 0.247491,
       "games": 282
     },
     {
       "date": "2025-05-15",
-      "brier": 0.246232,
+      "brier": 0.24695,
       "games": 288
     },
     {
       "date": "2025-05-16",
-      "brier": 0.245304,
+      "brier": 0.245535,
       "games": 303
     },
     {
       "date": "2025-05-17",
-      "brier": 0.245804,
+      "brier": 0.246264,
       "games": 318
     },
     {
       "date": "2025-05-18",
-      "brier": 0.246203,
+      "brier": 0.246633,
       "games": 333
     },
     {
       "date": "2025-05-19",
-      "brier": 0.24635,
+      "brier": 0.246617,
       "games": 345
     },
     {
       "date": "2025-05-20",
-      "brier": 0.246136,
+      "brier": 0.246381,
       "games": 359
     },
     {
       "date": "2025-05-21",
-      "brier": 0.24556,
+      "brier": 0.245548,
       "games": 373
     },
     {
       "date": "2025-05-22",
-      "brier": 0.244797,
+      "brier": 0.244818,
       "games": 381
     },
     {
       "date": "2025-05-23",
-      "brier": 0.244933,
+      "brier": 0.245024,
       "games": 396
     },
     {
       "date": "2025-05-24",
-      "brier": 0.243282,
+      "brier": 0.243498,
       "games": 403
     },
     {
       "date": "2025-05-25",
-      "brier": 0.242924,
+      "brier": 0.243084,
       "games": 405
     },
     {
       "date": "2025-05-26",
-      "brier": 0.24167,
+      "brier": 0.241647,
       "games": 401
     },
     {
       "date": "2025-05-27",
-      "brier": 0.240901,
+      "brier": 0.24082,
       "games": 400
     },
     {
       "date": "2025-05-28",
-      "brier": 0.241347,
+      "brier": 0.241457,
       "games": 406
     },
     {
       "date": "2025-05-29",
-      "brier": 0.242245,
+      "brier": 0.242309,
       "games": 397
     },
     {
       "date": "2025-05-30",
-      "brier": 0.241981,
+      "brier": 0.241254,
       "games": 396
     },
     {
       "date": "2025-05-31",
-      "brier": 0.240472,
+      "brier": 0.239802,
       "games": 400
     },
     {
       "date": "2025-06-01",
-      "brier": 0.240495,
+      "brier": 0.240233,
       "games": 400
     },
     {
       "date": "2025-06-02",
-      "brier": 0.240585,
+      "brier": 0.240314,
       "games": 393
     },
     {
       "date": "2025-06-03",
-      "brier": 0.241116,
+      "brier": 0.24068,
       "games": 392
     },
     {
       "date": "2025-06-04",
-      "brier": 0.242898,
+      "brier": 0.242499,
       "games": 397
     },
     {
       "date": "2025-06-05",
-      "brier": 0.24264,
+      "brier": 0.241936,
       "games": 395
     },
     {
       "date": "2025-06-06",
-      "brier": 0.24294,
+      "brier": 0.242504,
       "games": 395
     },
     {
       "date": "2025-06-07",
-      "brier": 0.244774,
+      "brier": 0.244472,
       "games": 401
     },
     {
       "date": "2025-06-08",
-      "brier": 0.244442,
+      "brier": 0.243487,
       "games": 401
     },
     {
       "date": "2025-06-09",
-      "brier": 0.243466,
+      "brier": 0.242418,
       "games": 395
     },
     {
       "date": "2025-06-10",
-      "brier": 0.243091,
+      "brier": 0.241625,
       "games": 395
     },
     {
       "date": "2025-06-11",
-      "brier": 0.241886,
+      "brier": 0.240317,
       "games": 399
     },
     {
       "date": "2025-06-12",
-      "brier": 0.242487,
+      "brier": 0.240746,
       "games": 394
     },
     {
       "date": "2025-06-13",
-      "brier": 0.241131,
+      "brier": 0.239592,
       "games": 392
     },
     {
       "date": "2025-06-14",
-      "brier": 0.24149,
+      "brier": 0.240031,
       "games": 401
     },
     {
       "date": "2025-06-15",
-      "brier": 0.242034,
+      "brier": 0.240962,
       "games": 401
     },
     {
       "date": "2025-06-16",
-      "brier": 0.241792,
+      "brier": 0.240298,
       "games": 393
     },
     {
       "date": "2025-06-17",
-      "brier": 0.241408,
+      "brier": 0.240071,
       "games": 393
     },
     {
       "date": "2025-06-18",
-      "brier": 0.241369,
+      "brier": 0.239993,
       "games": 393
     },
     {
       "date": "2025-06-19",
-      "brier": 0.24187,
+      "brier": 0.24066,
       "games": 395
     },
     {
       "date": "2025-06-20",
-      "brier": 0.242911,
+      "brier": 0.241749,
       "games": 396
     },
     {
       "date": "2025-06-21",
-      "brier": 0.243197,
+      "brier": 0.242294,
       "games": 403
     },
     {
       "date": "2025-06-22",
-      "brier": 0.242875,
+      "brier": 0.241951,
       "games": 403
     },
     {
       "date": "2025-06-23",
-      "brier": 0.243921,
+      "brier": 0.242657,
       "games": 396
     },
     {
       "date": "2025-06-24",
-      "brier": 0.243233,
+      "brier": 0.242137,
       "games": 396
     },
     {
       "date": "2025-06-25",
-      "brier": 0.243564,
+      "brier": 0.242745,
       "games": 399
     },
     {
       "date": "2025-06-26",
-      "brier": 0.244656,
+      "brier": 0.243855,
       "games": 393
     },
     {
       "date": "2025-06-27",
-      "brier": 0.244648,
+      "brier": 0.24393,
       "games": 394
     },
     {
       "date": "2025-06-28",
-      "brier": 0.245306,
+      "brier": 0.244957,
       "games": 404
     },
     {
       "date": "2025-06-29",
-      "brier": 0.245977,
+      "brier": 0.246316,
       "games": 404
     },
     {
       "date": "2025-06-30",
-      "brier": 0.246259,
+      "brier": 0.246422,
       "games": 397
     },
     {
       "date": "2025-07-01",
-      "brier": 0.246537,
+      "brier": 0.246541,
       "games": 394
     },
     {
       "date": "2025-07-02",
-      "brier": 0.244374,
+      "brier": 0.244208,
       "games": 405
     },
     {
       "date": "2025-07-03",
-      "brier": 0.243201,
+      "brier": 0.243077,
       "games": 400
     },
     {
       "date": "2025-07-04",
-      "brier": 0.242484,
+      "brier": 0.242279,
       "games": 401
     },
     {
       "date": "2025-07-05",
-      "brier": 0.243319,
+      "brier": 0.242594,
       "games": 403
     },
     {
       "date": "2025-07-06",
-      "brier": 0.243137,
+      "brier": 0.242413,
       "games": 403
     },
     {
       "date": "2025-07-07",
-      "brier": 0.242697,
+      "brier": 0.241914,
       "games": 398
     },
     {
       "date": "2025-07-08",
-      "brier": 0.242289,
+      "brier": 0.241901,
       "games": 398
     },
     {
       "date": "2025-07-09",
-      "brier": 0.242002,
+      "brier": 0.241508,
       "games": 403
     },
     {
       "date": "2025-07-10",
-      "brier": 0.242045,
+      "brier": 0.241583,
       "games": 398
     },
     {
       "date": "2025-07-11",
-      "brier": 0.243103,
+      "brier": 0.242911,
       "games": 399
     },
     {
       "date": "2025-07-12",
-      "brier": 0.243105,
+      "brier": 0.243181,
       "games": 406
     },
     {
       "date": "2025-07-13",
-      "brier": 0.244343,
+      "brier": 0.244706,
       "games": 406
     },
     {
       "date": "2025-07-18",
-      "brier": 0.24427,
+      "brier": 0.244815,
       "games": 357
     },
     {
       "date": "2025-07-19",
-      "brier": 0.244427,
+      "brier": 0.244762,
       "games": 356
     },
     {
       "date": "2025-07-20",
-      "brier": 0.244225,
+      "brier": 0.244609,
       "games": 356
     },
     {
       "date": "2025-07-21",
-      "brier": 0.244598,
+      "brier": 0.24431,
       "games": 356
     },
     {
       "date": "2025-07-22",
-      "brier": 0.244342,
+      "brier": 0.244205,
       "games": 356
     },
     {
       "date": "2025-07-23",
-      "brier": 0.245185,
+      "brier": 0.245326,
       "games": 362
     },
     {
       "date": "2025-07-24",
-      "brier": 0.245947,
+      "brier": 0.24593,
       "games": 352
     },
     {
       "date": "2025-07-25",
-      "brier": 0.247935,
+      "brier": 0.247567,
       "games": 351
     },
     {
       "date": "2025-07-26",
-      "brier": 0.250231,
+      "brier": 0.250188,
       "games": 358
     },
     {
       "date": "2025-07-27",
-      "brier": 0.249564,
+      "brier": 0.249128,
       "games": 358
     },
     {
       "date": "2025-07-28",
-      "brier": 0.249777,
+      "brier": 0.249356,
       "games": 358
     },
     {
       "date": "2025-07-29",
-      "brier": 0.248095,
+      "brier": 0.248087,
       "games": 359
     },
     {
       "date": "2025-07-30",
-      "brier": 0.247823,
+      "brier": 0.247881,
       "games": 366
     },
     {
       "date": "2025-08-01",
-      "brier": 0.249914,
+      "brier": 0.250559,
       "games": 351
     },
     {
       "date": "2025-08-02",
-      "brier": 0.250728,
+      "brier": 0.251789,
       "games": 356
     },
     {
       "date": "2025-08-03",
-      "brier": 0.251054,
+      "brier": 0.251984,
       "games": 355
     },
     {
       "date": "2025-08-04",
-      "brier": 0.250523,
+      "brier": 0.251935,
       "games": 353
     },
     {
       "date": "2025-08-05",
-      "brier": 0.25006,
+      "brier": 0.25114,
       "games": 353
     },
     {
       "date": "2025-08-06",
-      "brier": 0.251216,
+      "brier": 0.25213,
       "games": 358
     },
     {
       "date": "2025-08-08",
-      "brier": 0.253019,
+      "brier": 0.253883,
       "games": 344
     },
     {
       "date": "2025-08-09",
-      "brier": 0.252072,
+      "brier": 0.252832,
       "games": 350
     },
     {
       "date": "2025-08-10",
-      "brier": 0.251362,
+      "brier": 0.251774,
       "games": 349
     },
     {
       "date": "2025-08-11",
-      "brier": 0.251228,
+      "brier": 0.251678,
       "games": 345
     },
     {
       "date": "2025-08-12",
-      "brier": 0.250686,
+      "brier": 0.251049,
       "games": 345
     },
     {
       "date": "2025-08-13",
-      "brier": 0.252171,
+      "brier": 0.252322,
       "games": 360
     },
     {
       "date": "2025-08-14",
-      "brier": 0.25199,
+      "brier": 0.252022,
       "games": 367
     },
     {
       "date": "2025-08-15",
-      "brier": 0.252329,
+      "brier": 0.252081,
       "games": 382
     },
     {
       "date": "2025-08-16",
-      "brier": 0.252045,
+      "brier": 0.251639,
       "games": 397
     },
     {
       "date": "2025-08-17",
-      "brier": 0.251979,
+      "brier": 0.251761,
       "games": 397
     },
     {
       "date": "2025-08-18",
-      "brier": 0.25257,
+      "brier": 0.252185,
       "games": 394
     },
     {
       "date": "2025-08-19",
-      "brier": 0.251668,
+      "brier": 0.251102,
       "games": 395
     },
     {
       "date": "2025-08-20",
-      "brier": 0.251805,
+      "brier": 0.251837,
       "games": 394
     },
     {
       "date": "2025-08-21",
-      "brier": 0.252014,
+      "brier": 0.251605,
       "games": 388
     },
     {
       "date": "2025-08-22",
-      "brier": 0.251367,
+      "brier": 0.250172,
       "games": 388
     },
     {
       "date": "2025-08-23",
-      "brier": 0.250527,
+      "brier": 0.24936,
       "games": 397
     },
     {
       "date": "2025-08-24",
-      "brier": 0.249831,
+      "brier": 0.248996,
       "games": 398
     },
     {
       "date": "2025-08-25",
-      "brier": 0.247676,
+      "brier": 0.246316,
       "games": 395
     },
     {
       "date": "2025-08-26",
-      "brier": 0.248198,
+      "brier": 0.247151,
       "games": 395
     },
     {
       "date": "2025-08-27",
-      "brier": 0.246717,
+      "brier": 0.24521,
       "games": 395
     },
     {
       "date": "2025-08-28",
-      "brier": 0.247094,
+      "brier": 0.244989,
       "games": 387
     },
     {
       "date": "2025-08-29",
-      "brier": 0.247167,
+      "brier": 0.244995,
       "games": 387
     },
     {
       "date": "2025-08-30",
-      "brier": 0.247552,
+      "brier": 0.245212,
       "games": 402
     },
     {
       "date": "2025-08-31",
-      "brier": 0.248234,
+      "brier": 0.245712,
       "games": 402
     },
     {
       "date": "2025-09-01",
-      "brier": 0.2474,
+      "brier": 0.24448,
       "games": 400
     },
     {
       "date": "2025-09-02",
-      "brier": 0.247391,
+      "brier": 0.244464,
       "games": 400
     },
     {
       "date": "2025-09-03",
-      "brier": 0.247652,
+      "brier": 0.244373,
       "games": 402
     },
     {
       "date": "2025-09-04",
-      "brier": 0.248269,
+      "brier": 0.245475,
       "games": 393
     },
     {
       "date": "2025-09-05",
-      "brier": 0.247147,
+      "brier": 0.244426,
       "games": 393
     },
     {
       "date": "2025-09-06",
-      "brier": 0.2472,
+      "brier": 0.244684,
       "games": 408
     },
     {
       "date": "2025-09-07",
-      "brier": 0.247545,
+      "brier": 0.24485,
       "games": 408
     },
     {
       "date": "2025-09-08",
-      "brier": 0.246857,
+      "brier": 0.244344,
       "games": 403
     },
     {
       "date": "2025-09-09",
-      "brier": 0.246839,
+      "brier": 0.244045,
       "games": 403
     },
     {
       "date": "2025-09-10",
-      "brier": 0.247489,
+      "brier": 0.244754,
       "games": 407
     },
     {
       "date": "2025-09-11",
-      "brier": 0.246541,
+      "brier": 0.243809,
       "games": 401
     },
     {
       "date": "2025-09-12",
-      "brier": 0.245153,
+      "brier": 0.242843,
       "games": 401
     },
     {
       "date": "2025-09-13",
-      "brier": 0.244853,
+      "brier": 0.242698,
       "games": 409
     },
     {
       "date": "2025-09-14",
-      "brier": 0.243603,
+      "brier": 0.241925,
       "games": 409
     },
     {
       "date": "2025-09-15",
-      "brier": 0.244085,
+      "brier": 0.242437,
       "games": 403
     },
     {
       "date": "2025-09-16",
-      "brier": 0.243395,
+      "brier": 0.241709,
       "games": 404
     },
     {
       "date": "2025-09-17",
-      "brier": 0.242167,
+      "brier": 0.24042,
       "games": 407
     },
     {
       "date": "2025-09-18",
-      "brier": 0.241832,
+      "brier": 0.240098,
       "games": 401
     },
     {
       "date": "2025-09-19",
-      "brier": 0.242985,
+      "brier": 0.240981,
       "games": 402
     },
     {
       "date": "2025-09-20",
-      "brier": 0.242948,
+      "brier": 0.241259,
       "games": 409
     },
     {
       "date": "2025-09-21",
-      "brier": 0.243908,
+      "brier": 0.242612,
       "games": 409
     },
     {
       "date": "2025-09-23",
-      "brier": 0.243604,
+      "brier": 0.242403,
       "games": 395
     },
     {
       "date": "2025-09-24",
-      "brier": 0.244037,
+      "brier": 0.242752,
       "games": 397
     },
     {
       "date": "2025-09-25",
-      "brier": 0.242783,
+      "brier": 0.241496,
       "games": 394
     },
     {
       "date": "2025-09-26",
-      "brier": 0.243068,
+      "brier": 0.242165,
       "games": 394
     },
     {
       "date": "2025-09-27",
-      "brier": 0.243369,
+      "brier": 0.242544,
       "games": 401
     },
     {
       "date": "2025-09-28",
-      "brier": 0.241566,
+      "brier": 0.241147,
       "games": 401
     },
     {
       "date": "2026-03-27",
-      "brier": 0.233219,
+      "brier": 0.236198,
       "games": 8
     },
     {
       "date": "2026-03-28",
-      "brier": 0.221041,
+      "brier": 0.217373,
       "games": 23
     },
     {
       "date": "2026-03-29",
-      "brier": 0.228677,
+      "brier": 0.226911,
       "games": 35
     },
     {
       "date": "2026-03-30",
-      "brier": 0.237256,
+      "brier": 0.236526,
       "games": 50
     },
     {
       "date": "2026-03-31",
-      "brier": 0.240404,
+      "brier": 0.239515,
       "games": 64
     },
     {
       "date": "2026-04-01",
-      "brier": 0.238314,
+      "brier": 0.236655,
       "games": 79
     },
     {
       "date": "2026-04-03",
-      "brier": 0.238126,
+      "brier": 0.237024,
       "games": 93
     },
     {
       "date": "2026-04-04",
-      "brier": 0.239509,
+      "brier": 0.238657,
       "games": 108
     },
     {
       "date": "2026-04-05",
-      "brier": 0.242153,
+      "brier": 0.243468,
       "games": 124
     },
     {
       "date": "2026-04-06",
-      "brier": 0.243506,
+      "brier": 0.244197,
       "games": 137
     },
     {
       "date": "2026-04-07",
-      "brier": 0.244759,
+      "brier": 0.244244,
       "games": 152
     },
     {
       "date": "2026-04-08",
-      "brier": 0.245075,
+      "brier": 0.244493,
       "games": 167
     },
     {
       "date": "2026-04-09",
-      "brier": 0.246368,
+      "brier": 0.245739,
       "games": 173
     },
     {
       "date": "2026-04-10",
-      "brier": 0.245392,
+      "brier": 0.245019,
       "games": 188
     },
     {
       "date": "2026-04-11",
-      "brier": 0.245273,
+      "brier": 0.245086,
       "games": 203
     },
     {
       "date": "2026-04-12",
-      "brier": 0.24634,
+      "brier": 0.246499,
       "games": 218
     },
     {
       "date": "2026-04-13",
-      "brier": 0.245066,
+      "brier": 0.245284,
       "games": 228
     },
     {
       "date": "2026-04-14",
-      "brier": 0.245853,
+      "brier": 0.245808,
       "games": 243
     },
     {
       "date": "2026-04-15",
-      "brier": 0.245482,
+      "brier": 0.244947,
       "games": 258
     },
     {
       "date": "2026-04-16",
-      "brier": 0.246484,
+      "brier": 0.246157,
       "games": 268
     },
     {
       "date": "2026-04-17",
-      "brier": 0.24704,
+      "brier": 0.24768,
       "games": 283
     },
     {
       "date": "2026-04-18",
-      "brier": 0.247152,
+      "brier": 0.248009,
       "games": 298
     },
     {
       "date": "2026-04-19",
-      "brier": 0.248431,
+      "brier": 0.249341,
       "games": 313
     },
     {
       "date": "2026-04-20",
-      "brier": 0.247531,
+      "brier": 0.248671,
       "games": 323
     },
     {
       "date": "2026-04-21",
-      "brier": 0.248089,
+      "brier": 0.249525,
       "games": 338
     },
     {
       "date": "2026-04-22",
-      "brier": 0.247555,
+      "brier": 0.248666,
       "games": 353
     },
     {
       "date": "2026-04-23",
-      "brier": 0.247215,
+      "brier": 0.248311,
       "games": 362
     },
     {
       "date": "2026-04-24",
-      "brier": 0.247516,
+      "brier": 0.248715,
       "games": 376
     },
     {
       "date": "2026-04-25",
-      "brier": 0.248062,
+      "brier": 0.249082,
       "games": 390
     },
     {
       "date": "2026-04-26",
-      "brier": 0.248855,
+      "brier": 0.249741,
       "games": 398
     },
     {
       "date": "2026-04-27",
-      "brier": 0.250541,
+      "brier": 0.251731,
       "games": 391
     },
     {
       "date": "2026-04-28",
-      "brier": 0.251047,
+      "brier": 0.252255,
       "games": 394
     },
     {
       "date": "2026-04-29",
-      "brier": 0.250865,
+      "brier": 0.252024,
       "games": 392
     },
     {
       "date": "2026-04-30",
-      "brier": 0.250657,
+      "brier": 0.25208,
       "games": 389
     },
     {
       "date": "2026-05-01",
-      "brier": 0.25062,
+      "brier": 0.251616,
       "games": 389
     },
     {
       "date": "2026-05-02",
-      "brier": 0.249894,
+      "brier": 0.250621,
       "games": 404
     },
     {
       "date": "2026-05-03",
-      "brier": 0.250032,
+      "brier": 0.250293,
       "games": 405
     },
     {
       "date": "2026-05-04",
-      "brier": 0.249017,
+      "brier": 0.249104,
       "games": 402
     },
     {
       "date": "2026-05-05",
-      "brier": 0.248538,
+      "brier": 0.24795,
       "games": 399
     },
     {
       "date": "2026-05-06",
-      "brier": 0.247963,
+      "brier": 0.247496,
       "games": 401
     },
     {
       "date": "2026-05-07",
-      "brier": 0.247572,
+      "brier": 0.247383,
       "games": 396
     },
     {
       "date": "2026-05-08",
-      "brier": 0.247645,
+      "brier": 0.247214,
       "games": 396
     },
     {
       "date": "2026-05-09",
-      "brier": 0.246657,
+      "brier": 0.246026,
       "games": 404
     },
     {
       "date": "2026-05-10",
-      "brier": 0.246937,
+      "brier": 0.246323,
       "games": 404
     },
     {
       "date": "2026-05-11",
-      "brier": 0.247903,
+      "brier": 0.247256,
       "games": 395
     },
     {
       "date": "2026-05-12",
-      "brier": 0.246836,
+      "brier": 0.246356,
       "games": 395
     },
     {
       "date": "2026-05-13",
-      "brier": 0.247017,
+      "brier": 0.24646,
       "games": 400
     },
     {
       "date": "2026-05-14",
-      "brier": 0.246153,
+      "brier": 0.245619,
       "games": 396
     },
     {
       "date": "2026-05-15",
-      "brier": 0.246603,
+      "brier": 0.24604,
       "games": 396
     },
     {
       "date": "2026-05-16",
-      "brier": 0.245896,
+      "brier": 0.245253,
       "games": 401
     },
     {
       "date": "2026-05-17",
-      "brier": 0.245725,
+      "brier": 0.244788,
       "games": 401
     },
     {
       "date": "2026-05-18",
-      "brier": 0.24493,
+      "brier": 0.243943,
       "games": 400
     },
     {
       "date": "2026-05-19",
-      "brier": 0.243873,
+      "brier": 0.242805,
       "games": 400
     },
     {
       "date": "2026-05-20",
-      "brier": 0.244888,
+      "brier": 0.243918,
       "games": 405
     },
     {
       "date": "2026-05-21",
-      "brier": 0.244388,
+      "brier": 0.243193,
       "games": 397
     },
     {
       "date": "2026-05-22",
-      "brier": 0.245555,
+      "brier": 0.244517,
       "games": 396
     },
     {
       "date": "2026-05-23",
-      "brier": 0.245936,
+      "brier": 0.244454,
       "games": 401
     },
     {
       "date": "2026-05-24",
-      "brier": 0.246186,
+      "brier": 0.244619,
       "games": 402
     },
     {
       "date": "2026-05-25",
-      "brier": 0.245931,
+      "brier": 0.244477,
       "games": 401
     },
     {
       "date": "2026-05-26",
-      "brier": 0.245116,
+      "brier": 0.243938,
       "games": 400
     },
     {
       "date": "2026-05-27",
-      "brier": 0.244228,
+      "brier": 0.243207,
       "games": 407
     },
     {
       "date": "2026-05-28",
-      "brier": 0.243844,
+      "brier": 0.242948,
       "games": 398
     },
     {
       "date": "2026-05-29",
-      "brier": 0.242666,
+      "brier": 0.241685,
       "games": 400
     },
     {
       "date": "2026-05-30",
-      "brier": 0.242958,
+      "brier": 0.241841,
       "games": 404
     },
     {
       "date": "2026-05-31",
-      "brier": 0.242669,
+      "brier": 0.242102,
       "games": 404
     },
     {
       "date": "2026-06-01",
-      "brier": 0.243954,
+      "brier": 0.243544,
       "games": 398
     },
     {
       "date": "2026-06-02",
-      "brier": 0.244339,
+      "brier": 0.244241,
       "games": 398
     },
     {
       "date": "2026-06-03",
-      "brier": 0.245941,
+      "brier": 0.246001,
       "games": 401
     },
     {
       "date": "2026-06-04",
-      "brier": 0.246685,
+      "brier": 0.246814,
       "games": 397
     },
     {
       "date": "2026-06-05",
-      "brier": 0.246762,
+      "brier": 0.247099,
       "games": 397
     },
     {
       "date": "2026-06-06",
-      "brier": 0.245666,
+      "brier": 0.246034,
       "games": 401
     },
     {
       "date": "2026-06-07",
-      "brier": 0.245402,
+      "brier": 0.246246,
       "games": 401
     },
     {
       "date": "2026-06-08",
-      "brier": 0.245403,
+      "brier": 0.246142,
       "games": 395
     },
     {
       "date": "2026-06-09",
-      "brier": 0.245814,
+      "brier": 0.246245,
       "games": 395
     },
     {
       "date": "2026-06-10",
-      "brier": 0.245802,
+      "brier": 0.246364,
       "games": 404
     },
     {
       "date": "2026-06-11",
-      "brier": 0.245873,
+      "brier": 0.246074,
       "games": 396
     },
     {
       "date": "2026-06-12",
-      "brier": 0.24614,
+      "brier": 0.246261,
       "games": 396
     },
     {
       "date": "2026-06-13",
-      "brier": 0.246982,
+      "brier": 0.246953,
       "games": 400
     },
     {
       "date": "2026-06-14",
-      "brier": 0.247668,
+      "brier": 0.247757,
       "games": 399
     },
     {
       "date": "2026-06-15",
-      "brier": 0.247142,
+      "brier": 0.247169,
       "games": 394
     },
     {
       "date": "2026-06-16",
-      "brier": 0.24686,
+      "brier": 0.246533,
       "games": 394
     },
     {
       "date": "2026-06-17",
-      "brier": 0.24745,
+      "brier": 0.247014,
       "games": 394
     },
     {
       "date": "2026-06-18",
-      "brier": 0.247885,
+      "brier": 0.247296,
       "games": 387
     },
     {
       "date": "2026-06-19",
-      "brier": 0.24694,
+      "brier": 0.245737,
       "games": 386
     },
     {
       "date": "2026-06-20",
-      "brier": 0.247961,
+      "brier": 0.24639,
       "games": 393
     },
     {
       "date": "2026-06-21",
-      "brier": 0.246956,
+      "brier": 0.245737,
       "games": 393
     },
     {
       "date": "2026-06-22",
-      "brier": 0.247074,
+      "brier": 0.246064,
       "games": 391
     },
     {
       "date": "2026-06-23",
-      "brier": 0.246635,
+      "brier": 0.245611,
       "games": 391
     },
     {
       "date": "2026-06-24",
-      "brier": 0.246535,
+      "brier": 0.245415,
       "games": 394
     },
     {
       "date": "2026-06-25",
-      "brier": 0.24714,
+      "brier": 0.245801,
       "games": 387
     },
     {
       "date": "2026-06-26",
-      "brier": 0.247145,
+      "brier": 0.245572,
       "games": 387
     },
     {
       "date": "2026-06-27",
-      "brier": 0.247731,
+      "brier": 0.246015,
       "games": 396
     },
     {
       "date": "2026-06-28",
-      "brier": 0.248679,
+      "brier": 0.247102,
       "games": 396
     },
     {
       "date": "2026-06-29",
-      "brier": 0.248615,
+      "brier": 0.246721,
       "games": 394
     },
     {
       "date": "2026-06-30",
-      "brier": 0.248702,
+      "brier": 0.246808,
       "games": 394
     },
     {
       "date": "2026-07-01",
-      "brier": 0.247999,
+      "brier": 0.246199,
       "games": 399
     },
     {
       "date": "2026-07-02",
-      "brier": 0.247941,
+      "brier": 0.246433,
       "games": 393
     },
     {
       "date": "2026-07-03",
-      "brier": 0.246996,
+      "brier": 0.245514,
       "games": 391
     },
     {
       "date": "2026-07-04",
-      "brier": 0.246033,
+      "brier": 0.244609,
       "games": 397
     },
     {
       "date": "2026-07-05",
-      "brier": 0.246772,
+      "brier": 0.244874,
       "games": 397
     },
     {
       "date": "2026-07-06",
-      "brier": 0.248409,
+      "brier": 0.246539,
       "games": 391
     },
     {
       "date": "2026-07-07",
-      "brier": 0.248195,
+      "brier": 0.246486,
       "games": 392
     },
     {
       "date": "2026-07-08",
-      "brier": 0.248195,
+      "brier": 0.246971,
       "games": 399
     },
     {
       "date": "2026-07-09",
-      "brier": 0.247806,
+      "brier": 0.246894,
       "games": 397
     },
     {
       "date": "2026-07-10",
-      "brier": 0.247377,
+      "brier": 0.246098,
       "games": 396
     },
     {
       "date": "2026-07-11",
-      "brier": 0.247442,
+      "brier": 0.246101,
       "games": 405
     },
     {
       "date": "2026-07-12",
-      "brier": 0.247459,
+      "brier": 0.246077,
       "games": 405
     },
     {
       "date": "2026-07-17",
-      "brier": 0.247662,
+      "brier": 0.246964,
       "games": 351
     },
     {
       "date": "2026-07-18",
-      "brier": 0.246612,
+      "brier": 0.245292,
       "games": 358
     },
     {
       "date": "2026-07-19",
-      "brier": 0.247188,
+      "brier": 0.245747,
       "games": 360
     },
     {
       "date": "2026-07-20",
-      "brier": 0.245705,
+      "brier": 0.244603,
       "games": 361
     },
     {
       "date": "2026-07-21",
-      "brier": 0.246361,
+      "brier": 0.245205,
       "games": 360
     },
     {
       "date": "2026-07-22",
-      "brier": 0.246573,
+      "brier": 0.245698,
       "games": 365
     },
     {
       "date": "2026-07-23",
-      "brier": 0.24649,
+      "brier": 0.245554,
       "games": 355
     },
     {
       "date": "2026-07-24",
-      "brier": 0.246589,
+      "brier": 0.245884,
       "games": 354
     },
     {
       "date": "2026-07-25",
-      "brier": 0.246021,
+      "brier": 0.245219,
       "games": 361
     },
     {
       "date": "2026-07-26",
-      "brier": 0.246875,
+      "brier": 0.246311,
       "games": 361
     },
     {
       "date": "2026-07-27",
-      "brier": 0.246219,
+      "brier": 0.245519,
       "games": 357
     },
     {
       "date": "2026-07-28",
-      "brier": 0.246857,
+      "brier": 0.245796,
       "games": 357
     },
     {
       "date": "2026-07-29",
-      "brier": 0.246637,
+      "brier": 0.24607,
       "games": 360
     },
     {
       "date": "2026-07-30",
-      "brier": 0.247313,
+      "brier": 0.247013,
       "games": 355
     },
     {
       "date": "2026-07-31",
-      "brier": 0.247541,
+      "brier": 0.247075,
       "games": 356
     },
     {
       "date": "2026-08-01",
-      "brier": 0.247298,
+      "brier": 0.246677,
       "games": 362
     },
     {
       "date": "2026-08-02",
-      "brier": 0.247364,
+      "brier": 0.246864,
       "games": 364
     },
     {
       "date": "2026-08-03",
-      "brier": 0.248119,
+      "brier": 0.247457,
       "games": 357
     },
     {
       "date": "2026-08-04",
-      "brier": 0.246371,
+      "brier": 0.245969,
       "games": 357
     },
     {
       "date": "2026-08-05",
-      "brier": 0.245646,
+      "brier": 0.245175,
       "games": 364
     },
     {
       "date": "2026-08-06",
-      "brier": 0.245916,
+      "brier": 0.244964,
       "games": 359
     },
     {
       "date": "2026-08-07",
-      "brier": 0.246464,
+      "brier": 0.245245,
       "games": 359
     },
     {
       "date": "2026-08-08",
-      "brier": 0.247676,
+      "brier": 0.246457,
       "games": 361
     },
     {
       "date": "2026-08-09",
-      "brier": 0.247658,
+      "brier": 0.246345,
       "games": 362
     },
     {
       "date": "2026-08-10",
-      "brier": 0.247886,
+      "brier": 0.246455,
       "games": 356
     },
     {
       "date": "2026-08-11",
-      "brier": 0.247857,
+      "brier": 0.24635,
       "games": 356
     },
     {
       "date": "2026-08-12",
-      "brier": 0.247456,
+      "brier": 0.245988,
       "games": 371
     },
     {
       "date": "2026-08-13",
-      "brier": 0.247734,
+      "brier": 0.246129,
       "games": 380
     },
     {
       "date": "2026-08-14",
-      "brier": 0.247956,
+      "brier": 0.246354,
       "games": 394
     },
     {
       "date": "2026-08-15",
-      "brier": 0.249009,
+      "brier": 0.247579,
       "games": 409
     },
     {
       "date": "2026-08-16",
-      "brier": 0.248993,
+      "brier": 0.247332,
       "games": 410
     },
     {
       "date": "2026-08-17",
-      "brier": 0.248892,
+      "brier": 0.247961,
       "games": 406
     },
     {
       "date": "2026-08-18",
-      "brier": 0.248342,
+      "brier": 0.247637,
       "games": 405
     },
     {
       "date": "2026-08-19",
-      "brier": 0.24831,
+      "brier": 0.247605,
       "games": 405
     },
     {
       "date": "2026-08-20",
-      "brier": 0.248062,
+      "brier": 0.247072,
       "games": 401
     },
     {
       "date": "2026-08-21",
-      "brier": 0.246213,
+      "brier": 0.245121,
       "games": 399
     },
     {
       "date": "2026-08-22",
-      "brier": 0.245694,
+      "brier": 0.244519,
       "games": 409
     },
     {
       "date": "2026-08-23",
-      "brier": 0.244567,
+      "brier": 0.243518,
       "games": 409
     }
   ],
-  "brier_baseline": 0.245631,
+  "brier_baseline": 0.24502,
   "brier_baseline_label": "History mean (4016 games)",
   "rolling_brier_meta": {
     "window_days": 30,
@@ -5072,139 +5033,139 @@
     "alpha_home": {
       "form": "piecewise",
       "lam": [
-        4.189,
-        4.20494,
-        4.22089,
-        4.23683,
-        4.25277,
-        4.26872,
-        4.28466,
-        4.30061,
-        4.31655,
-        4.33249,
-        4.34844,
-        4.36438,
-        4.38032,
-        4.39627,
-        4.41221,
-        4.42815,
-        4.4441,
-        4.46004,
-        4.47598,
-        4.49193,
-        4.50787,
-        4.52382,
-        4.53976,
-        4.5557,
-        4.57165,
-        4.58759,
-        4.60353,
-        4.61948,
-        4.63542,
-        4.65136,
-        4.66731,
-        4.68325,
-        4.69919,
-        4.71514,
-        4.73108,
-        4.74703,
-        4.76297,
-        4.77891,
-        4.79486,
-        4.8108
+        4.1855,
+        4.20188,
+        4.21826,
+        4.23464,
+        4.25102,
+        4.2674,
+        4.28378,
+        4.30016,
+        4.31654,
+        4.33292,
+        4.34929,
+        4.36567,
+        4.38205,
+        4.39843,
+        4.41481,
+        4.43119,
+        4.44757,
+        4.46395,
+        4.48033,
+        4.49671,
+        4.51309,
+        4.52947,
+        4.54585,
+        4.56223,
+        4.57861,
+        4.59499,
+        4.61137,
+        4.62775,
+        4.64413,
+        4.66051,
+        4.67688,
+        4.69326,
+        4.70964,
+        4.72602,
+        4.7424,
+        4.75878,
+        4.77516,
+        4.79154,
+        4.80792,
+        4.8243
       ],
       "alpha": [
-        0.236,
-        0.23601,
-        0.23602,
-        0.23603,
-        0.23603,
-        0.23604,
-        0.23605,
-        0.23606,
-        0.23607,
-        0.23608,
-        0.23609,
-        0.2361,
-        0.24213,
-        0.25368,
-        0.26523,
-        0.27678,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27819,
-        0.27885,
-        0.27953,
-        0.28021,
-        0.28089,
-        0.28158,
-        0.28226,
-        0.28294,
-        0.28362,
-        0.28431,
-        0.28499,
-        0.28567,
-        0.28635,
-        0.28704,
-        0.28772,
-        0.2884
+        0.2317,
+        0.23208,
+        0.23247,
+        0.23285,
+        0.23323,
+        0.23362,
+        0.234,
+        0.23438,
+        0.23477,
+        0.23515,
+        0.23553,
+        0.23591,
+        0.24228,
+        0.25425,
+        0.26623,
+        0.2782,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27886,
+        0.27935,
+        0.28011,
+        0.28088,
+        0.28164,
+        0.2824,
+        0.28317,
+        0.28393,
+        0.28469,
+        0.28546,
+        0.28622,
+        0.28698,
+        0.28775,
+        0.28851,
+        0.28927,
+        0.29004,
+        0.2908
       ],
       "direction": "rising",
       "selection": {
         "piecewise": {
-          "tail_gap_avg": 0.00751,
-          "loglik_avg": -2.45803
+          "tail_gap_avg": 0.0072,
+          "loglik_avg": -2.4571
         },
         "linear": {
-          "tail_gap_avg": 0.00756,
-          "loglik_avg": -2.45729
+          "tail_gap_avg": 0.00725,
+          "loglik_avg": -2.45683
         },
         "power": {
-          "tail_gap_avg": 0.00761,
-          "loglik_avg": -2.45746
+          "tail_gap_avg": 0.00722,
+          "loglik_avg": -2.45694
         },
         "chosen": "piecewise",
         "bins": [
           {
-            "count": 566,
-            "mean_lam": 4.189,
-            "alpha": 0.236
+            "count": 570,
+            "mean_lam": 4.1855,
+            "alpha": 0.2317
           },
           {
-            "count": 596,
-            "mean_lam": 4.372,
+            "count": 593,
+            "mean_lam": 4.3736,
             "alpha": 0.2361
           },
           {
-            "count": 582,
-            "mean_lam": 4.4301,
-            "alpha": 0.2955
-          },
-          {
-            "count": 582,
-            "mean_lam": 4.4726,
+            "count": 581,
+            "mean_lam": 4.4321,
             "alpha": 0.3341
           },
           {
-            "count": 580,
-            "mean_lam": 4.5083,
-            "alpha": 0.2057
+            "count": 582,
+            "mean_lam": 4.4751,
+            "alpha": 0.3099
           },
           {
             "count": 581,
-            "mean_lam": 4.5722,
-            "alpha": 0.2772
+            "mean_lam": 4.5041,
+            "alpha": 0.2135
           },
           {
-            "count": 583,
-            "mean_lam": 4.8108,
-            "alpha": 0.2884
+            "count": 581,
+            "mean_lam": 4.5682,
+            "alpha": 0.2579
+          },
+          {
+            "count": 582,
+            "mean_lam": 4.8243,
+            "alpha": 0.2908
           }
         ]
       },
@@ -5214,57 +5175,57 @@
     },
     "alpha_away": {
       "form": "linear",
-      "a": 0.6164442683913443,
-      "b": -0.061765300932269736,
+      "a": 0.6741095203146703,
+      "b": -0.07470007363072019,
       "selection": {
         "piecewise": {
-          "tail_gap_avg": 0.00689,
-          "loglik_avg": -2.4779
+          "tail_gap_avg": 0.00678,
+          "loglik_avg": -2.4783
         },
         "linear": {
           "tail_gap_avg": 0.00622,
-          "loglik_avg": -2.47765
+          "loglik_avg": -2.47839
         },
         "power": {
-          "tail_gap_avg": 0.00703,
-          "loglik_avg": -2.47758
+          "tail_gap_avg": 0.00693,
+          "loglik_avg": -2.47825
         },
         "chosen": "linear",
         "bins": [
           {
             "count": 582,
-            "mean_lam": 3.8054,
-            "alpha": 0.4148
+            "mean_lam": 3.8092,
+            "alpha": 0.4252
           },
           {
-            "count": 581,
-            "mean_lam": 4.1533,
-            "alpha": 0.3797
-          },
-          {
-            "count": 581,
-            "mean_lam": 4.2893,
-            "alpha": 0.3635
-          },
-          {
-            "count": 579,
-            "mean_lam": 4.3602,
-            "alpha": 0.3128
-          },
-          {
-            "count": 584,
-            "mean_lam": 4.4166,
-            "alpha": 0.3344
-          },
-          {
-            "count": 581,
-            "mean_lam": 4.4987,
-            "alpha": 0.2526
+            "count": 580,
+            "mean_lam": 4.1741,
+            "alpha": 0.3842
           },
           {
             "count": 582,
-            "mean_lam": 4.9177,
-            "alpha": 0.3771
+            "mean_lam": 4.3051,
+            "alpha": 0.3097
+          },
+          {
+            "count": 572,
+            "mean_lam": 4.37,
+            "alpha": 0.3872
+          },
+          {
+            "count": 582,
+            "mean_lam": 4.4139,
+            "alpha": 0.2938
+          },
+          {
+            "count": 589,
+            "mean_lam": 4.4834,
+            "alpha": 0.2771
+          },
+          {
+            "count": 583,
+            "mean_lam": 4.8963,
+            "alpha": 0.3668
           }
         ]
       },
@@ -5273,8 +5234,8 @@
       "min_bin_count": 250
     },
     "phase2_single_alpha": {
-      "home": 0.2746,
-      "away": 0.3545
+      "home": 0.2745,
+      "away": 0.3541
     },
     "fit_check_single_alpha": {
       "home": [
@@ -5285,7 +5246,7 @@
         },
         {
           "k": 1,
-          "modeled_p": 0.1082,
+          "modeled_p": 0.1081,
           "observed_p": 0.108
         },
         {
@@ -5300,7 +5261,7 @@
         },
         {
           "k": 4,
-          "modeled_p": 0.1316,
+          "modeled_p": 0.1317,
           "observed_p": 0.1334
         },
         {
@@ -5335,7 +5296,7 @@
         },
         {
           "k": 11,
-          "modeled_p": 0.0167,
+          "modeled_p": 0.0168,
           "observed_p": 0.0179
         },
         {
@@ -5357,12 +5318,12 @@
       "away": [
         {
           "k": 0,
-          "modeled_p": 0.0718,
+          "modeled_p": 0.0717,
           "observed_p": 0.0732
         },
         {
           "k": 1,
-          "modeled_p": 0.1229,
+          "modeled_p": 0.1228,
           "observed_p": 0.1176
         },
         {
@@ -5382,12 +5343,12 @@
         },
         {
           "k": 5,
-          "modeled_p": 0.1016,
+          "modeled_p": 0.1017,
           "observed_p": 0.0925
         },
         {
           "k": 6,
-          "modeled_p": 0.0804,
+          "modeled_p": 0.0805,
           "observed_p": 0.079
         },
         {
@@ -5397,12 +5358,12 @@
         },
         {
           "k": 8,
-          "modeled_p": 0.0458,
+          "modeled_p": 0.0459,
           "observed_p": 0.0501
         },
         {
           "k": 9,
-          "modeled_p": 0.0334,
+          "modeled_p": 0.0335,
           "observed_p": 0.0366
         },
         {
@@ -5422,12 +5383,12 @@
         },
         {
           "k": "\u226510",
-          "modeled_p": 0.0528,
+          "modeled_p": 0.0529,
           "observed_p": 0.0838
         },
         {
           "k": "\u22641",
-          "modeled_p": 0.1947,
+          "modeled_p": 0.1944,
           "observed_p": 0.1909
         }
       ]
@@ -5466,12 +5427,12 @@
         },
         {
           "k": 6,
-          "modeled_p": 0.0885,
+          "modeled_p": 0.0884,
           "observed_p": 0.0977
         },
         {
           "k": 7,
-          "modeled_p": 0.0671,
+          "modeled_p": 0.067,
           "observed_p": 0.0648
         },
         {
@@ -5501,17 +5462,17 @@
         },
         {
           "k": "\u226510",
-          "modeled_p": 0.073,
+          "modeled_p": 0.0731,
           "observed_p": 0.0691
         },
         {
           "k": "\u226511",
-          "modeled_p": 0.0487,
+          "modeled_p": 0.0488,
           "observed_p": 0.0474
         },
         {
           "k": "\u226512",
-          "modeled_p": 0.0321,
+          "modeled_p": 0.0322,
           "observed_p": 0.0295
         },
         {
@@ -5523,7 +5484,7 @@
       "away": [
         {
           "k": 0,
-          "modeled_p": 0.0717,
+          "modeled_p": 0.0718,
           "observed_p": 0.0732
         },
         {
@@ -5533,17 +5494,17 @@
         },
         {
           "k": 2,
-          "modeled_p": 0.1424,
+          "modeled_p": 0.1422,
           "observed_p": 0.1389
         },
         {
           "k": 3,
-          "modeled_p": 0.139,
+          "modeled_p": 0.1389,
           "observed_p": 0.1405
         },
         {
           "k": 4,
-          "modeled_p": 0.1229,
+          "modeled_p": 0.1228,
           "observed_p": 0.1215
         },
         {
@@ -5553,7 +5514,7 @@
         },
         {
           "k": 6,
-          "modeled_p": 0.0805,
+          "modeled_p": 0.0806,
           "observed_p": 0.079
         },
         {
@@ -5578,44 +5539,44 @@
         },
         {
           "k": 11,
-          "modeled_p": 0.0169,
+          "modeled_p": 0.017,
           "observed_p": 0.0188
         },
         {
           "k": 12,
-          "modeled_p": 0.0118,
+          "modeled_p": 0.0119,
           "observed_p": 0.0124
         },
         {
           "k": "\u226510",
-          "modeled_p": 0.078,
+          "modeled_p": 0.0782,
           "observed_p": 0.0838
         },
         {
           "k": "\u226511",
-          "modeled_p": 0.054,
+          "modeled_p": 0.0542,
           "observed_p": 0.0526
         },
         {
           "k": "\u226512",
-          "modeled_p": 0.0371,
+          "modeled_p": 0.0372,
           "observed_p": 0.0339
         },
         {
           "k": "\u22641",
-          "modeled_p": 0.1944,
+          "modeled_p": 0.1945,
           "observed_p": 0.1909
         }
       ]
     },
     "variance_check": {
       "home": {
-        "implied_var": 9.904,
+        "implied_var": 9.913,
         "observed_var": 9.886,
-        "phase2_implied_var": 9.992
+        "phase2_implied_var": 9.993
       },
       "away": {
-        "implied_var": 10.918,
+        "implied_var": 10.937,
         "observed_var": 11.03,
         "phase2_implied_var": 11.053
       }
@@ -5630,10 +5591,10 @@
         {
           "year": 2026,
           "n_games": 1690,
-          "alpha": 0.2873
+          "alpha": 0.287
         }
       ],
-      "rel_gap": 0.0821,
+      "rel_gap": 0.081,
       "pooled_with_caveat": false
     },
     "year_effect_away": {
@@ -5646,10 +5607,10 @@
         {
           "year": 2026,
           "n_games": 1690,
-          "alpha": 0.3255
+          "alpha": 0.3246
         }
       ],
-      "rel_gap": 0.1555,
+      "rel_gap": 0.1587,
       "pooled_with_caveat": false
     },
     "mc_meta": {
@@ -5697,9 +5658,9 @@
       "markets": {
         "derived_moneyline_holdout": {
           "n": 299,
-          "engine_logloss": 0.6995,
-          "engine_brier": 0.25326,
-          "engine_ece_raw": 0.12128,
+          "engine_logloss": 0.6983,
+          "engine_brier": 0.25266,
+          "engine_ece_raw": 0.12048,
           "baseline_rate": 0.5652,
           "baseline_logloss": 0.68462,
           "baseline_brier": 0.24575,
@@ -5707,9 +5668,9 @@
         },
         "over_7_5_holdout": {
           "n": 299,
-          "engine_logloss": 0.68764,
-          "engine_brier": 0.24728,
-          "engine_ece_raw": 0.05265,
+          "engine_logloss": 0.68875,
+          "engine_brier": 0.24789,
+          "engine_ece_raw": 0.05124,
           "baseline_rate": 0.5351,
           "baseline_logloss": 0.69068,
           "baseline_brier": 0.24877,
@@ -5717,9 +5678,9 @@
         },
         "over_8_5_holdout": {
           "n": 299,
-          "engine_logloss": 0.6849,
-          "engine_brier": 0.24589,
-          "engine_ece_raw": 0.03848,
+          "engine_logloss": 0.68492,
+          "engine_brier": 0.24592,
+          "engine_ece_raw": 0.03354,
           "baseline_rate": 0.4615,
           "baseline_logloss": 0.69019,
           "baseline_brier": 0.24852,
@@ -5727,9 +5688,9 @@
         },
         "over_9_5_holdout": {
           "n": 299,
-          "engine_logloss": 0.65543,
-          "engine_brier": 0.23142,
-          "engine_ece_raw": 0.03813,
+          "engine_logloss": 0.65384,
+          "engine_brier": 0.2306,
+          "engine_ece_raw": 0.04596,
           "baseline_rate": 0.3712,
           "baseline_logloss": 0.65961,
           "baseline_brier": 0.23342,
@@ -5737,9 +5698,9 @@
         },
         "home_cover_1_5_holdout": {
           "n": 299,
-          "engine_logloss": 0.66682,
-          "engine_brier": 0.23715,
-          "engine_ece_raw": 0.03976,
+          "engine_logloss": 0.66561,
+          "engine_brier": 0.23658,
+          "engine_ece_raw": 0.04212,
           "baseline_rate": 0.3913,
           "baseline_logloss": 0.66933,
           "baseline_brier": 0.23819,
@@ -5747,9 +5708,9 @@
         },
         "home_cover_2_5_holdout": {
           "n": 299,
-          "engine_logloss": 0.57541,
-          "engine_brier": 0.19372,
-          "engine_ece_raw": 0.01548,
+          "engine_logloss": 0.57447,
+          "engine_brier": 0.19332,
+          "engine_ece_raw": 0.01419,
           "baseline_rate": 0.2642,
           "baseline_logloss": 0.57742,
           "baseline_brier": 0.1944,
@@ -5761,92 +5722,81 @@
     "agreement_vs_moneyline": {
       "delta_primary": 0.08,
       "n": 4104,
-      "mean_abs_diff": 0.0818,
-      "share_gt_primary": 0.4929,
-      "share_gt_0_08": 0.4929,
-      "share_gt_0_10": 0.346,
-      "n_flagged_primary": 2023,
-      "n_flagged_0_08": 2023,
-      "n_flagged_0_10": 1420
+      "mean_abs_diff": 0.0809,
+      "share_gt_primary": 0.4793,
+      "share_gt_0_08": 0.4793,
+      "share_gt_0_10": 0.3484,
+      "n_flagged_primary": 1967,
+      "n_flagged_0_08": 1967,
+      "n_flagged_0_10": 1430
     },
-    "agreement_slate": {
-      "delta_primary": 0.08,
-      "n": 15,
-      "mean_abs_diff": 0.0593,
-      "share_gt_primary": 0.3333,
-      "share_gt_0_08": 0.3333,
-      "share_gt_0_10": 0.2667,
-      "n_flagged_primary": 5,
-      "n_flagged_0_08": 5,
-      "n_flagged_0_10": 4,
-      "scope": "today_slate"
-    },
+    "agreement_slate": null,
     "agreement_delta": 0.08,
     "market_metrics": {
       "derived_moneyline": {
-        "engine_logloss": 0.69373,
-        "engine_brier": 0.25031,
-        "engine_ece_raw": 0.06818,
+        "engine_logloss": 0.69415,
+        "engine_brier": 0.25052,
+        "engine_ece_raw": 0.067,
         "baseline_rate": 0.5354,
         "baseline_logloss": 0.69064,
         "baseline_brier": 0.24875,
-        "engine_logloss_calibrated": 0.68591,
-        "engine_ece_calibrated": 0.01631,
+        "engine_logloss_calibrated": 0.68633,
+        "engine_ece_calibrated": 0.01577,
         "beats_baseline_logloss": false
       },
       "over_7_5": {
-        "engine_logloss": 0.68193,
-        "engine_brier": 0.24447,
-        "engine_ece_raw": 0.01131,
+        "engine_logloss": 0.68221,
+        "engine_brier": 0.24461,
+        "engine_ece_raw": 0.01155,
         "baseline_rate": 0.558,
         "baseline_logloss": 0.6864,
         "baseline_brier": 0.24663,
-        "engine_logloss_calibrated": 0.68259,
-        "engine_ece_calibrated": 0.00503,
+        "engine_logloss_calibrated": 0.68289,
+        "engine_ece_calibrated": 0.00615,
         "beats_baseline_logloss": true
       },
       "over_8_5": {
-        "engine_logloss": 0.68857,
-        "engine_brier": 0.24773,
-        "engine_ece_raw": 0.01309,
+        "engine_logloss": 0.68859,
+        "engine_brier": 0.24775,
+        "engine_ece_raw": 0.01215,
         "baseline_rate": 0.485,
         "baseline_logloss": 0.6927,
         "baseline_brier": 0.24978,
-        "engine_logloss_calibrated": 0.6893,
-        "engine_ece_calibrated": 0.01354,
+        "engine_logloss_calibrated": 0.68897,
+        "engine_ece_calibrated": 0.01362,
         "beats_baseline_logloss": true
       },
       "over_9_5": {
-        "engine_logloss": 0.66632,
-        "engine_brier": 0.23676,
-        "engine_ece_raw": 0.00797,
+        "engine_logloss": 0.66631,
+        "engine_brier": 0.23675,
+        "engine_ece_raw": 0.01012,
         "baseline_rate": 0.3944,
         "baseline_logloss": 0.67066,
         "baseline_brier": 0.23884,
-        "engine_logloss_calibrated": 0.66684,
-        "engine_ece_calibrated": 0.0089,
+        "engine_logloss_calibrated": 0.66663,
+        "engine_ece_calibrated": 0.00676,
         "beats_baseline_logloss": true
       },
       "home_cover_1_5": {
-        "engine_logloss": 0.64915,
-        "engine_brier": 0.22846,
-        "engine_ece_raw": 0.01626,
+        "engine_logloss": 0.6495,
+        "engine_brier": 0.22862,
+        "engine_ece_raw": 0.01255,
         "baseline_rate": 0.3587,
         "baseline_logloss": 0.65265,
         "baseline_brier": 0.23002,
-        "engine_logloss_calibrated": 0.64881,
-        "engine_ece_calibrated": 0.01446,
+        "engine_logloss_calibrated": 0.64934,
+        "engine_ece_calibrated": 0.01287,
         "beats_baseline_logloss": true
       },
       "home_cover_2_5": {
-        "engine_logloss": 0.57866,
-        "engine_brier": 0.19518,
-        "engine_ece_raw": 0.01559,
+        "engine_logloss": 0.5788,
+        "engine_brier": 0.19524,
+        "engine_ece_raw": 0.01548,
         "baseline_rate": 0.2678,
         "baseline_logloss": 0.58105,
         "baseline_brier": 0.19608,
-        "engine_logloss_calibrated": 0.57879,
-        "engine_ece_calibrated": 0.01606,
+        "engine_logloss_calibrated": 0.57883,
+        "engine_ece_calibrated": 0.01602,
         "beats_baseline_logloss": true
       }
     },
@@ -5854,399 +5804,399 @@
       "series": [
         {
           "date": "2025-04-01",
-          "brier": 0.24093
+          "brier": 0.24082
         },
         {
           "date": "2025-04-02",
-          "brier": 0.24104
+          "brier": 0.24114
         },
         {
           "date": "2025-04-04",
-          "brier": 0.24655
-        },
-        {
-          "date": "2025-04-05",
-          "brier": 0.24769
-        },
-        {
-          "date": "2025-04-06",
-          "brier": 0.24982
-        },
-        {
-          "date": "2025-04-07",
-          "brier": 0.24798
-        },
-        {
-          "date": "2025-04-08",
-          "brier": 0.24686
-        },
-        {
-          "date": "2025-04-09",
-          "brier": 0.24668
-        },
-        {
-          "date": "2025-04-11",
           "brier": 0.24732
         },
         {
-          "date": "2025-04-12",
-          "brier": 0.24793
+          "date": "2025-04-05",
+          "brier": 0.24791
         },
         {
-          "date": "2025-04-13",
-          "brier": 0.24716
+          "date": "2025-04-06",
+          "brier": 0.25003
         },
         {
-          "date": "2025-04-14",
-          "brier": 0.24828
-        },
-        {
-          "date": "2025-04-15",
-          "brier": 0.24838
-        },
-        {
-          "date": "2025-04-16",
-          "brier": 0.24576
-        },
-        {
-          "date": "2025-04-17",
-          "brier": 0.24421
-        },
-        {
-          "date": "2025-04-18",
-          "brier": 0.24581
-        },
-        {
-          "date": "2025-04-19",
-          "brier": 0.24446
-        },
-        {
-          "date": "2025-04-20",
-          "brier": 0.24479
-        },
-        {
-          "date": "2025-04-22",
-          "brier": 0.24462
-        },
-        {
-          "date": "2025-04-23",
-          "brier": 0.24379
-        },
-        {
-          "date": "2025-04-25",
-          "brier": 0.24388
-        },
-        {
-          "date": "2025-04-26",
-          "brier": 0.24439
-        },
-        {
-          "date": "2025-04-27",
-          "brier": 0.24461
-        },
-        {
-          "date": "2025-04-29",
-          "brier": 0.24566
-        },
-        {
-          "date": "2025-04-30",
-          "brier": 0.2452
-        },
-        {
-          "date": "2025-05-01",
-          "brier": 0.24503
-        },
-        {
-          "date": "2025-05-02",
-          "brier": 0.24512
-        },
-        {
-          "date": "2025-05-03",
-          "brier": 0.2458
-        },
-        {
-          "date": "2025-05-04",
-          "brier": 0.24603
-        },
-        {
-          "date": "2025-05-06",
-          "brier": 0.24485
-        },
-        {
-          "date": "2025-05-07",
-          "brier": 0.24548
-        },
-        {
-          "date": "2025-05-09",
-          "brier": 0.24402
-        },
-        {
-          "date": "2025-05-10",
-          "brier": 0.24402
-        },
-        {
-          "date": "2025-05-11",
-          "brier": 0.24322
-        },
-        {
-          "date": "2025-05-12",
-          "brier": 0.24354
-        },
-        {
-          "date": "2025-05-13",
-          "brier": 0.24399
-        },
-        {
-          "date": "2025-05-14",
-          "brier": 0.24263
-        },
-        {
-          "date": "2025-05-16",
-          "brier": 0.24455
-        },
-        {
-          "date": "2025-05-17",
-          "brier": 0.24547
-        },
-        {
-          "date": "2025-05-18",
-          "brier": 0.24316
-        },
-        {
-          "date": "2025-05-19",
-          "brier": 0.24439
-        },
-        {
-          "date": "2025-05-20",
-          "brier": 0.24386
-        },
-        {
-          "date": "2025-05-21",
-          "brier": 0.24427
-        },
-        {
-          "date": "2025-05-23",
-          "brier": 0.24561
-        },
-        {
-          "date": "2025-05-24",
-          "brier": 0.2456
-        },
-        {
-          "date": "2025-05-25",
-          "brier": 0.24595
-        },
-        {
-          "date": "2025-05-26",
-          "brier": 0.24454
-        },
-        {
-          "date": "2025-05-27",
-          "brier": 0.24544
-        },
-        {
-          "date": "2025-05-28",
-          "brier": 0.24519
-        },
-        {
-          "date": "2025-05-30",
-          "brier": 0.2436
-        },
-        {
-          "date": "2025-05-31",
-          "brier": 0.24436
-        },
-        {
-          "date": "2025-06-01",
-          "brier": 0.24407
-        },
-        {
-          "date": "2025-06-03",
-          "brier": 0.24228
-        },
-        {
-          "date": "2025-06-04",
-          "brier": 0.2424
-        },
-        {
-          "date": "2025-06-05",
-          "brier": 0.24363
-        },
-        {
-          "date": "2025-06-06",
-          "brier": 0.24351
-        },
-        {
-          "date": "2025-06-07",
-          "brier": 0.24366
-        },
-        {
-          "date": "2025-06-08",
-          "brier": 0.24433
-        },
-        {
-          "date": "2025-06-10",
-          "brier": 0.24519
-        },
-        {
-          "date": "2025-06-11",
-          "brier": 0.24474
-        },
-        {
-          "date": "2025-06-13",
-          "brier": 0.24532
-        },
-        {
-          "date": "2025-06-14",
-          "brier": 0.24536
-        },
-        {
-          "date": "2025-06-15",
-          "brier": 0.24468
-        },
-        {
-          "date": "2025-06-17",
-          "brier": 0.24672
-        },
-        {
-          "date": "2025-06-18",
-          "brier": 0.247
-        },
-        {
-          "date": "2025-06-19",
-          "brier": 0.24751
-        },
-        {
-          "date": "2025-06-20",
-          "brier": 0.24703
-        },
-        {
-          "date": "2025-06-21",
-          "brier": 0.24688
-        },
-        {
-          "date": "2025-06-22",
-          "brier": 0.24704
-        },
-        {
-          "date": "2025-06-24",
-          "brier": 0.247
-        },
-        {
-          "date": "2025-06-25",
-          "brier": 0.24794
-        },
-        {
-          "date": "2025-06-27",
-          "brier": 0.2483
-        },
-        {
-          "date": "2025-06-28",
+          "date": "2025-04-07",
           "brier": 0.24859
         },
         {
+          "date": "2025-04-08",
+          "brier": 0.24727
+        },
+        {
+          "date": "2025-04-09",
+          "brier": 0.2471
+        },
+        {
+          "date": "2025-04-11",
+          "brier": 0.24788
+        },
+        {
+          "date": "2025-04-12",
+          "brier": 0.24854
+        },
+        {
+          "date": "2025-04-13",
+          "brier": 0.2477
+        },
+        {
+          "date": "2025-04-14",
+          "brier": 0.24895
+        },
+        {
+          "date": "2025-04-15",
+          "brier": 0.24908
+        },
+        {
+          "date": "2025-04-16",
+          "brier": 0.24642
+        },
+        {
+          "date": "2025-04-17",
+          "brier": 0.24488
+        },
+        {
+          "date": "2025-04-18",
+          "brier": 0.24644
+        },
+        {
+          "date": "2025-04-19",
+          "brier": 0.2452
+        },
+        {
+          "date": "2025-04-20",
+          "brier": 0.2455
+        },
+        {
+          "date": "2025-04-22",
+          "brier": 0.24531
+        },
+        {
+          "date": "2025-04-23",
+          "brier": 0.24444
+        },
+        {
+          "date": "2025-04-25",
+          "brier": 0.24447
+        },
+        {
+          "date": "2025-04-26",
+          "brier": 0.24499
+        },
+        {
+          "date": "2025-04-27",
+          "brier": 0.24517
+        },
+        {
+          "date": "2025-04-29",
+          "brier": 0.24627
+        },
+        {
+          "date": "2025-04-30",
+          "brier": 0.24573
+        },
+        {
+          "date": "2025-05-01",
+          "brier": 0.24557
+        },
+        {
+          "date": "2025-05-02",
+          "brier": 0.24564
+        },
+        {
+          "date": "2025-05-03",
+          "brier": 0.24638
+        },
+        {
+          "date": "2025-05-04",
+          "brier": 0.24652
+        },
+        {
+          "date": "2025-05-06",
+          "brier": 0.24546
+        },
+        {
+          "date": "2025-05-07",
+          "brier": 0.24593
+        },
+        {
+          "date": "2025-05-09",
+          "brier": 0.24436
+        },
+        {
+          "date": "2025-05-10",
+          "brier": 0.24429
+        },
+        {
+          "date": "2025-05-11",
+          "brier": 0.24354
+        },
+        {
+          "date": "2025-05-12",
+          "brier": 0.24374
+        },
+        {
+          "date": "2025-05-13",
+          "brier": 0.2442
+        },
+        {
+          "date": "2025-05-14",
+          "brier": 0.24276
+        },
+        {
+          "date": "2025-05-16",
+          "brier": 0.24454
+        },
+        {
+          "date": "2025-05-17",
+          "brier": 0.24542
+        },
+        {
+          "date": "2025-05-18",
+          "brier": 0.24314
+        },
+        {
+          "date": "2025-05-19",
+          "brier": 0.24421
+        },
+        {
+          "date": "2025-05-20",
+          "brier": 0.24378
+        },
+        {
+          "date": "2025-05-21",
+          "brier": 0.24422
+        },
+        {
+          "date": "2025-05-23",
+          "brier": 0.2455
+        },
+        {
+          "date": "2025-05-24",
+          "brier": 0.24557
+        },
+        {
+          "date": "2025-05-25",
+          "brier": 0.24584
+        },
+        {
+          "date": "2025-05-26",
+          "brier": 0.24439
+        },
+        {
+          "date": "2025-05-27",
+          "brier": 0.24536
+        },
+        {
+          "date": "2025-05-28",
+          "brier": 0.24501
+        },
+        {
+          "date": "2025-05-30",
+          "brier": 0.24342
+        },
+        {
+          "date": "2025-05-31",
+          "brier": 0.24414
+        },
+        {
+          "date": "2025-06-01",
+          "brier": 0.24392
+        },
+        {
+          "date": "2025-06-03",
+          "brier": 0.24205
+        },
+        {
+          "date": "2025-06-04",
+          "brier": 0.24211
+        },
+        {
+          "date": "2025-06-05",
+          "brier": 0.2433
+        },
+        {
+          "date": "2025-06-06",
+          "brier": 0.24321
+        },
+        {
+          "date": "2025-06-07",
+          "brier": 0.24334
+        },
+        {
+          "date": "2025-06-08",
+          "brier": 0.24418
+        },
+        {
+          "date": "2025-06-10",
+          "brier": 0.24496
+        },
+        {
+          "date": "2025-06-11",
+          "brier": 0.24459
+        },
+        {
+          "date": "2025-06-13",
+          "brier": 0.24519
+        },
+        {
+          "date": "2025-06-14",
+          "brier": 0.24519
+        },
+        {
+          "date": "2025-06-15",
+          "brier": 0.24462
+        },
+        {
+          "date": "2025-06-17",
+          "brier": 0.24665
+        },
+        {
+          "date": "2025-06-18",
+          "brier": 0.24695
+        },
+        {
+          "date": "2025-06-19",
+          "brier": 0.24739
+        },
+        {
+          "date": "2025-06-20",
+          "brier": 0.24684
+        },
+        {
+          "date": "2025-06-21",
+          "brier": 0.2467
+        },
+        {
+          "date": "2025-06-22",
+          "brier": 0.24687
+        },
+        {
+          "date": "2025-06-24",
+          "brier": 0.2468
+        },
+        {
+          "date": "2025-06-25",
+          "brier": 0.24772
+        },
+        {
+          "date": "2025-06-27",
+          "brier": 0.24814
+        },
+        {
+          "date": "2025-06-28",
+          "brier": 0.2484
+        },
+        {
           "date": "2025-06-29",
-          "brier": 0.24905
+          "brier": 0.24882
         },
         {
           "date": "2025-07-01",
-          "brier": 0.24823
+          "brier": 0.24803
         },
         {
           "date": "2025-07-02",
-          "brier": 0.24866
+          "brier": 0.24852
         },
         {
           "date": "2025-07-03",
-          "brier": 0.24766
+          "brier": 0.24743
         },
         {
           "date": "2025-07-04",
-          "brier": 0.2485
+          "brier": 0.24835
         },
         {
           "date": "2025-07-05",
-          "brier": 0.24831
+          "brier": 0.2482
         },
         {
           "date": "2025-07-06",
-          "brier": 0.24776
+          "brier": 0.24764
         },
         {
           "date": "2025-07-07",
-          "brier": 0.24815
+          "brier": 0.24813
         },
         {
           "date": "2025-07-08",
-          "brier": 0.2493
+          "brier": 0.24927
         },
         {
           "date": "2025-07-09",
-          "brier": 0.24953
+          "brier": 0.24952
         },
         {
           "date": "2025-07-10",
-          "brier": 0.24956
+          "brier": 0.24937
         },
         {
           "date": "2025-07-11",
-          "brier": 0.25022
+          "brier": 0.25007
         },
         {
           "date": "2025-07-12",
-          "brier": 0.25002
-        },
-        {
-          "date": "2025-07-13",
-          "brier": 0.25
-        },
-        {
-          "date": "2025-07-18",
-          "brier": 0.24998
-        },
-        {
-          "date": "2025-07-19",
-          "brier": 0.25026
-        },
-        {
-          "date": "2025-07-20",
-          "brier": 0.25084
-        },
-        {
-          "date": "2025-07-21",
-          "brier": 0.25129
-        },
-        {
-          "date": "2025-07-22",
-          "brier": 0.25059
-        },
-        {
-          "date": "2025-07-23",
-          "brier": 0.25053
-        },
-        {
-          "date": "2025-07-25",
-          "brier": 0.25103
-        },
-        {
-          "date": "2025-07-26",
-          "brier": 0.25098
-        },
-        {
-          "date": "2025-07-27",
-          "brier": 0.24985
-        },
-        {
-          "date": "2025-07-28",
           "brier": 0.24992
         },
         {
+          "date": "2025-07-13",
+          "brier": 0.24978
+        },
+        {
+          "date": "2025-07-18",
+          "brier": 0.24974
+        },
+        {
+          "date": "2025-07-19",
+          "brier": 0.24998
+        },
+        {
+          "date": "2025-07-20",
+          "brier": 0.25065
+        },
+        {
+          "date": "2025-07-21",
+          "brier": 0.251
+        },
+        {
+          "date": "2025-07-22",
+          "brier": 0.25041
+        },
+        {
+          "date": "2025-07-23",
+          "brier": 0.25038
+        },
+        {
+          "date": "2025-07-25",
+          "brier": 0.25081
+        },
+        {
+          "date": "2025-07-26",
+          "brier": 0.25087
+        },
+        {
+          "date": "2025-07-27",
+          "brier": 0.24972
+        },
+        {
+          "date": "2025-07-28",
+          "brier": 0.24985
+        },
+        {
           "date": "2025-07-29",
-          "brier": 0.25115
+          "brier": 0.25119
         },
         {
           "date": "2025-07-30",
-          "brier": 0.25116
+          "brier": 0.25122
         },
         {
           "date": "2025-08-01",
@@ -6254,793 +6204,793 @@
         },
         {
           "date": "2025-08-02",
-          "brier": 0.25288
+          "brier": 0.25296
         },
         {
           "date": "2025-08-03",
-          "brier": 0.25254
+          "brier": 0.25256
         },
         {
           "date": "2025-08-04",
-          "brier": 0.25215
+          "brier": 0.25211
         },
         {
           "date": "2025-08-05",
-          "brier": 0.25286
+          "brier": 0.25284
         },
         {
           "date": "2025-08-06",
-          "brier": 0.25219
+          "brier": 0.25221
         },
         {
           "date": "2025-08-08",
-          "brier": 0.25174
+          "brier": 0.25171
         },
         {
           "date": "2025-08-09",
-          "brier": 0.25177
+          "brier": 0.25197
         },
         {
           "date": "2025-08-10",
-          "brier": 0.25092
+          "brier": 0.25112
         },
         {
           "date": "2025-08-11",
-          "brier": 0.25091
-        },
-        {
-          "date": "2025-08-12",
-          "brier": 0.2507
-        },
-        {
-          "date": "2025-08-13",
-          "brier": 0.2512
-        },
-        {
-          "date": "2025-08-15",
-          "brier": 0.25127
-        },
-        {
-          "date": "2025-08-16",
-          "brier": 0.25148
-        },
-        {
-          "date": "2025-08-17",
-          "brier": 0.25118
-        },
-        {
-          "date": "2025-08-18",
-          "brier": 0.25093
-        },
-        {
-          "date": "2025-08-19",
-          "brier": 0.251
-        },
-        {
-          "date": "2025-08-20",
-          "brier": 0.25082
-        },
-        {
-          "date": "2025-08-22",
-          "brier": 0.25138
-        },
-        {
-          "date": "2025-08-23",
-          "brier": 0.2512
-        },
-        {
-          "date": "2025-08-24",
-          "brier": 0.25088
-        },
-        {
-          "date": "2025-08-25",
-          "brier": 0.25086
-        },
-        {
-          "date": "2025-08-26",
-          "brier": 0.25096
-        },
-        {
-          "date": "2025-08-27",
-          "brier": 0.25043
-        },
-        {
-          "date": "2025-08-29",
-          "brier": 0.25075
-        },
-        {
-          "date": "2025-08-30",
-          "brier": 0.25068
-        },
-        {
-          "date": "2025-08-31",
-          "brier": 0.25111
-        },
-        {
-          "date": "2025-09-01",
-          "brier": 0.25152
-        },
-        {
-          "date": "2025-09-02",
-          "brier": 0.25107
-        },
-        {
-          "date": "2025-09-03",
           "brier": 0.25098
         },
         {
+          "date": "2025-08-12",
+          "brier": 0.25091
+        },
+        {
+          "date": "2025-08-13",
+          "brier": 0.25144
+        },
+        {
+          "date": "2025-08-15",
+          "brier": 0.25148
+        },
+        {
+          "date": "2025-08-16",
+          "brier": 0.25164
+        },
+        {
+          "date": "2025-08-17",
+          "brier": 0.25133
+        },
+        {
+          "date": "2025-08-18",
+          "brier": 0.25115
+        },
+        {
+          "date": "2025-08-19",
+          "brier": 0.25118
+        },
+        {
+          "date": "2025-08-20",
+          "brier": 0.25114
+        },
+        {
+          "date": "2025-08-22",
+          "brier": 0.2516
+        },
+        {
+          "date": "2025-08-23",
+          "brier": 0.25131
+        },
+        {
+          "date": "2025-08-24",
+          "brier": 0.25099
+        },
+        {
+          "date": "2025-08-25",
+          "brier": 0.25083
+        },
+        {
+          "date": "2025-08-26",
+          "brier": 0.25095
+        },
+        {
+          "date": "2025-08-27",
+          "brier": 0.25041
+        },
+        {
+          "date": "2025-08-29",
+          "brier": 0.25065
+        },
+        {
+          "date": "2025-08-30",
+          "brier": 0.25056
+        },
+        {
+          "date": "2025-08-31",
+          "brier": 0.25089
+        },
+        {
+          "date": "2025-09-01",
+          "brier": 0.25134
+        },
+        {
+          "date": "2025-09-02",
+          "brier": 0.25086
+        },
+        {
+          "date": "2025-09-03",
+          "brier": 0.25077
+        },
+        {
           "date": "2025-09-05",
-          "brier": 0.25119
+          "brier": 0.25096
         },
         {
           "date": "2025-09-06",
-          "brier": 0.25082
+          "brier": 0.25061
         },
         {
           "date": "2025-09-07",
-          "brier": 0.25042
+          "brier": 0.25021
         },
         {
           "date": "2025-09-08",
-          "brier": 0.25007
+          "brier": 0.24969
         },
         {
           "date": "2025-09-09",
-          "brier": 0.25019
+          "brier": 0.24972
         },
         {
           "date": "2025-09-10",
-          "brier": 0.24986
+          "brier": 0.2495
         },
         {
           "date": "2025-09-12",
-          "brier": 0.24949
-        },
-        {
-          "date": "2025-09-13",
-          "brier": 0.24947
-        },
-        {
-          "date": "2025-09-14",
-          "brier": 0.24947
-        },
-        {
-          "date": "2025-09-16",
-          "brier": 0.24896
-        },
-        {
-          "date": "2025-09-17",
-          "brier": 0.24876
-        },
-        {
-          "date": "2025-09-18",
-          "brier": 0.24756
-        },
-        {
-          "date": "2025-09-19",
-          "brier": 0.24697
-        },
-        {
-          "date": "2025-09-20",
-          "brier": 0.2471
-        },
-        {
-          "date": "2025-09-21",
-          "brier": 0.24661
-        },
-        {
-          "date": "2025-09-23",
-          "brier": 0.2463
-        },
-        {
-          "date": "2025-09-24",
-          "brier": 0.24596
-        },
-        {
-          "date": "2025-09-25",
-          "brier": 0.24587
-        },
-        {
-          "date": "2025-09-26",
-          "brier": 0.24611
-        },
-        {
-          "date": "2025-09-27",
-          "brier": 0.24563
-        },
-        {
-          "date": "2025-09-28",
-          "brier": 0.24438
-        },
-        {
-          "date": "2026-03-26",
-          "brier": 0.25562
-        },
-        {
-          "date": "2026-03-28",
-          "brier": 0.25261
-        },
-        {
-          "date": "2026-03-29",
-          "brier": 0.25101
-        },
-        {
-          "date": "2026-03-30",
-          "brier": 0.24868
-        },
-        {
-          "date": "2026-03-31",
-          "brier": 0.2489
-        },
-        {
-          "date": "2026-04-01",
-          "brier": 0.24918
-        },
-        {
-          "date": "2026-04-03",
-          "brier": 0.24896
-        },
-        {
-          "date": "2026-04-04",
-          "brier": 0.24923
-        },
-        {
-          "date": "2026-04-05",
-          "brier": 0.25
-        },
-        {
-          "date": "2026-04-06",
-          "brier": 0.2497
-        },
-        {
-          "date": "2026-04-07",
-          "brier": 0.24903
-        },
-        {
-          "date": "2026-04-08",
-          "brier": 0.24763
-        },
-        {
-          "date": "2026-04-10",
-          "brier": 0.24791
-        },
-        {
-          "date": "2026-04-11",
-          "brier": 0.24772
-        },
-        {
-          "date": "2026-04-12",
-          "brier": 0.24855
-        },
-        {
-          "date": "2026-04-13",
-          "brier": 0.24896
-        },
-        {
-          "date": "2026-04-14",
-          "brier": 0.24869
-        },
-        {
-          "date": "2026-04-15",
-          "brier": 0.2493
-        },
-        {
-          "date": "2026-04-16",
-          "brier": 0.24862
-        },
-        {
-          "date": "2026-04-17",
-          "brier": 0.24916
-        },
-        {
-          "date": "2026-04-18",
-          "brier": 0.24988
-        },
-        {
-          "date": "2026-04-19",
-          "brier": 0.24925
-        },
-        {
-          "date": "2026-04-20",
-          "brier": 0.24895
-        },
-        {
-          "date": "2026-04-21",
-          "brier": 0.24916
-        },
-        {
-          "date": "2026-04-22",
-          "brier": 0.24903
-        },
-        {
-          "date": "2026-04-24",
-          "brier": 0.24926
-        },
-        {
-          "date": "2026-04-25",
-          "brier": 0.24938
-        },
-        {
-          "date": "2026-04-26",
-          "brier": 0.24896
-        },
-        {
-          "date": "2026-04-28",
-          "brier": 0.24854
-        },
-        {
-          "date": "2026-04-29",
-          "brier": 0.24835
-        },
-        {
-          "date": "2026-04-30",
-          "brier": 0.2486
-        },
-        {
-          "date": "2026-05-01",
           "brier": 0.24908
         },
         {
-          "date": "2026-05-02",
-          "brier": 0.24869
+          "date": "2025-09-13",
+          "brier": 0.24905
         },
         {
-          "date": "2026-05-03",
-          "brier": 0.24827
+          "date": "2025-09-14",
+          "brier": 0.24896
         },
         {
-          "date": "2026-05-04",
-          "brier": 0.24833
+          "date": "2025-09-16",
+          "brier": 0.24851
         },
         {
-          "date": "2026-05-05",
-          "brier": 0.24856
+          "date": "2025-09-17",
+          "brier": 0.2482
         },
         {
-          "date": "2026-05-06",
-          "brier": 0.24861
+          "date": "2025-09-18",
+          "brier": 0.24694
         },
         {
-          "date": "2026-05-07",
-          "brier": 0.24913
-        },
-        {
-          "date": "2026-05-08",
-          "brier": 0.24932
-        },
-        {
-          "date": "2026-05-09",
-          "brier": 0.24911
-        },
-        {
-          "date": "2026-05-10",
-          "brier": 0.24854
-        },
-        {
-          "date": "2026-05-12",
-          "brier": 0.24832
-        },
-        {
-          "date": "2026-05-13",
-          "brier": 0.24774
-        },
-        {
-          "date": "2026-05-14",
-          "brier": 0.24873
-        },
-        {
-          "date": "2026-05-15",
-          "brier": 0.248
-        },
-        {
-          "date": "2026-05-16",
-          "brier": 0.24899
-        },
-        {
-          "date": "2026-05-17",
-          "brier": 0.24907
-        },
-        {
-          "date": "2026-05-18",
-          "brier": 0.24894
-        },
-        {
-          "date": "2026-05-19",
-          "brier": 0.24923
-        },
-        {
-          "date": "2026-05-20",
-          "brier": 0.24915
-        },
-        {
-          "date": "2026-05-22",
-          "brier": 0.24892
-        },
-        {
-          "date": "2026-05-23",
-          "brier": 0.24839
-        },
-        {
-          "date": "2026-05-24",
-          "brier": 0.24744
-        },
-        {
-          "date": "2026-05-25",
-          "brier": 0.24703
-        },
-        {
-          "date": "2026-05-26",
-          "brier": 0.24776
-        },
-        {
-          "date": "2026-05-27",
-          "brier": 0.24783
-        },
-        {
-          "date": "2026-05-29",
-          "brier": 0.24892
-        },
-        {
-          "date": "2026-05-30",
-          "brier": 0.24867
-        },
-        {
-          "date": "2026-05-31",
-          "brier": 0.24826
-        },
-        {
-          "date": "2026-06-02",
-          "brier": 0.24923
-        },
-        {
-          "date": "2026-06-03",
-          "brier": 0.24903
-        },
-        {
-          "date": "2026-06-05",
-          "brier": 0.24812
-        },
-        {
-          "date": "2026-06-06",
-          "brier": 0.24834
-        },
-        {
-          "date": "2026-06-07",
-          "brier": 0.24858
-        },
-        {
-          "date": "2026-06-09",
-          "brier": 0.24942
-        },
-        {
-          "date": "2026-06-10",
-          "brier": 0.24998
-        },
-        {
-          "date": "2026-06-12",
-          "brier": 0.25048
-        },
-        {
-          "date": "2026-06-13",
-          "brier": 0.24965
-        },
-        {
-          "date": "2026-06-14",
-          "brier": 0.24992
-        },
-        {
-          "date": "2026-06-15",
-          "brier": 0.24958
-        },
-        {
-          "date": "2026-06-16",
-          "brier": 0.24899
-        },
-        {
-          "date": "2026-06-17",
-          "brier": 0.24852
-        },
-        {
-          "date": "2026-06-19",
-          "brier": 0.24925
-        },
-        {
-          "date": "2026-06-20",
-          "brier": 0.24956
-        },
-        {
-          "date": "2026-06-21",
-          "brier": 0.24948
-        },
-        {
-          "date": "2026-06-22",
-          "brier": 0.24949
-        },
-        {
-          "date": "2026-06-23",
-          "brier": 0.25049
-        },
-        {
-          "date": "2026-06-24",
-          "brier": 0.25008
-        },
-        {
-          "date": "2026-06-26",
-          "brier": 0.24936
-        },
-        {
-          "date": "2026-06-27",
-          "brier": 0.24914
-        },
-        {
-          "date": "2026-06-28",
-          "brier": 0.24925
-        },
-        {
-          "date": "2026-06-29",
-          "brier": 0.24909
-        },
-        {
-          "date": "2026-06-30",
-          "brier": 0.24874
-        },
-        {
-          "date": "2026-07-01",
-          "brier": 0.24889
-        },
-        {
-          "date": "2026-07-03",
-          "brier": 0.24863
-        },
-        {
-          "date": "2026-07-04",
-          "brier": 0.24869
-        },
-        {
-          "date": "2026-07-05",
-          "brier": 0.24926
-        },
-        {
-          "date": "2026-07-07",
-          "brier": 0.24902
-        },
-        {
-          "date": "2026-07-08",
-          "brier": 0.24909
-        },
-        {
-          "date": "2026-07-09",
-          "brier": 0.24925
-        },
-        {
-          "date": "2026-07-10",
-          "brier": 0.24856
-        },
-        {
-          "date": "2026-07-11",
-          "brier": 0.24829
-        },
-        {
-          "date": "2026-07-12",
-          "brier": 0.24823
-        },
-        {
-          "date": "2026-07-17",
-          "brier": 0.2476
-        },
-        {
-          "date": "2026-07-18",
-          "brier": 0.24701
-        },
-        {
-          "date": "2026-07-19",
-          "brier": 0.24635
-        },
-        {
-          "date": "2026-07-20",
-          "brier": 0.24585
-        },
-        {
-          "date": "2026-07-21",
-          "brier": 0.24553
-        },
-        {
-          "date": "2026-07-22",
-          "brier": 0.24639
-        },
-        {
-          "date": "2026-07-24",
-          "brier": 0.2466
-        },
-        {
-          "date": "2026-07-25",
-          "brier": 0.2464
-        },
-        {
-          "date": "2026-07-26",
-          "brier": 0.24695
-        },
-        {
-          "date": "2026-07-27",
-          "brier": 0.24751
-        },
-        {
-          "date": "2026-07-28",
-          "brier": 0.24713
-        },
-        {
-          "date": "2026-07-29",
-          "brier": 0.24702
-        },
-        {
-          "date": "2026-07-30",
-          "brier": 0.24683
-        },
-        {
-          "date": "2026-07-31",
-          "brier": 0.24664
-        },
-        {
-          "date": "2026-08-01",
-          "brier": 0.24659
-        },
-        {
-          "date": "2026-08-02",
-          "brier": 0.24683
-        },
-        {
-          "date": "2026-08-04",
+          "date": "2025-09-19",
           "brier": 0.24631
         },
         {
-          "date": "2026-08-05",
-          "brier": 0.24648
-        },
-        {
-          "date": "2026-08-06",
+          "date": "2025-09-20",
           "brier": 0.24642
         },
         {
+          "date": "2025-09-21",
+          "brier": 0.24591
+        },
+        {
+          "date": "2025-09-23",
+          "brier": 0.24578
+        },
+        {
+          "date": "2025-09-24",
+          "brier": 0.24551
+        },
+        {
+          "date": "2025-09-25",
+          "brier": 0.24541
+        },
+        {
+          "date": "2025-09-26",
+          "brier": 0.24566
+        },
+        {
+          "date": "2025-09-27",
+          "brier": 0.24513
+        },
+        {
+          "date": "2025-09-28",
+          "brier": 0.24374
+        },
+        {
+          "date": "2026-03-26",
+          "brier": 0.25577
+        },
+        {
+          "date": "2026-03-28",
+          "brier": 0.25217
+        },
+        {
+          "date": "2026-03-29",
+          "brier": 0.25088
+        },
+        {
+          "date": "2026-03-30",
+          "brier": 0.24829
+        },
+        {
+          "date": "2026-03-31",
+          "brier": 0.24823
+        },
+        {
+          "date": "2026-04-01",
+          "brier": 0.24897
+        },
+        {
+          "date": "2026-04-03",
+          "brier": 0.24877
+        },
+        {
+          "date": "2026-04-04",
+          "brier": 0.2488
+        },
+        {
+          "date": "2026-04-05",
+          "brier": 0.24967
+        },
+        {
+          "date": "2026-04-06",
+          "brier": 0.24935
+        },
+        {
+          "date": "2026-04-07",
+          "brier": 0.24869
+        },
+        {
+          "date": "2026-04-08",
+          "brier": 0.24742
+        },
+        {
+          "date": "2026-04-10",
+          "brier": 0.24755
+        },
+        {
+          "date": "2026-04-11",
+          "brier": 0.24747
+        },
+        {
+          "date": "2026-04-12",
+          "brier": 0.24836
+        },
+        {
+          "date": "2026-04-13",
+          "brier": 0.24865
+        },
+        {
+          "date": "2026-04-14",
+          "brier": 0.24838
+        },
+        {
+          "date": "2026-04-15",
+          "brier": 0.24897
+        },
+        {
+          "date": "2026-04-16",
+          "brier": 0.24822
+        },
+        {
+          "date": "2026-04-17",
+          "brier": 0.24873
+        },
+        {
+          "date": "2026-04-18",
+          "brier": 0.24959
+        },
+        {
+          "date": "2026-04-19",
+          "brier": 0.2489
+        },
+        {
+          "date": "2026-04-20",
+          "brier": 0.24869
+        },
+        {
+          "date": "2026-04-21",
+          "brier": 0.24893
+        },
+        {
+          "date": "2026-04-22",
+          "brier": 0.24891
+        },
+        {
+          "date": "2026-04-24",
+          "brier": 0.24902
+        },
+        {
+          "date": "2026-04-25",
+          "brier": 0.24934
+        },
+        {
+          "date": "2026-04-26",
+          "brier": 0.24889
+        },
+        {
+          "date": "2026-04-28",
+          "brier": 0.2484
+        },
+        {
+          "date": "2026-04-29",
+          "brier": 0.2487
+        },
+        {
+          "date": "2026-04-30",
+          "brier": 0.24914
+        },
+        {
+          "date": "2026-05-01",
+          "brier": 0.24935
+        },
+        {
+          "date": "2026-05-02",
+          "brier": 0.24906
+        },
+        {
+          "date": "2026-05-03",
+          "brier": 0.24852
+        },
+        {
+          "date": "2026-05-04",
+          "brier": 0.24881
+        },
+        {
+          "date": "2026-05-05",
+          "brier": 0.24888
+        },
+        {
+          "date": "2026-05-06",
+          "brier": 0.24899
+        },
+        {
+          "date": "2026-05-07",
+          "brier": 0.24925
+        },
+        {
+          "date": "2026-05-08",
+          "brier": 0.24955
+        },
+        {
+          "date": "2026-05-09",
+          "brier": 0.24937
+        },
+        {
+          "date": "2026-05-10",
+          "brier": 0.24916
+        },
+        {
+          "date": "2026-05-12",
+          "brier": 0.24899
+        },
+        {
+          "date": "2026-05-13",
+          "brier": 0.24847
+        },
+        {
+          "date": "2026-05-14",
+          "brier": 0.24912
+        },
+        {
+          "date": "2026-05-15",
+          "brier": 0.24842
+        },
+        {
+          "date": "2026-05-16",
+          "brier": 0.24938
+        },
+        {
+          "date": "2026-05-17",
+          "brier": 0.24947
+        },
+        {
+          "date": "2026-05-18",
+          "brier": 0.24914
+        },
+        {
+          "date": "2026-05-19",
+          "brier": 0.24962
+        },
+        {
+          "date": "2026-05-20",
+          "brier": 0.24983
+        },
+        {
+          "date": "2026-05-22",
+          "brier": 0.24965
+        },
+        {
+          "date": "2026-05-23",
+          "brier": 0.24937
+        },
+        {
+          "date": "2026-05-24",
+          "brier": 0.2489
+        },
+        {
+          "date": "2026-05-25",
+          "brier": 0.24837
+        },
+        {
+          "date": "2026-05-26",
+          "brier": 0.24916
+        },
+        {
+          "date": "2026-05-27",
+          "brier": 0.24893
+        },
+        {
+          "date": "2026-05-29",
+          "brier": 0.24984
+        },
+        {
+          "date": "2026-05-30",
+          "brier": 0.24962
+        },
+        {
+          "date": "2026-05-31",
+          "brier": 0.24933
+        },
+        {
+          "date": "2026-06-02",
+          "brier": 0.25034
+        },
+        {
+          "date": "2026-06-03",
+          "brier": 0.24995
+        },
+        {
+          "date": "2026-06-05",
+          "brier": 0.24948
+        },
+        {
+          "date": "2026-06-06",
+          "brier": 0.24958
+        },
+        {
+          "date": "2026-06-07",
+          "brier": 0.24957
+        },
+        {
+          "date": "2026-06-09",
+          "brier": 0.24985
+        },
+        {
+          "date": "2026-06-10",
+          "brier": 0.25039
+        },
+        {
+          "date": "2026-06-12",
+          "brier": 0.25082
+        },
+        {
+          "date": "2026-06-13",
+          "brier": 0.25049
+        },
+        {
+          "date": "2026-06-14",
+          "brier": 0.25102
+        },
+        {
+          "date": "2026-06-15",
+          "brier": 0.25044
+        },
+        {
+          "date": "2026-06-16",
+          "brier": 0.24983
+        },
+        {
+          "date": "2026-06-17",
+          "brier": 0.24977
+        },
+        {
+          "date": "2026-06-19",
+          "brier": 0.24987
+        },
+        {
+          "date": "2026-06-20",
+          "brier": 0.24993
+        },
+        {
+          "date": "2026-06-21",
+          "brier": 0.24993
+        },
+        {
+          "date": "2026-06-22",
+          "brier": 0.24961
+        },
+        {
+          "date": "2026-06-23",
+          "brier": 0.25012
+        },
+        {
+          "date": "2026-06-24",
+          "brier": 0.24969
+        },
+        {
+          "date": "2026-06-26",
+          "brier": 0.24914
+        },
+        {
+          "date": "2026-06-27",
+          "brier": 0.249
+        },
+        {
+          "date": "2026-06-28",
+          "brier": 0.24891
+        },
+        {
+          "date": "2026-06-29",
+          "brier": 0.24881
+        },
+        {
+          "date": "2026-06-30",
+          "brier": 0.24858
+        },
+        {
+          "date": "2026-07-01",
+          "brier": 0.24869
+        },
+        {
+          "date": "2026-07-03",
+          "brier": 0.24842
+        },
+        {
+          "date": "2026-07-04",
+          "brier": 0.24859
+        },
+        {
+          "date": "2026-07-05",
+          "brier": 0.24883
+        },
+        {
+          "date": "2026-07-07",
+          "brier": 0.24918
+        },
+        {
+          "date": "2026-07-08",
+          "brier": 0.2492
+        },
+        {
+          "date": "2026-07-09",
+          "brier": 0.24961
+        },
+        {
+          "date": "2026-07-10",
+          "brier": 0.24885
+        },
+        {
+          "date": "2026-07-11",
+          "brier": 0.24861
+        },
+        {
+          "date": "2026-07-12",
+          "brier": 0.24856
+        },
+        {
+          "date": "2026-07-17",
+          "brier": 0.24804
+        },
+        {
+          "date": "2026-07-18",
+          "brier": 0.24723
+        },
+        {
+          "date": "2026-07-19",
+          "brier": 0.24622
+        },
+        {
+          "date": "2026-07-20",
+          "brier": 0.24595
+        },
+        {
+          "date": "2026-07-21",
+          "brier": 0.24478
+        },
+        {
+          "date": "2026-07-22",
+          "brier": 0.24565
+        },
+        {
+          "date": "2026-07-24",
+          "brier": 0.24599
+        },
+        {
+          "date": "2026-07-25",
+          "brier": 0.24589
+        },
+        {
+          "date": "2026-07-26",
+          "brier": 0.24643
+        },
+        {
+          "date": "2026-07-27",
+          "brier": 0.24722
+        },
+        {
+          "date": "2026-07-28",
+          "brier": 0.24674
+        },
+        {
+          "date": "2026-07-29",
+          "brier": 0.24641
+        },
+        {
+          "date": "2026-07-30",
+          "brier": 0.24572
+        },
+        {
+          "date": "2026-07-31",
+          "brier": 0.24573
+        },
+        {
+          "date": "2026-08-01",
+          "brier": 0.24574
+        },
+        {
+          "date": "2026-08-02",
+          "brier": 0.24593
+        },
+        {
+          "date": "2026-08-04",
+          "brier": 0.24517
+        },
+        {
+          "date": "2026-08-05",
+          "brier": 0.24549
+        },
+        {
+          "date": "2026-08-06",
+          "brier": 0.24526
+        },
+        {
           "date": "2026-08-07",
-          "brier": 0.24634
+          "brier": 0.24526
         },
         {
           "date": "2026-08-08",
-          "brier": 0.24615
+          "brier": 0.24471
         },
         {
           "date": "2026-08-09",
-          "brier": 0.24629
+          "brier": 0.24471
         },
         {
           "date": "2026-08-10",
-          "brier": 0.24692
+          "brier": 0.24518
         },
         {
           "date": "2026-08-11",
-          "brier": 0.24672
+          "brier": 0.24545
         },
         {
           "date": "2026-08-12",
-          "brier": 0.24678
+          "brier": 0.24543
         },
         {
           "date": "2026-08-14",
-          "brier": 0.24687
+          "brier": 0.24542
         },
         {
           "date": "2026-08-15",
-          "brier": 0.24686
+          "brier": 0.24538
         },
         {
           "date": "2026-08-16",
-          "brier": 0.24703
+          "brier": 0.24517
         },
         {
           "date": "2026-08-17",
-          "brier": 0.2476
+          "brier": 0.24599
         },
         {
           "date": "2026-08-18",
-          "brier": 0.24772
+          "brier": 0.24647
         },
         {
           "date": "2026-08-19",
-          "brier": 0.24775
+          "brier": 0.24636
         },
         {
           "date": "2026-08-21",
-          "brier": 0.24776
+          "brier": 0.24684
         },
         {
           "date": "2026-08-22",
-          "brier": 0.24758
+          "brier": 0.24678
         },
         {
           "date": "2026-08-23",
-          "brier": 0.24718
+          "brier": 0.24651
         },
         {
           "date": "2026-08-24",
-          "brier": 0.24708
+          "brier": 0.24658
         },
         {
           "date": "2026-08-25",
-          "brier": 0.24643
+          "brier": 0.24622
         }
       ],
       "window_days": 30,
       "min_games_per_day": 10,
-      "history_mean_brier": 0.24773
+      "history_mean_brier": 0.24775
     },
     "phase1": {
       "n_folds": 48,
       "n_games": 4369,
       "dispersion_ratio": {
-        "home": 2.1858,
-        "away": 2.48
+        "home": 2.1839,
+        "away": 2.4832
       },
       "final_fit_rounds": {
-        "home": 12,
-        "away": 29
+        "home": 11,
+        "away": 28
       }
     }
   },
   "ensemble": [
     {
       "name": "xgboost",
-      "weight": 0.4499,
+      "weight": 0.45,
       "auc": 0.5717,
-      "brier": 0.2449,
-      "logloss": 0.6827,
+      "brier": 0.2446,
+      "logloss": 0.6822,
       "n_eval": 4016,
-      "brier_calibrated": 0.2454,
-      "logloss_calibrated": 0.6838,
-      "ece_calibrated": 0.0075
+      "brier_calibrated": 0.245,
+      "logloss_calibrated": 0.6831,
+      "ece_calibrated": 0.0089
     },
     {
       "name": "lightgbm",
-      "weight": 0.1333,
-      "auc": 0.5454,
-      "brier": 0.2495,
-      "logloss": 0.6925,
+      "weight": 0.0955,
+      "auc": 0.5466,
+      "brier": 0.2492,
+      "logloss": 0.6918,
       "n_eval": 4016,
-      "brier_calibrated": 0.2492,
-      "logloss_calibrated": 0.6918,
-      "ece_calibrated": 0.0268
+      "brier_calibrated": 0.2488,
+      "logloss_calibrated": 0.6908,
+      "ece_calibrated": 0.0312
     },
     {
       "name": "logistic",
-      "weight": 0.1607,
-      "auc": 0.5482,
-      "brier": 0.2505,
-      "logloss": 0.6954,
+      "weight": 0.1671,
+      "auc": 0.555,
+      "brier": 0.2501,
+      "logloss": 0.6945,
       "n_eval": 4016,
-      "brier_calibrated": 0.25,
-      "logloss_calibrated": 0.6941,
-      "ece_calibrated": 0.0381
+      "brier_calibrated": 0.2496,
+      "logloss_calibrated": 0.6933,
+      "ece_calibrated": 0.041
     },
     {
       "name": "randomforest",
-      "weight": 0.1824,
-      "auc": 0.5501,
-      "brier": 0.2478,
-      "logloss": 0.6888,
+      "weight": 0.2167,
+      "auc": 0.5589,
+      "brier": 0.247,
+      "logloss": 0.6872,
       "n_eval": 4016,
-      "brier_calibrated": 0.248,
-      "logloss_calibrated": 0.6891,
-      "ece_calibrated": 0.0177
+      "brier_calibrated": 0.2472,
+      "logloss_calibrated": 0.6875,
+      "ece_calibrated": 0.0084
     },
     {
       "name": "mlp",
-      "weight": 0.0737,
-      "auc": 0.5365,
-      "brier": 0.2527,
-      "logloss": 0.6999,
+      "weight": 0.0707,
+      "auc": 0.5421,
+      "brier": 0.2522,
+      "logloss": 0.6987,
       "n_eval": 4016,
-      "brier_calibrated": 0.2515,
-      "logloss_calibrated": 0.6966,
-      "ece_calibrated": 0.0453
+      "brier_calibrated": 0.2509,
+      "logloss_calibrated": 0.6955,
+      "ece_calibrated": 0.0424
     }
   ],
   "model_history": [
@@ -7084,14 +7034,14 @@
       "notes": "walk-forward through 20260825 (4451 games)"
     },
     {
-      "version": "v2026.08.26",
+      "version": "v2026.08.25",
       "date": "2026-08-26",
-      "auc": 0.5618,
-      "brier": 0.2459,
-      "logloss": 0.6848,
-      "ece": 0.0126,
-      "ece_calibrated": 0.0086,
-      "notes": "walk-forward through 20260826 (4466 games)"
+      "auc": 0.5676,
+      "brier": 0.2451,
+      "logloss": 0.6833,
+      "ece": 0.009,
+      "ece_calibrated": 0.0109,
+      "notes": "walk-forward through 20260825 (4466 games)"
     }
   ],
   "version_history": [
@@ -7119,29 +7069,6 @@
       }
     },
     {
-      "version": "v2026.08.25",
-      "date": "2026-08-26",
-      "weights": {
-        "xgboost": 0.4501,
-        "lightgbm": 0.1287,
-        "logistic": 0.1521,
-        "randomforest": 0.1985,
-        "mlp": 0.0706
-      },
-      "auc": 0.5621,
-      "brier": 0.2458,
-      "logloss": 0.6846,
-      "ece": 0.0123,
-      "brier_calibrated": 0.2462,
-      "logloss_calibrated": 0.6855,
-      "ece_calibrated": 0.0087,
-      "calibration": {
-        "a": 0.878116,
-        "b": -0.029966,
-        "n": 4016
-      }
-    },
-    {
       "version": "v2026.08.26",
       "date": "2026-08-26",
       "weights": {
@@ -7161,6 +7088,29 @@
       "calibration": {
         "a": 0.870765,
         "b": -0.029927,
+        "n": 4016
+      }
+    },
+    {
+      "version": "v2026.08.25",
+      "date": "2026-08-26",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.0955,
+        "logistic": 0.1671,
+        "randomforest": 0.2167,
+        "mlp": 0.0707
+      },
+      "auc": 0.5676,
+      "brier": 0.2451,
+      "logloss": 0.6833,
+      "ece": 0.009,
+      "brier_calibrated": 0.2456,
+      "logloss_calibrated": 0.6843,
+      "ece_calibrated": 0.0109,
+      "calibration": {
+        "a": 0.906612,
+        "b": -0.020729,
         "n": 4016
       }
     }
