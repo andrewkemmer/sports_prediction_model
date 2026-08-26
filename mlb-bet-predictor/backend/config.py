@@ -127,6 +127,14 @@ XGBOOST_EARLY_STOP = 20
 # sealed-holdout ECE-cal (0.0566→0.0669 at 17r) → the member-level
 # calibration gain does not survive the blend; config unchanged, 50 rounds
 # stays.
+#
+# Fair winner re-verification (verify_lgb_winner.py, 2026-08-26): the
+# Colab Optuna winner was re-measured under its OWN early-stopping
+# discipline (not the tuner's forced-50 clamp). At its natural count
+# (6 rounds, tail-early-stop condition) the winner scored sealed-holdout
+# 0.6917 LL / 0.5134 AUC / 0.0401 ECE vs current (LIGHTGBM_PARAMS, 17r)
+# 0.6823 / 0.5499 / 0.0548 → the winner still loses logloss and AUC on
+# the sealed set. Verdict: DON'T ADOPT; this config stays.
 LIGHTGBM_PARAMS = {
     "n_estimators": 50,
     "max_depth": 5,
