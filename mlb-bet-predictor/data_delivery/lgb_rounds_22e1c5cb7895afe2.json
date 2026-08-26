@@ -1,0 +1,116 @@
+{
+  "config": "LIGHTGBM_PARAMS verbatim, n_estimators varied only",
+  "csv": "/home/daytona/codebase/mlb-bet-predictor/data_delivery/game_level_features.csv",
+  "data_hash": "22e1c5cb7895afe2",
+  "holdout_days": 21,
+  "results": {
+    "15r": {
+      "holdout": {
+        "auc": 0.5412,
+        "brier": 0.2454,
+        "ece": 0.0458,
+        "ece_calibrated": 0.0612,
+        "logloss": 0.6839,
+        "logloss_calibrated": 0.6847
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "lgb_blend_weight": 0.1153,
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.5671,
+        "brier": 0.2453,
+        "ece": 0.0087,
+        "ece_calibrated": 0.0054,
+        "logloss": 0.6838,
+        "logloss_calibrated": 0.6849
+      },
+      "rounds": 15,
+      "variant": "15r"
+    },
+    "17r": {
+      "holdout": {
+        "auc": 0.5409,
+        "brier": 0.2454,
+        "ece": 0.0486,
+        "ece_calibrated": 0.0669,
+        "logloss": 0.6839,
+        "logloss_calibrated": 0.6847
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "lgb_blend_weight": 0.1196,
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.5671,
+        "brier": 0.2453,
+        "ece": 0.009,
+        "ece_calibrated": 0.0067,
+        "logloss": 0.6838,
+        "logloss_calibrated": 0.6848
+      },
+      "rounds": 17,
+      "variant": "17r"
+    },
+    "20r": {
+      "holdout": {
+        "auc": 0.5401,
+        "brier": 0.2455,
+        "ece": 0.0488,
+        "ece_calibrated": 0.064,
+        "logloss": 0.6841,
+        "logloss_calibrated": 0.6849
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "lgb_blend_weight": 0.1316,
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.5673,
+        "brier": 0.2453,
+        "ece": 0.0088,
+        "ece_calibrated": 0.0046,
+        "logloss": 0.6837,
+        "logloss_calibrated": 0.6847
+      },
+      "rounds": 20,
+      "variant": "20r"
+    },
+    "50r": {
+      "holdout": {
+        "auc": 0.5408,
+        "brier": 0.2455,
+        "ece": 0.0406,
+        "ece_calibrated": 0.0566,
+        "logloss": 0.6842,
+        "logloss_calibrated": 0.6843
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "lgb_blend_weight": 0.0999,
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.5645,
+        "brier": 0.2456,
+        "ece": 0.0147,
+        "ece_calibrated": 0.0085,
+        "logloss": 0.6844,
+        "logloss_calibrated": 0.6852
+      },
+      "rounds": 50,
+      "variant": "50r"
+    }
+  }
+}

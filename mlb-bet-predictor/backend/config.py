@@ -120,6 +120,13 @@ XGBOOST_EARLY_STOP = 20
 # heavy bagging suppress variance in the MLB low-signal regime. Native NaN
 # routing kept (impute_medians=False won); team-ID categoricals route via
 # categorical_feature BY NAME in the fold trainer — unchanged.
+# Full-harness rounds test (run_lgb_rounds_test.py,
+# lgb_rounds_22e1c5cb7895afe2, 65-col matrix incl. run_margin_diff, sealed
+# 284-game holdout 2026-08-05→08-25): 15/17/20-round variants improve
+# pooled OOF (logloss 0.6844→0.6837, ECE-cal 0.0085→0.0046) but degrade
+# sealed-holdout ECE-cal (0.0566→0.0669 at 17r) → the member-level
+# calibration gain does not survive the blend; config unchanged, 50 rounds
+# stays.
 LIGHTGBM_PARAMS = {
     "n_estimators": 50,
     "max_depth": 5,
