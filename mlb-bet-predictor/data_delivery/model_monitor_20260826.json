@@ -1,0 +1,5251 @@
+{
+  "date": "20260826",
+  "version": "v2026.08.26",
+  "last_retrained": "2026-08-26",
+  "next_retrain": "2026-09-02",
+  "metrics": {
+    "auc": 0.5673,
+    "brier": 0.2452,
+    "logloss": 0.6836,
+    "ece": 0.0074,
+    "brier_calibrated": 0.2457,
+    "logloss_calibrated": 0.6845,
+    "ece_calibrated": 0.0151
+  },
+  "drift_summary": {
+    "warnings": 2,
+    "alerts": 0,
+    "features": [
+      "team_hardhit_diff",
+      "woba_30g_away"
+    ]
+  },
+  "feature_drift": [
+    {
+      "feature": "is_home",
+      "current_mean": 1.0,
+      "baseline_mean": 1.0,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.0,
+      "shift_se": 0.0,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.0,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "win_pct_diff",
+      "current_mean": 0.0074,
+      "baseline_mean": 0.001,
+      "psi": 0.429431,
+      "psi_adjusted": 0.366273,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.006329,
+      "shift_se": 0.012461,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.019,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "elo_diff",
+      "current_mean": 17.0917,
+      "baseline_mean": 1.8285,
+      "psi": 0.273077,
+      "psi_adjusted": 0.209919,
+      "noise_floor": 0.063158,
+      "mean_shift": 15.263194,
+      "shift_se": 13.984157,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.539,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "rest_days_diff",
+      "current_mean": 0.0211,
+      "baseline_mean": 0.0,
+      "psi": 0.000313,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.021053,
+      "shift_se": 0.046568,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.323,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "sp_era_diff",
+      "current_mean": 0.0657,
+      "baseline_mean": 0.088,
+      "psi": 0.074591,
+      "psi_adjusted": 0.008836,
+      "noise_floor": 0.065755,
+      "mean_shift": -0.022326,
+      "shift_se": 0.344128,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.351,
+      "n_baseline": 276,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_era_5g_diff",
+      "current_mean": -0.2263,
+      "baseline_mean": -0.0952,
+      "psi": 0.222219,
+      "psi_adjusted": 0.156697,
+      "noise_floor": 0.065522,
+      "mean_shift": -0.131127,
+      "shift_se": 0.485155,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.251,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_k9_diff",
+      "current_mean": -0.193,
+      "baseline_mean": -0.0449,
+      "psi": 0.11198,
+      "psi_adjusted": 0.046225,
+      "noise_floor": 0.065755,
+      "mean_shift": -0.148138,
+      "shift_se": 0.451047,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.575,
+      "n_baseline": 276,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_k9_5g_diff",
+      "current_mean": -0.0865,
+      "baseline_mean": -0.1786,
+      "psi": 0.067006,
+      "psi_adjusted": 0.001484,
+      "noise_floor": 0.065522,
+      "mean_shift": 0.092103,
+      "shift_se": 0.640202,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.483,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_fbvelo_diff",
+      "current_mean": 0.2405,
+      "baseline_mean": -0.0887,
+      "psi": 0.13667,
+      "psi_adjusted": 0.070599,
+      "noise_floor": 0.066071,
+      "mean_shift": 0.3292,
+      "shift_se": 0.541216,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.871,
+      "n_baseline": 280,
+      "n_current": 90
+    },
+    {
+      "feature": "sp_fbpct_diff",
+      "current_mean": 0.012,
+      "baseline_mean": -0.0103,
+      "psi": 0.103039,
+      "psi_adjusted": 0.037517,
+      "noise_floor": 0.065522,
+      "mean_shift": 0.022279,
+      "shift_se": 0.025048,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.495,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_whiff_diff",
+      "current_mean": 0.0033,
+      "baseline_mean": -0.0022,
+      "psi": 0.117228,
+      "psi_adjusted": 0.051706,
+      "noise_floor": 0.065522,
+      "mean_shift": 0.005521,
+      "shift_se": 0.007978,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.851,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_xwoba_diff",
+      "current_mean": 0.0027,
+      "baseline_mean": 0.001,
+      "psi": 0.252054,
+      "psi_adjusted": 0.186532,
+      "noise_floor": 0.065522,
+      "mean_shift": 0.001692,
+      "shift_se": 0.012358,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.49,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "sp_xwoba_vs_l_diff",
+      "current_mean": 0.0009,
+      "baseline_mean": 0.0037,
+      "psi": 0.097613,
+      "psi_adjusted": 0.031858,
+      "noise_floor": 0.065755,
+      "mean_shift": -0.002804,
+      "shift_se": 0.012349,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.105,
+      "n_baseline": 276,
+      "n_current": 91
+    },
+    {
+      "feature": "lineup_woba_mean_diff",
+      "current_mean": 0.0028,
+      "baseline_mean": -0.0008,
+      "psi": 0.18563,
+      "psi_adjusted": 0.122472,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.003519,
+      "shift_se": 0.002841,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.582,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_top3_diff",
+      "current_mean": 0.0023,
+      "baseline_mean": 0.002,
+      "psi": 0.04931,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.000308,
+      "shift_se": 0.004264,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.63,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_std_diff",
+      "current_mean": 0.0007,
+      "baseline_mean": -0.0003,
+      "psi": 0.100881,
+      "psi_adjusted": 0.037723,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.000954,
+      "shift_se": 0.001841,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.181,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "woba_30g_diff",
+      "current_mean": 0.0069,
+      "baseline_mean": -0.0019,
+      "psi": 0.167365,
+      "psi_adjusted": 0.104207,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.008802,
+      "shift_se": 0.005,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.83,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_diff",
+      "current_mean": -0.0028,
+      "baseline_mean": -0.0067,
+      "psi": 0.227525,
+      "psi_adjusted": 0.164085,
+      "noise_floor": 0.06344,
+      "mean_shift": 0.003835,
+      "shift_se": 0.06597,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.313,
+      "n_baseline": 280,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_3g_diff",
+      "current_mean": -0.0825,
+      "baseline_mean": -0.072,
+      "psi": 0.056787,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063944,
+      "mean_shift": -0.010529,
+      "shift_se": 0.121696,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.779,
+      "n_baseline": 280,
+      "n_current": 94
+    },
+    {
+      "feature": "bullpen_pitches_diff",
+      "current_mean": 20.5263,
+      "baseline_mean": 3.4421,
+      "psi": 0.124778,
+      "psi_adjusted": 0.06162,
+      "noise_floor": 0.063158,
+      "mean_shift": 17.084211,
+      "shift_se": 11.775951,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.412,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_barrel_diff",
+      "current_mean": 0.0013,
+      "baseline_mean": 0.0002,
+      "psi": 0.103129,
+      "psi_adjusted": 0.039971,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.001099,
+      "shift_se": 0.002108,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.478,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_hardhit_diff",
+      "current_mean": 0.0179,
+      "baseline_mean": -0.0035,
+      "psi": 0.165272,
+      "psi_adjusted": 0.102114,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.021373,
+      "shift_se": 0.009209,
+      "location_shift": true,
+      "status": "WARN",
+      "weight_pct": 1.698,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_exitvelo_diff",
+      "current_mean": 0.4226,
+      "baseline_mean": -0.0755,
+      "psi": 0.096503,
+      "psi_adjusted": 0.033345,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.498106,
+      "shift_se": 0.319389,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.898,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_handedness_matchup_advantage",
+      "current_mean": 0.0153,
+      "baseline_mean": 0.0012,
+      "psi": 0.243456,
+      "psi_adjusted": 0.179794,
+      "noise_floor": 0.063662,
+      "mean_shift": 0.014132,
+      "shift_se": 0.018622,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.375,
+      "n_baseline": 285,
+      "n_current": 94
+    },
+    {
+      "feature": "travel_fatigue_diff",
+      "current_mean": -0.1474,
+      "baseline_mean": -0.1298,
+      "psi": 0.000146,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.017544,
+      "shift_se": 0.107424,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.053,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "closer_availability_diff",
+      "current_mean": 0.0421,
+      "baseline_mean": -0.0281,
+      "psi": 0.025121,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.070175,
+      "shift_se": 0.058957,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.007,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "dome_is_neutral",
+      "current_mean": 0.3579,
+      "baseline_mean": 0.2842,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.073684,
+      "shift_se": 0.081655,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.044,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "park_factor_slug_diff",
+      "current_mean": -0.0001,
+      "baseline_mean": 0.0002,
+      "psi": 0.224488,
+      "psi_adjusted": 0.16133,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.000251,
+      "shift_se": 0.000154,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.325,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "wind_advantage_flyball_factor",
+      "current_mean": 0.0081,
+      "baseline_mean": 0.0073,
+      "psi": 0.103268,
+      "psi_adjusted": 0.037513,
+      "noise_floor": 0.065755,
+      "mean_shift": 0.000746,
+      "shift_se": 0.05549,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.459,
+      "n_baseline": 276,
+      "n_current": 91
+    },
+    {
+      "feature": "air_density_velocity_boost",
+      "current_mean": 0.0207,
+      "baseline_mean": 0.001,
+      "psi": 0.210762,
+      "psi_adjusted": 0.144691,
+      "noise_floor": 0.066071,
+      "mean_shift": 0.019766,
+      "shift_se": 0.049433,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.391,
+      "n_baseline": 280,
+      "n_current": 90
+    },
+    {
+      "feature": "bullpen_meltdown_risk",
+      "current_mean": 6.7745,
+      "baseline_mean": 4.0372,
+      "psi": 0.212339,
+      "psi_adjusted": 0.148899,
+      "noise_floor": 0.06344,
+      "mean_shift": 2.737291,
+      "shift_se": 4.224038,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.702,
+      "n_baseline": 280,
+      "n_current": 95
+    },
+    {
+      "feature": "pitcher_regression_indicator",
+      "current_mean": -1.1819,
+      "baseline_mean": 0.1229,
+      "psi": 0.071647,
+      "psi_adjusted": 0.005576,
+      "noise_floor": 0.066071,
+      "mean_shift": -1.304776,
+      "shift_se": 1.524057,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.417,
+      "n_baseline": 280,
+      "n_current": 90
+    },
+    {
+      "feature": "lineup_depth_multiplier",
+      "current_mean": 0.0002,
+      "baseline_mean": 0.0003,
+      "psi": 0.120136,
+      "psi_adjusted": 0.056978,
+      "noise_floor": 0.063158,
+      "mean_shift": -4.4e-05,
+      "shift_se": 7.8e-05,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.739,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "ace_efficiency_factor",
+      "current_mean": 0.0777,
+      "baseline_mean": 0.1049,
+      "psi": 0.117852,
+      "psi_adjusted": 0.05233,
+      "noise_floor": 0.065522,
+      "mean_shift": -0.027153,
+      "shift_se": 0.034103,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.678,
+      "n_baseline": 280,
+      "n_current": 91
+    },
+    {
+      "feature": "home_elo",
+      "current_mean": 1505.8793,
+      "baseline_mean": 1501.6684,
+      "psi": 0.12452,
+      "psi_adjusted": 0.061362,
+      "noise_floor": 0.063158,
+      "mean_shift": 4.210978,
+      "shift_se": 9.864466,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.527,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "away_elo",
+      "current_mean": 1488.7876,
+      "baseline_mean": 1499.8399,
+      "psi": 0.140218,
+      "psi_adjusted": 0.07706,
+      "noise_floor": 0.063158,
+      "mean_shift": -11.052216,
+      "shift_se": 9.7253,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.459,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "home_win_pct",
+      "current_mean": 0.503,
+      "baseline_mean": 0.5016,
+      "psi": 0.142013,
+      "psi_adjusted": 0.078855,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.001463,
+      "shift_se": 0.011301,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.444,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "away_win_pct",
+      "current_mean": 0.4939,
+      "baseline_mean": 0.5003,
+      "psi": 0.415577,
+      "psi_adjusted": 0.352419,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.006365,
+      "shift_se": 0.010864,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.334,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "sp_era_home",
+      "current_mean": 3.9673,
+      "baseline_mean": 4.1322,
+      "psi": 0.117109,
+      "psi_adjusted": 0.052708,
+      "noise_floor": 0.064401,
+      "mean_shift": -0.164918,
+      "shift_se": 0.248437,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.047,
+      "n_baseline": 281,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_era_away",
+      "current_mean": 3.9348,
+      "baseline_mean": 4.0334,
+      "psi": 0.059791,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.064459,
+      "mean_shift": -0.098564,
+      "shift_se": 0.236466,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.738,
+      "n_baseline": 280,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_k9_home",
+      "current_mean": 8.6392,
+      "baseline_mean": 8.6533,
+      "psi": 0.105462,
+      "psi_adjusted": 0.041061,
+      "noise_floor": 0.064401,
+      "mean_shift": -0.014091,
+      "shift_se": 0.314071,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.627,
+      "n_baseline": 281,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_k9_away",
+      "current_mean": 8.8167,
+      "baseline_mean": 8.6819,
+      "psi": 0.108135,
+      "psi_adjusted": 0.043676,
+      "noise_floor": 0.064459,
+      "mean_shift": 0.134819,
+      "shift_se": 0.321049,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.62,
+      "n_baseline": 280,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_xwoba_home",
+      "current_mean": 0.3071,
+      "baseline_mean": 0.3121,
+      "psi": 0.159986,
+      "psi_adjusted": 0.095641,
+      "noise_floor": 0.064345,
+      "mean_shift": -0.005005,
+      "shift_se": 0.008817,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.402,
+      "n_baseline": 282,
+      "n_current": 93
+    },
+    {
+      "feature": "sp_xwoba_away",
+      "current_mean": 0.3047,
+      "baseline_mean": 0.3113,
+      "psi": 0.067904,
+      "psi_adjusted": 0.003616,
+      "noise_floor": 0.064288,
+      "mean_shift": -0.006666,
+      "shift_se": 0.00862,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.507,
+      "n_baseline": 283,
+      "n_current": 93
+    },
+    {
+      "feature": "lineup_woba_mean_home",
+      "current_mean": 0.3462,
+      "baseline_mean": 0.3462,
+      "psi": 0.130379,
+      "psi_adjusted": 0.067221,
+      "noise_floor": 0.063158,
+      "mean_shift": -3.7e-05,
+      "shift_se": 0.001887,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.082,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_mean_away",
+      "current_mean": 0.3434,
+      "baseline_mean": 0.347,
+      "psi": 0.12658,
+      "psi_adjusted": 0.063422,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.003556,
+      "shift_se": 0.002045,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.732,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_top3_home",
+      "current_mean": 0.3535,
+      "baseline_mean": 0.3573,
+      "psi": 0.24589,
+      "psi_adjusted": 0.182732,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.003819,
+      "shift_se": 0.002717,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.656,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_woba_top3_away",
+      "current_mean": 0.3512,
+      "baseline_mean": 0.3553,
+      "psi": 0.218441,
+      "psi_adjusted": 0.155283,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.004127,
+      "shift_se": 0.003246,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.606,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "woba_30g_home",
+      "current_mean": 0.3025,
+      "baseline_mean": 0.3015,
+      "psi": 0.157932,
+      "psi_adjusted": 0.094774,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.000991,
+      "shift_se": 0.003225,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.515,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "woba_30g_away",
+      "current_mean": 0.2956,
+      "baseline_mean": 0.3034,
+      "psi": 0.269724,
+      "psi_adjusted": 0.206566,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.007811,
+      "shift_se": 0.003585,
+      "location_shift": true,
+      "status": "WARN",
+      "weight_pct": 1.659,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_10g_home",
+      "current_mean": 1.3214,
+      "baseline_mean": 1.3385,
+      "psi": 0.053309,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.063213,
+      "mean_shift": -0.0171,
+      "shift_se": 0.040753,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.957,
+      "n_baseline": 284,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_10g_away",
+      "current_mean": 1.3242,
+      "baseline_mean": 1.3426,
+      "psi": 0.203243,
+      "psi_adjusted": 0.13986,
+      "noise_floor": 0.063383,
+      "mean_shift": -0.018335,
+      "shift_se": 0.045218,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.769,
+      "n_baseline": 281,
+      "n_current": 95
+    },
+    {
+      "feature": "bullpen_whip_3g_home",
+      "current_mean": 1.252,
+      "baseline_mean": 1.3198,
+      "psi": 0.154389,
+      "psi_adjusted": 0.090672,
+      "noise_floor": 0.063717,
+      "mean_shift": -0.067792,
+      "shift_se": 0.078591,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.513,
+      "n_baseline": 284,
+      "n_current": 94
+    },
+    {
+      "feature": "bullpen_whip_3g_away",
+      "current_mean": 1.3345,
+      "baseline_mean": 1.3915,
+      "psi": 0.205491,
+      "psi_adjusted": 0.141604,
+      "noise_floor": 0.063887,
+      "mean_shift": -0.056987,
+      "shift_se": 0.087778,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.063,
+      "n_baseline": 281,
+      "n_current": 94
+    },
+    {
+      "feature": "team_barrel_15g_home",
+      "current_mean": 0.0233,
+      "baseline_mean": 0.0221,
+      "psi": 0.203506,
+      "psi_adjusted": 0.140348,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.001261,
+      "shift_se": 0.001557,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.867,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_barrel_15g_away",
+      "current_mean": 0.0221,
+      "baseline_mean": 0.0219,
+      "psi": 0.123319,
+      "psi_adjusted": 0.060161,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.000163,
+      "shift_se": 0.001386,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.278,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_exitvelo_15g_home",
+      "current_mean": 88.0243,
+      "baseline_mean": 87.7261,
+      "psi": 0.332887,
+      "psi_adjusted": 0.269729,
+      "noise_floor": 0.063158,
+      "mean_shift": 0.298242,
+      "shift_se": 0.225661,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.648,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "team_exitvelo_15g_away",
+      "current_mean": 87.6017,
+      "baseline_mean": 87.8016,
+      "psi": 0.181407,
+      "psi_adjusted": 0.118249,
+      "noise_floor": 0.063158,
+      "mean_shift": -0.199864,
+      "shift_se": 0.2299,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.602,
+      "n_baseline": 285,
+      "n_current": 95
+    },
+    {
+      "feature": "lineup_actual_woba_delta_home",
+      "current_mean": 0.0035,
+      "baseline_mean": 0.0028,
+      "psi": 0.089851,
+      "psi_adjusted": 0.017812,
+      "noise_floor": 0.072039,
+      "mean_shift": 0.00067,
+      "shift_se": 0.001958,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.568,
+      "n_baseline": 285,
+      "n_current": 80
+    },
+    {
+      "feature": "lineup_actual_woba_delta_away",
+      "current_mean": 0.0018,
+      "baseline_mean": 0.004,
+      "psi": 0.088721,
+      "psi_adjusted": 0.016682,
+      "noise_floor": 0.072039,
+      "mean_shift": -0.002211,
+      "shift_se": 0.002249,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 3.076,
+      "n_baseline": 285,
+      "n_current": 80
+    },
+    {
+      "feature": "lineup_actual_top3_delta_home",
+      "current_mean": -0.0128,
+      "baseline_mean": -0.0168,
+      "psi": 0.285498,
+      "psi_adjusted": 0.213459,
+      "noise_floor": 0.072039,
+      "mean_shift": 0.004052,
+      "shift_se": 0.00307,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 2.097,
+      "n_baseline": 285,
+      "n_current": 80
+    },
+    {
+      "feature": "lineup_actual_top3_delta_away",
+      "current_mean": -0.0174,
+      "baseline_mean": -0.0159,
+      "psi": 0.142073,
+      "psi_adjusted": 0.070034,
+      "noise_floor": 0.072039,
+      "mean_shift": -0.001461,
+      "shift_se": 0.00328,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.23,
+      "n_baseline": 285,
+      "n_current": 80
+    },
+    {
+      "feature": "lineup_rest_count_home",
+      "current_mean": 1.9241,
+      "baseline_mean": 1.7754,
+      "psi": 0.088521,
+      "psi_adjusted": 0.01577,
+      "noise_floor": 0.072751,
+      "mean_shift": 0.148612,
+      "shift_se": 0.209114,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 0.072,
+      "n_baseline": 285,
+      "n_current": 79
+    },
+    {
+      "feature": "lineup_rest_count_away",
+      "current_mean": 1.9114,
+      "baseline_mean": 1.814,
+      "psi": 0.023376,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.072751,
+      "mean_shift": 0.097357,
+      "shift_se": 0.215818,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 1.426,
+      "n_baseline": 285,
+      "n_current": 79
+    },
+    {
+      "feature": "run_margin_diff",
+      "current_mean": 0.0,
+      "baseline_mean": 0.0,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.0,
+      "mean_shift": 0.0,
+      "shift_se": 0.0,
+      "location_shift": false,
+      "status": "INSUFFICIENT",
+      "weight_pct": 3.534,
+      "n_baseline": 0,
+      "n_current": 0
+    }
+  ],
+  "feature_coverage": [
+    {
+      "feature": "is_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "win_pct_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "elo_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_days_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_5g_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_5g_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_fbvelo_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 90,
+      "pct_nonnull": 94.7,
+      "n_measured": 90,
+      "pct_measured": 94.7,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_fbpct_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_whiff_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_vs_l_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_std_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 94,
+      "pct_nonnull": 98.9,
+      "n_measured": 94,
+      "pct_measured": 98.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_pitches_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_hardhit_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_handedness_matchup_advantage",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 94,
+      "pct_nonnull": 98.9,
+      "n_measured": 94,
+      "pct_measured": 98.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "travel_fatigue_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "closer_availability_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "dome_is_neutral",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "park_factor_slug_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "wind_advantage_flyball_factor",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 64,
+      "pct_measured": 67.4,
+      "n_default_zero": 27,
+      "status": "LOW_COVERAGE"
+    },
+    {
+      "feature": "air_density_velocity_boost",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 90,
+      "pct_nonnull": 94.7,
+      "n_measured": 90,
+      "pct_measured": 94.7,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_meltdown_risk",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "pitcher_regression_indicator",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 90,
+      "pct_nonnull": 94.7,
+      "n_measured": 90,
+      "pct_measured": 94.7,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_depth_multiplier",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ace_efficiency_factor",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 91,
+      "pct_nonnull": 95.8,
+      "n_measured": 91,
+      "pct_measured": 95.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "home_elo",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "away_elo",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "home_win_pct",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "away_win_pct",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 93,
+      "pct_nonnull": 97.9,
+      "n_measured": 93,
+      "pct_measured": 97.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_10g_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_10g_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 94,
+      "pct_nonnull": 98.9,
+      "n_measured": 94,
+      "pct_measured": 98.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 94,
+      "pct_nonnull": 98.9,
+      "n_measured": 94,
+      "pct_measured": 98.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_15g_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_15g_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_15g_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_15g_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 95,
+      "pct_nonnull": 100.0,
+      "n_measured": 95,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_woba_delta_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 80,
+      "pct_nonnull": 84.2,
+      "n_measured": 80,
+      "pct_measured": 84.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_woba_delta_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 80,
+      "pct_nonnull": 84.2,
+      "n_measured": 80,
+      "pct_measured": 84.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_top3_delta_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 80,
+      "pct_nonnull": 84.2,
+      "n_measured": 80,
+      "pct_measured": 84.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_top3_delta_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 80,
+      "pct_nonnull": 84.2,
+      "n_measured": 80,
+      "pct_measured": 84.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_rest_count_home",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 79,
+      "pct_nonnull": 83.2,
+      "n_measured": 79,
+      "pct_measured": 83.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_rest_count_away",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 79,
+      "pct_nonnull": 83.2,
+      "n_measured": 79,
+      "pct_measured": 83.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "run_margin_diff",
+      "window": "current",
+      "n_games": 95,
+      "n_nonnull": 0,
+      "pct_nonnull": 0.0,
+      "n_measured": 0,
+      "pct_measured": 0.0,
+      "n_default_zero": 0,
+      "status": "STARVED"
+    },
+    {
+      "feature": "is_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "win_pct_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "elo_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_days_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 276,
+      "pct_nonnull": 96.8,
+      "n_measured": 276,
+      "pct_measured": 96.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_5g_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 276,
+      "pct_nonnull": 96.8,
+      "n_measured": 276,
+      "pct_measured": 96.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_5g_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_fbvelo_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_fbpct_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_whiff_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_vs_l_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 276,
+      "pct_nonnull": 96.8,
+      "n_measured": 276,
+      "pct_measured": 96.8,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_std_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_pitches_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_hardhit_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_handedness_matchup_advantage",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "travel_fatigue_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "closer_availability_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "dome_is_neutral",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "park_factor_slug_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "wind_advantage_flyball_factor",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 276,
+      "pct_nonnull": 96.8,
+      "n_measured": 229,
+      "pct_measured": 80.4,
+      "n_default_zero": 47,
+      "status": "OK"
+    },
+    {
+      "feature": "air_density_velocity_boost",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_meltdown_risk",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "pitcher_regression_indicator",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_depth_multiplier",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ace_efficiency_factor",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "home_elo",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "away_elo",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "home_win_pct",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "away_win_pct",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 281,
+      "pct_nonnull": 98.6,
+      "n_measured": 281,
+      "pct_measured": 98.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_era_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 281,
+      "pct_nonnull": 98.6,
+      "n_measured": 281,
+      "pct_measured": 98.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_k9_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 280,
+      "pct_nonnull": 98.2,
+      "n_measured": 280,
+      "pct_measured": 98.2,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 282,
+      "pct_nonnull": 98.9,
+      "n_measured": 282,
+      "pct_measured": 98.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "sp_xwoba_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 283,
+      "pct_nonnull": 99.3,
+      "n_measured": 283,
+      "pct_measured": 99.3,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_mean_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_woba_top3_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "woba_30g_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_10g_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 284,
+      "pct_nonnull": 99.6,
+      "n_measured": 284,
+      "pct_measured": 99.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_10g_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 281,
+      "pct_nonnull": 98.6,
+      "n_measured": 281,
+      "pct_measured": 98.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 284,
+      "pct_nonnull": 99.6,
+      "n_measured": 284,
+      "pct_measured": 99.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "bullpen_whip_3g_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 281,
+      "pct_nonnull": 98.6,
+      "n_measured": 281,
+      "pct_measured": 98.6,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_15g_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_barrel_15g_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_15g_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "team_exitvelo_15g_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_woba_delta_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_woba_delta_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_top3_delta_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_actual_top3_delta_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_rest_count_home",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "lineup_rest_count_away",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 285,
+      "pct_nonnull": 100.0,
+      "n_measured": 285,
+      "pct_measured": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "run_margin_diff",
+      "window": "baseline",
+      "n_games": 285,
+      "n_nonnull": 0,
+      "pct_nonnull": 0.0,
+      "n_measured": 0,
+      "pct_measured": 0.0,
+      "n_default_zero": 0,
+      "status": "STARVED"
+    }
+  ],
+  "rolling_brier": [
+    {
+      "date": "2025-04-24",
+      "brier": 0.283974,
+      "games": 9
+    },
+    {
+      "date": "2025-04-25",
+      "brier": 0.280041,
+      "games": 22
+    },
+    {
+      "date": "2025-04-26",
+      "brier": 0.268608,
+      "games": 38
+    },
+    {
+      "date": "2025-04-27",
+      "brier": 0.254248,
+      "games": 54
+    },
+    {
+      "date": "2025-04-28",
+      "brier": 0.255081,
+      "games": 62
+    },
+    {
+      "date": "2025-04-29",
+      "brier": 0.246474,
+      "games": 76
+    },
+    {
+      "date": "2025-04-30",
+      "brier": 0.248188,
+      "games": 92
+    },
+    {
+      "date": "2025-05-01",
+      "brier": 0.252769,
+      "games": 103
+    },
+    {
+      "date": "2025-05-02",
+      "brier": 0.246585,
+      "games": 118
+    },
+    {
+      "date": "2025-05-03",
+      "brier": 0.249677,
+      "games": 132
+    },
+    {
+      "date": "2025-05-04",
+      "brier": 0.251477,
+      "games": 148
+    },
+    {
+      "date": "2025-05-05",
+      "brier": 0.248261,
+      "games": 157
+    },
+    {
+      "date": "2025-05-06",
+      "brier": 0.248798,
+      "games": 172
+    },
+    {
+      "date": "2025-05-07",
+      "brier": 0.248089,
+      "games": 187
+    },
+    {
+      "date": "2025-05-08",
+      "brier": 0.244826,
+      "games": 196
+    },
+    {
+      "date": "2025-05-09",
+      "brier": 0.244902,
+      "games": 211
+    },
+    {
+      "date": "2025-05-10",
+      "brier": 0.246955,
+      "games": 226
+    },
+    {
+      "date": "2025-05-11",
+      "brier": 0.249175,
+      "games": 241
+    },
+    {
+      "date": "2025-05-12",
+      "brier": 0.250146,
+      "games": 252
+    },
+    {
+      "date": "2025-05-13",
+      "brier": 0.24801,
+      "games": 265
+    },
+    {
+      "date": "2025-05-14",
+      "brier": 0.247903,
+      "games": 282
+    },
+    {
+      "date": "2025-05-15",
+      "brier": 0.247527,
+      "games": 288
+    },
+    {
+      "date": "2025-05-16",
+      "brier": 0.245699,
+      "games": 303
+    },
+    {
+      "date": "2025-05-17",
+      "brier": 0.246332,
+      "games": 318
+    },
+    {
+      "date": "2025-05-18",
+      "brier": 0.24646,
+      "games": 333
+    },
+    {
+      "date": "2025-05-19",
+      "brier": 0.246695,
+      "games": 345
+    },
+    {
+      "date": "2025-05-20",
+      "brier": 0.246799,
+      "games": 359
+    },
+    {
+      "date": "2025-05-21",
+      "brier": 0.24563,
+      "games": 373
+    },
+    {
+      "date": "2025-05-22",
+      "brier": 0.24509,
+      "games": 381
+    },
+    {
+      "date": "2025-05-23",
+      "brier": 0.245327,
+      "games": 396
+    },
+    {
+      "date": "2025-05-24",
+      "brier": 0.243437,
+      "games": 403
+    },
+    {
+      "date": "2025-05-25",
+      "brier": 0.242829,
+      "games": 405
+    },
+    {
+      "date": "2025-05-26",
+      "brier": 0.241602,
+      "games": 401
+    },
+    {
+      "date": "2025-05-27",
+      "brier": 0.241212,
+      "games": 400
+    },
+    {
+      "date": "2025-05-28",
+      "brier": 0.241418,
+      "games": 406
+    },
+    {
+      "date": "2025-05-29",
+      "brier": 0.242563,
+      "games": 397
+    },
+    {
+      "date": "2025-05-30",
+      "brier": 0.241587,
+      "games": 396
+    },
+    {
+      "date": "2025-05-31",
+      "brier": 0.24036,
+      "games": 400
+    },
+    {
+      "date": "2025-06-01",
+      "brier": 0.240903,
+      "games": 400
+    },
+    {
+      "date": "2025-06-02",
+      "brier": 0.240824,
+      "games": 393
+    },
+    {
+      "date": "2025-06-03",
+      "brier": 0.240778,
+      "games": 392
+    },
+    {
+      "date": "2025-06-04",
+      "brier": 0.242583,
+      "games": 397
+    },
+    {
+      "date": "2025-06-05",
+      "brier": 0.241424,
+      "games": 395
+    },
+    {
+      "date": "2025-06-06",
+      "brier": 0.241563,
+      "games": 395
+    },
+    {
+      "date": "2025-06-07",
+      "brier": 0.243776,
+      "games": 401
+    },
+    {
+      "date": "2025-06-08",
+      "brier": 0.242822,
+      "games": 401
+    },
+    {
+      "date": "2025-06-09",
+      "brier": 0.241811,
+      "games": 395
+    },
+    {
+      "date": "2025-06-10",
+      "brier": 0.241077,
+      "games": 395
+    },
+    {
+      "date": "2025-06-11",
+      "brier": 0.239543,
+      "games": 399
+    },
+    {
+      "date": "2025-06-12",
+      "brier": 0.239947,
+      "games": 394
+    },
+    {
+      "date": "2025-06-13",
+      "brier": 0.238686,
+      "games": 392
+    },
+    {
+      "date": "2025-06-14",
+      "brier": 0.238618,
+      "games": 401
+    },
+    {
+      "date": "2025-06-15",
+      "brier": 0.239609,
+      "games": 401
+    },
+    {
+      "date": "2025-06-16",
+      "brier": 0.238967,
+      "games": 393
+    },
+    {
+      "date": "2025-06-17",
+      "brier": 0.238904,
+      "games": 393
+    },
+    {
+      "date": "2025-06-18",
+      "brier": 0.238496,
+      "games": 393
+    },
+    {
+      "date": "2025-06-19",
+      "brier": 0.238894,
+      "games": 395
+    },
+    {
+      "date": "2025-06-20",
+      "brier": 0.240252,
+      "games": 396
+    },
+    {
+      "date": "2025-06-21",
+      "brier": 0.240576,
+      "games": 403
+    },
+    {
+      "date": "2025-06-22",
+      "brier": 0.240208,
+      "games": 403
+    },
+    {
+      "date": "2025-06-23",
+      "brier": 0.241126,
+      "games": 396
+    },
+    {
+      "date": "2025-06-24",
+      "brier": 0.24071,
+      "games": 396
+    },
+    {
+      "date": "2025-06-25",
+      "brier": 0.241181,
+      "games": 399
+    },
+    {
+      "date": "2025-06-26",
+      "brier": 0.242046,
+      "games": 393
+    },
+    {
+      "date": "2025-06-27",
+      "brier": 0.242567,
+      "games": 394
+    },
+    {
+      "date": "2025-06-28",
+      "brier": 0.243573,
+      "games": 404
+    },
+    {
+      "date": "2025-06-29",
+      "brier": 0.244843,
+      "games": 404
+    },
+    {
+      "date": "2025-06-30",
+      "brier": 0.244839,
+      "games": 397
+    },
+    {
+      "date": "2025-07-01",
+      "brier": 0.245225,
+      "games": 394
+    },
+    {
+      "date": "2025-07-02",
+      "brier": 0.243021,
+      "games": 405
+    },
+    {
+      "date": "2025-07-03",
+      "brier": 0.24201,
+      "games": 400
+    },
+    {
+      "date": "2025-07-04",
+      "brier": 0.241124,
+      "games": 401
+    },
+    {
+      "date": "2025-07-05",
+      "brier": 0.241444,
+      "games": 403
+    },
+    {
+      "date": "2025-07-06",
+      "brier": 0.241455,
+      "games": 403
+    },
+    {
+      "date": "2025-07-07",
+      "brier": 0.240971,
+      "games": 398
+    },
+    {
+      "date": "2025-07-08",
+      "brier": 0.24091,
+      "games": 398
+    },
+    {
+      "date": "2025-07-09",
+      "brier": 0.240574,
+      "games": 403
+    },
+    {
+      "date": "2025-07-10",
+      "brier": 0.24055,
+      "games": 398
+    },
+    {
+      "date": "2025-07-11",
+      "brier": 0.24203,
+      "games": 399
+    },
+    {
+      "date": "2025-07-12",
+      "brier": 0.242226,
+      "games": 406
+    },
+    {
+      "date": "2025-07-13",
+      "brier": 0.243974,
+      "games": 406
+    },
+    {
+      "date": "2025-07-18",
+      "brier": 0.244848,
+      "games": 357
+    },
+    {
+      "date": "2025-07-19",
+      "brier": 0.244765,
+      "games": 356
+    },
+    {
+      "date": "2025-07-20",
+      "brier": 0.244625,
+      "games": 356
+    },
+    {
+      "date": "2025-07-21",
+      "brier": 0.244397,
+      "games": 356
+    },
+    {
+      "date": "2025-07-22",
+      "brier": 0.24425,
+      "games": 356
+    },
+    {
+      "date": "2025-07-23",
+      "brier": 0.24537,
+      "games": 362
+    },
+    {
+      "date": "2025-07-24",
+      "brier": 0.246025,
+      "games": 352
+    },
+    {
+      "date": "2025-07-25",
+      "brier": 0.247614,
+      "games": 351
+    },
+    {
+      "date": "2025-07-26",
+      "brier": 0.249999,
+      "games": 358
+    },
+    {
+      "date": "2025-07-27",
+      "brier": 0.248876,
+      "games": 358
+    },
+    {
+      "date": "2025-07-28",
+      "brier": 0.249102,
+      "games": 358
+    },
+    {
+      "date": "2025-07-29",
+      "brier": 0.247988,
+      "games": 359
+    },
+    {
+      "date": "2025-07-30",
+      "brier": 0.24792,
+      "games": 366
+    },
+    {
+      "date": "2025-08-01",
+      "brier": 0.250143,
+      "games": 351
+    },
+    {
+      "date": "2025-08-02",
+      "brier": 0.251293,
+      "games": 356
+    },
+    {
+      "date": "2025-08-03",
+      "brier": 0.251577,
+      "games": 355
+    },
+    {
+      "date": "2025-08-04",
+      "brier": 0.251777,
+      "games": 353
+    },
+    {
+      "date": "2025-08-05",
+      "brier": 0.250954,
+      "games": 353
+    },
+    {
+      "date": "2025-08-06",
+      "brier": 0.251953,
+      "games": 358
+    },
+    {
+      "date": "2025-08-08",
+      "brier": 0.253913,
+      "games": 344
+    },
+    {
+      "date": "2025-08-09",
+      "brier": 0.252767,
+      "games": 350
+    },
+    {
+      "date": "2025-08-10",
+      "brier": 0.251548,
+      "games": 349
+    },
+    {
+      "date": "2025-08-11",
+      "brier": 0.25144,
+      "games": 345
+    },
+    {
+      "date": "2025-08-12",
+      "brier": 0.25087,
+      "games": 345
+    },
+    {
+      "date": "2025-08-13",
+      "brier": 0.252199,
+      "games": 360
+    },
+    {
+      "date": "2025-08-14",
+      "brier": 0.251867,
+      "games": 367
+    },
+    {
+      "date": "2025-08-15",
+      "brier": 0.251873,
+      "games": 382
+    },
+    {
+      "date": "2025-08-16",
+      "brier": 0.25137,
+      "games": 397
+    },
+    {
+      "date": "2025-08-17",
+      "brier": 0.251523,
+      "games": 397
+    },
+    {
+      "date": "2025-08-18",
+      "brier": 0.251853,
+      "games": 394
+    },
+    {
+      "date": "2025-08-19",
+      "brier": 0.250788,
+      "games": 395
+    },
+    {
+      "date": "2025-08-20",
+      "brier": 0.251377,
+      "games": 394
+    },
+    {
+      "date": "2025-08-21",
+      "brier": 0.251283,
+      "games": 388
+    },
+    {
+      "date": "2025-08-22",
+      "brier": 0.250071,
+      "games": 388
+    },
+    {
+      "date": "2025-08-23",
+      "brier": 0.249338,
+      "games": 397
+    },
+    {
+      "date": "2025-08-24",
+      "brier": 0.24898,
+      "games": 398
+    },
+    {
+      "date": "2025-08-25",
+      "brier": 0.246431,
+      "games": 395
+    },
+    {
+      "date": "2025-08-26",
+      "brier": 0.247269,
+      "games": 395
+    },
+    {
+      "date": "2025-08-27",
+      "brier": 0.245393,
+      "games": 395
+    },
+    {
+      "date": "2025-08-28",
+      "brier": 0.245342,
+      "games": 387
+    },
+    {
+      "date": "2025-08-29",
+      "brier": 0.245288,
+      "games": 387
+    },
+    {
+      "date": "2025-08-30",
+      "brier": 0.245467,
+      "games": 402
+    },
+    {
+      "date": "2025-08-31",
+      "brier": 0.246017,
+      "games": 402
+    },
+    {
+      "date": "2025-09-01",
+      "brier": 0.244753,
+      "games": 400
+    },
+    {
+      "date": "2025-09-02",
+      "brier": 0.244828,
+      "games": 400
+    },
+    {
+      "date": "2025-09-03",
+      "brier": 0.244721,
+      "games": 402
+    },
+    {
+      "date": "2025-09-04",
+      "brier": 0.245652,
+      "games": 393
+    },
+    {
+      "date": "2025-09-05",
+      "brier": 0.244642,
+      "games": 393
+    },
+    {
+      "date": "2025-09-06",
+      "brier": 0.244782,
+      "games": 408
+    },
+    {
+      "date": "2025-09-07",
+      "brier": 0.244809,
+      "games": 408
+    },
+    {
+      "date": "2025-09-08",
+      "brier": 0.244504,
+      "games": 403
+    },
+    {
+      "date": "2025-09-09",
+      "brier": 0.24451,
+      "games": 403
+    },
+    {
+      "date": "2025-09-10",
+      "brier": 0.245225,
+      "games": 407
+    },
+    {
+      "date": "2025-09-11",
+      "brier": 0.244311,
+      "games": 401
+    },
+    {
+      "date": "2025-09-12",
+      "brier": 0.243265,
+      "games": 401
+    },
+    {
+      "date": "2025-09-13",
+      "brier": 0.243131,
+      "games": 409
+    },
+    {
+      "date": "2025-09-14",
+      "brier": 0.242435,
+      "games": 409
+    },
+    {
+      "date": "2025-09-15",
+      "brier": 0.242961,
+      "games": 403
+    },
+    {
+      "date": "2025-09-16",
+      "brier": 0.242131,
+      "games": 404
+    },
+    {
+      "date": "2025-09-17",
+      "brier": 0.240942,
+      "games": 407
+    },
+    {
+      "date": "2025-09-18",
+      "brier": 0.24048,
+      "games": 401
+    },
+    {
+      "date": "2025-09-19",
+      "brier": 0.241639,
+      "games": 402
+    },
+    {
+      "date": "2025-09-20",
+      "brier": 0.241826,
+      "games": 409
+    },
+    {
+      "date": "2025-09-21",
+      "brier": 0.242881,
+      "games": 409
+    },
+    {
+      "date": "2025-09-23",
+      "brier": 0.242645,
+      "games": 395
+    },
+    {
+      "date": "2025-09-24",
+      "brier": 0.242922,
+      "games": 397
+    },
+    {
+      "date": "2025-09-25",
+      "brier": 0.241806,
+      "games": 394
+    },
+    {
+      "date": "2025-09-26",
+      "brier": 0.242505,
+      "games": 394
+    },
+    {
+      "date": "2025-09-27",
+      "brier": 0.242739,
+      "games": 401
+    },
+    {
+      "date": "2025-09-28",
+      "brier": 0.241483,
+      "games": 401
+    },
+    {
+      "date": "2026-03-27",
+      "brier": 0.237639,
+      "games": 8
+    },
+    {
+      "date": "2026-03-28",
+      "brier": 0.217308,
+      "games": 23
+    },
+    {
+      "date": "2026-03-29",
+      "brier": 0.227029,
+      "games": 35
+    },
+    {
+      "date": "2026-03-30",
+      "brier": 0.237282,
+      "games": 50
+    },
+    {
+      "date": "2026-03-31",
+      "brier": 0.240159,
+      "games": 64
+    },
+    {
+      "date": "2026-04-01",
+      "brier": 0.236982,
+      "games": 79
+    },
+    {
+      "date": "2026-04-03",
+      "brier": 0.237325,
+      "games": 93
+    },
+    {
+      "date": "2026-04-04",
+      "brier": 0.238702,
+      "games": 108
+    },
+    {
+      "date": "2026-04-05",
+      "brier": 0.243581,
+      "games": 124
+    },
+    {
+      "date": "2026-04-06",
+      "brier": 0.244405,
+      "games": 137
+    },
+    {
+      "date": "2026-04-07",
+      "brier": 0.244217,
+      "games": 152
+    },
+    {
+      "date": "2026-04-08",
+      "brier": 0.244414,
+      "games": 167
+    },
+    {
+      "date": "2026-04-09",
+      "brier": 0.245753,
+      "games": 173
+    },
+    {
+      "date": "2026-04-10",
+      "brier": 0.245055,
+      "games": 188
+    },
+    {
+      "date": "2026-04-11",
+      "brier": 0.245089,
+      "games": 203
+    },
+    {
+      "date": "2026-04-12",
+      "brier": 0.246448,
+      "games": 218
+    },
+    {
+      "date": "2026-04-13",
+      "brier": 0.245272,
+      "games": 228
+    },
+    {
+      "date": "2026-04-14",
+      "brier": 0.245744,
+      "games": 243
+    },
+    {
+      "date": "2026-04-15",
+      "brier": 0.244828,
+      "games": 258
+    },
+    {
+      "date": "2026-04-16",
+      "brier": 0.246021,
+      "games": 268
+    },
+    {
+      "date": "2026-04-17",
+      "brier": 0.247599,
+      "games": 283
+    },
+    {
+      "date": "2026-04-18",
+      "brier": 0.247872,
+      "games": 298
+    },
+    {
+      "date": "2026-04-19",
+      "brier": 0.249211,
+      "games": 313
+    },
+    {
+      "date": "2026-04-20",
+      "brier": 0.248544,
+      "games": 323
+    },
+    {
+      "date": "2026-04-21",
+      "brier": 0.249394,
+      "games": 338
+    },
+    {
+      "date": "2026-04-22",
+      "brier": 0.24846,
+      "games": 353
+    },
+    {
+      "date": "2026-04-23",
+      "brier": 0.248134,
+      "games": 362
+    },
+    {
+      "date": "2026-04-24",
+      "brier": 0.24853,
+      "games": 376
+    },
+    {
+      "date": "2026-04-25",
+      "brier": 0.248892,
+      "games": 390
+    },
+    {
+      "date": "2026-04-26",
+      "brier": 0.24951,
+      "games": 398
+    },
+    {
+      "date": "2026-04-27",
+      "brier": 0.251524,
+      "games": 391
+    },
+    {
+      "date": "2026-04-28",
+      "brier": 0.251962,
+      "games": 394
+    },
+    {
+      "date": "2026-04-29",
+      "brier": 0.251659,
+      "games": 392
+    },
+    {
+      "date": "2026-04-30",
+      "brier": 0.251754,
+      "games": 389
+    },
+    {
+      "date": "2026-05-01",
+      "brier": 0.251688,
+      "games": 389
+    },
+    {
+      "date": "2026-05-02",
+      "brier": 0.250884,
+      "games": 404
+    },
+    {
+      "date": "2026-05-03",
+      "brier": 0.250434,
+      "games": 405
+    },
+    {
+      "date": "2026-05-04",
+      "brier": 0.249343,
+      "games": 402
+    },
+    {
+      "date": "2026-05-05",
+      "brier": 0.248189,
+      "games": 399
+    },
+    {
+      "date": "2026-05-06",
+      "brier": 0.248095,
+      "games": 401
+    },
+    {
+      "date": "2026-05-07",
+      "brier": 0.248282,
+      "games": 396
+    },
+    {
+      "date": "2026-05-08",
+      "brier": 0.248117,
+      "games": 396
+    },
+    {
+      "date": "2026-05-09",
+      "brier": 0.2469,
+      "games": 404
+    },
+    {
+      "date": "2026-05-10",
+      "brier": 0.247147,
+      "games": 404
+    },
+    {
+      "date": "2026-05-11",
+      "brier": 0.247978,
+      "games": 395
+    },
+    {
+      "date": "2026-05-12",
+      "brier": 0.2471,
+      "games": 395
+    },
+    {
+      "date": "2026-05-13",
+      "brier": 0.247174,
+      "games": 400
+    },
+    {
+      "date": "2026-05-14",
+      "brier": 0.246464,
+      "games": 396
+    },
+    {
+      "date": "2026-05-15",
+      "brier": 0.246929,
+      "games": 396
+    },
+    {
+      "date": "2026-05-16",
+      "brier": 0.246062,
+      "games": 401
+    },
+    {
+      "date": "2026-05-17",
+      "brier": 0.24541,
+      "games": 401
+    },
+    {
+      "date": "2026-05-18",
+      "brier": 0.244377,
+      "games": 400
+    },
+    {
+      "date": "2026-05-19",
+      "brier": 0.243338,
+      "games": 400
+    },
+    {
+      "date": "2026-05-20",
+      "brier": 0.244509,
+      "games": 405
+    },
+    {
+      "date": "2026-05-21",
+      "brier": 0.243913,
+      "games": 397
+    },
+    {
+      "date": "2026-05-22",
+      "brier": 0.245481,
+      "games": 396
+    },
+    {
+      "date": "2026-05-23",
+      "brier": 0.245469,
+      "games": 401
+    },
+    {
+      "date": "2026-05-24",
+      "brier": 0.245624,
+      "games": 402
+    },
+    {
+      "date": "2026-05-25",
+      "brier": 0.245539,
+      "games": 401
+    },
+    {
+      "date": "2026-05-26",
+      "brier": 0.24477,
+      "games": 400
+    },
+    {
+      "date": "2026-05-27",
+      "brier": 0.244114,
+      "games": 407
+    },
+    {
+      "date": "2026-05-28",
+      "brier": 0.243844,
+      "games": 398
+    },
+    {
+      "date": "2026-05-29",
+      "brier": 0.242548,
+      "games": 400
+    },
+    {
+      "date": "2026-05-30",
+      "brier": 0.242532,
+      "games": 404
+    },
+    {
+      "date": "2026-05-31",
+      "brier": 0.242528,
+      "games": 404
+    },
+    {
+      "date": "2026-06-01",
+      "brier": 0.243675,
+      "games": 398
+    },
+    {
+      "date": "2026-06-02",
+      "brier": 0.244761,
+      "games": 398
+    },
+    {
+      "date": "2026-06-03",
+      "brier": 0.246555,
+      "games": 401
+    },
+    {
+      "date": "2026-06-04",
+      "brier": 0.247487,
+      "games": 397
+    },
+    {
+      "date": "2026-06-05",
+      "brier": 0.247335,
+      "games": 397
+    },
+    {
+      "date": "2026-06-06",
+      "brier": 0.246128,
+      "games": 401
+    },
+    {
+      "date": "2026-06-07",
+      "brier": 0.246043,
+      "games": 401
+    },
+    {
+      "date": "2026-06-08",
+      "brier": 0.245949,
+      "games": 395
+    },
+    {
+      "date": "2026-06-09",
+      "brier": 0.246074,
+      "games": 395
+    },
+    {
+      "date": "2026-06-10",
+      "brier": 0.246299,
+      "games": 404
+    },
+    {
+      "date": "2026-06-11",
+      "brier": 0.246091,
+      "games": 396
+    },
+    {
+      "date": "2026-06-12",
+      "brier": 0.24641,
+      "games": 396
+    },
+    {
+      "date": "2026-06-13",
+      "brier": 0.247031,
+      "games": 400
+    },
+    {
+      "date": "2026-06-14",
+      "brier": 0.247889,
+      "games": 399
+    },
+    {
+      "date": "2026-06-15",
+      "brier": 0.247417,
+      "games": 394
+    },
+    {
+      "date": "2026-06-16",
+      "brier": 0.246836,
+      "games": 394
+    },
+    {
+      "date": "2026-06-17",
+      "brier": 0.247339,
+      "games": 394
+    },
+    {
+      "date": "2026-06-18",
+      "brier": 0.247577,
+      "games": 387
+    },
+    {
+      "date": "2026-06-19",
+      "brier": 0.246108,
+      "games": 386
+    },
+    {
+      "date": "2026-06-20",
+      "brier": 0.246752,
+      "games": 393
+    },
+    {
+      "date": "2026-06-21",
+      "brier": 0.245752,
+      "games": 393
+    },
+    {
+      "date": "2026-06-22",
+      "brier": 0.24617,
+      "games": 391
+    },
+    {
+      "date": "2026-06-23",
+      "brier": 0.245615,
+      "games": 391
+    },
+    {
+      "date": "2026-06-24",
+      "brier": 0.245239,
+      "games": 394
+    },
+    {
+      "date": "2026-06-25",
+      "brier": 0.24593,
+      "games": 387
+    },
+    {
+      "date": "2026-06-26",
+      "brier": 0.24549,
+      "games": 387
+    },
+    {
+      "date": "2026-06-27",
+      "brier": 0.246304,
+      "games": 396
+    },
+    {
+      "date": "2026-06-28",
+      "brier": 0.247622,
+      "games": 396
+    },
+    {
+      "date": "2026-06-29",
+      "brier": 0.247345,
+      "games": 394
+    },
+    {
+      "date": "2026-06-30",
+      "brier": 0.247358,
+      "games": 394
+    },
+    {
+      "date": "2026-07-01",
+      "brier": 0.246985,
+      "games": 399
+    },
+    {
+      "date": "2026-07-02",
+      "brier": 0.246981,
+      "games": 393
+    },
+    {
+      "date": "2026-07-03",
+      "brier": 0.246036,
+      "games": 391
+    },
+    {
+      "date": "2026-07-04",
+      "brier": 0.244989,
+      "games": 397
+    },
+    {
+      "date": "2026-07-05",
+      "brier": 0.245402,
+      "games": 397
+    },
+    {
+      "date": "2026-07-06",
+      "brier": 0.247085,
+      "games": 391
+    },
+    {
+      "date": "2026-07-07",
+      "brier": 0.247447,
+      "games": 392
+    },
+    {
+      "date": "2026-07-08",
+      "brier": 0.247794,
+      "games": 399
+    },
+    {
+      "date": "2026-07-09",
+      "brier": 0.247768,
+      "games": 397
+    },
+    {
+      "date": "2026-07-10",
+      "brier": 0.246912,
+      "games": 396
+    },
+    {
+      "date": "2026-07-11",
+      "brier": 0.246873,
+      "games": 405
+    },
+    {
+      "date": "2026-07-12",
+      "brier": 0.246697,
+      "games": 405
+    },
+    {
+      "date": "2026-07-17",
+      "brier": 0.247906,
+      "games": 351
+    },
+    {
+      "date": "2026-07-18",
+      "brier": 0.246309,
+      "games": 358
+    },
+    {
+      "date": "2026-07-19",
+      "brier": 0.246542,
+      "games": 360
+    },
+    {
+      "date": "2026-07-20",
+      "brier": 0.245366,
+      "games": 361
+    },
+    {
+      "date": "2026-07-21",
+      "brier": 0.246044,
+      "games": 360
+    },
+    {
+      "date": "2026-07-22",
+      "brier": 0.246434,
+      "games": 365
+    },
+    {
+      "date": "2026-07-23",
+      "brier": 0.246567,
+      "games": 355
+    },
+    {
+      "date": "2026-07-24",
+      "brier": 0.247048,
+      "games": 354
+    },
+    {
+      "date": "2026-07-25",
+      "brier": 0.246248,
+      "games": 361
+    },
+    {
+      "date": "2026-07-26",
+      "brier": 0.247379,
+      "games": 361
+    },
+    {
+      "date": "2026-07-27",
+      "brier": 0.246426,
+      "games": 357
+    },
+    {
+      "date": "2026-07-28",
+      "brier": 0.246387,
+      "games": 357
+    },
+    {
+      "date": "2026-07-29",
+      "brier": 0.246709,
+      "games": 360
+    },
+    {
+      "date": "2026-07-30",
+      "brier": 0.24761,
+      "games": 355
+    },
+    {
+      "date": "2026-07-31",
+      "brier": 0.247611,
+      "games": 356
+    },
+    {
+      "date": "2026-08-01",
+      "brier": 0.247185,
+      "games": 362
+    },
+    {
+      "date": "2026-08-02",
+      "brier": 0.2473,
+      "games": 364
+    },
+    {
+      "date": "2026-08-03",
+      "brier": 0.24794,
+      "games": 357
+    },
+    {
+      "date": "2026-08-04",
+      "brier": 0.246226,
+      "games": 357
+    },
+    {
+      "date": "2026-08-05",
+      "brier": 0.245196,
+      "games": 364
+    },
+    {
+      "date": "2026-08-06",
+      "brier": 0.244798,
+      "games": 359
+    },
+    {
+      "date": "2026-08-07",
+      "brier": 0.24529,
+      "games": 359
+    },
+    {
+      "date": "2026-08-08",
+      "brier": 0.246471,
+      "games": 361
+    },
+    {
+      "date": "2026-08-09",
+      "brier": 0.24651,
+      "games": 362
+    },
+    {
+      "date": "2026-08-10",
+      "brier": 0.246528,
+      "games": 356
+    },
+    {
+      "date": "2026-08-11",
+      "brier": 0.246535,
+      "games": 356
+    },
+    {
+      "date": "2026-08-12",
+      "brier": 0.246376,
+      "games": 371
+    },
+    {
+      "date": "2026-08-13",
+      "brier": 0.246478,
+      "games": 380
+    },
+    {
+      "date": "2026-08-14",
+      "brier": 0.246612,
+      "games": 394
+    },
+    {
+      "date": "2026-08-15",
+      "brier": 0.247956,
+      "games": 409
+    },
+    {
+      "date": "2026-08-16",
+      "brier": 0.247583,
+      "games": 410
+    },
+    {
+      "date": "2026-08-17",
+      "brier": 0.248073,
+      "games": 406
+    },
+    {
+      "date": "2026-08-18",
+      "brier": 0.247803,
+      "games": 405
+    },
+    {
+      "date": "2026-08-19",
+      "brier": 0.247758,
+      "games": 405
+    },
+    {
+      "date": "2026-08-20",
+      "brier": 0.247412,
+      "games": 401
+    },
+    {
+      "date": "2026-08-21",
+      "brier": 0.245313,
+      "games": 399
+    },
+    {
+      "date": "2026-08-22",
+      "brier": 0.244684,
+      "games": 409
+    },
+    {
+      "date": "2026-08-23",
+      "brier": 0.243717,
+      "games": 409
+    }
+  ],
+  "brier_baseline": 0.245118,
+  "brier_baseline_label": "History mean (4016 games)",
+  "rolling_brier_meta": {
+    "window_days": 30,
+    "min_games_per_day": 5,
+    "excluded_sparse_days": 5,
+    "calibrator_is_identity": false,
+    "map_scope_note": "Recent points use the deployed map (fit on all OOF games) and are not directly comparable to prequential-calibrated metrics like logloss_calibrated."
+  },
+  "features_metadata": {
+    "is_home": {
+      "name": "is_home",
+      "summary": "Always 1 \u2014 anchors the ~53% MLB home-field win advantage",
+      "definition": "Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.",
+      "formula": "1",
+      "source": "Feature engineering: static column added to every game row",
+      "window": "n/a (constant)",
+      "units": "binary",
+      "direction": "n/a (constant)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.\nFormula: 1\nSource: Feature engineering: static column added to every game row\nWindow: n/a (constant) \u00b7 Units: binary\nDirection: n/a (constant)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "win_pct_diff": {
+      "name": "win_pct_diff",
+      "summary": "Home win% \u2212 away win% (smoothed to .500 early season)",
+      "definition": "Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.",
+      "formula": "smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)",
+      "source": "DuckDB feature engineering: official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.\nFormula: smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)\nSource: DuckDB feature engineering: official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "elo_diff": {
+      "name": "elo_diff",
+      "summary": "Home Elo \u2212 away Elo (skill-gap anchor, updated each game)",
+      "definition": "Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).",
+      "formula": "home_elo \u2212 away_elo",
+      "source": "DuckDB feature engineering: Elo engine over full game log",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).\nFormula: home_elo \u2212 away_elo\nSource: DuckDB feature engineering: Elo engine over full game log\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "rest_days_diff": {
+      "name": "rest_days_diff",
+      "summary": "Home rest days \u2212 away rest days (schedule fatigue)",
+      "definition": "Days since each team's previous game.",
+      "formula": "rest_days_home \u2212 rest_days_away",
+      "source": "Schedule: gap between consecutive game dates",
+      "window": "per-game",
+      "units": "days",
+      "direction": "higher = home advantage (more rested)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_era_diff": {
+      "name": "sp_era_diff",
+      "summary": "Home SP season-to-date ERA \u2212 away SP",
+      "definition": "Starting-pitcher quality gap on season-long earned-run average.",
+      "formula": "sp_era_home \u2212 sp_era_away",
+      "source": "Statcast pitching aggregates (season to date)",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = home advantage (ERA is a cost)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Starting-pitcher quality gap on season-long earned-run average.\nFormula: sp_era_home \u2212 sp_era_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = home advantage (ERA is a cost)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_era_5g_diff": {
+      "name": "sp_era_5g_diff",
+      "summary": "Home SP last-5-start ERA \u2212 away SP (recent form)",
+      "definition": "Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.",
+      "formula": "sp_era_5g_home \u2212 sp_era_5g_away",
+      "source": "Statcast pitching aggregates (last-5-start window)",
+      "window": "5g",
+      "units": "ERA runs",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_k9_diff": {
+      "name": "sp_k9_diff",
+      "summary": "Home SP season-to-date K/9 \u2212 away SP",
+      "definition": "Strikeout rate gap: strikeouts per 9 innings, season to date.",
+      "formula": "sp_k9_home \u2212 sp_k9_away",
+      "source": "Statcast pitching aggregates (season to date)",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Strikeout rate gap: strikeouts per 9 innings, season to date.\nFormula: sp_k9_home \u2212 sp_k9_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_k9_5g_diff": {
+      "name": "sp_k9_5g_diff",
+      "summary": "Home SP last-5-start K/9 \u2212 away SP (recent form)",
+      "definition": "Strikeout-rate gap over each pitcher's last 5 starts.",
+      "formula": "sp_k9_5g_home \u2212 sp_k9_5g_away",
+      "source": "Statcast pitching aggregates (last-5-start window)",
+      "window": "5g",
+      "units": "K/9",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Strikeout-rate gap over each pitcher's last 5 starts.\nFormula: sp_k9_5g_home \u2212 sp_k9_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_fbvelo_diff": {
+      "name": "sp_fbvelo_diff",
+      "summary": "Home SP fastball velo (last 3 starts) \u2212 away SP (mph)",
+      "definition": "Average four-seam/fastball velocity gap over recent starts.",
+      "formula": "sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away",
+      "source": "Statcast pitch-level: mean fastball speed, last-3-start window",
+      "window": "3g",
+      "units": "mph",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_fbpct_diff": {
+      "name": "sp_fbpct_diff",
+      "summary": "Home SP fastball usage (last 3 starts) \u2212 away SP",
+      "definition": "How heavily each pitcher is leaning on the fastball right now.",
+      "formula": "sp_fbpct_3g_home \u2212 sp_fbpct_3g_away",
+      "source": "Statcast pitch-level: fastball share of pitches, last-3-start window",
+      "window": "3g",
+      "units": "share (0\u20131)",
+      "direction": "n/a (mix signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: How heavily each pitcher is leaning on the fastball right now.\nFormula: sp_fbpct_3g_home \u2212 sp_fbpct_3g_away\nSource: Statcast pitch-level: fastball share of pitches, last-3-start window\nWindow: 3g \u00b7 Units: share (0\u20131)\nDirection: n/a (mix signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_whiff_diff": {
+      "name": "sp_whiff_diff",
+      "summary": "Home SP whiff rate (last 3 starts) \u2212 away SP",
+      "definition": "Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.",
+      "formula": "sp_whiff_3g_home \u2212 sp_whiff_3g_away",
+      "source": "Statcast pitch-level: whiffs / swings, last-3-start window",
+      "window": "3g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.\nFormula: sp_whiff_3g_home \u2212 sp_whiff_3g_away\nSource: Statcast pitch-level: whiffs / swings, last-3-start window\nWindow: 3g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_xwoba_diff": {
+      "name": "sp_xwoba_diff",
+      "summary": "Home SP last-6-start xwOBA allowed \u2212 away SP",
+      "definition": "Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.",
+      "formula": "sp_xwoba_home \u2212 sp_xwoba_away",
+      "source": "Statcast xwOBA on balls in play + K/BB, last-6-start window",
+      "window": "6g",
+      "units": "xwOBA",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.\nFormula: sp_xwoba_home \u2212 sp_xwoba_away\nSource: Statcast xwOBA on balls in play + K/BB, last-6-start window\nWindow: 6g \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "sp_xwoba_vs_l_diff": {
+      "name": "sp_xwoba_vs_l_diff",
+      "summary": "Home SP xwOBA vs LHB (season to date) \u2212 away SP",
+      "definition": "Platoon exposure: expected production allowed specifically to left-handed batters.",
+      "formula": "sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away",
+      "source": "Statcast xwOBA split by batter handedness (season)",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Platoon exposure: expected production allowed specifically to left-handed batters.\nFormula: sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away\nSource: Statcast xwOBA split by batter handedness (season)\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_mean_diff": {
+      "name": "lineup_woba_mean_diff",
+      "summary": "Home lineup avg wOBA \u2212 away lineup avg wOBA",
+      "definition": "Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).",
+      "formula": "lineup_woba_mean_home \u2212 lineup_woba_mean_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).\nFormula: lineup_woba_mean_home \u2212 lineup_woba_mean_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_top3_diff": {
+      "name": "lineup_woba_top3_diff",
+      "summary": "Home top-3 hitter wOBA \u2212 away top-3 hitter wOBA",
+      "definition": "Star-power gap at the top of the card.",
+      "formula": "lineup_woba_top3_home \u2212 lineup_woba_top3_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Star-power gap at the top of the card.\nFormula: lineup_woba_top3_home \u2212 lineup_woba_top3_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_woba_std_diff": {
+      "name": "lineup_woba_std_diff",
+      "summary": "Home lineup wOBA dispersion \u2212 away lineup dispersion",
+      "definition": "Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.",
+      "formula": "lineup_woba_std_home \u2212 lineup_woba_std_away",
+      "source": "Statcast hitter aggregates, projected lineups",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points (std)",
+      "direction": "n/a (shape signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.\nFormula: lineup_woba_std_home \u2212 lineup_woba_std_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points (std)\nDirection: n/a (shape signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "woba_30g_diff": {
+      "name": "woba_30g_diff",
+      "summary": "Home team 30-game wOBA \u2212 away team 30-game wOBA",
+      "definition": "Team-level offensive form over the trailing month.",
+      "formula": "woba_30g_home \u2212 woba_30g_away",
+      "source": "Statcast team batting aggregates",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_whip_diff": {
+      "name": "bullpen_whip_diff",
+      "summary": "Home bullpen 10-game WHIP \u2212 away bullpen (lower = better)",
+      "definition": "Relief corps baserunner allowance over the last 10 games.",
+      "formula": "bullpen_whip_10g_home \u2212 bullpen_whip_10g_away",
+      "source": "Statcast relief-pitching aggregates",
+      "window": "10g",
+      "units": "WHIP",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Relief corps baserunner allowance over the last 10 games.\nFormula: bullpen_whip_10g_home \u2212 bullpen_whip_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_whip_3g_diff": {
+      "name": "bullpen_whip_3g_diff",
+      "summary": "Home bullpen 3-game WHIP \u2212 away bullpen (short-term form)",
+      "definition": "Very recent bullpen form; noisy but catches slumps fast.",
+      "formula": "bullpen_whip_3g_home \u2212 bullpen_whip_3g_away",
+      "source": "Statcast relief-pitching aggregates",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_whip_3g_home \u2212 bullpen_whip_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_pitches_diff": {
+      "name": "bullpen_pitches_diff",
+      "summary": "Home bullpen 3-day pitch count \u2212 away (fatigue signal)",
+      "definition": "Cumulative relief workload over the last three days \u2014 availability and fatigue.",
+      "formula": "bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away",
+      "source": "Statcast pitch counts by reliever by date",
+      "window": "3d",
+      "units": "pitches",
+      "direction": "lower = home advantage (fresher arms)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Cumulative relief workload over the last three days \u2014 availability and fatigue.\nFormula: bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away\nSource: Statcast pitch counts by reliever by date\nWindow: 3d \u00b7 Units: pitches\nDirection: lower = home advantage (fresher arms)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_barrel_diff": {
+      "name": "team_barrel_diff",
+      "summary": "Home barrel% (15g) \u2212 away barrel% (quality of contact)",
+      "definition": "Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).",
+      "formula": "team_barrel_15g_home \u2212 team_barrel_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_hardhit_diff": {
+      "name": "team_hardhit_diff",
+      "summary": "Home hard-hit% (15g) \u2212 away hard-hit%",
+      "definition": "Share of batted balls \u226595 mph over the last 15 games.",
+      "formula": "team_hardhit_15g_home \u2212 team_hardhit_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Share of batted balls \u226595 mph over the last 15 games.\nFormula: team_hardhit_15g_home \u2212 team_hardhit_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "team_exitvelo_diff": {
+      "name": "team_exitvelo_diff",
+      "summary": "Home avg exit velo (15g) \u2212 away avg exit velo (mph)",
+      "definition": "Average exit velocity on balls in play \u2014 raw-contact strength.",
+      "formula": "team_exitvelo_15g_home \u2212 team_exitvelo_15g_away",
+      "source": "Statcast batted-ball data",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Average exit velocity on balls in play \u2014 raw-contact strength.\nFormula: team_exitvelo_15g_home \u2212 team_exitvelo_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_handedness_matchup_advantage": {
+      "name": "lineup_handedness_matchup_advantage",
+      "summary": "Lineup OPS vs tonight's opposing starter hand, home \u2212 away",
+      "definition": "How productive each lineup is specifically against the handedness it faces tonight.",
+      "formula": "ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)",
+      "source": "Statcast hitter splits vs LHP/RHP + confirmed starter hand",
+      "window": "season to date",
+      "units": "OPS",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: How productive each lineup is specifically against the handedness it faces tonight.\nFormula: ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)\nSource: Statcast hitter splits vs LHP/RHP + confirmed starter hand\nWindow: season to date \u00b7 Units: OPS\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "travel_fatigue_diff": {
+      "name": "travel_fatigue_diff",
+      "summary": "Home timezone crossings (last 3 days) \u2212 away (schedule fatigue)",
+      "definition": "Travel wear: timezone crossings in the last 72 hours per club.",
+      "formula": "time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away",
+      "source": "Schedule geography: venue timezone changes",
+      "window": "3d",
+      "units": "crossings",
+      "direction": "lower = home advantage (less travel)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Travel wear: timezone crossings in the last 72 hours per club.\nFormula: time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away\nSource: Schedule geography: venue timezone changes\nWindow: 3d \u00b7 Units: crossings\nDirection: lower = home advantage (less travel)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "closer_availability_diff": {
+      "name": "closer_availability_diff",
+      "summary": "Home closer available \u2212 away closer available (late-inning edge)",
+      "definition": "Whether each club's primary closer is rested and usable tonight.",
+      "formula": "closer_available_home \u2212 closer_available_away",
+      "source": "Recent reliever usage (2-day rest heuristic)",
+      "window": "per-game",
+      "units": "binary",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Whether each club's primary closer is rested and usable tonight.\nFormula: closer_available_home \u2212 closer_available_away\nSource: Recent reliever usage (2-day rest heuristic)\nWindow: per-game \u00b7 Units: binary\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "dome_is_neutral": {
+      "name": "dome_is_neutral",
+      "summary": "1 if home park is a fixed dome/closed roof, 0 if open-air",
+      "definition": "Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.",
+      "formula": "1 if venue in DOMED_VENUES else 0",
+      "source": "Static venue table",
+      "window": "n/a (venue attribute)",
+      "units": "binary",
+      "direction": "n/a (gate flag)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "park_factor_slug_diff": {
+      "name": "park_factor_slug_diff",
+      "summary": "Home park SLG factor \u00d7 lineup top-3 wOBA diff (hitter-friendly parks amplify lineup edges)",
+      "definition": "Interaction: does tonight's park amplify whichever lineup holds the star-power edge?",
+      "formula": "(home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff",
+      "source": "DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA",
+      "window": "season (park) \u00d7 season (lineup)",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Interaction: does tonight's park amplify whichever lineup holds the star-power edge?\nFormula: (home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA\nWindow: season (park) \u00d7 season (lineup) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "wind_advantage_flyball_factor": {
+      "name": "wind_advantage_flyball_factor",
+      "summary": "Wind direction multiplier \u00d7 SP ERA diff (flyball risk in windy conditions)",
+      "definition": "Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).",
+      "formula": "wind_direction_multiplier \u00d7 sp_era_diff",
+      "source": "Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing",
+      "window": "per-game (observed)",
+      "units": "index",
+      "direction": "higher = more flyball risk against the home SP",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_era_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "air_density_velocity_boost": {
+      "name": "air_density_velocity_boost",
+      "summary": "Stadium air density \u00d7 SP velo diff (cold/thin air affects velocity)",
+      "definition": "Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.",
+      "formula": "air_density_factor \u00d7 sp_fbvelo_diff",
+      "source": "Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo",
+      "window": "per-game (observed)",
+      "units": "index",
+      "direction": "higher = home advantage (velocity edge amplified)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.\nFormula: air_density_factor \u00d7 sp_fbvelo_diff\nSource: Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = home advantage (velocity edge amplified)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "bullpen_meltdown_risk": {
+      "name": "bullpen_meltdown_risk",
+      "summary": "Bullpen pitches diff \u00d7 WHIP diff (overworked + low quality = meltdown)",
+      "definition": "Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.",
+      "formula": "bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff",
+      "source": "DuckDB feature engineering: workload \u00d7 form interaction",
+      "window": "3d \u00d7 3g",
+      "units": "index",
+      "direction": "higher = home-side meltdown risk (negative for home)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "pitcher_regression_indicator": {
+      "name": "pitcher_regression_indicator",
+      "summary": "SP velo diff \u00d7 ERA diff (physical drop vs surface results = regression)",
+      "definition": "Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.",
+      "formula": "sp_fbvelo_diff \u00d7 sp_era_diff",
+      "source": "DuckDB feature engineering: velo \u00d7 results interaction",
+      "window": "season \u00d7 3g",
+      "units": "index",
+      "direction": "n/a (regression signal)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_depth_multiplier": {
+      "name": "lineup_depth_multiplier",
+      "summary": "Lineup mean wOBA diff \u00d7 top-3 wOBA diff (star power \u00d7 depth)",
+      "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
+      "formula": "lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff",
+      "source": "DuckDB feature engineering: depth \u00d7 star-power interaction",
+      "window": "season to date (shrunk)",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "ace_efficiency_factor": {
+      "name": "ace_efficiency_factor",
+      "summary": "SP K/9 diff \u00d7 whiff rate diff (high strikeout volume from raw stuff)",
+      "definition": "Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.",
+      "formula": "sp_k9_diff \u00d7 sp_whiff_diff",
+      "source": "DuckDB feature engineering: volume \u00d7 stuff interaction",
+      "window": "season \u00d7 3g",
+      "units": "index",
+      "direction": "higher = home advantage",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.\nFormula: sp_k9_diff \u00d7 sp_whiff_diff\nSource: DuckDB feature engineering: volume \u00d7 stuff interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "home_elo": {
+      "name": "home_elo",
+      "summary": "Home team Elo rating (level)",
+      "definition": "Absolute strength level of the home club (the diff version carries the matchup signal).",
+      "formula": "home_elo",
+      "source": "DuckDB feature engineering: Elo engine",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "n/a (level; diff is the matchup term)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Absolute strength level of the home club (the diff version carries the matchup signal).\nFormula: home_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level; diff is the matchup term)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "away_elo": {
+      "name": "away_elo",
+      "summary": "Away team Elo rating (level)",
+      "definition": "Absolute strength level of the away club.",
+      "formula": "away_elo",
+      "source": "DuckDB feature engineering: Elo engine",
+      "window": "all prior games (decaying)",
+      "units": "Elo points",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Absolute strength level of the away club.\nFormula: away_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "home_win_pct": {
+      "name": "home_win_pct",
+      "summary": "Home team season win% (level)",
+      "definition": "Raw season record quality of the home club.",
+      "formula": "smoothed_win_pct(home_wins, home_losses)",
+      "source": "Official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Raw season record quality of the home club.\nFormula: smoothed_win_pct(home_wins, home_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "away_win_pct": {
+      "name": "away_win_pct",
+      "summary": "Away team season win% (level)",
+      "definition": "Raw season record quality of the away club.",
+      "formula": "smoothed_win_pct(away_wins, away_losses)",
+      "source": "Official results records",
+      "window": "season to date",
+      "units": "win% (0\u20131)",
+      "direction": "n/a (level)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Raw season record quality of the away club.\nFormula: smoothed_win_pct(away_wins, away_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_era_home": {
+      "name": "sp_era_home",
+      "summary": "Starting-pitcher earned-run average \u2014 home team",
+      "definition": "Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_era_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = better for that side for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_era_away": {
+      "name": "sp_era_away",
+      "summary": "Starting-pitcher earned-run average \u2014 away team",
+      "definition": "Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_era_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "ERA runs",
+      "direction": "lower = better for that side for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_k9_home": {
+      "name": "sp_k9_home",
+      "summary": "Starting-pitcher strikeouts per 9 innings \u2014 home team",
+      "definition": "Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_k9_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_k9_away": {
+      "name": "sp_k9_away",
+      "summary": "Starting-pitcher strikeouts per 9 innings \u2014 away team",
+      "definition": "Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_k9_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "K/9",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_xwoba_home": {
+      "name": "sp_xwoba_home",
+      "summary": "Expected wOBA allowed by the starter \u2014 home team",
+      "definition": "Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_xwoba_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "sp_xwoba_away": {
+      "name": "sp_xwoba_away",
+      "summary": "Expected wOBA allowed by the starter \u2014 away team",
+      "definition": "Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "sp_xwoba_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "xwOBA",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_mean_home": {
+      "name": "lineup_woba_mean_home",
+      "summary": "Projected lineup average wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_mean_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_mean_away": {
+      "name": "lineup_woba_mean_away",
+      "summary": "Projected lineup average wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_mean_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_top3_home": {
+      "name": "lineup_woba_top3_home",
+      "summary": "Top-3 hitters' projected wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_top3_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_woba_top3_away": {
+      "name": "lineup_woba_top3_away",
+      "summary": "Top-3 hitters' projected wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "lineup_woba_top3_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "woba_30g_home": {
+      "name": "woba_30g_home",
+      "summary": "Team offensive wOBA \u2014 home team",
+      "definition": "Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "woba_30g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "woba_30g_away": {
+      "name": "woba_30g_away",
+      "summary": "Team offensive wOBA \u2014 away team",
+      "definition": "Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "woba_30g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "30g",
+      "units": "wOBA points",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_10g_home": {
+      "name": "bullpen_whip_10g_home",
+      "summary": "Bullpen walks+hits per inning \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_10g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "WHIP",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_10g_away": {
+      "name": "bullpen_whip_10g_away",
+      "summary": "Bullpen walks+hits per inning \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_10g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "season to date",
+      "units": "WHIP",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_3g_home": {
+      "name": "bullpen_whip_3g_home",
+      "summary": "Bullpen walks+hits per inning, short form \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_3g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "bullpen_whip_3g_away": {
+      "name": "bullpen_whip_3g_away",
+      "summary": "Bullpen walks+hits per inning, short form \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "bullpen_whip_3g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "3g",
+      "units": "WHIP",
+      "direction": "lower = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_barrel_15g_home": {
+      "name": "team_barrel_15g_home",
+      "summary": "Team barreled-ball rate \u2014 home team",
+      "definition": "Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_barrel_15g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_barrel_15g_away": {
+      "name": "team_barrel_15g_away",
+      "summary": "Team barreled-ball rate \u2014 away team",
+      "definition": "Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_barrel_15g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_exitvelo_15g_home": {
+      "name": "team_exitvelo_15g_home",
+      "summary": "Team average exit velocity \u2014 home team",
+      "definition": "Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_exitvelo_15g_home",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = better for the home side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "team_exitvelo_15g_away": {
+      "name": "team_exitvelo_15g_away",
+      "summary": "Team average exit velocity \u2014 away team",
+      "definition": "Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.",
+      "formula": "team_exitvelo_15g_away",
+      "source": "Statcast aggregates via DuckDB feature engineering",
+      "window": "15g",
+      "units": "mph",
+      "direction": "higher = better for the away side (level column)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+    },
+    "lineup_actual_woba_delta_home": {
+      "name": "lineup_actual_woba_delta_home",
+      "summary": "Lineup wOBA delta (actual 9 \u2212 team season) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_woba_delta_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = tonight's 9 better than the season-average lineup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_woba_delta_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = tonight's 9 better than the season-average lineup (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_woba_delta_away": {
+      "name": "lineup_actual_woba_delta_away",
+      "summary": "Lineup wOBA delta (actual 9 \u2212 team season) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_woba_delta_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = tonight's 9 better than the season-average lineup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_woba_delta_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = tonight's 9 better than the season-average lineup (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_top3_delta_home": {
+      "name": "lineup_actual_top3_delta_home",
+      "summary": "Lineup top-3 wOBA delta (actual 9 top-3 \u2212 team top-3 regulars) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_top3_delta_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = star power up tonight (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_top3_delta_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = star power up tonight (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_actual_top3_delta_away": {
+      "name": "lineup_actual_top3_delta_away",
+      "summary": "Lineup top-3 wOBA delta (actual 9 top-3 \u2212 team top-3 regulars) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_actual_top3_delta_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "wOBA points",
+      "direction": "positive = star power up tonight (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_actual_top3_delta_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: wOBA points\nDirection: positive = star power up tonight (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_rest_count_home": {
+      "name": "lineup_rest_count_home",
+      "summary": "Resting regulars (team top-5 wOBA not in tonight's 9) \u2014 home team",
+      "definition": "Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_rest_count_home",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "count (0\u20135)",
+      "direction": "higher = more stars resting (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the home club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_rest_count_home\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: count (0\u20135)\nDirection: higher = more stars resting (home side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "lineup_rest_count_away": {
+      "name": "lineup_rest_count_away",
+      "summary": "Resting regulars (team top-5 wOBA not in tonight's 9) \u2014 away team",
+      "definition": "Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.",
+      "formula": "lineup_rest_count_away",
+      "source": "StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA",
+      "window": "per-game lineup \u2212 season to date",
+      "units": "count (0\u20135)",
+      "direction": "higher = more stars resting (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Lineup-delta column: the away club's ACTUAL starting nine's season-to-date wOBA minus the team's own season-to-date wOBA as of game day, so resting-star days are visible to the model (the level columns only see season-average lineup quality). Point-in-time: batter/team wOBA through games strictly before the game date \u2014 no lookahead. Batters below the min-PA floor use the team season mean.\nFormula: lineup_rest_count_away\nSource: StatsAPI battingOrder (lineups.parquet) + Statcast pbp point-in-time wOBA\nWindow: per-game lineup \u2212 season to date \u00b7 Units: count (0\u20135)\nDirection: higher = more stars resting (away side)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "run_margin_diff": {
+      "name": "run_margin_diff",
+      "summary": "Run engine's expected-run margin: \u03bb_home \u2212 \u03bb_away (Poisson per-side)",
+      "definition": "One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.",
+      "formula": "\u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)",
+      "source": "Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py",
+      "window": "per-game (model output, strictly-prior training window)",
+      "units": "expected runs",
+      "direction": "positive = run engine expects the home club to outscore",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    }
+  },
+  "run_engine": {},
+  "ensemble": [
+    {
+      "name": "xgboost",
+      "weight": 0.45,
+      "auc": 0.5872,
+      "brier": 0.2434,
+      "logloss": 0.6796,
+      "n_eval": 4016,
+      "brier_calibrated": 0.2441,
+      "logloss_calibrated": 0.6812,
+      "ece_calibrated": 0.0207
+    },
+    {
+      "name": "lightgbm",
+      "weight": 0.0924,
+      "auc": 0.5439,
+      "brier": 0.2496,
+      "logloss": 0.6928,
+      "n_eval": 4016,
+      "brier_calibrated": 0.249,
+      "logloss_calibrated": 0.6912,
+      "ece_calibrated": 0.0282
+    },
+    {
+      "name": "logistic",
+      "weight": 0.1596,
+      "auc": 0.5552,
+      "brier": 0.2502,
+      "logloss": 0.6946,
+      "n_eval": 4016,
+      "brier_calibrated": 0.2495,
+      "logloss_calibrated": 0.693,
+      "ece_calibrated": 0.039
+    },
+    {
+      "name": "randomforest",
+      "weight": 0.2056,
+      "auc": 0.559,
+      "brier": 0.247,
+      "logloss": 0.6873,
+      "n_eval": 4016,
+      "brier_calibrated": 0.2472,
+      "logloss_calibrated": 0.6875,
+      "ece_calibrated": 0.0081
+    },
+    {
+      "name": "mlp",
+      "weight": 0.0924,
+      "auc": 0.5405,
+      "brier": 0.2528,
+      "logloss": 0.7,
+      "n_eval": 4016,
+      "brier_calibrated": 0.2512,
+      "logloss_calibrated": 0.6961,
+      "ece_calibrated": 0.0467
+    }
+  ],
+  "model_history": [
+    {
+      "version": "v3.2.1",
+      "date": "2026-08-22",
+      "auc": 0.5309,
+      "brier": 0.2573,
+      "logloss": 0.7098,
+      "ece": 0.0773,
+      "notes": ""
+    },
+    {
+      "version": "v2026.08.23",
+      "date": "2026-08-23",
+      "auc": 0.5274,
+      "brier": 0.2556,
+      "logloss": 0.7061,
+      "ece": 0.0729,
+      "ece_calibrated": 0.0074,
+      "notes": "walk-forward through 20260823 (4426 games)"
+    },
+    {
+      "version": "v2026.08.24",
+      "date": "2026-08-24",
+      "auc": 0.5597,
+      "brier": 0.2464,
+      "logloss": 0.686,
+      "ece": 0.0168,
+      "ece_calibrated": 0.0115,
+      "notes": "walk-forward through 20260824 (4441 games)"
+    },
+    {
+      "version": "v2026.08.25",
+      "date": "2026-08-25",
+      "auc": 0.5664,
+      "brier": 0.2455,
+      "logloss": 0.6841,
+      "ece": 0.0099,
+      "ece_calibrated": 0.0101,
+      "notes": "walk-forward through 20260825 (4451 games)"
+    },
+    {
+      "version": "v2026.08.26",
+      "date": "2026-08-26",
+      "auc": 0.5673,
+      "brier": 0.2452,
+      "logloss": 0.6836,
+      "ece": 0.0074,
+      "ece_calibrated": 0.0151,
+      "notes": "walk-forward through 20260826 (4466 games)"
+    }
+  ],
+  "version_history": [
+    {
+      "version": "v2026.08.24",
+      "date": "2026-08-25",
+      "weights": {
+        "xgboost": 0.4501,
+        "lightgbm": 0.1469,
+        "logistic": 0.1747,
+        "randomforest": 0.1529,
+        "mlp": 0.0754
+      },
+      "auc": 0.5597,
+      "brier": 0.2464,
+      "logloss": 0.686,
+      "ece": 0.0168,
+      "brier_calibrated": 0.2468,
+      "logloss_calibrated": 0.6867,
+      "ece_calibrated": 0.0115,
+      "calibration": {
+        "a": 0.826255,
+        "b": -0.033338,
+        "n": 4016
+      }
+    },
+    {
+      "version": "v2026.08.25",
+      "date": "2026-08-26",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.0955,
+        "logistic": 0.1671,
+        "randomforest": 0.2167,
+        "mlp": 0.0707
+      },
+      "auc": 0.5676,
+      "brier": 0.2451,
+      "logloss": 0.6833,
+      "ece": 0.009,
+      "brier_calibrated": 0.2456,
+      "logloss_calibrated": 0.6843,
+      "ece_calibrated": 0.0109,
+      "calibration": {
+        "a": 0.906612,
+        "b": -0.020729,
+        "n": 4016
+      }
+    },
+    {
+      "version": "v2026.08.26",
+      "date": "2026-08-26",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.0924,
+        "logistic": 0.1596,
+        "randomforest": 0.2056,
+        "mlp": 0.0924
+      },
+      "auc": 0.5673,
+      "brier": 0.2452,
+      "logloss": 0.6836,
+      "ece": 0.0074,
+      "brier_calibrated": 0.2457,
+      "logloss_calibrated": 0.6845,
+      "ece_calibrated": 0.0151,
+      "calibration": {
+        "a": 0.870094,
+        "b": -0.010897,
+        "n": 4016
+      }
+    }
+  ]
+}
