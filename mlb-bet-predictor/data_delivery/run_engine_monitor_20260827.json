@@ -631,5 +631,82 @@
       "n_pre": 4070,
       "n_holdout": 299
     }
+  },
+  "market_metrics": {
+    "over_7_5": {
+      "engine_logloss": 0.68128,
+      "engine_brier": 0.24415,
+      "engine_ece_raw": 0.00911,
+      "engine_logloss_calibrated": 0.68128,
+      "engine_ece_calibrated": 0.00911,
+      "auc": 0.55606,
+      "baseline_rate": 0.558,
+      "baseline_logloss": 0.6864,
+      "n": 4369
+    },
+    "over_8_5": {
+      "engine_logloss": 0.68793,
+      "engine_brier": 0.24741,
+      "engine_ece_raw": 0.01216,
+      "engine_logloss_calibrated": 0.68793,
+      "engine_ece_calibrated": 0.01216,
+      "auc": 0.55229,
+      "baseline_rate": 0.485,
+      "baseline_logloss": 0.6927,
+      "n": 4369
+    },
+    "over_9_5": {
+      "engine_logloss": 0.66589,
+      "engine_brier": 0.23656,
+      "engine_ece_raw": 0.01213,
+      "engine_logloss_calibrated": 0.66589,
+      "engine_ece_calibrated": 0.01213,
+      "auc": 0.55098,
+      "baseline_rate": 0.3944,
+      "baseline_logloss": 0.67066,
+      "n": 4369
+    },
+    "home_cover_1_5": {
+      "engine_logloss": 0.6491,
+      "engine_brier": 0.22843,
+      "engine_ece_raw": 0.01186,
+      "engine_logloss_calibrated": 0.6491,
+      "engine_ece_calibrated": 0.01186,
+      "auc": 0.54803,
+      "baseline_rate": 0.3587,
+      "baseline_logloss": 0.65265,
+      "n": 4369
+    },
+    "home_cover_2_5": {
+      "engine_logloss": 0.57841,
+      "engine_brier": 0.19509,
+      "engine_ece_raw": 0.01496,
+      "engine_logloss_calibrated": 0.57841,
+      "engine_ece_calibrated": 0.01496,
+      "auc": 0.54942,
+      "baseline_rate": 0.2678,
+      "baseline_logloss": 0.58105,
+      "n": 4369
+    },
+    "derived_moneyline": {
+      "engine_logloss": 0.69417,
+      "engine_brier": 0.25052,
+      "engine_ece_raw": 0.06799,
+      "engine_logloss_calibrated": 0.69417,
+      "engine_ece_calibrated": 0.06799,
+      "auc": 0.55553,
+      "baseline_rate": 0.5354,
+      "baseline_logloss": 0.69064,
+      "n": 4369
+    }
+  },
+  "phase1": {
+    "n_folds": 51,
+    "n_games": 4466,
+    "dispersion_ratio": {
+      "home": 2.184,
+      "away": 2.4779
+    },
+    "final_fit_rounds": {}
   }
 }

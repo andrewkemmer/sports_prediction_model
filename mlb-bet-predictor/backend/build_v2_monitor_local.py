@@ -28,10 +28,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import log_loss, roc_auc_score
 
+from config import RETRAIN_CADENCE_DAYS
+from explainability import (compute_run_engine_feature_coverage,
+                            compute_run_engine_feature_drift)
 from pipeline import DATA_DELIVERY_DIR, _run_engine_monitor_json
-from run_engine import compute_winner_cards
+from run_engine import brier_score, compute_winner_cards, ece_score
+from training import walk_forward_splits
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -75,6 +79,93 @@ def _reference_aucs(markets: pd.DataFrame) -> dict:
     return out
 
 
+def _market_metrics(markets: pd.DataFrame) -> dict:
+    """Per-line engine OOF metrics for the model card, scored on the SAME
+    OOF y/p vectors score_at uses (the markets CSV's 'oof' rows carry the
+    per-game line probabilities). No fold_idx on disk -> calibrated == raw
+    here; the genuine pipeline run emits the prequentially-calibrated rows.
+    """
+    df = markets[markets.get("kind") == "oof"].copy()
+    total = df["home_score"] + df["away_score"]
+    margin = df["home_score"] - df["away_score"]
+    lines = [
+        ("over_7_5", "p_over_7_5", (total >= 8).astype(float)),
+        ("over_8_5", "p_over_8_5", (total >= 9).astype(float)),
+        ("over_9_5", "p_over_9_5", (total >= 10).astype(float)),
+        ("home_cover_1_5", "p_home_cover_1_5", (margin >= 2).astype(float)),
+        ("home_cover_2_5", "p_home_cover_2_5", (margin >= 3).astype(float)),
+        ("derived_moneyline", "p_home_win_derived",
+         (df["home_score"] > df["away_score"]).astype(float)),
+    ]
+    out: dict[str, dict] = {}
+    for name, pcol, y in lines:
+        if pcol not in df.columns:
+            out[name] = {}
+            continue
+        p = np.clip(df[pcol].to_numpy(float), 1e-6, 1 - 1e-6)
+        yv = y.to_numpy(float)
+        base = float(yv.mean())
+        try:
+            auc = float(roc_auc_score(yv, p))
+        except ValueError:
+            auc = None
+        row = {
+            "engine_logloss": round(float(log_loss(yv, p)), 5),
+            "engine_brier": round(float(brier_score(yv, p)), 5),
+            "engine_ece_raw": ece_score(yv, p),
+            "engine_logloss_calibrated": round(float(log_loss(yv, p)), 5),
+            "engine_ece_calibrated": ece_score(yv, p),
+            "auc": (round(auc, 5) if auc is not None and np.isfinite(auc)
+                    else None),
+            "baseline_rate": round(base, 4),
+            "baseline_logloss": round(float(log_loss(
+                yv, np.full(len(yv), base))), 5),
+            "n": int(len(yv)),
+        }
+        out[name] = row
+    return out
+
+
+def _phase1_geometry(date_str: str) -> dict:
+    """Walk-forward geometry for the model card: fold count via the SAME
+    deterministic walk_forward_splits the run engine uses on the canonical
+    decided frame (run_engine.run_oof), plus per-side dispersion. Median
+    rounds are NOT persisted anywhere on disk -> absent (renderer shows '--'
+    until a genuine pipeline run emits phase1.final_fit_rounds)."""
+    gl_path = DATA_DELIVERY_DIR / "game_level_features.csv"
+    if not gl_path.exists():
+        return {"n_folds": None, "n_games": None}
+    gl = pd.read_csv(gl_path)
+    decided = gl[gl["home_win"].notna()].sort_values("game_date")
+    decided = decided.reset_index(drop=True)
+    folds = walk_forward_splits(
+        decided, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+    return {"n_folds": int(len(folds)), "n_games": int(len(decided))}
+
+
+def _build_drift_coverage(date_str: str) -> tuple[Path, Path]:
+    """Build the run-engine drift + coverage CSVs on the SAME baseline /
+    current windows the pipeline drift step uses (last 7 days vs an adjacent
+    season-local window of ~3x, min 250) — the acceptance artifacts for the
+    run-line monitor's drift/coverage sections."""
+    gl = pd.read_csv(DATA_DELIVERY_DIR / "game_level_features.csv")
+    decided = gl[gl["home_win"].notna()].sort_values("game_date")
+    gd = pd.to_datetime(decided["game_date"])
+    cutoff = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+    cutoff -= pd.Timedelta(days=7)
+    current = decided[gd >= cutoff]
+    prior = decided[gd < cutoff]
+    baseline = (prior.tail(max(3 * len(current), 250))
+                if not prior.empty else prior)
+    drift = compute_run_engine_feature_drift(baseline, current, date_str)
+    cov = compute_run_engine_feature_coverage(baseline, current, date_str)
+    d_path = DATA_DELIVERY_DIR / f"run_engine_feature_drift_{date_str}.csv"
+    c_path = DATA_DELIVERY_DIR / f"run_engine_feature_coverage_{date_str}.csv"
+    print(f"drift: {len(drift)} features -> {d_path.name}")
+    print(f"coverage: {len(cov)} feature-window pairs -> {c_path.name}")
+    return d_path, c_path
+
+
 def _block_from_v1_monitor(v1: dict, winner_cards: dict) -> dict:
     """Reconstruct the raw monitor block shape _run_engine_monitor_json
     expects, carrying the v1 file's distributional-fit content (identical in
@@ -100,6 +191,11 @@ def main() -> None:
     oof_path = DATA_DELIVERY_DIR / f"run_engine_oof_{date_str}.csv"
     markets_path = DATA_DELIVERY_DIR / f"run_engine_markets_{date_str}.csv"
     v1_path = DATA_DELIVERY_DIR / f"run_engine_monitor_{date_str}.json"
+    # The v1 SOURCE of truth is the preserved fixture — this builder writes
+    # the v2 JSON over the same data_delivery path, so re-runs must never
+    # re-read their own (v2) output as the v1 input.
+    fixture = FIXTURES_DIR / f"run_engine_monitor_v1_{date_str}.json"
+    v1_path = fixture if fixture.exists() else v1_path
     for p in (oof_path, markets_path, v1_path):
         if not p.exists():
             raise SystemExit(f"missing artifact: {p}")
@@ -116,6 +212,12 @@ def main() -> None:
 
     v1 = json.loads(v1_path.read_text())
     block = _block_from_v1_monitor(v1, winner_cards)
+    block["market_metrics"] = _market_metrics(markets)
+    # Merge — never overwrite: the v1-derived phase1 already carries
+    # dispersion_ratio (which feeds fit.dispersion_chi2_per_df).
+    block["phase1"] = {**(block.get("phase1") or {}),
+                       **_phase1_geometry(date_str)}
+    d_path, c_path = _build_drift_coverage(date_str)
     out = _run_engine_monitor_json(
         block,
         date_str,
@@ -124,6 +226,9 @@ def main() -> None:
     )
     data = json.loads(out.read_text())
     print(f"wrote: {out}  schema={data['schema']}")
+    print("market_metrics lines:", sorted(data.get("market_metrics") or {}))
+    print("phase1:", data.get("phase1"))
+    print("artifacts:", d_path.name, c_path.name)
     for card, series in data["rolling"].items():
         pts = ", ".join(f"{p['date']}(n={p['n']})" for p in series)
         print(f"  rolling {card}: {pts}")

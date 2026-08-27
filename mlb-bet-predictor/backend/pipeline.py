@@ -49,7 +49,14 @@ from data_ingestion import (
     load_game_events,
     filter_prior,
 )
-from explainability import compute_feature_coverage, compute_feature_drift, compute_rolling_brier, compute_shap_per_game
+from explainability import (
+    compute_feature_coverage,
+    compute_feature_drift,
+    compute_rolling_brier,
+    compute_run_engine_feature_coverage,
+    compute_run_engine_feature_drift,
+    compute_shap_per_game,
+)
 from feature_metadata import generate_features_metadata
 from calibration import is_identity
 from features import (
@@ -829,6 +836,20 @@ def _run_engine_fit_block(block: Optional[dict]) -> dict:
     }
 
 
+def _run_engine_phase1(block: Optional[dict]) -> dict:
+    """Walk-forward geometry for the run-engine model card: fold count, games
+    scored, per-side dispersion (chi2/df) and final-fit median rounds."""
+    if not block:
+        return {}
+    p1 = block.get("phase1") or {}
+    return {
+        "n_folds": p1.get("n_folds"),
+        "n_games": p1.get("n_games"),
+        "dispersion_ratio": p1.get("dispersion_ratio") or {},
+        "final_fit_rounds": p1.get("final_fit_rounds") or {},
+    }
+
+
 def _run_engine_monitor_json(
     block: Optional[dict],
     target_date_str: str,
@@ -869,6 +890,11 @@ def _run_engine_monitor_json(
       fit:       alpha_home/alpha_away (curve), dispersion chi2/df per side,
                  per-side fit tables (observed vs modeled NB PMF incl. the
                  ">=10"/"<=1" tail rows), mc meta, n_pre/n_holdout.
+      market_metrics: per-line engine OOF metrics (logloss / brier / ECE
+                 raw+calibrated / auc / n / holdout) for the run-engine
+                 model card — emitted by run_engine_daily's summary.
+      phase1:    walk-forward geometry (n_folds, n_games, per-side
+                 dispersion_ratio chi2/df, final_fit_rounds median rounds).
       markets_persisted/markets_persist_error: passthrough -- the monitor
                  MUST say loudly when today's markets CSV did not persist
                  (never silently serve stale data).
@@ -964,6 +990,15 @@ def _run_engine_monitor_json(
         "winner_cards": winner_cards,
         "rolling": rolling,
         "fit": _run_engine_fit_block(block),
+        # Per-line engine OOF metrics (logloss/brier/ECE raw+calibrated, n,
+        # auc, holdout) for the run-engine model card — emitted by
+        # run_engine_daily's summary (market_* rows, keys stripped of the
+        # prefix). Absent on locally-built bridge artifacts -> the renderer
+        # shows its empty state, never fabricated numbers.
+        "market_metrics": (block.get("market_metrics") or {}) if block else {},
+        # Walk-forward geometry for the model card: n_folds, n_games,
+        # per-side dispersion (chi2/df) and final-fit median rounds.
+        "phase1": _run_engine_phase1(block),
     }
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
@@ -1728,6 +1763,18 @@ def run_daily_pipeline(
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
             coverage_df = compute_feature_coverage(baseline, current, target_date_str)
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"))
+            # Run-engine view of the SAME windows: PSI + coverage over
+            # its own 29 kept features (single NB sampler -- no weights,
+            # no run_margin_diff). Additive artifacts for the run-line
+            # monitor; moneyline drift/coverage untouched.
+            compute_run_engine_feature_drift(baseline, current, target_date_str)
+            summary["artifacts"].append(str(
+                DATA_DELIVERY_DIR
+                / f"run_engine_feature_drift_{target_date_str}.csv"))
+            compute_run_engine_feature_coverage(baseline, current, target_date_str)
+            summary["artifacts"].append(str(
+                DATA_DELIVERY_DIR
+                / f"run_engine_feature_coverage_{target_date_str}.csv"))
         else:
             drift_df = pd.DataFrame()
             coverage_df = pd.DataFrame()

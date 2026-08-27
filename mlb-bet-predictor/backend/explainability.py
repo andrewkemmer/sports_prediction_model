@@ -481,15 +481,22 @@ def compute_feature_drift(
     current_games: pd.DataFrame,
     target_date_str: str,
     model_weights: dict | None = None,
+    feature_cols: Optional[list[str]] = None,
+    out_name: Optional[str] = None,
 ) -> pd.DataFrame:
     """Compute PSI for each numeric feature and save feature_drift CSV.
 
-    Output: data_delivery/feature_drift_YYYYMMDD.csv
+    Output: data_delivery/feature_drift_YYYYMMDD.csv (or ``out_name``).
+    ``feature_cols`` narrows the feature view (the run engine's 29 kept
+    features use the same machinery on the same windows); default keeps the
+    moneyline FEATURE_COLS behavior byte-identical.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    cols = list(feature_cols) if feature_cols is not None \
+        else list(FEATURE_COLS)
 
     drift_rows = []
-    for col in FEATURE_COLS:
+    for col in cols:
         if col not in baseline_games.columns or col not in current_games.columns:
             continue
 
@@ -575,7 +582,8 @@ def compute_feature_drift(
         })
 
     df = pd.DataFrame(drift_rows)
-    out_path = DATA_DELIVERY_DIR / f"{FEATURE_DRIFT}_{target_date_str}.csv"
+    out_path = DATA_DELIVERY_DIR / (out_name or
+                                    f"{FEATURE_DRIFT}_{target_date_str}.csv")
     df.to_csv(out_path, index=False)
 
     n_warns = (df["status"] == "WARN").sum()
@@ -594,6 +602,8 @@ def compute_feature_coverage(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,
     target_date_str: str,
+    feature_cols: Optional[list[str]] = None,
+    out_name: Optional[str] = None,
 ) -> pd.DataFrame:
     """Per-feature non-null coverage per drift window → coverage CSV.
 
@@ -614,6 +624,8 @@ def compute_feature_coverage(
     All other features: non-null is reported as measured.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+    cols = list(feature_cols) if feature_cols is not None \
+        else list(FEATURE_COLS)
 
     def _window_rows(games: pd.DataFrame, window: str) -> list[dict]:
         rows: list[dict] = []
@@ -621,7 +633,7 @@ def compute_feature_coverage(
             return rows
         dome = pd.to_numeric(games.get("dome_is_neutral"), errors="coerce") \
             if "dome_is_neutral" in games.columns else pd.Series(np.nan, index=games.index)
-        for col in FEATURE_COLS:
+        for col in cols:
             if col not in games.columns:
                 continue
             vals = pd.to_numeric(games[col], errors="coerce")
@@ -652,7 +664,8 @@ def compute_feature_coverage(
     cov_rows = _window_rows(current_games, "current")
     cov_rows += _window_rows(baseline_games, "baseline")
     df = pd.DataFrame(cov_rows)
-    out_path = DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"
+    out_path = DATA_DELIVERY_DIR / (out_name or
+                                    f"feature_coverage_{target_date_str}.csv")
     df.to_csv(out_path, index=False)
 
     starved = df[df["status"] != "OK"]
@@ -665,6 +678,51 @@ def compute_feature_coverage(
     else:
         logger.info("Feature coverage: all %d feature-window pairs OK", len(df))
     return df
+
+
+# ---------------------------------------------------------------------------
+# Run-engine feature view (additive — moneyline drift/coverage untouched)
+# ---------------------------------------------------------------------------
+
+def run_engine_feature_cols() -> list[str]:
+    """The run engine's kept feature view: 29 of the 65 FEATURE_COLS — the
+    36 dropped (diff/momentum/moneyline-only, incl. run_margin_diff) are
+    excluded so the run-engine drift/coverage tables show its own inputs.
+    Mirrors run_engine.derive_run_features; deferred import avoids a cycle.
+    """
+    from run_engine import derive_run_features
+    feats, dropped = derive_run_features(list(FEATURE_COLS))
+    logger.info("Run-engine drift view: %d/%d features kept; dropped %d",
+                len(feats), len(FEATURE_COLS), len(dropped))
+    return feats
+
+
+def compute_run_engine_feature_drift(
+    baseline_games: pd.DataFrame,
+    current_games: pd.DataFrame,
+    target_date_str: str,
+) -> pd.DataFrame:
+    """PSI over the run engine's OWN 29 kept features on the SAME baseline /
+    current windows as the moneyline drift — leakage-free, no model weights
+    (single NB sampler, not a blend). Writes
+    data_delivery/run_engine_feature_drift_YYYYMMDD.csv."""
+    return compute_feature_drift(
+        baseline_games, current_games, target_date_str,
+        model_weights=None, feature_cols=run_engine_feature_cols(),
+        out_name=f"run_engine_feature_drift_{target_date_str}.csv")
+
+
+def compute_run_engine_feature_coverage(
+    baseline_games: pd.DataFrame,
+    current_games: pd.DataFrame,
+    target_date_str: str,
+) -> pd.DataFrame:
+    """Coverage over the run engine's OWN 29 kept features on the SAME
+    windows. Writes data_delivery/run_engine_feature_coverage_YYYYMMDD.csv."""
+    return compute_feature_coverage(
+        baseline_games, current_games, target_date_str,
+        feature_cols=run_engine_feature_cols(),
+        out_name=f"run_engine_feature_coverage_{target_date_str}.csv")
 
 
 ROLLING_BRIER_WINDOW_DAYS = 30

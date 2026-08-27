@@ -194,6 +194,60 @@ class TestFitPanel(TestCase):
         # fixture tail rows render too
         self.assertIn("Home", rows["tails"])
 
+    def test_lambda_edge_from_real_fit(self):
+        """λ edge (home−away modeled run differential) from the fit-curve bin
+        means (the pre-holdout fit scope; the pooled-frame version is +0.12)."""
+        fit = self._fit("20260827")
+        edge = self.diag.lambda_edge(fit)
+        self.assertIsNotNone(edge)
+        self.assertAlmostEqual(edge, 0.1258, places=3)  # fit-curve bin means
+        self.assertIsNone(self.diag.lambda_edge({}))
+        self.assertIsNone(self.diag.lambda_edge(None))
+
+
+class TestRunEngineModelMonitorRender(TestCase):
+    """The run-line monitor's new sections render the REAL artifacts without
+    crashing (model card + drift + coverage), with streamlit stubbed."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys as _sys
+        import unittest.mock as _mock
+        cls._backup = _sys.modules.get("streamlit")
+        _sys.modules["streamlit"] = _mock.MagicMock()
+        cls.markets = __import__("markets")
+        cls.root = _frontend.parent
+
+    @classmethod
+    def tearDownClass(cls):
+        import sys as _sys
+        if cls._backup is not None:
+            _sys.modules["streamlit"] = cls._backup
+        else:
+            _sys.modules.pop("streamlit", None)
+
+    def test_model_card_renders_real_artifact(self):
+        import json
+        mon = json.loads((self.root / "data_delivery"
+                          / "run_engine_monitor_20260827.json").read_text())
+        self.markets._render_run_engine_model_card(mon)  # no crash
+
+    def test_drift_and_coverage_render_real_artifacts(self):
+        d = pd.read_csv(self.root / "data_delivery"
+                        / "run_engine_feature_drift_20260827.csv")
+        self.assertEqual(len(d), 29)
+        self.markets._render_run_engine_drift(d)
+        c = pd.read_csv(self.root / "data_delivery"
+                        / "run_engine_feature_coverage_20260827.csv")
+        self.assertEqual(len(c), 58)  # 29 features x 2 windows
+        self.markets._render_run_engine_coverage(c)
+
+    def test_empty_states_never_crash(self):
+        self.markets._render_run_engine_drift(None)
+        self.markets._render_run_engine_coverage(pd.DataFrame())
+        self.markets._render_run_engine_model_card(
+            {"fit": {}, "phase1": {}, "market_metrics": {}})
+
 
 if __name__ == "__main__":
     import unittest

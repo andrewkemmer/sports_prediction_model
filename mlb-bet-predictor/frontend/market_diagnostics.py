@@ -953,6 +953,34 @@ def mc_caption(mc: Optional[dict]) -> Optional[str]:
     return "Monte Carlo: " + " · ".join(parts) if parts else None
 
 
+def lambda_edge(fit: Optional[dict]) -> Optional[float]:
+    """Modeled home-away run differential from the α(λ) curve bins (weighted
+    mean of each side's bin mean_lam) — the NB sampler's λ edge, used by the
+    run-engine model card. None when either side lacks bin data."""
+    if not isinstance(fit, dict):
+        return None
+
+    def _mean_lam(curve) -> Optional[float]:
+        if not isinstance(curve, dict):
+            return None
+        bins = (curve.get("selection") or {}).get("bins") \
+            if isinstance(curve.get("selection"), dict) else None
+        if not isinstance(bins, list) or not bins:
+            return None
+        lams = [b.get("mean_lam") for b in bins if isinstance(b, dict)]
+        counts = [b.get("count", 1) for b in bins if isinstance(b, dict)]
+        if not lams or not all(isinstance(x, (int, float)) for x in lams):
+            return None
+        total = float(sum(counts)) or 1.0
+        return float(sum(x * c for x, c in zip(lams, counts))) / total
+
+    lh = _mean_lam(fit.get("alpha_home"))
+    la = _mean_lam(fit.get("alpha_away"))
+    if lh is None or la is None:
+        return None
+    return lh - la
+
+
 def fit_panel_rows(fit: Optional[dict]) -> dict:
     """Reconcile a monitor fit block into render-ready rows. Every access is
     defensive: a fit dict missing EVERY key yields all-default rows (the

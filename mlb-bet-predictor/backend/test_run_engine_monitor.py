@@ -320,5 +320,84 @@ class TestRollingHistoryFolding(unittest.TestCase):
         self.assertLessEqual(len(rolling), 46)  # 45 prior + 1 today max
 
 
+class TestRunEngineModelMonitor(unittest.TestCase):
+    """Run-engine model monitor additions: per-line market_metrics + phase1
+    geometry in the monitor JSON, and the run_engine_feature_{drift,
+    coverage} artifacts over the run engine's OWN 29 kept features (the 36
+    dropped — diff/momentum/moneyline-only, incl. run_margin_diff — are
+    excluded).
+    """
+
+    _ROOT = Path(__file__).resolve().parents[1]
+
+    @staticmethod
+    def _windows(date_str: str = "20260827"):
+        """The pipeline drift step's exact window slicing (last 7 days vs an
+        adjacent season-local window of ~3x, min 250) on the canonical
+        decided frame."""
+        gl = pd.read_csv(TestRunEngineModelMonitor._ROOT
+                         / "data_delivery" / "game_level_features.csv")
+        decided = gl[gl["home_win"].notna()].sort_values("game_date")
+        gd = pd.to_datetime(decided["game_date"])
+        cutoff = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-"
+                              f"{date_str[6:8]}") - pd.Timedelta(days=7)
+        current = decided[gd >= cutoff]
+        prior = decided[gd < cutoff]
+        baseline = (prior.tail(max(3 * len(current), 250))
+                    if not prior.empty else prior)
+        return baseline, current
+
+    def test_market_metrics_block_present_and_finite(self):
+        data = json.loads((self._ROOT / "data_delivery"
+                           / "run_engine_monitor_20260827.json").read_text())
+        mm = data.get("market_metrics") or {}
+        self.assertEqual(
+            set(mm.keys()),
+            {"over_7_5", "over_8_5", "over_9_5", "home_cover_1_5",
+             "home_cover_2_5", "derived_moneyline"})
+        for name, row in mm.items():
+            for key in ("engine_logloss", "engine_brier", "engine_ece_raw",
+                        "engine_ece_calibrated", "n"):
+                self.assertIsNotNone(row.get(key),
+                                     f"{name} missing {key}")
+            self.assertGreater(row["n"], 0, name)
+        # walk-forward geometry: 51 folds ending 08-22 -> 08-25, 4,466 games
+        self.assertEqual(data["phase1"]["n_folds"], 51)
+        self.assertEqual(data["phase1"]["n_games"], 4466)
+
+    def test_drift_artifact_real_frame_finite(self):
+        d = pd.read_csv(self._ROOT / "data_delivery"
+                        / "run_engine_feature_drift_20260827.csv")
+        self.assertEqual(len(d), 29)
+        self.assertNotIn("run_margin_diff", set(d["feature"]))
+        self.assertTrue(d["psi"].notna().all())
+        self.assertTrue((d["psi"] >= 0).all())
+        # single NB sampler -> no model weights, and no INSUFFICIENT statuses
+        self.assertTrue(d["weight_pct"].isna().all())
+        self.assertNotIn("INSUFFICIENT", set(d["status"]))
+
+    def test_coverage_matches_moneyline_shared_columns(self):
+        """For the features both views share, run-engine coverage % must be
+        IDENTICAL to the moneyline's (same windows, same machinery)."""
+        import tempfile
+        from explainability import compute_feature_coverage
+        baseline, current = self._windows()
+        with tempfile.TemporaryDirectory() as tmp:
+            ml = compute_feature_coverage(
+                baseline, current, "20260827",
+                out_name=str(Path(tmp) / "ml_cov.csv"))
+        re = pd.read_csv(self._ROOT / "data_delivery"
+                         / "run_engine_feature_coverage_20260827.csv")
+        shared = ml[ml["feature"].isin(set(re["feature"]))]
+        shared = shared.sort_values(["feature", "window"]).reset_index(drop=True)
+        re2 = re.sort_values(["feature", "window"]).reset_index(drop=True)
+        self.assertEqual(len(shared), len(re2))
+        for key in ("pct_measured", "pct_nonnull", "n_default_zero",
+                    "status"):
+            self.assertTrue(
+                (shared[key] == re2[key]).all(),
+                f"{key} diverged between moneyline and run-engine coverage")
+
+
 if __name__ == "__main__":
     unittest.main()

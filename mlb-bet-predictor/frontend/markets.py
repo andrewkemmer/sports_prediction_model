@@ -623,6 +623,226 @@ def _render_fit_panel(fit: dict) -> None:
         st.caption(rows["mc_caption"])
 
 
+def _load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
+    """Fetch run_engine_feature_{drift,coverage}_YYYYMMDD.csv — the run
+    engine's own drift/coverage artifacts (additive pipeline outputs over
+    its 29 kept features on the same windows as the moneyline drift)."""
+    fname = f"{prefix}_{ds}.csv"
+    cfg = utils.get_source_config()
+    try:
+        raw, _src = utils._fetch_bytes(fname, **cfg)
+    except Exception:
+        raw = None
+    if raw is None:
+        return None
+    try:
+        return pd.read_csv(io.BytesIO(raw))
+    except Exception:
+        return None
+
+
+_RUN_ENGINE_LINES = [
+    ("over_7_5", "Over 7.5"),
+    ("over_8_5", "Over 8.5"),
+    ("over_9_5", "Over 9.5"),
+    ("home_cover_1_5", "Home −1.5"),
+    ("home_cover_2_5", "Home −2.5"),
+    ("derived_moneyline", "Derived ML"),
+]
+
+
+def _render_run_engine_model_card(monitor: dict) -> None:
+    """Run-engine model card — the moneyline 'Model Ensemble' section's
+    honest adaptation: one row per market line (the NB sampler has no member
+    blend), with an NB-parameters block above it."""
+    fit = monitor.get("fit") or {}
+    phase1 = monitor.get("phase1") or {}
+    st.markdown("### Run-Engine Model (NB Monte Carlo sampler)")
+
+    # NB-parameters block
+    rows = diag.fit_panel_rows(fit)
+    edge = diag.lambda_edge(fit)
+    disp = fit.get("dispersion_chi2_per_df") or {}
+    rounds = phase1.get("final_fit_rounds") or {}
+    n_folds = phase1.get("n_folds")
+    n_games = phase1.get("n_games")
+    params = [
+        f"α_home={_fmt(rows['alpha_home'], 4)} ({rows['alpha_home_form'] or '--'})",
+        f"α_away={_fmt(rows['alpha_away'], 4)} ({rows['alpha_away_form'] or '--'})",
+        f"λ edge (home−away)={_fmt(edge, 3)}",
+        f"dispersion χ²/df: home {_fmt(disp.get('home'), 2)} · away {_fmt(disp.get('away'), 2)}",
+        f"median rounds: home {_fmt(rounds.get('home'))} · away {_fmt(rounds.get('away'))}",
+        f"walk-forward folds: {n_folds if isinstance(n_folds, int) else '--'}"
+        + (f" ({n_games:,} games)" if isinstance(n_games, int) else ""),
+    ]
+    st.caption("NB parameters — " + " · ".join(params))
+
+    mm = monitor.get("market_metrics") or {}
+    if not mm:
+        st.info("Per-line engine OOF metrics appear after a pipeline run that "
+                "emits market_metrics (the current artifact predates them).")
+        return
+    rows_html = []
+    for key, label in _RUN_ENGINE_LINES:
+        r = mm.get(key)
+        if not isinstance(r, dict):
+            continue
+        rows_html.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;font-weight:700;'>{label}</td>"
+            f"<td>{_fmt(r.get('engine_ece_raw'), 4)}</td>"
+            f"<td>{_fmt(r.get('engine_ece_calibrated'), 4)}</td>"
+            f"<td>{_fmt(r.get('engine_brier'), 4)}</td>"
+            f"<td>{_fmt(r.get('engine_logloss'), 4)}</td>"
+            f"<td style='color:#E2E8F0;'>{r.get('n', '--'):,}</td>"
+            f"</tr>")
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>MARKET LINE</th><th>ECE (RAW)</th><th>ECE (CAL)</th>
+            <th>BRIER</th><th>LOG LOSS</th><th>N (OOF)</th></tr></thead>
+            <tbody>{''.join(rows_html)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          Run engine is a single NB(λ, α(λ)) Monte Carlo sampler — no member
+          blend; rows are per market line. ECE-CAL is prequentially
+          calibrated when the run supplies fold_idx; locally-built bridge
+          artifacts report raw-based values (persisted CSVs don't carry
+          fold_idx). N = pooled OOF games scored for the line.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
+    """Run-engine feature drift — same PSI table as the moneyline monitor
+    (no MODEL WEIGHT column: single sampler, not a blend)."""
+    st.markdown("### Run-Engine Feature Drift (PSI — its own 29 features)")
+    if drift is None or drift.empty:
+        st.info("No run-engine drift data for this date "
+                "(run_engine_feature_drift_*.csv appears after a pipeline "
+                "run).")
+        return
+    rows = []
+    for r in drift.to_dict("records"):
+        psi = r.get("psi", 0.0)
+        status = r.get("status", "OK")
+        psi_color = utils.AMBER if status == "WARN" else (
+            utils.RED if status == "ALERT" else utils.TEXT)
+        pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
+                    "INSUFFICIENT": "ok"}.get(status, "ok")
+        n_base, n_cur = r.get("n_baseline"), r.get("n_current")
+        samples = (f" ({n_base}/{n_cur})"
+                   if n_base is not None and n_cur is not None else "")
+        label = utils.describe_feature(r.get("feature", "")) \
+            or r.get("feature", "")
+        rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
+            f"margin-top:1px;'>{label}</div></td>"
+            f"<td>{r.get('current_mean', '—')}</td>"
+            f"<td>{r.get('baseline_mean', '—')}</td>"
+            f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
+            f"{samples}</span></td></tr>")
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
+            <th>PSI</th><th>STATUS</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          The run engine's OWN 29 kept features (the 36 dropped — diff /
+          momentum / moneyline-only, incl. run_margin_diff — are excluded).
+          Same windows as the moneyline drift; statuses on noise-adjusted PSI.
+          INSUFFICIENT = window too small to judge drift.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
+    """Run-engine feature coverage — same measured/non-null table as the
+    moneyline monitor, over the run engine's 29 kept features."""
+    st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
+    if cov is None or cov.empty:
+        st.info("No run-engine coverage data for this date "
+                "(run_engine_feature_coverage_*.csv appears after a pipeline "
+                "run).")
+        return
+    cov_sorted = sorted(
+        cov.to_dict("records"),
+        key=lambda r: (r.get("pct_measured", 0.0), r.get("feature", "")),
+    )
+    n_starved = sum(1 for r in cov_sorted if r.get("status") == "STARVED")
+    n_low = sum(1 for r in cov_sorted if r.get("status") == "LOW_COVERAGE")
+    sub = (
+        f"<span style='color:{utils.RED};font-weight:700;'>{n_starved} "
+        f"starved</span> · <span style='color:{utils.AMBER};font-weight:700;'>"
+        f"{n_low} low</span>"
+        if (n_starved or n_low) else
+        "<span style='color:#4ADE80;font-weight:700;'>all windows healthy</span>")
+    st.markdown(
+        f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
+        f"Share of games in each drift window with a real observation per "
+        f"feature — {sub}</div>",
+        unsafe_allow_html=True)
+    show_starved_only = n_starved + n_low > 0
+    rows = []
+    shown = 0
+    for r in cov_sorted:
+        status = r.get("status", "OK")
+        if show_starved_only and status == "OK" and shown >= 12:
+            continue
+        pct_m = float(r.get("pct_measured", 0.0))
+        pct_n = float(r.get("pct_nonnull", 0.0))
+        n_def = int(r.get("n_default_zero", 0) or 0)
+        color = utils.RED if status == "STARVED" else (
+            utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
+        pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn",
+                    "STARVED": "alert"}.get(status, "ok")
+        default_cell = (
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
+            f"margin-top:1px;'>{n_def} default-zero</div>" if n_def else "")
+        rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"
+            f"<td>{r.get('window','')}</td>"
+            f"<td>{r.get('n_games','—')}</td>"
+            f"<td style='color:{color};font-weight:700;'>{pct_m:.0f}%</td>"
+            f"<td>{pct_n:.0f}%{default_cell}</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
+            f"</tr>")
+        shown += 1
+    n_hidden = len(cov_sorted) - shown
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>FEATURE</th><th>WINDOW</th><th>GAMES</th>
+            <th>% MEASURED</th><th>% NON-NULL</th><th>STATUS</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          % MEASURED = real observations only (default-filled values excluded);
+          % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
+          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_rolling_history(rolling: dict) -> None:
     """Render per-line rolling ECE-calibrated history as a compact table."""
     if not rolling:
@@ -706,6 +926,15 @@ else:
     if fit:
         with st.expander("Distributional Fit Diagnostics", expanded=False):
             _render_fit_panel(fit)
+
+    # Run-engine model monitor sections — mirror the moneyline monitor's
+    # layout (drift -> coverage -> model card), over the run engine's own
+    # feature view + per-line OOF metrics.
+    re_drift = _load_run_engine_csv(date_str, "run_engine_feature_drift")
+    _render_run_engine_drift(re_drift)
+    re_cov = _load_run_engine_csv(date_str, "run_engine_feature_coverage")
+    _render_run_engine_coverage(re_cov)
+    _render_run_engine_model_card(monitor)
 
     # Rolling history
     rolling = monitor.get("rolling") or {}
