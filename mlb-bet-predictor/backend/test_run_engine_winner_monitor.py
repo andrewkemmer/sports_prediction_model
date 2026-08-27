@@ -179,7 +179,8 @@ class TestCrossCheckHistoryTables(unittest.TestCase):
 class TestRollingV2Migration(unittest.TestCase):
     def test_builder_folds_v2_prior_and_renames_field(self):
         """The v2 rolling fold reader uses winner_cards with the renamed
-        actual_win_rate field; prior v1 files are skipped gracefully."""
+        actual_win_rate field; prior v1 files map onto the cards (over_8_5
+        -> over_under) so the series stays continuous across the cutover."""
         from pipeline import _run_engine_monitor_json
         block = {
             "winner_cards": {
@@ -220,6 +221,46 @@ class TestRollingV2Migration(unittest.TestCase):
                       data["winner_cards"]["over_under"])
         self.assertNotIn("base_rate",
                          data["winner_cards"]["over_under"])
+
+    def test_v1_prior_mapped_to_v2_card(self):
+        """A v1 per_line file folds in through the line->card map:
+        over_8_5 becomes the over_under rolling point (v1->v2 continuity)."""
+        from pipeline import _run_engine_monitor_json
+        block = {
+            "winner_cards": {
+                "over_under": {"n": 4126, "actual_win_rate": 0.5414,
+                               "win_rate": 0.5414, "predicted_mean": 0.5310,
+                               "auc": 0.5505, "ece_raw": 0.019,
+                               "ece_calibrated": 0.0105, "brier": 0.247,
+                               "logloss": 0.680, "holdout": {}},
+            },
+            "market_metrics": {}, "alpha_home": {}, "alpha_away": {},
+            "fit_check_alpha_lambda": {"home": [], "away": []},
+            "variance_check": {}, "mc_meta": {},
+            "holdout_gate": {"n_pre": 0, "n_holdout": 0},
+            "phase1": {"dispersion_ratio": {"home": 0, "away": 0}},
+            "line_grid": [],
+        }
+        prior = {
+            "schema": "run-engine-monitor/v1",
+            "date": "20260825",
+            "per_line": {"over_8_5": {"n": 3900, "ece_calibrated": 0.015,
+                                      "brier": 0.250, "logloss": 0.685,
+                                      "predicted_mean": 0.448,
+                                      "base_rate": 0.449}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p / "run_engine_monitor_20260825.json").write_text(
+                json.dumps(prior))
+            with patch("pipeline.DATA_DELIVERY_DIR", p):
+                path = _run_engine_monitor_json(block, "20260826", True, None)
+            data = json.loads(path.read_text())
+        rolling = data["rolling"]["over_under"]
+        self.assertEqual([[r["date"], r["n"]] for r in rolling],
+                         [["2026-08-25", 3900], ["2026-08-26", 4126]])
+        self.assertEqual(rolling[0]["ece_calibrated"], 0.015)
+        self.assertEqual(rolling[0]["predicted_mean"], 0.448)
 
 
 if __name__ == "__main__":

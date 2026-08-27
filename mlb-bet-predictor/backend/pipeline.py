@@ -779,6 +779,17 @@ def _model_monitor_json(
 # matching the Totals & Run Lines history tables).
 _RUN_ENGINE_WINNER_CARDS = ("over_under", "run_line", "derived_ml")
 
+# v1 per_line line -> v2 winner card, for rolling continuity during the
+# v1->v2 monitor cutover. v1 cards carry base_rate (renamed actual_win_rate
+# in v2); the rolling point never carried the rate, so continuity needs only
+# this line->card map. Unmappable v1 entries are skipped (the renderer shows
+# '--' for missing points — never a crash).
+_RUN_ENGINE_V1_LINE_TO_CARD = {
+    "over_under": "over_8_5",
+    "run_line": "home_cover_1_5",
+    "derived_ml": "derived_moneyline",
+}
+
 # How many recent daily points each card's rolling series keeps.
 RUN_ENGINE_MONITOR_ROLLING_DAYS = 45
 
@@ -878,12 +889,13 @@ def _run_engine_monitor_json(
                 "holdout": c.get("holdout"),
             }
 
-    # Rolling per-card series (v2): fold prior monitor files' winner_cards
-    # (protected by the run_engine_monitor_ prefix so cleanup never deletes
-    # them), append today's point, dedupe by date, trim to the last
-    # RUN_ENGINE_MONITOR_ROLLING_DAYS. Prior v1 files carry per_line (not
-    # winner_cards) and are skipped gracefully — the first v2 build starts
-    # empty and the renderer must handle it.
+    # Rolling per-card series (v2): fold prior monitor files — v2 files
+    # contribute winner_cards directly; v1 files' per_line lines are mapped
+    # onto the cards (over_8_5 -> over_under, home_cover_1_5 -> run_line,
+    # derived_moneyline -> derived_ml) so the rolling history stays
+    # continuous across the cutover. Files are protected by the
+    # run_engine_monitor_ prefix so cleanup never deletes them. Append
+    # today's point, dedupe by date, trim to RUN_ENGINE_MONITOR_ROLLING_DAYS.
     rolling: dict[str, list[dict]] = {ln: [] for ln in _RUN_ENGINE_WINNER_CARDS}
     try:
         by_line: dict[str, dict[str, dict]] = {
@@ -901,7 +913,10 @@ def _run_engine_monitor_json(
                 for ln in _RUN_ENGINE_WINNER_CARDS:
                     pc = (j.get("winner_cards") or {}).get(ln)
                     if not isinstance(pc, dict):
-                        continue
+                        v1_line = _RUN_ENGINE_V1_LINE_TO_CARD[ln]
+                        pc = (j.get("per_line") or {}).get(v1_line)
+                    if not isinstance(pc, dict):
+                        continue  # unmappable entry -> renderer shows '--'
                     by_line[ln][fdate] = {
                         "date": fdate,
                         "ece_calibrated": pc.get("ece_calibrated"),

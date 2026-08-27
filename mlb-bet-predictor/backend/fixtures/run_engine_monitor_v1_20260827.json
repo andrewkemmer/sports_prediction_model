@@ -1,87 +1,96 @@
 {
-  "schema": "run-engine-monitor/v2",
+  "schema": "run-engine-monitor/v1",
   "date": "20260827",
   "markets_persisted": true,
   "markets_persist_error": null,
-  "winner_cards": {
-    "over_under": {
-      "n": 4126,
-      "actual_win_rate": 0.5414,
-      "win_rate": 0.5414,
-      "predicted_mean": 0.531,
-      "auc": 0.55229,
-      "ece_raw": 0.01047,
-      "ece_calibrated": 0.01047,
-      "brier": 0.24777,
-      "logloss": 0.68867,
-      "logloss_calibrated": 0.68867,
-      "holdout": {
-        "n": 275,
-        "actual_win_rate": 0.5891,
-        "win_rate": 0.5891,
-        "predicted_mean": 0.5226,
-        "ece_raw": 0.06652,
-        "ece_calibrated": 0.06652,
-        "brier": 0.24522,
-        "logloss": 0.68356,
-        "baseline_rate": 0.5891,
-        "baseline_logloss": 0.67719,
-        "beats_baseline_logloss": false
-      }
-    },
-    "run_line": {
+  "per_line": {
+    "over_7_5": {
       "n": 4369,
-      "actual_win_rate": 0.6404,
-      "win_rate": 0.6404,
-      "predicted_mean": 0.6295,
-      "auc": 0.54803,
-      "ece_raw": 0.01088,
-      "ece_calibrated": 0.01088,
+      "base_rate": 0.558,
+      "predicted_mean": 0.5606,
+      "ece_raw": 0.00911,
+      "ece_calibrated": 0.00607,
+      "brier": 0.24415,
+      "logloss": 0.68128,
+      "logloss_calibrated": 0.68185,
+      "holdout": null
+    },
+    "over_8_5": {
+      "n": 4369,
+      "base_rate": 0.485,
+      "predicted_mean": 0.4907,
+      "ece_raw": 0.01216,
+      "ece_calibrated": 0.00703,
+      "brier": 0.24741,
+      "logloss": 0.68793,
+      "logloss_calibrated": 0.68829,
+      "holdout": null
+    },
+    "over_9_5": {
+      "n": 4369,
+      "base_rate": 0.3944,
+      "predicted_mean": 0.3969,
+      "ece_raw": 0.01213,
+      "ece_calibrated": 0.00608,
+      "brier": 0.23656,
+      "logloss": 0.66589,
+      "logloss_calibrated": 0.66631,
+      "holdout": null
+    },
+    "home_cover_1_5": {
+      "n": 4369,
+      "base_rate": 0.3587,
+      "predicted_mean": 0.3482,
+      "ece_raw": 0.01186,
+      "ece_calibrated": 0.01771,
       "brier": 0.22843,
       "logloss": 0.6491,
-      "logloss_calibrated": 0.6491,
-      "holdout": {
-        "n": 299,
-        "actual_win_rate": 0.6087,
-        "win_rate": 0.6087,
-        "predicted_mean": 0.636,
-        "ece_raw": 0.03621,
-        "ece_calibrated": 0.03621,
-        "brier": 0.23747,
-        "logloss": 0.66757,
-        "baseline_rate": 0.6087,
-        "baseline_logloss": 0.66933,
-        "beats_baseline_logloss": true
-      }
+      "logloss_calibrated": 0.64919,
+      "holdout": null
     },
-    "derived_ml": {
+    "home_cover_2_5": {
       "n": 4369,
-      "actual_win_rate": 0.5006,
-      "win_rate": 0.5006,
-      "predicted_mean": 0.5399,
-      "auc": 0.55553,
-      "ece_raw": 0.0396,
-      "ece_calibrated": 0.0396,
+      "base_rate": 0.2678,
+      "predicted_mean": 0.2587,
+      "ece_raw": 0.01496,
+      "ece_calibrated": 0.01989,
+      "brier": 0.19509,
+      "logloss": 0.57841,
+      "logloss_calibrated": 0.57849,
+      "holdout": null
+    },
+    "derived_moneyline": {
+      "n": 4369,
+      "base_rate": 0.5354,
+      "predicted_mean": 0.5219,
+      "ece_raw": 0.06799,
+      "ece_calibrated": 0.01559,
       "brier": 0.25052,
       "logloss": 0.69417,
-      "logloss_calibrated": 0.69417,
-      "holdout": {
-        "n": 299,
-        "actual_win_rate": 0.4381,
-        "win_rate": 0.4381,
-        "predicted_mean": 0.539,
-        "ece_raw": 0.11502,
-        "ece_calibrated": 0.11502,
-        "brier": 0.25369,
-        "logloss": 0.7004,
-        "baseline_rate": 0.4381,
-        "baseline_logloss": 0.68547,
-        "beats_baseline_logloss": false
-      }
+      "logloss_calibrated": 0.68621,
+      "holdout": null
     }
   },
   "rolling": {
-    "over_under": [
+    "over_7_5": [
+      {
+        "date": "2026-08-26",
+        "ece_calibrated": 0.00645,
+        "brier": 0.24422,
+        "logloss": 0.6814,
+        "predicted_mean": 0.5614,
+        "n": 4384
+      },
+      {
+        "date": "2026-08-27",
+        "ece_calibrated": 0.00607,
+        "brier": 0.24415,
+        "logloss": 0.68128,
+        "predicted_mean": 0.5606,
+        "n": 4369
+      }
+    ],
+    "over_8_5": [
       {
         "date": "2026-08-26",
         "ece_calibrated": 0.01314,
@@ -92,14 +101,32 @@
       },
       {
         "date": "2026-08-27",
-        "ece_calibrated": 0.01047,
-        "brier": 0.24777,
-        "logloss": 0.68867,
-        "predicted_mean": 0.531,
-        "n": 4126
+        "ece_calibrated": 0.00703,
+        "brier": 0.24741,
+        "logloss": 0.68793,
+        "predicted_mean": 0.4907,
+        "n": 4369
       }
     ],
-    "run_line": [
+    "over_9_5": [
+      {
+        "date": "2026-08-26",
+        "ece_calibrated": 0.0078,
+        "brier": 0.23659,
+        "logloss": 0.66595,
+        "predicted_mean": 0.3975,
+        "n": 4384
+      },
+      {
+        "date": "2026-08-27",
+        "ece_calibrated": 0.00608,
+        "brier": 0.23656,
+        "logloss": 0.66589,
+        "predicted_mean": 0.3969,
+        "n": 4369
+      }
+    ],
+    "home_cover_1_5": [
       {
         "date": "2026-08-26",
         "ece_calibrated": 0.01795,
@@ -110,14 +137,32 @@
       },
       {
         "date": "2026-08-27",
-        "ece_calibrated": 0.01088,
+        "ece_calibrated": 0.01771,
         "brier": 0.22843,
         "logloss": 0.6491,
-        "predicted_mean": 0.6295,
+        "predicted_mean": 0.3482,
         "n": 4369
       }
     ],
-    "derived_ml": [
+    "home_cover_2_5": [
+      {
+        "date": "2026-08-26",
+        "ece_calibrated": 0.01808,
+        "brier": 0.19525,
+        "logloss": 0.57874,
+        "predicted_mean": 0.2585,
+        "n": 4384
+      },
+      {
+        "date": "2026-08-27",
+        "ece_calibrated": 0.01989,
+        "brier": 0.19509,
+        "logloss": 0.57841,
+        "predicted_mean": 0.2587,
+        "n": 4369
+      }
+    ],
+    "derived_moneyline": [
       {
         "date": "2026-08-26",
         "ece_calibrated": 0.01709,
@@ -128,10 +173,10 @@
       },
       {
         "date": "2026-08-27",
-        "ece_calibrated": 0.0396,
+        "ece_calibrated": 0.01559,
         "brier": 0.25052,
         "logloss": 0.69417,
-        "predicted_mean": 0.5399,
+        "predicted_mean": 0.5219,
         "n": 4369
       }
     ]

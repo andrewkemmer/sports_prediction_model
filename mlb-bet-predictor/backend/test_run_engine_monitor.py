@@ -201,25 +201,69 @@ class TestRollingHistoryFolding(unittest.TestCase):
         self.assertEqual(rolling[0]["ece_calibrated"], 0.015)
         self.assertEqual(rolling[1]["date"], "2026-08-26")
 
-    def test_v1_prior_files_skipped_gracefully(self):
-        """A v1 per_line file has no winner_cards — skipped, not a crash."""
+    def test_v1_prior_files_mapped_into_rolling(self):
+        """A v1 per_line file maps onto the v2 cards (over_8_5 -> over_under,
+        home_cover_1_5 -> run_line, derived_moneyline -> derived_ml) so the
+        rolling history stays continuous across the cutover; the base_rate
+        field is simply not carried (rolling points never carried it)."""
         block = _minimal_block()
         prior = {
             "schema": "run-engine-monitor/v1",
             "date": "20260825",
-            "per_line": {"over_8_5": {"n": 3900, "ece_calibrated": 0.015,
-                                      "brier": 0.250, "logloss": 0.685,
-                                      "predicted_mean": 0.448,
-                                      "base_rate": 0.449}},
+            "per_line": {
+                "over_8_5": {"n": 3900, "ece_calibrated": 0.015,
+                             "brier": 0.250, "logloss": 0.685,
+                             "predicted_mean": 0.448, "base_rate": 0.449},
+                "home_cover_1_5": {"n": 3901, "ece_calibrated": 0.016,
+                                   "brier": 0.251, "logloss": 0.686,
+                                   "predicted_mean": 0.449,
+                                   "base_rate": 0.450},
+                "derived_moneyline": {"n": 3902, "ece_calibrated": 0.017,
+                                      "brier": 0.252, "logloss": 0.687,
+                                      "predicted_mean": 0.450,
+                                      "base_rate": 0.451},
+                # Unmappable v1 line (not a winner card) -> skipped, no crash.
+                "over_7_5": {"n": 3800, "ece_calibrated": 0.02},
+            },
         }
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)
             (p / "run_engine_monitor_20260825.json").write_text(
                 json.dumps(prior))
             data = _write_monitor(block, "20260826", p)
-        rolling = data["rolling"]["over_under"]
-        self.assertEqual(len(rolling), 1)  # today only
-        self.assertEqual(rolling[0]["date"], "2026-08-26")
+        for card, n_prior in (("over_under", 3900), ("run_line", 3901),
+                              ("derived_ml", 3902)):
+            rolling = data["rolling"][card]
+            self.assertEqual(len(rolling), 2, f"{card}: prior + today")
+            self.assertEqual(rolling[0]["date"], "2026-08-25")
+            self.assertEqual(rolling[0]["n"], n_prior)
+            self.assertEqual(rolling[1]["date"], "2026-08-26")
+
+    def test_v1_v2_real_fixtures_fold_continuous(self):
+        """The REAL v1 monitor fixture + the REAL locally-built v2 monitor
+        fold into a continuous per-card series (v1 08-26 -> v2 08-27 ->
+        today) — the migration path the dashboard renders through."""
+        _here = Path(__file__).resolve().parent
+        v1_fixture = _here / "fixtures" / "run_engine_monitor_v1_20260826.json"
+        v2_accept = _here.parent / "data_delivery" \
+            / "run_engine_monitor_20260827.json"
+        if not v1_fixture.exists() or not v2_accept.exists():
+            self.skipTest("v1 fixture / v2 acceptance artifact missing")
+        block = _minimal_block()
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            (p / "run_engine_monitor_20260826.json").write_text(
+                v1_fixture.read_text())
+            (p / "run_engine_monitor_20260827.json").write_text(
+                v2_accept.read_text())
+            data = _write_monitor(block, "20260828", p)
+        for card in ("over_under", "run_line", "derived_ml"):
+            rolling = data["rolling"][card]
+            dates = [r["date"] for r in rolling]
+            self.assertEqual(dates, ["2026-08-26", "2026-08-27",
+                                     "2026-08-28"], f"{card} continuous")
+            self.assertIsInstance(rolling[0]["n"], int)  # v1-mapped point
+            self.assertIsInstance(rolling[1]["n"], int)  # v2 point
 
     def test_rolling_trims_to_45_days(self):
         from datetime import date, timedelta
