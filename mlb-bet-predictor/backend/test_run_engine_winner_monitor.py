@@ -263,5 +263,212 @@ class TestRollingV2Migration(unittest.TestCase):
         self.assertEqual(rolling[0]["predicted_mean"], 0.448)
 
 
+class TestWinnerCardSymmetry(unittest.TestCase):
+    """Home/away symmetry audit: every metric is on the PICKED side.
+
+    run_line and derived_ml must split by pick direction (by_pick) and every
+    metric must be computed on picked-side (p, y) — never home-side
+    unconditionally. Proven on the real 08-27 artifact and on synthetic
+    frames where the two sides disagree.
+    """
+
+    def _real(self) -> pd.DataFrame:
+        return pd.read_csv(_ROOT / "data_delivery"
+                           / "run_engine_markets_20260827.csv")
+
+    def test_by_pick_split_consistent_with_pooled(self):
+        from run_engine import compute_winner_cards
+        df = self._real()
+        cards = compute_winner_cards(df)
+        for name in ("run_line", "derived_ml"):
+            c = cards[name]
+            bp = c["by_pick"]
+            n_h, n_a = bp["home"]["n"], bp["away"]["n"]
+            self.assertEqual(n_h + n_a, c["n"], f"{name} split covers n")
+            self.assertGreater(n_h, 0, f"{name} has home-picks")
+            self.assertGreater(n_a, 0, f"{name} has away-picks")
+            # Pooled win rate = subset-weighted average (rounding-tolerant).
+            pooled = (n_h * bp["home"]["win_rate"]
+                      + n_a * bp["away"]["win_rate"]) / c["n"]
+            self.assertAlmostEqual(pooled, c["win_rate"], places=4,
+                                   msg=f"{name} pooled rate consistent")
+        self.assertNotIn("by_pick", cards["over_under"])
+
+    def test_predicted_mean_is_picked_side_not_home_side(self):
+        """predicted_mean == mean(max(P, 1-P)) (picked-side prob) and NOT
+        mean(P_home) / mean(P_home_cover). Exact on the real artifact (no
+        fold_idx persisted -> calibrated == raw)."""
+        from run_engine import compute_winner_cards
+        df = self._real()
+        cards = compute_winner_cards(df)
+        oof = df[df["kind"] == "oof"]
+        rp = oof["p_home_cover_1_5"].to_numpy(float)
+        mp = oof["p_home_win_derived"].to_numpy(float)
+        for name, p_home in (("run_line", rp), ("derived_ml", mp)):
+            c = cards[name]
+            ok = np.isfinite(p_home)
+            picked = np.maximum(p_home[ok], 1.0 - p_home[ok])
+            self.assertAlmostEqual(c["predicted_mean"], picked.mean(),
+                                   places=4, msg=f"{name} is picked-side")
+            self.assertNotAlmostEqual(c["predicted_mean"],
+                                      p_home[ok].mean(), places=3,
+                                      msg=f"{name} NOT mean(P_home)")
+
+    def test_win_rate_two_independent_ways_identical(self):
+        """Vectorized picked-side outcome vs a manual per-game loop -> the
+        SAME win rate (guards against any indexing/side error)."""
+        from run_engine import compute_winner_cards
+        df = self._real()
+        cards = compute_winner_cards(df)
+        oof = df[df["kind"] == "oof"]
+        hs = oof["home_score"].to_numpy(float)
+        as_ = oof["away_score"].to_numpy(float)
+        for name, pcol, event_fn in (
+                ("run_line", "p_home_cover_1_5",
+                 lambda m: m >= 2),          # home covers -1.5
+                ("derived_ml", "p_home_win_derived",
+                 lambda m: m > 0)):          # home wins
+            p = oof[pcol].to_numpy(float)
+            ok = np.isfinite(p)
+            event = event_fn(hs - as_).astype(float)
+            pick_home = p >= 0.5
+            hits = []
+            for i in np.where(ok)[0]:
+                if pick_home[i]:
+                    hits.append(float(event[i] == 1))
+                else:
+                    hits.append(float(event[i] == 0))
+            loop_rate = float(np.mean(hits))
+            self.assertAlmostEqual(loop_rate, cards[name]["win_rate"],
+                                   places=4, msg=f"{name} loop == vectorized")
+
+    def test_auc_rank_invariance_exact(self):
+        """AUC(P_away side, away event) == AUC(P_home side, home event)
+        EXACTLY (1-P is a monotone transform; rank invariance)."""
+        from sklearn.metrics import roc_auc_score
+        from run_engine import compute_winner_cards
+        df = self._real()
+        oof = df[df["kind"] == "oof"]
+        hs = oof["home_score"].to_numpy(float)
+        as_ = oof["away_score"].to_numpy(float)
+        total = hs + as_
+        refs = {"over_8_5": ("p_over_8_5", total >= 9),
+                "home_cover_1_5": ("p_home_cover_1_5", hs - as_ >= 2),
+                "derived_moneyline": ("p_home_win_derived", hs > as_)}
+        metrics = {}
+        for ref, (pcol, ev) in refs.items():
+            p = oof[pcol].to_numpy(float)
+            ok = np.isfinite(p)
+            metrics[ref] = {"auc": float(roc_auc_score(
+                np.asarray(ev, float)[ok], p[ok]))}
+        cards = compute_winner_cards(df, market_metrics=metrics)
+        for name, pcol, event_fn in (
+                ("run_line", "p_home_cover_1_5", lambda m: m >= 2),
+                ("derived_ml", "p_home_win_derived", lambda m: m > 0)):
+            p = oof[pcol].to_numpy(float)
+            ok = np.isfinite(p)
+            event = event_fn(hs - as_).astype(float)
+            a_home = roc_auc_score(event[ok], p[ok])
+            a_away = roc_auc_score(1.0 - event[ok], 1.0 - p[ok])
+            self.assertEqual(a_home, a_away,
+                             f"{name} AUC rank-invariant (exact)")
+            self.assertAlmostEqual(a_home, cards[name]["auc"], places=5,
+                                   msg=f"{name} card AUC == home-side AUC")
+
+    def test_ece_is_on_picked_side(self):
+        """ece_raw == ECE(picked-side prob, picked-side outcome) and differs
+        from ECE(home prob, home outcome) where the sides disagree."""
+        from run_engine import compute_winner_cards, ece_score
+        df = self._real()
+        cards = compute_winner_cards(df)
+        oof = df[df["kind"] == "oof"]
+        hs = oof["home_score"].to_numpy(float)
+        as_ = oof["away_score"].to_numpy(float)
+        for name, pcol, event_fn in (
+                ("run_line", "p_home_cover_1_5", lambda m: m >= 2),
+                ("derived_ml", "p_home_win_derived", lambda m: m > 0)):
+            p = oof[pcol].to_numpy(float)
+            ok = np.isfinite(p)
+            event = event_fn(hs - as_).astype(float)
+            pick_home = p >= 0.5
+            fav = np.where(pick_home, p, 1.0 - p)
+            hit = (pick_home.astype(float) == event).astype(float)
+            self.assertAlmostEqual(ece_score(hit[ok], fav[ok]),
+                                   cards[name]["ece_raw"], places=8,
+                                   msg=f"{name} ECE on picked side")
+            home_ece = ece_score(event[ok], p[ok])
+            self.assertNotAlmostEqual(home_ece, cards[name]["ece_raw"],
+                                      places=3,
+                                      msg=f"{name} ECE NOT home-side")
+
+    def test_away_pick_scoring_not_home_outcomes(self):
+        """Away-pick win rate == away-outcome rate on away-pick games (NOT
+        the home base rate) and away-picks are not dropped (n_away > 0, and
+        n_away != n_total proves both directions exist for derived_ml)."""
+        from run_engine import compute_winner_cards
+        df = self._real()
+        cards = compute_winner_cards(df)
+        oof = df[df["kind"] == "oof"]
+        hs = oof["home_score"].to_numpy(float)
+        as_ = oof["away_score"].to_numpy(float)
+        home_won = (hs > as_).astype(float)
+        mp = oof["p_home_win_derived"].to_numpy(float)
+        ok = np.isfinite(mp)
+        pick_home = mp >= 0.5
+        away_mask = ok & ~pick_home
+        away_won_rate = float((1 - home_won[away_mask]).mean())
+        bp_away = cards["derived_ml"]["by_pick"]["away"]
+        self.assertAlmostEqual(bp_away["win_rate"], away_won_rate, places=4,
+                               msg="away-pick scored on away outcomes")
+        self.assertGreater(bp_away["win_rate"], 0.0)
+        self.assertLess(bp_away["win_rate"], 1.0)
+
+    def test_synthetic_symmetric_frame_both_directions_win(self):
+        """With a well-calibrated synthetic probability BOTH pick directions
+        win >50% and each ≈ its own predicted mean — proving the aggregation
+        is symmetric-capable (any real-artifact asymmetry is the model's, not
+        the aggregation's)."""
+        from run_engine import compute_winner_cards
+        rng = np.random.default_rng(7)
+        n = 400
+        # Half home-favored, half away-favored — the aggregation must handle
+        # BOTH pick directions symmetrically. p_home drives derived_ml picks;
+        # p_cover < p_home (covering implies winning) drives run_line picks;
+        # p_cover >= 0.5 exactly for home-favored games, < 0.5 for away.
+        p_home = np.concatenate([
+            rng.uniform(0.55, 0.70, n // 2),
+            rng.uniform(0.30, 0.45, n // 2),
+        ])
+        p_cover = np.where(p_home >= 0.5, p_home - 0.05, p_home - 0.05)
+        # Three-category margin: 3 = won + covered, 1 = won by 1 (no cover),
+        # 0 = away won. home_won == (margin > 0) and
+        # home_covers == (margin >= 2) both hold EXACTLY by construction.
+        u = rng.uniform(0, 1, n)
+        margin = np.where(u < p_cover, 3.0,
+                          np.where(u < p_home, 1.0, 0.0))
+        df = pd.DataFrame({
+            "game_pk": list(range(5000, 5000 + n)),
+            "game_date": pd.date_range("2026-06-01", periods=n, freq="D"),
+            "home_expected_runs": 4.3, "away_expected_runs": 4.2,
+            "total_runs": 8.0,
+            "home_score": 3.0 + margin, "away_score": 3.0,
+            "p_home_cover_1_5": p_cover,
+            "p_home_win_derived": p_home,
+            "kind": "oof",
+        })
+        cards = compute_winner_cards(df)
+        for name in ("run_line", "derived_ml"):
+            c = cards[name]
+            self.assertIn("by_pick", c)
+            for side in ("home", "away"):
+                s = c["by_pick"][side]
+                self.assertGreater(s["n"], 20, f"{name}/{side} sample")
+                self.assertGreater(s["win_rate"], 0.50,
+                                   f"{name}/{side} wins >50%")
+                self.assertAlmostEqual(s["win_rate"], s["predicted_mean"],
+                                       delta=0.06,
+                                       msg=f"{name}/{side} ≈ own predmean")
+
+
 if __name__ == "__main__":
     unittest.main()

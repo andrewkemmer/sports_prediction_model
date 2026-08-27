@@ -851,7 +851,10 @@ def _run_engine_monitor_json(
                  pooled PREQUENTIALLY-CALIBRATED favored-probability mean
                  shown beside it as one compact stat line; auc is the
                  FIXED-reference-line AUC (over_8_5 / home_cover_1_5 /
-                 derived_ml — never a mixed-line rank).
+                 derived_ml — never a mixed-line rank); by_pick (run_line /
+                 derived_ml only) splits n / win_rate / predicted_mean by
+                 pick direction (home vs away) — every metric is on the
+                 PICKED side, never home-side unconditionally.
       rolling:   {card: [{date, ece_calibrated, brier, logloss,
                          predicted_mean, n}]} cumulative-by-date series
                  folded from prior v2 monitor files (protected by the
@@ -887,6 +890,7 @@ def _run_engine_monitor_json(
                 "logloss": c.get("logloss"),
                 "logloss_calibrated": c.get("logloss_calibrated"),
                 "holdout": c.get("holdout"),
+                "by_pick": c.get("by_pick"),
             }
 
     # Rolling per-card series (v2): fold prior monitor files — v2 files

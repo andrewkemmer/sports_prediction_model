@@ -1206,12 +1206,17 @@ WINNER_CARD_AUC_REF = {
 
 def _winner_card_stats(p: np.ndarray, y: np.ndarray,
                        fold_idx: Optional[np.ndarray],
-                       hold_mask: np.ndarray) -> dict:
+                       hold_mask: np.ndarray,
+                       pick_mask: Optional[np.ndarray] = None) -> dict:
     """Favored-side binary card stats (mirrors score_at's metric set).
 
     p is the favored side's probability (>= 0.5 by construction), y is 1 when
     the pick won. Prequential calibration uses the OOF fold index when
     available; without it (fixtures/tests) calibrated == raw.
+
+    ``pick_mask`` (True = home-pick) adds the by_pick split — home-pick vs
+    away-pick n / win_rate / predicted_mean — so every metric is verifiably
+    on the PICKED side (never home-side unconditionally).
     """
     p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
     y = np.asarray(y, float)
@@ -1233,6 +1238,19 @@ def _winner_card_stats(p: np.ndarray, y: np.ndarray,
         "beats_baseline_logloss": bool(
             log_loss(y, p) < log_loss(y, np.full(len(y), base))),
     }
+    if pick_mask is not None and len(pick_mask) == len(y):
+        pm = np.asarray(pick_mask, bool)
+        row["by_pick"] = {}
+        for side, m in (("home", pm), ("away", ~pm)):
+            if not m.any():
+                row["by_pick"][side] = {"n": 0, "win_rate": None,
+                                        "predicted_mean": None}
+                continue
+            row["by_pick"][side] = {
+                "n": int(m.sum()),
+                "win_rate": round(float(y[m].mean()), 4),
+                "predicted_mean": round(float(p_cal[m].mean()), 4),
+            }
     if hold_mask is not None and hold_mask.any():
         yh = y[hold_mask]
         ph = p[hold_mask]
@@ -1337,7 +1355,7 @@ def compute_winner_cards(markets: pd.DataFrame,
         hit = (pick_home.astype(float) == home_covers).astype(float)
         fav = np.where(pick_home, rp, 1.0 - rp)
         rl = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
-                                 hold_mask[ok])
+                                 hold_mask[ok], pick_home[ok])
     else:
         rl = None
 
@@ -1350,7 +1368,7 @@ def compute_winner_cards(markets: pd.DataFrame,
         hit = (pick_home.astype(float) == home_won).astype(float)
         fav = np.where(pick_home, mp, 1.0 - mp)
         ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
-                                hold_mask[ok])
+                                hold_mask[ok], pick_home[ok])
     else:
         ml = None
 
