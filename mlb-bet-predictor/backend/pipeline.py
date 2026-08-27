@@ -70,6 +70,7 @@ from training import (
     calibration_buckets,
     feature_importance_weights,
     get_last_calibrator,
+    get_last_walk_forward_splits,
     load_ensemble,
     persist_ensemble,
     predict_games,
@@ -180,10 +181,14 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
     if MARGIN_COL not in FEATURE_COLS:
         return decided
     try:
-        _splits = walk_forward_splits(
-            decided, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+        _splits = get_last_walk_forward_splits()
         if not _splits:
-            return decided
+            # Preserve the standalone/fallback path when drift runs before
+            # a training pass has recorded canonical fold geometry.
+            _splits = walk_forward_splits(
+                decided, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+            if not _splits:
+                return decided
         enriched, _ = _attach_oof_run_margins(
             decided, _splits, MIN_VAL_FOLD_GAMES, 0,
             RETRAIN_CADENCE_DAYS, 0)

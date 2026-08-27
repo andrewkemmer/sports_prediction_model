@@ -1466,6 +1466,9 @@ def walk_forward_evaluate(
             games, splits, min_val_games, max_eval_folds,
             retrain_cadence_days, min_train_days)
 
+    # Record canonical fold geometry for the later drift attachment.
+    set_last_walk_forward_splits(splits)
+
     if not splits:
         logger.warning("No walk-forward splits generated; training on full data")
         # Fall back to train on everything

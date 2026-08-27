@@ -284,7 +284,7 @@ class TestDriftMarginAttachWiring(unittest.TestCase):
 
         with patch("pipeline._attach_oof_run_margins",
                    side_effect=_fake_attach), \
-             patch("pipeline.walk_forward_splits",
+             patch("pipeline.get_last_walk_forward_splits",
                    return_value=[{"fold_idx": 0}]):
             out = _attach_drift_run_margins(decided)
         self.assertIn("run_margin_diff", out.columns)
@@ -294,7 +294,7 @@ class TestDriftMarginAttachWiring(unittest.TestCase):
         decided = self._decided()
         with patch("pipeline._attach_oof_run_margins",
                    side_effect=RuntimeError("derivation failed")), \
-             patch("pipeline.walk_forward_splits",
+             patch("pipeline.get_last_walk_forward_splits",
                    return_value=[{"fold_idx": 0}]):
             out = _attach_drift_run_margins(decided)
         self.assertNotIn("run_margin_diff", out.columns)
