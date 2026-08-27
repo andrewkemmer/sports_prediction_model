@@ -1360,25 +1360,67 @@ def compute_winner_cards(markets: pd.DataFrame,
         rl = None
 
     # --- derived_ml: home vs away ---
-    if "p_home_win_derived" in df.columns:
-        mp = df["p_home_win_derived"].to_numpy(float)
-        ok = np.isfinite(mp)
-        home_won = (hs > as_).astype(float)
+    # PRIMARY SOURCE: the ensemble's production moneyline probability
+    # (ml_win_prob — predictions_history.home_win_prob_model joined per
+    # game) — symmetric + well-calibrated (both pick directions >50% on the
+    # real artifact). The NB Monte-Carlo probability (p_home_win_derived)
+    # underweights the home edge (mean P(home) 0.4684 vs actual 0.5354;
+    # alpha_away > alpha_home) and stays as nb_diagnostic — a real model
+    # finding, not erased. Without the ensemble join the card falls back to
+    # the NB probability so it never vanishes.
+    home_won = (hs > as_).astype(float)
+    ml = None
+    ens = (df["ml_win_prob"].to_numpy(float)
+           if "ml_win_prob" in df.columns else None)
+    if ens is not None and np.isfinite(ens).any():
+        ok = np.isfinite(ens)
+        mp = ens
         pick_home = mp >= 0.5
         hit = (pick_home.astype(float) == home_won).astype(float)
         fav = np.where(pick_home, mp, 1.0 - mp)
         ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
                                 hold_mask[ok], pick_home[ok])
-    else:
-        ml = None
+        ml["source"] = "ml_win_prob"
+        # AUC ranks the SAME probability the card now prices (ensemble).
+        try:
+            _a = float(roc_auc_score(home_won[ok], mp[ok]))
+            ml["auc"] = None if not np.isfinite(_a) else round(_a, 5)
+        except ValueError:
+            ml["auc"] = None
+        if "p_home_win_derived" in df.columns:
+            nb = df["p_home_win_derived"].to_numpy(float)
+            nok = np.isfinite(nb)
+            npk = nb >= 0.5
+            nhit = (npk.astype(float) == home_won).astype(float)
+            nfav = np.where(npk, nb, 1.0 - nb)
+            ns = _winner_card_stats(nfav[nok], nhit[nok],
+                                    _fold_idx(pks[nok]), hold_mask[nok],
+                                    npk[nok])
+            ml["nb_diagnostic"] = {
+                "n": ns["n"], "actual_win_rate": ns["actual_win_rate"],
+                "predicted_mean": ns["predicted_mean"],
+                "ece_raw": ns["ece_raw"], "by_pick": ns["by_pick"],
+            }
+    elif "p_home_win_derived" in df.columns:
+        mp = df["p_home_win_derived"].to_numpy(float)
+        ok = np.isfinite(mp)
+        pick_home = mp >= 0.5
+        hit = (pick_home.astype(float) == home_won).astype(float)
+        fav = np.where(pick_home, mp, 1.0 - mp)
+        ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
+                                hold_mask[ok], pick_home[ok])
+        ml["source"] = "nb_mc_p_home_win_derived"
 
     cards: dict[str, dict] = {}
     for name, card in (("over_under", ou), ("run_line", rl), ("derived_ml", ml)):
         if card is None:
             continue
         ref = WINNER_CARD_AUC_REF[name]
-        auc = None
-        if market_metrics and isinstance(market_metrics.get(ref), dict):
+        # An inline card auc (derived_ml ranks the ensemble probability it
+        # now prices) wins; otherwise the fixed-reference market_metrics AUC.
+        auc = card.get("auc")
+        if auc is None and market_metrics and isinstance(
+                market_metrics.get(ref), dict):
             auc = market_metrics[ref].get("auc")
         cards[name] = {**card, "auc": auc}
     return cards

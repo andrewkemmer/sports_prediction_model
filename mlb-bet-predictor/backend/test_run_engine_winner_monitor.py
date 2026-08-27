@@ -276,6 +276,13 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         return pd.read_csv(_ROOT / "data_delivery"
                            / "run_engine_markets_20260827.csv")
 
+    @staticmethod
+    def _derived_pcol(cards: dict) -> str:
+        """Probability column the derived_ml card actually prices."""
+        src = cards["derived_ml"].get("source")
+        return "ml_win_prob" if src == "ml_win_prob" \
+            else "p_home_win_derived"
+
     def test_by_pick_split_consistent_with_pooled(self):
         from run_engine import compute_winner_cards
         df = self._real()
@@ -303,7 +310,8 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         cards = compute_winner_cards(df)
         oof = df[df["kind"] == "oof"]
         rp = oof["p_home_cover_1_5"].to_numpy(float)
-        mp = oof["p_home_win_derived"].to_numpy(float)
+        dp = self._derived_pcol(cards)
+        mp = oof[dp].to_numpy(float)
         for name, p_home in (("run_line", rp), ("derived_ml", mp)):
             c = cards[name]
             ok = np.isfinite(p_home)
@@ -313,6 +321,17 @@ class TestWinnerCardSymmetry(unittest.TestCase):
             self.assertNotAlmostEqual(c["predicted_mean"],
                                       p_home[ok].mean(), places=3,
                                       msg=f"{name} NOT mean(P_home)")
+        # The NB Monte-Carlo diagnostic is preserved inside the card (the
+        # model finding must stay visible): its own predicted_mean equals
+        # mean(max(p_home_win_derived, 1-P)) on its own rows.
+        nb = cards["derived_ml"].get("nb_diagnostic")
+        self.assertIsNotNone(nb, "nb_diagnostic preserved")
+        nb_p = oof["p_home_win_derived"].to_numpy(float)
+        nok = np.isfinite(nb_p)
+        self.assertAlmostEqual(nb["predicted_mean"],
+                               np.maximum(nb_p[nok], 1 - nb_p[nok]).mean(),
+                               places=4)
+        self.assertEqual(nb["n"], int(nok.sum()))
 
     def test_win_rate_two_independent_ways_identical(self):
         """Vectorized picked-side outcome vs a manual per-game loop -> the
@@ -326,7 +345,7 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         for name, pcol, event_fn in (
                 ("run_line", "p_home_cover_1_5",
                  lambda m: m >= 2),          # home covers -1.5
-                ("derived_ml", "p_home_win_derived",
+                ("derived_ml", self._derived_pcol(cards),
                  lambda m: m > 0)):          # home wins
             p = oof[pcol].to_numpy(float)
             ok = np.isfinite(p)
@@ -352,9 +371,11 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         hs = oof["home_score"].to_numpy(float)
         as_ = oof["away_score"].to_numpy(float)
         total = hs + as_
+        dp = "ml_win_prob" if "ml_win_prob" in oof.columns \
+            else "p_home_win_derived"
         refs = {"over_8_5": ("p_over_8_5", total >= 9),
                 "home_cover_1_5": ("p_home_cover_1_5", hs - as_ >= 2),
-                "derived_moneyline": ("p_home_win_derived", hs > as_)}
+                "derived_moneyline": (dp, hs > as_)}
         metrics = {}
         for ref, (pcol, ev) in refs.items():
             p = oof[pcol].to_numpy(float)
@@ -364,16 +385,20 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         cards = compute_winner_cards(df, market_metrics=metrics)
         for name, pcol, event_fn in (
                 ("run_line", "p_home_cover_1_5", lambda m: m >= 2),
-                ("derived_ml", "p_home_win_derived", lambda m: m > 0)):
+                ("derived_ml", dp, lambda m: m > 0)):
             p = oof[pcol].to_numpy(float)
             ok = np.isfinite(p)
             event = event_fn(hs - as_).astype(float)
             a_home = roc_auc_score(event[ok], p[ok])
             a_away = roc_auc_score(1.0 - event[ok], 1.0 - p[ok])
-            self.assertEqual(a_home, a_away,
-                             f"{name} AUC rank-invariant (exact)")
+            # Rank invariance is exact mathematically (1-P is a monotone
+            # transform); sklearn's internal float arithmetic can differ at
+            # the last ulp (~1e-15) when the complemented scores have full
+            # float precision, so assert to 12 decimals.
+            self.assertAlmostEqual(a_home, a_away, places=12,
+                                   msg=f"{name} AUC rank-invariant")
             self.assertAlmostEqual(a_home, cards[name]["auc"], places=5,
-                                   msg=f"{name} card AUC == home-side AUC")
+                                   msg=f"{name} card AUC == own-line AUC")
 
     def test_ece_is_on_picked_side(self):
         """ece_raw == ECE(picked-side prob, picked-side outcome) and differs
@@ -386,7 +411,8 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         as_ = oof["away_score"].to_numpy(float)
         for name, pcol, event_fn in (
                 ("run_line", "p_home_cover_1_5", lambda m: m >= 2),
-                ("derived_ml", "p_home_win_derived", lambda m: m > 0)):
+                ("derived_ml", self._derived_pcol(cards),
+                 lambda m: m > 0)):
             p = oof[pcol].to_numpy(float)
             ok = np.isfinite(p)
             event = event_fn(hs - as_).astype(float)
@@ -412,7 +438,8 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         hs = oof["home_score"].to_numpy(float)
         as_ = oof["away_score"].to_numpy(float)
         home_won = (hs > as_).astype(float)
-        mp = oof["p_home_win_derived"].to_numpy(float)
+        dp = self._derived_pcol(cards)
+        mp = oof[dp].to_numpy(float)
         ok = np.isfinite(mp)
         pick_home = mp >= 0.5
         away_mask = ok & ~pick_home
@@ -422,6 +449,40 @@ class TestWinnerCardSymmetry(unittest.TestCase):
                                msg="away-pick scored on away outcomes")
         self.assertGreater(bp_away["win_rate"], 0.0)
         self.assertLess(bp_away["win_rate"], 1.0)
+        # The preserved NB diagnostic keeps the model finding: its away-pick
+        # win rate equals the NB away-outcome rate (and sits below 50% — the
+        # underweighted home edge, unchanged and visible).
+        nb = cards["derived_ml"]["nb_diagnostic"]
+        nb_p = oof["p_home_win_derived"].to_numpy(float)
+        nok = np.isfinite(nb_p)
+        npk = nb_p >= 0.5
+        n_away = nok & ~npk
+        self.assertAlmostEqual(nb["by_pick"]["away"]["win_rate"],
+                               float((1 - home_won[n_away]).mean()),
+                               places=4)
+        self.assertLess(nb["by_pick"]["away"]["win_rate"], 0.50)
+
+    def test_derived_ml_sources_ensemble_and_preserves_nb_diagnostic(self):
+        """The derived_ml card prices the ensemble's ml_win_prob (both pick
+        directions >50% — the symmetric, well-calibrated production
+        probability), and the NB Monte-Carlo diagnostic stays in the JSON."""
+        from run_engine import compute_winner_cards
+        df = self._real()
+        cards = compute_winner_cards(df)
+        c = cards["derived_ml"]
+        self.assertEqual(c["source"], "ml_win_prob")
+        oof = df[df["kind"] == "oof"]
+        ens = oof["ml_win_prob"].to_numpy(float)
+        self.assertEqual(c["n"], int(np.isfinite(ens).sum()))
+        for side in ("home", "away"):
+            s = c["by_pick"][side]
+            self.assertGreater(s["win_rate"], 0.50,
+                               f"derived_ml/{side} >50% (ensemble)")
+            self.assertGreater(s["n"], 500)
+        nb = c["nb_diagnostic"]
+        self.assertEqual(nb["n"], 4369)
+        self.assertLess(nb["by_pick"]["away"]["win_rate"], 0.50,
+                        "NB away-pick deficit preserved (model finding)")
 
     def test_synthetic_symmetric_frame_both_directions_win(self):
         """With a well-calibrated synthetic probability BOTH pick directions

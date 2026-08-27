@@ -854,7 +854,11 @@ def _run_engine_monitor_json(
                  derived_ml — never a mixed-line rank); by_pick (run_line /
                  derived_ml only) splits n / win_rate / predicted_mean by
                  pick direction (home vs away) — every metric is on the
-                 PICKED side, never home-side unconditionally.
+                 PICKED side, never home-side unconditionally. derived_ml
+                 is sourced from the ENSEMBLE ml_win_prob (source field;
+                 the NB Monte-Carlo p_home_win_derived underweights home
+                 advantage and is preserved as nb_diagnostic — a real model
+                 finding, not erased).
       rolling:   {card: [{date, ece_calibrated, brier, logloss,
                          predicted_mean, n}]} cumulative-by-date series
                  folded from prior v2 monitor files (protected by the
@@ -891,6 +895,8 @@ def _run_engine_monitor_json(
                 "logloss_calibrated": c.get("logloss_calibrated"),
                 "holdout": c.get("holdout"),
                 "by_pick": c.get("by_pick"),
+                "source": c.get("source"),
+                "nb_diagnostic": c.get("nb_diagnostic"),
             }
 
     # Rolling per-card series (v2): fold prior monitor files — v2 files

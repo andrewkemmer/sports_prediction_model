@@ -469,8 +469,10 @@ _WINNER_CARDS = (
      "Pick Over if P(over the game's line) > 50%, else Under"),
     ("run_line", "Run Line ±1.5",
      "Pick Home −1.5 if P(home cover −1.5) > 50%, else Away +1.5"),
-    ("derived_ml", "Derived Moneyline",
-     "Pick Home if P(home) > 50%, else Away"),
+    ("derived_ml", "Derived ML (ensemble ml_win_prob)",
+     "Pick Home if the ensemble P(home) > 50%, else Away — uses the "
+     "production moneyline probability, NOT the NB Monte-Carlo diagnostic "
+     "(retained below)"),
 )
 
 
@@ -560,6 +562,15 @@ def _render_winner_cards(winner_cards: dict) -> None:
             c2.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
             st.caption(f"n = {card.get('n', '--'):,} pooled"
                        + (f" / {h.get('n', 0):,} holdout" if h else ""))
+            nb = card.get("nb_diagnostic")
+            if nb and key == "derived_ml":
+                nb_away = ((nb.get("by_pick") or {}).get("away") or {})
+                awr = nb.get("actual_win_rate")
+                st.caption(
+                    f"NB MC diagnostic (p_home_win_derived): n={nb.get('n', '--'):,} "
+                    f"· pooled win rate {_fmt(awr, pct=True) if awr is not None else '--'} "
+                    f"· away-picks {_fmt(nb_away.get('win_rate'), pct=True) if nb_away.get('win_rate') is not None else '--'} "
+                    "(underweights home edge)")
 
 
 def _render_fit_panel(fit: dict) -> None:
