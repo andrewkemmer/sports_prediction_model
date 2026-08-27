@@ -34,6 +34,8 @@ _PROTECTED_DELIVERY_NAMES = {
     "lineups.parquet",
     "batter_woba.parquet",
     "team_woba.parquet",
+    "umpire_map.csv",
+    "umpire_stats.csv",
 }
 _PROTECTED_DELIVERY_PREFIXES = (
     "models/", "pbp_chunks/", "run_engine_monitor_",
@@ -105,6 +107,18 @@ class TestCleanupProtection(TestCase):
         tracked = [
             "mlb-bet-predictor/data_delivery/models/ensemble_v1.joblib",
             "mlb-bet-predictor/data_delivery/models/alpha_params.json",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertEqual(stale, [])
+        self.assertEqual(prot, 2)
+
+    def test_umpire_maintained_files_protected(self):
+        """The maintained umpire map/stats are dateless -> exact-name
+        protected or Phase 6 would delete them and force a re-fetch."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/umpire_map.csv",
+            "mlb-bet-predictor/data_delivery/umpire_stats.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")

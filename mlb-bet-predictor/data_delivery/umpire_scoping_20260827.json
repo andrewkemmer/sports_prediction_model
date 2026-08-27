@@ -1,0 +1,54 @@
+{
+  "schema": "umpire-scoping/v1",
+  "commit_sha": "69e005504cc6103f30a0c47d9be9370aa9510321",
+  "date": "2026-08-27",
+  "data_access": {
+    "source": "MLB StatsAPI schedule?hydrate=officials (one request per season)",
+    "hp_umpire_official_type": "Home Plate (officialType)",
+    "requests_per_refresh": "2 for the full 2025+2026 frame (incremental afterwards: 0 when both seasons cached)",
+    "frame_games": 4481,
+    "frame_coverage_pct": 100.0,
+    "frame_with_umpire_id_pct": 100.0,
+    "unique_umpires_in_frame": 95,
+    "map_rows_total": 5934,
+    "note": "Savant/Statcast 'umpire' field is NULL in the installed pybaseball pull; the schedule hydrate=officials endpoint is the working umpire source (100% coverage)."
+  },
+  "runs_proxy_verdict": {
+    "verdict": "DON'T ADOPT as a model feature",
+    "feature_tested": "umpire's within-season trailing mean total runs over his prior games worked (window 25, min floor 10), leakage-free, 2025 and 2026 built separately",
+    "control": "run engine lambda sum (home_expected_runs + away_expected_runs)",
+    "2025": {
+      "n": 1512,
+      "n_umpires": 83,
+      "ols_beta": -0.172,
+      "t": -1.58,
+      "r2_gain": 0.0016,
+      "over85_auc_gain": -0.0
+    },
+    "2026": {
+      "n": 1107,
+      "n_umpires": 88,
+      "ols_beta": 0.09,
+      "t": 0.79,
+      "r2_gain": 0.0006,
+      "over85_auc_gain": 0.0024
+    },
+    "compression_ratio_point_estimate": -0.52,
+    "compression_meaningful": false,
+    "robustness": "expanding-window variant: 2025 beta -0.16 (t=-0.85), 2026 beta -0.15 (t=-0.55) \u2014 sign unstable across windows; same-series-excluded variant unchanged; umpire-identity ceiling R2 ~3-5% of runs variance",
+    "ablation_gate_run": false,
+    "reason": "No material signal in either era -> the 45-fold blend ablation gate was never warranted (scoping rule)."
+  },
+  "deferred_variant": {
+    "called_strike_rate_on_non_borderline_pitches": {
+      "status": "deferred",
+      "why": "park-independent signal; needs zone/description pitch data (Statcast re-pull retaining those columns, ~1.3M pitches) joined to the StatsAPI umpire IDs",
+      "ready_when": "umpire_stats.csv called_pitch_n/called_strike_rate columns populated"
+    }
+  },
+  "maintained_component": {
+    "module": "backend/umpires.py",
+    "map": "data_delivery/umpire_map.csv (incremental, protected from Phase 6)",
+    "stats": "data_delivery/umpire_stats.csv (per-umpire diagnostics, protected from Phase 6)"
+  }
+}

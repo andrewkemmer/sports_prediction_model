@@ -338,6 +338,13 @@ _PROTECTED_DELIVERY_NAMES = {
     "lineups.parquet",
     "batter_woba.parquet",
     "team_woba.parquet",
+    # Maintained umpire data access (umpires.py): the cumulative map + the
+    # per-umpire diagnostics table are dateless files updated IN PLACE every
+    # run (incremental, cache-by-season). The bare date-gate can't save a
+    # dateless name, so exact-name protect them or Phase 6 would delete the
+    # map and force a full re-fetch.
+    "umpire_map.csv",
+    "umpire_stats.csv",
 }
 # Prefix-protected. ``run_engine_monitor_<date>.json`` is date-stamped so the
 # bare date-gate would delete each day's monitor before the next run builds

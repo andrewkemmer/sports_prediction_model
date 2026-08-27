@@ -66,6 +66,11 @@ from features import (
     add_lineup_delta_features,
     refine_dome_game_level,
 )
+from umpires import (
+    build_umpire_stats,
+    load_umpire_map,
+    maintain_umpire_map,
+)
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
 from github_sync import sync_artifacts
@@ -1505,6 +1510,26 @@ def run_daily_pipeline(
             logger.info("Refreshed game_level_features.csv with applied weather")
         except Exception as exc:
             logger.warning("Could not refresh game_level_features.csv: %s", exc)
+
+        # 1.9 Umpire map maintenance (maintained data access, NOT a model
+        # feature — the runs-tendency scoping verdict forbids wiring it into
+        # the run engine or moneyline; see umpires.py docstring). Incremental:
+        # only seasons missing from the cumulative map are fetched. Fail-safe.
+        try:
+            _ump = maintain_umpire_map(target_date, required_games=games)
+            logger.info(
+                "Umpire map: %d games, %d umpires "
+                "(fetched seasons %s, gap-filled %s, rows added %d)",
+                _ump.get("total_rows", 0), _ump.get("n_umpires", 0),
+                ",".join(_ump.get("seasons_fetched", [])) or "none",
+                ",".join(_ump.get("gap_filled_seasons", [])) or "none",
+                _ump.get("rows_added", 0),
+            )
+            build_umpire_stats(load_umpire_map(), games)
+        except Exception as exc:
+            logger.warning(
+                "Umpire map maintenance failed (map stays as-is): %s", exc
+            )
 
         # 2. Generate/attach market lines
         logger.info("Step 2: Generating market lines")
