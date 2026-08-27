@@ -371,8 +371,8 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         hs = oof["home_score"].to_numpy(float)
         as_ = oof["away_score"].to_numpy(float)
         total = hs + as_
-        dp = "ml_win_prob" if "ml_win_prob" in oof.columns \
-            else "p_home_win_derived"
+        cards = compute_winner_cards(df)
+        dp = self._derived_pcol(cards)
         refs = {"over_8_5": ("p_over_8_5", total >= 9),
                 "home_cover_1_5": ("p_home_cover_1_5", hs - as_ >= 2),
                 "derived_moneyline": (dp, hs > as_)}
@@ -462,27 +462,39 @@ class TestWinnerCardSymmetry(unittest.TestCase):
                                places=4)
         self.assertLess(nb["by_pick"]["away"]["win_rate"], 0.50)
 
-    def test_derived_ml_sources_ensemble_and_preserves_nb_diagnostic(self):
-        """The derived_ml card prices the ensemble's ml_win_prob (both pick
-        directions >50% — the symmetric, well-calibrated production
-        probability), and the NB Monte-Carlo diagnostic stays in the JSON."""
+    def test_derived_ml_sources_run_line_model_with_ensemble_reference(self):
+        """The derived_ml card is the RUN LINE model's own NB moneyline
+        (p_home_win_derived): pooled ~50.1%, away-picks ~47.9% — reported
+        as-is, NOT masked — and the moneyline ensemble rides as a one-line
+        ml_reference (~55.6%) so the model comparison stays visible."""
         from run_engine import compute_winner_cards
         df = self._real()
         cards = compute_winner_cards(df)
         c = cards["derived_ml"]
-        self.assertEqual(c["source"], "ml_win_prob")
+        self.assertEqual(c["source"], "nb_mc_p_home_win_derived")
         oof = df[df["kind"] == "oof"]
-        ens = oof["ml_win_prob"].to_numpy(float)
-        self.assertEqual(c["n"], int(np.isfinite(ens).sum()))
-        for side in ("home", "away"):
-            s = c["by_pick"][side]
-            self.assertGreater(s["win_rate"], 0.50,
-                               f"derived_ml/{side} >50% (ensemble)")
-            self.assertGreater(s["n"], 500)
+        nb_p = oof["p_home_win_derived"].to_numpy(float)
+        self.assertEqual(c["n"], int(np.isfinite(nb_p).sum()))
+        # Expected numbers (do NOT adjust or mask): pooled ~50.1%,
+        # away-picks ~47.9% (home-edge underweighting, reported as-is).
+        self.assertAlmostEqual(c["win_rate"], 0.5006, places=3)
+        self.assertLess(c["by_pick"]["away"]["win_rate"], 0.50)
+        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4794,
+                               places=3)
+        self.assertGreater(c["by_pick"]["home"]["win_rate"], 0.50)
+        # nb_diagnostic preserved (schema-stable record of the finding).
         nb = c["nb_diagnostic"]
-        self.assertEqual(nb["n"], 4369)
-        self.assertLess(nb["by_pick"]["away"]["win_rate"], 0.50,
-                        "NB away-pick deficit preserved (model finding)")
+        self.assertEqual(nb["n"], c["n"])
+        self.assertAlmostEqual(nb["actual_win_rate"], c["win_rate"],
+                               places=4)
+        # Moneyline ENSEMBLE one-line reference (~55.6%, both directions).
+        ref = c.get("ml_reference")
+        self.assertIsNotNone(ref)
+        self.assertEqual(ref["source"], "ml_win_prob")
+        self.assertGreater(ref["win_rate"], 0.55)
+        self.assertAlmostEqual(ref["win_rate"], 0.5563, places=3)
+        self.assertEqual(ref["n"],
+                         int(np.isfinite(oof["ml_win_prob"]).sum()))
 
     def test_synthetic_symmetric_frame_both_directions_win(self):
         """With a well-calibrated synthetic probability BOTH pick directions

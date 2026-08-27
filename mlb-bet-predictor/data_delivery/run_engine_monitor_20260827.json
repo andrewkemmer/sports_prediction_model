@@ -30,7 +30,8 @@
       },
       "by_pick": null,
       "source": null,
-      "nb_diagnostic": null
+      "nb_diagnostic": null,
+      "ml_reference": null
     },
     "run_line": {
       "n": 4369,
@@ -69,45 +70,46 @@
         }
       },
       "source": null,
-      "nb_diagnostic": null
+      "nb_diagnostic": null,
+      "ml_reference": null
     },
     "derived_ml": {
-      "n": 4016,
-      "actual_win_rate": 0.5563,
-      "win_rate": 0.5563,
-      "predicted_mean": 0.5654,
-      "auc": 0.56838,
-      "ece_raw": 0.00916,
-      "ece_calibrated": 0.00916,
-      "brier": 0.24504,
-      "logloss": 0.68314,
-      "logloss_calibrated": 0.68314,
+      "n": 4369,
+      "actual_win_rate": 0.5006,
+      "win_rate": 0.5006,
+      "predicted_mean": 0.5399,
+      "auc": 0.55553,
+      "ece_raw": 0.0396,
+      "ece_calibrated": 0.0396,
+      "brier": 0.25052,
+      "logloss": 0.69417,
+      "logloss_calibrated": 0.69417,
       "holdout": {
-        "n": 274,
-        "actual_win_rate": 0.5839,
-        "win_rate": 0.5839,
-        "predicted_mean": 0.5536,
-        "ece_raw": 0.03031,
-        "ece_calibrated": 0.03031,
-        "brier": 0.24023,
-        "logloss": 0.67331,
-        "baseline_rate": 0.5839,
-        "baseline_logloss": 0.67899,
-        "beats_baseline_logloss": true
+        "n": 299,
+        "actual_win_rate": 0.4381,
+        "win_rate": 0.4381,
+        "predicted_mean": 0.539,
+        "ece_raw": 0.11502,
+        "ece_calibrated": 0.11502,
+        "brier": 0.25369,
+        "logloss": 0.7004,
+        "baseline_rate": 0.4381,
+        "baseline_logloss": 0.68547,
+        "beats_baseline_logloss": false
       },
       "by_pick": {
         "home": {
-          "n": 2853,
-          "win_rate": 0.5605,
-          "predicted_mean": 0.5717
+          "n": 675,
+          "win_rate": 0.6163,
+          "predicted_mean": 0.527
         },
         "away": {
-          "n": 1163,
-          "win_rate": 0.546,
-          "predicted_mean": 0.55
+          "n": 3694,
+          "win_rate": 0.4794,
+          "predicted_mean": 0.5423
         }
       },
-      "source": "ml_win_prob",
+      "source": "nb_mc_p_home_win_derived",
       "nb_diagnostic": {
         "n": 4369,
         "actual_win_rate": 0.5006,
@@ -125,6 +127,12 @@
             "predicted_mean": 0.5423
           }
         }
+      },
+      "ml_reference": {
+        "source": "ml_win_prob",
+        "n": 4016,
+        "win_rate": 0.5563,
+        "predicted_mean": 0.5654
       }
     }
   },
@@ -176,11 +184,11 @@
       },
       {
         "date": "2026-08-27",
-        "ece_calibrated": 0.00916,
-        "brier": 0.24504,
-        "logloss": 0.68314,
-        "predicted_mean": 0.5654,
-        "n": 4016
+        "ece_calibrated": 0.0396,
+        "brier": 0.25052,
+        "logloss": 0.69417,
+        "predicted_mean": 0.5399,
+        "n": 4369
       }
     ]
   },
