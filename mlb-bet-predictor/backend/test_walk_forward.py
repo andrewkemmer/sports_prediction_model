@@ -184,5 +184,67 @@ class TestWalkForwardSplits(unittest.TestCase):
             walk_forward_splits(df)
 
 
+class TestPartialTailFold(unittest.TestCase):
+    """A frame whose final week is shorter than the cadence must surface OOF
+    predictions for the tail days (08-23-cap regression).
+
+    The last fold's full cadence window would overrun the frame's max date,
+    so it runs PARTIALLY into the tail (val_end = frame max) and is kept even
+    below the min-val gate — leakage-free because train stays strictly before
+    val_start.
+    """
+
+    def _tail_frame(self, n_days=38, games_per_day=8):
+        """38 days = 5 full 7-day folds + a 3-day partial tail (24 games
+        < MIN_VAL_FOLD_GAMES=40 but >= 5), so the tail fold would be dropped
+        by the gate without the partial-tail exemption."""
+        return _make_games(n_days=n_days, games_per_day=games_per_day, seed=11)
+
+    def test_splits_flag_final_overrun_fold(self):
+        """walk_forward_splits emits is_partial_tail=True only on the final
+        fold, with val_end == frame max, and train strictly < val_start."""
+        from backend.training import walk_forward_splits
+        games = self._tail_frame()
+        splits = walk_forward_splits(games, retrain_cadence_days=7)
+        self.assertGreaterEqual(len(splits), 2)
+        last = splits[-1]
+        self.assertTrue(last["is_partial_tail"])
+        self.assertEqual(last["val_end"].date(),
+                         games["game_date"].max().date())
+        # Leakage: the tail fold trains strictly before its val_start.
+        self.assertLess(last["train_games"]["game_date"].max(),
+                        last["val_games"]["game_date"].min())
+        # Only the final fold is flagged partial tail.
+        self.assertEqual(sum(1 for s in splits if s["is_partial_tail"]), 1)
+
+    def test_eval_produces_oof_rows_for_tail_days(self):
+        """walk_forward_evaluate keeps the final partial-tail fold below the
+        min-val gate, so its tail-day games get OOF predictions (elt NEVER
+        dropped by min_val_games)."""
+        import numpy as np
+        from backend.training import walk_forward_evaluate
+        games = self._tail_frame()
+        frame_max = games["game_date"].max()
+        tail_min_date = games[games["game_date"] >= games["game_date"].max()
+                              - np.timedelta64(2, "D")]["game_date"].min()
+
+        _models, _pooled, combined = walk_forward_evaluate(
+            games, retrain_cadence_days=7, min_train_days=0)
+        self.assertFalse(combined.empty)
+        combined["game_date"] = pd.to_datetime(combined["game_date"])
+        # The combined OOF frame now reaches the frame's max date.
+        self.assertEqual(combined["game_date"].max(), frame_max)
+        # Tail-day games are present and carry a finite OOF probability.
+        tail_rows = combined[combined["game_date"] >= tail_min_date]
+        self.assertGreater(len(tail_rows), 0)
+        self.assertTrue(np.isfinite(tail_rows["home_win_prob_model"]).all())
+        # Per-fold leakage: the executed tail fold's train < its val_start.
+        from backend.training import walk_forward_splits
+        splits = walk_forward_splits(games, retrain_cadence_days=7)
+        last = splits[-1]
+        self.assertLess(last["train_games"]["game_date"].max(),
+                        last["val_games"]["game_date"].min())
+
+
 if __name__ == "__main__":
     unittest.main()

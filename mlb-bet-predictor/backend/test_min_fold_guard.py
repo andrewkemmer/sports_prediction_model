@@ -40,7 +40,12 @@ def _synthetic_games(n_days: int = 150, seed: int = 7) -> pd.DataFrame:
 
 class TestMinFoldGuard(unittest.TestCase):
     def test_small_folds_skipped_by_default(self):
-        """Default guard drops folds under MIN_VAL_FOLD_GAMES."""
+        """Default guard drops NON-partial-tail folds under MIN_VAL_FOLD_GAMES.
+
+        The FINAL partial-tail fold (a short window at the frame's end) is
+        kept even below the gate so the last decided day's OOF predictions
+        surface (the 08-23-cap fix); every other fold below 40 games is still
+        dropped."""
         df = _synthetic_games()
         _, _, preds = walk_forward_evaluate(
             df, retrain_cadence_days=7, min_train_days=0
@@ -48,8 +53,15 @@ class TestMinFoldGuard(unittest.TestCase):
         if preds.empty:
             self.fail("all folds skipped — guard too aggressive")
         sizes = preds.groupby("fold_idx").size()
-        self.assertTrue((sizes >= 40).all(),
-                        f"fold below minimum survived: {sizes.to_dict()}")
+        last_idx = sizes.index.max()
+        non_tail = sizes[sizes.index != last_idx]
+        # Every NON-final fold must clear the min-val gate.
+        self.assertTrue((non_tail >= 40).all(),
+                        f"non-tail fold below minimum survived: {non_tail.to_dict()}")
+        # The final partial-tail fold is present regardless of size.
+        self.assertIn(last_idx, sizes)
+        self.assertGreaterEqual(sizes[last_idx], 5,
+                                "tail fold should still meet the hard floor")
 
     def test_min_val_games_zero_keeps_all_folds(self):
         """opt-in override restores the legacy keep-everything behavior."""

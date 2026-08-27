@@ -268,6 +268,10 @@ def walk_forward_splits(
         fold_idx: int
         val_start: datetime
         val_end: datetime
+        is_partial_tail: True ONLY for the final fold when its window runs
+            partially into the frame's tail (short of a full cadence). Consumers
+            may keep that one fold below the min-val gate to surface the last
+            decided day's OOF predictions (still leakage-free: train < val_start).
     """
     if "game_date" not in games.columns:
         raise ValueError("games must have a 'game_date' column")
@@ -312,6 +316,16 @@ def walk_forward_splits(
         val_end_idx = min(val_start_idx + retrain_cadence_days, len(unique_dates))
         val_end = unique_dates[val_end_idx - 1]
 
+        # A FINAL fold whose full cadence window would overrun the frame's
+        # max game_date runs PARTIALLY into the tail (val_end = frame max)
+        # instead of being dropped. Consumers (walk_forward_evaluate,
+        # _attach_oof_run_margins) use this flag to keep that one fold even
+        # when it falls under the min-val gate, so the last decided day's
+        # OOF predictions surface (the tail rows are never in the final
+        # fold's TRAIN set — train stays strictly < val_start — so keeping
+        # the partial fold is leakage-free).
+        is_partial_tail = val_end_idx < val_start_idx + retrain_cadence_days
+
         # Training: everything strictly before val_start
         train_mask = df["game_date"] < val_start
         val_mask = (df["game_date"] >= val_start) & (df["game_date"] <= val_end)
@@ -326,6 +340,7 @@ def walk_forward_splits(
                 "fold_idx": fold_idx,
                 "val_start": val_start,
                 "val_end": val_end,
+                "is_partial_tail": is_partial_tail,
             })
             fold_idx += 1
 
@@ -1374,7 +1389,8 @@ def _attach_oof_run_margins(
                                        retrain_cadence_days, max_eval_folds,
                                        min_train_days)
 
-    exec_folds = [s for s in splits if len(s["val_games"]) >= min_val_games]
+    exec_folds = [s for s in splits
+                    if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
     if not exec_folds:
         logger.warning("run_margin_diff: no executed folds — margin stays all-NaN")
         out = games.copy()
@@ -1425,7 +1441,7 @@ def _regenerate_splits(out: pd.DataFrame, splits: list[dict[str, Any]],
         s for s in walk_forward_splits(
             out, retrain_cadence_days=retrain_cadence_days,
             max_eval_folds=max_eval_folds, min_train_days=min_train_days)
-        if len(s["val_games"]) >= min_val_games]
+        if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
 
 
 # ── Full walk-forward evaluation ────────────────────────────────────────────
@@ -1501,7 +1517,12 @@ def walk_forward_evaluate(
 
         if len(train) < 10 or len(val) < 5:
             continue
-        if len(val) < min_val_games:
+        # Keep the FINAL partial-tail fold even below the min-val gate so the
+        # last decided day's OOF predictions surface (the tail rows are never
+        # in this fold's train set, so keeping it is leakage-free). Every
+        # other fold below the gate is still skipped.
+        is_partial_tail = bool(split.get("is_partial_tail"))
+        if len(val) < min_val_games and not is_partial_tail:
             logger.info(
                 "Skipping fold %d [%s → %s]: only %d val games < %d minimum",
                 split["fold_idx"], str(split["val_start"])[:10],
