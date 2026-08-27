@@ -939,6 +939,22 @@ def derive_markets_v3(oof: pd.DataFrame,
     The last `holdout_days` of OOF games are SEALED: no α fitting, binning,
     or form selection ever sees them. Everything is scored pooled OOF and
     again holdout-only, each against constant-base-rate baselines."""
+    # OOF rows without a stable identity cannot be joined to slate/history
+    # artifacts and must never enter the persisted markets table. Keep this
+    # filter at the market-construction boundary so every caller is safe.
+    _identity = oof.get("game_pk")
+    if _identity is not None:
+        _bad_identity = _identity.isna()
+        if _bad_identity.any():
+            logger.warning(
+                "derive_markets_v3: dropping %d identity-less OOF row(s) "
+                "before market construction; game_pk=%s game_id=%s",
+                int(_bad_identity.sum()),
+                oof.loc[_bad_identity, "game_pk"].tolist(),
+                oof.loc[_bad_identity, "game_id"].tolist()
+                if "game_id" in oof.columns else "<absent>",
+            )
+            oof = oof.loc[~_bad_identity].reset_index(drop=True)
     dates = pd.to_datetime(oof["game_date"])
     cutoff = dates.max() - pd.Timedelta(days=holdout_days)
     pre_mask = (dates < cutoff).to_numpy()
