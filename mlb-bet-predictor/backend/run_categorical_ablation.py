@@ -203,6 +203,8 @@ def main() -> None:
     ap.add_argument("--arms", default="WITHOUT,WITH",
                     help="comma-separated arms, e.g. WITHOUT,WITH")
     ap.add_argument("--cache-dir", type=Path, default=Path("/tmp"))
+    ap.add_argument("--target-date", type=str, default=None,
+                    help="Pipeline target date (YYYY-MM-DD); defaults to today")
     args = ap.parse_args()
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
 
@@ -215,7 +217,8 @@ def main() -> None:
           f"folds={len(data['folds'])} | margin coverage tune="
           f"{100 * tune[MARGIN_COL].notna().mean():.1f}%")
 
-    record_path = DATA_DELIVERY_DIR / f"categorical_ablation_{h}.json"
+    target = args.target_date or pd.Timestamp.now().date().isoformat()
+    record_path = DATA_DELIVERY_DIR / f"categorical_ablation_{target.replace('-', '')}.json"
     record = {"data_hash": h, "csv": str(CSV), "holdout_days": HOLDOUT_DAYS,
               "categorical_set": {
                   "WITH": list(training.FULL_TREE_CATEGORICAL_COLS),

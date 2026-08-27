@@ -320,6 +320,8 @@ def main() -> None:
     ap.add_argument("--limit-folds", type=int, default=0)
     ap.add_argument("--smoke", action="store_true",
                     help="3 folds, output to /tmp, gate skipped")
+    ap.add_argument("--target-date", type=str, default=None,
+                    help="Pipeline target date (YYYY-MM-DD); defaults to today")
     args = ap.parse_args()
     if args.smoke:
         args.limit_folds = min(args.limit_folds or 3, 3)
@@ -344,8 +346,10 @@ def main() -> None:
         print(f"redundancy |ρ|(margin, ·): {red}")
 
     variants = build_variants([MARGIN_COL] + list(LAM_COLS))
+    target = args.target_date or pd.Timestamp.now().date().isoformat()
+    compact_target = target.replace("-", "")
     out = args.out or (DATA_DELIVERY_DIR /
-                       f"margin_ablation_{sha[:12]}.json")
+                       f"margin_ablation_{compact_target}.json")
     if out.exists():
         results = json.loads(out.read_text())
     else:

@@ -41,6 +41,7 @@ import json
 import subprocess
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -229,7 +230,7 @@ def _gate(summaries: dict[str, dict]) -> list[str]:
     return lines
 
 
-def compare() -> None:
+def compare(target_date: str | None = None) -> None:
     print("\n============= RUN-ENGINE KEEP-LIST ABLATION =============")
     summaries = {}
     for arm in ("A", "B", "C", "REF"):
@@ -287,7 +288,8 @@ def compare() -> None:
         "arms": {arm: summaries[arm] for arm in ("A", "B", "C", "REF")},
         "gate": _gate(summaries),
     }
-    out = OUT_DIR / f"run_engine_keep_ablation_{record['head_sha']}.json"
+    compact_target = (target_date or date.today().isoformat()).replace("-", "")
+    out = OUT_DIR / f"run_engine_keep_ablation_{compact_target}.json"
     out.write_text(json.dumps(record, indent=2))
     print(f"\nrecord -> {out}")
 
@@ -296,9 +298,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arm", choices=["A", "B", "C", "REF", "compare"],
                     default="compare")
+    ap.add_argument("--target-date", type=str, default=None,
+                    help="Pipeline target date (YYYY-MM-DD); defaults to today")
     args = ap.parse_args()
     if args.arm == "compare":
-        compare()
+        compare(args.target_date)
     else:
         run_arm(args.arm)
 

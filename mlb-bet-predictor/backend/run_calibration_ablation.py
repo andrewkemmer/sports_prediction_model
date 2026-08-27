@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -188,9 +189,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("csv", type=Path)
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--target-date", type=str, default=None,
+                        help="Pipeline target date (YYYY-MM-DD); defaults to today")
     args = parser.parse_args()
     result = replay(pd.read_csv(args.csv))
-    out = args.out or args.csv.with_name("calibration_ablation.json")
+    target = args.target_date or date.today().isoformat()
+    compact = target.replace("-", "")
+    out = args.out or args.csv.with_name(f"calibration_ablation_{compact}.json")
     out.write_text(json.dumps(result, indent=2) + "\n")
     for name, scores in result["variants"].items():
         print(f"{name}: logloss={scores['logloss']:.4f} auc={scores['auc']:.4f} ece={scores['ece']:.4f}")

@@ -36,9 +36,7 @@ _PROTECTED_DELIVERY_NAMES = {
     "team_woba.parquet",
 }
 _PROTECTED_DELIVERY_PREFIXES = (
-    "models/", "pbp_chunks/", "run_engine_monitor_", "calibration_ablation_",
-    "margin_ablation_", "run_engine_keep_ablation_", "categorical_ablation_",
-    "lgb_rounds_", "rf_rounds_", "xgb_rounds_",
+    "models/", "pbp_chunks/", "run_engine_monitor_",
 )
 _DATE_RE = re.compile(r"_(\d{8})")
 
@@ -198,20 +196,19 @@ class TestCleanupProtection(TestCase):
         self.assertEqual(len(stale), 2)
         self.assertEqual(prot, 2)
 
-    def test_ablation_records_protected_while_stale_pruned(self):
-        """Stale ablation/rounds provenance survives Phase 6 while an
-        unrelated stale date-stamped artifact still prunes."""
+    def test_ablation_records_use_date_gate_not_prefix_protection(self):
+        """A run-dated ablation record survives while an older one prunes;
+        this proves ablations are not prefix-protected."""
         tracked = [
+            "mlb-bet-predictor/data_delivery/calibration_ablation_20260826.json",
             "mlb-bet-predictor/data_delivery/calibration_ablation_20260820.json",
-            "mlb-bet-predictor/data_delivery/margin_ablation_20260821.json",
-            "mlb-bet-predictor/data_delivery/run_engine_keep_ablation_20260822.json",
-            "mlb-bet-predictor/data_delivery/categorical_ablation_20260823.json",
-            "mlb-bet-predictor/data_delivery/lgb_rounds_20260820.json",
             "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
         ]
-        stale, prot, cur = classify_tracked(tracked, set(), "20260824")
-        self.assertEqual(prot, 5)
+        stale, prot, cur = classify_tracked(tracked, set(), "20260826")
+        self.assertEqual(prot, 0)
+        self.assertEqual(cur, 1)
         self.assertEqual(stale, [
+            "mlb-bet-predictor/data_delivery/calibration_ablation_20260820.json",
             "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
         ])
 
