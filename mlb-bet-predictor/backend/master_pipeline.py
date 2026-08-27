@@ -345,7 +345,11 @@ _PROTECTED_DELIVERY_NAMES = {
 # Prefix-protect it (the same way model_history.json is name-protected for
 # the moneyline monitor's history leg) so every dated monitor survives and
 # the next day folds today's stats into the cumulative-by-date series.
-_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/", "run_engine_monitor_")
+_PROTECTED_DELIVERY_PREFIXES = (
+    "models/", "pbp_chunks/", "run_engine_monitor_", "calibration_ablation_",
+    "margin_ablation_", "run_engine_keep_ablation_", "categorical_ablation_",
+    "lgb_rounds_", "rf_rounds_", "xgb_rounds_",
+)
 
 # Current run date in YYYYMMDD for date-gating.
 _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"

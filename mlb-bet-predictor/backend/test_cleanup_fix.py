@@ -35,7 +35,11 @@ _PROTECTED_DELIVERY_NAMES = {
     "batter_woba.parquet",
     "team_woba.parquet",
 }
-_PROTECTED_DELIVERY_PREFIXES = ("models/", "pbp_chunks/", "run_engine_monitor_")
+_PROTECTED_DELIVERY_PREFIXES = (
+    "models/", "pbp_chunks/", "run_engine_monitor_", "calibration_ablation_",
+    "margin_ablation_", "run_engine_keep_ablation_", "categorical_ablation_",
+    "lgb_rounds_", "rf_rounds_", "xgb_rounds_",
+)
 _DATE_RE = re.compile(r"_(\d{8})")
 
 
@@ -193,6 +197,23 @@ class TestCleanupProtection(TestCase):
             "mlb-bet-predictor/data_delivery/calibration_20260819.json", stale)
         self.assertEqual(len(stale), 2)
         self.assertEqual(prot, 2)
+
+    def test_ablation_records_protected_while_stale_pruned(self):
+        """Stale ablation/rounds provenance survives Phase 6 while an
+        unrelated stale date-stamped artifact still prunes."""
+        tracked = [
+            "mlb-bet-predictor/data_delivery/calibration_ablation_20260820.json",
+            "mlb-bet-predictor/data_delivery/margin_ablation_20260821.json",
+            "mlb-bet-predictor/data_delivery/run_engine_keep_ablation_20260822.json",
+            "mlb-bet-predictor/data_delivery/categorical_ablation_20260823.json",
+            "mlb-bet-predictor/data_delivery/lgb_rounds_20260820.json",
+            "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260824")
+        self.assertEqual(prot, 5)
+        self.assertEqual(stale, [
+            "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
+        ])
 
     def test_run_engine_monitor_protected_while_stale_pruned(self):
         """Every dated run_engine_monitor_<date>.json survives cleanup via the
