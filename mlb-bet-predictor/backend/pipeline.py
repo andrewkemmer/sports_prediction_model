@@ -775,14 +775,11 @@ def _model_monitor_json(
     return path
 
 
-# The 6 run-engine reference markets the monitor scores (mirrors
-# TOTAL_REF_LINES + RUN_REF_LINES + the derived moneyline).
-_RUN_ENGINE_MONITOR_LINES = (
-    "over_7_5", "over_8_5", "over_9_5",
-    "home_cover_1_5", "home_cover_2_5", "derived_moneyline",
-)
+# The 3 run-engine WINNER cards the monitor scores (binary pick framing,
+# matching the Totals & Run Lines history tables).
+_RUN_ENGINE_WINNER_CARDS = ("over_under", "run_line", "derived_ml")
 
-# How many recent daily points each line's rolling series keeps.
+# How many recent daily points each card's rolling series keeps.
 RUN_ENGINE_MONITOR_ROLLING_DAYS = 45
 
 
@@ -829,18 +826,24 @@ def _run_engine_monitor_json(
 ) -> Path:
     """Write run_engine_monitor_YYYYMMDD.json -- the Run-Line & Totals Monitor.
 
-    Schema (run-engine-monitor/v1). ``block`` is run_engine_daily's
+    Schema (run-engine-monitor/v2). ``block`` is run_engine_daily's
     monitor-embed dict; the flags are its markets_persisted passthrough.
 
-      per_line:  {line: {n, base_rate, predicted_mean, ece_raw,
-                          ece_calibrated, brier, logloss, holdout{...}}}
-                 ``predicted_mean`` is the pooled PREQUENTIALLY-CALIBRATED
-                 mean probability (score_at field) shown beside ``base_rate``
-                 so the calibration spread (mean prediction vs mean outcome)
-                 is explicit.
-      rolling:   {line: [{date, ece_calibrated, brier, logloss,
+      winner_cards: {card: {n, actual_win_rate, win_rate, predicted_mean,
+                            auc, ece_raw, ece_calibrated, brier, logloss,
+                            holdout{...}}} for over_under / run_line /
+                 derived_ml — the three binary WINNER cards (pick framing
+                 matching the Totals & Run Lines history tables).
+                 actual_win_rate (renamed from base_rate) is the empirical
+                 pick win rate, push-excluded; win_rate is the same number
+                 (picks correct at the >50% rule); predicted_mean is the
+                 pooled PREQUENTIALLY-CALIBRATED favored-probability mean
+                 shown beside it as one compact stat line; auc is the
+                 FIXED-reference-line AUC (over_8_5 / home_cover_1_5 /
+                 derived_ml — never a mixed-line rank).
+      rolling:   {card: [{date, ece_calibrated, brier, logloss,
                          predicted_mean, n}]} cumulative-by-date series
-                 folded from prior monitor files (protected by the
+                 folded from prior v2 monitor files (protected by the
                  run_engine_monitor_ prefix in _PROTECTED_DELIVERY_PREFIXES
                  so they survive cleanup), trimmed to the last 45 days.
                  First build is empty; the renderer must handle [].
@@ -854,32 +857,37 @@ def _run_engine_monitor_json(
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"run_engine_monitor_{target_date_str}.json"
 
-    per_line: dict[str, dict] = {}
+    winner_cards: dict[str, dict] = {}
     if block:
-        mets = block.get("market_metrics") or {}
-        for line in _RUN_ENGINE_MONITOR_LINES:
-            card = mets.get(line)
-            if not isinstance(card, dict):
+        wc = block.get("winner_cards") or {}
+        for card in _RUN_ENGINE_WINNER_CARDS:
+            c = wc.get(card)
+            if not isinstance(c, dict):
                 continue
-            per_line[line] = {
-                "n": int(card.get("n", 0)),
-                "base_rate": card.get("baseline_rate"),
-                "predicted_mean": card.get("predicted_mean"),
-                "ece_raw": card.get("engine_ece_raw"),
-                "ece_calibrated": card.get("engine_ece_calibrated"),
-                "brier": card.get("engine_brier"),
-                "logloss": card.get("engine_logloss"),
-                "logloss_calibrated": card.get("engine_logloss_calibrated"),
-                "holdout": card.get("holdout"),
+            winner_cards[card] = {
+                "n": int(c.get("n", 0)),
+                "actual_win_rate": c.get("actual_win_rate"),
+                "win_rate": c.get("win_rate"),
+                "predicted_mean": c.get("predicted_mean"),
+                "auc": c.get("auc"),
+                "ece_raw": c.get("ece_raw"),
+                "ece_calibrated": c.get("ece_calibrated"),
+                "brier": c.get("brier"),
+                "logloss": c.get("logloss"),
+                "logloss_calibrated": c.get("logloss_calibrated"),
+                "holdout": c.get("holdout"),
             }
 
-    # Rolling per-line series: fold prior monitor files (protected by the
-    # run_engine_monitor_ prefix so cleanup never deletes them), append today's
-    # point, dedupe by date, trim to the last RUN_ENGINE_MONITOR_ROLLING_DAYS.
-    rolling: dict[str, list[dict]] = {ln: [] for ln in _RUN_ENGINE_MONITOR_LINES}
+    # Rolling per-card series (v2): fold prior monitor files' winner_cards
+    # (protected by the run_engine_monitor_ prefix so cleanup never deletes
+    # them), append today's point, dedupe by date, trim to the last
+    # RUN_ENGINE_MONITOR_ROLLING_DAYS. Prior v1 files carry per_line (not
+    # winner_cards) and are skipped gracefully — the first v2 build starts
+    # empty and the renderer must handle it.
+    rolling: dict[str, list[dict]] = {ln: [] for ln in _RUN_ENGINE_WINNER_CARDS}
     try:
         by_line: dict[str, dict[str, dict]] = {
-            ln: {} for ln in _RUN_ENGINE_MONITOR_LINES}
+            ln: {} for ln in _RUN_ENGINE_WINNER_CARDS}
         if DATA_DELIVERY_DIR.exists():
             for p in DATA_DELIVERY_DIR.glob("run_engine_monitor_*.json"):
                 if p.name == path.name:
@@ -890,8 +898,8 @@ def _run_engine_monitor_json(
                     continue
                 fdate = _iso_from_ymd(str(j.get("date") or p.stem.replace(
                     "run_engine_monitor_", "")))
-                for ln in _RUN_ENGINE_MONITOR_LINES:
-                    pc = (j.get("per_line") or {}).get(ln)
+                for ln in _RUN_ENGINE_WINNER_CARDS:
+                    pc = (j.get("winner_cards") or {}).get(ln)
                     if not isinstance(pc, dict):
                         continue
                     by_line[ln][fdate] = {
@@ -903,8 +911,8 @@ def _run_engine_monitor_json(
                         "n": int(pc.get("n", 0)),
                     }
         today_ymd = _iso_from_ymd(target_date_str)
-        for ln in _RUN_ENGINE_MONITOR_LINES:
-            pc = per_line.get(ln)
+        for ln in _RUN_ENGINE_WINNER_CARDS:
+            pc = winner_cards.get(ln)
             if pc is None:
                 continue
             by_line[ln][today_ymd] = {
@@ -915,26 +923,26 @@ def _run_engine_monitor_json(
                 "predicted_mean": pc.get("predicted_mean"),
                 "n": int(pc.get("n", 0)),
             }
-        for ln in _RUN_ENGINE_MONITOR_LINES:
+        for ln in _RUN_ENGINE_WINNER_CARDS:
             series = sorted(by_line[ln].values(), key=lambda r: r["date"])
             rolling[ln] = series[-RUN_ENGINE_MONITOR_ROLLING_DAYS:]
     except Exception as e:
         logger.warning("Run-engine monitor: rolling fold skipped (%s)", e)
 
     data = {
-        "schema": "run-engine-monitor/v1",
+        "schema": "run-engine-monitor/v2",
         "date": target_date_str,
         "markets_persisted": bool(markets_persisted),
         "markets_persist_error": markets_persist_error,
-        "per_line": per_line,
+        "winner_cards": winner_cards,
         "rolling": rolling,
         "fit": _run_engine_fit_block(block),
     }
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
     _nroll = len(next(iter(rolling.values()))) if rolling else 0
-    logger.info("Run-engine monitor: %d lines, rolling %d days -> %s",
-                len(per_line), _nroll, path.name)
+    logger.info("Run-engine monitor: %d winner cards, rolling %d days -> %s",
+                len(winner_cards), _nroll, path.name)
     return path
 
 

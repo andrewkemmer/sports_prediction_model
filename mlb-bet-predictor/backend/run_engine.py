@@ -30,13 +30,14 @@ probe for the Phase-2 Poisson-vs-negative-binomial decision.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any, Optional
 
 import json
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, roc_auc_score
 
 from config import (
     AGREEMENT_FILTER_DELTA,
@@ -1040,15 +1041,31 @@ def derive_markets_v3(oof: pd.DataFrame,
         yv = np.asarray(yv, float)
         base = float(yv.mean())
         row = {
-            "engine_logloss": round(log_loss(yv, p), 5),
+            "engine_logloss": round(log_loss(yv, p, labels=[0.0, 1.0]), 5),
             "engine_brier": round(brier_score(yv, p), 5),
             "engine_ece_raw": ece_score(yv, p),
             "baseline_rate": round(base, 4),
-            "baseline_logloss": round(log_loss(yv, np.full(len(yv), base)), 5),
+            "baseline_logloss": round(log_loss(
+                yv, np.full(len(yv), base), labels=[0.0, 1.0]), 5),
             "baseline_brier": round(brier_score(yv, np.full(len(yv), base)), 5),
         }
+        # AUC over the same OOF y/p vectors (additive). Single-class y cannot
+        # be rank-scored: auc=None with a loud warning, never a crash. Some
+        # sklearn builds raise ValueError, others return NaN — guard both.
+        try:
+            _auc = float(roc_auc_score(yv, p))
+        except ValueError:
+            _auc = None
+        if _auc is None or not np.isfinite(_auc):
+            row["auc"] = None
+            logger.warning(
+                "score_at(%s): single-class y (%d of %d) — auc=None",
+                name, int(yv.sum()), len(yv))
+        else:
+            row["auc"] = round(_auc, 5)
         p_cal = prequential_calibrate(yv, p, fold_idx)
-        row["engine_logloss_calibrated"] = round(log_loss(yv, p_cal), 5)
+        row["engine_logloss_calibrated"] = round(
+            log_loss(yv, p_cal, labels=[0.0, 1.0]), 5)
         row["engine_ece_calibrated"] = ece_score(yv, p_cal)
         # Pooled mean of the PREQUENTIALLY-CALIBRATED probability vector. This
         # is the "predicted mean" the monitor shows next to base_rate so the
@@ -1060,8 +1077,9 @@ def derive_markets_v3(oof: pd.DataFrame,
             ph = p[mask]
             yh = yv[mask]
             base_h = float(yh.mean())
-            h_ll = round(log_loss(yh, ph), 5)
-            h_bll = round(log_loss(yh, np.full(len(yh), base_h)), 5)
+            h_ll = round(log_loss(yh, ph, labels=[0.0, 1.0]), 5)
+            h_bll = round(log_loss(
+                yh, np.full(len(yh), base_h), labels=[0.0, 1.0]), 5)
             row["holdout"] = {
                 "n": int(mask.sum()),
                 "engine_logloss": h_ll,
@@ -1159,6 +1177,193 @@ def load_moneyline_probs(csv_path: Path) -> Optional[pd.DataFrame]:
         "game_pk", "game_id", "home_win_prob_model"))
     has_key = "game_pk" in df.columns or "game_id" in df.columns
     return df if (has_key and "home_win_prob_model" in df.columns) else None
+
+
+def _rounded_total_line(exp_home: float, exp_away: float) -> float:
+    """Nearest 0.5 of λ_home + λ_away, clamped to the shipped grid.
+
+    Mirrors the frontend history tables' line assignment
+    (market_diagnostics._rounded_lines) EXACTLY so the monitor's win rates
+    match the Totals & Run Lines tables — the winner-card cross-check.
+    """
+    x = float(exp_home) + float(exp_away)
+    half = math.floor(x * 2 + 0.5) / 2.0  # round half up, positive side
+    if half < TOTAL_LINE_GRID[0]:
+        return TOTAL_LINE_GRID[0]
+    if half > TOTAL_LINE_GRID[-1]:
+        return TOTAL_LINE_GRID[-1]
+    return half
+
+
+# Reference line whose AUC each winner card reports — NEVER a mixed-line rank
+# (per-game assigned lines aren't comparable for a pooled AUC).
+WINNER_CARD_AUC_REF = {
+    "over_under": "over_8_5",
+    "run_line": "home_cover_1_5",
+    "derived_ml": "derived_moneyline",
+}
+
+
+def _winner_card_stats(p: np.ndarray, y: np.ndarray,
+                       fold_idx: Optional[np.ndarray],
+                       hold_mask: np.ndarray) -> dict:
+    """Favored-side binary card stats (mirrors score_at's metric set).
+
+    p is the favored side's probability (>= 0.5 by construction), y is 1 when
+    the pick won. Prequential calibration uses the OOF fold index when
+    available; without it (fixtures/tests) calibrated == raw.
+    """
+    p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
+    y = np.asarray(y, float)
+    base = float(y.mean())
+    if fold_idx is not None and len(fold_idx) == len(y):
+        p_cal = prequential_calibrate(y, p, np.asarray(fold_idx, float))
+    else:
+        p_cal = p.copy()
+    row = {
+        "n": int(len(y)),
+        "actual_win_rate": round(base, 4),
+        "win_rate": round(base, 4),
+        "predicted_mean": round(float(np.mean(p_cal)), 4),
+        "ece_raw": ece_score(y, p),
+        "ece_calibrated": ece_score(y, p_cal),
+        "brier": round(brier_score(y, p), 5),
+        "logloss": round(log_loss(y, p), 5),
+        "logloss_calibrated": round(log_loss(y, p_cal), 5),
+        "beats_baseline_logloss": bool(
+            log_loss(y, p) < log_loss(y, np.full(len(y), base))),
+    }
+    if hold_mask is not None and hold_mask.any():
+        yh = y[hold_mask]
+        ph = p[hold_mask]
+        base_h = float(yh.mean())
+        row["holdout"] = {
+            "n": int(hold_mask.sum()),
+            "actual_win_rate": round(base_h, 4),
+            "win_rate": round(base_h, 4),
+            "predicted_mean": round(float(np.mean(p_cal[hold_mask])), 4),
+            "ece_raw": ece_score(yh, ph),
+            "ece_calibrated": ece_score(yh, p_cal[hold_mask]),
+            "brier": round(brier_score(yh, ph), 5),
+            "logloss": round(log_loss(yh, ph), 5),
+            "baseline_rate": round(base_h, 4),
+            "baseline_logloss": round(log_loss(yh, np.full(len(yh), base_h)), 5),
+            "beats_baseline_logloss": bool(
+                log_loss(yh, ph) < log_loss(yh, np.full(len(yh), base_h))),
+        }
+    return row
+
+
+def compute_winner_cards(markets: pd.DataFrame,
+                         oof: Optional[pd.DataFrame] = None,
+                         market_metrics: Optional[dict] = None,
+                         holdout_days: int = HOLDOUT_DAYS) -> dict:
+    """Three binary WINNER cards from the OOF markets frame.
+
+    Each game contributes ONE favored-side (p, y) pair — the pick-framing the
+    Totals & Run Lines history tables use:
+
+      over_under  pick Over if P(over the game's ASSIGNED rounded total) > 50%
+                  else Under; pushes (total == whole-number line) excluded.
+      run_line    pick Home -1.5 if P(home cover -1.5) > 50% else Away +1.5;
+                  half-run lines never push.
+      derived_ml  pick Home if P(home) > 50% else Away.
+
+    ``market_metrics`` supplies the FIXED-reference-line AUC per card (never a
+    mixed-line rank). ``oof`` provides the per-game fold_idx for honest
+    prequential calibration when present.
+    """
+    if markets is None or not len(markets):
+        return {}
+    df = markets[markets.get("kind") == "oof"].copy()
+    if "total_runs" in df.columns:
+        df = df[df["total_runs"].notna()]
+    if not len(df):
+        return {}
+    df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
+    dates = df["game_date"]
+    cutoff = dates.max() - pd.Timedelta(days=holdout_days)
+    hold_mask = (dates >= cutoff).to_numpy()
+
+    fold_map: dict = {}
+    if oof is not None and "fold_idx" in oof.columns and "game_pk" in oof.columns:
+        fold_map = dict(zip(
+            pd.to_numeric(oof["game_pk"], errors="coerce"),
+            pd.to_numeric(oof["fold_idx"], errors="coerce")))
+
+    def _fold_idx(keys: np.ndarray) -> Optional[np.ndarray]:
+        if not fold_map:
+            return None
+        return np.asarray([fold_map.get(k, np.nan) for k in keys], float)
+
+    hs = df["home_score"].to_numpy(float)
+    as_ = df["away_score"].to_numpy(float)
+    total = df["total_runs"].to_numpy(float)
+    pks = df["game_pk"].to_numpy()
+
+    # --- over_under: per-game assigned line, push-excluded ---
+    ou_p, ou_y, ou_keys, ou_dates = [], [], [], []
+    for i in range(len(df)):
+        line = _rounded_total_line(df["home_expected_runs"].iloc[i],
+                                   df["away_expected_runs"].iloc[i])
+        over_col = f"p_over_{str(line).replace('.', '_')}"
+        if over_col not in df.columns:
+            continue
+        p = df[over_col].iloc[i]
+        if pd.isna(p):
+            continue
+        if total[i] == line:      # push (whole-number lines only)
+            continue
+        p = float(p)
+        pick_over = p >= 0.5
+        went_over = total[i] > line
+        ou_p.append(p if pick_over else 1.0 - p)
+        ou_y.append(float(pick_over == went_over))
+        ou_keys.append(pks[i])
+        ou_dates.append(dates.iloc[i])
+    ou = None
+    if len(ou_p) >= 2:
+        ou = _winner_card_stats(np.asarray(ou_p), np.asarray(ou_y),
+                                _fold_idx(ou_keys),
+                                (np.asarray(pd.to_datetime(ou_dates)) >= cutoff))
+
+    # --- run_line: -1.5/+1.5, half-run lines never push ---
+    if "p_home_cover_1_5" in df.columns:
+        rp = df["p_home_cover_1_5"].to_numpy(float)
+        ok = np.isfinite(rp)
+        margin = hs - as_
+        home_covers = (margin >= 2).astype(float)
+        pick_home = rp >= 0.5
+        hit = (pick_home.astype(float) == home_covers).astype(float)
+        fav = np.where(pick_home, rp, 1.0 - rp)
+        rl = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
+                                 hold_mask[ok])
+    else:
+        rl = None
+
+    # --- derived_ml: home vs away ---
+    if "p_home_win_derived" in df.columns:
+        mp = df["p_home_win_derived"].to_numpy(float)
+        ok = np.isfinite(mp)
+        home_won = (hs > as_).astype(float)
+        pick_home = mp >= 0.5
+        hit = (pick_home.astype(float) == home_won).astype(float)
+        fav = np.where(pick_home, mp, 1.0 - mp)
+        ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
+                                hold_mask[ok])
+    else:
+        ml = None
+
+    cards: dict[str, dict] = {}
+    for name, card in (("over_under", ou), ("run_line", rl), ("derived_ml", ml)):
+        if card is None:
+            continue
+        ref = WINNER_CARD_AUC_REF[name]
+        auc = None
+        if market_metrics and isinstance(market_metrics.get(ref), dict):
+            auc = market_metrics[ref].get("auc")
+        cards[name] = {**card, "auc": auc}
+    return cards
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +1601,8 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     }
     monitor_block = {
         "version": "phase3",
+        "winner_cards": compute_winner_cards(
+            markets, oof, summary, HOLDOUT_DAYS),
         "alpha_home": summary["alpha_home"],
         "alpha_away": summary["alpha_away"],
         "phase2_single_alpha": summary["phase2_single_alpha"],

@@ -464,13 +464,13 @@ else:
 
 import datetime as _dt  # noqa: E402 — page-level, after existing imports
 
-_MONITOR_LINES = (
-    ("over_7_5",  "Over 7.5"),
-    ("over_8_5",  "Over 8.5"),
-    ("over_9_5",  "Over 9.5"),
-    ("home_cover_1_5", "Home cover -1.5"),
-    ("home_cover_2_5", "Home cover -2.5"),
-    ("derived_moneyline", "Derived ML"),
+_WINNER_CARDS = (
+    ("over_under", "Over/Under",
+     "Pick Over if P(over the game's line) > 50%, else Under"),
+    ("run_line", "Run Line ±1.5",
+     "Pick Home −1.5 if P(home cover −1.5) > 50%, else Away +1.5"),
+    ("derived_ml", "Derived Moneyline",
+     "Pick Home if P(home) > 50%, else Away"),
 )
 
 
@@ -522,42 +522,44 @@ def _ec_indicator(raw: float | None, cal: float | None) -> str:
     return "🔴"
 
 
-def _render_monitor_cards(per_line: dict) -> None:
-    """Render per-line calibration cards in a 3-column grid."""
-    items = [(k, label) for k, label in _MONITOR_LINES if k in per_line]
+def _render_winner_cards(winner_cards: dict) -> None:
+    """Render the three binary winner cards (pick framing) in a row."""
+    items = [(k, label, rule) for k, label, rule in _WINNER_CARDS
+             if k in winner_cards]
     if not items:
-        st.info("No per-line calibration data in the monitor artifact.")
+        st.info("No winner-card data in this monitor artifact.")
         return
 
-    n_cols = 3
-    for row_start in range(0, len(items), n_cols):
-        row = items[row_start:row_start + n_cols]
-        cols = st.columns(n_cols)
-        for i, (key, label) in enumerate(row):
-            card = per_line[key]
-            h = card.get("holdout") or {}
-            badge = _ec_indicator(
-                card.get("ece_raw"), card.get("ece_calibrated"))
-            with cols[i]:
-                st.markdown(f"**{label}** {badge}")
-                c1, c2 = st.columns(2)
-                c1.metric("Pooled ECE-cal", _fmt(card.get("ece_calibrated")))
-                c2.metric("Holdout ECE-cal",
-                          _fmt(h.get("ece_calibrated")) if h else "--")
-                c1, c2 = st.columns(2)
-                c1.metric("Pooled Brier", _fmt(card.get("brier")))
-                c2.metric("Holdout Brier",
-                          _fmt(h.get("brier")) if h else "--")
-                c1, c2 = st.columns(2)
-                c1.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
-                c2.metric("Holdout Logloss",
-                          _fmt(h.get("logloss"), 4) if h else "--")
-                c1, c2 = st.columns(2)
-                c1.metric("Base rate", _fmt(card.get("base_rate"), 4))
-                c2.metric("Predicted mean",
-                          _fmt(card.get("predicted_mean"), 4))
-                st.caption(f"n = {card.get('n', '--'):,} pooled"
-                           + (f" / {h.get('n', 0):,} holdout" if h else ""))
+    cols = st.columns(len(items))
+    for i, (key, label, rule) in enumerate(items):
+        card = winner_cards[key]
+        h = card.get("holdout") or {}
+        badge = _ec_indicator(
+            card.get("ece_raw"), card.get("ece_calibrated"))
+        with cols[i]:
+            st.markdown(f"**{label}** {badge}")
+            st.caption(rule)
+            # One compact actual-vs-predicted line (NOT separate columns).
+            awr = card.get("actual_win_rate")
+            pm = card.get("predicted_mean")
+            if awr is not None and pm is not None:
+                compact = (f"Actual {awr * 100:.1f}% · "
+                           f"Predicted {pm * 100:.1f}%")
+            else:
+                compact = "Actual -- · Predicted --"
+            st.markdown(f"**{compact}**")
+            c1, c2 = st.columns(2)
+            c1.metric("Win rate", _fmt(card.get("win_rate"), pct=True))
+            c2.metric("AUC", _fmt(card.get("auc"), 4))
+            c1, c2 = st.columns(2)
+            c1.metric("Pooled ECE-cal", _fmt(card.get("ece_calibrated")))
+            c2.metric("Holdout ECE-cal",
+                      _fmt(h.get("ece_calibrated")) if h else "--")
+            c1, c2 = st.columns(2)
+            c1.metric("Pooled Brier", _fmt(card.get("brier")))
+            c2.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
+            st.caption(f"n = {card.get('n', '--'):,} pooled"
+                       + (f" / {h.get('n', 0):,} holdout" if h else ""))
 
 
 def _render_fit_panel(fit: dict) -> None:
@@ -621,9 +623,9 @@ def _render_rolling_history(rolling: dict) -> None:
         st.info("Rolling history is empty (will populate on subsequent runs).")
         return
 
-    st.markdown("#### Rolling ECE-Calibrated History (per line)")
+    st.markdown("#### Rolling ECE-Calibrated History (per winner card)")
     rows = []
-    for key, label in _MONITOR_LINES:
+    for key, label, _rule in _WINNER_CARDS:
         series = rolling.get(key) or []
         if not series:
             continue
@@ -650,8 +652,9 @@ def _render_rolling_history(rolling: dict) -> None:
 st.markdown("---")
 st.markdown("### Run-Line & Totals Monitor")
 st.caption(
-    "Run-engine per-line calibration + distributional fit + rolling "
-    "history from run_engine_monitor_*.json.  **Honesty note:** run-engine "
+    "Run-engine winner cards (over/under, run line, derived ML) + "
+    "distributional fit + rolling history from run_engine_monitor_*.json.  "
+    "**Honesty note:** run-engine "
     "ECE-calibrated is typically ~0.014-0.018 pooled / ~0.05 holdout -- "
     "weaker than the moneyline monitor's.  This is the actual calibration "
     "quality; no styling hides it.")
@@ -679,12 +682,13 @@ else:
         st.warning(
             f"Markets persist warning: {persist_err} (but CSV was written).")
 
-    # Per-line calibration cards
-    per_line = monitor.get("per_line") or {}
-    if per_line:
-        _render_monitor_cards(per_line)
+    # Winner cards (v2 schema: three binary pick-framed cards)
+    winner_cards = monitor.get("winner_cards") or {}
+    if winner_cards:
+        _render_winner_cards(winner_cards)
     else:
-        st.info("No per-line calibration data in this monitor artifact.")
+        st.info("No winner-card data in this monitor artifact (v1 monitor "
+                "files predate the winner-card schema).")
 
     # Fit panel
     fit = monitor.get("fit") or {}
@@ -694,6 +698,6 @@ else:
 
     # Rolling history
     rolling = monitor.get("rolling") or {}
-    with st.expander("Rolling History (last 10 points per line)",
+    with st.expander("Rolling History (last 10 points per card)",
                      expanded=False):
         _render_rolling_history(rolling)
