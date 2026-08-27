@@ -20,6 +20,13 @@ MODELS_DIR = DATA_DELIVERY_DIR / "models"
 # Set MLB_WEATHER_BACKFILL_ALL=0 to keep the old trailing-35-day window only.
 WEATHER_BACKFILL_ALL = os.getenv("MLB_WEATHER_BACKFILL_ALL", "1").strip().lower() in ("1", "true", "yes")
 
+# Calibration map applied to the MONEYLINE blend after blending (calibration.py).
+# "platt" = today's shipped 2-parameter logistic map; "identity" = publish the
+# raw blend uncalibrated (calibrated == raw). Default stays "platt" until the
+# blend-level gate (run_calibration_flip_test.py) passes; reversible via the
+# CALIBRATION_MODE environment variable. Run-engine calibration is untouched.
+CALIBRATION_MODE = os.getenv("CALIBRATION_MODE", "platt").strip().lower()
+
 # ---------------------------------------------------------------------------
 # Reproducibility
 # ---------------------------------------------------------------------------

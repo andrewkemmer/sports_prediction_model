@@ -1,0 +1,111 @@
+{
+  "config": "CALIBRATION_MODE switch only; all training params verbatim",
+  "csv": "/home/daytona/codebase/mlb-bet-predictor/data_delivery/game_level_features.csv",
+  "folds": 45,
+  "gate": {
+    "checks": {
+      "pooled_oof_ece_cal_improved": false,
+      "pooled_oof_logloss_not_degraded": true,
+      "sealed_holdout_auc_not_degraded": true,
+      "sealed_holdout_ece_cal_improved": true,
+      "sealed_holdout_logloss_not_degraded": true
+    },
+    "deltas_identity_minus_platt": {
+      "holdout_auc": 0.0,
+      "holdout_ece_cal": -0.0104,
+      "holdout_logloss": 0.0,
+      "oof_ece_cal": 0.0017,
+      "oof_logloss": 0.0
+    },
+    "verdict": "DON'T ADOPT (keep platt)"
+  },
+  "holdout_days": 21,
+  "results": {
+    "identity": {
+      "adaptive_blend_weights": {
+        "lightgbm": 0.1141,
+        "logistic": 0.1499,
+        "mlp": 0.0863,
+        "randomforest": 0.1997,
+        "xgboost": 0.45
+      },
+      "final_calibrator_applied": false,
+      "holdout": {
+        "auc": 0.5617,
+        "brier": 0.2437,
+        "ece": 0.0455,
+        "ece_calibrated": 0.0455,
+        "logloss": 0.6804,
+        "logloss_calibrated": 0.6804
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "mode": "identity",
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.575,
+        "brier": 0.2443,
+        "ece": 0.0096,
+        "ece_calibrated": 0.0096,
+        "logloss": 0.6817,
+        "logloss_calibrated": 0.6817
+      },
+      "oof_incl_sealed": {
+        "auc": 0.5738,
+        "brier": 0.2443,
+        "brier_calibrated": 0.2443,
+        "ece": 0.008,
+        "ece_calibrated": 0.0083,
+        "logloss": 0.6817,
+        "logloss_calibrated": 0.6817,
+        "n": 4369
+      }
+    },
+    "platt": {
+      "adaptive_blend_weights": {
+        "lightgbm": 0.1141,
+        "logistic": 0.1499,
+        "mlp": 0.0863,
+        "randomforest": 0.1997,
+        "xgboost": 0.45
+      },
+      "final_calibrator_applied": true,
+      "holdout": {
+        "auc": 0.5617,
+        "brier": 0.2437,
+        "ece": 0.0455,
+        "ece_calibrated": 0.0559,
+        "logloss": 0.6804,
+        "logloss_calibrated": 0.6809
+      },
+      "holdout_n": 284,
+      "holdout_range": [
+        "2026-08-05",
+        "2026-08-25"
+      ],
+      "mode": "platt",
+      "n_oof_games": 4085,
+      "oof": {
+        "auc": 0.575,
+        "brier": 0.2443,
+        "ece": 0.0096,
+        "ece_calibrated": 0.0047,
+        "logloss": 0.6817,
+        "logloss_calibrated": 0.6823
+      },
+      "oof_incl_sealed": {
+        "auc": 0.5738,
+        "brier": 0.2443,
+        "brier_calibrated": 0.2446,
+        "ece": 0.008,
+        "ece_calibrated": 0.0066,
+        "logloss": 0.6817,
+        "logloss_calibrated": 0.6822,
+        "n": 4369
+      }
+    }
+  }
+}

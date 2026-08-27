@@ -24,7 +24,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-from calibration import apply_platt, fit_platt, is_identity, MIN_OOF_FOR_FIT
+from calibration import is_identity, MIN_OOF_FOR_FIT, moneyline_apply, moneyline_fit
 from config import (
     ADAPTIVE_WEIGHT_AUC_TEMPERATURE,
     ADAPTIVE_WEIGHT_CAP,
@@ -1531,8 +1531,8 @@ def walk_forward_evaluate(
         # this fold, then transform this fold's predictions.
         fold_cal = None
         if len(oof_blend) >= MIN_OOF_FOR_FIT:
-            fold_cal = fit_platt(oof_y, oof_blend)
-        fold_calibrated = apply_platt(ensemble_prob, fold_cal)
+            fold_cal = moneyline_fit(oof_y, oof_blend)
+        fold_calibrated = moneyline_apply(ensemble_prob, fold_cal)
 
         oof_y.extend(y_val)
         oof_blend.extend(np.asarray(ensemble_prob, dtype=float).tolist())
@@ -1542,7 +1542,7 @@ def walk_forward_evaluate(
         for name, p in member_probs.items():
             p_arr = np.asarray(p, dtype=float)
             oof_members.setdefault(name, []).extend(p_arr.tolist())
-            pc = np.asarray(apply_platt(p_arr, fold_cal), dtype=float)
+            pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
             oof_members_cal.setdefault(name, []).extend(pc.tolist())
 
         val_pred = val.copy()
@@ -1571,7 +1571,7 @@ def walk_forward_evaluate(
         np.asarray(oof_blend_calibrated, dtype=float)
         if oof_blend_calibrated else np.empty(0)
     )
-    final_calibrator = fit_platt(y_oof_all, p_raw_all)
+    final_calibrator = moneyline_fit(y_oof_all, p_raw_all)
     global _LAST_CALIBRATOR
     _LAST_CALIBRATOR = final_calibrator
     if p_cal_prequential.size == len(y_oof_all) and len(y_oof_all) > 0:
@@ -1733,7 +1733,7 @@ def predict_games(
     # feed picks/edges. Identity (no-op) when no calibrator is loaded.
     calibrator = get_last_calibrator()
     if not is_identity(calibrator):
-        blend = apply_platt(blend, calibrator)
+        blend = moneyline_apply(blend, calibrator)
     games["home_win_prob_model"] = np.round(blend, 4)
 
     games["away_win_prob_model"] = 1 - games["home_win_prob_model"]

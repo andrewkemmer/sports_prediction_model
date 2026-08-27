@@ -20,6 +20,23 @@ Design constraints that keep the calibration honest:
 
 The calibrator is a plain dict {"method","a","b","n"} so it survives
 joblib round-trips inside ensemble_latest.joblib and JSON reporting.
+
+CALIBRATION_MODE switch (moneyline path only; run-engine calibration always
+uses raw fit_platt/apply_platt and is untouched):
+- "platt" (default): the shipped 2-parameter logistic map.
+- "identity": publish the raw blend — moneyline_fit returns None and
+  moneyline_apply returns p unchanged, so calibrated == raw everywhere.
+
+The switch is reversible (CALIBRATION_MODE env var / set_calibration_mode)
+and default stays "platt".
+
+PINNED VERDICT (2026-08-27, blend-level gate run_calibration_flip_test.py,
+45-fold geometry, run-engine read-only): DON'T ADOPT — keep platt. On the
+sealed 284 holdout identity ties platt on logloss (0.6804) and AUC (0.5617)
+and improves ECE-cal (0.0559 -> 0.0455), but pooled OOF ECE-cal DEGRADES
+(0.0047 -> 0.0096 tune-only; 0.0066 -> 0.0083 incl. sealed) — the Platt map
+still helps in-distribution pooled calibration, so the flip fails the gate.
+Full table: data_delivery/calibration_flip_20260827.json.
 """
 
 from __future__ import annotations
@@ -28,11 +45,68 @@ import logging
 
 import numpy as np
 
+import config
+
 logger = logging.getLogger(__name__)
 
 # Pooled OOF games required before trusting a fitted correction. Below
 # this, a 2-param fit can chase noise; identity is the safer map.
 MIN_OOF_FOR_FIT = 300
+
+
+VALID_CALIBRATION_MODES = ("platt", "identity")
+
+
+def get_calibration_mode() -> str:
+    """Active moneyline calibration mode ("platt" or "identity")."""
+    mode = str(config.CALIBRATION_MODE).strip().lower()
+    if mode not in VALID_CALIBRATION_MODES:
+        logger.warning(
+            "Calibration: unknown CALIBRATION_MODE %r — falling back to platt",
+            config.CALIBRATION_MODE,
+        )
+        return "platt"
+    return mode
+
+
+def set_calibration_mode(mode: str) -> None:
+    """Switch the moneyline calibration mode in-process (harness/test use).
+
+    Affects ONLY the moneyline path via moneyline_fit/moneyline_apply;
+    fit_platt/apply_platt (and therefore the run-engine calibration) are
+    unchanged. "platt" is today's behavior; "identity" publishes raw.
+    """
+    m = str(mode).strip().lower()
+    if m not in VALID_CALIBRATION_MODES:
+        raise ValueError(
+            f"unknown calibration mode {mode!r} (expected 'platt' or 'identity')")
+    config.CALIBRATION_MODE = m
+
+
+def moneyline_fit(y_true, y_prob):
+    """Moneyline calibrator fit, gated by CALIBRATION_MODE.
+
+    Identity mode skips the map entirely (returns None -> raw published
+    probabilities); platt mode is today's behavior. Run-engine paths call
+    fit_platt directly and are unaffected.
+    """
+    if get_calibration_mode() == "identity":
+        logger.info(
+            "Calibration: CALIBRATION_MODE=identity — moneyline publishes the "
+            "raw blend (no Platt map)")
+        return None
+    return fit_platt(y_true, y_prob)
+
+
+def moneyline_apply(y_prob, calibrator: dict | None) -> np.ndarray:
+    """Moneyline calibrator application, gated by CALIBRATION_MODE.
+
+    Identity mode returns p unchanged (calibrated == raw); platt mode is
+    today's behavior.
+    """
+    if get_calibration_mode() == "identity":
+        return np.clip(np.asarray(y_prob, dtype=float), 0.0, 1.0)
+    return apply_platt(y_prob, calibrator)
 
 _EPS = 1e-6  # clip bound for logit(p); matches compute_metrics clipping spirit
 

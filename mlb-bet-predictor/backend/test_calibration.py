@@ -10,7 +10,11 @@ from calibration import (
     MIN_OOF_FOR_FIT,
     apply_platt,
     fit_platt,
+    get_calibration_mode,
     is_identity,
+    moneyline_apply,
+    moneyline_fit,
+    set_calibration_mode,
 )
 
 
@@ -133,6 +137,51 @@ class TestIsIdentity(unittest.TestCase):
         self.assertTrue(is_identity({"method": "platt", "a": 1.0, "b": 0.0}))
         self.assertFalse(is_identity({"method": "platt", "a": 0.9, "b": 0.0}))
         self.assertFalse(is_identity({"method": "platt", "a": 1.0, "b": 0.2}))
+
+
+class TestCalibrationModeSwitch(unittest.TestCase):
+    """CALIBRATION_MODE gates ONLY the moneyline wrappers, never the
+    run-engine path (fit_platt/apply_platt stay byte-identical)."""
+
+    def setUp(self):
+        set_calibration_mode("platt")
+
+    def tearDown(self):
+        set_calibration_mode("platt")
+
+    def test_default_mode_is_platt(self):
+        self.assertEqual(get_calibration_mode(), "platt")
+
+    def test_identity_mode_gates_moneyline_wrappers_only(self):
+        rng = np.random.default_rng(11)
+        y = rng.integers(0, 2, MIN_OOF_FOR_FIT + 50).astype(float)
+        p = np.clip(rng.normal(0.55, 0.12, y.size), 0.02, 0.98)
+
+        set_calibration_mode("identity")
+        # Moneyline path: map skipped entirely (calibrated == raw).
+        self.assertIsNone(moneyline_fit(y, p))
+        raw = moneyline_apply(p, {"method": "platt", "a": 1.5, "b": -0.3})
+        self.assertTrue(np.allclose(raw, np.clip(p, 0.0, 1.0)))
+        # Run-engine path: untouched under identity.
+        cal = fit_platt(y, p)
+        self.assertIsNotNone(cal)
+        out = apply_platt(p, cal)
+        self.assertFalse(np.allclose(out, np.clip(p, 0.0, 1.0)))
+
+    def test_platt_mode_matches_raw_platt_path(self):
+        rng = np.random.default_rng(12)
+        y = rng.integers(0, 2, MIN_OOF_FOR_FIT + 50).astype(float)
+        p = np.clip(rng.normal(0.55, 0.12, y.size), 0.02, 0.98)
+        set_calibration_mode("platt")
+        cal_m = moneyline_fit(y, p)
+        cal_r = fit_platt(y, p)
+        self.assertEqual(cal_m, cal_r)
+        self.assertTrue(np.allclose(
+            moneyline_apply(p, cal_m), apply_platt(p, cal_r)))
+
+    def test_invalid_mode_rejected(self):
+        with self.assertRaises(ValueError):
+            set_calibration_mode("isotonic")
 
 
 if __name__ == "__main__":
