@@ -99,6 +99,102 @@ class TestDateResolution(TestCase):
             self.assertTrue(d.isdigit(), f"Not digits: {d}")
 
 
+# ---------------------------------------------------------------------------
+# Distributional-fit panel (pure extraction — no Streamlit)
+# ---------------------------------------------------------------------------
+
+
+class TestFitPanel(TestCase):
+    """Fit-panel reader keys reconciled with pipeline._run_engine_fit_block's
+    writer schema (alpha_home/alpha_away curves, dispersion_chi2_per_df,
+    fit_tables, variance_check, mc_meta). The historical crash: the MC line
+    formatted the '--' string default with thousands separators
+    (``f"{:,.}"`` -> ValueError).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import market_diagnostics as diag
+        cls.diag = diag
+        cls.root = _frontend.parent  # mlb-bet-predictor
+
+    @staticmethod
+    def _fit(date_str):
+        p = Path(__file__).resolve().parents[1] / "data_delivery" / \
+            f"run_engine_monitor_{date_str}.json"
+        with open(p) as f:
+            import json as _json
+            return _json.load(f)["fit"]
+
+    def test_empty_fit_dict_never_crashes(self):
+        """Regression: a fit dict missing EVERY key renders all-default rows."""
+        for fit in ({}, None):
+            rows = self.diag.fit_panel_rows(fit)
+            self.assertIsNone(rows["alpha_home"])
+            self.assertIsNone(rows["alpha_away"])
+            self.assertIsNone(rows["chi2_home"])
+            self.assertIsNone(rows["chi2_away"])
+            self.assertEqual(rows["variance_home"], (None, None))
+            self.assertEqual(rows["variance_away"], (None, None))
+            self.assertEqual(rows["tails"], {})
+            self.assertIsNone(rows["mc_caption"])
+            self.assertIsNone(rows["alpha_home_form"])
+
+    def test_mc_caption_formats_only_numeric(self):
+        """The historical crash: '--' string default hit f"{:,.}"."""
+        self.assertEqual(self.diag.mc_caption({"n_draws": 10000}),
+                         "Monte Carlo: 10,000 draws")
+        self.assertEqual(self.diag.mc_caption({"n_draws": 10000,
+                                               "mc_se_totals_max": 0.005}),
+                         "Monte Carlo: 10,000 draws · totals MC se max 0.0050")
+        # legacy key spelling + absent key: never raise, never format a str
+        self.assertIsNone(self.diag.mc_caption({}))
+        self.assertIsNone(self.diag.mc_caption({"n_samples": "--"}))
+        self.assertIn("5,000", self.diag.mc_caption({"n_samples": 5000}))
+
+    def test_real_artifact_values(self):
+        """Acceptance: the current monitor JSON's fit block renders REAL
+        numbers (alpha per side, chi2/df, variance, MC meta, tails)."""
+        fit = self._fit("20260827")
+        rows = self.diag.fit_panel_rows(fit)
+        # chi2/df straight from dispersion_chi2_per_df
+        self.assertAlmostEqual(rows["chi2_home"], 2.184, places=3)
+        self.assertAlmostEqual(rows["chi2_away"], 2.4779, places=3)
+        # alpha = count-weighted bin mean (home ~0.268, away ~0.346)
+        self.assertGreater(rows["alpha_home"], 0.26)
+        self.assertLess(rows["alpha_home"], 0.28)
+        self.assertGreater(rows["alpha_away"], 0.34)
+        self.assertLess(rows["alpha_away"], 0.36)
+        self.assertEqual(rows["alpha_home_form"], "piecewise")
+        self.assertEqual(rows["alpha_away_form"], "linear")
+        # variance check: implied vs observed per side
+        vh = rows["variance_home"]
+        self.assertAlmostEqual(vh[0], 9.938, places=3)
+        self.assertAlmostEqual(vh[1], 9.886, places=3)
+        va = rows["variance_away"]
+        self.assertAlmostEqual(va[0], 10.902, places=3)
+        self.assertAlmostEqual(va[1], 11.03, places=3)
+        # MC metadata: numeric n_draws with separators
+        self.assertIn("10,000 draws", rows["mc_caption"])
+        # tails: real k labels (unicode ≥/≤) with observed_p/modeled_p keys
+        home_tail = rows["tails"]["Home"]
+        self.assertIn("k≤1", home_tail)
+        self.assertIn("k≥10", home_tail)
+        self.assertIn("obs=0.168", home_tail)  # home ≤1 observed (3dp)
+        self.assertEqual(rows.get("fitted_on"), "pre-holdout OOF only")
+
+    def test_v1_curve_shape_supported(self):
+        """v1 curves (parametric form/a/c + selection bins) also yield α."""
+        fit = self._fit("20260826")
+        rows = self.diag.fit_panel_rows(fit)
+        self.assertIsNotNone(rows["alpha_home"])
+        self.assertIsNotNone(rows["alpha_away"])
+        self.assertIsNotNone(rows["alpha_home_form"])
+        self.assertIsNotNone(rows["chi2_home"])
+        # fixture tail rows render too
+        self.assertIn("Home", rows["tails"])
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

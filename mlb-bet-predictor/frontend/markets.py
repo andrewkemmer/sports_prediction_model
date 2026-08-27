@@ -572,53 +572,55 @@ def _render_winner_cards(winner_cards: dict) -> None:
 
 
 def _render_fit_panel(fit: dict) -> None:
-    """Render distributional fit diagnostics (alpha, chi2/df, tail checks)."""
+    """Render distributional fit diagnostics (alpha, chi2/df, variance, MC).
+
+    Reads through market_diagnostics.fit_panel_rows, which reconciles the
+    reader keys against backend/pipeline._run_engine_fit_block's writer
+    schema (alpha_home/alpha_away curves, dispersion_chi2_per_df,
+    fit_tables, variance_check, mc_meta). '--' only where data is genuinely
+    absent.
+    """
     if not fit:
         st.info("No fit diagnostics in the monitor artifact.")
         return
+    rows = diag.fit_panel_rows(fit)
 
     st.markdown("#### Distributional Fit (NB Monte Carlo)")
 
-    # Alpha per side
-    a_h = fit.get("alpha_home") or {}
-    a_a = fit.get("alpha_away") or {}
+    # Alpha per side + chi2/df (from the curve + dispersion check)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("alpha_home", _fmt(a_h.get("alpha_hat"), 4))
-    c2.metric("chi2/df_home", _fmt(fit.get("chi2_per_df_home"), 2))
-    c3.metric("alpha_away", _fmt(a_a.get("alpha_hat"), 4))
-    c4.metric("chi2/df_away", _fmt(fit.get("chi2_per_df_away"), 2))
+    c1.metric("alpha_home", _fmt(rows["alpha_home"], 4))
+    c2.metric("chi2/df_home", _fmt(rows["chi2_home"], 2))
+    c3.metric("alpha_away", _fmt(rows["alpha_away"], 4))
+    c4.metric("chi2/df_away", _fmt(rows["chi2_away"], 2))
 
-    # Tail checks from fit tables
-    for side_label, side_key in [("Home", "home"), ("Away", "away")]:
-        tbl = (fit.get("fit_tables") or {}).get(side_key)
-        if not tbl:
-            continue
-        tail_rows = [r for r in tbl if r.get("k") in ("<={1}", ">={10}")]
-        if tail_rows:
-            parts = []
-            for r in tail_rows:
-                k_label = str(r.get("k", "")).replace("<={1}", "k<=1").replace(
-                    ">={10}", "k>=10")
-                parts.append(
-                    f"{k_label}: obs={r.get('observed', '--'):.3f} "
-                    f"mod={r.get('modeled', '--'):.3f}")
-            st.caption(f"**{side_label}** tail: " + " | ".join(parts))
-
-    # Variance check
-    vc = fit.get("variance_check") or {}
-    if vc:
+    forms = [f"{side}={form}" for side, form in (
+        ("home", rows["alpha_home_form"]),
+        ("away", rows["alpha_away_form"])) if form]
+    if forms or rows["fitted_on"]:
         st.caption(
-            f"Variance check: home_raw={vc.get('home_raw_var', '--')}, "
-            f"home_NB={vc.get('home_nb_var', '--')}, "
-            f"away_raw={vc.get('away_raw_var', '--')}, "
-            f"away_NB={vc.get('away_nb_var', '--')}")
+            ("α form: " + " · ".join(forms) if forms else "α form: --")
+            + (f" · fitted on {rows['fitted_on']}"
+               if rows["fitted_on"] else ""))
 
-    # Monte Carlo metadata
-    mc = fit.get("mc_meta") or {}
-    if mc:
+    # Tail checks (k<=1 / k>=10) from the per-side fit tables
+    for label in ("Home", "Away"):
+        t = rows["tails"].get(label)
+        if t:
+            st.caption(f"**{label}** tail: {t}")
+
+    # Variance check: implied vs observed per side
+    vh = rows["variance_home"]
+    va = rows["variance_away"]
+    if vh[0] is not None or va[0] is not None:
         st.caption(
-            f"Monte Carlo: {mc.get('n_samples', '--'):,} samples, "
-            f"seed={mc.get('seed', '--')}")
+            f"Variance check: home implied={_fmt(vh[0], 2)} / "
+            f"obs={_fmt(vh[1], 2)} · away implied={_fmt(va[0], 2)} / "
+            f"obs={_fmt(va[1], 2)}")
+
+    # Monte Carlo metadata (numeric n_draws only gets thousands separators)
+    if rows["mc_caption"]:
+        st.caption(rows["mc_caption"])
 
 
 def _render_rolling_history(rolling: dict) -> None:

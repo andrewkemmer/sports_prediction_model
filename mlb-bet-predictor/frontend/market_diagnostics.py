@@ -858,3 +858,134 @@ def chart_pick_buckets(table: dict, title: str,
     return {"chart": alt.layer(bars, acc_layer).resolve_scale(y="independent")
             .properties(height=280, title=title),
             "table": tdf}
+
+
+# ---------------------------------------------------------------------------
+# Distributional-fit panel rows (pure extraction — no streamlit)
+# ---------------------------------------------------------------------------
+# The reader side of the fit block written by
+# backend/pipeline._run_engine_fit_block. Keys must stay reconciled with
+# that writer and with run_engine.py's monitor-embed dict (alpha_home /
+# alpha_away curves, dispersion_chi2_per_df, fit_tables, variance_check,
+# mc_meta). Both curve shapes are handled: v2 piecewise {form, lam, alpha,
+# selection.chosen} and v1 {form, a[, c], selection.chosen}.
+
+
+def alpha_hat(curve: Optional[dict]) -> tuple[Optional[float], Optional[str]]:
+    """Scalar α estimate + chosen form from an α(λ) curve dict.
+
+    Uses the selection-bin alpha (weighted by bin count) when present — the
+    same bins the backend fit displayed — falling back to the curve's alpha
+    array mean or the parametric ``a`` scalar. Never raises.
+    """
+    if not isinstance(curve, dict):
+        return None, None
+    sel = curve.get("selection")
+    form = (sel or {}).get("chosen") if isinstance(sel, dict) else None
+    if not form:
+        form = curve.get("form")
+    bins = (sel or {}).get("bins") if isinstance(sel, dict) else None
+    if isinstance(bins, list) and bins:
+        alphas = [b.get("alpha") for b in bins if isinstance(b, dict)]
+        counts = [b.get("count", 1) for b in bins if isinstance(b, dict)]
+        if alphas and all(isinstance(a, (int, float)) for a in alphas):
+            total = float(sum(counts)) or 1.0
+            return (float(sum(a * c for a, c in zip(alphas, counts))) /
+                    total), form
+    alphas = curve.get("alpha")
+    if (isinstance(alphas, list) and alphas
+            and all(isinstance(a, (int, float)) for a in alphas)):
+        return float(sum(alphas)) / len(alphas), form
+    a = curve.get("a")
+    if isinstance(a, (int, float)):
+        return float(a), form
+    return None, form
+
+
+def fit_tail_rows(tbl: Optional[list]) -> list[tuple[str, float, float]]:
+    """Tail rows (k<=1, k>=10) from a per-side fit-check table.
+
+    Handles the backend's labels ("≤1" / "≥10" plus the legacy "<={1}" /
+    ">={10}") and both row-key spellings (observed_p/modeled_p and
+    observed/modeled).
+    """
+    if not isinstance(tbl, list):
+        return []
+    out: list[tuple[str, float, float]] = []
+    for r in tbl:
+        if not isinstance(r, dict):
+            continue
+        k = r.get("k")
+        if k in ("≤1", "<={1}"):
+            label = "k≤1"
+        elif k in ("≥10", ">={10}"):
+            label = "k≥10"
+        else:
+            continue
+        obs = r.get("observed_p", r.get("observed"))
+        mod = r.get("modeled_p", r.get("modeled"))
+        if not isinstance(obs, (int, float)) or not isinstance(mod,
+                                                               (int, float)):
+            continue
+        out.append((label, float(obs), float(mod)))
+    return out
+
+
+def mc_caption(mc: Optional[dict]) -> Optional[str]:
+    """Monte Carlo metadata line. Formats n_draws with thousands separators
+    ONLY when it is numeric (the historical bug: the '--' default string hit
+    ``f"{:,.0f}"`` and raised ValueError)."""
+    if not isinstance(mc, dict):
+        return None
+    n = mc.get("n_draws", mc.get("n_samples"))
+    n_str = None
+    if isinstance(n, (int, float)) and not isinstance(n, bool):
+        n_str = (f"{int(n):,}" if float(n).is_integer() else f"{n:,.3f}")
+    parts: list[str] = []
+    if n_str is not None:
+        parts.append(f"{n_str} draws")
+    reason = mc.get("reason")
+    if isinstance(reason, str) and reason:
+        parts.append(f"reason={reason}")
+    se = mc.get("mc_se_totals_max")
+    if isinstance(se, (int, float)):
+        parts.append(f"totals MC se max {se:.4f}")
+    return "Monte Carlo: " + " · ".join(parts) if parts else None
+
+
+def fit_panel_rows(fit: Optional[dict]) -> dict:
+    """Reconcile a monitor fit block into render-ready rows. Every access is
+    defensive: a fit dict missing EVERY key yields all-default rows (the
+    '--' fallbacks), never a crash."""
+    fit = fit or {}
+    alpha_home, form_home = alpha_hat(fit.get("alpha_home"))
+    alpha_away, form_away = alpha_hat(fit.get("alpha_away"))
+    chi2 = fit.get("dispersion_chi2_per_df") or {}
+    vc = fit.get("variance_check") or {}
+    vc_h = vc.get("home") or {}
+    vc_a = vc.get("away") or {}
+    tables = fit.get("fit_tables") or {}
+    tails: dict[str, str] = {}
+    for label, key in (("Home", "home"), ("Away", "away")):
+        rows = fit_tail_rows(tables.get(key))
+        if rows:
+            tails[label] = " | ".join(
+                f"{lab}: obs={o:.3f} mod={m:.3f}" for lab, o, m in rows)
+    fitted_on = None
+    for curve in (fit.get("alpha_home"), fit.get("alpha_away")):
+        if isinstance(curve, dict) and curve.get("fitted_on"):
+            fitted_on = curve.get("fitted_on")
+            break
+    return {
+        "alpha_home": alpha_home,
+        "alpha_home_form": form_home,
+        "alpha_away": alpha_away,
+        "alpha_away_form": form_away,
+        "chi2_home": chi2.get("home"),
+        "chi2_away": chi2.get("away"),
+        "variance_home": (vc_h.get("implied_var"), vc_h.get("observed_var")),
+        "variance_away": (vc_a.get("implied_var"), vc_a.get("observed_var")),
+        "fitted_on": fitted_on,
+        "tails": tails,
+        "mc_caption": mc_caption(fit.get("mc_meta")),
+    }
