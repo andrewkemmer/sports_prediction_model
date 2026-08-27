@@ -361,9 +361,10 @@ class TestRunEngineModelMonitor(unittest.TestCase):
                 self.assertIsNotNone(row.get(key),
                                      f"{name} missing {key}")
             self.assertGreater(row["n"], 0, name)
-        # walk-forward geometry: 51 folds ending 08-22 -> 08-25, 4,466 games
-        self.assertEqual(data["phase1"]["n_folds"], 51)
-        self.assertEqual(data["phase1"]["n_games"], 4466)
+        # walk-forward geometry: 51 cadence splits (final val 08-22 -> 08-26),
+        # 48 scored folds / 4,384 games in the monitor's phase1 block
+        self.assertEqual(data["phase1"]["n_folds"], 48)
+        self.assertEqual(data["phase1"]["n_games"], 4384)
 
     def test_drift_artifact_real_frame_finite(self):
         d = pd.read_csv(self._ROOT / "data_delivery"

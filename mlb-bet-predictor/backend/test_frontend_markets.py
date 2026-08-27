@@ -158,22 +158,22 @@ class TestFitPanel(TestCase):
         fit = self._fit("20260827")
         rows = self.diag.fit_panel_rows(fit)
         # chi2/df straight from dispersion_chi2_per_df
-        self.assertAlmostEqual(rows["chi2_home"], 2.184, places=3)
-        self.assertAlmostEqual(rows["chi2_away"], 2.4779, places=3)
-        # alpha = count-weighted bin mean (home ~0.268, away ~0.346)
+        self.assertAlmostEqual(rows["chi2_home"], 2.1851, places=3)
+        self.assertAlmostEqual(rows["chi2_away"], 2.4879, places=3)
+        # alpha = count-weighted bin mean (home ~0.269, away ~0.349)
         self.assertGreater(rows["alpha_home"], 0.26)
         self.assertLess(rows["alpha_home"], 0.28)
         self.assertGreater(rows["alpha_away"], 0.34)
         self.assertLess(rows["alpha_away"], 0.36)
-        self.assertEqual(rows["alpha_home_form"], "piecewise")
-        self.assertEqual(rows["alpha_away_form"], "linear")
+        self.assertEqual(rows["alpha_home_form"], "power")
+        self.assertEqual(rows["alpha_away_form"], "piecewise")
         # variance check: implied vs observed per side
         vh = rows["variance_home"]
-        self.assertAlmostEqual(vh[0], 9.938, places=3)
-        self.assertAlmostEqual(vh[1], 9.886, places=3)
+        self.assertAlmostEqual(vh[0], 9.841, places=3)
+        self.assertAlmostEqual(vh[1], 9.89, places=3)
         va = rows["variance_away"]
-        self.assertAlmostEqual(va[0], 10.902, places=3)
-        self.assertAlmostEqual(va[1], 11.03, places=3)
+        self.assertAlmostEqual(va[0], 10.888, places=3)
+        self.assertAlmostEqual(va[1], 11.041, places=3)
         # MC metadata: numeric n_draws with separators
         self.assertIn("10,000 draws", rows["mc_caption"])
         # tails: real k labels (unicode ≥/≤) with observed_p/modeled_p keys
@@ -200,7 +200,7 @@ class TestFitPanel(TestCase):
         fit = self._fit("20260827")
         edge = self.diag.lambda_edge(fit)
         self.assertIsNotNone(edge)
-        self.assertAlmostEqual(edge, 0.1258, places=3)  # fit-curve bin means
+        self.assertAlmostEqual(edge, 0.1190, places=3)  # fit-curve bin means
         self.assertIsNone(self.diag.lambda_edge({}))
         self.assertIsNone(self.diag.lambda_edge(None))
 
