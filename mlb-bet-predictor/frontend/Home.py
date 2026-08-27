@@ -4,16 +4,14 @@ Defines the four-page navigation used across the app:
 
     Today's Games · Power Rankings · Calibration · Model Monitor
 
-The sidebar lets you point the app at your GitHub repo (raw.githubusercontent
-URLs are used for every artifact). Leave it blank to render the bundled
-sample data shipped in ``data_delivery/``.
+Artifacts are fetched from raw.githubusercontent URLs (configurable via the
+GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH env vars) with a local fallback
+to the bundled sample data shipped in ``data_delivery/``.
 
 Run from the repository root::
 
     streamlit run frontend/Home.py
 """
-
-import os
 
 import streamlit as st
 
@@ -37,20 +35,10 @@ with st.sidebar:
         "<div style='color:#64748B;font-size:0.8rem;margin-bottom:10px;'>MLB betting model dashboard</div>",
         unsafe_allow_html=True,
     )
-    st.markdown("#### Data source")
-    owner_default = st.session_state.get("gh_owner", "") or os.environ.get("GITHUB_OWNER", "")
-    repo_default = st.session_state.get("gh_repo", "") or os.environ.get("GITHUB_REPO", "")
-    branch_default = st.session_state.get("gh_branch", "") or os.environ.get("GITHUB_BRANCH", "") or "main"
-    st.text_input("GitHub owner", value=owner_default, key="gh_owner",
-                  help="e.g. your-github-username")
-    st.text_input("GitHub repo", value=repo_default, key="gh_repo",
-                  help="e.g. mlb-bet-predictor")
-    st.text_input("Branch", value=branch_default, key="gh_branch")
-    st.caption(
-        "Artifacts are fetched from "
-        "`raw.githubusercontent.com/<owner>/<repo>/<branch>/mlb-bet-predictor/data_delivery/…` "
-        "with a local fallback to the bundled samples."
-    )
+    # Data-source caption block removed (display-only): the artifact fetch
+    # with local fallback is unchanged and still honors GITHUB_OWNER /
+    # GITHUB_REPO / GITHUB_BRANCH env vars. A one-line note renders only
+    # when the app fell back to the bundled samples (see render_source_note).
     utils.render_source_note()
     st.divider()
     st.caption("Backend: Colab pipeline → data_delivery → GitHub. See README.md.")

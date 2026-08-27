@@ -819,12 +819,14 @@ def inject_css() -> None:
 
 
 def render_source_note() -> None:
+    """One-line source note rendered ONLY when the app fell back to the
+    bundled local samples (the case where knowing the source matters).
+    While streaming from GitHub raw URLs nothing is shown — the data-source
+    caption block is display-only and was removed."""
     src = st.session_state.get("data_source", "")
     if src == "github":
-        note, icon = "Streaming from GitHub raw URLs", "🌐"
-    elif src == "local":
-        note, icon = "Showing bundled sample data (offline fallback)", "📦"
-    elif src == "missing" and not list(LOCAL_DATA_DIR.glob("todays_games_*.csv")):
+        return
+    if src == "missing" and not list(LOCAL_DATA_DIR.glob("todays_games_*.csv")):
         note, icon = "No artifacts found", "⚠️"
     else:
         note, icon = "Showing bundled sample data (offline fallback)", "📦"
