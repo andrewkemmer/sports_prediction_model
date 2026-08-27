@@ -812,8 +812,33 @@ def inject_css() -> None:
         table.fb-table tr:nth-child(even) td {{ background: rgba(30,41,59,.25); }}
         .fb-accent-cell {{ display: inline-flex; align-items: center; gap: 8px; }}
         .fb-accent-line {{ width: 4px; border-radius: 3px; height: 20px; display: inline-block; }}
+        /* Branding above the dashboard list: Streamlit renders the sidebar
+           page list (stSidebarNav) ABOVE user sidebar content by default.
+           Flip the flex order so the brand header (stSidebarUserContent's
+           first block) sits above every dashboard choice on load. */
+        [data-testid="stSidebarContent"] {{ display: flex; flex-direction: column; }}
+        [data-testid="stSidebarHeader"] {{ order: 1; flex-shrink: 0; }}
+        [data-testid="stSidebarUserContent"] {{ order: 2; flex-shrink: 0; }}
+        [data-testid="stSidebarNav"] {{ order: 3; flex-shrink: 0; }}
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_brand_header() -> None:
+    """The app's single branding/logo block, rendered at the top of the
+    sidebar ABOVE the dashboard page list.
+
+    Streamlit stacks the sidebar page list (``stSidebarNav``) above user
+    sidebar content by default, so the sidebar reorder CSS in ``inject_css``
+    flips the flex order: header -> brand block -> page list. Kept as one
+    clearly-delimited component so a sport toggle (MLB/NBA/...) can later
+    be added to this header without touching the page list in Home.py.
+    """
+    st.markdown(
+        "<div style='font-size:1.25rem;font-weight:800;color:#E2E8F0;'>⚾ MLB Predictions</div>"
+        "<div style='color:#64748B;font-size:0.8rem;margin-bottom:10px;'>MLB betting model dashboard</div>",
         unsafe_allow_html=True,
     )
 
