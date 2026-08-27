@@ -1,0 +1,200 @@
+{
+  "schema": "game-structure-diagnostic/v1",
+  "date": "20260827",
+  "frame": "run_engine_oof_20260827.csv",
+  "n_games": 4384,
+  "sealed": {
+    "n": 284,
+    "start": "2026-08-06",
+    "end": "2026-08-26"
+  },
+  "mc": {
+    "n_draws": 10000,
+    "seed": 20260827,
+    "bottom9_share": 0.8888888888888888,
+    "split": "exchangeability split: H8 ~ Binomial(full_h, 8/9); h9 = full_h - H8; sum exactly reproduces the fitted NB marginal"
+  },
+  "extras": {
+    "n_games_extras": 378,
+    "extras_pct": 8.62,
+    "n_pre_sealed_extras": 348,
+    "p_home_extras_pre_sealed": 0.5029,
+    "model_tie_prob": 0.1005
+  },
+  "identity": {
+    "note": "structured P(home win) == P(full_h > a9) + P(full_h == a9) * p_home_extras; the game-flow truncation changes only totals/run-line, never the derived ML.",
+    "max_abs_ml_diff": 0.005636
+  },
+  "consistency": {
+    "current_mean_p_home_split": 0.4679,
+    "shipped_mc_mean_p_home": 0.468,
+    "shipped_vs_split_gap": -0.0
+  },
+  "empirical": {
+    "home_win_rate": 0.5354,
+    "home_cover_rate": 0.359
+  },
+  "mean_p_home": {
+    "current": 0.4679,
+    "structured": 0.5185,
+    "empirical": 0.5354,
+    "residual_structured": -0.0169,
+    "residual_current": -0.0674
+  },
+  "buckets": {
+    "projected_total_median_pre_sealed": 8.8222,
+    "buckets": {
+      "low": {
+        "n": 2049,
+        "empirical_home_win_rate": 0.5417,
+        "current_mean_p_home": 0.4771,
+        "structured_mean_p_home": 0.5287,
+        "current_edge": 0.0646,
+        "structured_edge": 0.013
+      },
+      "high": {
+        "n": 2051,
+        "empirical_home_win_rate": 0.5271,
+        "current_mean_p_home": 0.4597,
+        "structured_mean_p_home": 0.5093,
+        "current_edge": 0.0673,
+        "structured_edge": 0.0178
+      }
+    }
+  },
+  "surfaces": {
+    "derived_ml": {
+      "pooled": {
+        "n": 4384,
+        "logloss": 0.6945,
+        "auc": 0.55454,
+        "ece": 0.06814,
+        "win_rate": 0.5007,
+        "mean_p": 0.4679,
+        "card_style_ece": 0.04002
+      },
+      "sealed": {
+        "n": 284,
+        "logloss": 0.69988,
+        "auc": 0.53193,
+        "ece": 0.10108,
+        "win_rate": 0.4542,
+        "mean_p": 0.4607,
+        "card_style_ece": 0.09763
+      }
+    },
+    "derived_ml_structured": {
+      "pooled": {
+        "n": 4384,
+        "logloss": 0.68596,
+        "auc": 0.55379,
+        "ece": 0.01971,
+        "win_rate": 0.5427,
+        "mean_p": 0.5185,
+        "card_style_ece": 0.01389
+      },
+      "sealed": {
+        "n": 284,
+        "logloss": 0.68684,
+        "auc": 0.53491,
+        "ece": 0.04365,
+        "win_rate": 0.5599,
+        "mean_p": 0.5108,
+        "card_style_ece": 0.04353
+      }
+    },
+    "run_line": {
+      "pooled": {
+        "n": 4384,
+        "logloss": 0.64918,
+        "auc": 0.54799,
+        "ece": 0.01078,
+        "win_rate": 0.6401,
+        "mean_p": 0.3698,
+        "card_style_ece": 0.00986
+      },
+      "sealed": {
+        "n": 284,
+        "logloss": 0.66353,
+        "auc": 0.4722,
+        "ece": 0.02439,
+        "win_rate": 0.6197,
+        "mean_p": 0.3634,
+        "card_style_ece": 0.02439
+      }
+    },
+    "run_line_structured": {
+      "pooled": {
+        "n": 4384,
+        "logloss": 0.65085,
+        "auc": 0.54903,
+        "ece": 0.03631,
+        "win_rate": 0.641,
+        "mean_p": 0.3287,
+        "card_style_ece": 0.03608
+      },
+      "sealed": {
+        "n": 284,
+        "logloss": 0.67039,
+        "auc": 0.47064,
+        "ece": 0.08072,
+        "win_rate": 0.6197,
+        "mean_p": 0.3224,
+        "card_style_ece": 0.08072
+      }
+    },
+    "totals_current": {
+      "pooled": {
+        "n": 4156,
+        "logloss": 0.68876,
+        "auc": 0.53345,
+        "ece": 0.03071,
+        "win_rate": 0.5484,
+        "mean_p": 0.4209,
+        "card_style_ece": 0.03071
+      },
+      "sealed": {
+        "n": 266,
+        "logloss": 0.68461,
+        "auc": 0.51212,
+        "ece": 0.01778,
+        "win_rate": 0.5752,
+        "mean_p": 0.407,
+        "card_style_ece": 0.01778
+      }
+    },
+    "totals_structured": {
+      "pooled": {
+        "n": 4156,
+        "logloss": 0.68943,
+        "auc": 0.53093,
+        "ece": 0.03318,
+        "win_rate": 0.5484,
+        "mean_p": 0.4185,
+        "card_style_ece": 0.03318
+      },
+      "sealed": {
+        "n": 266,
+        "logloss": 0.68654,
+        "auc": 0.49633,
+        "ece": 0.05264,
+        "win_rate": 0.5752,
+        "mean_p": 0.4004,
+        "card_style_ece": 0.05264
+      }
+    }
+  },
+  "verdict": "PARTIAL \u2014 game structure is the PATH for the derived-ML surface (monitor-only p_home_win_derived): structured ECE improves pooled AND sealed, logloss improves, AUC is preserved, mean P(home) moves 0.468 -> 0.5185 (closing ~75% of the 0.067 deficit; residual -0.017 vs empirical 0.5354). The game-flow TRUNCATION must NOT be adopted for totals/run-line pricing: run-line ECE degrades (pooled 0.011->0.036, sealed 0.024->0.081) because the fitted NB marginals already embed the real final-score truncation, and the walk-off-by-1 rule then double-counts it (modeled cover mean 0.329 vs empirical 0.359); totals are roughly neutral pooled but degrade sealed.",
+  "residual_note": "residual mean P(home) vs empirical: -0.0169 (structured), -0.0674 (current); structured closes 75% of the deficit.",
+  "copula_note": "COPULA: NOT justified by this diagnostic. The structured residual (-0.0169) is ~4x smaller than the current deficit (-0.0674), corr(h, a) ~ 0, and the remaining gap is of the order of the per-side E[X] biases (home +0.010, away +0.062) and the model's tie-mass overshoot (modeled P(h==a) 0.1005 vs empirical extras rate 0.0862) \u2014 mean-level/marginal misses, not dependence. The higher-value next lever is the tie-region / walk-off-region marginal fit, not a bivariate joint.",
+  "acceptance": {
+    "rule": "structured ADOPT for the derived-ML surface iff pooled AND sealed ECE improve AND mean P(home) moves toward 0.5354 AND totals/run-line ECE degrade by <= 0.002 on both windows",
+    "checks": {
+      "ml_ece_improved_pooled": true,
+      "ml_ece_improved_sealed": true,
+      "totals_not_degraded": false,
+      "run_line_not_degraded": false
+    },
+    "result": "PARTIAL \u2014 game structure is the PATH for the derived-ML surface (monitor-only p_home_win_derived): structured ECE improves pooled AND sealed, logloss improves, AUC is preserved, mean P(home) moves 0.468 -> 0.5185 (closing ~75% of the 0.067 deficit; residual -0.017 vs empirical 0.5354). The game-flow TRUNCATION must NOT be adopted for totals/run-line pricing: run-line ECE degrades (pooled 0.011->0.036, sealed 0.024->0.081) because the fitted NB marginals already embed the real final-score truncation, and the walk-off-by-1 rule then double-counts it (modeled cover mean 0.329 vs empirical 0.359); totals are roughly neutral pooled but degrade sealed."
+  }
+}
