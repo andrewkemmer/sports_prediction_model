@@ -442,6 +442,23 @@ def _as_alpha_col(alpha: float | np.ndarray, n_games: int) -> np.ndarray:
     return np.maximum(arr, ALPHA_FLOOR)[:, None]
 
 
+# ────────────────────────────────────────────────────────────────────────
+# PINNED VERDICT 2026-08-27 — discriminative totals/run-line blending member
+# (run_total_blend_ablation.py, data_delivery/total_blend_ablation_20260827.json):
+# DON'T ADOPT. A gradient-boosted member trained on the run engine's own
+# 29-feature view (levels + environment; the same keep-list derive_run_features
+# produces for this module) with heads E[total runs] / P(over 8.5) / P(home
+# cover -1.5), blended with the NB sampler's per-line probabilities (fixed
+# 50/50 average + prequential L2 logistic stackers) through the shared 45-fold
+# geometry + sealed 284 holdout. The GBM member improves POOLED OOF on both
+# surfaces (totals ll 0.6843 vs NB 0.6882, run-line 0.6428 vs 0.6488), and the
+# stack improves SEALED totals (ll 0.6833 vs 0.6866, ECE-cal 0.0410 vs 0.0779)
+# — but every blend variant DEGRADES sealed run-line logloss (best +0.0056 vs
+# NB 0.6641), so no variant clears BOTH surfaces' sealed window. The same
+# pooled-gain/sealed-loss inversion seen in every prior blend-level gate
+# (stack, calibration flip, margin, edge correction). NB-only stays the
+# production pricing path; the harness remains for re-testing on a later frame.
+# ────────────────────────────────────────────────────────────────────────
 def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
                       alpha_home: float | np.ndarray,
                       alpha_away: float | np.ndarray,
