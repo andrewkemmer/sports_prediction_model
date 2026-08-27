@@ -8,7 +8,8 @@ truth for the sidebar page order):
 
 Artifacts are fetched from raw.githubusercontent URLs (configurable via the
 GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH env vars) with a local fallback
-to the bundled sample data shipped in ``data_delivery/``.
+to the real committed artifacts in ``data_delivery/`` when GitHub is
+unavailable.
 
 Run from the repository root::
 
@@ -36,10 +37,10 @@ with st.sidebar:
     # sidebar reorder CSS in utils.inject_css (a sport toggle can be added
     # to this header later without touching the page list below).
     utils.render_brand_header()
-    # Data-source caption block removed (display-only): the artifact fetch
-    # with local fallback is unchanged and still honors GITHUB_OWNER /
-    # GITHUB_REPO / GITHUB_BRANCH env vars. A one-line note renders only
-    # when the app fell back to the bundled samples (see render_source_note).
+    # The artifact fetch honors GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH
+    # env vars with a local fallback to the committed data_delivery
+    # artifacts. A one-line note renders only when that fallback is active
+    # (see render_source_note).
     utils.render_source_note()
     # Divider keeps the menu sitting cleanly under the logo/subtitle now
     # that the backend-source caption is gone.

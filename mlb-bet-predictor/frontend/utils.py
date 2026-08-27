@@ -2,9 +2,10 @@
 
 This module is the single place the four pages talk to the artifact sink
 (``data_delivery``). It reads artifacts from **raw.githubusercontent.com**
-URLs when a repo is configured, and transparently falls back to the sample
-artifacts shipped in the repo's local ``data_delivery/`` folder so the app
-always renders, even offline or before the first Colab push.
+URLs when a repo is configured, and transparently falls back to the real
+committed ``data_delivery`` artifacts in the local repo (not bundled
+samples) so the app always renders, even offline or before the first
+Colab push.
 
 Only pandas / requests / altair / streamlit are used — no sklearn, xgboost,
 lightgbm, or shap (heavy ML stays in the backend).
@@ -61,7 +62,7 @@ def source_label() -> str:
     cfg = get_source_config()
     if cfg["owner"] and cfg["repo"]:
         return f"GitHub raw · {cfg['owner']}/{cfg['repo']}@{cfg['branch']}"
-    return "Local sample data (no GitHub repo configured)"
+    return "Local committed artifacts (no GitHub repo configured)"
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +217,7 @@ def _load_scores() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Artifact loading (GitHub raw -> local sample fallback)
+# Artifact loading (GitHub raw -> local committed-artifact fallback)
 # ---------------------------------------------------------------------------
 
 def _raw_url(relpath: str, owner: str, repo: str, branch: str) -> str:
@@ -306,7 +307,7 @@ def _pick_date(date_str: str) -> str:
         return date_str
     if dates:
         return dates[0]
-    return "20260809"  # bundled sample
+    return "20260809"  # last committed artifact date
 
 
 def _pick_artifact_date(date_str: str, prefix: str) -> str:
@@ -844,18 +845,18 @@ def render_brand_header() -> None:
 
 
 def render_source_note() -> None:
-    """One-line source note rendered ONLY when the app fell back to the
-    bundled local samples (the case where knowing the source matters).
-    While streaming from GitHub raw URLs nothing is shown — the data-source
-    caption block is display-only and was removed."""
+    """One-line source note rendered ONLY when the GitHub fetch failed and
+    the app served the real committed data_delivery artifacts from the
+    local repo (the fallback path — not bundled samples). While streaming
+    from GitHub raw URLs, or in any other display state, nothing is shown.
+    """
     src = st.session_state.get("data_source", "")
-    if src == "github":
-        return
     if src == "missing" and not list(LOCAL_DATA_DIR.glob("todays_games_*.csv")):
-        note, icon = "No artifacts found", "⚠️"
-    else:
-        note, icon = "Showing bundled sample data (offline fallback)", "📦"
-    st.caption(f"{icon} {note}")
+        st.caption("⚠️ No artifacts found")
+        return
+    if src != "local":
+        return
+    st.caption("📦 Showing latest committed artifacts (GitHub fetch unavailable)")
 
 
 # ---------------------------------------------------------------------------

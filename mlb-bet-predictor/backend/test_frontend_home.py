@@ -127,6 +127,26 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         self.assertIn('[data-testid="stSidebarContent"]', src)
         self.assertIn("flex-direction: column", src)
 
+    def test_fallback_caption_truthful_and_gated_on_local(self):
+        """The offline-fallback note must (a) say what it actually serves
+        (the real committed data_delivery artifacts — not "bundled
+        samples") and (b) render only when the fallback path (source ==
+        "local") is active."""
+        src = _UTILS.read_text(encoding="utf-8")
+        self.assertIn(
+            "Showing latest committed artifacts (GitHub fetch unavailable)",
+            src)
+        # The old untruthful caption is gone (negated docstring phrases
+        # like "not bundled samples" are fine and intentional).
+        self.assertNotIn("Showing bundled sample data (offline fallback)", src)
+        self.assertNotIn("Local sample data", src)
+        # Gating: the fallback note is guarded by the local-source check.
+        i = src.find("def render_source_note")
+        self.assertGreater(i, -1)
+        body = src[i:]
+        self.assertIn('if src != "local":', body)
+        self.assertIn('st.caption("📦 Showing latest committed artifacts', body)
+
 
 if __name__ == "__main__":
     unittest.main()
