@@ -509,9 +509,19 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
                 import numpy as _np
                 _raw_fav = _np.maximum(yp[okc.values], 1.0 - yp[okc.values])
                 _cal_fav = _np.maximum(y_cal[okc].values, 1.0 - y_cal[okc].values)
+                import re as _re
                 for b in row["buckets"]:
-                    lo = float(b["bucket"].split("--")[0]) / 100.0
-                    hi = float(b["bucket"].split("--")[1].rstrip("%")) / 100.0
+                    label = str(b.get("bucket", ""))
+                    match = _re.fullmatch(
+                        r"\s*(\d+(?:\.\d+)?)\s*(?:-|–|—)+\s*"
+                        r"(\d+(?:\.\d+)?)\s*%?\s*", label)
+                    if match is None:
+                        raise ValueError(
+                            f"Could not parse calibration bucket label {label!r}; "
+                            "expected '<low>-<high>' with optional % and hyphen/en-dash"
+                        )
+                    lo = float(match.group(1)) / 100.0
+                    hi = float(match.group(2)) / 100.0
                     mask = (_raw_fav >= lo) & (_raw_fav < hi)
                     if hi >= 0.999:
                         mask |= _raw_fav == hi
