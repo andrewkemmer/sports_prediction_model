@@ -74,6 +74,25 @@ def get_last_margin_rounds() -> dict | None:
     return dict(_LAST_MARGIN_ROUNDS) if _LAST_MARGIN_ROUNDS else None
 
 
+# Walk-forward splits produced during the most recent training pass.
+# _attach_drift_run_margins reuses these to avoid building splits on
+# a different row set (the drift frame can differ from the training
+# frame), which would desync fold geometry and trigger the
+# _attach_oof_run_margins desync guard.
+_LAST_WALK_FORWARD_SPLITS: list = []
+
+
+def set_last_walk_forward_splits(splits: list) -> None:
+    """Record the walk-forward splits from the most recent training pass."""
+    global _LAST_WALK_FORWARD_SPLITS
+    _LAST_WALK_FORWARD_SPLITS = list(splits)
+
+
+def get_last_walk_forward_splits() -> list:
+    """Walk-forward splits from the most recent training pass (empty list if none)."""
+    return list(_LAST_WALK_FORWARD_SPLITS)
+
+
 # Features used for model input — all diff/computed features.
 # Diff convention: home − away (positive = home advantage).
 #
