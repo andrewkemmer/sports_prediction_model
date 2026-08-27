@@ -41,8 +41,9 @@ with st.sidebar:
     # GITHUB_REPO / GITHUB_BRANCH env vars. A one-line note renders only
     # when the app fell back to the bundled samples (see render_source_note).
     utils.render_source_note()
+    # Divider keeps the menu sitting cleanly under the logo/subtitle now
+    # that the backend-source caption is gone.
     st.divider()
-    st.caption("Backend: Colab pipeline → data_delivery → GitHub. See README.md.")
 
 # ---------------------------------------------------------------------------
 # Navigation (single source of truth for the sidebar page order)

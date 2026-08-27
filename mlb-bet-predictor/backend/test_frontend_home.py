@@ -91,6 +91,14 @@ class TestHomePageOrder(unittest.TestCase):
         src = _HOME.read_text(encoding="utf-8")
         self.assertIn('url_path="todays-games", default=True', src)
 
+    def test_backend_source_caption_removed(self):
+        """The sidebar caption under the brand is gone so the dashboard
+        list slides up directly underneath the logo/subtitle (divider
+        stays as the separator)."""
+        src = _HOME.read_text(encoding="utf-8")
+        self.assertNotIn("Backend: Colab pipeline", src)
+        self.assertNotIn("See README.md", src)
+
 
 class TestBrandAboveDashboardList(unittest.TestCase):
     def test_home_uses_single_brand_component(self):
