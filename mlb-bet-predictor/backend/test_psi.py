@@ -282,10 +282,18 @@ class TestDriftMarginAttachWiring(unittest.TestCase):
             out["run_margin_diff"] = [0.4, -0.2, 0.1, -0.5]
             return out, splits
 
+        canonical_splits = [{
+            "fold_idx": 0,
+            "val_start": pd.Timestamp("2026-07-15"),
+            "val_end": pd.Timestamp("2026-07-22"),
+            "val_games": decided.copy(),
+        }]
         with patch("pipeline._attach_oof_run_margins",
                    side_effect=_fake_attach), \
+             patch("pipeline.walk_forward_splits",
+                   return_value=canonical_splits), \
              patch("pipeline.get_last_walk_forward_splits",
-                   return_value=[{"fold_idx": 0}]):
+                   return_value=canonical_splits):
             out = _attach_drift_run_margins(decided)
         self.assertIn("run_margin_diff", out.columns)
         self.assertEqual(list(out["run_margin_diff"]), [0.4, -0.2, 0.1, -0.5])

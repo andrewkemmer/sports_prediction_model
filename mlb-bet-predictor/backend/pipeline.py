@@ -181,14 +181,24 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
     if MARGIN_COL not in FEATURE_COLS:
         return decided
     try:
+        # Correctness is based on deterministic geometry, not process state.
+        # The caller supplies the canonical game_level_features row set;
+        # cached splits are only an optional fast path when their signature
+        # matches that frame exactly.
+        canonical = decided.sort_values("game_date").reset_index(drop=True)
+        canonical_splits = walk_forward_splits(
+            canonical, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
         _splits = get_last_walk_forward_splits()
+        def _signature(items):
+            return [(s["fold_idx"], str(s["val_start"]), str(s["val_end"]),
+                     tuple(s["val_games"].get("game_pk", pd.Series(dtype=object)).tolist()))
+                    for s in items]
+        if not _splits or _signature(_splits) != _signature(canonical_splits):
+            _splits = canonical_splits
         if not _splits:
-            # Preserve the standalone/fallback path when drift runs before
-            # a training pass has recorded canonical fold geometry.
-            _splits = walk_forward_splits(
-                decided, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
-            if not _splits:
-                return decided
+            return decided
+        if not decided.reset_index(drop=True)["game_pk"].tolist() == canonical["game_pk"].tolist():
+            decided = canonical
         enriched, _ = _attach_oof_run_margins(
             decided, _splits, MIN_VAL_FOLD_GAMES, 0,
             RETRAIN_CADENCE_DAYS, 0)
