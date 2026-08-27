@@ -237,6 +237,18 @@ FEATURE_COLS = [
     # run_margins). The run engine itself can never consume it: the *_diff
     # rule in derive_run_features drops it (and the ablation's LAMBDAS
     # variant showed λ_home/λ_away add nothing beyond the margin).
+    # Home-edge interaction ablation (DON'T ADOPT, 2026-08-27): the structural
+    # finding that home edge is environment-conditional (+0.27 low-total vs
+    # -0.09 high-total) is NOT recoverable through the run engine's expected
+    # total. Expected-total variants (expected_total = lam_home+lam_away,
+    # run_margin_x_exp_total product, high_expected_total median bucket) added
+    # NO separation beyond the main effects at the pooled-OOF logistic
+    # pre-check (ΔAUC +0.0003, CI [-0.0008, +0.0010] straddles 0; Δlogloss
+    # 0.0000; interaction coef -0.0036), so the heavy walk-forward gate was
+    # skipped. The +0.27/-0.09 diagnostic was on ACTUAL totals (post-game); the
+    # leakage-free expected total carries far weaker environment signal. See
+    # run_home_edge_interaction_ablation.py and
+    # data_delivery/home_edge_interaction_ablation_20260827.json.
     "run_margin_diff",
 ]
 # Deduplicate (should already be unique but defensive)
