@@ -1,0 +1,66 @@
+{
+  "schema": "calibration-ablation/v2",
+  "holdout_start": "2026-08-05",
+  "holdout_end": "2026-08-25",
+  "holdout_n": 284,
+  "tuning_n": 3757,
+  "fold_decisions": [],
+  "final_winner": "isotonic",
+  "variants": {
+    "identity": {
+      "logloss": 0.6804783322170154,
+      "auc": 0.5573638738195701,
+      "brier": 0.24378210730437994,
+      "ece": 0.0380477032638525
+    },
+    "unconditional_platt": {
+      "logloss": 0.6818871026738339,
+      "auc": 0.5573638738195701,
+      "brier": 0.2444632699280973,
+      "ece": 0.05571504854705027
+    },
+    "conditional": {
+      "logloss": 0.678528591587214,
+      "auc": 0.5553295157725539,
+      "brier": 0.2430231220517909,
+      "ece": 0.04145742877995219
+    },
+    "isotonic": {
+      "logloss": 0.678528591587214,
+      "auc": 0.5553295157725539,
+      "brier": 0.2430231220517909,
+      "ece": 0.04145742877995219
+    }
+  },
+  "identity_assessment": {
+    "best_ece_variant": "identity",
+    "identity_is_best_ece": true,
+    "identity_logloss_delta_vs_unconditional_platt": -0.001409,
+    "note": "identity calibration gain offsets any logloss cost iff delta <= 0"
+  },
+  "gate": {
+    "verdict": "DON'T ADOPT (keep identity)",
+    "reason": "no challenger cleared the logloss+AUC gate vs unconditional Platt; identity has the best sealed ECE and logloss <= unconditional Platt (no calibration cost)",
+    "rule": "challenger ADOPT only if it beats unconditional Platt on sealed logloss AND AUC without degrading sealed ECE"
+  },
+  "holdout_provenance": {
+    "holdout_n": 284,
+    "history_games": 259,
+    "recomputed_games": 25,
+    "sources": {
+      "259": "predictions_history_20260827.csv (run walk-forward OOF)",
+      "25": "recomputed: fold-50 model trained strictly < 2026-08-22, run_margin_diff from run_engine_oof_20260827.csv"
+    },
+    "fold50": {
+      "val_start": "2026-08-22",
+      "val_end": "2026-08-25",
+      "train_cutoff": "2026-08-21",
+      "train_n": 4411
+    },
+    "sanity_vs_stored_0822_0823": {
+      "games": 30,
+      "max_abs_diff": 0.04432586479239814,
+      "mean_abs_diff": 0.020594857344317548
+    }
+  }
+}

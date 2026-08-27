@@ -1,0 +1,22 @@
+{
+  "target_date": "2026-08-27",
+  "holdout_n": 284,
+  "holdout_history_n": 259,
+  "holdout_recomputed_n": 25,
+  "tuning_n": 3757,
+  "fold50": {
+    "val_start": "2026-08-22",
+    "val_end": "2026-08-25",
+    "train_cutoff": "2026-08-21",
+    "train_n": 4411
+  },
+  "sanity_vs_stored_0822_0823": {
+    "games": 30,
+    "max_abs_diff": 0.04432586479239814,
+    "mean_abs_diff": 0.020594857344317548
+  },
+  "sources": {
+    "259": "predictions_history_20260827.csv (run walk-forward OOF)",
+    "25": "recomputed: fold-50 model trained strictly < 2026-08-22, run_margin_diff from run_engine_oof_20260827.csv"
+  }
+}

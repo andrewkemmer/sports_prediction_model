@@ -176,13 +176,54 @@ def replay(df: pd.DataFrame) -> dict[str, Any]:
     report = {name: metrics(y_h, pred) for name, pred in variants.items()}
     base = report["unconditional_platt"]
     cond = report["conditional"]
-    adopt = cond["ece"] < base["ece"] and cond["logloss"] <= base["logloss"]
-    return {"schema": "calibration-ablation/v1", "holdout_start": str(HOLDOUT_START.date()),
+    iso = report["isotonic"]
+    ident = report["identity"]
+
+    # Verdict rule (sealed holdout, no hedging): a CHALLENGER (conditional
+    # Platt; isotonic if it differs) is ADOPT only if it beats current
+    # unconditional Platt on logloss AND AUC without degrading ECE.
+    def _beats(base_m: dict, chal: dict) -> bool:
+        return (chal["logloss"] < base_m["logloss"]
+                and chal["auc"] > base_m["auc"]
+                and chal["ece"] <= base_m["ece"])
+
+    cond_ok = _beats(base, cond)
+    iso_ok = _beats(base, iso)
+    adopted = None
+    if cond_ok:
+        adopted = "conditional"
+    if iso_ok and (not adopted or iso["ece"] < cond["ece"]):
+        adopted = "isotonic"
+
+    # Identity assessment: report whether identity's calibration gain (best
+    # sealed ECE when it holds) offsets any logloss cost vs unconditional Platt.
+    best_ece_name = min(report, key=lambda n: report[n]["ece"])
+    ident_logloss_cost = ident["logloss"] - base["logloss"]
+    if adopted:
+        verdict = f"ADOPT ({adopted})"
+        reason = (f"{adopted} beats unconditional Platt on sealed logloss "
+                  f"and AUC without degrading ECE")
+    elif best_ece_name == "identity" and ident_logloss_cost <= 0:
+        verdict = "DON'T ADOPT (keep identity)"
+        reason = ("no challenger cleared the logloss+AUC gate vs unconditional "
+                  "Platt; identity has the best sealed ECE and logloss <= "
+                  "unconditional Platt (no calibration cost)")
+    else:
+        verdict = "DON'T ADOPT (keep unconditional Platt)"
+        reason = "no challenger beat unconditional Platt on sealed logloss AND AUC"
+    return {"schema": "calibration-ablation/v2", "holdout_start": str(HOLDOUT_START.date()),
             "holdout_end": str(HOLDOUT_END.date()), "holdout_n": len(hold),
             "tuning_n": len(tuning), "fold_decisions": decisions,
             "final_winner": final_winner, "variants": report,
-            "gate": {"verdict": "ADOPT" if adopt else "DON'T ADOPT",
-                     "reason": "conditional improves ECE without logloss degradation" if adopt else "conditional did not clear both holdout gates"}}
+            "identity_assessment": {
+                "best_ece_variant": best_ece_name,
+                "identity_is_best_ece": best_ece_name == "identity",
+                "identity_logloss_delta_vs_unconditional_platt": round(ident_logloss_cost, 6),
+                "note": "identity calibration gain offsets any logloss cost iff delta <= 0"
+            },
+            "gate": {"verdict": verdict, "reason": reason,
+                     "rule": "challenger ADOPT only if it beats unconditional Platt on "
+                             "sealed logloss AND AUC without degrading sealed ECE"}}
 
 
 def main() -> None:
@@ -195,6 +236,20 @@ def main() -> None:
     result = replay(pd.read_csv(args.csv))
     target = args.target_date or date.today().isoformat()
     compact = target.replace("-", "")
+    # n=284 proof: fold the sealed-holdout provenance (where each scored game
+    # came from) into the record when the replay builder's meta file exists.
+    meta_path = args.csv.with_name(f"sealed_holdout_replay_{compact}.meta.json")
+    if meta_path.exists():
+        import json as _json
+        prov = _json.loads(meta_path.read_text())
+        result["holdout_provenance"] = {
+            "holdout_n": prov.get("holdout_n"),
+            "history_games": prov.get("holdout_history_n"),
+            "recomputed_games": prov.get("holdout_recomputed_n"),
+            "sources": prov.get("sources"),
+            "fold50": prov.get("fold50"),
+            "sanity_vs_stored_0822_0823": prov.get("sanity_vs_stored_0822_0823"),
+        }
     out = args.out or args.csv.with_name(f"calibration_ablation_{compact}.json")
     out.write_text(json.dumps(result, indent=2) + "\n")
     for name, scores in result["variants"].items():

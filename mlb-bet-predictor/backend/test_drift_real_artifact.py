@@ -11,7 +11,7 @@ class TestDriftArtifactAlignment(unittest.TestCase):
     def test_saved_artifacts_require_feature_frame_as_canonical_row_set(self):
         root = Path(__file__).parents[1] / "data_delivery"
         features = pd.read_csv(root / "game_level_features.csv")
-        history = pd.read_csv(root / "predictions_history_20260826.csv")
+        history = pd.read_csv(root / "predictions_history_20260827.csv")
         self.assertEqual(len(features), 4466)
         self.assertEqual(len(features) - len(features[features.game_id.isin(history.game_id)]), 450)
         self.assertEqual(features.game_id.duplicated().sum(), 46)

@@ -38,10 +38,11 @@ def test_replay_schema_and_gate_are_explicit():
     df.loc[len(df)] = [pd.Timestamp("2026-08-05"), 1.0, 0.7]
     df.loc[len(df)] = [pd.Timestamp("2026-08-06"), 0.0, 0.3]
     result = replay(df)
-    assert result["schema"] == "calibration-ablation/v1"
+    assert result["schema"] == "calibration-ablation/v2"
     assert result["holdout_n"] == 23
     assert set(result["variants"]) == {"identity", "unconditional_platt", "conditional", "isotonic"}
-    assert result["gate"]["verdict"] in {"ADOPT", "DON'T ADOPT"}
+    assert result["gate"]["verdict"].startswith(("ADOPT", "DON'T ADOPT"))
+    assert result["identity_assessment"]["identity_is_best_ece"] in (True, False)
 
 
 def test_metrics_is_finite():
