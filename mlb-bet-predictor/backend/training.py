@@ -816,6 +816,18 @@ def compute_adaptive_weights(
     domination. The result sums to exactly 1.0 and feeds both prediction
     blending and reporting so the ensemble visibly self-corrects as
     features improve.
+
+    Constrained stacking meta-learner ablation (DON'T ADOPT, 2026-08-27):
+    an L2-regularized logistic stack (scipy SLSQP; standardized member
+    probs; unconstrained / non-negative / non-negative-sum-to-1 variants)
+    fit on the five members' pooled OOF probabilities beat the adaptive
+    blend on POOLED OOF (e.g. nonneg ll 0.6786/auc 0.5872 vs adaptive
+    0.6799/0.5823) but every variant DEGRADED the sealed 284 holdout
+    (logloss 0.6847-0.7476 vs adaptive 0.6804; ECE 0.0701-0.1517 vs
+    0.0455) — the pooled-gain/sealed-loss inversion seen in every prior
+    blend-level gate. See run_stack_ablation.py and
+    data_delivery/stack_ablation_20260827.json. Adaptive renormalization
+    stays.
     """
     scores: dict[str, float] = {}
     y = np.asarray(y_oof, dtype=float)
