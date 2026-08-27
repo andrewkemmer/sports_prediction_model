@@ -480,6 +480,22 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
         p_over[start:end] = (total >= int(-(-TOTAL_LINE // 1))).mean(axis=1)
         p_cover[start:end] = (diff >= int(RUN_LINE_MARGIN) + 1).mean(axis=1)
         p_win[start:end] = (diff > 0).mean(axis=1)
+    # ------------------------------------------------------------------
+    # TRACED 2026-08-27: p_home_win_derived is PURELY DIAGNOSTIC — it does
+    # NOT feed production pricing. Consumers: the run-engine monitor's
+    # derived-ML card + nb_diagnostic, agreement_vs_moneyline/slate stats
+    # (p_run), the persisted markets CSV columns (p_home_win_derived /
+    # p_away_win_derived), and the agreement_conflict flag. NO EV or
+    # market-table math consumes it: Today's Games ML pick/edge uses the
+    # ENSEMBLE home_win_prob_model (training.py edge = model_prob -
+    # fair_market_prob), and the O/U + run-line prices use the grid/cover
+    # columns only. agreement_conflict is written to the artifact with no
+    # downstream consumer altering pricing. Therefore the NB home-edge
+    # underweighting (mean P(home) 0.4684 vs actual 0.5354; alpha_away >
+    # alpha_home with only a +0.12 lambda edge) is a DIAGNOSTIC-QUALITY
+    # issue only — no leakage-free ablation needed; finding recorded and
+    # closed. If p_home_win_derived ever feeds pricing, reopen this.
+    # ------------------------------------------------------------------
         for j, line in enumerate(TOTAL_LINE_GRID):
             grid_over[start:end, j] = (total >= int(-(-line // 1))).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID):
