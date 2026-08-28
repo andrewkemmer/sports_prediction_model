@@ -7,7 +7,7 @@
 
 ## Scope Note
 
-All file paths and line numbers below are to `mlb-bet-predictor/backend/` unless otherwise stated.
+All file paths and line numbers below are to `mlb-backend/backend/` unless otherwise stated.
 
 ---
 
@@ -187,7 +187,7 @@ This is a **standalone script** (like `run_lineup_ablation.py`, `run_categorical
 
 ### File: `run_calibration_ablation.py`
 
-**Location:** `mlb-bet-predictor/backend/run_calibration_ablation.py`
+**Location:** `mlb-backend/backend/run_calibration_ablation.py`
 
 ### Design
 

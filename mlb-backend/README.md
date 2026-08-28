@@ -5,7 +5,7 @@ backend** that trains and scores a walk-forward ensemble, and a **Streamlit
 frontend** that renders four dashboards straight from GitHub raw URLs.
 
 ```
-mlb-bet-predictor
+mlb-backend
 ├── backend            # Colab-ready Python pipeline (training, features, explainability)
 ├── frontend           # Streamlit multi-page app (Today's Games / Power Rankings / Calibration / Model Monitor)
 ├── data_delivery      # canonical artifact sink — produced by Colab, read by the app

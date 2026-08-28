@@ -16,11 +16,11 @@ Rate safety / idempotency:
 
 HOW TO RUN A TOP-UP (terminal-written files are reverted by workspace sync,
 so persist via the write_file tool):
-  1. python3 mlb-bet-predictor/_fetch_roofs.py \
-         mlb-bet-predictor/data_delivery/statsapi_roof_cache.json > /tmp/roofs.json
+  1. python3 mlb-backend/_fetch_roofs.py \
+         mlb-backend/data_delivery/statsapi_roof_cache.json > /tmp/roofs.json
      (argv optional; omitted -> starts from the empty cache)
   2. Copy /tmp/roofs.json's "merged" object into
-     mlb-bet-predictor/data_delivery/statsapi_roof_cache.json with write_file.
+     mlb-backend/data_delivery/statsapi_roof_cache.json with write_file.
   3. Repeat until the printed "remaining" reaches 0 (~950 unknowns need
      several runs at ~350 fetches/run).
 
