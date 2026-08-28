@@ -5,7 +5,7 @@ Single source of truth for:
 * which sports exist and their labels/emojis,
 * the repo-relative directory each sport publishes artifacts from — this is
   both the GitHub raw-URL prefix AND the local committed-artifact fallback
-  dir, so flipping it (Phase C: ``mlb-bet-predictor`` -> ``mlb-backend``)
+  dir, so flipping it (Phase C: ``mlb-backend`` -> ``mlb-backend``)
   moves the fetcher and the local sink atomically,
 * which dashboards each sport supports (the run-engine pages are MLB-only;
   the four generic dashboards render any sport that publishes the shared
@@ -26,7 +26,7 @@ SPORTS = {
         "emoji": "⚾",
         # Repo-relative directory holding this sport's backend + data_delivery.
         # Phase C renames the directory to mlb-backend/ — flip ONLY this value.
-        "repo_subdir": "mlb-bet-predictor",
+        "repo_subdir": "mlb-backend",
         # MLB publishes run-engine artifacts (Totals & Run Lines, umpire/roof/
         # weather features); other sports render the generic dashboards only.
         "has_run_engine": True,

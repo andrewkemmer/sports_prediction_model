@@ -20,7 +20,7 @@ MODELS_DIR = DATA_DELIVERY_DIR / "models"
 # (repo_subdir, the GitHub raw-URL prefix + local fallback dir). Phase C
 # renames the directory to mlb-backend/ and flips all three at once; the
 # path math above is already relative, so it survives the rename untouched.
-SPORT_DIR_NAME = "mlb-bet-predictor"
+SPORT_DIR_NAME = "mlb-backend"
 REPO_SUBDIR = SPORT_DIR_NAME  # GitHub raw-URL path prefix for data_delivery
 
 # Full-history weather backfill (default ON): real StatsAPI first pitches +

@@ -63,7 +63,7 @@ CONFIG = {
 # Mirrored in backend/config.py (SPORT_DIR_NAME) and frontend/sports_config.py
 # (repo_subdir) — Phase C renames the directory to mlb-backend/ and flips all
 # three at once.
-SPORT_DIR_NAME = "mlb-bet-predictor"
+SPORT_DIR_NAME = "mlb-backend"
 
 import warnings
 warnings.filterwarnings("ignore")

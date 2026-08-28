@@ -26,7 +26,7 @@ if str(_frontend) not in sys.path:
 # ---------------------------------------------------------------------------
 
 # Replicate the _raw_url logic inline for pure testing
-REPO_SUBDIR = "mlb-bet-predictor"
+REPO_SUBDIR = "mlb-backend"
 
 
 def _raw_url_test(relpath, owner, repo, branch):
@@ -127,7 +127,7 @@ class TestFitPanel(TestCase):
     def setUpClass(cls):
         import market_diagnostics as diag
         cls.diag = diag
-        # backend/ and data_delivery/ stay siblings under mlb-bet-predictor/
+        # backend/ and data_delivery/ stay siblings under mlb-backend/
         cls.root = Path(__file__).resolve().parents[1]
 
     @staticmethod
@@ -230,7 +230,7 @@ class TestRunEngineModelMonitorRender(TestCase):
         cls._backup = _sys.modules.get("streamlit")
         _sys.modules["streamlit"] = _mock.MagicMock()
         cls.markets = __import__("markets")
-        # backend/ and data_delivery/ stay siblings under mlb-bet-predictor/
+        # backend/ and data_delivery/ stay siblings under mlb-backend/
         cls.root = Path(__file__).resolve().parents[1]
 
     @classmethod

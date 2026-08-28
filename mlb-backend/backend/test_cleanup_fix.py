@@ -82,21 +82,21 @@ class TestCleanupProtection(TestCase):
 
     def test_roof_cache_protected(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/statsapi_roof_cache.json",
-            "mlb-bet-predictor/data_delivery/game_level_features.csv",
-            "mlb-bet-predictor/data_delivery/run_engine_oof_20260820.csv",
+            "mlb-backend/data_delivery/statsapi_roof_cache.json",
+            "mlb-backend/data_delivery/game_level_features.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260820.csv",
         ]
-        seen = {"mlb-bet-predictor/data_delivery/game_level_features.csv"}
+        seen = {"mlb-backend/data_delivery/game_level_features.csv"}
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertNotIn(
-            "mlb-bet-predictor/data_delivery/statsapi_roof_cache.json", stale,
+            "mlb-backend/data_delivery/statsapi_roof_cache.json", stale,
             "statsapi_roof_cache.json must be protected")
         self.assertEqual(prot, 1)
 
     def test_model_history_protected(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/model_history.json",
-            "mlb-bet-predictor/data_delivery/model_version_history.json",
+            "mlb-backend/data_delivery/model_history.json",
+            "mlb-backend/data_delivery/model_version_history.json",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -105,8 +105,8 @@ class TestCleanupProtection(TestCase):
 
     def test_models_dir_protected(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/models/ensemble_v1.joblib",
-            "mlb-bet-predictor/data_delivery/models/alpha_params.json",
+            "mlb-backend/data_delivery/models/ensemble_v1.joblib",
+            "mlb-backend/data_delivery/models/alpha_params.json",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -117,8 +117,8 @@ class TestCleanupProtection(TestCase):
         """The maintained umpire map/stats are dateless -> exact-name
         protected or Phase 6 would delete them and force a re-fetch."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/umpire_map.csv",
-            "mlb-bet-predictor/data_delivery/umpire_stats.csv",
+            "mlb-backend/data_delivery/umpire_map.csv",
+            "mlb-backend/data_delivery/umpire_stats.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -128,10 +128,10 @@ class TestCleanupProtection(TestCase):
     def test_all_protected_kept(self):
         """All three categories of protected files survive."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/statsapi_roof_cache.json",
-            "mlb-bet-predictor/data_delivery/model_history.json",
-            "mlb-bet-predictor/data_delivery/model_version_history.json",
-            "mlb-bet-predictor/data_delivery/models/x.joblib",
+            "mlb-backend/data_delivery/statsapi_roof_cache.json",
+            "mlb-backend/data_delivery/model_history.json",
+            "mlb-backend/data_delivery/model_version_history.json",
+            "mlb-backend/data_delivery/models/x.joblib",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -144,9 +144,9 @@ class TestCleanupProtection(TestCase):
         daily pipeline only consumes (42ef3f7 deleted them; pipeline now fails
         loud without them)."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/lineups.parquet",
-            "mlb-bet-predictor/data_delivery/batter_woba.parquet",
-            "mlb-bet-predictor/data_delivery/team_woba.parquet",
+            "mlb-backend/data_delivery/lineups.parquet",
+            "mlb-backend/data_delivery/batter_woba.parquet",
+            "mlb-backend/data_delivery/team_woba.parquet",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -158,8 +158,8 @@ class TestCleanupProtection(TestCase):
         """Every pbp_chunks/*.parquet survives via the prefix rule, even
         though the range dates in their names look date-ish."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
-            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2026-08-18_2026-08-24.parquet",
+            "mlb-backend/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-backend/data_delivery/pbp_chunks/pbp_2026-08-18_2026-08-24.parquet",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -172,19 +172,19 @@ class TestCleanupProtection(TestCase):
         deleted by cleanup, while stale date-stamped artifacts still are —
         the v26 protection regression sentinel."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/lineups.parquet",
-            "mlb-bet-predictor/data_delivery/batter_woba.parquet",
-            "mlb-bet-predictor/data_delivery/team_woba.parquet",
-            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/lineups.parquet",
+            "mlb-backend/data_delivery/batter_woba.parquet",
+            "mlb-backend/data_delivery/team_woba.parquet",
+            "mlb-backend/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ]
         stale, prot, cur = classify_tracked(tracked, set(), "20260824")
         self.assertEqual(prot, 4, "all 4 lineup inputs must be protected")
         # The stale date-stamped artifacts are still pruned (cleanup's job).
         self.assertEqual(stale, [
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ])
         stale_names = {s.rsplit("/", 1)[-1] for s in stale}
         self.assertFalse(stale_names
@@ -195,18 +195,18 @@ class TestCleanupProtection(TestCase):
         """Protecting the lineup inputs must NOT disable the cleanup's real
         job: stale date-stamped artifacts are still pruned alongside."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/lineups.parquet",
-            "mlb-bet-predictor/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/lineups.parquet",
+            "mlb-backend/data_delivery/pbp_chunks/pbp_2025-03-18_2025-03-31.parquet",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertIn(
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
             stale)
         self.assertIn(
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json", stale)
+            "mlb-backend/data_delivery/calibration_20260819.json", stale)
         self.assertEqual(len(stale), 2)
         self.assertEqual(prot, 2)
 
@@ -214,16 +214,16 @@ class TestCleanupProtection(TestCase):
         """A run-dated ablation record survives while an older one prunes;
         this proves ablations are not prefix-protected."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/calibration_ablation_20260826.json",
-            "mlb-bet-predictor/data_delivery/calibration_ablation_20260820.json",
-            "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
+            "mlb-backend/data_delivery/calibration_ablation_20260826.json",
+            "mlb-backend/data_delivery/calibration_ablation_20260820.json",
+            "mlb-backend/data_delivery/features_metadata_20260820.json",
         ]
         stale, prot, cur = classify_tracked(tracked, set(), "20260826")
         self.assertEqual(prot, 0)
         self.assertEqual(cur, 1)
         self.assertEqual(stale, [
-            "mlb-bet-predictor/data_delivery/calibration_ablation_20260820.json",
-            "mlb-bet-predictor/data_delivery/features_metadata_20260820.json",
+            "mlb-backend/data_delivery/calibration_ablation_20260820.json",
+            "mlb-backend/data_delivery/features_metadata_20260820.json",
         ])
 
     def test_run_engine_monitor_protected_while_stale_pruned(self):
@@ -236,13 +236,13 @@ class TestCleanupProtection(TestCase):
             # Monitors from past days must survive so the next run folds them
             # into the rolling series (not just today's, which the date-gate
             # would keep anyway).
-            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260822.json",
-            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260823.json",
-            "mlb-bet-predictor/data_delivery/run_engine_monitor_20260824.json",
+            "mlb-backend/data_delivery/run_engine_monitor_20260822.json",
+            "mlb-backend/data_delivery/run_engine_monitor_20260823.json",
+            "mlb-backend/data_delivery/run_engine_monitor_20260824.json",
             # Stale non-protected date-stamped files must still prune.
-            "mlb-bet-predictor/data_delivery/features_metadata_20260818.json",
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/features_metadata_20260818.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ]
         seen = set()  # none staged this run -> reliance on protection, not seen
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -251,7 +251,7 @@ class TestCleanupProtection(TestCase):
         # keep) must be BOTH protected AND absent from stale.
         for sd in ("20260822", "20260823", "20260824"):
             self.assertNotIn(
-                f"mlb-bet-predictor/data_delivery/run_engine_monitor_{sd}.json",
+                f"mlb-backend/data_delivery/run_engine_monitor_{sd}.json",
                 stale, "dated monitor must never be classified stale")
         # The monitor files are NOT counted as same-day keeps either — they go
         # through the protection path so the prefix rule is what saves them.
@@ -259,9 +259,9 @@ class TestCleanupProtection(TestCase):
         self.assertFalse(any("run_engine_monitor" in n for n in stale_names))
         # Stale non-protected date-stamped artifacts still prune.
         self.assertEqual(stale, [
-            "mlb-bet-predictor/data_delivery/features_metadata_20260818.json",
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/features_metadata_20260818.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ])
 
 
@@ -270,8 +270,8 @@ class TestDateGating(TestCase):
 
     def test_current_date_survives(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260824.csv",
-            "mlb-bet-predictor/data_delivery/run_engine_oof_20260824.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260824.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260824.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -280,8 +280,8 @@ class TestDateGating(TestCase):
 
     def test_older_date_removed(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/run_engine_oof_20260820.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260820.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -290,24 +290,24 @@ class TestDateGating(TestCase):
 
     def test_mixed_dates(self):
         tracked = [
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260824.csv",
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260824.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/calibration_20260819.json",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertIn(
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv", stale)
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv", stale)
         self.assertIn(
-            "mlb-bet-predictor/data_delivery/calibration_20260819.json", stale)
+            "mlb-backend/data_delivery/calibration_20260819.json", stale)
         self.assertNotIn(
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260824.csv", stale)
+            "mlb-backend/data_delivery/run_engine_markets_20260824.csv", stale)
         self.assertEqual(cur, 1)
 
     def test_dateless_file_stale(self):
         """Files with no date pattern are treated as stale (not protected)."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/game_level_features.csv",
+            "mlb-backend/data_delivery/game_level_features.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
@@ -317,9 +317,9 @@ class TestDateGating(TestCase):
     def test_seen_files_never_stale(self):
         """Files in the seen set are never stale regardless of date."""
         tracked = [
-            "mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
         ]
-        seen = {"mlb-bet-predictor/data_delivery/run_engine_markets_20260820.csv"}
+        seen = {"mlb-backend/data_delivery/run_engine_markets_20260820.csv"}
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertEqual(stale, [])
 

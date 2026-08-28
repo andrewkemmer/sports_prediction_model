@@ -32,7 +32,7 @@ from sports_config import DEFAULT_SPORT, SPORTS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Per-sport artifact sink: {repo_root}/{sport.repo_subdir}/data_delivery.
 # repo_subdir is BOTH the GitHub raw-URL prefix and the local fallback dir,
-# so flipping it (Phase C: mlb-bet-predictor -> mlb-backend) moves the
+# so flipping it (Phase C: mlb-backend -> mlb-backend) moves the
 # fetcher and the committed-artifact fallback atomically.
 _REPO_SUBDIR = SPORTS[DEFAULT_SPORT]["repo_subdir"]
 LOCAL_DATA_DIR = REPO_ROOT / _REPO_SUBDIR / "data_delivery"
