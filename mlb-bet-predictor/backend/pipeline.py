@@ -1576,6 +1576,13 @@ def run_daily_pipeline(
             set_calibration(ensemble.get("calibrator"))
             summary["metrics"] = pooled_metrics
 
+        # Snapshot the pre-slate frame so the drift step (which runs after
+        # the slate merge) uses the IDENTICAL decided row set as training.
+        # Without this, slate games whose results get filled in post-merge
+        # expand the decided count by 2-3 rows, shifting fold boundaries
+        # and tripping the desync guard in _attach_oof_run_margins.
+        _pre_slate_games = games.copy()
+
         # 4. Predict today's games (target_date only)
         logger.info("Step 4: Predicting games for %s", target_date_str)
         target_games = games[
@@ -1761,7 +1768,14 @@ def run_daily_pipeline(
         # Decided games ONLY: pre-game slate rows carry the latest PIT state
         # forward (clustered near-identical values), so including them in the
         # current window distorted PSI for every feature.
-        decided = games[games["home_win"].notna()]
+        #
+        # USE THE PRE-SLATE SNAPSHOT: the in-memory games variable includes
+        # slate rows merged after training; their results may have been filled
+        # in by apply_official_results, expanding the decided count by 2-3
+        # games and shifting fold boundaries. The drift step must use the
+        # identical decided row set that training used (_pre_slate_games,
+        # captured before the slate concat at Step 4).
+        decided = _pre_slate_games[_pre_slate_games["home_win"].notna()]
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
         gd = pd.to_datetime(decided["game_date"])
         # Chronological order is required: tail(N) on an unordered frame
