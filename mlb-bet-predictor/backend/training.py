@@ -16,6 +16,8 @@ from typing import Any, Optional
 import joblib
 import numpy as np
 import pandas as pd
+
+from frames import get_decided_frame, fold_signature
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     brier_score_loss,
@@ -91,6 +93,24 @@ def set_last_walk_forward_splits(splits: list) -> None:
 def get_last_walk_forward_splits() -> list:
     """Walk-forward splits from the most recent training pass (empty list if none)."""
     return list(_LAST_WALK_FORWARD_SPLITS)
+
+
+# Fold signature of the most recent training pass's canonical decided frame
+# (frames.fold_signature). The pipeline's drift/coverage steps assert theirs
+# against this so a decided-frame divergence fails loudly at the historically
+# desyncing points instead of shifting fold boundaries silently.
+_LAST_FOLD_SIGNATURE: str | None = None
+
+
+def set_last_fold_signature(sig: str | None) -> None:
+    """Record the fold signature of the most recent training pass."""
+    global _LAST_FOLD_SIGNATURE
+    _LAST_FOLD_SIGNATURE = sig
+
+
+def get_last_fold_signature() -> str | None:
+    """Fold signature from the most recent training pass (None if none)."""
+    return _LAST_FOLD_SIGNATURE
 
 
 # Features used for model input — all diff/computed features.
@@ -1423,7 +1443,12 @@ def _attach_oof_run_margins(
 
     from build_oof_margin import MARGIN_COL as _BOM_MARGIN, oof_run_margins
     assert _BOM_MARGIN == MARGIN_COL
-    decided = games[games["home_win"].notna()].reset_index(drop=True)
+    # Single source of truth for the decided frame (frames.py): the
+    # same rules as every other consumer, so the margin build can never
+    # see a row set that differs from the drift/coverage/run-engine
+    # decided frames. Row-for-row no-op on the canonical training frame.
+    decided = get_decided_frame(games)
+    set_last_fold_signature(fold_signature(decided))
     margins, rounds, uncov = oof_run_margins(decided, exec_folds)
     set_last_margin_rounds(rounds)
 

@@ -39,6 +39,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import log_loss, roc_auc_score
 
+from frames import get_decided_frame, fold_signature
+
 from config import (
     AGREEMENT_FILTER_DELTA,
     DATA_DELIVERY_DIR,
@@ -237,7 +239,7 @@ def run_oof(games: pd.DataFrame,
     and the dispersion probe."""
     from training import walk_forward_splits
 
-    games = games[games["home_win"].notna()].reset_index(drop=True)
+    games = get_decided_frame(games)
     folds = [
         s for s in walk_forward_splits(games, retrain_cadence_days=retrain_cadence_days)
         if len(s["val_games"]) >= min_val_games
@@ -1633,7 +1635,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     with the full line grid → slate λ priced through the same curves →
     agreement conflicts vs predictions_history → rolling totals Brier.
     Returns the monitor-embed block plus written artifact paths."""
-    decided = games[games["home_win"].notna()].reset_index(drop=True)
+    decided = get_decided_frame(games)
     result = run_oof(decided)
     oof = result["oof"]
 

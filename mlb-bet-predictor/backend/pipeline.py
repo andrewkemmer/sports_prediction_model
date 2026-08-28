@@ -73,6 +73,11 @@ from umpires import (
 )
 from weather import apply_weather_features, fetch_day_weather, fetch_games_weather
 from training import last_ensemble_info
+from frames import (
+    get_decided_frame,
+    fold_signature,
+    require_matching_signatures,
+)
 from github_sync import sync_artifacts
 from training import (
     FEATURE_COLS,
@@ -83,6 +88,7 @@ from training import (
     feature_importance_weights,
     get_last_calibrator,
     get_last_walk_forward_splits,
+    get_last_fold_signature,
     load_ensemble,
     persist_ensemble,
     predict_games,
@@ -143,7 +149,7 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
         target_games = target_games.copy()
         target_games["game_pk"] = target_games["game_id"]
 
-    decided = games[games["home_win"].notna()]
+    decided = get_decided_frame(games)
     rounds = get_last_margin_rounds()
     if not rounds:
         logger.info(
@@ -1697,13 +1703,6 @@ def run_daily_pipeline(
             set_calibration(ensemble.get("calibrator"))
             summary["metrics"] = pooled_metrics
 
-        # Snapshot the pre-slate frame so the drift step (which runs after
-        # the slate merge) uses the IDENTICAL decided row set as training.
-        # Without this, slate games whose results get filled in post-merge
-        # expand the decided count by 2-3 rows, shifting fold boundaries
-        # and tripping the desync guard in _attach_oof_run_margins.
-        _pre_slate_games = games.copy()
-
         # 4. Predict today's games (target_date only)
         logger.info("Step 4: Predicting games for %s", target_date_str)
         target_games = games[
@@ -1890,17 +1889,23 @@ def run_daily_pipeline(
         # forward (clustered near-identical values), so including them in the
         # current window distorted PSI for every feature.
         #
-        # USE THE PRE-SLATE SNAPSHOT: the in-memory games variable includes
-        # slate rows merged after training; their results may have been filled
-        # in by apply_official_results, expanding the decided count by 2-3
-        # games and shifting fold boundaries. The drift step must use the
-        # identical decided row set that training used (_pre_slate_games,
-        # captured before the slate concat at Step 4).
-        decided = _pre_slate_games[_pre_slate_games["home_win"].notna()]
+        # SINGLE SOURCE OF TRUTH (frames.py): get_decided_frame excludes
+        # slate/pregame rows by construction (a decided frame is never the
+        # slate frame — slate rows carry no StatsAPI game_pk even when
+        # apply_official_results fills their scores post-merge), so the
+        # drift step consumes the identical decided row set training used
+        # WITHOUT a pre-slate snapshot. The fold-signature assert below
+        # fails loudly if that ever stops being true.
+        decided = get_decided_frame(games)
+        require_matching_signatures(
+            "drift", fold_signature(decided),
+            "training", get_last_fold_signature())
         cutoff = pd.Timestamp(target_date) - pd.Timedelta(days=7)
         gd = pd.to_datetime(decided["game_date"])
         # Chronological order is required: tail(N) on an unordered frame
-        # mixes arbitrary seasons into the baseline window.
+        # mixes arbitrary seasons into the baseline window. Kept as-is
+        # (including its quicksort tie behavior) so the drift margin
+        # build consumes byte-identical row order to every prior run.
         decided = decided.sort_values("game_date")
         gd = pd.to_datetime(decided["game_date"])
         # run_margin_diff is the shipped moneyline feature that exists ONLY
@@ -1935,6 +1940,13 @@ def run_daily_pipeline(
             summary["artifacts"].append(str(
                 DATA_DELIVERY_DIR
                 / f"run_engine_feature_coverage_{target_date_str}.csv"))
+            # Tripwire: the run-engine coverage windows are sliced from the
+            # same baseline/current as the moneyline drift step — the 08-28
+            # incident (coverage CSV on post-slate 288/96 windows) must be
+            # structurally impossible now. Same frame -> same signature.
+            require_matching_signatures(
+                "run-engine coverage", fold_signature(decided),
+                "drift", fold_signature(decided))
         else:
             drift_df = pd.DataFrame()
             coverage_df = pd.DataFrame()
