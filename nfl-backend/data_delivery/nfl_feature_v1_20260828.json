@@ -1,0 +1,106 @@
+{
+  "created_utc": "2026-08-28T23:03:52.273739Z",
+  "build": {
+    "core_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "warmup_seasons": [
+      2018
+    ],
+    "decided_games": 1675,
+    "decided_frame": "/home/daytona/codebase/nfl-backend/data_delivery/nfl_game_level_features.csv",
+    "elo_prior": 1500.0,
+    "elo_k": 32.0,
+    "windows": {
+      "form": 4,
+      "win_pct": 12,
+      "ypp": 5
+    },
+    "leakage_rule": "every trailing feature uses only games with gameday strictly before the target (asserted in code: team_stats_ladder strict monotonicity).",
+    "holdout": "2025 is not in the decided frame; all AUC computed on seasons < 2025."
+  },
+  "feature_admission": {
+    "covered_features": [
+      "elo_diff",
+      "form_diff_pts",
+      "win_pct_diff",
+      "rest_days_diff",
+      "ypp_diff",
+      "is_dome_home",
+      "is_home"
+    ],
+    "v1_features": [
+      "elo_diff",
+      "form_diff_pts",
+      "rest_days_diff",
+      "ypp_diff",
+      "is_dome_home",
+      "is_home"
+    ],
+    "kept_home_anchor": true,
+    "audit_coverage": {
+      "elo_diff": {
+        "coverage_pct": 100.0,
+        "available_12h_pct": 100.0,
+        "source": "ELO prior 1500, K=32, strictly-prior games"
+      },
+      "form_diff_pts": {
+        "coverage_pct": 99.94,
+        "available_12h_pct": 99.94,
+        "source": "trailing net pts/game (last 4)"
+      },
+      "win_pct_diff": {
+        "coverage_pct": 99.94,
+        "available_12h_pct": 99.94,
+        "source": "trailing win% (last 12)"
+      },
+      "rest_days_diff": {
+        "coverage_pct": 99.94,
+        "available_12h_pct": 99.94,
+        "source": "days since each team's prior game"
+      },
+      "ypp_diff": {
+        "coverage_pct": 98.99,
+        "available_12h_pct": 98.99,
+        "source": "trailing net yards/play (last 5, from pbp)"
+      },
+      "is_dome_home": {
+        "coverage_pct": 97.79,
+        "available_12h_pct": 97.79,
+        "source": "home venue roof (nflverse schedule field)"
+      },
+      "is_home": {
+        "coverage_pct": 100.0,
+        "available_12h_pct": 100.0,
+        "source": "constant anchor for the home edge"
+      }
+    },
+    "univariate_auc": {
+      "elo_diff": 0.6813,
+      "form_diff_pts": 0.6425,
+      "win_pct_diff": 0.6684,
+      "rest_days_diff": 0.4964,
+      "ypp_diff": 0.6357,
+      "is_dome_home": 0.4815,
+      "is_home": null
+    },
+    "correlation_pairs_over_0_8": [
+      {
+        "feat_a": "elo_diff",
+        "feat_b": "win_pct_diff",
+        "corr": 0.8256
+      }
+    ],
+    "reasons": {
+      "win_pct_diff": "redundant with elo_diff (|r| 0.83, similar discrimination); keep one"
+    },
+    "dropped": [
+      "win_pct_diff"
+    ]
+  }
+}

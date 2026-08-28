@@ -6,8 +6,10 @@ structure every downstream NFL pipeline, feature, and model will hang off.
 
 ```
 nfl-backend
-├── backend            # ingestion module + validation tests
-├── data_delivery      # generated artifacts (nfl_game_level_features.csv)
+├── backend            # ingestion + feature-admission modules + tests
+│   ├── nfl_game_frame.py   # game-level frame builder
+│   └── nfl_features.py     # feature candidates + coverage/leakage gate (v1, no model)
+├── data_delivery      # generated artifacts (frame CSV + feature record JSON)
 └── README.md
 ```
 
@@ -93,5 +95,13 @@ committed; the artifact tests skip gracefully until the module has been run.
 - **Live data**: nflverse is (infrequently) delayed on gameday — fine for
   historical training frames; live/real-time ingestion would want the
   SportsDataverse/ESPN fallback path wired before relying on it.
-- No feature engineering, model code, or shared-frontend changes live here —
-  this module produces raw game-level data only.
+- **Feature admission only (v1, no model).** `backend/nfl_features.py` builds
+  leakage-safe raw candidates (ELO diff, trailing form, rest-days diff, net
+  yards/play diff, dome flag, home anchor), audits coverage / point-in-time
+  leakage, and gates them into the v1 set; it does NOT train any model. The
+  walk-forward / ensemble / sealed-holdout stage is a separate next task.
+  Each run writes `data_delivery/nfl_feature_v1_YYYYMMDD.json` (candidates,
+  coverage + leakage audit, correlation + univariate-AUC tables, final v1 set
+  with inclusion/exclusion reasons). 2025 is never in the learning data (it is
+  not in the decided frame at all); all AUC is computed on seasons < 2025.
+  No shared-frontend or mlb-backend changes live in this directory.
