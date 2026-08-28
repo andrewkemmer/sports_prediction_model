@@ -230,16 +230,24 @@ def run_oof(games: pd.DataFrame,
             include_level_env: bool = True,
             run_features: Optional[list[str]] = None,
             dropped: Optional[list[str]] = None,
+            decided_snapshot: Optional[pd.DataFrame] = None,
             ) -> dict[str, Any]:
     """Walk-forward OOF for both side models on the moneyline pipeline's folds.
 
     ``run_features`` / ``dropped`` override the derived keep-list (ablation
     arms B/C/REF exercise the full 58-col view); None → derive_run_features.
+    ``decided_snapshot``: pre-computed decided frame (from frames.get_decided_frame)
+    captured ONCE after official results, before slate merge.  When provided,
+    skips re-derivation from the caller's ``games`` object so the OOF folds
+    are built on the SAME canonical frame training used — preventing the
+    fold-signature desync when the pipeline frame is mutated by slate
+    concatenation, weather, or dome refinement.
     Returns rows (one per decided game), per-side metrics, baseline metrics,
     and the dispersion probe."""
     from training import walk_forward_splits
 
-    games = get_decided_frame(games)
+    games = (decided_snapshot.copy() if decided_snapshot is not None
+             else get_decided_frame(games))
     folds = [
         s for s in walk_forward_splits(games, retrain_cadence_days=retrain_cadence_days)
         if len(s["val_games"]) >= min_val_games
@@ -1628,15 +1636,18 @@ def compute_rolling_totals_brier(markets: pd.DataFrame,
 
 def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                      target_date_str: str,
-                     n_draws: int = MC_DRAWS) -> dict[str, Any]:
+                     n_draws: int = MC_DRAWS,
+                     decided_snapshot: Optional[pd.DataFrame] = None,
+                     ) -> dict[str, Any]:
     """Full Phase-3 daily pass inside the pipeline.
 
     OOF re-derivation (α(λ) fitted on PRE-HOLDOUT OOF only) → markets artifact
     with the full line grid → slate λ priced through the same curves →
     agreement conflicts vs predictions_history → rolling totals Brier.
     Returns the monitor-embed block plus written artifact paths."""
-    decided = get_decided_frame(games)
-    result = run_oof(decided)
+    decided = (decided_snapshot.copy() if decided_snapshot is not None
+               else get_decided_frame(games))
+    result = run_oof(decided, decided_snapshot=decided)
     oof = result["oof"]
 
     history_path = DATA_DELIVERY_DIR / f"predictions_history_{target_date_str}.csv"

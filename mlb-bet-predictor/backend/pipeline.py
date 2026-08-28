@@ -1518,6 +1518,19 @@ def run_daily_pipeline(
         except Exception as exc:
             logger.warning("Official results overlay failed on history: %s", exc)
 
+
+        # Canonical decided frame snapshot — captured ONCE after official
+        # results, BEFORE slate merge, weather diffs, or market lines.
+        # Every consumer (training drift/coverage/run-engine) uses this
+        # exact snapshot so frame mutations later (slate concat, official
+        # results on target_games, weather application) cannot create a
+        # fold-signature desync between training and drift.
+        _decided_snapshot = get_decided_frame(games)
+        import hashlib as _hb
+        _snap_pks = _decided_snapshot["game_pk"].tolist() if "game_pk" in _decided_snapshot.columns else []
+        _snap_hash = _hb.sha256("|".join(str(p) for p in _snap_pks).encode()).hexdigest()[:12]
+        logger.info("Pipeline snapshot: %d decided games, hash=%s", len(_decided_snapshot), _snap_hash)
+
         # Real point-in-time weather for features 30--31 (wind advantage,
         # air density).  One Open-Meteo request per (stadium, day); games
         # without a strictly-prior observation get NULL weather features
@@ -1678,6 +1691,7 @@ def run_daily_pipeline(
                 max_eval_folds=max_eval_folds,
                 force_retrain=force_retrain,
                 min_train_days=min_train_days,
+                decided_snapshot=_decided_snapshot,
             )
             logger.info("Walk-forward metrics: %s", pooled_metrics)
 
@@ -1848,7 +1862,8 @@ def run_daily_pipeline(
         run_engine_block = None
         try:
             from run_engine import run_engine_daily
-            _re = run_engine_daily(games, target_games, target_date_str)
+            _re = run_engine_daily(games, target_games, target_date_str,
+                                        decided_snapshot=_decided_snapshot)
             run_engine_block = _re.get("block")
             summary["artifacts"].extend(_re.get("artifacts") or [])
             # Run-Line & Totals Monitor artifact: per-line calibration
@@ -1892,11 +1907,16 @@ def run_daily_pipeline(
         # SINGLE SOURCE OF TRUTH (frames.py): get_decided_frame excludes
         # slate/pregame rows by construction (a decided frame is never the
         # slate frame — slate rows carry no StatsAPI game_pk even when
-        # apply_official_results fills their scores post-merge), so the
-        # drift step consumes the identical decided row set training used
-        # WITHOUT a pre-slate snapshot. The fold-signature assert below
-        # fails loudly if that ever stops being true.
-        decided = get_decided_frame(games)
+        # apply_official_results fills their scores post-merge).  The drift
+        # step uses the pre-slate _decided_snapshot (captured ONCE after
+        # official results, before the Step 4 slate merge) so the drift
+        # frame is IDENTICAL to what training used — no re-derivation from
+        # the mutated games object.  The fold-signature assert below fails
+        # loudly if that ever stops being true.
+        decided = _decided_snapshot
+        _drift_pks = decided["game_pk"].tolist() if "game_pk" in decided.columns else []
+        _drift_hash = _hb.sha256("|".join(str(p) for p in _drift_pks).encode()).hexdigest()[:12]
+        logger.info("Drift decided frame: %d games, hash=%s", len(decided), _drift_hash)
         require_matching_signatures(
             "drift", fold_signature(decided),
             "training", get_last_fold_signature())
@@ -1917,6 +1937,9 @@ def run_daily_pipeline(
         # executed folds stay NaN (imputed at training) and are excluded
         # from the distribution with honest coverage counts.
         decided = _attach_drift_run_margins(decided)
+        _post_pks = decided["game_pk"].tolist() if "game_pk" in decided.columns else []
+        _post_hash = _hb.sha256("|".join(str(p) for p in _post_pks).encode()).hexdigest()[:12]
+        logger.info("Drift post-margin-attach: %d games, hash=%s", len(decided), _post_hash)
         current = decided[gd >= cutoff]
         prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
