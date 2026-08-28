@@ -36,6 +36,13 @@ st.set_page_config(
 
 utils.inject_css()
 
+# Set the sport default BEFORE the toggle/widget renders. A rerun that
+# navigates (e.g. clicking the brand above the dashboard list) can reach
+# this point with session_state["sport"] unset/None before the segmented
+# control materializes — setdefault guarantees it defaults to MLB silently
+# instead of surfacing an "Unknown sport" warning on every such click.
+st.session_state.setdefault("sport", sports_config.DEFAULT_SPORT)
+
 # ---------------------------------------------------------------------------
 # Sidebar: branding + sport toggle + GitHub source configuration (shared)
 # ---------------------------------------------------------------------------
@@ -82,9 +89,10 @@ pages = [
 # or returns "", the deployed line-81 crash that hid Today's Games).
 _sport = str(st.session_state.get("sport", sports_config.DEFAULT_SPORT)).strip().lower()
 _sport_config = sports_config.resolve_sport(_sport)
-if _sport not in sports_config.SPORTS:
-    # The toggle can never KeyError on an unknown sport — fall back to MLB
-    # with a visible warning.
+if sports_config.is_unknown_sport(_sport):
+    # Only a genuinely unknown NON-EMPTY sport warns. None/""/"none" (the
+    # missing-default state when a navigation rerun resets the toggle before
+    # it renders) fall back to MLB silently — no noise.
     st.warning(f"Unknown sport '{_sport}' — showing {_sport_config['label']}.")
 _active_url_paths = sports_config.active_page_url_paths(_sport)
 _active_pages = [

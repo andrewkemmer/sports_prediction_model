@@ -62,15 +62,44 @@ def resolve_sport(sport_key: str) -> dict:
 
     - Coerces to lowercase + strips whitespace (the toggle may return a
       display label rather than the config key on some Streamlit versions).
-    - Falls back to DEFAULT_SPORT when the key is unknown or missing, so an
-      unknown sport degrades to MLB instead of KeyErroring.
+    - Falls back to DEFAULT_SPORT when the key is unknown OR missing (None,
+      "", whitespace), so any degraded state shows MLB instead of KeyErroring.
 
     Returns the sport config dict (always a valid SPORTS entry).
+    """
+    key = normalize_sport_key(sport_key)
+    return SPORTS[key]
+
+
+def normalize_sport_key(sport_key: str) -> str:
+    """Normalize a segmented-control value to a valid SPORTS key.
+
+    Lowercases + strips whitespace; unknown or empty values fall back to
+    DEFAULT_SPORT. ``None``/""/whitespace (the missing-default state, e.g.
+    an app rerun that resets the toggle) resolve to the default silently;
+    a genuinely unknown non-empty string (e.g. "nfl") also resolves to the
+    default so the sport is always valid.
     """
     key = str(sport_key or "").strip().lower()
     if key not in SPORTS:
         key = DEFAULT_SPORT
-    return SPORTS[key]
+    return key
+
+
+def is_unknown_sport(sport_key: str) -> bool:
+    """True only for a genuinely unknown NON-EMPTY sport value.
+
+    ``None``, empty string, and whitespace are the *missing-default* state
+    (e.g. clicking the brand reruns the app before the toggle materializes)
+    — not a real unknown sport — so they return False. Only a non-empty
+    string that matches no SPORTS key triggers True (caller warns then).
+    """
+    key = str(sport_key or "").strip().lower()
+    # None / "" / all-whitespace / the string 'none' are the missing-default
+    # state — never warn (they silently fall back to MLB).
+    if not key or key == "none":
+        return False
+    return key not in SPORTS
 
 
 def active_page_url_paths(sport_key: str) -> list[str]:

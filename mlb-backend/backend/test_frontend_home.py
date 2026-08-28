@@ -203,6 +203,34 @@ class TestSportNavSafety(unittest.TestCase):
                 f"unknown sport {bad!r} must fall back to the full page set",
             )
 
+    def test_missing_default_sport_is_silent_not_a_warning(self):
+        # The logo-click / navigation rerun leaves sport unset or None/"none"
+        # — that missing-default state must NEVER trigger an "Unknown sport"
+        # warning. Only a genuinely unknown NON-EMPTY value warns.
+        for quiet in (None, "", "  ", "none", "NONE", " None "):
+            self.assertFalse(
+                self.sc.is_unknown_sport(quiet),
+                f"missing-default {quiet!r} must be silent (no warning)",
+            )
+        # Valid/whitespace-padded valid keys are never "unknown" either.
+        self.assertFalse(self.sc.is_unknown_sport("mlb"))
+        self.assertFalse(self.sc.is_unknown_sport(" MLB "))
+        # A genuine unknown non-empty sport still registers as unknown
+        # (caller warns then).
+        for bad in ("nfl", "nba", "hockey", "!!"):
+            self.assertTrue(
+                self.sc.is_unknown_sport(bad),
+                f"genuine unknown {bad!r} should warn",
+            )
+
+    def test_normalize_resolves_defaults_and_unknowns_silently(self):
+        # resolve_sport returns a valid config for every bad/missing state
+        # (never raises) and lands on MLB.
+        for bad in (None, "", "none", "  ", "nfl", "hockey"):
+            cfg = self.sc.resolve_sport(bad)
+            self.assertEqual(cfg["label"], "MLB",
+                             f"resolve_sport({bad!r}) must fall back to MLB")
+
 
 if __name__ == "__main__":
     unittest.main()
