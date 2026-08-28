@@ -14,6 +14,15 @@ BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 
+# Multi-sport restructure (Phase A): repo-relative directory holding this
+# sport's backend + data_delivery. Mirrored in master_pipeline.py (which
+# needs the name before backend/ is importable) and frontend/sports_config.py
+# (repo_subdir, the GitHub raw-URL prefix + local fallback dir). Phase C
+# renames the directory to mlb-backend/ and flips all three at once; the
+# path math above is already relative, so it survives the rename untouched.
+SPORT_DIR_NAME = "mlb-bet-predictor"
+REPO_SUBDIR = SPORT_DIR_NAME  # GitHub raw-URL path prefix for data_delivery
+
 # Full-history weather backfill (default ON): real StatsAPI first pitches +
 # strictly-prior Open-Meteo archive observations for EVERY decided game,
 # cached by game_pk so each run fetches only games missing from the cache.

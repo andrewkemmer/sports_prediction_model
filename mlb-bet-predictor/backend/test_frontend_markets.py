@@ -15,7 +15,8 @@ from unittest.mock import patch, MagicMock
 
 import pandas as pd
 
-_frontend = Path(__file__).resolve().parents[1] / "frontend"
+# frontend/ moved to the repository root (multi-sport restructure, Phase B)
+_frontend = Path(__file__).resolve().parents[2] / "frontend"
 if str(_frontend) not in sys.path:
     sys.path.insert(0, str(_frontend))
 
@@ -126,7 +127,8 @@ class TestFitPanel(TestCase):
     def setUpClass(cls):
         import market_diagnostics as diag
         cls.diag = diag
-        cls.root = _frontend.parent  # mlb-bet-predictor
+        # backend/ and data_delivery/ stay siblings under mlb-bet-predictor/
+        cls.root = Path(__file__).resolve().parents[1]
 
     @staticmethod
     def _fit(date_str=None):
@@ -228,7 +230,8 @@ class TestRunEngineModelMonitorRender(TestCase):
         cls._backup = _sys.modules.get("streamlit")
         _sys.modules["streamlit"] = _mock.MagicMock()
         cls.markets = __import__("markets")
-        cls.root = _frontend.parent
+        # backend/ and data_delivery/ stay siblings under mlb-bet-predictor/
+        cls.root = Path(__file__).resolve().parents[1]
 
     @classmethod
     def tearDownClass(cls):

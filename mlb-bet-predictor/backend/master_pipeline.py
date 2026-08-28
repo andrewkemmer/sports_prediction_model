@@ -57,6 +57,14 @@ CONFIG = {
     "statcast_pause_sec":  2,
 }
 
+# Multi-sport restructure (Phase A): repo-relative directory holding this
+# sport's backend + data_delivery. Needed HERE (not from config) because
+# the sys.path/os.chdir lines below run before backend/ is importable.
+# Mirrored in backend/config.py (SPORT_DIR_NAME) and frontend/sports_config.py
+# (repo_subdir) — Phase C renames the directory to mlb-backend/ and flips all
+# three at once.
+SPORT_DIR_NAME = "mlb-bet-predictor"
+
 import warnings
 warnings.filterwarnings("ignore")
 import os, sys, subprocess, shutil, gc
@@ -98,8 +106,8 @@ if repo_dir.exists():
     shutil.rmtree(repo_dir, ignore_errors=True)
 print(f"📥 Cloning {CONFIG['github_repo']}...")
 _run(f"git clone -q https://github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git /content/{CONFIG['github_repo']}")
-sys.path.insert(0, str(repo_dir / "mlb-bet-predictor" / "backend"))
-os.chdir(str(repo_dir / "mlb-bet-predictor"))
+sys.path.insert(0, str(repo_dir / SPORT_DIR_NAME / "backend"))
+os.chdir(str(repo_dir / SPORT_DIR_NAME))
 print(f"  📁 {os.getcwd()}")
 
 # Snapshot the artifacts already in the repo's data_delivery (relative path →
@@ -277,14 +285,14 @@ if not token:
 else:
     try:
         repo = _open_sync_repo(token, sync_dir)
-        data_delivery_dir = sync_dir / "mlb-bet-predictor" / "data_delivery"
+        data_delivery_dir = sync_dir / SPORT_DIR_NAME / "data_delivery"
         data_delivery_dir.mkdir(parents=True, exist_ok=True)
 
         def _stage(src: Path, rel: str) -> None:
             if rel in seen:
                 return
             seen.add(rel)
-            dest = data_delivery_dir / rel[len("mlb-bet-predictor/data_delivery/"):]
+            dest = data_delivery_dir / rel[len(f"{SPORT_DIR_NAME}/data_delivery/"):]
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
             staged.append(rel)
@@ -306,7 +314,7 @@ else:
         ]
         if _csv_candidates:
             _csv_src = max(_csv_candidates, key=lambda p: p.stat().st_mtime)
-            _stage(_csv_src, f"mlb-bet-predictor/data_delivery/{csv_path.name}")
+            _stage(_csv_src, f"{SPORT_DIR_NAME}/data_delivery/{csv_path.name}")
         # Sync every artifact THIS run regenerated in data_delivery/, including
         # the models/ subdir (trained ensemble joblib the dashboard loads). The
         # fresh clone starts with the repo's old files, so compare mtimes to
@@ -320,7 +328,7 @@ else:
                     pre_mtime = _preexisting_delivery.get(rel_local)
                     if pre_mtime is not None and artifact.stat().st_mtime_ns <= pre_mtime:
                         continue  # repo file untouched by this run -> stale
-                    _stage(artifact, f"mlb-bet-predictor/data_delivery/{rel_local}")
+                    _stage(artifact, f"{SPORT_DIR_NAME}/data_delivery/{rel_local}")
         print(f"  📋 Staging {len(staged)} files:")
         for s in staged:
             print(f"    {s}")
@@ -412,7 +420,7 @@ elif not staged:
 else:
     try:
         repo = _open_sync_repo(token, sync_dir)
-        tracked = repo.git.ls_files("mlb-bet-predictor/data_delivery").splitlines()
+        tracked = repo.git.ls_files(f"{SPORT_DIR_NAME}/data_delivery").splitlines()
         # Classify: protected → keep; in seen → keep; date-stamped with
         # current date → keep; otherwise → stale.
         stale = []

@@ -24,7 +24,8 @@ from pathlib import Path
 
 import pandas as pd
 
-FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+# frontend/ moved to the repository root (multi-sport restructure, Phase B)
+FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 if str(FRONTEND) not in sys.path:
     sys.path.insert(0, str(FRONTEND))
 

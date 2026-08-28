@@ -19,7 +19,8 @@ import unittest
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parent
-_ROOT = _BACKEND.parent
+# frontend/ moved to the repository root (multi-sport restructure, Phase B)
+_ROOT = _BACKEND.parent.parent
 _HOME = _ROOT / "frontend" / "Home.py"
 _UTILS = _ROOT / "frontend" / "utils.py"
 

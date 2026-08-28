@@ -11,6 +11,12 @@ GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH env vars) with a local fallback
 to the real committed artifacts in ``data_delivery/`` when GitHub is
 unavailable.
 
+Multi-sport restructure (Phase B): the sidebar carries a sport selector
+above the dashboard nav — a single entry today (MLB, the default) rendered
+through ``sports_config.SPORTS`` so switching sports later needs no layout
+change. The per-sport nav list is built from the same registry; the literal
+``pages`` list below remains the sidebar-order contract.
+
 Run from the repository root::
 
     streamlit run frontend/Home.py
@@ -18,6 +24,7 @@ Run from the repository root::
 
 import streamlit as st
 
+import sports_config
 import utils
 
 st.set_page_config(
@@ -30,13 +37,23 @@ st.set_page_config(
 utils.inject_css()
 
 # ---------------------------------------------------------------------------
-# Sidebar: branding + GitHub source configuration (shared across pages)
+# Sidebar: branding + sport toggle + GitHub source configuration (shared)
 # ---------------------------------------------------------------------------
 with st.sidebar:
     # Single branding block — rendered ABOVE the dashboard list by the
-    # sidebar reorder CSS in utils.inject_css (a sport toggle can be added
-    # to this header later without touching the page list below).
+    # sidebar reorder CSS in utils.inject_css.
     utils.render_brand_header()
+    # Sport selector (multi-sport restructure, Phase B): one entry today
+    # (MLB), rendered as a toggle above the dashboard nav so switching
+    # sports later needs no layout change. The per-sport nav list below is
+    # built from sports_config.SPORTS.
+    st.segmented_control(
+        "Sport",
+        options=list(sports_config.SPORTS.keys()),
+        format_func=lambda s: f"{sports_config.SPORTS[s]['emoji']} {sports_config.SPORTS[s]['label']}",
+        default=sports_config.DEFAULT_SPORT,
+        key="sport",
+    )
     # The artifact fetch honors GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH
     # env vars with a local fallback to the committed data_delivery
     # artifacts. A one-line note renders only when that fallback is active
@@ -56,5 +73,11 @@ pages = [
     st.Page("model_monitor.py", title="Model Monitor", icon="🛰️", url_path="model-monitor"),
     st.Page("markets.py", title="Totals & Run Lines", icon="🎯", url_path="markets"),
 ]
-nav = st.navigation(pages, position="sidebar")
+# Per-sport nav list — the literal `pages` list above is the sidebar-order
+# contract; the active sport's page set (sports_config) selects which
+# dashboards render (the run-engine pages are MLB-only; the generic pages
+# render any sport that publishes the shared artifact contract).
+_sport = st.session_state.get("sport", sports_config.DEFAULT_SPORT)
+_active_pages = [p for p in pages if p.url_path in sports_config.SPORTS[_sport]["pages"]]
+nav = st.navigation(_active_pages, position="sidebar")
 nav.run()

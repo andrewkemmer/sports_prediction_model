@@ -25,10 +25,19 @@ import pandas as pd
 import requests
 import streamlit as st
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-LOCAL_DATA_DIR = ROOT_DIR / "data_delivery"
-# Artifacts live under mlb-bet-predictor/data_delivery/ inside the GitHub repo
-REPO_SUBDIR = "mlb-bet-predictor"
+from sports_config import DEFAULT_SPORT, SPORTS
+
+# frontend/ lives at the repository root (multi-sport restructure, Phase B),
+# so parents[1] of this module IS the repo root.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# Per-sport artifact sink: {repo_root}/{sport.repo_subdir}/data_delivery.
+# repo_subdir is BOTH the GitHub raw-URL prefix and the local fallback dir,
+# so flipping it (Phase C: mlb-bet-predictor -> mlb-backend) moves the
+# fetcher and the committed-artifact fallback atomically.
+_REPO_SUBDIR = SPORTS[DEFAULT_SPORT]["repo_subdir"]
+LOCAL_DATA_DIR = REPO_ROOT / _REPO_SUBDIR / "data_delivery"
+# Artifacts live under {sport}/data_delivery/ inside the GitHub repo
+REPO_SUBDIR = _REPO_SUBDIR
 
 PRIMARY = "#10B981"      # emerald accent
 BLUE = "#3B82F6"
