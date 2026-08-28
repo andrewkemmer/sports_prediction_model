@@ -27,6 +27,15 @@ Canonical rules (in order):
    with no StatsAPI identity (the 08-27 slate rows carried null game_pk), and
    ESPN-id slate rows carry a non-numeric game_pk. Either way they are not
    joinable to margins/markets and must never reach a fold.
+
+2b. **Starter required**: ``home_starter_id`` must be non-null.  ESPN
+   ``build_upcoming_slate`` never sets this column, so slate rows that
+   survive Rule 2 (e.g. post-merge frames where
+   ``_attach_slate_run_margins`` synthesised a numeric ``game_pk`` from
+   ``game_id``) are excluded here.  Only Statcast-decided rows carry a
+   real starter id.  This guard makes ``get_decided_frame`` safe to call
+   on ANY frame — including post-slate — which is the failure mode that
+   bit us on 2026-08-28.
 3. **Deterministic dedup**: one row per numeric game_pk — the LATEST
    game_date wins (stable mergesort, so identical (game_pk, game_date) pairs
    resolve by input order — deterministic for a given frame). No-op on the
@@ -89,6 +98,26 @@ def get_decided_frame(games: pd.DataFrame) -> pd.DataFrame:
         # Rule 2 — identity: slate/pregame/identity-less rows never fold.
         out = out[pk.notna()].copy()
         pk = _numeric_game_pk(out)
+        # Rule 2b — starter required: ESPN slate rows that survive the
+        # numeric game_pk filter (e.g. post-merge frames where
+        # _attach_slate_run_margins synthesised game_pk from game_id)
+        # are excluded by requiring a real StatsAPI starter id.  Only
+        # Statcast-decided rows carry home_starter_id; ESPN build_
+        # upcoming_slate never sets it.  Without this guard, a numeric
+        # ESPN game_id leaked through Rule 2 could fold into training
+        # and shift fold boundaries — the residual edge the 08-28
+        # desync (84f1643) threaded around but left structurally open.
+        if "home_starter_id" in out.columns:
+            starter_ok = out["home_starter_id"].notna()
+            n_filtered = int((~starter_ok).sum())
+            if n_filtered:
+                import logging
+                logging.getLogger("frames").warning(
+                    "get_decided_frame: excluded %d rows with numeric game_pk "
+                    "but no home_starter_id (slate/pregame leak)" ,
+                    n_filtered)
+            out = out[starter_ok].copy()
+            pk = _numeric_game_pk(out)
         # Rule 3 — deterministic dedup: latest game_date wins per game_pk.
         if out["game_pk"].duplicated().any():
             order = pd.to_datetime(out["game_date"], errors="coerce")
