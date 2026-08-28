@@ -171,20 +171,20 @@ class TestFitPanel(TestCase):
         fit = self._fit()
         rows = self.diag.fit_panel_rows(fit)
         # chi2/df straight from dispersion_chi2_per_df
-        self.assertAlmostEqual(rows["chi2_home"], 2.1514, places=3)
-        self.assertAlmostEqual(rows["chi2_away"], 2.396, places=3)
-        # alpha = count-weighted bin mean (home ~0.263, away ~0.315 on the
+        self.assertAlmostEqual(rows["chi2_home"], 2.141, places=3)
+        self.assertAlmostEqual(rows["chi2_away"], 2.374, places=3)
+        # alpha = count-weighted bin mean (home ~0.260, away ~0.311 on the
         # 6,960-frame artifact)
-        self.assertAlmostEqual(rows["alpha_home"], 0.2628, places=3)
-        self.assertAlmostEqual(rows["alpha_away"], 0.3151, places=3)
+        self.assertAlmostEqual(rows["alpha_home"], 0.260, places=3)
+        self.assertAlmostEqual(rows["alpha_away"], 0.311, places=3)
         self.assertEqual(rows["alpha_home_form"], "piecewise")
         self.assertEqual(rows["alpha_away_form"], "linear")
         # variance check: implied vs observed per side
         vh = rows["variance_home"]
-        self.assertAlmostEqual(vh[0], 9.535, places=3)
+        self.assertAlmostEqual(vh[0], 9.514, places=3)
         self.assertAlmostEqual(vh[1], 9.561, places=3)
         va = rows["variance_away"]
-        self.assertAlmostEqual(va[0], 10.573, places=3)
+        self.assertAlmostEqual(va[0], 10.506, places=3)
         self.assertAlmostEqual(va[1], 10.692, places=3)
         # MC metadata: numeric n_draws with separators
         self.assertIn("10,000 draws", rows["mc_caption"])
@@ -212,7 +212,7 @@ class TestFitPanel(TestCase):
         fit = self._fit()
         edge = self.diag.lambda_edge(fit)
         self.assertIsNotNone(edge)
-        self.assertAlmostEqual(edge, -0.0034, places=4)  # fit-curve bin means
+        self.assertAlmostEqual(edge, 0.0070, places=4)  # fit-curve bin means
         self.assertIsNone(self.diag.lambda_edge({}))
         self.assertIsNone(self.diag.lambda_edge(None))
 

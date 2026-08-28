@@ -516,12 +516,12 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         oof = df[df["kind"] == "oof"]
         nb_p = oof["p_home_win_derived"].to_numpy(float)
         self.assertEqual(c["n"], int(np.isfinite(nb_p).sum()))
-        # Expected numbers (do NOT adjust or mask): pooled ~48.5%,
+        # Expected numbers (do NOT adjust or mask): pooled ~48.4%,
         # away-picks ~47.5% (home-edge underweighting, reported as-is;
-        # values re-pinned to the 6,953-frame artifact).
-        self.assertAlmostEqual(c["win_rate"], 0.487, places=3)
+        # values re-pinned to the 6,960-frame artifact).
+        self.assertAlmostEqual(c["win_rate"], 0.484, places=3)
         self.assertLess(c["by_pick"]["away"]["win_rate"], 0.50)
-        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4761,
+        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4747,
                                places=3)
         self.assertGreater(c["by_pick"]["home"]["win_rate"], 0.50)
         # nb_diagnostic preserved (schema-stable record of the finding).
@@ -534,7 +534,7 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         self.assertIsNotNone(ref)
         self.assertEqual(ref["source"], "ml_win_prob")
         self.assertGreater(ref["win_rate"], 0.55)
-        self.assertAlmostEqual(ref["win_rate"], 0.5572, places=3)
+        self.assertAlmostEqual(ref["win_rate"], 0.5565, places=3)
         self.assertEqual(ref["n"],
                          int(np.isfinite(oof["ml_win_prob"]).sum()))
 

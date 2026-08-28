@@ -347,7 +347,15 @@ class TestRunEngineModelMonitor(unittest.TestCase):
         decided frame."""
         gl = pd.read_csv(TestRunEngineModelMonitor._ROOT
                          / "data_delivery" / "game_level_features.csv")
-        decided = gl[gl["home_win"].notna()].sort_values("game_date")
+        # The pipeline's drift/coverage frame is the CANONICAL decided frame
+        # (frames.get_decided_frame: stable mergesort order, game_pk
+        # normalized to int64) — NOT a raw quicksort re-derivation.  The two
+        # orders disagree on the tail(276) baseline boundary by a couple of
+        # games (e.g. wind_advantage_flyball_factor default-zero 48 vs 50),
+        # which broke the coverage-parity invariant below against the
+        # committed artifacts.
+        from frames import get_decided_frame
+        decided = get_decided_frame(gl)
         gd = pd.to_datetime(decided["game_date"])
         if date_str is None:
             # Extract date from the most recent monitor file
@@ -378,10 +386,10 @@ class TestRunEngineModelMonitor(unittest.TestCase):
                 self.assertIsNotNone(row.get(key),
                                      f"{name} missing {key}")
             self.assertGreater(row["n"], 0, name)
-        # walk-forward geometry: 81 cadence splits (final val 08-23 -> 08-26),
-        # 74 scored folds / 6,792 games in the monitor's phase1 block
+        # walk-forward geometry: 81 cadence splits (final val 08-23 -> 08-27),
+        # 74 scored folds / 6,797 games in the monitor's phase1 block
         self.assertEqual(data["phase1"]["n_folds"], 74)
-        self.assertEqual(data["phase1"]["n_games"], 6790)
+        self.assertEqual(data["phase1"]["n_games"], 6797)
 
     def test_drift_artifact_real_frame_finite(self):
         d = pd.read_csv(_latest_artifact(self._ROOT / "data_delivery", "run_engine_feature_drift_*.csv"))

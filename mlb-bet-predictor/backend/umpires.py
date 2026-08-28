@@ -301,8 +301,18 @@ def maintain_umpire_map(target_date: date, base: Optional[Path] = None,
         req = req.dropna(subset=["game_pk", "season"])
         present_pks = set(df["game_pk"].astype(int))
         gap = req[~req["game_pk"].astype(int).isin(present_pks)]
-        if not gap.empty:
-            need_seasons = sorted({int(s) for s in gap["season"].unique()})
+        # ALSO patch null-umpire rows for required games: a crew assigned
+        # after the initial pull would otherwise NEVER be re-fetched (no
+        # missing game -> no gap-fill trigger), leaving stale NULLs in the
+        # maintained map run-over-run. Include their seasons so the fresh
+        # payload can patch them (the patch block below never touches
+        # non-null rows).
+        req_pks = set(req["game_pk"].astype(int))
+        nulls_in_frame = df["hp_umpire_id"].isna() & df["game_pk"].isin(req_pks)
+        need_seasons = sorted(
+            {int(s) for s in gap["season"].unique()} |
+            {int(s) for s in df.loc[nulls_in_frame, "season"] if pd.notna(s)})
+        if need_seasons:
             for season in need_seasons:
                 try:
                     season_df = fetch_season_umpires(season)
