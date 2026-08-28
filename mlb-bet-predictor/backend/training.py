@@ -1396,6 +1396,7 @@ def _attach_oof_run_margins(
     max_eval_folds: int,
     retrain_cadence_days: int,
     min_train_days: int,
+    decided_snapshot: Optional[pd.DataFrame] = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     """Compute + attach the out-of-fold run margin on the CALLER'S folds.
 
@@ -1447,7 +1448,7 @@ def _attach_oof_run_margins(
     # same rules as every other consumer, so the margin build can never
     # see a row set that differs from the drift/coverage/run-engine
     # decided frames. Row-for-row no-op on the canonical training frame.
-    decided = get_decided_frame(games)
+    decided = decided_snapshot if decided_snapshot is not None else get_decided_frame(games)
     set_last_fold_signature(fold_signature(decided))
     margins, rounds, uncov = oof_run_margins(decided, exec_folds)
     set_last_margin_rounds(rounds)
@@ -1502,6 +1503,7 @@ def walk_forward_evaluate(
     force_retrain: bool = False,
     min_train_days: int = 0,
     min_val_games: Optional[int] = None,
+    decided_snapshot: Optional[pd.DataFrame] = None,
 ) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
     """Run full walk-forward evaluation across all splits.
 
@@ -1509,6 +1511,12 @@ def walk_forward_evaluate(
     (default MIN_VAL_FOLD_GAMES): tiny postseason/offseason-tail folds add
     high-variance metrics that pollute the pooled scores and the adaptive
     weights earned from them. Pass 0 to keep every fold (used by tests).
+
+    decided_snapshot: Pre-computed decided frame (from frames.get_decided_frame)
+            captured ONCE after official results, before slate merge.  Passed
+            through so _attach_oof_run_margins records the SAME fold signature
+            training saw — preventing the drift-vs-training desync when the
+            pipeline frame is later mutated by slate concatenation.
 
     Returns:
         (best_models, pooled_metrics, all_predictions)
@@ -1529,7 +1537,8 @@ def walk_forward_evaluate(
     if MARGIN_COL in FEATURE_COLS and splits:
         games, splits = _attach_oof_run_margins(
             games, splits, min_val_games, max_eval_folds,
-            retrain_cadence_days, min_train_days)
+            retrain_cadence_days, min_train_days,
+            decided_snapshot=decided_snapshot)
 
     # Record canonical fold geometry for the later drift attachment.
     set_last_walk_forward_splits(splits)

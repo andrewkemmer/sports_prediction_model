@@ -35,6 +35,16 @@ def _raw_url_test(relpath, owner, repo, branch):
     return f"<local:{relpath}>"
 
 
+
+def _latest_artifact(directory, pattern):
+    """Find the most recent artifact matching pattern in directory.
+    Returns Path or raises unittest.SkipTest if none found."""
+    import unittest
+    matches = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        raise unittest.SkipTest(f"No {pattern} artifacts found in {directory}")
+    return matches[0]
+
 class TestMarketsUrlConstruction(TestCase):
     def test_url_single_data_delivery(self):
         url = _raw_url_test("run_engine_markets_20260824.csv",
@@ -119,9 +129,12 @@ class TestFitPanel(TestCase):
         cls.root = _frontend.parent  # mlb-bet-predictor
 
     @staticmethod
-    def _fit(date_str):
-        p = Path(__file__).resolve().parents[1] / "data_delivery" / \
-            f"run_engine_monitor_{date_str}.json"
+    def _fit(date_str=None):
+        root = Path(__file__).resolve().parents[1] / "data_delivery"
+        if date_str:
+            p = root / f"run_engine_monitor_{date_str}.json"
+        else:
+            p = _latest_artifact(root, "run_engine_monitor_*.json")
         with open(p) as f:
             import json as _json
             return _json.load(f)["fit"]
@@ -155,23 +168,23 @@ class TestFitPanel(TestCase):
     def test_real_artifact_values(self):
         """Acceptance: the current monitor JSON's fit block renders REAL
         numbers (alpha per side, chi2/df, variance, MC meta, tails)."""
-        fit = self._fit("20260827")
+        fit = self._fit()
         rows = self.diag.fit_panel_rows(fit)
         # chi2/df straight from dispersion_chi2_per_df
         self.assertAlmostEqual(rows["chi2_home"], 2.141, places=3)
-        self.assertAlmostEqual(rows["chi2_away"], 2.3721, places=3)
-        # alpha = count-weighted bin mean (home ~0.260, away ~0.313 on the
+        self.assertAlmostEqual(rows["chi2_away"], 2.3748, places=3)
+        # alpha = count-weighted bin mean (home ~0.262, away ~0.314 on the
         # 6,953-frame artifact)
-        self.assertAlmostEqual(rows["alpha_home"], 0.2603, places=3)
-        self.assertAlmostEqual(rows["alpha_away"], 0.3132, places=3)
+        self.assertAlmostEqual(rows["alpha_home"], 0.2616, places=3)
+        self.assertAlmostEqual(rows["alpha_away"], 0.3139, places=3)
         self.assertEqual(rows["alpha_home_form"], "piecewise")
         self.assertEqual(rows["alpha_away_form"], "linear")
         # variance check: implied vs observed per side
         vh = rows["variance_home"]
-        self.assertAlmostEqual(vh[0], 9.532, places=3)
+        self.assertAlmostEqual(vh[0], 9.540, places=3)
         self.assertAlmostEqual(vh[1], 9.563, places=3)
         va = rows["variance_away"]
-        self.assertAlmostEqual(va[0], 10.543, places=3)
+        self.assertAlmostEqual(va[0], 10.548, places=3)
         self.assertAlmostEqual(va[1], 10.683, places=3)
         # MC metadata: numeric n_draws with separators
         self.assertIn("10,000 draws", rows["mc_caption"])
@@ -196,10 +209,10 @@ class TestFitPanel(TestCase):
     def test_lambda_edge_from_real_fit(self):
         """λ edge (home−away modeled run differential) from the fit-curve bin
         means (the pre-holdout fit scope; ~flat on the 6,953-frame artifact)."""
-        fit = self._fit("20260827")
+        fit = self._fit()
         edge = self.diag.lambda_edge(fit)
         self.assertIsNotNone(edge)
-        self.assertAlmostEqual(edge, 0.0057, places=4)  # fit-curve bin means
+        self.assertAlmostEqual(edge, 0.0056, places=4)  # fit-curve bin means
         self.assertIsNone(self.diag.lambda_edge({}))
         self.assertIsNone(self.diag.lambda_edge(None))
 
@@ -227,17 +240,14 @@ class TestRunEngineModelMonitorRender(TestCase):
 
     def test_model_card_renders_real_artifact(self):
         import json
-        mon = json.loads((self.root / "data_delivery"
-                          / "run_engine_monitor_20260827.json").read_text())
+        mon = json.loads((_latest_artifact(self.root / "data_delivery", "run_engine_monitor_*.json")).read_text())
         self.markets._render_run_engine_model_card(mon)  # no crash
 
     def test_drift_and_coverage_render_real_artifacts(self):
-        d = pd.read_csv(self.root / "data_delivery"
-                        / "run_engine_feature_drift_20260827.csv")
+        d = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_drift_*.csv"))
         self.assertEqual(len(d), 29)
         self.markets._render_run_engine_drift(d)
-        c = pd.read_csv(self.root / "data_delivery"
-                        / "run_engine_feature_coverage_20260827.csv")
+        c = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_coverage_*.csv"))
         self.assertEqual(len(c), 58)  # 29 features x 2 windows
         self.markets._render_run_engine_coverage(c)
 

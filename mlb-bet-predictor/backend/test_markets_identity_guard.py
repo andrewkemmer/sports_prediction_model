@@ -9,6 +9,16 @@ import pandas as pd
 import run_engine
 
 
+
+def _latest_artifact(directory, pattern):
+    """Find the most recent artifact matching pattern in directory.
+    Returns Path or raises unittest.SkipTest if none found."""
+    import unittest
+    matches = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        raise unittest.SkipTest(f"No {pattern} artifacts found in {directory}")
+    return matches[0]
+
 class TestMarketsIdentityGuard(unittest.TestCase):
     def test_saved_oof_has_zero_null_game_pk_on_real_artifact(self):
         """The f33b569 source-boundary filter held on the real 08-27 run.
@@ -18,7 +28,7 @@ class TestMarketsIdentityGuard(unittest.TestCase):
         frame built from the real artifact persists with zero null keys.
         """
         source = pd.read_csv(
-            Path(__file__).parents[1] / "data_delivery" / "run_engine_oof_20260827.csv")
+            _latest_artifact(Path(__file__).parents[1] / "data_delivery", "run_engine_oof_*.csv"))
         self.assertEqual(int(source["game_pk"].isna().sum()), 0)
         clean = source[source["game_pk"].notna()].copy()
         markets = pd.DataFrame({

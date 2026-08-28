@@ -8,11 +8,21 @@ from training import walk_forward_splits
 from pipeline import _attach_drift_run_margins
 
 
+
+def _latest_artifact(directory, pattern):
+    """Find the most recent artifact matching pattern in directory.
+    Returns Path or raises unittest.SkipTest if none found."""
+    import unittest
+    matches = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        raise unittest.SkipTest(f"No {pattern} artifacts found in {directory}")
+    return matches[0]
+
 class TestDriftArtifactAlignment(unittest.TestCase):
     def test_saved_artifacts_require_feature_frame_as_canonical_row_set(self):
         root = Path(__file__).parents[1] / "data_delivery"
         features = pd.read_csv(root / "game_level_features.csv")
-        history = pd.read_csv(root / "predictions_history_20260827.csv")
+        history = pd.read_csv(_latest_artifact(root, "predictions_history_*.csv"))
         self.assertEqual(len(features), 6953)
         self.assertEqual(len(features) - len(features[features.game_id.isin(history.game_id)]), 495)
         self.assertEqual(features.game_id.duplicated().sum(), 75)
@@ -48,24 +58,27 @@ class TestDriftArtifactAlignment(unittest.TestCase):
             "_pre_slate_games snapshot must not return; get_decided_frame "
             "is the single source of truth now")
 
-        # 2. The drift step must use the canonical accessor, never a raw
-        # home_win filter, on the post-slate games frame.
+        # 2. The drift step must use the pre-slate decided snapshot
+        # (captured ONCE after official results), never a raw home_win
+        # filter or a second get_decided_frame(games) on the post-slate
+        # frame.
         drift_section = False
-        found_accessor = False
+        found_snapshot = False
         found_raw_filter = False
         for line in source_lines:
             stripped = line.strip()
             if "Decided games ONLY" in stripped:
                 drift_section = True
-            if drift_section and "get_decided_frame(games)" in stripped:
-                found_accessor = True
+            if drift_section and "decided = _decided_snapshot" in stripped:
+                found_snapshot = True
             if drift_section and "decided = games[" in stripped:
                 found_raw_filter = True
             if drift_section and "home_win" in stripped and ".notna()" in stripped \
-                    and "decided = " in stripped and "get_decided_frame" not in stripped:
+                    and "decided = " in stripped and "_decided_snapshot" not in stripped:
                 found_raw_filter = True
-        self.assertTrue(found_accessor,
-            "Drift step must derive its frame via frames.get_decided_frame")
+        self.assertTrue(found_snapshot,
+            "Drift step must use the pre-slate _decided_snapshot, "
+            "not re-derive from the mutated games frame")
         self.assertFalse(found_raw_filter,
             "Drift step must NOT reconstruct the decided frame with a raw "
             "home_win filter — that was the desync source")
@@ -73,6 +86,11 @@ class TestDriftArtifactAlignment(unittest.TestCase):
         # 3. The signature assert is wired at the drift step.
         self.assertIn("require_matching_signatures", source)
         self.assertIn("fold_signature(decided)", source)
+
+        # 4. The decided snapshot is captured once before slate merge
+        # and threaded through training + drift.
+        self.assertIn("_decided_snapshot = get_decided_frame(games)", source)
+        self.assertIn("decided_snapshot=_decided_snapshot", source)
 
     def test_pre_slate_snapshot_preserves_decided_parity_with_training(self):
         """The pre-slate snapshot must have the same decided count as

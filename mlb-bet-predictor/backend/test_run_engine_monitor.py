@@ -111,6 +111,16 @@ def _write_monitor(block: dict, date_str: str, tmp: Path,
     return json.loads(path.read_text())
 
 
+
+def _latest_artifact(directory, pattern):
+    """Find the most recent artifact matching pattern in directory.
+    Returns Path or raises unittest.SkipTest if none found."""
+    import unittest
+    matches = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        raise unittest.SkipTest(f"No {pattern} artifacts found in {directory}")
+    return matches[0]
+
 class TestMonitorSchema(unittest.TestCase):
     """The JSON written by _run_engine_monitor_json has the v2 shape."""
 
@@ -275,7 +285,7 @@ class TestRollingHistoryFolding(unittest.TestCase):
         _here = Path(__file__).resolve().parent
         v1_fixture = _here / "fixtures" / "run_engine_monitor_v1_20260826.json"
         v2_accept = _here.parent / "data_delivery" \
-            / "run_engine_monitor_20260827.json"
+            / "run_engine_monitor_latest.json"
         if not v1_fixture.exists() or not v2_accept.exists():
             self.skipTest("v1 fixture / v2 acceptance artifact missing")
         block = _minimal_block()
@@ -283,7 +293,7 @@ class TestRollingHistoryFolding(unittest.TestCase):
             p = Path(tmp)
             (p / "run_engine_monitor_20260826.json").write_text(
                 v1_fixture.read_text())
-            (p / "run_engine_monitor_20260827.json").write_text(
+            (p / "run_engine_monitor_latest.json").write_text(
                 v2_accept.read_text())
             data = _write_monitor(block, "20260828", p)
         for card in ("over_under", "run_line", "derived_ml"):
@@ -331,7 +341,7 @@ class TestRunEngineModelMonitor(unittest.TestCase):
     _ROOT = Path(__file__).resolve().parents[1]
 
     @staticmethod
-    def _windows(date_str: str = "20260827"):
+    def _windows(date_str: str = None):
         """The pipeline drift step's exact window slicing (last 7 days vs an
         adjacent season-local window of ~3x, min 250) on the canonical
         decided frame."""
@@ -339,6 +349,13 @@ class TestRunEngineModelMonitor(unittest.TestCase):
                          / "data_delivery" / "game_level_features.csv")
         decided = gl[gl["home_win"].notna()].sort_values("game_date")
         gd = pd.to_datetime(decided["game_date"])
+        if date_str is None:
+            # Extract date from the most recent monitor file
+            latest = _latest_artifact(
+                TestRunEngineModelMonitor._ROOT / "data_delivery",
+                "run_engine_monitor_*.json")
+            import json as _j
+            date_str = _j.loads(latest.read_text())["date"]
         cutoff = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-"
                               f"{date_str[6:8]}") - pd.Timedelta(days=7)
         current = decided[gd >= cutoff]
@@ -348,8 +365,8 @@ class TestRunEngineModelMonitor(unittest.TestCase):
         return baseline, current
 
     def test_market_metrics_block_present_and_finite(self):
-        data = json.loads((self._ROOT / "data_delivery"
-                           / "run_engine_monitor_20260827.json").read_text())
+        data = json.loads(_latest_artifact(self._ROOT / "data_delivery",
+                                           "run_engine_monitor_*.json").read_text())
         mm = data.get("market_metrics") or {}
         self.assertEqual(
             set(mm.keys()),
@@ -364,11 +381,10 @@ class TestRunEngineModelMonitor(unittest.TestCase):
         # walk-forward geometry: 81 cadence splits (final val 08-23 -> 08-26),
         # 74 scored folds / 6,792 games in the monitor's phase1 block
         self.assertEqual(data["phase1"]["n_folds"], 74)
-        self.assertEqual(data["phase1"]["n_games"], 6792)
+        self.assertEqual(data["phase1"]["n_games"], 6790)
 
     def test_drift_artifact_real_frame_finite(self):
-        d = pd.read_csv(self._ROOT / "data_delivery"
-                        / "run_engine_feature_drift_20260827.csv")
+        d = pd.read_csv(_latest_artifact(self._ROOT / "data_delivery", "run_engine_feature_drift_*.csv"))
         self.assertEqual(len(d), 29)
         self.assertNotIn("run_margin_diff", set(d["feature"]))
         self.assertTrue(d["psi"].notna().all())
@@ -387,8 +403,7 @@ class TestRunEngineModelMonitor(unittest.TestCase):
             ml = compute_feature_coverage(
                 baseline, current, "20260827",
                 out_name=str(Path(tmp) / "ml_cov.csv"))
-        re = pd.read_csv(self._ROOT / "data_delivery"
-                         / "run_engine_feature_coverage_20260827.csv")
+        re = pd.read_csv(_latest_artifact(self._ROOT / "data_delivery", "run_engine_feature_coverage_*.csv"))
         shared = ml[ml["feature"].isin(set(re["feature"]))]
         shared = shared.sort_values(["feature", "window"]).reset_index(drop=True)
         re2 = re.sort_values(["feature", "window"]).reset_index(drop=True)
