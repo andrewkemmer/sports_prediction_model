@@ -336,6 +336,23 @@ OOF_COLUMNS = ["game_pk", "game_date", "home_expected_runs",
 def persist_oof(oof: pd.DataFrame, target_date_str: str,
                 out_dir: Optional[Path] = None) -> Path:
     """run_engine_oof_<date>.csv — Phase 2's input contract."""
+    # Identity guard at the persist boundary (f33b569 discipline, extended):
+    # rows without a stable game_pk (slate games whose results were filled
+    # post-merge) cannot be joined to slate/history and must never ship in
+    # the committed OOF artifact. Drop them LOUDLY here so every caller is
+    # protected; derive_markets_v3 re-applies the same filter downstream
+    # (defense in depth) before any market construction.
+    if "game_pk" in oof.columns:
+        _bad_identity = oof["game_pk"].isna()
+        if _bad_identity.any():
+            _dates = (sorted(oof.loc[_bad_identity, "game_date"]
+                             .astype(str).unique().tolist())
+                      if "game_date" in oof.columns else "n/a")
+            logger.warning(
+                "persist_oof: dropping %d identity-less OOF row(s) "
+                "(null game_pk, dates %s) before writing the shipped "
+                "artifact", int(_bad_identity.sum()), _dates)
+            oof = oof.loc[~_bad_identity].reset_index(drop=True)
     out_path = (out_dir or DATA_DELIVERY_DIR) / f"run_engine_oof_{target_date_str}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     missing = [c for c in OOF_COLUMNS if c not in oof.columns]

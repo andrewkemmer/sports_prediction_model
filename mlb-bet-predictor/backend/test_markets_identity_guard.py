@@ -72,7 +72,40 @@ class TestMarketsIdentityGuard(unittest.TestCase):
         markets = res["markets"]
         self.assertEqual(int(markets["game_pk"].isna().sum()), 0)
         self.assertEqual(len(markets), n)
-
+    def test_persist_oof_drops_identity_less_rows_at_boundary(self):
+        """Regression (08-28 expansion run): the shipped run_engine_oof CSV
+        carried 2 identity-less rows (08-27 slate games, results filled
+        post-merge, no game_pk) because persist_oof wrote the caller's
+        UNFILTERED frame — the f33b569 filter only lived inside
+        derive_markets_v3's local scope. The persist boundary itself must
+        drop them LOUDLY so the committed artifact is always identity-clean,
+        whatever the caller passes.
+        """
+        rng = np.random.default_rng(11)
+        n = 40
+        clean = pd.DataFrame({
+            "game_pk": list(range(2000, 2000 + n)),
+            "game_date": pd.date_range("2026-07-01", periods=n, freq="D"),
+            "home_expected_runs": rng.uniform(3.8, 5.2, n),
+            "away_expected_runs": rng.uniform(3.8, 5.2, n),
+            "home_score": rng.poisson(4.5, n).astype(float),
+            "away_score": rng.poisson(4.2, n).astype(float),
+        })
+        slate = pd.DataFrame({
+            "game_date": pd.Timestamp("2026-08-27"),
+            "home_expected_runs": [4.4452, 4.4452],
+            "away_expected_runs": [4.176, 4.5829],
+            "home_score": [7.0, 7.0], "away_score": [1.0, 5.0],
+        })
+        oof = pd.concat([clean, slate], ignore_index=True)
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertLogs("run_engine", level="WARNING") as cm:
+                path = run_engine.persist_oof(oof, "20260827", Path(td))
+            self.assertIn("dropping 2 identity-less OOF row(s)",
+                          " ".join(cm.output))
+            shipped = pd.read_csv(path)
+            self.assertEqual(len(shipped), n)
+            self.assertEqual(int(shipped["game_pk"].isna().sum()), 0)
 
 if __name__ == "__main__":
     unittest.main()
