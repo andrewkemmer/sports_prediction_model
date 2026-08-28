@@ -170,6 +170,128 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     return out
 
 
+def _load_roof_cache(path: Path) -> dict[int, str]:
+    """Load the roof-state cache JSON -> {int(game_pk): "open"|"closed"}.
+
+    Idempotent and safe to call when the file does not exist.
+    """
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+        return {int(k): v for k, v in raw.items() if v in ("open", "closed")}
+    except Exception as exc:
+        logger.warning("Roof cache unreadable (%s)", exc)
+        return {}
+
+
+def _save_roof_cache(path: Path, cache: dict[int, str]) -> None:
+    """Persist the roof-state cache as a sorted JSON file."""
+    path.write_text(
+        json.dumps({str(k): v for k, v in sorted(cache.items())},
+                   indent=2, sort_keys=True) + "\n")
+
+
+# Retractable-roof teams (must match features.RETRACTABLE_ROOF_TEAMS)
+_RETRACTABLE_TEAMS = frozenset(
+    {"ARI", "AZ", "HOU", "MIA", "MIL", "SEA", "TEX", "TOR"})
+
+
+def _roof_from_statsapi_condition(condition) -> str | None:
+    """Map StatsAPI gameData.weather.condition to roof state.
+
+    Retractable-roof parks: 'Roof Closed'/'Dome' -> 'closed',
+    real weather (Clear, Sunny, etc.) -> 'open',
+    missing/empty -> None (unknown).
+    """
+    if condition is None:
+        return None
+    text = str(condition).strip().lower()
+    if not text:
+        return None
+    if ("roof closed" in text or text == "indoor"
+            or "closed roof" in text or text == "dome"):
+        return "closed"
+    # Real weather descriptions mean the roof was open
+    if any(w in text for w in (
+            "clear", "sunny", "cloud", "rain", "snow", "drizzle",
+            "overcast", "fog", "wind", "hot", "cold", "warm",
+            "cool", "fair", "partly", "mostly", "hazy", "mist")):
+        return "open"
+    if "roof open" in text or "open roof" in text:
+        return "open"
+    return None
+
+
+def _topup_roof_cache(
+    games: pd.DataFrame,
+    roof_states: dict[int, str],
+    cache_path: Path,
+    budget_sec: float = 128.0,
+) -> dict[int, str]:
+    """Best-effort top-up of the roof cache for missing retractable-home games.
+
+    Fetches gameData.weather.condition from the StatsAPI live feed for each
+    retractable-home game_pk missing from the cache. Budget-capped: pauses
+    and returns the current state when time runs out; missing games will be
+    retried on the next pipeline run. Never blocks the pipeline on failure.
+    """
+    import requests
+    import time as _time
+    feed_url = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
+    pause = 0.5  # ~2 req/s
+    retries = 2
+
+    home = games["home_team"].astype(str).str.upper().str.strip()
+    retract_mask = home.isin(_RETRACTABLE_TEAMS)
+    retract_pks = set(int(pk) for pk in
+                      games.loc[retract_mask, "game_pk"].tolist())
+    missing = sorted(retract_pks - set(roof_states.keys()))
+    if not missing:
+        return roof_states
+
+    logger.info(
+        "Roof top-up: %d/%d retractable games cached, %d missing",
+        len(retract_pks & set(roof_states.keys())),
+        len(retract_pks), len(missing))
+
+    start = _time.monotonic()
+    new_entries = 0
+    for pk in missing:
+        if _time.monotonic() - start >= budget_sec:
+            logger.info(
+                "Roof top-up: budget exhausted after %d/%d fetches — "
+                "remaining %d will retry next run",
+                new_entries, len(missing), len(missing) - new_entries)
+            break
+        condition = None
+        for attempt in range(retries):
+            try:
+                resp = requests.get(feed_url.format(pk=pk), timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    condition = (
+                        (data.get("gameData") or {}).get("weather", {})
+                        .get("condition"))
+                    break
+            except Exception:
+                pass
+            if attempt < retries - 1:
+                _time.sleep(pause * 3)
+            _time.sleep(pause)
+        roof = _roof_from_statsapi_condition(condition)
+        if roof is not None:
+            roof_states[pk] = roof
+            new_entries += 1
+
+    if new_entries > 0:
+        _save_roof_cache(cache_path, roof_states)
+        logger.info("Roof top-up: %d new entries (cache now %d)",
+                    new_entries, len(roof_states))
+
+    return roof_states
+
+
 def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
     """Attach leakage-free OOF run margins to the drift frame so the
     shipped run_margin_diff feature is drift-monitored like every other
@@ -1487,12 +1609,11 @@ def run_daily_pipeline(
         # never silently treated as closed.
         try:
             roof_cache = DATA_DELIVERY_DIR / "statsapi_roof_cache.json"
-            roof_states = {}
-            if roof_cache.exists():
-                roof_states = {
-                    int(k): v for k, v in json.loads(
-                        roof_cache.read_text()).items()
-                    if v in ("open", "closed")}
+            roof_states = _load_roof_cache(roof_cache)
+            # Auto top-up: fetch missing retractable-home game_pks from
+            # the StatsAPI live feed (best-effort, budget-capped).
+            roof_states = _topup_roof_cache(
+                games, roof_states, roof_cache, budget_sec=128.0)
             games = refine_dome_game_level(games, roof_states=roof_states)
             games = add_env_level_features(games)
         except Exception as exc:
