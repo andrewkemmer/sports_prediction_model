@@ -292,14 +292,29 @@ class TestWinnerCardSymmetry(unittest.TestCase):
             bp = c["by_pick"]
             n_h, n_a = bp["home"]["n"], bp["away"]["n"]
             self.assertEqual(n_h + n_a, c["n"], f"{name} split covers n")
-            self.assertGreater(n_h, 0, f"{name} has home-picks")
             self.assertGreater(n_a, 0, f"{name} has away-picks")
+            if name == "derived_ml":
+                # Real invariant: the derived-ML card prices BOTH directions
+                # on the 6,953-frame artifact.
+                self.assertGreater(n_h, 0, f"{name} has home-picks")
+            else:
+                # Artifact-state pin (6,953-frame): the run-line model never
+                # prices home-cover-1.5 at >= 0.5 (max p = 0.4923; calibrated
+                # mean 0.3578 vs base rate 0.3579), so every pick is away.
+                # The degenerate direction must still cover ALL games.
+                self.assertEqual(n_h, 0,
+                                 "run_line pick mix changed — revisit this pin")
+                self.assertEqual(n_a, c["n"],
+                                 "run_line away-picks must cover all games")
             # Pooled win rate = subset-weighted average. The by_pick rates
             # are display-rounded to 4dp in the JSON, so the reconstruction
             # matches the pooled rate to 3dp (any real inconsistency would
-            # appear at the 2nd decimal).
-            pooled = (n_h * bp["home"]["win_rate"]
-                      + n_a * bp["away"]["win_rate"]) / c["n"]
+            # appear at the 2nd decimal). A degenerate empty side carries
+            # win_rate=None — the non-empty side then IS the pooled rate.
+            parts = [(n, rate) for n, rate in
+                     ((n_h, bp["home"]["win_rate"]),
+                      (n_a, bp["away"]["win_rate"])) if n > 0]
+            pooled = sum(n * rate for n, rate in parts) / c["n"]
             self.assertAlmostEqual(pooled, c["win_rate"], places=3,
                                    msg=f"{name} pooled rate consistent")
         self.assertNotIn("by_pick", cards["over_under"])
@@ -426,9 +441,18 @@ class TestWinnerCardSymmetry(unittest.TestCase):
                                    cards[name]["ece_raw"], places=8,
                                    msg=f"{name} ECE on picked side")
             home_ece = ece_score(event[ok], p[ok])
-            self.assertNotAlmostEqual(home_ece, cards[name]["ece_raw"],
-                                      places=3,
-                                      msg=f"{name} ECE NOT home-side")
+            if (pick_home[ok]).all() or (~pick_home[ok]).all():
+                # Uniform pick direction: ECE(event, p) == ECE(1-event, 1-p)
+                # EXACTLY (equal-width bins mirror under p -> 1-p, counts and
+                # gaps included) — the difference check is vacuous, not a bug.
+                self.assertAlmostEqual(home_ece, cards[name]["ece_raw"],
+                                       places=6,
+                                       msg=f"{name} mirror symmetry under "
+                                           "uniform direction")
+            else:
+                self.assertNotAlmostEqual(home_ece, cards[name]["ece_raw"],
+                                          places=3,
+                                          msg=f"{name} ECE NOT home-side")
 
     def test_away_pick_scoring_not_home_outcomes(self):
         """Away-pick win rate == away-outcome rate on away-pick games (NOT
@@ -467,9 +491,9 @@ class TestWinnerCardSymmetry(unittest.TestCase):
 
     def test_derived_ml_sources_run_line_model_with_ensemble_reference(self):
         """The derived_ml card is the RUN LINE model's own NB moneyline
-        (p_home_win_derived): pooled ~50.2%, away-picks ~48.0% — reported
+        (p_home_win_derived): pooled ~48.5%, away-picks ~47.5% — reported
         as-is, NOT masked — and the moneyline ensemble rides as a one-line
-        ml_reference (~55.5%) so the model comparison stays visible."""
+        ml_reference (~55.8%) so the model comparison stays visible."""
         from run_engine import compute_winner_cards
         df = self._real()
         cards = compute_winner_cards(df)
@@ -478,11 +502,12 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         oof = df[df["kind"] == "oof"]
         nb_p = oof["p_home_win_derived"].to_numpy(float)
         self.assertEqual(c["n"], int(np.isfinite(nb_p).sum()))
-        # Expected numbers (do NOT adjust or mask): pooled ~50.2%,
-        # away-picks ~48.0% (home-edge underweighting, reported as-is).
-        self.assertAlmostEqual(c["win_rate"], 0.5016, places=3)
+        # Expected numbers (do NOT adjust or mask): pooled ~48.5%,
+        # away-picks ~47.5% (home-edge underweighting, reported as-is;
+        # values re-pinned to the 6,953-frame artifact).
+        self.assertAlmostEqual(c["win_rate"], 0.4847, places=3)
         self.assertLess(c["by_pick"]["away"]["win_rate"], 0.50)
-        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4801,
+        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4749,
                                places=3)
         self.assertGreater(c["by_pick"]["home"]["win_rate"], 0.50)
         # nb_diagnostic preserved (schema-stable record of the finding).
@@ -490,12 +515,12 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         self.assertEqual(nb["n"], c["n"])
         self.assertAlmostEqual(nb["actual_win_rate"], c["win_rate"],
                                places=4)
-        # Moneyline ENSEMBLE one-line reference (~55.6%, both directions).
+        # Moneyline ENSEMBLE one-line reference (~55.8%, both directions).
         ref = c.get("ml_reference")
         self.assertIsNotNone(ref)
         self.assertEqual(ref["source"], "ml_win_prob")
         self.assertGreater(ref["win_rate"], 0.55)
-        self.assertAlmostEqual(ref["win_rate"], 0.555, places=3)
+        self.assertAlmostEqual(ref["win_rate"], 0.5582, places=3)
         self.assertEqual(ref["n"],
                          int(np.isfinite(oof["ml_win_prob"]).sum()))
 

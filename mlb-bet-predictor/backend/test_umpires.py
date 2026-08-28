@@ -297,7 +297,7 @@ class TestRealFrameCoverage(unittest.TestCase):
         self.assertEqual(len(sub), len(frame_pks))       # 100% present
         self.assertEqual(sub["hp_umpire_id"].notna().mean(), 1.0)
         self.assertGreaterEqual(sub["hp_umpire_id"].nunique(), 90)
-        self.assertEqual(len(sub), 4481)
+        self.assertEqual(len(sub), 6953)
 
 
 class TestUmpireStats(unittest.TestCase):
