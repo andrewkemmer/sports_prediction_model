@@ -71,6 +71,28 @@ UNUSED_COLS = [
 
 _REGULAR_SEASON_CORE_MONTHS = {4, 5, 6, 7, 8, 9}
 
+# A transient network/parse failure (e.g. http.client.IncompleteRead, a
+# Savant CSV tokenizing hiccup) retries with backoff before it may be judged
+# empty. The 08-28 Statcast chunk failure came back EMPTY after a single
+# IncompleteRead, silently dropping ~800 games from the decided frame.
+CHUNK_RETRIES = 3           # attempts per chunk (1 initial + 2 retries)
+CHUNK_RETRY_BASE_MS = 1000   # first backoff; each retry doubles this
+
+
+def _is_past_dated_core_season_chunk(chunk_start: date, chunk_end: date) -> bool:
+    """True when the chunk is (a) entirely past-dated — at least one completed
+    game could exist — AND (b) its midpoint falls in April–September core
+    regular-season months. This is the dangerous case: data silently went
+    missing for real games.
+
+    Future-dated chunks (chunk_start >= today) and offseason-nape chunks are
+    exempt: no completed games can exist there, so emptiness is expected.
+    """
+    if chunk_start >= date.today():
+        return False
+    mid = chunk_start + (chunk_end - chunk_start) / 2
+    return mid.month in _REGULAR_SEASON_CORE_MONTHS
+
 
 def _warn_if_core_season_chunk_empty(chunk_start: date, chunk_end: date,
                                      reason: str) -> None:
@@ -103,6 +125,32 @@ def _warn_if_core_season_chunk_empty(chunk_start: date, chunk_end: date,
             chunk_start, chunk_end, reason)
 
 
+def _abort_on_exhausted_core_season_empty_chunk(
+    chunk_start: date, chunk_end: date, reason: str) -> None:
+    """ABORT the run when a PAST-DATED CORE-SEASON chunk stays empty after
+    retry exhaustion. This is the class of silent data regression the
+    project keeps getting bitten by: an IncompleteRead / parse error on one
+    chunk drops real games from the decided frame and the pipeline trains on
+    degraded data (08-28: ~800 games missing) anyway.
+
+    Raises a descriptive RuntimeError so callers stop before training/push.
+    ANY past-dated chunk whose midpoint falls in April–September ABORTS on a
+    persistent empty, whether it died on an exception or a clean empty
+    response — during the regular season there is essentially never a real
+    day with zero MLB games, so a persistent empty there is data loss, not
+    posting lag. Future-dated and offseason chunks remain exempt (no games).
+    """
+    if _is_past_dated_core_season_chunk(chunk_start, chunk_end):
+        raise RuntimeError(
+            f"Statcast chunk {chunk_start} → {chunk_end} came back EMPTY "
+            f"after {CHUNK_RETRIES} attempts ({reason}) in core regular-season "
+            f"months. Games in this window would silently drop from the "
+            f"decided frame. Refusing to proceed to training. Re-run after the "
+            f"transient failure clears (or set MLB_FULL_REPULL=1 for a clean "
+            f"full re-pull); cannot train on this incomplete frame."
+        )
+
+
 def _chunked_statcast(
     start: date,
     end: date,
@@ -115,6 +163,11 @@ def _chunked_statcast(
     are INCLUSIVE (statcast(D, D) returns day D). Empty results for recent
     dates mean Savant hasn't posted them yet — posting lags game completion
     by hours to a day — NOT a query-semantics problem.
+
+    A transient failure (http.client.IncompleteRead, CSV tokenizing error) or
+    empty response is retried with backoff. A past-dated core-season chunk
+    that is STILL empty, or still erroring, after all retries RAISES — it must
+    never silently proceed to training with missing games.
     """
     from pybaseball import statcast
 
@@ -123,16 +176,40 @@ def _chunked_statcast(
     while cursor <= end:
         chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
         logger.info("  Chunk: %s → %s", cursor, chunk_end)
-        try:
-            df = statcast(str(cursor), str(chunk_end))
-            if df is not None and not df.empty:
-                chunks.append(df)
-                logger.info("    → %d pitches", len(df))
-            else:
-                _warn_if_core_season_chunk_empty(cursor, chunk_end, "empty response")
-        except Exception as e:
-            logger.warning("    → Chunk failed: %s", e)
-            _warn_if_core_season_chunk_empty(cursor, chunk_end, f"error: {e}")
+        outcome: str = "ok"          # "ok" | "error" | "empty"
+        last_exc: Exception | None = None
+        for attempt in range(CHUNK_RETRIES):
+            if attempt:
+                backoff = (CHUNK_RETRY_BASE_MS * (2 ** (attempt - 1))) / 1000.0
+                logger.info(
+                    "    ↻ retrying %s → %s (attempt %d/%d, backoff %.1fs)",
+                    cursor, chunk_end, attempt + 1, CHUNK_RETRIES, backoff,
+                )
+                time.sleep(backoff)
+            try:
+                df = statcast(str(cursor), str(chunk_end))
+                if df is not None and not df.empty:
+                    chunks.append(df)
+                    logger.info("    → %d pitches", len(df))
+                    outcome = "ok"
+                    break
+                # Clean/None empty response — a transient posting hiccup can
+                # still clear on a later retry, so keep trying.
+                outcome = "empty"
+                last_exc = None
+            except Exception as e:
+                outcome = "error"
+                last_exc = e
+                logger.warning(
+                    "    → Chunk %s → %s attempt %d/%d failed: %s",
+                    cursor, chunk_end, attempt + 1, CHUNK_RETRIES, e,
+                )
+        # After the retry loop: a persistent empty on a past-dated core-season
+        # chunk ABORTS the run. Any other empty is allowed (warn / debug).
+        if outcome != "ok":
+            reason = (f"error: {last_exc}" if outcome == "error" else "empty response")
+            _abort_on_exhausted_core_season_empty_chunk(cursor, chunk_end, reason)
+            _warn_if_core_season_chunk_empty(cursor, chunk_end, reason)
         cursor = chunk_end + timedelta(days=1)
         if cursor <= end:
             time.sleep(pause_sec)

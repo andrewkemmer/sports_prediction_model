@@ -197,6 +197,31 @@ try:
     )
     print(f"  📊 Feature coverage: {cov}")
 
+    # ── PRE-TRAINING SILENT-DATA INGESTION GUARD ────────────────────────────
+    # The 08-28 Statcast chunk failure (IncompleteRead on a core-season chunk,
+    # came back EMPTY) dropped ~800 games from the decided frame (6,161 vs the
+    # expected 6,960) and the pipeline trained anyway. Never let a degraded
+    # frame past this point: verify the canonical expected pitch + decided-game
+    # counts BEFORE training, and ABORT loudly if either falls short. This is
+    # checked against the good-run baseline, so a silent gap (missing chunk,
+    # posting failure) can never ship a quietly-worse model.
+    from frames import get_decided_frame
+    n_pitches = len(pbp_df)          # one row per raw pitch in pbp_level
+    n_decided = len(get_decided_frame(train_games))
+    _min_pitches = 2_044_874         # good 6,960-game run shipped ≥ this
+    _min_decided = 6_960
+    print(f"  🛡️  Ingestion guard: {n_pitches} pitches, {n_decided} decided games "
+          f"(expected ≥{_min_pitches} pitches / {_min_decided} decided)")
+    if n_pitches < _min_pitches or n_decided < _min_decided:
+        raise RuntimeError(
+            f"Statcast ingestion looks DEGRADED before training: got "
+            f"{n_pitches} pitches / {n_decided} decided games, expected ≥ "
+            f"{_min_pitches} / {_min_decided}. A core-season chunk likely came "
+            f"back empty (see the ingestion abort above). Refusing to train / "
+            f"push on this incomplete frame. Re-run after the data gap is "
+            f"filled (or set MLB_FULL_REPULL=1 for a clean re-pull)."
+        )
+
     target = end  # predict the last date in the range
     summary = run_daily_pipeline(
         target_date=target,
