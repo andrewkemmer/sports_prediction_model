@@ -23,7 +23,7 @@ class TestDriftArtifactAlignment(unittest.TestCase):
         root = Path(__file__).parents[1] / "data_delivery"
         features = pd.read_csv(root / "game_level_features.csv")
         history = pd.read_csv(_latest_artifact(root, "predictions_history_*.csv"))
-        self.assertEqual(len(features), 6953)
+        self.assertEqual(len(features), 6960)
         self.assertEqual(len(features) - len(features[features.game_id.isin(history.game_id)]), 495)
         self.assertEqual(features.game_id.duplicated().sum(), 75)
         self.assertEqual(history.game_id.duplicated().sum(), 68)
@@ -38,7 +38,7 @@ class TestDriftArtifactAlignment(unittest.TestCase):
         self.assertEqual([(s["val_start"], s["val_end"], s["val_games"]["game_pk"].tolist()) for s in first],
                          [(s["val_start"], s["val_end"], s["val_games"]["game_pk"].tolist()) for s in second])
         self.assertEqual(str(first[-1]["val_start"])[:10], "2026-08-23")
-        self.assertEqual(str(first[-1]["val_end"])[:10], "2026-08-26")
+        self.assertEqual(str(first[-1]["val_end"])[:10], "2026-08-27")
         enriched = _attach_drift_run_margins(features)
         self.assertIn("run_margin_diff", enriched.columns)
 

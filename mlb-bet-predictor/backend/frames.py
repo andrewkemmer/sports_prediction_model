@@ -78,6 +78,29 @@ def _numeric_game_pk(games: pd.DataFrame) -> Optional[pd.Series]:
     return pd.to_numeric(games["game_pk"], errors="coerce")
 
 
+def _canon_pk_str(x: Any) -> str:
+    """Dtype-immune game_pk string for fold signatures.
+
+    The Step-4 slate concat (``pd.concat([games, slate])``) coerces the
+    game_pk column from int64 to float64 because slate rows carry no
+    game_pk (NaN).  ``str(823255.0)`` is ``"823255.0"`` while ``str(823255)``
+    is ``"823255"`` -- a PURE-DTYPE difference that changed fold_signature
+    on the identical row set.  That is the 08-28 desync: drift=5fb218bf vs
+    training=4a377bac with ZERO leaked rows (reproduced byte-exact from the
+    committed 6,953-frame + slate).  Format integer-valued numerics
+    canonically so the signature hashes the game's IDENTITY, never the
+    column dtype -- the assert then fires ONLY on genuine row-set/order
+    divergence.
+    """
+    try:
+        f = float(x)
+        if f.is_integer():
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return str(x)
+
+
 def get_decided_frame(games: pd.DataFrame) -> pd.DataFrame:
     """The ONE canonical decided frame every consumer must use.
 
@@ -97,6 +120,16 @@ def get_decided_frame(games: pd.DataFrame) -> pd.DataFrame:
     if pk is not None:
         # Rule 2 — identity: slate/pregame/identity-less rows never fold.
         out = out[pk.notna()].copy()
+        # Rule 2a — canonical identity DTYPE: game_pk must be int64.  The
+        # Step-4 slate concat (pd.concat([games, slate])) coerces the int64
+        # game_pk column to float64 because the slate rows carry no game_pk
+        # (NaN).  get_decided_frame's stable sort + fold_signature's
+        # stringification then differed on the SAME rows ("823255.0" vs
+        # "823255") -- the 08-28 desync fired with no row leak at all.  A
+        # post-slate float64 frame must produce the byte-identical decided
+        # frame (same dtype, same values) as the pre-slate int64 frame.
+        out["game_pk"] = pd.to_numeric(
+            out["game_pk"], errors="coerce").astype("int64")
         pk = _numeric_game_pk(out)
         # Rule 2b — starter required: ESPN slate rows that survive the
         # numeric game_pk filter (e.g. post-merge frames where
@@ -138,7 +171,8 @@ def _fold_payload(splits: list) -> list:
     payload: list[list[Any]] = []
     for s in splits:
         val = s.get("val_games")
-        pks = sorted(str(x) for x in val["game_pk"].tolist()) if val is not None else []
+        pks = (sorted(_canon_pk_str(x) for x in val["game_pk"].tolist())
+               if val is not None else [])
         payload.append([
             int(s["fold_idx"]),
             str(pd.Timestamp(s["val_start"]).date()),
@@ -169,7 +203,7 @@ def fold_signature(decided: pd.DataFrame,
     frames at module load).
     """
     splits = _splits_for(decided, retrain_cadence_days)
-    seq = ([str(x) for x in decided["game_pk"].tolist()]
+    seq = ([_canon_pk_str(x) for x in decided["game_pk"].tolist()]
            if "game_pk" in decided.columns else [])
     blob = json.dumps({"folds": _fold_payload(splits), "sequence": seq},
                       sort_keys=True, separators=(",", ":"))
