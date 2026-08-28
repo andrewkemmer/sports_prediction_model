@@ -74,10 +74,27 @@ pages = [
     st.Page("markets.py", title="Totals & Run Lines", icon="🎯", url_path="markets"),
 ]
 # Per-sport nav list — the literal `pages` list above is the sidebar-order
-# contract; the active sport's page set (sports_config) selects which
-# dashboards render (the run-engine pages are MLB-only; the generic pages
-# render any sport that publishes the shared artifact contract).
-_sport = st.session_state.get("sport", sports_config.DEFAULT_SPORT)
-_active_pages = [p for p in pages if p.url_path in sports_config.SPORTS[_sport]["pages"]]
+# contract; sports_config.active_page_url_paths resolves the active sport's
+# ordered dashboard set (Today's Games is always present; markets is
+# MLB-only). Home.py pairs each ``st.Page`` with its DECLARED url_path by
+# zip (never reading ``p.url_path`` off the objects — Streamlit only attaches
+# that inside st.navigation and reading it pre-attach raises AttributeError
+# or returns "", the deployed line-81 crash that hid Today's Games).
+_sport = str(st.session_state.get("sport", sports_config.DEFAULT_SPORT)).strip().lower()
+_sport_config = sports_config.resolve_sport(_sport)
+if _sport not in sports_config.SPORTS:
+    # The toggle can never KeyError on an unknown sport — fall back to MLB
+    # with a visible warning.
+    st.warning(f"Unknown sport '{_sport}' — showing {_sport_config['label']}.")
+_active_url_paths = sports_config.active_page_url_paths(_sport)
+_active_pages = [
+    page for page, url_path in zip(pages, sports_config.ALL_PAGE_URL_PATHS)
+    if url_path in _active_url_paths
+]
+# Never render an empty nav: if the zip above dropped every page, fall back
+# to the full set so the app never shows a blank sidebar (and Today's Games
+# is always present).
+if not _active_pages:
+    _active_pages = list(pages)
 nav = st.navigation(_active_pages, position="sidebar")
 nav.run()

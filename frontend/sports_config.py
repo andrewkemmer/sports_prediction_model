@@ -42,3 +42,51 @@ SPORTS = {
 }
 
 DEFAULT_SPORT = "mlb"
+
+# Every dashboard the app can render, in the fixed sidebar-registration order
+# that MUST mirror Home.py's literal ``pages = [st.Page(...)]`` list (the
+# sidebar-order contract). url_path is the string Home.py passes to
+# st.Page(url_path=...); it is NOT read back off the Page objects because
+# Streamlit only attaches it inside st.navigation.
+ALL_PAGE_URL_PATHS = [
+    "todays-games",
+    "power-rankings",
+    "calibration",
+    "model-monitor",
+    "markets",
+]
+
+
+def resolve_sport(sport_key: str) -> dict:
+    """Resolve a segmented-control value to a sport config, never raising.
+
+    - Coerces to lowercase + strips whitespace (the toggle may return a
+      display label rather than the config key on some Streamlit versions).
+    - Falls back to DEFAULT_SPORT when the key is unknown or missing, so an
+      unknown sport degrades to MLB instead of KeyErroring.
+
+    Returns the sport config dict (always a valid SPORTS entry).
+    """
+    key = str(sport_key or "").strip().lower()
+    if key not in SPORTS:
+        key = DEFAULT_SPORT
+    return SPORTS[key]
+
+
+def active_page_url_paths(sport_key: str) -> list[str]:
+    """The ordered subset of ALL_PAGE_URL_PATHS the given sport renders.
+
+    Today's Games (``todays-games``) is a shared-contract page and is ALWAYS
+    present for every sport; the run-engine pages (markets) are MLB-only.
+    The ordering follows ALL_PAGE_URL_PATHS, which mirrors Home.py's literal
+    ``pages`` list (the sidebar-order contract).
+
+    A sport whose page set is empty/list is exhausted degrades to the full
+    set so the sidebar never renders blank.
+    """
+    cfg = resolve_sport(sport_key)
+    allowed = cfg.get("pages", []) or []
+    active = [p for p in ALL_PAGE_URL_PATHS if p in allowed]
+    if not active:
+        return list(ALL_PAGE_URL_PATHS)
+    return active

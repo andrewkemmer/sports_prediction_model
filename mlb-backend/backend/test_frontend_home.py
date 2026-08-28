@@ -149,5 +149,60 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         self.assertIn('st.caption("📦 Showing latest committed artifacts', body)
 
 
+class TestSportNavSafety(unittest.TestCase):
+    """Regression for the deployed line-81 crash + missing Today's Games.
+
+    The nav filter previously read ``p.url_path`` off freshly built
+    ``st.Page`` objects, which Streamlit only attaches inside st.navigation
+    — on some versions that raises AttributeError (the crash) or returns ""
+    (silently dropping every page, hiding Today's Games). The fix resolves
+    the sport and the allowed page set in pure ``sports_config`` (no
+    Streamlit), so this test runs without a Streamlit runtime.
+    """
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        _root = Path(__file__).resolve().parents[2]  # repo root
+        _frontend = _root / "frontend"
+        if str(_frontend) not in sys.path:
+            sys.path.insert(0, str(_frontend))
+        import sports_config as _sc
+        cls.sc = _sc
+
+    def test_toggle_never_keerrors_on_any_sport(self):
+        # The segmented control may return the display label ("MLB"), the
+        # config key ("mlb"), whitespace-padded keys, or an unknown sport.
+        for bad in ("MLB", "Mlb", " mlb ", "nfl", "nba", "nhl", "", None, "  "):
+            cfg = self.sc.resolve_sport(bad)  # must never raise
+            self.assertIn(cfg["label"], {"MLB", "NFL", "NBA", "NHL"},
+                          f"resolve_sport({bad!r}) must return a valid sport")
+
+    def test_todays_games_always_active_for_mlb(self):
+        # Today's Games (the default page) must always be in the rendered
+        # nav set for MLB — assert presence, not just page count.
+        paths = self.sc.active_page_url_paths("mlb")
+        self.assertIn("todays-games", paths,
+                      "Today's Games url_path must be active for MLB")
+        # It should also lead the nav (register first / default).
+        self.assertEqual(paths[0], "todays-games")
+
+    def test_mlb_gets_full_page_set_matching_literal_pages(self):
+        # The resolved MLB set must equal the sidebar-order contract (the
+        # literal `pages` list in Home.py, mirrored by ALL_PAGE_URL_PATHS).
+        self.assertEqual(
+            self.sc.active_page_url_paths("mlb"),
+            self.sc.ALL_PAGE_URL_PATHS,
+        )
+
+    def test_unknown_sport_degrades_to_full_set_not_blank(self):
+        # An unknown sport must never yield an empty nav (blank sidebar).
+        for bad in ("nfl", "nba", "nhl", "hockey"):
+            self.assertEqual(
+                self.sc.active_page_url_paths(bad),
+                self.sc.ALL_PAGE_URL_PATHS,
+                f"unknown sport {bad!r} must fall back to the full page set",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
