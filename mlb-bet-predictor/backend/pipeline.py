@@ -1519,18 +1519,6 @@ def run_daily_pipeline(
             logger.warning("Official results overlay failed on history: %s", exc)
 
 
-        # Canonical decided frame snapshot — captured ONCE after official
-        # results, BEFORE slate merge, weather diffs, or market lines.
-        # Every consumer (training drift/coverage/run-engine) uses this
-        # exact snapshot so frame mutations later (slate concat, official
-        # results on target_games, weather application) cannot create a
-        # fold-signature desync between training and drift.
-        _decided_snapshot = get_decided_frame(games)
-        import hashlib as _hb
-        _snap_pks = _decided_snapshot["game_pk"].tolist() if "game_pk" in _decided_snapshot.columns else []
-        _snap_hash = _hb.sha256("|".join(str(p) for p in _snap_pks).encode()).hexdigest()[:12]
-        logger.info("Pipeline snapshot: %d decided games, hash=%s", len(_decided_snapshot), _snap_hash)
-
         # Real point-in-time weather for features 30--31 (wind advantage,
         # air density).  One Open-Meteo request per (stadium, day); games
         # without a strictly-prior observation get NULL weather features
@@ -1638,6 +1626,28 @@ def run_daily_pipeline(
         except Exception as exc:
             logger.warning("Env-level feature pass failed (level columns may "
                            "be absent this run): %s", exc)
+
+        # Canonical decided frame snapshot -- captured ONCE after official
+        # results AND after the weather + env-level feature passes, so the
+        # drift/coverage/run-engine consumers see the SAME 65-feature view
+        # training used. (The 08-28 regression: a Step-1.5 snapshot predated
+        # those attaches and lost wind_advantage_flyball_factor,
+        # air_density_velocity_boost + the 4 env-level columns -- the drift
+        # table dropped 65->59 and run-engine warned 4/4 env columns absent.)
+        # Still BEFORE market lines and the Step-4 slate merge so the decided
+        # ROW SET is frozen before any row-mutating step; the diff/weather/
+        # env passes only attach columns (none write home_win), so this
+        # capture point is row-identical -- same fold signature -- as the
+        # old one. Every consumer (training, drift/coverage, run-engine)
+        # uses this exact snapshot so frame mutations later (slate concat,
+        # official results on target_games) cannot create a fold-signature
+        # desync between training and drift.
+        _decided_snapshot = get_decided_frame(games)
+        import hashlib as _hb
+        _snap_pks = _decided_snapshot["game_pk"].tolist() if "game_pk" in _decided_snapshot.columns else []
+        _snap_hash = _hb.sha256("|".join(str(p) for p in _snap_pks).encode()).hexdigest()[:12]
+        logger.info("Pipeline snapshot: %d decided games, hash=%s", len(_decided_snapshot), _snap_hash)
+
         try:
             _w_cov = int(games["wind_advantage_flyball_factor"].notna().sum()) if "wind_advantage_flyball_factor" in games else 0
             _a_cov = int(games["air_density_velocity_boost"].notna().sum()) if "air_density_velocity_boost" in games else 0
@@ -1909,10 +1919,11 @@ def run_daily_pipeline(
         # slate frame — slate rows carry no StatsAPI game_pk even when
         # apply_official_results fills their scores post-merge).  The drift
         # step uses the pre-slate _decided_snapshot (captured ONCE after
-        # official results, before the Step 4 slate merge) so the drift
-        # frame is IDENTICAL to what training used — no re-derivation from
-        # the mutated games object.  The fold-signature assert below fails
-        # loudly if that ever stops being true.
+        # official results + the weather/env feature passes, before the
+        # Step 4 slate merge) so the drift frame is IDENTICAL to what
+        # training used — no re-derivation from the mutated games object.
+        # The fold-signature assert below fails loudly if that ever stops
+        # being true.
         decided = _decided_snapshot
         _drift_pks = decided["game_pk"].tolist() if "game_pk" in decided.columns else []
         _drift_hash = _hb.sha256("|".join(str(p) for p in _drift_pks).encode()).hexdigest()[:12]

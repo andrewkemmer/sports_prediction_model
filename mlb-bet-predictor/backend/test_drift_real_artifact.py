@@ -92,6 +92,43 @@ class TestDriftArtifactAlignment(unittest.TestCase):
         self.assertIn("_decided_snapshot = get_decided_frame(games)", source)
         self.assertIn("decided_snapshot=_decided_snapshot", source)
 
+    def test_snapshot_after_env_pass_carries_full_65_feature_view(self):
+        """The decided snapshot must be captured AFTER the weather + env-level
+        passes so drift/coverage/run-engine see the same 65-feature view
+        training used. Regression for the 08-28 run: a Step-1.5 snapshot
+        predated those attaches and lost wind_advantage_flyball_factor,
+        air_density_velocity_boost + the 4 RUN_LEVEL_ENV_FEATURES -- the
+        moneyline drift table dropped 65->59 features and the run engine
+        warned 4/4 env-level columns absent."""
+        from training import FEATURE_COLS
+        from run_engine import RUN_LEVEL_ENV_FEATURES
+        from frames import get_decided_frame, fold_signature
+
+        root = Path(__file__).parents[1] / "data_delivery"
+        features = pd.read_csv(root / "game_level_features.csv")  # post-env view
+        decided = get_decided_frame(features)
+
+        # Every FEATURE_COLS column (except run_margin_diff, attached later
+        # by _attach_drift_run_margins) and every env-level column present.
+        missing = [c for c in FEATURE_COLS
+                   if c not in decided.columns and c != "run_margin_diff"]
+        self.assertEqual(missing, [],
+            "snapshot missing FEATURE_COLS -> drift table would under-count")
+        missing_env = [c for c in RUN_LEVEL_ENV_FEATURES
+                       if c not in decided.columns]
+        self.assertEqual(missing_env, [],
+            "snapshot missing env-level columns -> run-engine env coverage starved")
+
+        # Stripping the 6 weather/env columns (the old Step-1.5 capture
+        # point) must NOT change the decided row set or fold signature --
+        # the capture move is column-only, zero metric drift.
+        stripped = features.drop(columns=[c for c in [
+            "wind_advantage_flyball_factor", "air_density_velocity_boost",
+            *RUN_LEVEL_ENV_FEATURES] if c in features.columns])
+        self.assertEqual(fold_signature(get_decided_frame(stripped)),
+                         fold_signature(decided),
+            "capture-point move must not shift fold geometry")
+
     def test_pre_slate_snapshot_preserves_decided_parity_with_training(self):
         """The pre-slate snapshot must have the same decided count as
         game_level_features.csv (the training source)."""
