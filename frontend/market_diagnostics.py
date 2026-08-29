@@ -729,8 +729,11 @@ def history_win_rate(frame: pd.DataFrame) -> dict:
 RUN_GRID_CUT = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
 # Favorite-side line choices for the run-line monitor card (−0.5 … −4).
 RUN_LINE_CHOICES = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4.0]
-# Cumulative percent-confidence thresholds for the totals calibration card.
-TOTALS_CONF_THRESHOLDS = [40, 45, 50, 55, 60]
+# Cumulative percent-confidence thresholds for the totals calibration card
+# — 1-point steps 50-55. At the fair-line own total the pick is always the
+# side with P > 50%, so 40/45 were no-ops (every pick qualified) and 55+
+# was empty; 1-point steps show the population fall-off vs confidence.
+TOTALS_CONF_THRESHOLDS = [50, 51, 52, 53, 54, 55]
 
 
 def map_run_line_zero(line: float) -> float:

@@ -640,6 +640,37 @@ class TestCutAndMonitor(unittest.TestCase):
         for lo, hi in zip(ns, ns[1:]):
             self.assertGreaterEqual(lo, hi)   # non-increasing with threshold
 
+    def test_totals_conf_thresholds_exactly_50_to_55(self):
+        """The totals card confidence toggle is exactly the 1-point steps
+        50-55 (default 50). At the fair-line own line every pick is >50%,
+        so 40/45 were no-ops (all picks qualified) and 55+ was empty — the
+        1-point steps show the population fall-off vs confidence."""
+        self.assertEqual(diag.TOTALS_CONF_THRESHOLDS,
+                         [50, 51, 52, 53, 54, 55])
+        self.assertEqual(min(diag.TOTALS_CONF_THRESHOLDS), 50)
+        self.assertEqual(max(diag.TOTALS_CONF_THRESHOLDS), 55)
+
+    def test_min_pct_50_includes_all_decided_games(self):
+        """At the default threshold (pick_prob > 50%) every priced non-push
+        game qualifies — the push stays excluded from the win-rate
+        denominator (W/(W+L)), and the All/Over/Under split still sums to
+        the All population."""
+        rows = [
+            _grid_row(4.5, 4.5, 5, 4, 9, {9.0: 0.52}, pk=0),   # PUSH
+            _grid_row(4.7, 4.6, 5, 5, 10, {9.5: 0.52}, pk=1),  # Over
+            _grid_row(4.7, 4.6, 4, 4, 8, {9.5: 0.46}, pk=2),   # Under
+            _grid_row(4.7, 4.6, 5, 5, 10, {9.5: 0.55}, pk=3),  # Over
+        ]
+        dec = pd.DataFrame(rows)
+        s = diag.totals_monitor_stats(dec, min_pct=50, side="All")
+        self.assertEqual(s["min_pct"], 50)   # default threshold
+        self.assertEqual(s["n"], 3)          # push excluded, all decided in
+        self.assertEqual(s["n_pushes"], 1)
+        self.assertAlmostEqual(s["win_rate"], 1.0)   # 3/3 picks won
+        # Side filter still partitions the All population at the threshold.
+        self.assertEqual(s["sides"]["Over"]["n"]
+                         + s["sides"]["Under"]["n"], 3)
+
     def test_line_toggle_enumerates_full_grid(self):
         # The signed choice list (−0.5, −1, −1.5, … −4) maps injectively to
         # the priced magnitudes RUN_GRID_CUT — 0 never appears.

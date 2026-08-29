@@ -678,7 +678,7 @@ def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
     st.markdown("**Totals — Over/Under calibration card**")
     c1, c2 = st.columns([1, 1])
     thresh = c1.selectbox("Confidence (pick_prob > …)",
-                          diag.TOTALS_CONF_THRESHOLDS, index=3,
+                          diag.TOTALS_CONF_THRESHOLDS, index=0,
                           key="totals_card_conf")
     side = c2.selectbox("Side", ["All", "Over", "Under"], index=0,
                         key="totals_card_side")
