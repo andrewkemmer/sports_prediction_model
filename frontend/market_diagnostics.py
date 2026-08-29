@@ -696,15 +696,22 @@ def _num(row, key: str) -> Optional[float]:
 
 
 def run_engine_card_bits(game_id: str,
-                         slate_map: Optional[dict] = None) -> Optional[dict]:
+                         slate_map: Optional[dict] = None,
+                         line: Optional[float] = None) -> Optional[dict]:
     """Run-engine projections for one Today's Games card, joined by
     game_id == slate game_pk (the 145d841 ESPN-id convention).
 
     The O/U split is priced at the game's OWN rounded total — nearest 0.5
     of home_expected_runs + away_expected_runs (e.g. 4.9 + 4.4 = 9.3 →
     9.5) — pulled from the grid columns at that line (p_over_9_5 /
-    p_under_9_5). Lines outside the shipped grid clamp to the nearest edge
-    with clamped=True (the card notes it). Never fabricated: missing
+    p_under_9_5), unless an explicit ``line`` override is given (the
+    per-card selector / future market-lines mode): then the split is
+    priced at THAT grid line instead, and line_selected records it so the
+    card can flag a non-default line. A ``line`` outside the shipped grid
+    (or None) falls back to the game's own rounded line — the selector's
+    guard, so an invalid/out-of-grid choice can never crash the card.
+    Lines outside the shipped grid clamp to the nearest edge with
+    clamped=True (the card notes it). Never fabricated: missing
     columns / NaN degrade has_grid to False (quiet 'n/a') and a missing
     slate row returns None (strip omitted). p_away_cover is the exact
     complement of p_home_cover (1 − p) because the artifact ships
@@ -723,6 +730,7 @@ def run_engine_card_bits(game_id: str,
         "proj_away": proj_away,
         "total_line": None,
         "clamped": False,
+        "line_selected": None,
         "p_over": None,
         "p_under": None,
         "p_home_cover": p_home_cover,
@@ -731,7 +739,21 @@ def run_engine_card_bits(game_id: str,
         "has_grid": False,
     }
     if proj_home is not None and proj_away is not None:
-        line, clamped = clamp_to_grid(round_to_half(proj_home + proj_away))
+        model_line, clamped = clamp_to_grid(round_to_half(proj_home + proj_away))
+        # Explicit line override: accept only a valid grid line; anything
+        # else falls back to the model's own line (never crash the card).
+        use_line = model_line
+        line_selected = None
+        if line is not None:
+            try:
+                line = round(float(line), 1)
+            except (TypeError, ValueError):
+                line = None
+            if line in TOTAL_GRID:
+                use_line = line
+                clamped = False
+                line_selected = line
+        line, clamped = use_line, clamped
         over_col, under_col = grid_over_under_cols(line)
         p_over = _num(row, over_col)
         p_under = _num(row, under_col)
@@ -767,6 +789,7 @@ def run_engine_card_bits(game_id: str,
                 p_over_disp = p_over_raw * scale
                 p_under_disp = p_under_raw * scale
             bits.update({"total_line": line, "clamped": clamped,
+                         "line_selected": line_selected,
                          "p_over": p_over_disp, "p_under": p_under_disp,
                          "p_push": p_push_raw, "p_over_raw": p_over_raw,
                          "p_under_raw": p_under_raw, "has_grid": True})

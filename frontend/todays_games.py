@@ -109,23 +109,28 @@ def _pitcher_box(name: str, era: str, k9: str) -> str:
 
 
 def _runengine_html(bits, home_team: str, away_team: str) -> str:
-    """Run-engine strip on the game card — projections, 8.5 O/U, run line.
+    """Run-engine strip on the game card — projections, O/U, run line.
 
     bits comes from market_diagnostics.run_engine_card_bits; None means no
     slate row for this game (strip omitted), has_grid=False renders a quiet
     'n/a'. The O/U split is priced at the game's OWN rounded total
-    (bits["total_line"], nearest 0.5 of λ_home + λ_away) and notes when the
-    line was clamped to the shipped grid. Away +1.5 is the exact complement
-    of home −1.5 (the artifact ships home-cover columns only) — labeled as
-    such.
+    (bits["total_line"], nearest 0.5 of λ_home + λ_away) unless a line was
+    selected for the card (bits["line_selected"] set — the per-card
+    selector / future market-lines mode), in which case the O/U reflects
+    that line and the label says "line selected". Notes when the line was
+    clamped to the shipped grid. Away +1.5 is the exact complement of home
+    −1.5 (the artifact ships home-cover columns only) — labeled as such.
     """
     if bits is None:
         return ""
     if not bits.get("has_grid"):
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
+    selected = bits.get("line_selected")
     ou_label = (f'O/U {bits["total_line"]:.1f}'
-                + (" (clamped)" if bits.get("clamped") else ""))
+                + (" (clamped)" if bits.get("clamped") else "")
+                + (f' (line selected: {selected:.1f})' if selected is not None
+                   else ""))
     # The card shows the 2-WAY re-scaled split: Over + Under sum to 100%
     # (the push was folded proportionately by run_engine_card_bits, since a
     # push refunds the bet — whole-number lines price that way). p_push is
@@ -302,6 +307,31 @@ def _shap_expander(g: pd.Series, date_str: str) -> None:
 # Page
 # ===========================================================================
 
+def resolve_totals_line(game_id, default_line: float) -> float:
+    """Resolve the per-card O/U line selection, keyed by game_pk in
+    session_state (persists across reruns; never bleeds between cards).
+
+    ``default_line`` is the card's model-assigned line (its own rounded
+    total). The selector's value lives at ``ou_line_<game_pk>``; any
+    invalid / out-of-grid value (None, non-numeric, off the 6.5–12.5 grid)
+    falls back to the model line — the card can never price a line the
+    artifact doesn't carry. Structured as a helper so a future global
+    'market lines' mode can bulk-set these keys from an odds feed without
+    touching card rendering.
+    """
+    key = f"ou_line_{game_id}"
+    if key not in st.session_state:
+        st.session_state[key] = default_line
+        return default_line
+    try:
+        val = round(float(st.session_state[key]), 1)
+    except (TypeError, ValueError):
+        return default_line
+    if val not in diag.TOTAL_GRID:
+        return default_line
+    return val
+
+
 def _et_today_compact() -> str:
     """Today's date in America/New_York as YYYYMMDD, used so the frontend
     defaults to the user's real calendar date rather than UTC (which would
@@ -422,8 +452,24 @@ def main() -> None:
         cols = st.columns(2)
         for col, (_, g) in zip(cols, filtered.iloc[i : i + 2].iterrows()):
             with col:
-                re_bits = diag.run_engine_card_bits(
-                    str(g.get("game_id", "")), slate_map)
+                gid = str(g.get("game_id", ""))
+                # Model line first (assigned), then the per-card selector.
+                model_bits = diag.run_engine_card_bits(gid, slate_map)
+                if model_bits and model_bits.get("has_grid"):
+                    model_line = model_bits["total_line"]
+                    sel_line = resolve_totals_line(gid, model_line)
+                    st.selectbox(
+                        "O/U line", diag.TOTAL_GRID,
+                        index=diag.TOTAL_GRID.index(sel_line),
+                        key=f"ou_line_{gid}", label_visibility="collapsed",
+                        help=("Totals line to price this game at — defaults "
+                              "to the model's assigned line; pick a "
+                              "sportsbook line to see the model's "
+                              "probability there."))
+                    re_bits = diag.run_engine_card_bits(
+                        gid, slate_map, line=sel_line)
+                else:
+                    re_bits = model_bits
                 st.markdown(_card_html(g, re_bits), unsafe_allow_html=True)
                 _shap_expander(g, date_str)
 

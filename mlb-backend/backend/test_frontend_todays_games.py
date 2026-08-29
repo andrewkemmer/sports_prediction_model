@@ -290,6 +290,109 @@ class TestOUPushDisplay(unittest.TestCase):
         self.assertEqual(diag.grid_push_col(8.5), "p_push_8_5")
 
 
+class TestLineSelector(unittest.TestCase):
+    """Per-card O/U line selector on the run-engine strip.
+
+    run_engine_card_bits accepts an optional ``line`` override (the
+    selector's value); the card is otherwise unchanged. The override must:
+    price the O/U at the selected grid line; mark line_selected so the card
+    can flag a non-default line; and fall back to the model line for any
+    invalid / out-of-grid value. The re-scaled 2-way Over/Under (push
+    folded proportionately) must hold at ANY selected line — the same
+    convention as the model line itself.
+    """
+
+    def _row(self, pk="SEL", h=4.5, a=4.5):
+        """λ_h + λ_a = 9.0 → model line 9.0. Grid carries 9.0 (whole,
+        push band 0.08) and 9.5 (half, no push)."""
+        return {"game_pk": pk, "home_expected_runs": h,
+                "away_expected_runs": a,
+                # p_under = 1 - p_over - p_push (artifact convention):
+                # 9.0 push = 0.42-0.34 = 0.08 → under = 1-0.42-0.08 = 0.50;
+                # 8.0 push = 0.55-0.48 = 0.07 → under = 1-0.55-0.07 = 0.38.
+                "p_over_9_0": 0.42, "p_under_9_0": 0.50,
+                "p_over_9_5": 0.34, "p_under_9_5": 0.66,
+                "p_over_8_0": 0.55, "p_under_8_0": 0.38,
+                "p_over_8_5": 0.48, "p_under_8_5": 0.52,
+                "p_home_cover_1_5": 0.4}
+
+    def test_defaults_to_model_line(self):
+        """No line override → the card prices at the model's assigned line
+        (own rounded total) with line_selected None."""
+        row = self._row()
+        bits = diag.run_engine_card_bits("SEL", {"SEL": row})
+        self.assertTrue(bits["has_grid"])
+        self.assertEqual(bits["total_line"], 9.0)
+        self.assertIsNone(bits["line_selected"])
+        # Whole line 9.0 carries a push band (p_over_9_0 − p_over_9_5 =
+        # 0.42 − 0.34 = 0.08) — the re-scaled 2-way split folds it in:
+        # p_over = 0.42/0.92, p_under = 0.50/0.92 (sums to 100%).
+        self.assertAlmostEqual(bits["p_over"], 0.42 / 0.92, places=4)
+        self.assertAlmostEqual(bits["p_under"], 0.50 / 0.92, places=4)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
+                               delta=0.01)
+
+    def test_override_prices_selected_line(self):
+        """Explicit line=8.5 → O/U priced at p_over_8_5, flagged selected."""
+        row = self._row()
+        bits = diag.run_engine_card_bits("SEL", {"SEL": row}, line=8.5)
+        self.assertEqual(bits["total_line"], 8.5)
+        self.assertEqual(bits["line_selected"], 8.5)
+        # Half-line: no push → re-scale is a no-op, headline == raw.
+        self.assertEqual(bits["p_over"], 0.48)
+        self.assertEqual(bits["p_under"], 0.52)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
+                               delta=0.01)
+
+    def test_whole_line_override_rescales_to_100(self):
+        """Selecting whole line 8.0 (push band 0.55−0.48=0.07): the re-scaled
+        Over + Under still sums to 100% (±1 rounding) and the push is folded
+        in, preserving the over:under ratio."""
+        row = self._row()
+        bits = diag.run_engine_card_bits("SEL", {"SEL": row}, line=8.0)
+        self.assertEqual(bits["total_line"], 8.0)
+        self.assertEqual(bits["line_selected"], 8.0)
+        self.assertAlmostEqual(bits["p_push"], 0.55 - 0.48, places=9)
+        total = bits["p_over"] + bits["p_under"]
+        self.assertAlmostEqual(total, 1.0, delta=0.01,
+                               msg="selected-line over+under must sum to 100% (±1)")
+        # Ratio preserved: 0.55/0.38 scaled by 1/0.93.
+        self.assertAlmostEqual(bits["p_over"], 0.55 / 0.93, places=3)
+        self.assertAlmostEqual(bits["p_under"], 0.38 / 0.93, places=3)
+
+    def test_invalid_line_falls_back_to_model_line(self):
+        """Out-of-grid (14.0, 3.0), non-numeric, and None selections fall
+        back to the model's own line — never crash, never price a line the
+        artifact doesn't carry."""
+        row = self._row()
+        for bad in (14.0, 3.0, 9.3, "abc", None):
+            bits = diag.run_engine_card_bits("SEL", {"SEL": row}, line=bad)
+            self.assertEqual(bits["total_line"], 9.0,
+                             f"line={bad!r} must fall back to model line")
+            self.assertIsNone(bits["line_selected"])
+
+    def test_selector_state_keyed_per_game(self):
+        """The selector's session_state key is scoped per game_pk
+        (ou_line_<game_id>) and resolve_totals_line validates against the
+        grid — so selections persist per card and never bleed between cards."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("ou_line_", src,
+                      "selector key must be scoped per game_pk")
+        self.assertIn("st.session_state", src,
+                      "selector state must live in session_state")
+        self.assertIn("resolve_totals_line", src,
+                      "selection resolution must be a named helper")
+        self.assertIn("TOTAL_GRID", src,
+                      "selection must validate against the shipped grid")
+
+    def test_html_marks_selected_line(self):
+        """The card strip must label a non-model line as 'line selected' so
+        it is clear when the user has moved off the model's line."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("line selected", src,
+                      "card must flag a non-default selected line")
+
+
 class TestDoubleheaderCards(unittest.TestCase):
     """Doubleheader legs are DISTINCT games on the card layer.
 
