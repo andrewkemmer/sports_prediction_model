@@ -133,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
                                 "(mirrors totals strict-over discipline)",
             "push_definition": "margin == L (whole lines only); 0 by "
                                "construction for half-lines",
+            "tie_handling": "margin distribution conditioned on no tie "
+                            "(P(margin=0)=0) — the run-engine tie fix; "
+                            "away = P(margin < L | no tie)",
             "ece": f"binned reliability, {ECE_BINS} equal-width bins, min "
                    f"{ECE_MIN_COUNT} games/bin",
             "verdict_threshold": f"|delta| > {DELTA_THRESHOLD} → "

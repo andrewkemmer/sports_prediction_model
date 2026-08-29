@@ -32,6 +32,7 @@ from run_engine import (
     MARKET_COLUMNS_V3,
     NULLABLE_MARKET_COLUMNS,
     RUN_LINE_GRID,
+    RUN_LINE_GRID_FULL,
     TOTAL_LINE_GRID,
     agreement_stats,
     alpha_bins,
@@ -577,6 +578,85 @@ class TestLineGridSemantics(unittest.TestCase):
         self.assertTrue((np.diff(self.mc["p_cover_grid"], axis=1) <= 1e-12).all())
         self.assertTrue(((self.mc["p_cover_grid"] >= 0)
                          & (self.mc["p_cover_grid"] <= 1)).all())
+
+    def _replicate_draws(self, seed: int = 11, draws: int = 4000):
+        """White-box: reproduce derive_markets_mc's NB draws exactly (this
+        fixture is a single chunk, so RNG consumption order is identical)."""
+        rng = np.random.default_rng(seed)
+        n = len(self.lam_h)
+        mu_h = np.maximum(self.lam_h, 1e-6)[:, None]
+        mu_a = np.maximum(self.lam_a, 1e-6)[:, None]
+        nh, ph_ = re_._nb_size_prob(mu_h, re_._as_alpha_col(0.30, n))
+        na, pa = re_._nb_size_prob(mu_a, re_._as_alpha_col(0.35, n))
+        h = rng.negative_binomial(nh, ph_, size=(n, draws)).astype(np.int32)
+        a = rng.negative_binomial(na, pa, size=(n, draws)).astype(np.int32)
+        return h, a
+
+    def test_totals_columns_byte_identical_under_tie_renorm(self):
+        """Totals columns are sum-based and must be the RAW means over ALL
+        draws — the margin tie renormalization must never touch them."""
+        h, a = self._replicate_draws()
+        total = h + a
+        for j, line in enumerate(TOTAL_LINE_GRID):
+            np.testing.assert_allclose(self.mc["p_over_grid"][:, j],
+                                       (total >= line + 0.5).mean(axis=1),
+                                       atol=1e-12)
+            np.testing.assert_allclose(self.mc["p_push_grid"][:, j],
+                                       (total == line).mean(axis=1),
+                                       atol=1e-12)
+
+    def test_margin_columns_renormalized_on_no_tie(self):
+        """The tie fix: every margin-derived probability is conditioned on
+        margin != 0 (P(margin=0) zeroed, mass rescaled by 1/(1-P0)); the
+        away numerator EXCLUDES the tie mass ((diff < m) & (diff != 0))."""
+        h, a = self._replicate_draws()
+        diff = h - a
+        p0 = (diff == 0).mean(axis=1)
+        denom = np.maximum(1.0 - p0, 1e-9)
+        for j, m in enumerate(RUN_LINE_GRID_FULL):
+            np.testing.assert_allclose(self.mc["p_rl_home_grid"][:, j],
+                                       (diff > m).mean(axis=1) / denom,
+                                       atol=1e-9)
+            np.testing.assert_allclose(self.mc["p_rl_push_grid"][:, j],
+                                       (diff == m).mean(axis=1) / denom,
+                                       atol=1e-9)
+            np.testing.assert_allclose(self.mc["p_rl_away_grid"][:, j],
+                                       ((diff < m) & (diff != 0)).mean(axis=1)
+                                       / denom, atol=1e-9)
+
+    def test_rl_3way_sums_to_one_and_legacy_equals_rl_home(self):
+        """On every line the renormalized 3-way (home/push/away) sums to
+        1.0 exactly; legacy half-line p_home_cover_* equals p_rl_*_home
+        (same underlying array, both renormalized)."""
+        for j, m in enumerate(RUN_LINE_GRID_FULL):
+            s = (self.mc["p_rl_home_grid"][:, j]
+                 + self.mc["p_rl_push_grid"][:, j]
+                 + self.mc["p_rl_away_grid"][:, j])
+            np.testing.assert_allclose(s, 1.0, atol=1e-9)
+        for m in (1.5, 2.5, 3.5):
+            lj = RUN_LINE_GRID.index(m)
+            rj = RUN_LINE_GRID_FULL.index(m)
+            np.testing.assert_array_equal(self.mc["p_cover_grid"][:, lj],
+                                          self.mc["p_rl_home_grid"][:, rj])
+
+    def test_tie_mass_zeroed_in_persisted_away(self):
+        """P(margin=0) = 0 in the persisted outputs: away at whole line 1.0
+        is exactly P(margin <= -1 | no tie) — the impossible tie mass is
+        excluded from the away bucket (the run-line gate artifact)."""
+        h, a = self._replicate_draws()
+        diff = h - a
+        p0 = (diff == 0).mean(axis=1)
+        denom = np.maximum(1.0 - p0, 1e-9)
+        j1 = RUN_LINE_GRID_FULL.index(1.0)
+        np.testing.assert_allclose(self.mc["p_rl_away_grid"][:, j1],
+                                   (diff <= -1).mean(axis=1) / denom,
+                                   atol=1e-9)
+        # The renormalized push band at a whole line is the conditional
+        # P(margin == 1 | no tie), and it plus home excludes ties entirely.
+        np.testing.assert_allclose(
+            self.mc["p_rl_push_grid"][:, j1]
+            + self.mc["p_rl_home_grid"][:, j1]
+            + self.mc["p_rl_away_grid"][:, j1], 1.0, atol=1e-9)
 
 
 class TestMultiLineScoring(unittest.TestCase):

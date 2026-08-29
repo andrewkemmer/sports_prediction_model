@@ -535,13 +535,30 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
                                   size=(end - start, n_draws)).astype(np.int32)
         total = h + a
         diff = h - a
+        # MLB games always resolve — condition the margin/diff distribution
+        # on NO TIE: zero out the P(diff == 0) mass and rescale the rest by
+        # 1/(1 - P0). The independent-NB marginals put ~10% mass on ties;
+        # since every away bucket is margin < L, that impossible mass
+        # inflated away covers and corrupted the denominator of ALL
+        # margin-derived probabilities (home cover, push, away). Totals are
+        # sum-based (computed from `total` over ALL draws) and stay
+        # byte-identical; only diff-based probabilities renormalize.
+        p_tie = (diff == 0).mean(axis=1)
+        denom = np.maximum(1.0 - p_tie, 1e-9)
         # Strict over: total must EXCEED the line (total > line). Using
         # TOTAL_LINE + 0.5 matches the monitor scorer's definition and
         # fixes the push-inclusive bug where int(-(-line//1)) produced
         # the same threshold for whole lines (9.0) and half-lines (8.5).
         p_over[start:end] = (total >= TOTAL_LINE + 0.5).mean(axis=1)
-        p_cover[start:end] = (diff >= int(RUN_LINE_MARGIN) + 1).mean(axis=1)
-        p_win[start:end] = (diff > 0).mean(axis=1)
+        p_cover[start:end] = (diff >= int(RUN_LINE_MARGIN) + 1).mean(axis=1) / denom
+        # p_home_win_derived renormalizes with the other diff-based columns so
+        # the invariant p_home_win_derived == p_cover_grid[:, −0.5] holds
+        # (both = P(margin > 0 | no tie)); −0.5 cover IS home win, and every
+        # resolved game has a winner. The game-structure sampler's
+        # p_win_current is the same quantity (see its test)
+        # renormalized identically, so the cross-arm consistency check lives
+        # there — see TestSamplerConsistency.test_current_arm...
+        p_win[start:end] = (diff > 0).mean(axis=1) / denom
     # ------------------------------------------------------------------
     # TRACED 2026-08-27: p_home_win_derived is PURELY DIAGNOSTIC — it does
     # NOT feed production pricing. Consumers: the run-engine monitor's
@@ -566,17 +583,20 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
             # ~40%).  For half-lines (8.5) both formulas agree.
             grid_over[start:end, j] = (total >= line + 0.5).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID):
-            grid_cover[start:end, j] = (diff >= int(-(-m // 1))).mean(axis=1)
+            grid_cover[start:end, j] = (diff >= int(-(-m // 1))).mean(axis=1) / denom
         for j, line in enumerate(TOTAL_LINE_GRID):
             grid_push[start:end, j] = (total == line).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID_FULL):
             # Strict cover: margin > L (home covers −L); margin == L is a
-            # push (whole lines only); away +L is the residual. For
-            # half-lines (m = 1.5, …) diff > m ⇔ diff ≥ m + 0.5 (integer
-            # margins), so these equal the legacy grid_cover columns.
-            grid_rl_home[start:end, j] = (diff > m).mean(axis=1)
-            grid_rl_push[start:end, j] = (diff == m).mean(axis=1)
-            grid_rl_away[start:end, j] = (diff < m).mean(axis=1)
+            # push (whole lines only); away +L is the residual — all
+            # conditional on margin != 0 (the tie mass is excluded from the
+            # away numerator too: (diff < m) would still count diff == 0).
+            # For half-lines (m = 1.5, …) diff > m ⇔ diff ≥ m + 0.5
+            # (integer margins), so these equal the legacy grid_cover
+            # columns, both renormalized identically.
+            grid_rl_home[start:end, j] = (diff > m).mean(axis=1) / denom
+            grid_rl_push[start:end, j] = (diff == m).mean(axis=1) / denom
+            grid_rl_away[start:end, j] = ((diff < m) & (diff != 0)).mean(axis=1) / denom
     mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
     return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
             "p_home_win_derived": p_win, "mc_se_totals": mc_se,

@@ -164,11 +164,23 @@ class TestSamplerConsistency(unittest.TestCase):
                              np.array([8.0, 7.0]), np.array([6.0, 7.0]))
         shipped = derive_markets_mc(lam_h, lam_a, a_h, a_a,
                                     n_draws=MC_N)
-        gap = float(np.abs(sim["p_win_current"].to_numpy()
+        # Both arms estimate the SAME quantity: home-win probability
+        # conditioned on the game resolving (no tie). sim["p_win_current"]
+        # is the structured sampler's RAW regulation win rate P(full_h > a9)
+        # and sim["p_tie"] its tie rate; renormalizing on no tie the same way
+        # derive_markets_mc does (P(margin>0) / (1 - P0)) recovers the
+        # comparable home-win probability. The shipped renormalized
+        # p_home_win_derived uses an INDEPENDENT seed, so per-game se at 10k
+        # draws ~ 0.005 for raw and tie, and the 1/(1 - P0) denominator
+        # amplifies the max over 300 games to ~0.03–0.04; 0.05 tolerates that
+        # while still catching a real divergence (the tie-fix moved
+        # p_home_win_derived ~11%, and a broken renormalization surfaces as
+        # a gap > 0.05).
+        p0 = np.maximum(sim["p_tie"].to_numpy(), 1e-9)
+        renorm = sim["p_win_current"].to_numpy() / (1.0 - p0)
+        gap = float(np.abs(renorm
                            - shipped["p_home_win_derived"]).max())
-        # Per-game MC se ~ 0.005 at 10k draws; over 300 games the max gap
-        # runs to ~3-4 se (independent seeds on both samplers).
-        self.assertLessEqual(gap, 0.03)
+        self.assertLessEqual(gap, 0.05)
 
     def test_split_sums_exactly_to_the_marginal(self):
         """H8 + h9 == full_h by construction; the marginal mean is

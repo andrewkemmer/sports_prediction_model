@@ -549,17 +549,29 @@ class TestRunLineCalibrationRecord(unittest.TestCase):
                           ("calibrated", "over-predicting",
                            "under-predicting", "low_n"))
 
-    def test_gate_passes_all_lines(self):
-        """Every line is 'calibrated' — the gate that permits offering the
-        alternates in the run-line selector."""
-        for r in self.record["lines"]:
-            self.assertEqual(
-                r["verdict"], "calibrated",
-                f"line {r['line']} must pass the calibration gate")
-            self.assertLessEqual(abs(r["delta"]), 0.02,
-                                 f"line {r['line']} |delta| must be <= 0.02")
-            self.assertLess(r["ece"], 0.02,
-                            f"line {r['line']} ECE must be < 0.02")
+    def test_gate_reflects_renormalized_truth(self):
+        """Post tie-fix (run-engine margin renormalization, P(margin=0)=0):
+        the gate records the HONEST state — line −1 home cover is now
+        OVER-predicted (+4.1 pts: 0.3989 vs 0.3580). The pre-fix
+        'calibrated' verdict was the tie-mass/one-run cancellation; the
+        residual is the +1 band (push under-predicted 0.1095 vs 0.1740) —
+        the home one-run edge, a separate follow-up, NOT implemented here.
+        Line −4 is calibrated; the selector renders non-calibrated lines
+        as unverified."""
+        by_line = {r["line"]: r for r in self.record["lines"]}
+        r1 = by_line[1.0]
+        self.assertEqual(r1["verdict"], "over-predicting")
+        self.assertAlmostEqual(r1["p_home"], 0.3989, delta=0.002)
+        self.assertAlmostEqual(r1["delta"], 0.0408, delta=0.002)
+        self.assertAlmostEqual(r1["push_pred"], 0.1095, delta=0.002)
+        self.assertAlmostEqual(r1["push_actual"], 0.1740, delta=0.002)
+        r4 = by_line[4.0]
+        self.assertEqual(r4["verdict"], "calibrated")
+        self.assertLessEqual(abs(r4["delta"]), 0.02)
+        self.assertEqual(self.record["method"]["tie_handling"],
+                         "margin distribution conditioned on no tie "
+                         "(P(margin=0)=0) — the run-engine tie fix; "
+                         "away = P(margin < L | no tie)")
 
     def test_half_lines_have_zero_push(self):
         """Half-lines can never push — push_pred == push_actual == 0."""

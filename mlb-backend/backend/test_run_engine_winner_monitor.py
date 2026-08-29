@@ -49,9 +49,15 @@ def _mk_frame() -> pd.DataFrame:
 
 def _latest_artifact(directory, pattern):
     """Find the most recent artifact matching pattern in directory.
-    Returns Path or raises unittest.SkipTest if none found."""
+    Returns Path or raises unittest.SkipTest if none found. Local harness
+    bridge files (run_engine_markets_*_rl.csv) are EXCLUDED — they are
+    read-only stand-ins for the next pipeline run and must never shadow
+    the canonical committed artifact (the same stale-file guard the
+    margin diagnostic and rl bridge apply to their own globs)."""
     import unittest
-    matches = sorted(directory.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    matches = sorted((p for p in directory.glob(pattern)
+                      if "_rl." not in p.name),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
     if not matches:
         raise unittest.SkipTest(f"No {pattern} artifacts found in {directory}")
     return matches[0]
@@ -305,15 +311,18 @@ class TestWinnerCardSymmetry(unittest.TestCase):
                 # on the 6,953-frame artifact.
                 self.assertGreater(n_h, 0, f"{name} has home-picks")
             else:
-                # Artifact-state pin (6,953-frame): the run-line model
-                # prices home-cover-1.5 at >= 0.5 for ~1 game (max p ~0.502;
-                # calibrated mean ~0.3578 vs base rate ~0.3579), so nearly
-                # every pick is away.  Both directions must exist but home
-                # picks are vanishingly rare.
+                # Both directions must exist. The run-line model prices
+                # away +1.5 for the large majority of games (home-cover-1.5
+                # mean ~0.36 << 0.5); after the tie-fix renormalization
+                # home-cover probabilities rise by 1/(1-P0), so home picks
+                # are no longer vanishingly rare — ~30/6,953 (~0.4%) on the
+                # renormalized frame (pre-fix: ~1). Home picks must remain
+                # a small minority; the card must never flip wholesale.
                 self.assertGreater(n_a, 0,
                                   "run_line must have away-picks")
-                self.assertLessEqual(n_h, 5,
-                                     "run_line home-picks should be vanishingly rare")
+                self.assertLess(n_h, c["n"] * 0.05,
+                                "run_line home-picks must stay a small "
+                                "minority after renormalization")
             # Pooled win rate = subset-weighted average. The by_pick rates
             # are display-rounded to 4dp in the JSON, so the reconstruction
             # matches the pooled rate to 3dp (any real inconsistency would

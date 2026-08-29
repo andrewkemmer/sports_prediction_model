@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from run_engine import (MC_DRAWS_TAIL, RUN_LINE_GRID_FULL,
+from run_engine import (MC_DRAWS_TAIL, RUN_LINE_GRID, RUN_LINE_GRID_FULL,
                         derive_markets_mc, rl_col)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,9 +50,13 @@ def main(argv: list[str] | None = None) -> int:
     date_str = argv[0] if argv else None
     if not date_str:
         hits = sorted(DATA.glob("run_engine_markets_*.csv"))
-        if not hits:
+        # Exclude this harness's own _rl outputs (mirror the margin
+        # diagnostic) so a stale bridge file never becomes the "latest"
+        # input and double-suffixes the output (_rl_rl).
+        cands = [h for h in hits if "_rl." not in h.name]
+        if not cands:
             raise FileNotFoundError("no run_engine_markets_*.csv found")
-        date_str = hits[-1].stem.replace("run_engine_markets_", "")
+        date_str = cands[-1].stem.replace("run_engine_markets_", "")
     markets_f = DATA / f"run_engine_markets_{date_str}.csv"
     if not markets_f.exists():
         raise FileNotFoundError(markets_f)
@@ -64,29 +68,31 @@ def main(argv: list[str] | None = None) -> int:
     al_a = oof["alpha_away"].to_numpy(float)
     mc = derive_markets_mc(lam_h, lam_a, al_h, al_a,
                            n_draws=MC_DRAWS_TAIL, seed=BRIDGE_SEED)
+    # The run-engine tie fix (derive_markets_mc) renormalizes ALL
+    # margin-derived probabilities on no tie, legacy p_home_cover_* included
+    # (same underlying quantity). Overwrite the committed (pre-fix,
+    # tie-inclusive) legacy columns with the renormalized values so this
+    # bridge artifact matches exactly what the next pipeline run persists.
+    for j, mm in enumerate(RUN_LINE_GRID):
+        oof[f"p_home_cover_{str(mm).replace('.', '_')}"] = np.round(
+            mc["p_cover_grid"][:, j], 5)
     for j, mm in enumerate(RUN_LINE_GRID_FULL):
         oof[rl_col(mm, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
         oof[rl_col(mm, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
         oof[rl_col(mm, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
 
-    # Self-verification: half-line p_rl_*_home must be consistent with the
-    # legacy p_home_cover_* columns. The conventions are mathematically
-    # identical on integer margins (margin > L ⇔ margin >= L + 0.5), so the
-    # only source of difference is MC sampling noise (this bridge uses its
-    # own deterministic seed; the committed artifact used the pipeline's
-    # seed). With 50k draws the per-game SE is ~sqrt(p(1-p)/50000) <= 0.0022;
-    # max |diff| measured 0.021 across all 6,812 games (mean ~0). The gate:
-    # no row may differ by more than 0.03 (>> 10 SE) — proves the columns
-    # carry the same semantics, and the legacy columns are untouched.
+    # Self-verification: half-line p_rl_*_home must EQUAL the legacy
+    # p_home_cover_* EXACTLY — both are the same renormalized grid_cover
+    # array from the same MC (margin > L ⇔ margin >= L + 0.5 on integer
+    # margins, and both are conditioned on no tie identically), so any
+    # divergence is a convention/schema bug, not sampling noise.
     for mm in (1.5, 2.5, 3.5):
         legacy = f"p_home_cover_{str(mm).replace('.', '_')}"
         new = rl_col(mm, "home")
-        d = np.abs(oof[new].to_numpy(float) - oof[legacy].to_numpy(float))
-        if d.max() > 0.03:
+        if not (oof[new].to_numpy() == oof[legacy].to_numpy()).all():
             raise AssertionError(
-                f"half-line {mm}: p_rl {new} diverges from legacy {legacy} "
-                f"max|d|={d.max():.4f} (> 0.03 MC tolerance) — convention "
-                f"not consistent")
+                f"half-line {mm}: p_rl {new} != legacy {legacy} after "
+                f"renormalization — convention not consistent")
 
     # Rebuild the full frame (oof + slate rows) preserving column order:
     # legacy columns first, then the new p_rl_* block.
