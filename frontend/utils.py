@@ -462,6 +462,25 @@ def load_power_rankings(date_str: str) -> pd.DataFrame:
     return df
 
 
+def load_rl_calibration() -> dict:
+    """Latest committed run-line calibration record
+    (run_line_calibration_*.json) — the gate evidence behind the per-card
+    run-line selector. {} when missing (frontend then renders lines as
+    'unverified')."""
+    cfg = get_source_config()
+    dates = available_dates(**cfg)
+    if not dates:
+        return {}
+    date_str = dates[0]
+    data, _src = _fetch_bytes(f"run_line_calibration_{date_str}.json", **cfg)
+    if data is None:
+        return {}
+    try:
+        return json.loads(data)
+    except Exception:
+        return {}
+
+
 def load_calibration(date_str: str, use_daily: bool = True) -> dict:
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, "calibration")

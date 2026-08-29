@@ -88,7 +88,16 @@ class TestMarketsFetchMocked(TestCase):
         import requests
         import unittest
         dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        # Pin the CANONICAL artifact — never the *_rl bridge copy (a local
+        # calibration/persist bridge artifact that is not the file the
+        # frontend loads). The canonical file is what the markets page and
+        # the run-engine card actually fetch.
         latest = _latest_artifact(dd, "run_engine_markets_*.csv")
+        for cand in sorted(dd.glob("run_engine_markets_*.csv"),
+                           reverse=True):
+            if "_rl." not in cand.name:
+                latest = cand
+                break
         if latest is None:
             self.skipTest(
                 "no local run_engine_markets_*.csv to pin against "

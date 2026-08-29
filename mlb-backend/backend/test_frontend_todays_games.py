@@ -18,6 +18,7 @@ Read-only over artifacts — nothing fabricated, no model/metric changes.
 """
 from __future__ import annotations
 
+import json
 import math
 import sys
 import unittest
@@ -391,6 +392,186 @@ class TestLineSelector(unittest.TestCase):
         src = (FRONTEND / "todays_games.py").read_text()
         self.assertIn("line selected", src,
                       "card must flag a non-default selected line")
+
+
+class TestRunLineSelector(unittest.TestCase):
+    """Per-card run-line selector (mirrors the O/U selector).
+
+    Backend persists per-line run-line columns p_rl_<m>_{home,push,away}
+    over the full grid (half-lines + whole numbers). Half-lines: home +
+    away = 1.0 exactly (no push). Whole lines: home + push + away = 1.0
+    with push > 0. The card displays the RE-SCALED 2-way cover % (push
+    folded proportionately, ratio preserved, sums to 100%). The selector
+    defaults to ±1.5, is keyed rl_line_<game_pk>, and invalid/out-of-grid
+    values fall back to ±1.5.
+    """
+
+    def _rl_row(self, pk="RL"):
+        """Full-grid slate row: p_home_cover_1_5 + p_rl columns for the
+        full grid (half 1.5/2.5/3.5 and whole 1/2/3/4)."""
+        return {
+            "game_pk": pk, "home_expected_runs": 4.4,
+            "away_expected_runs": 4.9,
+            "p_over_9_5": 0.55, "p_under_9_5": 0.45,
+            "p_home_cover_1_5": 0.3253,
+            # half-lines: home + away = 1.0, push = 0
+            "p_rl_1_5_home": 0.3253, "p_rl_1_5_push": 0.0,
+            "p_rl_1_5_away": 0.6747,
+            "p_rl_2_5_home": 0.18, "p_rl_2_5_push": 0.0,
+            "p_rl_2_5_away": 0.82,
+            "p_rl_3_5_home": 0.09, "p_rl_3_5_push": 0.0,
+            "p_rl_3_5_away": 0.91,
+            # whole lines: 3-way split with push > 0 (injective naming:
+            # whole 1.0 -> p_rl_1_0_*, half 1.5 -> p_rl_1_5_*)
+            "p_rl_1_0_home": 0.44, "p_rl_1_0_push": 0.10,
+            "p_rl_1_0_away": 0.46,
+            "p_rl_2_0_home": 0.30, "p_rl_2_0_push": 0.08,
+            "p_rl_2_0_away": 0.62,
+            "p_rl_3_0_home": 0.17, "p_rl_3_0_push": 0.06,
+            "p_rl_3_0_away": 0.77,
+            "p_rl_4_0_home": 0.09, "p_rl_4_0_push": 0.05,
+            "p_rl_4_0_away": 0.86,
+        }
+
+    def test_column_injectivity(self):
+        """p_rl_1_0_home vs p_rl_1_5_home are DISTINCT columns (whole 1 vs
+        half 1.5 never collide — the totals-grid lesson)."""
+        self.assertNotEqual(diag.rl_cols(1.0), diag.rl_cols(1.5))
+        self.assertEqual(diag.rl_cols(1.5)[0], "p_rl_1_5_home")
+        self.assertEqual(diag.rl_cols(1.0)[0], "p_rl_1_0_home")
+        self.assertEqual(diag.rl_cols(1.0)[1], "p_rl_1_0_push")
+        self.assertEqual(diag.rl_cols(2.5)[2], "p_rl_2_5_away")
+        names = [diag.rl_cols(m)[0] for m in diag.RUN_LINE_GRID_FULL]
+        self.assertEqual(len(names), len(set(names)),
+                         "rl column names must be injective across the grid")
+
+    def test_default_is_half_line_complement(self):
+        """No rl_line override → ±1.5 via p_home_cover_1_5, complement sums
+        to 1.0, rl_push = 0."""
+        row = self._rl_row()
+        bits = diag.run_engine_card_bits("RL", {"RL": row})
+        self.assertIsNone(bits["rl_line"])
+        self.assertEqual(bits["rl_line_default"], 1.5)
+        self.assertEqual(bits["rl_home"], 0.3253)
+        self.assertAlmostEqual(bits["rl_home"] + bits["rl_away"], 1.0,
+                               places=9)
+        self.assertEqual(bits["rl_push"], 0.0)
+
+    def test_half_line_selected_uses_rl_columns(self):
+        """rl_line=2.5 (half) → p_rl_2_5 columns, complement 1.0, no push."""
+        row = self._rl_row()
+        bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=2.5)
+        self.assertEqual(bits["rl_line"], 2.5)
+        self.assertEqual(bits["rl_home"], 0.18)
+        self.assertEqual(bits["rl_away"], 0.82)
+        self.assertAlmostEqual(bits["rl_home"] + bits["rl_away"], 1.0,
+                               places=9)
+        self.assertEqual(bits["rl_push"], 0.0)
+        self.assertFalse(bits["rl_unverified"])
+
+    def test_whole_line_3way_and_rescale(self):
+        """rl_line=2.0 (whole): 3-way raw sums to 1.0 with push > 0; the
+        card's re-scaled 2-way sums to 100% (±1) with the ratio preserved."""
+        row = self._rl_row()
+        bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=2.0)
+        self.assertEqual(bits["rl_line"], 2.0)
+        # raw 3-way (not on the card, but carried for EV) sums to 1.0
+        self.assertAlmostEqual(bits["rl_home_raw"] + bits["rl_push"]
+                               + bits["rl_away_raw"], 1.0, places=9)
+        self.assertEqual(bits["rl_home_raw"], 0.30)
+        self.assertEqual(bits["rl_away_raw"], 0.62)
+        self.assertGreater(bits["rl_push"], 0.0)
+        # re-scaled 2-way display sums to 100% (±1 rounding)
+        total = bits["rl_home"] + bits["rl_away"]
+        self.assertAlmostEqual(total, 1.0, delta=0.01,
+                               msg="rl display home+away must sum to 100% (±1)")
+        # ratio preserved: 0.30/0.62 scaled by 1/0.92
+        self.assertAlmostEqual(bits["rl_home"], 0.30 / 0.92, places=3)
+        self.assertAlmostEqual(bits["rl_away"], 0.62 / 0.92, places=3)
+
+    def test_invalid_rl_line_falls_back(self):
+        """Out-of-grid / non-numeric / None rl_line → ±1.5 fallback."""
+        row = self._rl_row()
+        for bad in (0.5, 5.0, 1.7, "abc", None):
+            bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=bad)
+            self.assertIsNone(bits["rl_line"],
+                              f"rl_line={bad!r} must fall back to default")
+            self.assertEqual(bits["rl_home"], 0.3253)
+
+    def test_legacy_artifact_fallback_and_unverified(self):
+        """Legacy artifact (no p_rl columns): ±1.5 still resolves via
+        p_home_cover_1_5; alternate lines render unverified, never
+        fabricated."""
+        row = {"game_pk": "LG", "home_expected_runs": 4.4,
+               "away_expected_runs": 4.9, "p_over_9_5": 0.55,
+               "p_under_9_5": 0.45, "p_home_cover_1_5": 0.3253}
+        bits = diag.run_engine_card_bits("LG", {"LG": row})
+        self.assertEqual(bits["rl_home"], 0.3253)   # ±1.5 via legacy col
+        bits2 = diag.run_engine_card_bits("LG", {"LG": row}, rl_line=2.0)
+        self.assertTrue(bits2["rl_unverified"])
+        self.assertIsNone(bits2["rl_home"])
+        self.assertIsNone(bits2["rl_away"])
+
+    def test_selector_state_keyed_per_game(self):
+        """Selector session_state keyed rl_line_<game_pk> via a named
+        resolver validating against the full grid."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("rl_line_", src)
+        self.assertIn("resolve_rl_line", src)
+        self.assertIn("RUN_LINE_GRID_FULL", src)
+
+    def test_html_marks_selected_rl_line(self):
+        """The card strip must label a selected run line explicitly and
+        reference the re-scaled home/away + push handling."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("line selected", src)
+        self.assertIn("rl_home", src)
+        self.assertIn("rl_push", src)
+        self.assertIn("unverified", src)
+
+
+class TestRunLineCalibrationRecord(unittest.TestCase):
+    """The committed run-line calibration record (the selector's gate
+    evidence): every line in the full grid has a row with a verdict; the
+    gate is 'calibrated' when |delta| <= 0.02 (same discipline as the
+    totals gate); the record covers n_games == the OOF count."""
+
+    def setUp(self):
+        rec = (Path(__file__).resolve().parents[1] / "data_delivery"
+               / "run_line_calibration_20260829.json")
+        self.record = json.loads(rec.read_text())
+
+    def test_all_grid_lines_present_with_verdict(self):
+        lines = {r["line"] for r in self.record["lines"]}
+        self.assertEqual(lines, set(diag.RUN_LINE_GRID_FULL))
+        for r in self.record["lines"]:
+            self.assertIn(r["verdict"],
+                          ("calibrated", "over-predicting",
+                           "under-predicting", "low_n"))
+
+    def test_gate_passes_all_lines(self):
+        """Every line is 'calibrated' — the gate that permits offering the
+        alternates in the run-line selector."""
+        for r in self.record["lines"]:
+            self.assertEqual(
+                r["verdict"], "calibrated",
+                f"line {r['line']} must pass the calibration gate")
+            self.assertLessEqual(abs(r["delta"]), 0.02,
+                                 f"line {r['line']} |delta| must be <= 0.02")
+            self.assertLess(r["ece"], 0.02,
+                            f"line {r['line']} ECE must be < 0.02")
+
+    def test_half_lines_have_zero_push(self):
+        """Half-lines can never push — push_pred == push_actual == 0."""
+        for r in self.record["lines"]:
+            if abs(r["line"] - round(r["line"])) > 1e-9:
+                self.assertEqual(r["push_pred"], 0.0)
+                self.assertEqual(r["push_actual"], 0.0)
+
+    def test_record_covers_oof_count(self):
+        self.assertEqual(self.record["n_games"], 6812)
+        for r in self.record["lines"]:
+            self.assertEqual(r["n"], 6812)
 
 
 class TestDoubleheaderCards(unittest.TestCase):

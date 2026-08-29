@@ -31,6 +31,26 @@ TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 TOTAL_GRID_LO = TOTAL_GRID[0]
 TOTAL_GRID_HI = TOTAL_GRID[-1]
 RUN_COVER_COL = "p_home_cover_1_5"
+# Per-line run-line grid (mirror of the backend RUN_LINE_GRID_FULL): the
+# half-lines (−1.5 … −4.5 by legacy grid) PLUS whole-number alternates
+# (−1 … −4). Column names come from rl_cols() — built from the RAW margin,
+# so whole 1 and half 1.5 never collide (the totals-grid lesson).
+RUN_LINE_GRID_FULL = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
+
+
+def rl_cols(margin: float) -> tuple[str, str, str]:
+    """p_rl column names for a run-line margin: (home, push, away).
+    MUST match the backend's run_engine.rl_col naming exactly (the
+    artifact is canonical): f'{1.0:.1f}' -> '1_0' vs f'{1.5:.1f}' ->
+    '1_5', so whole 1 and half 1.5 never collide — p_rl_1_0_home and
+    p_rl_1_5_home are distinct columns."""
+    key = f"{margin:.1f}".replace(".", "_")
+    return (f"p_rl_{key}_home", f"p_rl_{key}_push", f"p_rl_{key}_away")
+
+
+def rl_legacy_col(margin: float) -> str:
+    """Legacy p_home_cover_<margin> column (half-lines only, e.g. 1.5)."""
+    return f"p_home_cover_{str(margin).replace('.', '_')}"
 TOTALS_PICK_LABELS = ["50-55", "55-60", "60-65", "65+"]
 
 
@@ -697,7 +717,8 @@ def _num(row, key: str) -> Optional[float]:
 
 def run_engine_card_bits(game_id: str,
                          slate_map: Optional[dict] = None,
-                         line: Optional[float] = None) -> Optional[dict]:
+                         line: Optional[float] = None,
+                         rl_line: Optional[float] = None) -> Optional[dict]:
     """Run-engine projections for one Today's Games card, joined by
     game_id == slate game_pk (the 145d841 ESPN-id convention).
 
@@ -736,8 +757,55 @@ def run_engine_card_bits(game_id: str,
         "p_home_cover": p_home_cover,
         "p_away_cover": (None if p_home_cover is None
                          else 1.0 - p_home_cover),
+        "rl_line": None,
+        "rl_line_default": 1.5,
+        "rl_home": None,
+        "rl_away": None,
+        "rl_push": 0.0,
+        "rl_unverified": False,
         "has_grid": False,
     }
+    # --- per-card run-line selection (mirrors the O/U line override) ---
+    # rl_home/rl_away are the RE-SCALED 2-way display values; the raw 3-way
+    # (rl_home_raw / rl_push / rl_away_raw, sums to 1.0) is carried for EV
+    # math (a push refunds the stake: EV = payout·P(home) − stake·P(away)
+    # + 0·P(push)).
+    # Default: the legacy ±1.5 line (the only one pre-p_rl artifacts
+    # carry). An explicit rl_line must be a valid grid margin; anything
+    # else falls back to 1.5. p_rl_* columns (post-RL-grid artifacts)
+    # give the 3-way split (home / push / away); the legacy artifact
+    # lacks them, so ±1.5 still resolves via p_home_cover_1_5 and other
+    # lines render as unverified (never fabricated).
+    use_rl = 1.5
+    rl_selected = None
+    if rl_line is not None:
+        try:
+            rl_line = round(float(rl_line), 1)
+        except (TypeError, ValueError):
+            rl_line = None
+        if rl_line in RUN_LINE_GRID_FULL:
+            use_rl = rl_line
+            rl_selected = rl_line
+    rl_home = rl_away = None
+    rl_home_raw = rl_away_raw = None
+    rl_push = 0.0
+    rl_unverified = False
+    h_col, push_col, a_col = rl_cols(use_rl)
+    if h_col in row and push_col in row and a_col in row:
+        vh = _num(row, h_col)
+        vp = _num(row, push_col)
+        va = _num(row, a_col)
+        if vh is not None and va is not None:
+            rl_home = rl_home_raw = vh
+            rl_away = rl_away_raw = va
+            rl_push = vp if vp is not None else 0.0
+    elif use_rl == 1.5:
+        # Legacy artifact: ±1.5 via p_home_cover_1_5 (complement, no push).
+        if p_home_cover is not None:
+            rl_home = rl_home_raw = p_home_cover
+            rl_away = rl_away_raw = 1.0 - p_home_cover
+    else:
+        rl_unverified = True
     if proj_home is not None and proj_away is not None:
         model_line, clamped = clamp_to_grid(round_to_half(proj_home + proj_away))
         # Explicit line override: accept only a valid grid line; anything
@@ -793,6 +861,20 @@ def run_engine_card_bits(game_id: str,
                          "p_over": p_over_disp, "p_under": p_under_disp,
                          "p_push": p_push_raw, "p_over_raw": p_over_raw,
                          "p_under_raw": p_under_raw, "has_grid": True})
+    # Run-line display: RE-SCALED 2-way cover % (push folded proportionately
+    # into home/away so they sum to 100% — same convention as the O/U
+    # split). The raw 3-way (home/push/away) is never shown on the card but
+    # stays available for EV (push refunds the stake). Half-lines have
+    # push = 0 → re-scale is a no-op.
+    if rl_home is not None and rl_away is not None:
+        denom = rl_home + rl_away
+        if denom > 0:
+            scale = 1.0 / denom
+            rl_home, rl_away = rl_home * scale, rl_away * scale
+    bits.update({"rl_line": rl_selected, "rl_line_default": 1.5,
+                 "rl_home": rl_home, "rl_away": rl_away,
+                 "rl_home_raw": rl_home_raw, "rl_away_raw": rl_away_raw,
+                 "rl_push": rl_push, "rl_unverified": rl_unverified})
     return bits
 
 

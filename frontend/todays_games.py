@@ -146,10 +146,39 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
         f'{home_team} {bits["proj_home"]:.1f}</span>'
         f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
         f'Under {bits["p_under"]:.0%}{push_note}</span>'
-        f'<span>RL: {home_team} −1.5 {bits["p_home_cover"]:.0%} · '
-        f'{away_team} +1.5 {bits["p_away_cover"]:.0%} (complement)</span>'
+        f'{_rl_html(bits, home_team, away_team)}'
         f'</div>'
     )
+
+
+def _rl_html(bits, home_team: str, away_team: str) -> str:
+    """Run-line span — the selected line (default ±1.5) with the RE-SCALED
+    2-way cover split (push folded proportionately so home + away = 100%).
+    Alternate lines not yet verified on the current artifact render as
+    'unverified' (never fabricated)."""
+    rl_line = bits.get("rl_line")
+    default = bits.get("rl_line_default", 1.5)
+    selected_note = (f" (line selected: −{rl_line:.1f})" if rl_line else "")
+    if rl_line is None:
+        # No per-card selection made — legacy ±1.5 pair.
+        if bits.get("p_home_cover") is None:
+            return f'<span>RL: n/a</span>'
+        return (f'<span>RL: {home_team} −1.5 '
+                f'{bits["p_home_cover"]:.0%} · '
+                f'{away_team} +1.5 {bits["p_away_cover"]:.0%} '
+                f'(complement)</span>')
+    if bits.get("rl_unverified"):
+        return (f'<span>RL: −{rl_line:.1f} '
+                f'(line selected{selected_note}) — unverified on this '
+                f'artifact</span>')
+    if bits.get("rl_home") is None or bits.get("rl_away") is None:
+        return f'<span>RL: n/a</span>'
+    push_note = (f' ({bits["rl_push"]:.0%} push)'
+                 if (bits.get("rl_push") or 0) > 0.005 else "")
+    return (f'<span>RL: {home_team} −{rl_line:.1f} '
+            f'{bits["rl_home"]:.0%} · '
+            f'{away_team} +{rl_line:.1f} {bits["rl_away"]:.0%}{push_note}'
+            f' (line selected{selected_note})</span>')
 
 
 def _score_side(num, abbr: str, is_winner: bool) -> str:
@@ -307,6 +336,40 @@ def _shap_expander(g: pd.Series, date_str: str) -> None:
 # Page
 # ===========================================================================
 
+def _rl_verified_lines() -> set[float]:
+    """Run lines the calibration gate has passed, from the committed
+    run_line_calibration_*.json record (verdict 'calibrated'). Lines absent
+    from the record (or with any other verdict) are NOT offered as
+    verified — the card renders them 'unverified'. Read-only; the gate is
+    versioned evidence, and a future record supersedes this one."""
+    try:
+        record = utils.load_rl_calibration()
+        lines = record.get("lines", [])
+        return {r["line"] for r in lines if r.get("verdict") == "calibrated"}
+    except Exception:
+        return set()
+
+
+def resolve_rl_line(game_id, default_line: float = 1.5) -> float:
+    """Resolve the per-card run-line selection, keyed by game_pk in
+    session_state (mirrors resolve_totals_line; never bleeds between
+    cards). The selector's value lives at ``rl_line_<game_pk>``; any
+    invalid / out-of-grid value falls back to the default (1.5). A named
+    helper so a future global market-lines mode can bulk-set the same
+    keys from an odds feed without touching card rendering."""
+    key = f"rl_line_{game_id}"
+    if key not in st.session_state:
+        st.session_state[key] = default_line
+        return default_line
+    try:
+        val = round(float(st.session_state[key]), 1)
+    except (TypeError, ValueError):
+        return default_line
+    if val not in diag.RUN_LINE_GRID_FULL:
+        return default_line
+    return val
+
+
 def resolve_totals_line(game_id, default_line: float) -> float:
     """Resolve the per-card O/U line selection, keyed by game_pk in
     session_state (persists across reruns; never bleeds between cards).
@@ -453,21 +516,39 @@ def main() -> None:
         for col, (_, g) in zip(cols, filtered.iloc[i : i + 2].iterrows()):
             with col:
                 gid = str(g.get("game_id", ""))
-                # Model line first (assigned), then the per-card selector.
+                # Model line first (assigned), then the per-card selectors.
                 model_bits = diag.run_engine_card_bits(gid, slate_map)
                 if model_bits and model_bits.get("has_grid"):
                     model_line = model_bits["total_line"]
                     sel_line = resolve_totals_line(gid, model_line)
-                    st.selectbox(
-                        "O/U line", diag.TOTAL_GRID,
-                        index=diag.TOTAL_GRID.index(sel_line),
-                        key=f"ou_line_{gid}", label_visibility="collapsed",
-                        help=("Totals line to price this game at — defaults "
-                              "to the model's assigned line; pick a "
-                              "sportsbook line to see the model's "
-                              "probability there."))
+                    sel_rl = resolve_rl_line(gid, 1.5)
+                    c_ou, c_rl = st.columns([1.6, 1], gap="small")
+                    with c_ou:
+                        st.selectbox(
+                            "O/U line", diag.TOTAL_GRID,
+                            index=diag.TOTAL_GRID.index(sel_line),
+                            key=f"ou_line_{gid}",
+                            label_visibility="collapsed",
+                            help=("Totals line to price this game at — "
+                                  "defaults to the model's assigned line; "
+                                  "pick a sportsbook line to see the "
+                                  "model's probability there."))
+                    with c_rl:
+                        _verified = _rl_verified_lines()
+                        st.selectbox(
+                            "Run line", diag.RUN_LINE_GRID_FULL,
+                            index=diag.RUN_LINE_GRID_FULL.index(sel_rl),
+                            format_func=lambda v: (
+                                f"−{v:.1f}"
+                                + ("" if v in _verified else " (unverified)")),
+                            key=f"rl_line_{gid}",
+                            label_visibility="collapsed",
+                            help=("Run line to price this game at — "
+                                  "defaults to ±1.5; alternates are gated "
+                                  "on the committed calibration record "
+                                  "(unverified lines render as such)."))
                     re_bits = diag.run_engine_card_bits(
-                        gid, slate_map, line=sel_line)
+                        gid, slate_map, line=sel_line, rl_line=sel_rl)
                 else:
                     re_bits = model_bits
                 st.markdown(_card_html(g, re_bits), unsafe_allow_html=True)

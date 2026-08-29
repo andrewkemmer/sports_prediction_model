@@ -391,6 +391,15 @@ ALPHA_FLOOR = 1e-6        # α below this ≈ Poisson; sample with huge n instea
 # Phase 3 — full line grid so the dashboard toggle prices ANY line offline.
 TOTAL_LINE_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 RUN_LINE_GRID = [0.5, 1.5, 2.5, 3.5]   # home-favorite margins (−0.5 … −3.5)
+# Per-line run-line grid for the p_rl_* columns: the legacy half-lines PLUS
+# the whole-number alternates (−1, −2, −3, −4) sportsbooks also post.
+# Convention (settled, mirrors totals): home covers −L iff margin > L
+# (strict); margin == L is a PUSH on whole lines only; half-lines can never
+# push. On half-lines, margin > L ⇔ margin ≥ L + 0.5 for integer margins,
+# so p_rl_<m>_home is byte-identical to the legacy p_home_cover_<m>
+# (computed as diff ≥ ceil(m)) — backward compat is exact, no re-fit.
+RUN_LINE_GRID_FULL = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]  # −1 … −4 by 0.5
+RUN_LINE_GRID_WHOLE = [1.0, 2.0, 3.0, 4.0]
 TOTAL_REF_LINES = (7.5, 8.5, 9.5)      # mandatory multi-line scoring points
 RUN_REF_LINES = (1.5, 2.5)
 
@@ -509,6 +518,10 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
     grid_over = np.empty((n_games, n_lines))
     grid_cover = np.empty((n_games, n_margins))
     grid_push = np.empty((n_games, n_lines))
+    n_rl = len(RUN_LINE_GRID_FULL)
+    grid_rl_home = np.empty((n_games, n_rl))   # P(home covers −L) = P(diff > L)
+    grid_rl_push = np.empty((n_games, n_rl))   # P(push) = P(diff == L)
+    grid_rl_away = np.empty((n_games, n_rl))   # P(away +L) = P(diff < L)
     chunk = max(1, min(n_games, 2_000_000 // max(n_draws, 1)))
     for start in range(0, n_games, chunk):
         end = min(start + chunk, n_games)
@@ -556,11 +569,21 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
             grid_cover[start:end, j] = (diff >= int(-(-m // 1))).mean(axis=1)
         for j, line in enumerate(TOTAL_LINE_GRID):
             grid_push[start:end, j] = (total == line).mean(axis=1)
+        for j, m in enumerate(RUN_LINE_GRID_FULL):
+            # Strict cover: margin > L (home covers −L); margin == L is a
+            # push (whole lines only); away +L is the residual. For
+            # half-lines (m = 1.5, …) diff > m ⇔ diff ≥ m + 0.5 (integer
+            # margins), so these equal the legacy grid_cover columns.
+            grid_rl_home[start:end, j] = (diff > m).mean(axis=1)
+            grid_rl_push[start:end, j] = (diff == m).mean(axis=1)
+            grid_rl_away[start:end, j] = (diff < m).mean(axis=1)
     mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
     return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
             "p_home_win_derived": p_win, "mc_se_totals": mc_se,
             "p_over_grid": grid_over, "p_cover_grid": grid_cover,
-            "p_push_grid": grid_push}
+            "p_push_grid": grid_push,
+            "p_rl_home_grid": grid_rl_home, "p_rl_push_grid": grid_rl_push,
+            "p_rl_away_grid": grid_rl_away}
 
 
 def brier_score(y: np.ndarray, p: np.ndarray) -> float:
@@ -706,12 +729,25 @@ def derive_markets(oof: pd.DataFrame,
 # p_under_<line> / p_home_cover_<margin> so the dashboard toggle reads exact
 # per-line values with zero frontend math. ml_win_prob may be null when the
 # moneyline history lacks the game (conflicts then uncomputable, loudly).
+def rl_col(m: float, side: str) -> str:
+    """Injective p_rl column name for a run-line margin + side.
+
+    The suffix is built from the RAW margin formatted one-decimal (the
+    totals-grid lesson — never a pre-computed dict key): f'{1.0:.1f}' ->
+    '1.0' -> '1_0' vs f'{1.5:.1f}' -> '1_5', so whole 1.0 vs half 1.5
+    stay distinct: p_rl_1_0_home and p_rl_1_5_home are different columns.
+    """
+    return f"p_rl_{f'{m:.1f}'.replace('.', '_')}_{side}"
+
+
 MARKET_COLUMNS_V3 = (
     ["game_pk", "game_date", "kind", "home_expected_runs", "away_expected_runs",
      "alpha_home", "alpha_away"]
     + [f"p_over_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_under_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_home_cover_{str(m).replace('.', '_')}" for m in RUN_LINE_GRID]
+    + [rl_col(m, side) for m in RUN_LINE_GRID_FULL
+       for side in ("home", "push", "away")]
     + ["p_home_win_derived", "p_away_win_derived",
        "home_score", "away_score", "total_runs",
        "ml_win_prob", "agreement_conflict"]
@@ -1043,6 +1079,8 @@ def derive_markets_v3(oof: pd.DataFrame,
         "n_pre": int(pre_mask.sum()), "n_holdout": int((~pre_mask).sum()),
         "line_grid": {"totals": TOTAL_LINE_GRID,
                       "run_lines": [-m for m in RUN_LINE_GRID],
+                      "run_lines_full": [-m for m in RUN_LINE_GRID_FULL],
+                      "run_lines_whole": [-m for m in RUN_LINE_GRID_WHOLE],
                       "total_ref_lines": list(TOTAL_REF_LINES),
                       "run_ref_lines": [-m for m in RUN_REF_LINES]},
     }
@@ -1206,6 +1244,13 @@ def derive_markets_v3(oof: pd.DataFrame,
             1 - mc["p_over_grid"][:, j] - mc["p_push_grid"][:, j], 5)
     for j, m in enumerate(RUN_LINE_GRID):
         markets[line_key_margin(m)] = np.round(mc["p_cover_grid"][:, j], 5)
+    for j, m in enumerate(RUN_LINE_GRID_FULL):
+        # Per-line run-line 3-way split (home covers −L, push, away +L).
+        # Sums to 1.0 exactly from the same margin draws; half-lines have
+        # push = 0 so home + away = 1.0 there.
+        markets[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
+        markets[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
+        markets[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
     markets["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
     markets["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
     markets["home_score"] = hs.astype(int)
@@ -1598,6 +1643,10 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     for j, m in enumerate(RUN_LINE_GRID):
         out[f"p_home_cover_{str(m).replace('.', '_')}"] = np.round(
             mc["p_cover_grid"][:, j], 5)
+    for j, m in enumerate(RUN_LINE_GRID_FULL):
+        out[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
+        out[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
+        out[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
     out["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
     out["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
     # Undecided by definition; excluded from the NaN-checked numeric contract.

@@ -39,7 +39,8 @@ class TestMarketsIdentityGuard(unittest.TestCase):
             "away_expected_runs": clean["away_expected_runs"],
             "alpha_home": 0.1, "alpha_away": 0.1,
             **{c: 0.5 for c in run_engine.MARKET_COLUMNS_V3
-               if c.startswith(("p_over_", "p_under_", "p_home_cover_"))},
+               if c.startswith(("p_over_", "p_under_", "p_home_cover_",
+                                "p_rl_"))},
             "p_home_win_derived": 0.5, "p_away_win_derived": 0.5,
             "home_score": clean["home_score"], "away_score": clean["away_score"],
             "total_runs": clean["home_score"] + clean["away_score"],
