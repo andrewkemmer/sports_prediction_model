@@ -534,7 +534,7 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         self.assertIsNotNone(ref)
         self.assertEqual(ref["source"], "ml_win_prob")
         self.assertGreater(ref["win_rate"], 0.55)
-        self.assertAlmostEqual(ref["win_rate"], 0.5565, places=3)
+        self.assertAlmostEqual(ref["win_rate"], 0.5524, places=3)
         self.assertEqual(ref["n"],
                          int(np.isfinite(oof["ml_win_prob"]).sum()))
 

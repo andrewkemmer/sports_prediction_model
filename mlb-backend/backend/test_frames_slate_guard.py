@@ -214,11 +214,11 @@ class TestSlateGuard(unittest.TestCase):
         self.assertEqual(len(post_decided), len(pre))
         self.assertEqual(post_decided["game_pk"].tolist(), pre["game_pk"].tolist())
         self.assertEqual(fold_signature(post_decided), fold_signature(pre))
-        # Frame-identity pin: the committed 6,960-frame's canonical
+        # Frame-identity pin: the committed 6,975-frame's canonical
         # signature (the training side of the historical run).  The 08-28
         # drift side was 5fb218bfd8d9af91 BEFORE the dtype fix — the float
         # coercion hash of this same row set (replicated below).
-        self.assertEqual(fold_signature(pre), "019e1f0675aef5ab")
+        self.assertEqual(fold_signature(pre), "a01bd743495456c1")
         # Before/after proof: the PRE-fix signature of the float64-coerced
         # frame (str(game_pk) without canonicalization) DIFFERS from the
         # canonical one on the identical row set — the exact failure mode
