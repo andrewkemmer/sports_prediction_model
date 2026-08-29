@@ -261,6 +261,52 @@ class TestRunEngineModelMonitorRender(TestCase):
             {"fit": {}, "phase1": {}, "market_metrics": {}})
 
 
+# ---------------------------------------------------------------------------
+# Date-pinning regression: Totals & Run Lines ignores selected_date
+# ---------------------------------------------------------------------------
+
+class TestMarketsAlwaysLatestArtifact(TestCase):
+    """markets.py must always load the LATEST artifact (dates[0]),
+    ignoring the date picked on Today's Games — same pattern as
+    model_calibration.py.  A past-date selection must NEVER change
+    which run_engine_markets_* file is loaded."""
+
+    def test_source_always_uses_dates_0(self):
+        """markets.py must resolve date_str from dates[0], not from
+        st.session_state["selected_date"]."""
+        src = (_frontend / "markets.py").read_text()
+        # The assignment must reference dates[0], not selected_date
+        self.assertIn("dates[0]", src,
+                      "markets.py must always use dates[0] (latest run)")
+        self.assertNotIn('selected_date', src,
+                         "markets.py must not read selected_date")
+
+    def test_load_markets_contract_is_date_agnostic(self):
+        """_load_markets resolves the CSV filename from the date string
+        it receives.  The fix in markets.py ensures it always receives
+        dates[0] (the latest run), so even if a user selects a past date
+        on Today's Games, the function never sees it.
+
+        This test verifies: (a) the function signature accepts date_str,
+        (b) when the current artifact exists it parses cleanly with kind
+        column (Phase 3+).
+        """
+        import io as _io
+        root = Path(__file__).resolve().parents[2]
+        dd = root / "mlb-backend" / "data_delivery"
+        latest = _latest_artifact(dd, "run_engine_markets_*.csv")
+        csv_bytes = latest.read_bytes()
+        df = pd.read_csv(_io.BytesIO(csv_bytes))
+        self.assertGreater(len(df), 0)
+        self.assertIn("kind", df.columns,
+                      "Current artifact must have the kind column (Phase 3+)")
+        # Verify the _load_markets function accepts date_str as its arg
+        # by reading the source directly (no Streamlit import needed)
+        src = (_frontend / "markets.py").read_text()
+        self.assertIn("def _load_markets(ds):", src,
+                      "_load_markets must accept a date string parameter")
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

@@ -28,7 +28,10 @@ import utils
 utils.inject_css()
 
 dates = utils.available_dates(**utils.get_source_config())
-date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
+# Always show the most recent run (like Calibration):
+# ignore the date picked on Today's Games so Phase-6-pruned past
+# artifacts never produce a misleading empty state.
+date_str = dates[0] if dates else "20260809"
 
 st.markdown(
     "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
@@ -78,6 +81,7 @@ if markets is None or not len(markets):
     st.warning(
         f"No run-engine markets artifact for {date_str}. "
         f"Attempted URL: `{url}`. "
+        "This page always loads the latest available artifact. "
         "The panel fills after the next pipeline run ships "
         "run_engine_markets_*.csv."
     )
