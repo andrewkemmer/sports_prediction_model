@@ -231,12 +231,15 @@ else:
             st.warning(rpicks.get("warning")
                        or "No run-line picks could be formed.")
         else:
-            built = diag.chart_pick_buckets(rpicks, "Run-line picks at −1.5")
+            built = diag.chart_pick_buckets(
+                rpicks, "Run-line picks (home −1.5 / away +1.5)")
             utils.show_chart(built["chart"])
             st.table(built["table"])
             st.caption(
                 f"Pick rule: {rpicks['pick_rule']} · {rpicks['n_games']:,} "
-                "decided games · hit rate is NOT calibration."
+                "decided games · x-axis is the picked side's probability "
+                "(max of P(home −1.5 cover), P(away +1.5 cover)) · "
+                "hit rate is NOT calibration."
             )
 
 

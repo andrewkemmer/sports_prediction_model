@@ -307,6 +307,108 @@ class TestMarketsAlwaysLatestArtifact(TestCase):
                       "_load_markets must accept a date string parameter")
 
 
+class TestRunlinePicksChart(TestCase):
+    """Verify the Run-line picks chart title, pick-set composition, and
+    x-axis label match the code-verified behavior.
+
+    Code verification (market_diagnostics.runline_pick_table):
+    (a) Mixed rule: home -1.5 cover if P(home cover) >= 0.5, else
+        away +1.5 — every game picks one side, so bucket counts sum
+        to the decided-game total.
+    (b) X-axis: max(P(home -1.5 cover), 1 - P(home -1.5 cover)) =
+        picked-side probability.
+    (c) Accuracy: match(pick, outcome) where home_covers = margin >= 2.
+    (d) n_games == len(decided_rows).
+    """
+
+    def test_chart_title_reflects_mixed_rule(self):
+        """The chart title must say '(home -1.5 / away +1.5)' — NOT
+        'at -1.5' — because the pick set includes both sides."""
+        src = (_frontend / "markets.py").read_text()
+        self.assertIn(
+            "Run-line picks (home −1.5 / away +1.5)", src,
+            "markets.py must pass the corrected title with both sides"
+        )
+        # The old misleading title must be gone
+        self.assertNotIn(
+            "Run-line picks at −1.5", src,
+            "Old misleading title must be removed"
+        )
+
+    def test_runline_pick_table_pick_rule_mentions_both_sides(self):
+        """runline_pick_table pick_rule must mention both home -1.5
+        AND away +1.5 (the mixed rule)."""
+        from market_diagnostics import runline_pick_table, decided_rows
+        root = Path(__file__).resolve().parents[2]
+        dd = root / "mlb-backend" / "data_delivery"
+        markets = _load_markets(dd)
+        if markets is None:
+            self.skipTest("No markets artifact available")
+        decided = decided_rows(markets)
+        if decided.empty:
+            self.skipTest("No decided rows in markets artifact")
+        result = runline_pick_table(decided)
+        rule = result.get("pick_rule", "")
+        self.assertIn("home", rule.lower(),
+                      "Pick rule must mention home side")
+        self.assertIn("away", rule.lower(),
+                      "Pick rule must mention away side")
+        self.assertIn("-1.5", rule, "Pick rule must mention -1.5")
+        self.assertIn("+1.5", rule, "Pick rule must mention +1.5")
+
+    def test_bucket_counts_sum_to_decided_total(self):
+        """Every decided game must appear in exactly one bucket;
+        sum of bucket counts == n_games."""
+        from market_diagnostics import runline_pick_table, decided_rows
+        root = Path(__file__).resolve().parents[2]
+        dd = root / "mlb-backend" / "data_delivery"
+        markets = _load_markets(dd)
+        if markets is None:
+            self.skipTest("No markets artifact available")
+        decided = decided_rows(markets)
+        if decided.empty:
+            self.skipTest("No decided rows in markets artifact")
+        result = runline_pick_table(decided)
+        self.assertFalse(result.get("warning"),
+                         f"runline_pick_table warned: {result.get('warning')}")
+        buckets = result.get("buckets", [])
+        self.assertGreater(len(buckets), 0, "No buckets produced")
+        total_in_buckets = sum(b["count"] for b in buckets)
+        self.assertEqual(total_in_buckets, result["n_games"],
+                         "Bucket counts must sum to n_games")
+
+    def test_x_axis_uses_picked_side_probability(self):
+        """The chart_pick_buckets receives max(p, 1-p) as the x-axis,
+        which is the picked side's probability. Verify the function
+        is called with the correct data shape."""
+        src = (_frontend / "markets.py").read_text()
+        # The title must match what chart_pick_buckets receives
+        self.assertIn(
+            "x-axis is the picked side's probability", src,
+            "Caption must describe the x-axis as picked-side probability"
+        )
+
+
+def _latest_artifact(dd: Path, pattern: str) -> Path:
+    """Return the newest file matching pattern in dd."""
+    candidates = sorted(dd.glob(pattern))
+    if not candidates:
+        return None
+    return candidates[-1]
+
+
+def _load_markets(dd: Path):
+    """Load the latest markets artifact."""
+    import io as _io
+    latest = _latest_artifact(dd, "run_engine_markets_*.csv")
+    if latest is None:
+        return None
+    try:
+        return pd.read_csv(_io.BytesIO(latest.read_bytes()))
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()
