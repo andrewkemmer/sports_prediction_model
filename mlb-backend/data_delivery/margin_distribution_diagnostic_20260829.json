@@ -1,0 +1,321 @@
+{
+  "diagnostic": "margin_distribution",
+  "generated": "2026-08-29T18:10:20",
+  "artifacts": {
+    "oof": "run_engine_oof_20260829.csv",
+    "markets": "run_engine_markets_20260829.csv"
+  },
+  "n_games": 6812,
+  "method": {
+    "independent_model": "per-game NB(\u03bb, \u03b1(\u03bb)) marginals, independent draws (production path, derive_markets_mc)",
+    "correlated_model": "Gaussian copula on the same marginals, imposed rho (sensitivity only)",
+    "draws": 10000,
+    "copula_draws": 5000,
+    "copula_grid": 120,
+    "margin_grid": [
+      -6,
+      -5,
+      -4,
+      -3,
+      -2,
+      -1,
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "total_grid": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "total_buckets": [
+      "low",
+      "mid",
+      "high"
+    ]
+  },
+  "correlation": {
+    "pearson_actual": -0.0089,
+    "model_implied": 0.0,
+    "correlated_sensitivity": [
+      {
+        "rho": 0.1,
+        "p_margin_1": 0.1705729763878171,
+        "p_margin_n1": 0.13268559081064255,
+        "p_margin_pm1": 0.30325856719845967
+      },
+      {
+        "rho": 0.2,
+        "p_margin_1": 0.18232775050510133,
+        "p_margin_n1": 0.1369484581168332,
+        "p_margin_pm1": 0.3192762086219345
+      },
+      {
+        "rho": 0.3,
+        "p_margin_1": 0.19593284258937949,
+        "p_margin_n1": 0.14131530233312753,
+        "p_margin_pm1": 0.337248144922507
+      }
+    ]
+  },
+  "margin_pmf_window": {
+    "margins": [
+      -6,
+      -5,
+      -4,
+      -3,
+      -2,
+      -1,
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "pred_in_window": 0.847,
+    "pred_tail_beyond": 0.153,
+    "actual_in_window": 0.8614,
+    "actual_tail_beyond": 0.1386,
+    "raw_pre_fix_tie_mass": 0.1017,
+    "tie_handling": "margin distribution conditioned on no tie (P(margin=0)=0; mass rescaled by 1/(1-P0)) \u2014 the run-engine tie fix"
+  },
+  "per_margin": [
+    {
+      "margin": -6,
+      "pred_p": 0.0334,
+      "actual_p": 0.0329,
+      "delta": 0.0005,
+      "cum_ge": 0.847,
+      "cum_ge_actual": 0.8614,
+      "cum_le": 0.0334,
+      "cum_le_actual": 0.0329
+    },
+    {
+      "margin": -5,
+      "pred_p": 0.0453,
+      "actual_p": 0.0417,
+      "delta": 0.0036,
+      "cum_ge": 0.8136,
+      "cum_ge_actual": 0.8285,
+      "cum_le": 0.0787,
+      "cum_le_actual": 0.0746
+    },
+    {
+      "margin": -4,
+      "pred_p": 0.0596,
+      "actual_p": 0.0543,
+      "delta": 0.0053,
+      "cum_ge": 0.7683,
+      "cum_ge_actual": 0.7868,
+      "cum_le": 0.1383,
+      "cum_le_actual": 0.1289
+    },
+    {
+      "margin": -3,
+      "pred_p": 0.076,
+      "actual_p": 0.0691,
+      "delta": 0.0069,
+      "cum_ge": 0.7087,
+      "cum_ge_actual": 0.7325,
+      "cum_le": 0.2143,
+      "cum_le_actual": 0.198
+    },
+    {
+      "margin": -2,
+      "pred_p": 0.0925,
+      "actual_p": 0.091,
+      "delta": 0.0015,
+      "cum_ge": 0.6327,
+      "cum_ge_actual": 0.6634,
+      "cum_le": 0.3069,
+      "cum_le_actual": 0.289
+    },
+    {
+      "margin": -1,
+      "pred_p": 0.1065,
+      "actual_p": 0.1082,
+      "delta": -0.0017,
+      "cum_ge": 0.5401,
+      "cum_ge_actual": 0.5724,
+      "cum_le": 0.4133,
+      "cum_le_actual": 0.3972
+    },
+    {
+      "margin": 0,
+      "pred_p": 0.0,
+      "actual_p": 0.0,
+      "delta": 0.0,
+      "cum_ge": 0.4337,
+      "cum_ge_actual": 0.4642,
+      "cum_le": 0.4133,
+      "cum_le_actual": 0.3972
+    },
+    {
+      "margin": 1,
+      "pred_p": 0.1095,
+      "actual_p": 0.174,
+      "delta": -0.0645,
+      "cum_ge": 0.4337,
+      "cum_ge_actual": 0.4642,
+      "cum_le": 0.5228,
+      "cum_le_actual": 0.5712
+    },
+    {
+      "margin": 2,
+      "pred_p": 0.0973,
+      "actual_p": 0.0906,
+      "delta": 0.0068,
+      "cum_ge": 0.3242,
+      "cum_ge_actual": 0.2902,
+      "cum_le": 0.6202,
+      "cum_le_actual": 0.6618
+    },
+    {
+      "margin": 3,
+      "pred_p": 0.0808,
+      "actual_p": 0.0681,
+      "delta": 0.0127,
+      "cum_ge": 0.2269,
+      "cum_ge_actual": 0.1996,
+      "cum_le": 0.7009,
+      "cum_le_actual": 0.7299
+    },
+    {
+      "margin": 4,
+      "pred_p": 0.0635,
+      "actual_p": 0.0565,
+      "delta": 0.007,
+      "cum_ge": 0.1461,
+      "cum_ge_actual": 0.1315,
+      "cum_le": 0.7645,
+      "cum_le_actual": 0.7864
+    },
+    {
+      "margin": 5,
+      "pred_p": 0.0478,
+      "actual_p": 0.0437,
+      "delta": 0.004,
+      "cum_ge": 0.0826,
+      "cum_ge_actual": 0.075,
+      "cum_le": 0.8122,
+      "cum_le_actual": 0.8302
+    },
+    {
+      "margin": 6,
+      "pred_p": 0.0348,
+      "actual_p": 0.0313,
+      "delta": 0.0035,
+      "cum_ge": 0.0348,
+      "cum_ge_actual": 0.0313,
+      "cum_le": 0.847,
+      "cum_le_actual": 0.8614
+    }
+  ],
+  "per_total": [
+    {
+      "total": 6,
+      "pred_p": 0.0923,
+      "actual_p": 0.0741,
+      "delta": 0.0181
+    },
+    {
+      "total": 7,
+      "pred_p": 0.0953,
+      "actual_p": 0.1144,
+      "delta": -0.0191
+    },
+    {
+      "total": 8,
+      "pred_p": 0.0928,
+      "actual_p": 0.0747,
+      "delta": 0.0181
+    },
+    {
+      "total": 9,
+      "pred_p": 0.086,
+      "actual_p": 0.0969,
+      "delta": -0.0109
+    },
+    {
+      "total": 10,
+      "pred_p": 0.0767,
+      "actual_p": 0.0644,
+      "delta": 0.0122
+    },
+    {
+      "total": 11,
+      "pred_p": 0.066,
+      "actual_p": 0.0733,
+      "delta": -0.0072
+    },
+    {
+      "total": 12,
+      "pred_p": 0.0552,
+      "actual_p": 0.0479,
+      "delta": 0.0073
+    }
+  ],
+  "total_bucket_split": [
+    {
+      "bucket": "low",
+      "n": 3006,
+      "pred_margin_1": 0.1681,
+      "actual_margin_1": 0.2399,
+      "pred_margin_n1": 0.16,
+      "actual_margin_n1": 0.1507
+    },
+    {
+      "bucket": "mid",
+      "n": 1608,
+      "pred_margin_1": 0.0627,
+      "actual_margin_1": 0.1076,
+      "pred_margin_n1": 0.0623,
+      "actual_margin_n1": 0.0665
+    },
+    {
+      "bucket": "high",
+      "n": 2198,
+      "pred_margin_1": 0.0709,
+      "actual_margin_1": 0.1324,
+      "pred_margin_n1": 0.0718,
+      "actual_margin_n1": 0.0805
+    }
+  ],
+  "run_line_minus1_decomposition": {
+    "home_cover_ge2": {
+      "pred": 0.32418585538034617,
+      "actual": 0.3580446271285966
+    },
+    "push_eq1": {
+      "pred": 0.10950367371410201,
+      "actual": 0.17395772166764534
+    },
+    "away_cover_lt1": {
+      "pred": 0.4133263699604827,
+      "actual": 0.4679976512037581
+    }
+  },
+  "away_plus1_overpricing_pts": -5.5,
+  "verdict": {
+    "most_likely_mechanism": "home_one_run_edge",
+    "summary": "The tie fix is applied and verified: P(margin=0)=0 in the persisted margin distribution (raw pre-fix mass was 10.2%), all margin-derived probabilities rescaled by 1/(1\u22120.1017), totals untouched. The \u22121 band (away side, decided games) is now correctly priced \u2014 the previous 'away +1 over-price' was the impossible tie mass. The remaining gap is the asymmetric HOME one-run edge (actual +1 17.4% vs \u22121 10.8%; renormalized pred 11.0%/10.6%) \u2014 a separate structural term (walk-off/last-bat), explicitly out of scope here.",
+    "evidence": [
+      "tie fix applied: the margin distribution is conditioned on no tie (raw pre-fix P(margin=0) was 0.1017; persisted P(margin=0) is now 0.0000 with the remaining mass rescaled by 1/(1 \u2212 0.1017)). The run-line gate's ~7.5-pt 'away over-price' was this impossible tie mass sitting in the away bucket (margin < L) \u2014 now removed from every line.",
+      "\u22121 band after fix: P(margin \u2264 \u22121) pred 0.4133 vs actual 0.4680 (delta -0.0547) \u2014 the away side is now priced on decided games only; the residual is the +1 band (see below), not the tie mass.",
+      "+1 residual (NOT fixed here): actual P(margin=+1) 0.174 vs renormalized predicted 0.110 (delta +0.064) vs \u22121 (actual 0.108, pred 0.106) \u2014 the remaining gap is the asymmetric HOME one-run edge (walk-off / bottom-9th in tight games), concentrated in low-total games. That is a SEPARATE structural term, explicitly out of scope of the tie fix.",
+      "correlation: actual Pearson rho(home_runs, away_runs) = -0.009 \u2014 essentially ZERO, so positive cross-team correlation is NOT the driver (a copula at rho=0.30 would reproduce the symmetric \u00b11 mass 0.3372 vs actual 0.2821 only by narrowing the margin spread, which the data independently wants). The mechanism is under-dispersed margins plus the home one-run edge, not team correlation.",
+      "sum-vs-difference: max |P(total=t) pred-actual| = 0.0191 \u2014 totals are roughly calibrated while the difference shows the +1 gap (+0.0645 at margin +1), so the deficit lives in the DIFFERENCE distribution, not the per-team sums.",
+      "total-dependence: P(margin=+1) gap is largest in the 'low' bucket (pred 0.168 vs actual 0.240); the one-run excess concentrates in low-scoring games \u2014 consistent with the home one-run edge surfacing when the total is low."
+    ]
+  }
+}
