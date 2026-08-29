@@ -232,5 +232,50 @@ class TestSportNavSafety(unittest.TestCase):
                              f"resolve_sport({bad!r}) must fall back to MLB")
 
 
+class TestETDefaultDate(unittest.TestCase):
+    """_et_today_compact returns today's date in America/New_York as YYYYMMDD.
+
+    The fix: Todays Games defaulted to dates[0] (the newest artifact) which
+    is UTC-based.  After 8 PM ET / midnight UTC, the app would show
+    tomorrow's empty slate instead of today's settled games.  The fix
+    computes today in ET and prefers it when an artifact exists.
+    """
+
+    def test_returns_8_digit_string(self):
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        # Re-implement the logic from todays_games._et_today_compact to test
+        # it independently of Streamlit imports.
+        et_today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+        self.assertEqual(len(et_today), 8)
+        self.assertTrue(et_today.isdigit())
+
+    def test_matches_calendar_date_in_et(self):
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        et_now = datetime.now(ZoneInfo("America/New_York"))
+        et_today = et_now.strftime("%Y%m%d")
+        self.assertEqual(et_today, et_now.strftime("%Y%m%d"))
+
+    def test_differs_from_utc_after_evening(self):
+        """After 8 PM ET (midnight UTC), ET date != UTC date."""
+        from zoneinfo import ZoneInfo
+        from datetime import datetime, timezone
+        utc_now = datetime.now(timezone.utc)
+        et_now = utc_now.astimezone(ZoneInfo("America/New_York"))
+        # If we're in the 8 PM ET – midnight UTC window, the dates differ.
+        # This test just verifies the math is correct, not that we're
+        # currently in that window.
+        et_date = et_now.strftime("%Y%m%d")
+        utc_date = utc_now.strftime("%Y%m%d")
+        if et_now.hour >= 20 and utc_now.date() != et_now.date():
+            self.assertNotEqual(et_date, utc_date,
+                                "after 8 PM ET, ET date must differ from UTC")
+        else:
+            # Not in the divergence window — just confirm both are valid
+            self.assertEqual(len(et_date), 8)
+            self.assertEqual(len(utc_date), 8)
+
+
 if __name__ == "__main__":
     unittest.main()

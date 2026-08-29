@@ -392,6 +392,20 @@ _PROTECTED_DELIVERY_PREFIXES = (
 # Current run date in YYYYMMDD for date-gating.
 _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"
 
+# Recent-slate protection window: keep todays_games_* and shap_game_*
+# for the current run date AND the 2 prior days so that games have time to
+# settle before their card snapshots are pruned.  Other dated artifacts
+# (run_engine_markets, predictions_history, etc.) keep the same-day-only
+# rule — those are either cumulative (history) or redundant after today.
+from datetime import timedelta as _td, timezone as _tz
+import datetime as _dt
+_now_utc = _dt.datetime.now(_tz.utc)
+_RECENT_DATES = {
+    (_now_utc - _td(days=i)).strftime("%Y%m%d")
+    for i in range(3)  # today, yesterday, 2 days ago
+}
+_SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
+
 # Regex to extract an 8-digit date from artifact filenames like
 #   run_engine_markets_20260824.csv  →  20260824
 _DATE_RE = _re.compile(r"_(\d{8})")
@@ -436,6 +450,16 @@ else:
             if art_date == _run_date_compact:
                 kept_current += 1
                 continue  # same-day artifact — keep
+            # Recent-slate protection: keep todays_games / shap_game for
+            # the current run date AND the 2 prior days (games settle over
+            # a 24-48h window; their card snapshots must survive until
+            # results land in predictions_history).
+            if (art_date in _RECENT_DATES
+                    and any(p.endswith("/" + sfx)
+                            or "/" + sfx in p
+                            for sfx in _SLATE_PROTECTED_PREFIXES)):
+                kept_current += 1
+                continue  # recent slate snapshot — keep
             stale.append(p)
         if kept_protected:
             print(f"  🛡️  Kept {kept_protected} protected file(s) (never deleted)")

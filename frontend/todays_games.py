@@ -294,12 +294,24 @@ def _shap_expander(g: pd.Series, date_str: str) -> None:
 # Page
 # ===========================================================================
 
+def _et_today_compact() -> str:
+    """Today's date in America/New_York as YYYYMMDD, used so the frontend
+    defaults to the user's real calendar date rather than UTC (which would
+    show tomorrow's slate after 8 PM ET / midnight UTC)."""
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+
+
 def main() -> None:
     dates = utils.available_dates(**utils.get_source_config())
     if not dates:
         dates = ["20260809"]
     if "selected_date" not in st.session_state:
-        st.session_state["selected_date"] = dates[0]
+        # Default to today (ET) if an artifact exists for it, else latest.
+        et_today = _et_today_compact()
+        st.session_state["selected_date"] = (
+            et_today if et_today in dates else dates[0])
     date_str = st.session_state["selected_date"]
 
     games = utils.load_todays_games(date_str)
