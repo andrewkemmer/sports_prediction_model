@@ -228,21 +228,19 @@ FEATURE_COLS = [
     # add_form_delta_features, metadata authored) and excluded from the run
     # engine by derive_run_features — re-enabling is a one-line append here
     # after a re-test on a refreshed artifact.
-    # 57–62. Phase 2 lineup-delta features (actual starting-9 wOBA vs team
-    # season-to-date, per side) — SHIPPED 2026-08-25: the ablation cleared the
-    # sealed-21-day-holdout gate on BOTH metrics (holdout logloss 0.6814 →
-    # 0.6775, AUC 0.5529 → 0.5761; pooled 0.6867/0.5540 → 0.6834/0.5682, ECE
-    # 0.0169 → 0.0116; see run_lineup_ablation.py and
-    # data_delivery/lineup_ablation_<sha>.json). Sources: StatsAPI battingOrder
-    # (lineups.parquet, 100% of decided games) + point-in-time batter/team
-    # sd-wOBA (batter_woba/team_woba parquets, no lookahead, season-
-    # partitioned). Moneyline-only: derive_run_features excludes them.
-    "lineup_actual_woba_delta_home",
-    "lineup_actual_woba_delta_away",
-    "lineup_actual_top3_delta_home",
-    "lineup_actual_top3_delta_away",
-    "lineup_rest_count_home",
-    "lineup_rest_count_away",
+    # 57–62. Phase 2 lineup-delta features — REMOVED 2026-08-29: train-serve
+    # skew fix. These 6 features (lineup_actual_woba_delta_home/away,
+    # lineup_actual_top3_delta_home/away, lineup_rest_count_home/away) are
+    # populated from post-game ACTUAL lineups in the decided frame (~52-60%
+    # measured) but are ALWAYS zero/imputed at prediction time (slate path
+    # has only projected lineups). The model learned signal that cannot exist
+    # at bet time — a classic train-serve skew / leakage. The prior pruning
+    # ablation's LOW_COVERAGE arm lost OOF AUC only because that AUC was
+    # inflated by the leaked actuals (false negative). The run engine's
+    # 29-feature view already excludes these (RUN_EXTRA_EXCLUSIONS), so no
+    # prediction-path change. See the prior ablation:
+    # data_delivery/lineup_ablation_<sha>.json; coverage-divergence test
+    # failure was the symptom this fixed.
     # 63. Run-engine expected-run margin — SHIPPED 2026-08-26: the ablation
     # cleared the sealed-21-day-holdout gate (holdout logloss 0.6774 → 0.6765,
     # AUC 0.5780 → 0.5786; ECE-cal 0.0626 → 0.0554; pooled OOF logloss

@@ -92,13 +92,13 @@ class TestDriftArtifactAlignment(unittest.TestCase):
         self.assertIn("_decided_snapshot = get_decided_frame(games)", source)
         self.assertIn("decided_snapshot=_decided_snapshot", source)
 
-    def test_snapshot_after_env_pass_carries_full_65_feature_view(self):
+    def test_snapshot_after_env_pass_carries_full_feature_view(self):
         """The decided snapshot must be captured AFTER the weather + env-level
-        passes so drift/coverage/run-engine see the same 65-feature view
+        passes so drift/coverage/run-engine see the same FEATURE_COLS view
         training used. Regression for the 08-28 run: a Step-1.5 snapshot
         predated those attaches and lost wind_advantage_flyball_factor,
         air_density_velocity_boost + the 4 RUN_LEVEL_ENV_FEATURES -- the
-        moneyline drift table dropped 65->59 features and the run engine
+        moneyline drift table under-counted features and the run engine
         warned 4/4 env-level columns absent."""
         from training import FEATURE_COLS
         from run_engine import RUN_LEVEL_ENV_FEATURES

@@ -210,7 +210,7 @@ class TestRunEngineIsolation(unittest.TestCase):
         keep, dropped = derive_run_features(list(training.FEATURE_COLS))
         self.assertEqual(keep, self._EXPECTED_KEPT)
         self.assertEqual(len(keep), 29)
-        self.assertEqual(len(dropped), 36)
+        self.assertEqual(len(dropped), 30)
         for f in _CAT_SOURCE_EXCLUSIONS:
             self.assertNotIn(f, keep)
             self.assertNotIn(f, dropped)  # never in FEATURE_COLS input either

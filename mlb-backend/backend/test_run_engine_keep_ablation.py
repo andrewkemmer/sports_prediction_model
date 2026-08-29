@@ -58,7 +58,12 @@ def _synthetic_games(n_days: int = 100, per_day: int = 6,
 
 class TestRoutingAdoptedOutcome(unittest.TestCase):
     def test_dont_ship_outcome_exact_sets(self):
-        """Current rule (adopted: DO NOT SHIP) — exact kept/dropped sets."""
+        """Current rule (adopted: DO NOT SHIP) — exact kept/dropped sets.
+
+        Post-2026-08-29: the 6 lineup-delta features were removed from
+        FEATURE_COLS (train-serve skew fix), so derive_run_features no
+        longer drops them (they're absent from the input).
+        """
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         diffs = [d for d in dropped if d.endswith("_diff")]
         composites = [d for d in dropped
@@ -71,10 +76,10 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
         # 25 diffs = the original 24 matchup-gap diffs + run_margin_diff
         # (shipped 2026-08-26, moneyline-only, excluded by the same *_diff
         # rule) — the kept view is byte-identical to pre-margin.
-        self.assertEqual(len(dropped), 36)
+        self.assertEqual(len(dropped), 30)
         self.assertEqual(len(diffs), 25)
         self.assertEqual(len(composites), 5)
-        self.assertEqual(len(lineup), 6)
+        self.assertEqual(len(lineup), 0, "lineup delta features removed from FEATURE_COLS")
         # No _diff in the kept view except the sanctioned survivor.
         for f in keep:
             if f.endswith("_diff"):
@@ -85,12 +90,12 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
                   "pitcher_regression_indicator", "lineup_depth_multiplier",
                   "ace_efficiency_factor"):
             self.assertNotIn(f, keep)
-        # The 6 moneyline-scoped lineup columns stay out of the run view.
+        # The 6 lineup-delta features are no longer in FEATURE_COLS at all.
         for f in ("lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
                   "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
                   "lineup_rest_count_home", "lineup_rest_count_away"):
+            self.assertNotIn(f, FEATURE_COLS)
             self.assertNotIn(f, keep)
-            self.assertIn(f, RUN_EXTRA_EXCLUSIONS)
 
     def test_ship_outcome_exact_sets(self):
         """Hypothetical ship rule (kept + 25 diffs incl. run_margin_diff) —
@@ -170,20 +175,20 @@ class TestMarketHarnessFixture(unittest.TestCase):
 
 
 class TestRegressions(unittest.TestCase):
-    def test_moneyline_feature_cols_now_65_with_margin(self):
-        """The run-margin feature SHIPPED (2026-08-26, sealed-holdout gate
-        passed) — FEATURE_COLS grew to 65 and carries run_margin_diff."""
-        self.assertEqual(len(FEATURE_COLS), 65)
+    def test_moneyline_feature_cols_now_59_leakage_pruned(self):
+        """The 6 lineup-delta features were removed from FEATURE_COLS
+        (train-serve skew fix, 2026-08-29). FEATURE_COLS is 59."""
+        self.assertEqual(len(FEATURE_COLS), 59)
         self.assertIn("run_margin_diff", FEATURE_COLS)
 
     def test_default_run_oof_path_unchanged(self):
         """run_features=None must still derive the 29-col rule (backward
-        compatible hook — the ablation arm A path). Dropped is 36 now: the
-        original 35 + run_margin_diff, which the *_diff rule excludes — the
+        compatible hook — the ablation arm A path). Dropped is 30: the
+        original 24 matchup-gap diffs + run_margin_diff (25) + 5 composites.
         KEPT view is byte-identical to pre-margin."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertEqual(len(keep), 29)
-        self.assertEqual(len(dropped), 36)
+        self.assertEqual(len(dropped), 30)
 
     def test_alpha_lambda_mc_path_still_derives(self):
         """derive_markets_v3 still produces α(λ) curves + full grid + holdout

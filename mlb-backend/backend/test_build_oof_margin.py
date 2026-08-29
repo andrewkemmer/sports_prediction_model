@@ -170,13 +170,11 @@ class TestRefitMargins(unittest.TestCase):
 
 
 class TestConfigRegressions(unittest.TestCase):
-    def test_feature_cols_now_65_with_margin_shipped(self):
-        """Post-gate pin: the sealed-21-day-holdout gate PASSED (holdout
-        logloss 0.6774 → 0.6765, AUC 0.5780 → 0.5786, ECE-cal 0.0626 →
-        0.0554; data_delivery/margin_ablation_<sha>.json) — the margin is a
-        SHIPPED moneyline column, so FEATURE_COLS is 65 and the column is
-        in it."""
-        self.assertEqual(len(FEATURE_COLS), 65)
+    def test_feature_cols_now_59_leakage_pruned(self):
+        """Post-prune pin: the 6 lineup-delta features were removed from
+        FEATURE_COLS (train-serve skew — actuals at train time, zeros at
+        prediction time). FEATURE_COLS is 59; margin is still shipped."""
+        self.assertEqual(len(FEATURE_COLS), 59)
         self.assertIn(bom.MARGIN_COL, FEATURE_COLS)
 
     def test_run_engine_stays_read_only_wrt_margin(self):

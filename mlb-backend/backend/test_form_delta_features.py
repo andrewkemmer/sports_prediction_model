@@ -366,9 +366,10 @@ class TestRunEngineGuardrail(unittest.TestCase):
         self.assertEqual(len(kept), 29)
         self.assertEqual(len(dropped), len(full) - 29)
         dropped_deltas = [c for c in dropped if c.endswith(("_delta_home", "_delta_away"))]
-        # 38 momentum deltas (never re-enabled) + 4 SHIPPED Phase-2 lineup
-        # deltas (lineup_actual_*_delta_*) — all excluded from the run engine.
-        self.assertEqual(len(dropped_deltas), 42)
+        # 38 momentum deltas (never re-enabled). The 4 SHIPPED Phase-2 lineup
+        # deltas (lineup_actual_*_delta_*) were removed from FEATURE_COLS on
+        # 2026-08-29 (train-serve skew fix) — no longer in the input.
+        self.assertEqual(len(dropped_deltas), 38)
 
 
 if __name__ == "__main__":
