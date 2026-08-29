@@ -1,0 +1,46 @@
+{
+  "schema": "totals-line-diagnostic/v1",
+  "date": "20260829",
+  "artifact": "run_engine_markets_20260829.csv",
+  "oof_rows": 6797,
+  "line_assignment": {
+    "rule": "round(lambda_home + lambda_away to nearest 0.5, round-half-up, clamp to [6.5, 12.5])",
+    "code": "math.floor(x*2+0.5)/2.0 where x = exp_home + exp_away",
+    "is_standard_rounding": true,
+    "is_floor_or_subtract": false,
+    "assignment_distribution": {
+      "7.5": 31,
+      "8.0": 288,
+      "8.5": 2614,
+      "9.0": 3186,
+      "9.5": 428,
+      "10.0": 192,
+      "10.5": 44,
+      "11.0": 13,
+      "11.5": 1
+    }
+  },
+  "p_over_definition": {
+    "mc_formula": "total >= int(-(-line // 1))",
+    "effective_threshold": "P(total >= ceil(line)) where ceil uses Python floor-negation trick",
+    "for_half_lines": "P(total >= line+0.5) \u2014 correct (no push possible)",
+    "for_whole_lines": "P(total >= line) \u2014 PUSH-INCLUSIVE, total=line counts as 'over'",
+    "correct_strict": "P(total > line) = P(total >= line+1)",
+    "monitoring_uses_correct": true,
+    "note": "line 1164 in run_engine.py: score_at uses total >= line+0.5, which is correct strict for both half and whole lines. But the MC p_over_grid (line 544) uses int(-(-line//1)) which is push-inclusive for whole lines.",
+    "consequence": "P(over 9.0) === P(over 8.5) \u2014 two grid columns compute identical thresholds for whole vs half lines"
+  },
+  "e_total_distribution": {
+    "mean": 8.817,
+    "median": 8.783,
+    "p25": 8.609,
+    "p75": 8.96,
+    "min": 7.478,
+    "max": 11.312,
+    "std": 0.398
+  },
+  "per_line_stats": [],
+  "verdict": "definition_bug",
+  "verdict_explanation": "The P(over) MC formula uses push-inclusive P(total >= ceil(L)) for all lines. For half-lines (8.5) this is correct (total=9 always beats 8.5). For whole lines (9.0), total=9 is a PUSH in sports but is counted as 'over' by the MC \u2014 P(over 9.0) === P(over 8.5), making two grid columns identical. The monitoring/scoring path (line 1164) already uses the correct strict definition (total >= line+0.5). The MC p_over_grid should match: use total > line for whole lines. This is NOT an E[total] overstatement (mean 8.82, well below line 9) \u2014 it's a definition mismatch.",
+  "recommended_fix": "Change the MC grid formula to total > line (strict) instead of total >= ceil(line). This makes P(over 9.0) = P(total >= 10) \u2248 40-45%, consistent with the monitoring scorer."
+}
