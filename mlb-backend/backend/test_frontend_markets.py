@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch, MagicMock
 
+import numpy as np
 import pandas as pd
 
 # frontend/ moved to the repository root (multi-sport restructure, Phase B)
@@ -286,6 +287,43 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.markets._render_run_engine_coverage(pd.DataFrame())
         self.markets._render_run_engine_model_card(
             {"fit": {}, "phase1": {}, "market_metrics": {}})
+
+    def test_winner_cards_render_real_auc_values(self):
+        """The winner-card renderer runs on the REAL monitor JSON and every
+        card carries a pooled + holdout AUC (the value, not '—')."""
+        import json
+        import streamlit as _st
+        mon = json.loads((_latest_artifact(
+            self.root / "data_delivery", "run_engine_monitor_*.json"))
+            .read_text())
+        wc = mon.get("winner_cards") or {}
+        # the stubbed st.columns(n) must unpack into n column objects
+        _st.columns.side_effect = lambda n: [MagicMock() for _ in range(n)]
+        try:
+            self.markets._render_winner_cards(wc)  # no crash
+        finally:
+            _st.columns.side_effect = None
+        for name in ("over_under", "run_line", "derived_ml"):
+            c = wc.get(name) or {}
+            self.assertIsNotNone(c.get("auc"),
+                                 f"{name} card must carry pooled auc")
+            self.assertTrue(np.isfinite(c["auc"]), f"{name} auc finite")
+            self.assertGreater(c["auc"], 0.5)
+            self.assertLess(c["auc"], 1.0)
+            self.assertIsNotNone((c.get("holdout") or {}).get("auc"),
+                                 f"{name} holdout must carry auc")
+
+    def test_winner_card_footer_and_auc_source_updated(self):
+        """The derived-ML footer dropped the stale 'underweights the home
+        edge' claim (calibrated post-fix) and the card renders holdout AUC."""
+        src = (Path(__file__).resolve().parents[2]
+               / "frontend" / "markets.py").read_text()
+        self.assertIn("Holdout AUC", src,
+                      "renderer must show the holdout AUC metric")
+        self.assertIn("calibrated post-fix", src,
+                      "footer must reflect the calibrated derived ML")
+        self.assertNotIn("underweights the home edge", src,
+                         "stale underweighting claim must be gone")
 
 
 # ---------------------------------------------------------------------------

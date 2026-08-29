@@ -651,6 +651,9 @@ def _render_winner_cards(winner_cards: dict) -> None:
             c1, c2 = st.columns(2)
             c1.metric("Pooled Brier", _fmt(card.get("brier")))
             c2.metric("Pooled Logloss", _fmt(card.get("logloss"), 4))
+            c1, c2 = st.columns(2)
+            c1.metric("Holdout AUC",
+                      _fmt(h.get("auc"), 4) if h else "--")
             st.caption(f"n = {card.get('n', '--'):,} pooled"
                        + (f" / {h.get('n', 0):,} holdout" if h else ""))
             ref = card.get("ml_reference")
@@ -660,7 +663,8 @@ def _render_winner_cards(winner_cards: dict) -> None:
                     f"Moneyline ensemble reference (ml_win_prob): "
                     f"{_fmt(rwr, pct=True) if rwr is not None else '--'} "
                     f"win rate (n={ref.get('n', '--'):,}) — the run-line "
-                    "model's NB moneyline underweights the home edge")
+                    "model's NB moneyline is calibrated post-fix; the "
+                    "ensemble stays as the comparison anchor")
 
 
 def _render_totals_calibration_card(decided: pd.DataFrame) -> None:

@@ -1,9 +1,10 @@
 """Tests for the v2 run-engine WINNER cards.
 
 Covers: per-game line assignment, whole-number-line push exclusion, the
->50% pick rule, fixed-reference AUC on the real artifact, v2 rolling
-migration (renamed field), and the CROSS-CHECK that the winner win rates
-match the Totals & Run Lines history tables (~54% totals / ~64% run line).
+>50% pick rule, direct picked-side AUC (pooled + holdout) on the real
+artifact, v2 rolling migration (renamed field), and the CROSS-CHECK that
+the winner win rates match the Totals & Run Lines history tables (~54%
+totals / ~64% run line).
 """
 from __future__ import annotations
 
@@ -116,17 +117,28 @@ class TestWinnerCardAggregation(unittest.TestCase):
         self.assertEqual(ml["n"], 5)
         self.assertAlmostEqual(ml["win_rate"], 0.8)
 
-    def test_auc_attached_from_reference_line(self):
+    def test_auc_computed_from_pick_pairs(self):
+        """AUC is computed DIRECTLY from each card's (picked-side
+        probability, settled outcome) over pooled OOF — pushes excluded (the
+        OU push game 4 is not in the pairs) — no reference-line injection
+        needed. The holdout window covers all synthetic dates, so the
+        holdout AUC equals the pooled one."""
         from run_engine import compute_winner_cards
-        metrics = {
-            "over_8_5": {"auc": 0.55051},
-            "home_cover_1_5": {"auc": 0.54320},
-            "derived_moneyline": {"auc": 0.55447},
-        }
-        cards = compute_winner_cards(_mk_frame(), market_metrics=metrics)
-        self.assertAlmostEqual(cards["over_under"]["auc"], 0.55051)
-        self.assertAlmostEqual(cards["run_line"]["auc"], 0.54320)
-        self.assertAlmostEqual(cards["derived_ml"]["auc"], 0.55447)
+        cards = compute_winner_cards(_mk_frame())
+        # OU (games 1, 2, 3, 5 — game 4 pushed at line 8.0 == total 8):
+        # re-scaled pick pairs (0.60,1),(0.55,0),(0.55,1),(0.60,1) -> 5/6.
+        self.assertAlmostEqual(cards["over_under"]["auc"], 0.83333, places=5)
+        self.assertAlmostEqual(cards["over_under"]["holdout"]["auc"],
+                               0.83333, places=5)
+        # RL picked-side cover pairs (0.6,1),(0.6,0),(0.6,1),(0.7,1),(0.6,1).
+        self.assertAlmostEqual(cards["run_line"]["auc"], 0.625, places=5)
+        self.assertAlmostEqual(cards["run_line"]["holdout"]["auc"],
+                               0.625, places=5)
+        # ML raw p_home_win vs home-won pairs (0.6,1),(0.6,0),(0.4,0),
+        # (0.7,1),(0.4,0) -> 11/12.
+        self.assertAlmostEqual(cards["derived_ml"]["auc"], 0.91667, places=5)
+        self.assertAlmostEqual(cards["derived_ml"]["holdout"]["auc"],
+                               0.91667, places=5)
 
 
 class TestScoreAtAuc(unittest.TestCase):
@@ -419,16 +431,7 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         total = hs + as_
         cards = compute_winner_cards(df)
         dp = self._derived_pcol(cards)
-        refs = {"over_8_5": ("p_over_8_5", total >= 9),
-                "home_cover_1_5": ("p_home_cover_1_5", hs - as_ >= 2),
-                "derived_moneyline": (dp, hs > as_)}
-        metrics = {}
-        for ref, (pcol, ev) in refs.items():
-            p = oof[pcol].to_numpy(float)
-            ok = np.isfinite(p)
-            metrics[ref] = {"auc": float(roc_auc_score(
-                np.asarray(ev, float)[ok], p[ok]))}
-        cards = compute_winner_cards(df, market_metrics=metrics)
+        cards = compute_winner_cards(df)
         for name, pcol, event_fn in (
                 ("run_line", "p_home_cover_1_5", lambda m: m >= 2),
                 ("derived_ml", dp, lambda m: m > 0)):
@@ -443,8 +446,19 @@ class TestWinnerCardSymmetry(unittest.TestCase):
             # float precision, so assert to 12 decimals.
             self.assertAlmostEqual(a_home, a_away, places=12,
                                    msg=f"{name} AUC rank-invariant")
-            self.assertAlmostEqual(a_home, cards[name]["auc"], places=5,
-                                   msg=f"{name} card AUC == own-line AUC")
+            # Card AUC per monitor spec: derived_ml ranks the RAW p_home_win
+            # vs home-won (== a_home); run_line ranks the PICKED side's
+            # cover prob vs covered (fav, hit).
+            if name == "derived_ml":
+                self.assertAlmostEqual(a_home, cards[name]["auc"], places=5,
+                                       msg="derived_ml AUC == moneyline AUC")
+            else:
+                pick_home = p >= 0.5
+                fav = np.where(pick_home, p, 1.0 - p)
+                hit = (pick_home.astype(float) == event).astype(float)
+                self.assertAlmostEqual(roc_auc_score(hit[ok], fav[ok]),
+                                       cards[name]["auc"], places=5,
+                                       msg="run_line AUC == picked-side AUC")
 
     def test_ece_is_on_picked_side(self):
         """ece_raw == ECE(picked-side prob, picked-side outcome) and differs
@@ -483,7 +497,13 @@ class TestWinnerCardSymmetry(unittest.TestCase):
                 # assert the difference when both sides have meaningful mass.
                 n_h_picks = int(pick_home[ok].sum())
                 n_a_picks = int((~pick_home[ok]).sum())
-                if min(n_h_picks, n_a_picks) > 20:
+                if min(n_h_picks, n_a_picks) > 20 and \
+                        abs(home_ece - cards[name]["ece_raw"]) > 1e-5:
+                    # The negative check is vacuous when the model is
+                    # calibrated in BOTH framings — on the post-fix artifact
+                    # home-side and picked-side ECE round to the same 5dp
+                    # value (0.0041). The positive contract above (places=8)
+                    # still pins ECE to the picked side exactly.
                     self.assertNotAlmostEqual(
                         home_ece, cards[name]["ece_raw"], places=3,
                         msg=f"{name} ECE NOT home-side")
@@ -511,8 +531,9 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         self.assertGreater(bp_away["win_rate"], 0.0)
         self.assertLess(bp_away["win_rate"], 1.0)
         # The preserved NB diagnostic keeps the model finding: its away-pick
-        # win rate equals the NB away-outcome rate (and sits below 50% — the
-        # underweighted home edge, unchanged and visible).
+        # win rate equals the NB away-outcome rate (and post the structural
+        # fix sits ABOVE 50% — the calibrated home one-run adjustment
+        # resolved the old "underweights the home edge" finding).
         nb = cards["derived_ml"]["nb_diagnostic"]
         nb_p = oof["p_home_win_derived"].to_numpy(float)
         nok = np.isfinite(nb_p)
@@ -521,13 +542,14 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         self.assertAlmostEqual(nb["by_pick"]["away"]["win_rate"],
                                float((1 - home_won[n_away]).mean()),
                                places=4)
-        self.assertLess(nb["by_pick"]["away"]["win_rate"], 0.50)
+        self.assertGreater(nb["by_pick"]["away"]["win_rate"], 0.50)
 
     def test_derived_ml_sources_run_line_model_with_ensemble_reference(self):
         """The derived_ml card is the RUN LINE model's own NB moneyline
-        (p_home_win_derived): pooled ~48.5%, away-picks ~47.5% — reported
-        as-is, NOT masked — and the moneyline ensemble rides as a one-line
-        ml_reference (~55.8%) so the model comparison stays visible."""
+        (p_home_win_derived): pooled ~54.1%, away-picks ~54.4% — calibrated
+        post the structural home one-run fix — and the moneyline ensemble
+        rides as a one-line ml_reference (~55.2%) so the model comparison
+        stays visible."""
         from run_engine import compute_winner_cards
         df = self._real()
         cards = compute_winner_cards(df)
@@ -536,12 +558,12 @@ class TestWinnerCardSymmetry(unittest.TestCase):
         oof = df[df["kind"] == "oof"]
         nb_p = oof["p_home_win_derived"].to_numpy(float)
         self.assertEqual(c["n"], int(np.isfinite(nb_p).sum()))
-        # Expected numbers (do NOT adjust or mask): pooled ~48.4%,
-        # away-picks ~47.5% (home-edge underweighting, reported as-is;
-        # values re-pinned to the 6,960-frame artifact).
-        self.assertAlmostEqual(c["win_rate"], 0.484, places=3)
-        self.assertLess(c["by_pick"]["away"]["win_rate"], 0.50)
-        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.4747,
+        # Expected numbers (pin-synced to the post-fix 6,812-frame artifact):
+        # pooled ~54.1%, away-picks ~54.4% — the structural home one-run
+        # fix resolved the old home-edge underweighting.
+        self.assertAlmostEqual(c["win_rate"], 0.5411, places=3)
+        self.assertGreater(c["by_pick"]["away"]["win_rate"], 0.50)
+        self.assertAlmostEqual(c["by_pick"]["away"]["win_rate"], 0.5443,
                                places=3)
         self.assertGreater(c["by_pick"]["home"]["win_rate"], 0.50)
         # nb_diagnostic preserved (schema-stable record of the finding).

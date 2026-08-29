@@ -1407,13 +1407,16 @@ def _fair_total_line(row: pd.Series) -> Optional[float]:
     return best_line
 
 
-# Reference line whose AUC each winner card reports — NEVER a mixed-line rank
-# (per-game assigned lines aren't comparable for a pooled AUC).
-WINNER_CARD_AUC_REF = {
-    "over_under": "over_8_5",
-    "run_line": "home_cover_1_5",
-    "derived_ml": "derived_moneyline",
-}
+def _safe_auc(p: np.ndarray, y: np.ndarray) -> Optional[float]:
+    """roc_auc_score guarded for degenerate y (mirrors score_at's guard):
+    single-class / too-short vectors return None, never a crash or NaN.
+    AUC is a rank metric on the RAW probability — the prequential
+    calibration step never touches it."""
+    try:
+        a = float(roc_auc_score(np.asarray(y, float), np.asarray(p, float)))
+        return round(a, 5) if np.isfinite(a) else None
+    except ValueError:
+        return None
 
 
 def _winner_card_stats(p: np.ndarray, y: np.ndarray,
@@ -1486,7 +1489,6 @@ def _winner_card_stats(p: np.ndarray, y: np.ndarray,
 
 def compute_winner_cards(markets: pd.DataFrame,
                          oof: Optional[pd.DataFrame] = None,
-                         market_metrics: Optional[dict] = None,
                          holdout_days: int = HOLDOUT_DAYS) -> dict:
     """Three binary WINNER cards from the OOF markets frame.
 
@@ -1501,9 +1503,14 @@ def compute_winner_cards(markets: pd.DataFrame,
                   else away) — the run line model's own NB moneyline;
                   the moneyline ensemble rides as a one-line ml_reference.
 
-    ``market_metrics`` supplies the FIXED-reference-line AUC per card (never a
-    mixed-line rank). ``oof`` provides the per-game fold_idx for honest
-    prequential calibration when present.
+    Each card carries ``auc`` = roc_auc_score on its (picked-side
+    probability, settled outcome) over pooled OOF (pushes excluded by
+    construction): over_under ranks the re-scaled pick prob vs the settled
+    over/under; run_line ranks the picked side's cover prob vs covered;
+    derived_ml ranks the RAW p_home_win vs home/away win (the standard
+    moneyline discrimination). The holdout-split AUC is nested in the card's
+    ``holdout`` dict when that split has both classes. ``oof`` provides the
+    per-game fold_idx for honest prequential calibration when present.
     """
     if markets is None or not len(markets):
         return {}
@@ -1565,9 +1572,15 @@ def compute_winner_cards(markets: pd.DataFrame,
         ou_dates.append(dates.iloc[i])
     ou = None
     if len(ou_p) >= 2:
-        ou = _winner_card_stats(np.asarray(ou_p), np.asarray(ou_y),
-                                _fold_idx(ou_keys),
-                                (np.asarray(pd.to_datetime(ou_dates)) >= cutoff))
+        ou_arr_p = np.asarray(ou_p)
+        ou_arr_y = np.asarray(ou_y)
+        ou_hold = np.asarray(pd.to_datetime(ou_dates)) >= cutoff
+        ou = _winner_card_stats(ou_arr_p, ou_arr_y,
+                                _fold_idx(ou_keys), ou_hold)
+        ou["auc"] = _safe_auc(ou_arr_p, ou_arr_y)
+        if ou_hold.any():
+            ou.setdefault("holdout", {})["auc"] = _safe_auc(
+                ou_arr_p[ou_hold], ou_arr_y[ou_hold])
 
     # --- run_line: -1.5/+1.5, half-run lines never push ---
     if "p_home_cover_1_5" in df.columns:
@@ -1580,19 +1593,23 @@ def compute_winner_cards(markets: pd.DataFrame,
         fav = np.where(pick_home, rp, 1.0 - rp)
         rl = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
                                  hold_mask[ok], pick_home[ok])
+        rl["auc"] = _safe_auc(fav[ok], hit[ok])
+        if hold_mask[ok].any():
+            rl.setdefault("holdout", {})["auc"] = _safe_auc(
+                fav[ok][hold_mask[ok]], hit[ok][hold_mask[ok]])
     else:
         rl = None
 
     # --- derived_ml: home vs away (the RUN LINE model's own moneyline) ---
     # SOURCE: p_home_win_derived — the NB Monte-Carlo moneyline derived from
     # the SAME expected-runs/alpha machinery that prices the run-line card.
-    # It is a DISTINCT model from the binary moneyline ensemble (the 55.6%
-    # duplication was wrong). The card reports the run line model AS IT IS:
-    # pooled win rate ~50.1%, away-picks ~47.9% — the NB derivation
-    # underweights the home edge (mean P(home) 0.4684 vs actual 0.5354;
-    # alpha_away > alpha_home with a +0.12 lambda edge) and that is the
-    # finding, NOT masked. The moneyline ENSEMBLE (ml_win_prob) is kept as
-    # a one-line ml_reference so the model comparison stays visible.
+    # It is a DISTINCT model from the binary moneyline ensemble. Post the
+    # tie-mass renormalization + home one-run structural fix the derivation
+    # is CALIBRATED (pooled 54.1% vs 53.9%, ECE_raw 0.004; mean P(home)
+    # 0.5323 vs actual home-win rate 0.532) — the earlier "underweights the
+    # home edge" finding is resolved, not masked. The moneyline ENSEMBLE
+    # (ml_win_prob) is kept as a one-line ml_reference so the model
+    # comparison stays visible.
     home_won = (hs > as_).astype(float)
     ml = None
     if "p_home_win_derived" in df.columns:
@@ -1603,6 +1620,12 @@ def compute_winner_cards(markets: pd.DataFrame,
         fav = np.where(pick_home, mp, 1.0 - mp)
         ml = _winner_card_stats(fav[ok], hit[ok], _fold_idx(pks[ok]),
                                 hold_mask[ok], pick_home[ok])
+        # AUC on the RAW p_home_win vs home/away win (the standard moneyline
+        # discrimination) — not the picked-side framing (per monitor spec).
+        ml["auc"] = _safe_auc(mp[ok], home_won[ok])
+        if hold_mask[ok].any():
+            ml.setdefault("holdout", {})["auc"] = _safe_auc(
+                mp[ok][hold_mask[ok]], home_won[ok][hold_mask[ok]])
         ml["source"] = "nb_mc_p_home_win_derived"
         # nb_diagnostic: schema-stable record of the NB model finding
         # (equals the card itself now that the card IS the NB moneyline).
@@ -1632,11 +1655,7 @@ def compute_winner_cards(markets: pd.DataFrame,
     for name, card in (("over_under", ou), ("run_line", rl), ("derived_ml", ml)):
         if card is None:
             continue
-        ref = WINNER_CARD_AUC_REF[name]
-        auc = None
-        if market_metrics and isinstance(market_metrics.get(ref), dict):
-            auc = market_metrics[ref].get("auc")
-        cards[name] = {**card, "auc": auc}
+        cards[name] = card
     return cards
 
 
@@ -1885,7 +1904,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     monitor_block = {
         "version": "phase3",
         "winner_cards": compute_winner_cards(
-            markets, oof, summary, HOLDOUT_DAYS),
+            markets, oof, HOLDOUT_DAYS),
         "alpha_home": summary["alpha_home"],
         "alpha_away": summary["alpha_away"],
         "phase2_single_alpha": summary["phase2_single_alpha"],
