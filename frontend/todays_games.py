@@ -126,15 +126,21 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
     ou_label = (f'O/U {bits["total_line"]:.1f}'
                 + (" (clamped)" if bits.get("clamped") else ""))
+    # The card shows the 2-WAY re-scaled split: Over + Under sum to 100%
+    # (the push was folded proportionately by run_engine_card_bits, since a
+    # push refunds the bet — whole-number lines price that way). p_push is
+    # still read internally and exposed as an optional small annotation when
+    # it is non-trivial (half-lines have p_push = 0 and show no annotation).
+    push_note = ""
+    if (bits.get("p_push") or 0) > 0.005:
+        push_note = f' <span class="re-na">({bits["p_push"]:.0%} push)</span>'
     return (
         f'<div class="fb-runengine">'
         f'<span class="re-label">RUN ENGINE</span>'
         f'<span>Proj: {away_team} {bits["proj_away"]:.1f} – '
         f'{home_team} {bits["proj_home"]:.1f}</span>'
-        f'<span>{ou_label}: Over {bits["p_over"]:.0%}'
-        + (f' / Push {(bits.get("p_push") or 0):.0%}'
-           if (bits.get("p_push") or 0) > 0.005 else '')
-        + f' / Under {bits["p_under"]:.0%}</span>'
+        f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
+        f'Under {bits["p_under"]:.0%}{push_note}</span>'
         f'<span>RL: {home_team} −1.5 {bits["p_home_cover"]:.0%} · '
         f'{away_team} +1.5 {bits["p_away_cover"]:.0%} (complement)</span>'
         f'</div>'

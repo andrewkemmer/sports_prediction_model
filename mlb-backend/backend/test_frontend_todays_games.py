@@ -132,14 +132,18 @@ class TestRunEngineCardBits(unittest.TestCase):
 
 
 class TestOUPushDisplay(unittest.TestCase):
-    """Verify that the run-engine card's O/U line includes push for
-    whole-number lines and omits it for half-lines.
+    """Verify that the run-engine card's O/U line is a RE-SCALED 2-way split
+    (Over + Under = 100%) with the push folded proportionately into both.
 
-    Root cause: the old p_over/p_under columns for whole-number lines
-    (e.g. 9.0) were push-inclusive on the over side, so over+under
-    summed to ~92% instead of 100%.  After the p_over definition fix
-    (strict P(over) = total >= line + 0.5), p_push = P(total == line)
-    must be shown for whole-number lines.
+    Root cause: whole-number lines carry a push (P(total == line)) that the
+    old display ignored, making over+under sum to ~92%. c7a60e3 first showed
+    it as a 3-way split (Over / Push / Under), then this re-scaled it back
+    to 2-way: a push refunds the bet, so sportsbooks price whole-number
+    lines by re-scaling the surviving outcomes to sum to 100%, preserving
+    the over:under ratio. The push is still read (P(push) is needed
+    internally for the re-scale and for EV: EV = payout×P(over) −
+    stake×P(under) + 0×P(push)); the card just doesn't show it as a
+    headline value.
     """
 
     def test_half_line_push_is_zero_or_none(self):
@@ -204,10 +208,10 @@ class TestOUPushDisplay(unittest.TestCase):
     # ---- post-65b44ec artifact (explicit p_push column) ----
 
     def test_postfix_artifact_whole_line_reads_explicit_push(self):
-        """POST-fix artifact (explicit p_push_9_0 column): card reads the
-        column DIRECTLY — over+push+under sums to 100 (±1 rounding) and
-        the push is the real P(total == 9), not the (always-0) grid
-        difference."""
+        """POST-fix artifact (explicit p_push_9_0 column): the re-scaled
+        Over + Under sums to 100 (±1 rounding) and the push is folded in,
+        preserving the over:under ratio. The push column is STILL read and
+        carried in the bits (EV needs it), it just isn't a headline value."""
         row = {"game_pk": "PX", "home_expected_runs": 4.5,
                "away_expected_runs": 4.5,  # line = 9.0
                "p_over_9_0": 0.388, "p_push_9_0": 0.086,
@@ -218,14 +222,23 @@ class TestOUPushDisplay(unittest.TestCase):
         bits = diag.run_engine_card_bits("PX", {"PX": row})
         self.assertTrue(bits["has_grid"])
         self.assertEqual(bits["total_line"], 9.0)
+        # Push column still read & carried (EV needs all three).
         self.assertAlmostEqual(bits["p_push"], 0.086, places=9)
-        total = bits["p_over"] + bits["p_push"] + bits["p_under"]
+        # Re-scaled headline Over + Under sum to 100 (±1 rounding).
+        total = bits["p_over"] + bits["p_under"]
         self.assertAlmostEqual(total, 1.0, delta=0.01,
-                               msg="over+push+under must sum to 100% (±1)")
+                               msg="re-scaled over+under must sum to 100% (±1)")
+        # The push band folded out is the delta between raw over/under sum
+        # and 1: raw over+under should equal (1 - 0.086)=0.914 (±rounding).
+        self.assertAlmostEqual(
+            bits["p_over_raw"] + bits["p_under_raw"], 1.0 - 0.086, delta=0.01,
+            msg="raw (pre-re-scale) over+under excludes the push band")
 
     def test_postfix_artifact_half_line_push_is_zero(self):
         """POST-fix artifact, half-line 9.5: explicit p_push_9_5 column is
-        present and equals 0 (integer total can never equal 9.5)."""
+        present and equals 0 (integer total can never equal 9.5). With
+        p_push = 0 the re-scale is a no-op — headline values equal the raw
+        ones and already sum to 100%."""
         row = {"game_pk": "PH", "home_expected_runs": 4.6,
                "away_expected_runs": 4.7,  # 9.3 → line 9.5
                "p_over_9_5": 0.42, "p_push_9_5": 0.0,
@@ -235,10 +248,15 @@ class TestOUPushDisplay(unittest.TestCase):
         self.assertEqual(bits["total_line"], 9.5)
         self.assertIsNotNone(bits["p_push"])
         self.assertAlmostEqual(bits["p_push"], 0.0, places=9)
+        # Half-line re-scale is a no-op: headline == raw, sums to 100%.
+        self.assertAlmostEqual(bits["p_over"], bits["p_over_raw"], places=9)
+        self.assertAlmostEqual(bits["p_under"], bits["p_under_raw"], places=9)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, delta=0.01)
 
     def test_legacy_artifact_fallback_still_works(self):
-        """LEGACY artifact (no p_push column): subtraction fallback still
-        produces the push band (p_over was push-inclusive pre-fix)."""
+        """LEGACY artifact (no p_push column): subtraction fallback derives
+        the push band (p_over was push-inclusive pre-fix), and the re-scale
+        folds it in so headline Over + Under = 100%."""
         row = {"game_pk": "LG", "home_expected_runs": 4.5,
                "away_expected_runs": 4.5,  # line = 9.0
                "p_over_9_0": 0.50, "p_under_9_0": 0.50,
@@ -246,7 +264,12 @@ class TestOUPushDisplay(unittest.TestCase):
                "p_home_cover_1_5": 0.4}
         bits = diag.run_engine_card_bits("LG", {"LG": row})
         self.assertEqual(bits["total_line"], 9.0)
+        # Subtraction fallback still recovers the push band (0.50-0.42).
         self.assertAlmostEqual(bits["p_push"], 0.08, places=9)
+        # Over:Under ratio preserved after re-scale: 0.50/0.50 → 50/50.
+        self.assertAlmostEqual(bits["p_over"], 0.50, places=9)
+        self.assertAlmostEqual(bits["p_under"], 0.50, places=9)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, delta=0.01)
 
     def test_postfix_explicit_column_wins_over_subtraction(self):
         """If BOTH the explicit column and the grid difference exist, the

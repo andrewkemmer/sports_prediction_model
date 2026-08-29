@@ -751,9 +751,25 @@ def run_engine_card_bits(game_id: str,
                 p_over_next = _num(row, over_next_col)
                 if p_over_next is not None:
                     p_push = max(0.0, p_over - p_over_next)
+            # Re-scale Over/Under so they sum to 100% by folding the push
+            # proportionately into each side (a push refunds the bet;
+            # sportsbooks price whole-number lines this way). The over:under
+            # ratio is preserved: P(over|no push) = P(over)/[P(over)+P(under)],
+            # P(under|no push) = P(under)/[P(over)+P(under)]. Half-lines have
+            # p_push = 0 so the re-scaled values equal the raw ones. The raw
+            # p_over/p_under/p_push stay in the dict — EV math needs all
+            # three (EV = payout×P(over) − stake×P(under) + 0×P(push)).
+            p_over_raw, p_under_raw, p_push_raw = p_over, p_under, p_push
+            denom = (p_over + p_under) if p_push is not None else None
+            p_over_disp, p_under_disp = p_over_raw, p_under_raw
+            if denom and denom > 0:
+                scale = 1.0 / denom
+                p_over_disp = p_over_raw * scale
+                p_under_disp = p_under_raw * scale
             bits.update({"total_line": line, "clamped": clamped,
-                         "p_over": p_over, "p_under": p_under,
-                         "p_push": p_push, "has_grid": True})
+                         "p_over": p_over_disp, "p_under": p_under_disp,
+                         "p_push": p_push_raw, "p_over_raw": p_over_raw,
+                         "p_under_raw": p_under_raw, "has_grid": True})
     return bits
 
 
