@@ -47,8 +47,8 @@ Artifacts
 
 Usage
 -----
-    python3 nfl_game_frame.py                       # default 2019-2024
-    python3 nfl_game_frame.py --seasons 2021 2022 2023 2024
+    python3 nfl_game_frame.py                       # default 2019-2025
+    python3 nfl_game_frame.py --seasons 2019 2020 2021 2022 2023 2024 2025
     from nfl_game_frame import pull_and_build
     summary = pull_and_build([2019, 2020])          # returns counts + sha256
 """
@@ -72,10 +72,10 @@ ROOT_DIR = Path(__file__).resolve().parent.parent          # nfl-backend/
 BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 
-# Season range validated by the ingestion spike (nfl-spike-scratch/):
-# 1,675 decided games across 2019-2024, 0 missing scores, 0 duplicate
-# game_ids, 100% closing-line coverage, spot-checked against ESPN/NFL.com.
-DEFAULT_SEASONS = [2019, 2020, 2021, 2022, 2023, 2024]
+# Season range. 2019-2024 was validated by the ingestion spike; 2025 is fully
+# decided (it is 2026) and becomes the sealed holdout for the moneyline model
+# (feature v1 admission: game_frame + nfl_features). 2026 and later are ignored.
+DEFAULT_SEASONS = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
 
 # The exact game-level contract columns, in order (spike schema).
 GAME_LEVEL_COLUMNS = [
@@ -263,7 +263,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Build the NFL game-level frame from nflreadpy "
                     "(schedule + pbp) and write data_delivery artifacts.")
     ap.add_argument("--seasons", nargs="+", type=int, default=DEFAULT_SEASONS,
-                    help="Season years to pull (default: 2019-2024)")
+                    help="Season years to pull (default: 2019-2025)")
     return ap.parse_args(argv)
 
 

@@ -27,8 +27,10 @@ Sources
 - Schedule (for ``roof`` -> ``is_dome_home``): nflreadpy ``load_schedules``.
 - Play-by-play (for net yards/play): nflreadpy ``load_pbp``.
 - ``WARMUP_SEASONS`` (2018) is pulled for the SAME sources purely so the first
-  2019 games have clean trailing priors; only the 2019-2024 decided games are
-  scored/reported. 2025 is not in the frame at all (untouched future holdout).
+  2019 games have clean trailing priors; the decided frame is 2019-2025.
+  Season 2025 is the moneyline model's SEALED HOLD-OUT: it is scored for
+  coverage here, but the admission gate's AUC stays on seasons < 2025 so the
+  hold-out rows are never used for fitting or feature admission.
 """
 from __future__ import annotations
 
@@ -53,8 +55,12 @@ DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 DECIDED_FRAME = DATA_DELIVERY_DIR / "nfl_game_level_features.csv"
 
 WARMUP_SEASONS = [2018]                          # trailing priors only
-CORE_SEASONS = list(range(2019, 2025))           # 2019..2024 scored/reported
+CORE_SEASONS = list(range(2019, 2026))           # 2019..2025 scored/reported
 DEFAULT_SEASONS = WARMUP_SEASONS + CORE_SEASONS
+# The SEALED HOLD-OUT for the moneyline model: 2025 is decided but is never
+# used for feature admission/fitting in this module's gate (AUC stays on
+# seasons < HOLD_SEASON so the hold-out row remains clean for nfl_moneyline).
+HOLD_SEASON = 2025
 
 # ELO (prior + update rule, fully specified / reproducible)
 ELO_PRIOR = 1500.0
@@ -348,7 +354,7 @@ def run_feature_gate(df: pd.DataFrame) -> dict:
     covered = [f for f in FEATURE_COLUMNS
                if float(df[f].notna().mean()) >= COVERAGE_FLOOR]
 
-    pre = df[df["season"] < 2025]               # 2025 is the untouched holdout
+    pre = df[df["season"] < HOLD_SEASON]        # 2025 sealed holdout stays out
     y = (pre["home_score"] > pre["away_score"]).astype(int).to_numpy()
     auc = {}
     for f in FEATURE_COLUMNS:

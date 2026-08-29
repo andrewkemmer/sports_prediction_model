@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-08-28T23:03:52.273739Z",
+  "created_utc": "2026-08-28T23:13:02.670426Z",
   "build": {
     "core_seasons": [
       2019,
@@ -7,12 +7,13 @@
       2021,
       2022,
       2023,
-      2024
+      2024,
+      2025
     ],
     "warmup_seasons": [
       2018
     ],
-    "decided_games": 1675,
+    "decided_games": 1960,
     "decided_frame": "/home/daytona/codebase/nfl-backend/data_delivery/nfl_game_level_features.csv",
     "elo_prior": 1500.0,
     "elo_k": 32.0,
@@ -50,28 +51,28 @@
         "source": "ELO prior 1500, K=32, strictly-prior games"
       },
       "form_diff_pts": {
-        "coverage_pct": 99.94,
-        "available_12h_pct": 99.94,
+        "coverage_pct": 99.95,
+        "available_12h_pct": 99.95,
         "source": "trailing net pts/game (last 4)"
       },
       "win_pct_diff": {
-        "coverage_pct": 99.94,
-        "available_12h_pct": 99.94,
+        "coverage_pct": 99.95,
+        "available_12h_pct": 99.95,
         "source": "trailing win% (last 12)"
       },
       "rest_days_diff": {
-        "coverage_pct": 99.94,
-        "available_12h_pct": 99.94,
+        "coverage_pct": 99.95,
+        "available_12h_pct": 99.95,
         "source": "days since each team's prior game"
       },
       "ypp_diff": {
-        "coverage_pct": 98.99,
-        "available_12h_pct": 98.99,
+        "coverage_pct": 99.13,
+        "available_12h_pct": 99.13,
         "source": "trailing net yards/play (last 5, from pbp)"
       },
       "is_dome_home": {
-        "coverage_pct": 97.79,
-        "available_12h_pct": 97.79,
+        "coverage_pct": 98.11,
+        "available_12h_pct": 98.11,
         "source": "home venue roof (nflverse schedule field)"
       },
       "is_home": {
@@ -93,11 +94,11 @@
       {
         "feat_a": "elo_diff",
         "feat_b": "win_pct_diff",
-        "corr": 0.8256
+        "corr": 0.8192
       }
     ],
     "reasons": {
-      "win_pct_diff": "redundant with elo_diff (|r| 0.83, similar discrimination); keep one"
+      "win_pct_diff": "redundant with elo_diff (|r| 0.82, similar discrimination); keep one"
     },
     "dropped": [
       "win_pct_diff"

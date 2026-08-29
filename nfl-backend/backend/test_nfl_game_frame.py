@@ -7,12 +7,12 @@ stable chronological order, and the pbp play-count join.
 
 Artifact tests read the real ``data_delivery/nfl_game_level_features.csv``
 (like mlb-backend's test_frames_canonical reads game_level_features.csv):
-per-season decided counts must match the spike exactly
-(267/269/285/284/285/285 for 2019-2024), 0 duplicate game_ids, 0 missing
-scores, and a spot-check of a known game's score + spread-line sign
-(2019 W1 KC@JAX: 40-26 per ESPN; spread -3.5 = away favorite per the
-nflverse schedules dictionary — positive = home favored, negative = away
-favored).
+per-season decided counts must match the spike (267/269/285/284/285/285 for
+2019-2024) PLUS 2025 = 285 (the model's sealed hold-out; 1,960 decided games
+2019-2025), 0 duplicate game_ids, 0 missing scores, and a spot-check of a
+known game's score + spread-line sign (2019 W1 KC@JAX: 40-26 per ESPN;
+spread -3.5 = away favorite per the nflverse schedules dictionary — positive
+= home favored, negative = away favored).
 
 The CSV is a generated artifact (not committed per project guardrails), so
 the artifact tests skip gracefully when it is absent (fresh clone); they run
@@ -35,8 +35,10 @@ from nfl_game_frame import (  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 FEATURES = ROOT / "data_delivery" / "nfl_game_level_features.csv"
 
-# Spike-verified per-season decided-game counts (2019-2024).
-SPIKE_PER_SEASON = {2019: 267, 2020: 269, 2021: 285, 2022: 284, 2023: 285, 2024: 285}
+# Spike-verified per-season decided-game counts (2019-2025). 2025 (285) is the
+# sealed hold-out for the moneyline model.
+SPIKE_PER_SEASON = {2019: 267, 2020: 269, 2021: 285, 2022: 284, 2023: 285,
+                    2024: 285, 2025: 285}
 
 
 def _minimal_game(**overrides) -> pd.DataFrame:
