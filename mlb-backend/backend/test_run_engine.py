@@ -29,6 +29,7 @@ from run_engine import (
     ALPHA_CAP,
     ALPHA_MIN_BIN,
     HOLDOUT_DAYS,
+    MARGIN_PLUS1_HOME_SHARE,
     MARKET_COLUMNS_V3,
     NULLABLE_MARKET_COLUMNS,
     RUN_LINE_GRID,
@@ -605,29 +606,44 @@ class TestLineGridSemantics(unittest.TestCase):
                                        (total == line).mean(axis=1),
                                        atol=1e-12)
 
-    def test_margin_columns_renormalized_on_no_tie(self):
-        """The tie fix: every margin-derived probability is conditioned on
-        margin != 0 (P(margin=0) zeroed, mass rescaled by 1/(1-P0)); the
-        away numerator EXCLUDES the tie mass ((diff < m) & (diff != 0))."""
+    def test_margin_columns_resolve_ties_to_pm1(self):
+        """The structural home one-run fix: the raw tie mass P(margin=0)
+        resolves to ±1 home-weighted with share MARGIN_PLUS1_HOME_SHARE; the
+        +1 push band is P(=1) + α·P(0), and every OTHER margin stays at its
+        raw full-basis value (home cover at m>1.5 is P(diff>=ceil), NOT
+        divided by any 1/(1−P0) factor)."""
+        al = MARGIN_PLUS1_HOME_SHARE
         h, a = self._replicate_draws()
         diff = h - a
         p0 = (diff == 0).mean(axis=1)
-        denom = np.maximum(1.0 - p0, 1e-9)
         for j, m in enumerate(RUN_LINE_GRID_FULL):
-            np.testing.assert_allclose(self.mc["p_rl_home_grid"][:, j],
-                                       (diff > m).mean(axis=1) / denom,
+            # home covers −L iff margin > L ⇔ margin >= ceil(L+eps); for L>1.5
+            # this is raw P(margin >= next-int); the +1 band (m=1.0 / 1.5)
+            # uses P'(>=2) = P(diff>=2) — unaffected by the tie resolve.
+            if m <= 1.5:
+                hc = (diff >= 2).mean(axis=1)
+                pc = 0.0 if m != 1.0 else ((diff == 1).mean(axis=1) + al * p0)
+            elif m <= 2.5:
+                hc = (diff >= 3).mean(axis=1)
+                pc = 0.0 if m != 2.0 else (diff == 2).mean(axis=1)
+            elif m <= 3.5:
+                hc = (diff >= 4).mean(axis=1)
+                pc = 0.0 if m != 3.0 else (diff == 3).mean(axis=1)
+            else:
+                hc = (diff >= 5).mean(axis=1)
+                pc = (diff == 4).mean(axis=1)
+            np.testing.assert_allclose(self.mc["p_rl_home_grid"][:, j], hc,
                                        atol=1e-9)
-            np.testing.assert_allclose(self.mc["p_rl_push_grid"][:, j],
-                                       (diff == m).mean(axis=1) / denom,
+            np.testing.assert_allclose(self.mc["p_rl_push_grid"][:, j], pc,
                                        atol=1e-9)
             np.testing.assert_allclose(self.mc["p_rl_away_grid"][:, j],
-                                       ((diff < m) & (diff != 0)).mean(axis=1)
-                                       / denom, atol=1e-9)
+                                       1.0 - hc - pc, atol=1e-9)
 
     def test_rl_3way_sums_to_one_and_legacy_equals_rl_home(self):
-        """On every line the renormalized 3-way (home/push/away) sums to
-        1.0 exactly; legacy half-line p_home_cover_* equals p_rl_*_home
-        (same underlying array, both renormalized)."""
+        """On every line the 3-way (home/push/away) sums to 1.0 exactly;
+        legacy half-line p_home_cover_* equals p_rl_*_home (same underlying
+        array, both under the structural fix — neither is moved by the tie
+        resolve on half-lines)."""
         for j, m in enumerate(RUN_LINE_GRID_FULL):
             s = (self.mc["p_rl_home_grid"][:, j]
                  + self.mc["p_rl_push_grid"][:, j]
@@ -639,24 +655,37 @@ class TestLineGridSemantics(unittest.TestCase):
             np.testing.assert_array_equal(self.mc["p_cover_grid"][:, lj],
                                           self.mc["p_rl_home_grid"][:, rj])
 
-    def test_tie_mass_zeroed_in_persisted_away(self):
-        """P(margin=0) = 0 in the persisted outputs: away at whole line 1.0
-        is exactly P(margin <= -1 | no tie) — the impossible tie mass is
-        excluded from the away bucket (the run-line gate artifact)."""
+    def test_tie_mass_resolves_to_pm1_and_away_is_consistent(self):
+        """P(margin=0) = 0 in the persisted outputs; the away bucket at
+        whole line 1.0 is exactly P(diff<=-1) + (1−α)·P(0) — the resolved
+        −1 mass lands there, the resolved +1 band sits in home/push, and
+        the trio sums to 1.0."""
+        al = MARGIN_PLUS1_HOME_SHARE
         h, a = self._replicate_draws()
         diff = h - a
         p0 = (diff == 0).mean(axis=1)
-        denom = np.maximum(1.0 - p0, 1e-9)
         j1 = RUN_LINE_GRID_FULL.index(1.0)
         np.testing.assert_allclose(self.mc["p_rl_away_grid"][:, j1],
-                                   (diff <= -1).mean(axis=1) / denom,
+                                   (diff <= -1).mean(axis=1) + (1 - al) * p0,
                                    atol=1e-9)
-        # The renormalized push band at a whole line is the conditional
-        # P(margin == 1 | no tie), and it plus home excludes ties entirely.
+        # The tie mass reallocates to the two one-run bands, split α / (1−α):
+        # the resolved increments (post-fix band mass minus the raw ±1 mass)
+        # must sum to the full tie mass, with the α split matching the fitted
+        # home share. (P'(+1)+P'(−1) = P(+1)+P(−1)+P0 — the raw ±1 mass is
+        # already in the bands, so only the increments sum to P0.)
+        plus1 = np.asarray(self.mc["p_rl_push_grid"][:, j1])
+        minus1 = np.asarray(self.mc["p_rl_away_grid"][:, j1]
+                            - (diff < -1).mean(axis=1))   # resolved −1 = P(−1)+(1−α)·P0
         np.testing.assert_allclose(
-            self.mc["p_rl_push_grid"][:, j1]
-            + self.mc["p_rl_home_grid"][:, j1]
-            + self.mc["p_rl_away_grid"][:, j1], 1.0, atol=1e-9)
+            (plus1 - (diff == 1).mean(axis=1))
+            + (minus1 - (diff == -1).mean(axis=1)), p0, atol=1e-9)
+        np.testing.assert_allclose(plus1 - (diff == 1).mean(axis=1),
+                                   al * p0, atol=1e-9)
+        np.testing.assert_allclose(minus1 - (diff == -1).mean(axis=1),
+                                   (1 - al) * p0, atol=1e-9)
+        np.testing.assert_allclose(
+            plus1 + np.asarray(self.mc["p_rl_home_grid"][:, j1])
+            + np.asarray(self.mc["p_rl_away_grid"][:, j1]), 1.0, atol=1e-9)
 
 
 class TestMultiLineScoring(unittest.TestCase):

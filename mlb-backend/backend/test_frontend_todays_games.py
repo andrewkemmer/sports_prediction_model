@@ -549,29 +549,32 @@ class TestRunLineCalibrationRecord(unittest.TestCase):
                           ("calibrated", "over-predicting",
                            "under-predicting", "low_n"))
 
-    def test_gate_reflects_renormalized_truth(self):
-        """Post tie-fix (run-engine margin renormalization, P(margin=0)=0):
-        the gate records the HONEST state — line −1 home cover is now
-        OVER-predicted (+4.1 pts: 0.3989 vs 0.3580). The pre-fix
-        'calibrated' verdict was the tie-mass/one-run cancellation; the
-        residual is the +1 band (push under-predicted 0.1095 vs 0.1740) —
-        the home one-run edge, a separate follow-up, NOT implemented here.
-        Line −4 is calibrated; the selector renders non-calibrated lines
-        as unverified."""
+    def test_gate_reflects_adopted_structural_fix(self):
+        """Post structural fix (impossible tie mass resolves to ±1,
+        home-weighted MARGIN_PLUS1_HOME_SHARE): the gate records ALL SEVEN
+        lines as CALIBRATED — line −1 now +0.0002 (was +0.0409 under the
+        proportional renormalization in 2531462) and the +1 push band is
+        now exact (0.1740 vs 0.1740). The selector can therefore offer
+        every alternate line."""
         by_line = {r["line"]: r for r in self.record["lines"]}
+        for r in self.record["lines"]:
+            self.assertEqual(r["verdict"], "calibrated",
+                             f"line {r['line']} must pass the calibration gate "
+                             f"post structural fix")
         r1 = by_line[1.0]
-        self.assertEqual(r1["verdict"], "over-predicting")
-        self.assertAlmostEqual(r1["p_home"], 0.3989, delta=0.002)
-        self.assertAlmostEqual(r1["delta"], 0.0408, delta=0.002)
-        self.assertAlmostEqual(r1["push_pred"], 0.1095, delta=0.002)
+        self.assertAlmostEqual(r1["p_home"], 0.3583, delta=0.002)
+        self.assertAlmostEqual(r1["delta"], 0.0002, delta=0.002)
+        self.assertAlmostEqual(r1["push_pred"], 0.1740, delta=0.002)
         self.assertAlmostEqual(r1["push_actual"], 0.1740, delta=0.002)
         r4 = by_line[4.0]
-        self.assertEqual(r4["verdict"], "calibrated")
+        self.assertAlmostEqual(r4["p_home"], 0.1413, delta=0.002)
         self.assertLessEqual(abs(r4["delta"]), 0.02)
         self.assertEqual(self.record["method"]["tie_handling"],
-                         "margin distribution conditioned on no tie "
-                         "(P(margin=0)=0) — the run-engine tie fix; "
-                         "away = P(margin < L | no tie)")
+                         "impossible tie mass resolves to ±1 home-weighted "
+                         "(MARGIN_PLUS1_HOME_SHARE) — the structural "
+                         "home one-run fix; P(+1)' = P(+1)+α·P(0), "
+                         "P(−1)' = P(−1)+(1−α)·P(0), P(0)=0; away = 1 − "
+                         "home − push")
 
     def test_half_lines_have_zero_push(self):
         """Half-lines can never push — push_pred == push_actual == 0."""

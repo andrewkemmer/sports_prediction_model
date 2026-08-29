@@ -22,7 +22,8 @@ import unittest
 
 import numpy as np
 
-from run_engine import TOTAL_LINE_GRID, _nb_size_prob
+from run_engine import (TOTAL_LINE_GRID, MARGIN_PLUS1_HOME_SHARE,
+                         _nb_size_prob)
 from run_game_structure_diagnostic import (BOTTOM9_SHARE, MC_N, GS_SEED,
                                            draw_game_flow_chunk,
                                            resolve_game_flow,
@@ -164,21 +165,19 @@ class TestSamplerConsistency(unittest.TestCase):
                              np.array([8.0, 7.0]), np.array([6.0, 7.0]))
         shipped = derive_markets_mc(lam_h, lam_a, a_h, a_a,
                                     n_draws=MC_N)
-        # Both arms estimate the SAME quantity: home-win probability
-        # conditioned on the game resolving (no tie). sim["p_win_current"]
-        # is the structured sampler's RAW regulation win rate P(full_h > a9)
-        # and sim["p_tie"] its tie rate; renormalizing on no tie the same way
-        # derive_markets_mc does (P(margin>0) / (1 - P0)) recovers the
-        # comparable home-win probability. The shipped renormalized
-        # p_home_win_derived uses an INDEPENDENT seed, so per-game se at 10k
-        # draws ~ 0.005 for raw and tie, and the 1/(1 - P0) denominator
-        # amplifies the max over 300 games to ~0.03–0.04; 0.05 tolerates that
-        # while still catching a real divergence (the tie-fix moved
-        # p_home_win_derived ~11%, and a broken renormalization surfaces as
-        # a gap > 0.05).
+        # Under the structural margin fix (tie mass resolves to +1 with
+        # home-share MARGIN_PLUS1_HOME_SHARE): shipped p_home_win_derived =
+        # P(margin>0 for full innings) + α·P(tie) = raw regulation win rate
+        # + α·tie. sim["p_win_current"] is the structured sampler's RAW
+        # regulation win rate P(full_h > a9) and sim["p_tie"] its tie rate,
+        # so shipped ≡ p_win_current + α·p_tie within MC tolerance (the two
+        # arms use INDEPENDENT seeds; per-game se at 10k draws ~0.005 for
+        # both raw and tie, summing to a max over 300 games of ~0.03–0.04).
+        # 0.05 tolerates that while still catching a real divergence.
         p0 = np.maximum(sim["p_tie"].to_numpy(), 1e-9)
-        renorm = sim["p_win_current"].to_numpy() / (1.0 - p0)
-        gap = float(np.abs(renorm
+        resolved = sim["p_win_current"].to_numpy() \
+            + MARGIN_PLUS1_HOME_SHARE * p0
+        gap = float(np.abs(resolved
                            - shipped["p_home_win_derived"]).max())
         self.assertLessEqual(gap, 0.05)
 

@@ -69,16 +69,20 @@ class TestMarginDistributionRecord(unittest.TestCase):
         self.assertEqual(by_m[0]["pred_p"], 0.0)
         w = self.record["margin_pmf_window"]
         self.assertGreater(w["raw_pre_fix_tie_mass"], 0.05)
-        self.assertEqual(w["tie_handling"],
-                         "margin distribution conditioned on no tie "
-                         "(P(margin=0)=0; mass rescaled by 1/(1-P0)) — "
-                         "the run-engine tie fix")
+        self.assertTrue(w["tie_handling"].startswith(
+            "impossible tie mass resolves to ±1 home-weighted with share "
+            "0.744 (structural fix)"), w["tie_handling"])
 
     def test_home_one_run_asymmetry_recorded(self):
-        """The one-run gap is asymmetric: actual +1 >> actual −1."""
+        """The one-run gap is asymmetric and, under the adopted structural
+        fix (tie mass resolves to ±1 home-weighted), the PREDICTED +1 is
+        now calibrated (~17.4%) — no longer symmetric with −1 (12.2%)."""
         by_m = {r["margin"]: r for r in self.record["per_margin"]}
         self.assertGreater(by_m[1]["actual_p"], by_m[-1]["actual_p"] + 0.03)
-        self.assertLess(abs(by_m[1]["pred_p"] - by_m[-1]["pred_p"]), 0.01)
+        # The adopted fix adds α·P(0) to +1, so predicted +1 now exceeds
+        # predicted −1 and lands within ~2 pts of the actual +1 rate.
+        self.assertGreater(by_m[1]["pred_p"], by_m[-1]["pred_p"] + 0.03)
+        self.assertLess(abs(by_m[1]["pred_p"] - by_m[1]["actual_p"]), 0.02)
 
     def test_verdict_present_and_evidence_nonempty(self):
         v = self.record["verdict"]

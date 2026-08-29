@@ -68,11 +68,11 @@ def main(argv: list[str] | None = None) -> int:
     al_a = oof["alpha_away"].to_numpy(float)
     mc = derive_markets_mc(lam_h, lam_a, al_h, al_a,
                            n_draws=MC_DRAWS_TAIL, seed=BRIDGE_SEED)
-    # The run-engine tie fix (derive_markets_mc) renormalizes ALL
-    # margin-derived probabilities on no tie, legacy p_home_cover_* included
-    # (same underlying quantity). Overwrite the committed (pre-fix,
-    # tie-inclusive) legacy columns with the renormalized values so this
-    # bridge artifact matches exactly what the next pipeline run persists.
+    # The structural home one-run fix (derive_markets_mc) resolves the
+    # impossible tie mass to ±1 home-weighted, legacy p_home_cover_* included
+    # (same underlying quantity). Overwrite the committed (pre-fix)
+    # tie-inclusive legacy columns with the adjusted values so this bridge
+    # artifact matches exactly what the next pipeline run persists.
     for j, mm in enumerate(RUN_LINE_GRID):
         oof[f"p_home_cover_{str(mm).replace('.', '_')}"] = np.round(
             mc["p_cover_grid"][:, j], 5)
@@ -82,10 +82,10 @@ def main(argv: list[str] | None = None) -> int:
         oof[rl_col(mm, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
 
     # Self-verification: half-line p_rl_*_home must EQUAL the legacy
-    # p_home_cover_* EXACTLY — both are the same renormalized grid_cover
-    # array from the same MC (margin > L ⇔ margin >= L + 0.5 on integer
-    # margins, and both are conditioned on no tie identically), so any
-    # divergence is a convention/schema bug, not sampling noise.
+    # p_home_cover_* EXACTLY — both are the same grid_cover array from the
+    # same MC (margin > L ⇔ margin >= L + 0.5 on integer margins; the +1
+    # resolved band enters only the 1.0/0.5 lines, not these half-lines), so
+    # any divergence is a convention/schema bug, not sampling noise.
     for mm in (1.5, 2.5, 3.5):
         legacy = f"p_home_cover_{str(mm).replace('.', '_')}"
         new = rl_col(mm, "home")

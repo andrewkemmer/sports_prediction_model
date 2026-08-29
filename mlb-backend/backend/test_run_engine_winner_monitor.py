@@ -313,11 +313,11 @@ class TestWinnerCardSymmetry(unittest.TestCase):
             else:
                 # Both directions must exist. The run-line model prices
                 # away +1.5 for the large majority of games (home-cover-1.5
-                # mean ~0.36 << 0.5); after the tie-fix renormalization
-                # home-cover probabilities rise by 1/(1-P0), so home picks
-                # are no longer vanishingly rare — ~30/6,953 (~0.4%) on the
-                # renormalized frame (pre-fix: ~1). Home picks must remain
-                # a small minority; the card must never flip wholesale.
+                # mean ~0.36 << 0.5), so home picks are vanishingly rare
+                # (~1/6,953). Under the structural margin fix (2531462 →
+                # tie resolves to ±1) home-cover at 1.5 stays raw P(margin>=2)
+                # ≈ 0.358, which keeps home picks a tiny minority. They must
+                # never flip the card wholesale.
                 self.assertGreater(n_a, 0,
                                   "run_line must have away-picks")
                 self.assertLess(n_h, c["n"] * 0.05,

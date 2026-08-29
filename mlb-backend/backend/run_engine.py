@@ -410,6 +410,22 @@ ALPHA_MIN_BIN = 250
 ALPHA_CAP = 2.0          # sane max — beyond this variance is degenerate
 ALPHA_YEAR_REL_GAP = 0.25  # |Δα|/α between years above this → loud caveat
 
+# Structural home one-run adjustment — MARGIN POST-PROCESSING ONLY, no
+# sampler/λ/α(λ) change. The independent-NB marginals put ~10% mass on
+# impossible ties; MLB games always resolve, and real ties-after-regulation
+# resolve at margin = ±1 (walk-offs), home-weighted. So the tie mass
+# P(margin=0) is resolved into the +1 /−1 bands with home share α:
+#   P(+1)' = P(+1) + α·P(0),  P(−1)' = P(−1) + (1−α)·P(0),  P(0)' = 0,
+# and EVERY other margin stays at its RAW full-basis value (P(≥2) and
+# P(≤−2) already match reality; totals are sum-based and byte-identical).
+# α fit on pooled OOF to match the +1 target
+# (data_delivery/margin_adjustment_ablation_20260829.json): α = 0.744
+# yields +1 = 17.40% (actual 17.40%) and all run lines calibrated; the
+# seasonal fit ranges 0.657 (2026) / 0.706 (2024) / 0.853 (2025). α may
+# exceed the true extra-inning win rate — it absorbs walk-off/bottom-9th
+# effects, so it is a calibration parameter, not a mechanism rate.
+MARGIN_PLUS1_HOME_SHARE = 0.744
+
 MARKET_COLUMNS = ["game_pk", "game_date", "home_expected_runs",
                   "away_expected_runs", "p_over_8_5", "p_home_cover_1_5",
                   "p_home_win_derived", "home_score", "away_score",
@@ -535,30 +551,36 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
                                   size=(end - start, n_draws)).astype(np.int32)
         total = h + a
         diff = h - a
-        # MLB games always resolve — condition the margin/diff distribution
-        # on NO TIE: zero out the P(diff == 0) mass and rescale the rest by
-        # 1/(1 - P0). The independent-NB marginals put ~10% mass on ties;
-        # since every away bucket is margin < L, that impossible mass
-        # inflated away covers and corrupted the denominator of ALL
-        # margin-derived probabilities (home cover, push, away). Totals are
-        # sum-based (computed from `total` over ALL draws) and stay
-        # byte-identical; only diff-based probabilities renormalize.
-        p_tie = (diff == 0).mean(axis=1)
-        denom = np.maximum(1.0 - p_tie, 1e-9)
+        # Structural home one-run adjustment (replaces the proportional no-tie
+        # renormalization of 2531462). Instead of rescaling EVERY nonzero
+        # margin by 1/(1−P0) — which inflated P(≥2) 0.3583→0.3989 and caused
+        # the +4.1pt line −1 over — the impossible tie mass P(0) is resolved
+        # into ±1 home-weighted: P(+1)' = P(+1)+α·P(0), P(−1)' = P(−1)+
+        # (1−α)·P(0), P(0)'=0, and every other margin stays at its RAW
+        # full-basis value. P(≥2) and P(≤−2) already match actual rates, so
+        # they are untouched; totals stay byte-identical.
+        p0 = (diff == 0).mean(axis=1)
+        p1 = (diff == 1).mean(axis=1)
+        pn1 = (diff == -1).mean(axis=1)
+        ge2 = (diff >= 2).mean(axis=1)
+        ge3 = (diff >= 3).mean(axis=1)
+        ge4 = (diff >= 4).mean(axis=1)
+        ge5 = (diff >= 5).mean(axis=1)
+        eq2 = (diff == 2).mean(axis=1)
+        eq3 = (diff == 3).mean(axis=1)
+        eq4 = (diff == 4).mean(axis=1)
+        push1 = p1 + MARGIN_PLUS1_HOME_SHARE * p0   # resolved +1 band
         # Strict over: total must EXCEED the line (total > line). Using
         # TOTAL_LINE + 0.5 matches the monitor scorer's definition and
         # fixes the push-inclusive bug where int(-(-line//1)) produced
         # the same threshold for whole lines (9.0) and half-lines (8.5).
         p_over[start:end] = (total >= TOTAL_LINE + 0.5).mean(axis=1)
-        p_cover[start:end] = (diff >= int(RUN_LINE_MARGIN) + 1).mean(axis=1) / denom
-        # p_home_win_derived renormalizes with the other diff-based columns so
-        # the invariant p_home_win_derived == p_cover_grid[:, −0.5] holds
-        # (both = P(margin > 0 | no tie)); −0.5 cover IS home win, and every
-        # resolved game has a winner. The game-structure sampler's
-        # p_win_current is the same quantity (see its test)
-        # renormalized identically, so the cross-arm consistency check lives
-        # there — see TestSamplerConsistency.test_current_arm...
-        p_win[start:end] = (diff > 0).mean(axis=1) / denom
+        p_cover[start:end] = ge2   # legacy home cover −1.5 = P'(margin>=2)
+        # p_home_win_derived = P'(margin>0) = P(≥2)+P(+1)' (ties resolve home
+        # with share α). −0.5 cover IS home win, so it stays equal to
+        # p_cover_grid[:, −0.5] (the identity the game-structure sampler's
+        # current-arm test pins). PURELY DIAGNOSTIC (see TRACED note below).
+        p_win[start:end] = ge2 + push1
     # ------------------------------------------------------------------
     # TRACED 2026-08-27: p_home_win_derived is PURELY DIAGNOSTIC — it does
     # NOT feed production pricing. Consumers: the run-engine monitor's
@@ -583,20 +605,40 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
             # ~40%).  For half-lines (8.5) both formulas agree.
             grid_over[start:end, j] = (total >= line + 0.5).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID):
-            grid_cover[start:end, j] = (diff >= int(-(-m // 1))).mean(axis=1) / denom
+            # Legacy margins: P'(margin >= ceil(m)). −0.5 cover IS home win
+            # (ge2 + resolved +1); 1.5/2.5/3.5 are P'(>=2/3/4) = raw ge2/ge3/
+            # ge4 — unaffected by the tie resolve.
+            if m == 0.5:
+                grid_cover[start:end, j] = ge2 + push1
+            elif m == 1.5:
+                grid_cover[start:end, j] = ge2
+            elif m == 2.5:
+                grid_cover[start:end, j] = ge3
+            else:
+                grid_cover[start:end, j] = ge4
         for j, line in enumerate(TOTAL_LINE_GRID):
             grid_push[start:end, j] = (total == line).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID_FULL):
-            # Strict cover: margin > L (home covers −L); margin == L is a
-            # push (whole lines only); away +L is the residual — all
-            # conditional on margin != 0 (the tie mass is excluded from the
-            # away numerator too: (diff < m) would still count diff == 0).
-            # For half-lines (m = 1.5, …) diff > m ⇔ diff ≥ m + 0.5
-            # (integer margins), so these equal the legacy grid_cover
-            # columns, both renormalized identically.
-            grid_rl_home[start:end, j] = (diff > m).mean(axis=1) / denom
-            grid_rl_push[start:end, j] = (diff == m).mean(axis=1) / denom
-            grid_rl_away[start:end, j] = ((diff < m) & (diff != 0)).mean(axis=1) / denom
+            # Strict cover: margin > L. Under the structural fix only the +1
+            # band changes: P'(>1)=P'(>1.5)=ge2, P'(>2)=P'(>2.5)=ge3,
+            # P'(>3)=P'(>3.5)=ge4, P'(>4)=ge5. Push is the resolved +1 band at
+            # m=1.0 only (half-lines can never push; m=2/3/4 push = raw
+            # P(margin==m)); away is the residual, so home+push+away sums to
+            # 1.0 exactly on every line.
+            if m <= 1.5:
+                grid_rl_home[start:end, j] = ge2
+                grid_rl_push[start:end, j] = push1 if m == 1.0 else 0.0
+            elif m <= 2.5:
+                grid_rl_home[start:end, j] = ge3
+                grid_rl_push[start:end, j] = eq2 if m == 2.0 else 0.0
+            elif m <= 3.5:
+                grid_rl_home[start:end, j] = ge4
+                grid_rl_push[start:end, j] = eq3 if m == 3.0 else 0.0
+            else:
+                grid_rl_home[start:end, j] = ge5
+                grid_rl_push[start:end, j] = eq4
+            grid_rl_away[start:end, j] = (1.0 - grid_rl_home[start:end, j]
+                                          - grid_rl_push[start:end, j])
     mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
     return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
             "p_home_win_derived": p_win, "mc_se_totals": mc_se,

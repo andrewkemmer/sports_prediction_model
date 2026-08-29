@@ -133,9 +133,11 @@ def main(argv: list[str] | None = None) -> int:
                                 "(mirrors totals strict-over discipline)",
             "push_definition": "margin == L (whole lines only); 0 by "
                                "construction for half-lines",
-            "tie_handling": "margin distribution conditioned on no tie "
-                            "(P(margin=0)=0) — the run-engine tie fix; "
-                            "away = P(margin < L | no tie)",
+            "tie_handling": "impossible tie mass resolves to ±1 home-weighted "
+                            "(MARGIN_PLUS1_HOME_SHARE) — the structural "
+                            "home one-run fix; P(+1)' = P(+1)+α·P(0), "
+                            "P(−1)' = P(−1)+(1−α)·P(0), P(0)=0; away = 1 − "
+                            "home − push",
             "ece": f"binned reliability, {ECE_BINS} equal-width bins, min "
                    f"{ECE_MIN_COUNT} games/bin",
             "verdict_threshold": f"|delta| > {DELTA_THRESHOLD} → "
