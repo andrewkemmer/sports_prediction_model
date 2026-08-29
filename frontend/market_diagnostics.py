@@ -66,6 +66,12 @@ def grid_over_under_cols(line: float) -> tuple[str, str]:
     p_over_9_5 / p_under_9_5; 10.0 → p_over_10_0 / p_under_10_0."""
     key = str(line).replace(".", "_")
     return f"p_over_{key}", f"p_under_{key}"
+
+
+def grid_push_col(line: float) -> str:
+    """Explicit p_push column name for a grid total line (post-65b44ec
+    artifacts ship P(total == line) directly), e.g. 9.0 → p_push_9_0."""
+    return f"p_push_{str(line).replace('.', '_')}"
 OFFSET_EDGES = [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
 BUCKET_EDGES = [50, 55, 60, 65, 70, 75, 101]
 BUCKET_LABELS = ["50-55", "55-60", "60-65", "65-70", "70-75", "75+"]
@@ -730,15 +736,21 @@ def run_engine_card_bits(game_id: str,
         p_over = _num(row, over_col)
         p_under = _num(row, under_col)
         if p_over is not None and p_under is not None:
-            # P(push) for whole-number lines: P(total == line) via the
-            # grid — difference between the p_over at line L (push-
-            # inclusive threshold) and at line L+0.5 (strict threshold).
-            # Half-lines can never push, so this is always 0 for them.
-            p_push = None
-            over_next_col, _ = grid_over_under_cols(line + 0.5)
-            p_over_next = _num(row, over_next_col)
-            if p_over_next is not None:
-                p_push = max(0.0, p_over - p_over_next)
+            # P(push) for whole-number lines. Post-65b44ec artifacts ship an
+            # explicit p_push_<line> column (P(total == line) from the same
+            # MC draws) — read it DIRECTLY. Legacy pre-fix artifacts lack
+            # the column: fall back to the grid difference p_over(L) −
+            # p_over(L+0.5), which equals the push band on those artifacts
+            # (their p_over was push-inclusive). On post-fix artifacts the
+            # difference is always 0 (both thresholds = total ≥ L+0.5),
+            # which is why the explicit column is preferred. Half-lines
+            # can never push, so this is always 0 for them.
+            p_push = _num(row, grid_push_col(line))
+            if p_push is None:
+                over_next_col, _ = grid_over_under_cols(line + 0.5)
+                p_over_next = _num(row, over_next_col)
+                if p_over_next is not None:
+                    p_push = max(0.0, p_over - p_over_next)
             bits.update({"total_line": line, "clamped": clamped,
                          "p_over": p_over, "p_under": p_under,
                          "p_push": p_push, "has_grid": True})

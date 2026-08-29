@@ -201,6 +201,71 @@ class TestOUPushDisplay(unittest.TestCase):
                                          {row["game_pk"]: row})
         self.assertIn("p_push", bits, "bits dict must contain p_push key")
 
+    # ---- post-65b44ec artifact (explicit p_push column) ----
+
+    def test_postfix_artifact_whole_line_reads_explicit_push(self):
+        """POST-fix artifact (explicit p_push_9_0 column): card reads the
+        column DIRECTLY — over+push+under sums to 100 (±1 rounding) and
+        the push is the real P(total == 9), not the (always-0) grid
+        difference."""
+        row = {"game_pk": "PX", "home_expected_runs": 4.5,
+               "away_expected_runs": 4.5,  # line = 9.0
+               "p_over_9_0": 0.388, "p_push_9_0": 0.086,
+               "p_under_9_0": 0.526,
+               # post-fix: p_over_9_5 == p_over_9_0 (both strict ≥ 10)
+               "p_over_9_5": 0.388, "p_under_9_5": 0.612,
+               "p_home_cover_1_5": 0.4}
+        bits = diag.run_engine_card_bits("PX", {"PX": row})
+        self.assertTrue(bits["has_grid"])
+        self.assertEqual(bits["total_line"], 9.0)
+        self.assertAlmostEqual(bits["p_push"], 0.086, places=9)
+        total = bits["p_over"] + bits["p_push"] + bits["p_under"]
+        self.assertAlmostEqual(total, 1.0, delta=0.01,
+                               msg="over+push+under must sum to 100% (±1)")
+
+    def test_postfix_artifact_half_line_push_is_zero(self):
+        """POST-fix artifact, half-line 9.5: explicit p_push_9_5 column is
+        present and equals 0 (integer total can never equal 9.5)."""
+        row = {"game_pk": "PH", "home_expected_runs": 4.6,
+               "away_expected_runs": 4.7,  # 9.3 → line 9.5
+               "p_over_9_5": 0.42, "p_push_9_5": 0.0,
+               "p_under_9_5": 0.58,
+               "p_home_cover_1_5": 0.33}
+        bits = diag.run_engine_card_bits("PH", {"PH": row})
+        self.assertEqual(bits["total_line"], 9.5)
+        self.assertIsNotNone(bits["p_push"])
+        self.assertAlmostEqual(bits["p_push"], 0.0, places=9)
+
+    def test_legacy_artifact_fallback_still_works(self):
+        """LEGACY artifact (no p_push column): subtraction fallback still
+        produces the push band (p_over was push-inclusive pre-fix)."""
+        row = {"game_pk": "LG", "home_expected_runs": 4.5,
+               "away_expected_runs": 4.5,  # line = 9.0
+               "p_over_9_0": 0.50, "p_under_9_0": 0.50,
+               "p_over_9_5": 0.42, "p_under_9_5": 0.58,
+               "p_home_cover_1_5": 0.4}
+        bits = diag.run_engine_card_bits("LG", {"LG": row})
+        self.assertEqual(bits["total_line"], 9.0)
+        self.assertAlmostEqual(bits["p_push"], 0.08, places=9)
+
+    def test_postfix_explicit_column_wins_over_subtraction(self):
+        """If BOTH the explicit column and the grid difference exist, the
+        explicit column must win (post-fix subtraction is always 0)."""
+        row = {"game_pk": "PB", "home_expected_runs": 4.5,
+               "away_expected_runs": 4.5,
+               "p_over_9_0": 0.388, "p_push_9_0": 0.086,
+               "p_under_9_0": 0.526,
+               "p_over_9_5": 0.388, "p_under_9_5": 0.612,
+               "p_home_cover_1_5": 0.4}
+        bits = diag.run_engine_card_bits("PB", {"PB": row})
+        # Subtraction would give 0.0; explicit column gives 0.086
+        self.assertAlmostEqual(bits["p_push"], 0.086, places=9)
+
+    def test_grid_push_col_naming(self):
+        """grid_push_col naming: 9.0 → p_push_9_0, 8.5 → p_push_8_5."""
+        self.assertEqual(diag.grid_push_col(9.0), "p_push_9_0")
+        self.assertEqual(diag.grid_push_col(8.5), "p_push_8_5")
+
 
 class TestRunEngineStripSmoke(unittest.TestCase):
     """Verify the run-engine strip HTML structure in todays_games.py."""
