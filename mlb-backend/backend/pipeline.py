@@ -148,6 +148,18 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     if _slate_key == "game_id":
         target_games = target_games.copy()
         target_games["game_pk"] = target_games["game_id"]
+    # Defensive: exact duplicate game_pk rows are a true bug (a doubleheader
+    # whose legs share a matchup-based key is exactly that) — a many-to-many
+    # merge would explode rows. Keep one row per distinct game_pk; distinct
+    # legs carry distinct keys after slate disambiguation, so they never
+    # collide.
+    _dup = target_games["game_pk"].duplicated(keep="first")
+    if _dup.any():
+        logger.warning(
+            "run_margin_diff: dropped %d exact-duplicate game_pk row(s) "
+            "before margin merge (duplicate keys are a true bug)",
+            int(_dup.sum()))
+        target_games = target_games.loc[~_dup].copy()
 
     decided = get_decided_frame(games)
     rounds = get_last_margin_rounds()
@@ -165,6 +177,9 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
             return out
 
     margins = refit_run_margins(decided, target_games, rounds)
+    # Margins hold one row per pred row; keep one per distinct key so the
+    # left merge below can never multiply rows.
+    margins = margins.drop_duplicates(subset=["game_pk"], keep="first")
     out = target_games.copy()
     out = out.drop(columns=[MARGIN_COL] if MARGIN_COL in out.columns else [])
     out = out.merge(margins[["game_pk", MARGIN_COL]], on="game_pk", how="left")
@@ -405,6 +420,35 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
     return slate
 
 
+def _nearest_slate_pk(legs, start_et) -> Optional[int]:
+    """Nearest StatsAPI game_pk for a slate row by first-pitch time.
+
+    ``legs`` is [(first_pitch_et, game_pk), ...] for ONE matchup — a
+    doubleheader holds two entries (two games, usually two starters). The
+    nearest leg within a 4h window IS the row's own game; single-game
+    matchups match trivially. Returns None when the matchup is unknown or
+    nothing is close (the row falls back to projected lineups). Pure.
+    """
+    if not legs:
+        return None
+    target = pd.Timestamp(start_et)
+    if pd.isna(target):
+        return None
+    if target.tzinfo is not None:
+        target = target.tz_convert("America/New_York").tz_localize(None)
+    best, best_d = None, None
+    for t, pk in legs:
+        if pd.isna(t):
+            continue
+        t = t.tz_localize(None) if t.tzinfo is not None else t
+        d = abs((t - target).total_seconds())
+        if best_d is None or d < best_d:
+            best, best_d = pk, d
+    if best is not None and best_d is not None and best_d <= 4 * 3600:
+        return best
+    return None
+
+
 def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame:
     """Attach the 6 lineup-delta columns to today's slate from posted lineups.
 
@@ -430,8 +474,12 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     from results import STATSAPI_SCHEDULE_URL  # same endpoint the weather backfill uses
     _FEED = "https://statsapi.mlb.com/api/v1.1/game/{pk}/feed/live"
 
-    # 1) game_pk resolution from the StatsAPI schedule (one day, no chunking)
-    pk_by_teams: dict[tuple[str, str], int] = {}
+    # 1) game_pk resolution from the StatsAPI schedule (one day, no chunking).
+    # A matchup can hold MULTIPLE games (doubleheader legs with their own
+    # game_pk), so collect EVERY leg with its first-pitch time and match per
+    # slate row by start time — a one-entry-per-matchup map would feed both
+    # legs the first game's lineup.
+    pk_by_teams: dict[tuple[str, str], list[tuple[pd.Timestamp, int]]] = {}
     try:
         resp = requests.get(STATSAPI_SCHEDULE_URL,
                             params={"sportId": 1,
@@ -445,7 +493,14 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
             away = (t.get("team") or {}).get("abbreviation")
             home = (h.get("team") or {}).get("abbreviation")
             if home and away:
-                pk_by_teams[(home, away)] = int(g["gamePk"])
+                try:
+                    gd = pd.Timestamp(g.get("gameDate"))
+                    if gd.tzinfo is None:
+                        gd = gd.tz_localize("UTC")
+                    gd = gd.tz_convert("America/New_York").tz_localize(None)
+                except Exception:
+                    gd = pd.NaT
+                pk_by_teams.setdefault((home, away), []).append((gd, int(g["gamePk"])))
     except Exception as e:
         logger.warning("_fetch_slate_lineups: schedule resolution failed (%s); slate stays projected", e)
         pk_by_teams = {}
@@ -481,7 +536,7 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     rows = []
     for _, r in slate.iterrows():
         teams_key = (r.get("home_team"), r.get("away_team"))
-        pk = pk_by_teams.get(teams_key)
+        pk = _nearest_slate_pk(pk_by_teams.get(teams_key), r.get("start_time_utc"))
         if pk is None:
             rows.append({"game_pk": pd.NA, "home_order": None, "away_order": None})
             continue

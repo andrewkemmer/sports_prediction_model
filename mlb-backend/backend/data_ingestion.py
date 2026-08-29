@@ -976,7 +976,85 @@ def _norm_player_name(name) -> str:
     return " ".join(s.split())
 
 
-def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], dict]:
+def _match_statsapi_pitcher_leg(legs: list[dict], start_et) -> dict | None:
+    """Pick the StatsAPI game whose first pitch is closest to an ESPN row's
+    start time (America/New_York). Doubleheader legs are hours apart, so a
+    nearest match within 4h is unambiguous; single-game matchups match
+    trivially. Returns None when nothing is close (pitcher enrichment is
+    silently skipped for that row). Pure — no I/O.
+    """
+    if not legs:
+        return None
+    target = pd.Timestamp(start_et)
+    if pd.isna(target):
+        return legs[0] if legs else None
+    if target.tzinfo is not None:
+        target = target.tz_convert("America/New_York").tz_localize(None)
+
+    def _naive_et(t) -> pd.Timestamp | None:
+        try:
+            x = pd.Timestamp(t)
+            if pd.isna(x):
+                return None
+            if x.tzinfo is not None:
+                x = x.tz_convert("America/New_York").tz_localize(None)
+            return x
+        except Exception:
+            return None
+
+    best, best_d = None, None
+    for leg in legs:
+        t = _naive_et(leg.get("game_date_utc"))
+        if t is None:
+            continue
+        d = abs((t - target).total_seconds())
+        if best_d is None or d < best_d:
+            best, best_d = leg, d
+    if best is not None and best_d is not None and best_d <= 4 * 3600:
+        return best
+    return None
+
+
+def _disambiguate_slate_keys(df: pd.DataFrame) -> pd.DataFrame:
+    """Give every slate row a DISTINCT game_id — one per actual game.
+
+    game_id is matchup-based (YYYYMMDD_AWAY@HOME), which is correct for a
+    single game per day but collides for doubleheaders: both legs share the
+    id, so the slate renders two IDENTICAL cards, the SHAP key is shared,
+    carry-forward collapses legs, and the slate-margin merge (keyed by
+    game_pk := game_id) explodes rows. Legs are re-keyed with a deterministic
+    start-time ordinal suffix (_2, _3, ...); the first leg keeps the legacy
+    bare id. Exact-duplicate game_id rows (the same game listed twice — a
+    true upstream bug) are dropped, keeping the first. Pure — no I/O.
+    """
+    if df is None or df.empty or "home_team" not in df.columns or "away_team" not in df.columns:
+        return df
+    df = df.copy()
+    if "start_time_utc" in df.columns:
+        df = df.sort_values("start_time_utc").reset_index(drop=True)
+    # Exact duplicates: the same game listed twice (same matchup AND same
+    # start time AND same game_id) is a true upstream bug — keep one row.
+    # (Two rows that share a matchup but differ in start time are REAL
+    # doubleheader legs, not duplicates — they must survive to be re-keyed.)
+    if "game_id" in df.columns:
+        _key = ["game_id"]
+        if "start_time_utc" in df.columns:
+            _key = ["game_id", "start_time_utc"]
+        df = df.drop_duplicates(subset=_key, keep="first").reset_index(drop=True)
+    # Distinct legs of the same matchup (doubleheaders) share the matchup-
+    # based game_id — re-key them with a deterministic start-time ordinal
+    # suffix so every row gets a DISTINCT per-game id.
+    m = df.duplicated(subset=["home_team", "away_team"], keep=False)
+    if m.any() and "game_id" in df.columns:
+        counts = df.groupby(["home_team", "away_team"], sort=False).cumcount().add(1)
+        dup = m & (counts > 1)
+        if dup.any():
+            df.loc[dup, "game_id"] = (
+                df.loc[dup, "game_id"].astype(str) + "_" + counts[dup].astype(str))
+    return df
+
+
+def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], list[dict]]:
     """Authoritative probable starters from MLB StatsAPI (names + person ids).
 
     ESPN drops probablePitcher from its scoreboard once a game starts, so an
@@ -986,9 +1064,14 @@ def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], dict]:
     through game end, giving the slate real names + pitcher ids even for
     completed games.
 
-    Returns {(home_abbr, away_abbr): {home_name, away_name, home_id,
-    away_id}} keyed by CANONICAL team abbreviations (normalize_team applied
-    to StatsAPI's own codes, so 'AZ'/'ATH' match the pipeline's keys).
+    Returns {(home_abbr, away_abbr): [per-leg dicts]} — a LIST of entries
+    per matchup because doubleheader legs are DIFFERENT games with (usually)
+    DIFFERENT starters: a single {(home, away): {...}} map silently collapses
+    both legs onto the last game processed (the bug that showed the same
+    pitcher on both BOS@NYY cards). Each entry carries the game's own gamePk
+    + first-pitch time so callers can match legs by start time. Team keys are
+    CANONICAL abbreviations (normalize_team applied to StatsAPI's own codes,
+    so 'AZ'/'ATH' match the pipeline's keys).
     """
     import requests
     teams: dict[int, str] = {}
@@ -1011,7 +1094,7 @@ def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], dict]:
         logger.warning("StatsAPI schedule fetch failed for %s: %s", target_date, e)
         return {}
 
-    out: dict[tuple[str, str], dict] = {}
+    out: dict[tuple[str, str], list[dict]] = {}
     for g in games:
         home = teams.get(g["teams"]["home"]["team"]["id"])
         away = teams.get(g["teams"]["away"]["team"]["id"])
@@ -1019,12 +1102,14 @@ def _fetch_statsapi_pitchers(target_date: date) -> dict[tuple[str, str], dict]:
             continue
         hp = g["teams"]["home"].get("probablePitcher") or {}
         ap = g["teams"]["away"].get("probablePitcher") or {}
-        out[(home, away)] = {
+        out.setdefault((home, away), []).append({
             "home_name": hp.get("fullName"),
             "away_name": ap.get("fullName"),
             "home_id": hp.get("id"),
             "away_id": ap.get("id"),
-        }
+            "game_pk": g.get("gamePk"),
+            "game_date_utc": g.get("gameDate"),
+        })
     return out
 
 
@@ -1065,7 +1150,13 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
         df["sp_id_home"] = np.nan
         df["sp_id_away"] = np.nan
         for idx, row in df.iterrows():
-            info = sp.get((str(row["home_team"]), str(row["away_team"])))
+            legs = sp.get((str(row["home_team"]), str(row["away_team"])))
+            if not legs:
+                continue
+            # A matchup can hold MULTIPLE StatsAPI games (doubleheader legs
+            # with their own starters) — match THIS ESPN row to the leg whose
+            # first pitch is closest, never the last one processed.
+            info = _match_statsapi_pitcher_leg(legs, row.get("start_time_utc"))
             if not info:
                 continue
             if info.get("home_name"):
@@ -1074,7 +1165,10 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
             if info.get("away_name"):
                 df.at[idx, "sp_name_away"] = info["away_name"]
                 df.at[idx, "sp_id_away"] = info.get("away_id")
-    return df
+    # Doubleheader legs share the matchup-based game_id — re-key every row to
+    # a DISTINCT per-game id (deterministic start-time ordinal suffix) and
+    # drop exact duplicates (a true upstream bug).
+    return _disambiguate_slate_keys(df)
 
 
 def _final_team_records(hist: pd.DataFrame) -> dict[str, dict[str, int]]:
@@ -1249,6 +1343,10 @@ def build_upcoming_slate(
     sched = schedule_df if schedule_df is not None else load_espn_schedule(target_date)
     if sched.empty:
         return pd.DataFrame()
+    # One row per ACTUAL game: doubleheader legs share the matchup-based
+    # game_id, so re-key them to distinct per-leg ids (and drop exact
+    # duplicates) regardless of which schedule source produced them.
+    sched = _disambiguate_slate_keys(sched)
 
     hist = history_df.copy()
     hist["game_date"] = pd.to_datetime(hist["game_date"])

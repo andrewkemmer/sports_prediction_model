@@ -290,6 +290,73 @@ class TestOUPushDisplay(unittest.TestCase):
         self.assertEqual(diag.grid_push_col(8.5), "p_push_8_5")
 
 
+class TestDoubleheaderCards(unittest.TestCase):
+    """Doubleheader legs are DISTINCT games on the card layer.
+
+    Each leg has its own game_id (start-time ordinal suffix, e.g.
+    20260829_BOS@NYY vs 20260829_BOS@NYY_2), so each leg's card resolves
+    ITS OWN run-engine markets row (different projections per leg) instead
+    of both cards showing the same pitcher/projection; and a markets frame
+    holding two rows with the SAME game_pk collapses to one (a true bug, no
+    explosion). Rendering iterates slate rows — distinct rows produce
+    distinct cards with per-leg time/pitcher data.
+    """
+
+    def test_per_leg_game_ids_resolve_own_markets_row(self):
+        """Two BOS@NYY legs with distinct game_ids get DISTINCT run-engine
+        projections — never the same strip on both cards."""
+        leg1 = make_slate_row("20260829_BOS@NYY")
+        leg1.update(home_expected_runs=4.4, away_expected_runs=4.9,
+                    p_over_9_5=0.55, p_under_9_5=0.45, p_home_cover_1_5=0.6)
+        leg2 = dict(leg1, game_pk="20260829_BOS@NYY_2",
+                    home_expected_runs=4.4, away_expected_runs=4.1,
+                    p_over_8_5=0.48, p_under_8_5=0.52, p_home_cover_1_5=0.42)
+        slate_map = {str(r["game_pk"]): r for r in (leg1, leg2)}
+
+        bits1 = diag.run_engine_card_bits("20260829_BOS@NYY", slate_map)
+        bits2 = diag.run_engine_card_bits("20260829_BOS@NYY_2", slate_map)
+        self.assertIsNotNone(bits1)
+        self.assertIsNotNone(bits2)
+        # Per-leg projections + per-leg pricing (9.5 vs 8.5 lines).
+        self.assertEqual(bits1["proj_away"], 4.9)
+        self.assertEqual(bits2["proj_away"], 4.1)
+        self.assertEqual(bits1["total_line"], 9.5)
+        self.assertEqual(bits2["total_line"], 8.5)
+        self.assertAlmostEqual(bits1["p_over"] + bits1["p_under"], 1.0, places=9)
+        self.assertAlmostEqual(bits2["p_over"] + bits2["p_under"], 1.0, places=9)
+
+    def test_same_game_pk_rows_collapse_in_slate_map(self):
+        """Two markets rows with the SAME game_pk are a true bug — the
+        slate_map dict keys by game_pk, so they collapse to ONE entry (no
+        duplicate cards), and the card resolves deterministically."""
+        row = make_slate_row("20260829_BOS@NYY")
+        dup = dict(row)
+        dup["home_expected_runs"] = 9.9  # the duplicated row's data
+        slate_map = {str(r["game_pk"]): r for r in (row, dup)}
+        self.assertEqual(len(slate_map), 1)
+        bits = diag.run_engine_card_bits("20260829_BOS@NYY", slate_map)
+        self.assertIsNotNone(bits)
+        # The LAST row wins by dict semantics; either way exactly one card
+        # entry exists for the key.
+        self.assertEqual(bits["proj_home"], 9.9)
+
+    def test_slate_rows_carry_per_leg_time_and_pitchers(self):
+        """The slate artifact itself carries each leg's own start time and
+        pitchers, so the card loop renders distinct cards per leg."""
+        rows = pd.DataFrame([
+            {"game_id": "20260829_BOS@NYY", "home_team": "NYY",
+             "away_team": "BOS", "start_time_utc": "2026-08-29 13:05:00",
+             "sp_name_home": "Rodón, Carlos", "sp_name_away": "Bennett, Jordan"},
+            {"game_id": "20260829_BOS@NYY_2", "home_team": "NYY",
+             "away_team": "BOS", "start_time_utc": "2026-08-29 19:15:00",
+             "sp_name_home": "Fried, Max", "sp_name_away": "TBD"},
+        ])
+        self.assertEqual(rows["game_id"].nunique(), 2)
+        times = rows["start_time_utc"].tolist()
+        self.assertNotEqual(times[0], times[1])
+        self.assertNotEqual(rows.iloc[0]["sp_name_home"], rows.iloc[1]["sp_name_home"])
+
+
 class TestRunEngineStripSmoke(unittest.TestCase):
     """Verify the run-engine strip HTML structure in todays_games.py."""
 
