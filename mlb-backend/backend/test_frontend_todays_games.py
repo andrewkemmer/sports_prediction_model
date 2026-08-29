@@ -727,5 +727,100 @@ class TestRunEngineStripSmoke(unittest.TestCase):
                       "_runengine_html must reference p_push")
 
 
+class TestResolveTotalsLineGridBinding(unittest.TestCase):
+    """resolve_totals_line / resolve_rl_line must NEVER NameError.
+
+    Regression for the deployed crash: the helpers referenced diag.TOTAL_GRID
+    / diag.RUN_LINE_GRID_FULL, but `diag` was only imported inside main().
+    Run 1 wrote ou_line_<game_pk>/rl_line_<game_pk> into session_state and
+    returned early; run 2 reached the diag reference with no such module
+    global -> NameError on every load after the first render.
+    """
+
+    def _todays(self):
+        import streamlit as st  # noqa: F401  (session_state runtime)
+        import todays_games as todays
+        return todays
+
+    def test_module_grid_constant_matches_shipped_grid(self):
+        """The module-level TOTAL_GRID constant is the shipped 6.5-12.5 grid
+        (the getattr fallback target) and RUN_LINE_GRID_FULL is the full
+        run-line grid — an absent/renamed upstream attribute degrades to
+        these defaults instead of crashing."""
+        todays = self._todays()
+        default = [round(6.5 + 0.5 * i, 1) for i in range(13)]
+        self.assertEqual(todays.TOTAL_GRID, default)
+        self.assertEqual(todays.TOTAL_GRID, diag.TOTAL_GRID)
+        self.assertEqual(todays.RUN_LINE_GRID_FULL, diag.RUN_LINE_GRID_FULL)
+
+    def test_resolve_totals_line_uses_module_constant_and_validates(self):
+        """resolve_totals_line reads the module-level constant (never a
+        scoped `diag`), validates against it, and falls back to the model
+        line for invalid/out-of-grid selections — same contract as before."""
+        import streamlit as st
+        todays = self._todays()
+        orig = todays.TOTAL_GRID
+        todays.TOTAL_GRID = [7.0, 7.5]      # narrower grid: follows the patch
+        try:
+            st.session_state["ou_line_gr"] = 7.5
+            self.assertEqual(todays.resolve_totals_line("gr", 8.5), 7.5)
+            st.session_state["ou_line_gr"] = 9.0   # off the patched grid
+            self.assertEqual(todays.resolve_totals_line("gr", 8.5), 8.5)
+            st.session_state["ou_line_gr"] = "abc"  # non-numeric
+            self.assertEqual(todays.resolve_totals_line("gr", 8.5), 8.5)
+            st.session_state["ou_line_gr"] = None   # None selection
+            self.assertEqual(todays.resolve_totals_line("gr", 8.5), 8.5)
+        finally:
+            todays.TOTAL_GRID = orig
+        # Fresh key (never selected) -> default, key seeded in session_state.
+        self.assertEqual(todays.resolve_totals_line("gr_fresh", 9.5), 9.5)
+        self.assertEqual(st.session_state["ou_line_gr_fresh"], 9.5)
+
+    def test_resolve_rl_line_uses_module_constant(self):
+        """resolve_rl_line has the same module-level binding (the identical
+        latent NameError is fixed too)."""
+        import streamlit as st
+        todays = self._todays()
+        orig = todays.RUN_LINE_GRID_FULL
+        todays.RUN_LINE_GRID_FULL = [1.5, 2.5]
+        try:
+            st.session_state["rl_line_gr"] = 2.5
+            self.assertEqual(todays.resolve_rl_line("gr", 1.5), 2.5)
+            st.session_state["rl_line_gr"] = 3.0   # off the patched grid
+            self.assertEqual(todays.resolve_rl_line("gr", 1.5), 1.5)
+        finally:
+            todays.RUN_LINE_GRID_FULL = orig
+
+    def test_apptest_todays_games_rerun_no_nameerror(self):
+        """End-to-end through Home.py -> nav.run() -> todays_games.main() ->
+        resolve_totals_line (the exact crash path): run 1 seeds
+        ou_line_<game_pk> into session_state; run 2 (the deployed crash)
+        must render with 0 exceptions. Runs in a SUBPROCESS so the
+        canonical suite's streamlit stubs (test_frontend_markets swaps
+        sys.modules['streamlit'] and leaves utils.st bound to the MagicMock)
+        cannot poison the real Streamlit run."""
+        import subprocess
+        import sys as _sys
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert len(at.selectbox) > 0, 'no game cards rendered';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert len(at.selectbox) > 0, 'rerun lost game cards';\n"
+            "print('APP_OK')\n"
+        ) % (str(FRONTEND), str(FRONTEND / "Home.py"))
+        res = subprocess.run([_sys.executable, "-c", script],
+                             capture_output=True, text=True, timeout=180)
+        self.assertEqual(
+            res.returncode, 0,
+            f"AppTest subprocess failed:\nSTDOUT:\n{res.stdout}\n"
+            f"STDERR:\n{res.stderr[-2000:]}")
+        self.assertIn("APP_OK", res.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

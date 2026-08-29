@@ -18,6 +18,23 @@ import streamlit as st
 
 import utils
 
+# Bound at MODULE level (not inside main) so the resolve_* selector helpers
+# below can never NameError. The inline import inside main() was the
+# deployed crash: run 1 writes ou_line_<game_pk>/rl_line_<game_pk> into
+# session_state, and run 2's resolve_totals_line/resolve_rl_line reached
+# `diag` with no such global in scope. market_diagnostics is pure
+# (stdlib + altair/numpy/pandas), so importing it here is import-safe.
+import market_diagnostics as diag  # noqa: E402
+
+# Grids for the per-card line selectors, resolved ONCE at module top with a
+# safe fallback: if the attribute is ever renamed/missing upstream, degrade
+# to the known defaults (totals 6.5-12.5 by 0.5; run lines 1.0-4.0) instead
+# of crashing the page. The resolve_* helpers read these constants.
+TOTAL_GRID = getattr(diag, "TOTAL_GRID",
+                     [round(6.5 + 0.5 * i, 1) for i in range(13)])
+RUN_LINE_GRID_FULL = getattr(diag, "RUN_LINE_GRID_FULL",
+                             [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
+
 utils.inject_css()
 
 
@@ -365,7 +382,7 @@ def resolve_rl_line(game_id, default_line: float = 1.5) -> float:
         val = round(float(st.session_state[key]), 1)
     except (TypeError, ValueError):
         return default_line
-    if val not in diag.RUN_LINE_GRID_FULL:
+    if val not in RUN_LINE_GRID_FULL:
         return default_line
     return val
 
@@ -390,7 +407,7 @@ def resolve_totals_line(game_id, default_line: float) -> float:
         val = round(float(st.session_state[key]), 1)
     except (TypeError, ValueError):
         return default_line
-    if val not in diag.TOTAL_GRID:
+    if val not in TOTAL_GRID:
         return default_line
     return val
 
@@ -421,7 +438,7 @@ def main() -> None:
     # Run-engine slate rows keyed by game_pk (ESPN game_id pre-game — the
     # 145d841 convention); joined to cards by game_id. Empty frame when the
     # artifact is missing or predates Phase 3 → cards just omit the strip.
-    import market_diagnostics as diag  # noqa: E402  (pure, import-safe)
+    # (diag is a module-level import — see the top of this file.)
     _markets = utils.load_run_engine_markets(date_str)
     slate_map = {}
     if len(_markets) and "kind" in _markets.columns:
