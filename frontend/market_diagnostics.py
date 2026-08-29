@@ -730,9 +730,18 @@ def run_engine_card_bits(game_id: str,
         p_over = _num(row, over_col)
         p_under = _num(row, under_col)
         if p_over is not None and p_under is not None:
+            # P(push) for whole-number lines: P(total == line) via the
+            # grid — difference between the p_over at line L (push-
+            # inclusive threshold) and at line L+0.5 (strict threshold).
+            # Half-lines can never push, so this is always 0 for them.
+            p_push = None
+            over_next_col, _ = grid_over_under_cols(line + 0.5)
+            p_over_next = _num(row, over_next_col)
+            if p_over_next is not None:
+                p_push = max(0.0, p_over - p_over_next)
             bits.update({"total_line": line, "clamped": clamped,
                          "p_over": p_over, "p_under": p_under,
-                         "has_grid": True})
+                         "p_push": p_push, "has_grid": True})
     return bits
 
 

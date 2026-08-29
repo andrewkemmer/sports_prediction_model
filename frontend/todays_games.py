@@ -131,8 +131,10 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
         f'<span class="re-label">RUN ENGINE</span>'
         f'<span>Proj: {away_team} {bits["proj_away"]:.1f} – '
         f'{home_team} {bits["proj_home"]:.1f}</span>'
-        f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
-        f'Under {bits["p_under"]:.0%}</span>'
+        f'<span>{ou_label}: Over {bits["p_over"]:.0%}'
+        + (f' / Push {(bits.get("p_push") or 0):.0%}'
+           if (bits.get("p_push") or 0) > 0.005 else '')
+        + f' / Under {bits["p_under"]:.0%}</span>'
         f'<span>RL: {home_team} −1.5 {bits["p_home_cover"]:.0%} · '
         f'{away_team} +1.5 {bits["p_away_cover"]:.0%} (complement)</span>'
         f'</div>'

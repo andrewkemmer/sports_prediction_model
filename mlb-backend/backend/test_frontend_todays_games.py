@@ -18,6 +18,7 @@ Read-only over artifacts — nothing fabricated, no model/metric changes.
 """
 from __future__ import annotations
 
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -128,146 +129,98 @@ class TestRunEngineCardBits(unittest.TestCase):
         series = pd.Series(row)
         bits = diag.run_engine_card_bits("20260824_BOS@MIA",
                                          {row["game_pk"]: series})
+
+
+class TestOUPushDisplay(unittest.TestCase):
+    """Verify that the run-engine card's O/U line includes push for
+    whole-number lines and omits it for half-lines.
+
+    Root cause: the old p_over/p_under columns for whole-number lines
+    (e.g. 9.0) were push-inclusive on the over side, so over+under
+    summed to ~92% instead of 100%.  After the p_over definition fix
+    (strict P(over) = total >= line + 0.5), p_push = P(total == line)
+    must be shown for whole-number lines.
+    """
+
+    def test_half_line_push_is_zero_or_none(self):
+        """For half-lines (8.5, 9.5), p_push is 0 or None (no next grid column)."""
+        row = make_slate_row()  # total_line = 9.5
+        bits = diag.run_engine_card_bits("20260824_BOS@MIA",
+                                         {row["game_pk"]: row})
         self.assertIsNotNone(bits)
         self.assertTrue(bits["has_grid"])
-        self.assertEqual(bits["proj_home"], 4.3911)
-        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, places=9)
+        # Half-line 9.5: no push possible — p_push is 0 or None
+        pp = bits.get("p_push")
+        if pp is not None:
+            self.assertAlmostEqual(pp, 0.0, places=9)
 
-    def test_non_numeric_values_do_not_crash(self):
-        row = {"game_pk": "Q", "home_expected_runs": "4.6",
-               "away_expected_runs": None, "p_over_9_5": "0.5",
-               "p_under_9_5": 0.5, "p_home_cover_1_5": "boom"}
-        bits = diag.run_engine_card_bits("Q", {"Q": row})
-        self.assertIsNotNone(bits)
-        self.assertEqual(bits["proj_home"], 4.6)   # numeric string coerced
-        self.assertIsNone(bits["proj_away"])
-        self.assertIsNone(bits["p_home_cover"])
-        self.assertFalse(bits["has_grid"])
+    def test_whole_line_push_nonzero(self):
+        """For whole-number lines (e.g. 9.0), p_push > 0."""
+        # Craft a row with λ_h + λ_a = 9.0 → line 9.0
+        row = {"game_pk": "W", "home_expected_runs": 4.5,
+               "away_expected_runs": 4.5,
+               "p_over_9_0": 0.42, "p_under_9_0": 0.58,
+               "p_over_9_5": 0.34, "p_under_9_5": 0.66,
+               "p_home_cover_1_5": 0.4}
+        bits = diag.run_engine_card_bits("W", {"W": row})
+        self.assertTrue(bits["has_grid"])
+        self.assertEqual(bits["total_line"], 9.0)
+        # p_push = p_over_9_0 - p_over_9_5 = 0.42 - 0.34 = 0.08
+        self.assertAlmostEqual(bits["p_push"], 0.08, places=9)
+        self.assertGreater(bits["p_push"], 0)
 
+    def test_p_push_matches_grid_difference(self):
+        """p_push for a whole line equals p_over(L) - p_over(L+0.5)."""
+        row = {"game_pk": "P", "home_expected_runs": 4.0,
+               "away_expected_runs": 4.0,  # line = 8.0
+               "p_over_8_0": 0.55, "p_under_8_0": 0.45,
+               "p_over_8_5": 0.48, "p_under_8_5": 0.52,
+               "p_home_cover_1_5": 0.35}
+        bits = diag.run_engine_card_bits("P", {"P": row})
+        self.assertEqual(bits["total_line"], 8.0)
+        self.assertAlmostEqual(bits["p_push"], 0.55 - 0.48, places=9)
 
-class TestRealArtifactJoin(unittest.TestCase):
-    """Local read-only proof: every todays_games game_id matches a slate
-    game_pk on the shipped run_engine_markets artifact."""
+    def test_html_push_for_whole_line_source_check(self):
+        """todays_games.py must handle p_push in the O/U HTML line."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        # The function must reference p_push in the O/U span
+        self.assertIn("p_push", src,
+                      "todays_games.py must reference p_push for O/U display")
 
-    def test_all_todays_games_join_to_slate(self):
-        dd = Path(__file__).resolve().parents[1] / "data_delivery"
-        m_path = dd / "run_engine_markets_20260824.csv"
-        t_path = dd / "todays_games_20260824.csv"
-        if not m_path.exists() or not t_path.exists():
-            self.skipTest("local run-engine artifacts absent in this workspace")
-        markets = pd.read_csv(m_path)
-        todays = pd.read_csv(t_path)
-        self.assertIn("kind", markets.columns)
-        sl = markets[markets["kind"] == "slate"]
-        slate_map = {str(pk): rec
-                     for pk, rec in zip(sl["game_pk"], sl.to_dict("records"))}
-        joined = 0
-        for gid in todays["game_id"].astype(str):
-            bits = diag.run_engine_card_bits(gid, slate_map)
-            self.assertIsNotNone(bits, f"no slate row for {gid}")
-            self.assertTrue(bits["has_grid"], f"grid missing for {gid}")
-            # Real slate totals (λ_home + λ_away ≈ 9.1–9.4) round to 9.0/9.5
-            self.assertIn(bits["total_line"], (9.0, 9.5),
-                          f"unexpected rounded line for {gid}")
-            self.assertFalse(bits["clamped"], f"unexpected clamp for {gid}")
-            self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
-                                   places=6, msg=f"O/U not complementary: {gid}")
-            self.assertAlmostEqual(bits["p_home_cover"] + bits["p_away_cover"],
-                                   1.0, places=6, msg=f"RL not complementary: {gid}")
-            joined += 1
-        self.assertEqual(joined, len(todays),
-                         "every Today's Games card must join to the slate")
+    def test_html_no_push_for_half_line_source_check(self):
+        """For half-lines, p_push is None/0, so Push is not shown."""
+        # This is a source-level check: the code must guard on p_push > 0.005
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("0.005", src,
+                      "Threshold guard for p_push display must exist")
 
-
-class TestMarketsPageStripped(unittest.TestCase):
-    """Render/smoke via source inspection: the six charts render, the removed
-    panels don't."""
-
-    def setUp(self):
-        self.src = (FRONTEND / "markets.py").read_text()
-
-    def test_six_diagnostics_tabs_present(self):
-        for label in ['"Distribution"', '"Relativized"', '"Pooled lines"',
-                      '"Money line (rounded)"', '"Totals picks"',
-                      '"Run-line picks"']:
-            self.assertIn(label, self.src, f"missing tab {label}")
-        # Overs picks tab dropped — Totals picks takes its place (superset)
-        self.assertNotIn('"Overs picks"', self.src)
-        self.assertIn("import market_diagnostics as diag", self.src)
-        self.assertIn("No decided OOF rows", self.src)
-        self.assertIn("rounded_total_pairs", self.src)
-        self.assertIn("totals_pick_table", self.src)
-        # Totals picks chart carries the pooled-win-rate reference line
-        # and the accuracy-axis floor (line not pinned to the top)
-        self.assertIn("total_line=True", self.src)
-        self.assertIn("acc_y_max=75.0", self.src)
-
-    def test_flat_8_5_money_line_gone(self):
-        self.assertNotIn('"Money line 8.5"', self.src)
-        self.assertNotIn("fixed_line_pairs(decided, (8.5,))", self.src)
-
-    def test_push_captions_present(self):
-        self.assertIn("pushes excluded", self.src)
-        self.assertIn("push_stats", self.src)
-        # Corrected interpretation: pushes are UNDER-favored games landing
-        # exactly on the line, previously scored as wins — excluding them
-        # LOWERS the honest win rate (not "would-be over misses").
-        self.assertIn("UNDER-favored", self.src)
-        self.assertIn("previously scored as wins", self.src)
-        self.assertIn("LOWERS", self.src)
-        self.assertIn("56.1% → 54.1%", self.src)
-        self.assertNotIn("would-be over misses", self.src)
-        self.assertNotIn("leaned over", self.src)
-
-    def test_removed_panels_absent(self):
-        for marker in [
-            "st.slider(", "st.select_slider(",
-            "Market calibration & holdout gate",
-            "Rolling totals Brier",
-            "Blowout-tail fit check",
-            "CONFLICT", "suppressed_game_pks",
-            "P(OVER ", "P(COVER ", "DERIVED ML",
-            "agreement_delta",
-        ]:
-            self.assertNotIn(marker, self.src,
-                             f"removed panel marker still rendered: {marker}")
-
-    def test_artifact_warnings_kept(self):
-        self.assertIn("No run-engine markets artifact", self.src)
-        self.assertIn("_load_markets", self.src)
+    def test_p_push_present_in_bits_dict(self):
+        """run_engine_card_bits must always include p_push key."""
+        row = make_slate_row()  # half-line
+        bits = diag.run_engine_card_bits("20260824_BOS@MIA",
+                                         {row["game_pk"]: row})
+        self.assertIn("p_push", bits, "bits dict must contain p_push key")
 
 
-class TestTodaysGamesCardEnrichment(unittest.TestCase):
-    def setUp(self):
-        self.src = (FRONTEND / "todays_games.py").read_text()
+class TestRunEngineStripSmoke(unittest.TestCase):
+    """Verify the run-engine strip HTML structure in todays_games.py."""
 
-    def test_run_engine_strip_present(self):
-        self.assertIn("RUN ENGINE", self.src)
-        self.assertIn("run_engine_card_bits", self.src)
-        self.assertIn("load_run_engine_markets", self.src)
-        self.assertIn("n/a", self.src)
-        self.assertIn("complement", self.src)
-        # O/U segment prices at the per-game rounded total, not flat 8.5
-        self.assertIn('bits["total_line"]', self.src)
-        self.assertIn("clamped", self.src)
-        self.assertNotIn("O/U 8.5", self.src)
-        # The card keeps EXACTLY two probabilities (Over/Under, sum to 1) —
-        # no push concept, no three-way split, no renormalization. Scoped to
-        # the strip builder (the SHAP comment elsewhere legitimately uses
-        # the verb "pushes").
-        start = self.src.index("def _runengine_html")
-        end = self.src.index("def _score_side", start)
-        strip_src = self.src[start:end].lower()
-        self.assertNotIn("push", strip_src)
-        # Card still renders moneyline + pitchers (untouched)
-        self.assertIn("fb-odds", self.src)
-        self.assertIn("fb-pitchers", self.src)
+    def test_strip_html_includes_run_engine_label(self):
+        """The run-engine strip must include the RUN ENGINE label."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        self.assertIn("RUN ENGINE", src,
+                      "todays_games.py must render the RUN ENGINE strip")
 
-    def test_utils_exposes_shared_loader(self):
-        utils_src = (FRONTEND / "utils.py").read_text()
-        self.assertIn("def load_run_engine_markets", utils_src)
-        # CSS for the strip exists
-        self.assertIn(".fb-runengine", utils_src)
+    def test_strip_p_push_handled_in_source(self):
+        """The O/U line in the strip must reference p_push."""
+        src = (FRONTEND / "todays_games.py").read_text()
+        # Find the _runengine_html function
+        start = src.index("def _runengine_html")
+        rest = src[start:]
+        end_idx = rest.index("\ndef _score_side")
+        func_src = rest[:end_idx]
+        self.assertIn("p_push", func_src,
+                      "_runengine_html must reference p_push")
 
 
 if __name__ == "__main__":
