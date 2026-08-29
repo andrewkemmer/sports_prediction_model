@@ -508,6 +508,7 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
     n_margins = len(RUN_LINE_GRID)
     grid_over = np.empty((n_games, n_lines))
     grid_cover = np.empty((n_games, n_margins))
+    grid_push = np.empty((n_games, n_lines))
     chunk = max(1, min(n_games, 2_000_000 // max(n_draws, 1)))
     for start in range(0, n_games, chunk):
         end = min(start + chunk, n_games)
@@ -521,7 +522,11 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
                                   size=(end - start, n_draws)).astype(np.int32)
         total = h + a
         diff = h - a
-        p_over[start:end] = (total >= int(-(-TOTAL_LINE // 1))).mean(axis=1)
+        # Strict over: total must EXCEED the line (total > line). Using
+        # TOTAL_LINE + 0.5 matches the monitor scorer's definition and
+        # fixes the push-inclusive bug where int(-(-line//1)) produced
+        # the same threshold for whole lines (9.0) and half-lines (8.5).
+        p_over[start:end] = (total >= TOTAL_LINE + 0.5).mean(axis=1)
         p_cover[start:end] = (diff >= int(RUN_LINE_MARGIN) + 1).mean(axis=1)
         p_win[start:end] = (diff > 0).mean(axis=1)
     # ------------------------------------------------------------------
@@ -541,13 +546,21 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
     # closed. If p_home_win_derived ever feeds pricing, reopen this.
     # ------------------------------------------------------------------
         for j, line in enumerate(TOTAL_LINE_GRID):
-            grid_over[start:end, j] = (total >= int(-(-line // 1))).mean(axis=1)
+            # Strict over (total > line) — matches the monitor scorer's
+            # total >= line + 0.5.  The old formula int(-(-line//1))
+            # produced threshold = line for whole numbers (e.g. 9.0 → 9),
+            # making P(over) push-inclusive (~50% at line 9 instead of
+            # ~40%).  For half-lines (8.5) both formulas agree.
+            grid_over[start:end, j] = (total >= line + 0.5).mean(axis=1)
         for j, m in enumerate(RUN_LINE_GRID):
             grid_cover[start:end, j] = (diff >= int(-(-m // 1))).mean(axis=1)
+        for j, line in enumerate(TOTAL_LINE_GRID):
+            grid_push[start:end, j] = (total == line).mean(axis=1)
     mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
     return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
             "p_home_win_derived": p_win, "mc_se_totals": mc_se,
-            "p_over_grid": grid_over, "p_cover_grid": grid_cover}
+            "p_over_grid": grid_over, "p_cover_grid": grid_cover,
+            "p_push_grid": grid_push}
 
 
 def brier_score(y: np.ndarray, p: np.ndarray) -> float:
@@ -1187,8 +1200,10 @@ def derive_markets_v3(oof: pd.DataFrame,
     for j, line in enumerate(TOTAL_LINE_GRID):
         key = line_key_total(line)
         markets[key] = np.round(mc["p_over_grid"][:, j], 5)
+        markets[key.replace("p_over_", "p_push_")] = np.round(
+            mc["p_push_grid"][:, j], 5)
         markets[key.replace("p_over_", "p_under_")] = np.round(
-            1 - mc["p_over_grid"][:, j], 5)
+            1 - mc["p_over_grid"][:, j] - mc["p_push_grid"][:, j], 5)
     for j, m in enumerate(RUN_LINE_GRID):
         markets[line_key_margin(m)] = np.round(mc["p_cover_grid"][:, j], 5)
     markets["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
@@ -1576,8 +1591,10 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     for j, line in enumerate(TOTAL_LINE_GRID):
         key = f"p_over_{str(line).replace('.', '_')}"
         out[key] = np.round(mc["p_over_grid"][:, j], 5)
+        out[key.replace("p_over_", "p_push_")] = np.round(
+            mc["p_push_grid"][:, j], 5)
         out[key.replace("p_over_", "p_under_")] = np.round(
-            1 - mc["p_over_grid"][:, j], 5)
+            1 - mc["p_over_grid"][:, j] - mc["p_push_grid"][:, j], 5)
     for j, m in enumerate(RUN_LINE_GRID):
         out[f"p_home_cover_{str(m).replace('.', '_')}"] = np.round(
             mc["p_cover_grid"][:, j], 5)
