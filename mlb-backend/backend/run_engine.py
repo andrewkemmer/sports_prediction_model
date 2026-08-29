@@ -1377,6 +1377,36 @@ def _rounded_total_line(exp_home: float, exp_away: float) -> float:
     return half
 
 
+def _fair_total_line(row: pd.Series) -> Optional[float]:
+    """FAIR total line for one artifact row - grid argmin of
+    |re-scaled P(over) - 0.5| over the shipped grid, where re-scaled
+    P(over) = p_over / (p_over + p_under) conditions out the push band.
+
+    Mirrors market_diagnostics.fair_total_line_row EXACTLY so the backend
+    winner cards and the frontend Totals & Run Lines tables share ONE
+    own-total-line definition (the winner-card cross-check). Ties pick the
+    LOWER line; a grid-boundary argmin is taken verbatim (never fabricated);
+    None when no grid Over/Under pair is present+valid - the caller falls
+    back to the round-to-half projection.
+    """
+    best_line, best_delta = None, None
+    for line in TOTAL_LINE_GRID:
+        key = str(line).replace(".", "_")
+        po = row.get(f"p_over_{key}")
+        pu = row.get(f"p_under_{key}")
+        try:
+            po = None if po is None or pd.isna(po) else float(po)
+            pu = None if pu is None or pd.isna(pu) else float(pu)
+        except (TypeError, ValueError):
+            continue
+        if po is None or pu is None or (po + pu) <= 0:
+            continue
+        delta = abs(po / (po + pu) - 0.5)
+        if best_line is None or delta < best_delta - 1e-12:
+            best_line, best_delta = line, delta
+    return best_line
+
+
 # Reference line whose AUC each winner card reports — NEVER a mixed-line rank
 # (per-game assigned lines aren't comparable for a pooled AUC).
 WINNER_CARD_AUC_REF = {
@@ -1503,20 +1533,30 @@ def compute_winner_cards(markets: pd.DataFrame,
     total = df["total_runs"].to_numpy(float)
     pks = df["game_pk"].to_numpy()
 
-    # --- over_under: per-game assigned line, push-excluded ---
+    # --- over_under: per-game FAIR line (grid argmin |re-scaled P(over)
+    # - 0.5|, the 50/50 anchor), 3-way push-excluded; pick on the RE-SCALED
+    # 2-way probability (raw p_over under-states Over on whole-number lines
+    # via the push band) - identical to the frontend history tables. ---
     ou_p, ou_y, ou_keys, ou_dates = [], [], [], []
     for i in range(len(df)):
-        line = _rounded_total_line(df["home_expected_runs"].iloc[i],
-                                   df["away_expected_runs"].iloc[i])
+        line = _fair_total_line(df.iloc[i])
+        if line is None:
+            line = _rounded_total_line(df["home_expected_runs"].iloc[i],
+                                       df["away_expected_runs"].iloc[i])
         over_col = f"p_over_{str(line).replace('.', '_')}"
-        if over_col not in df.columns:
+        under_col = f"p_under_{str(line).replace('.', '_')}"
+        if over_col not in df.columns or under_col not in df.columns:
             continue
-        p = df[over_col].iloc[i]
-        if pd.isna(p):
+        po = df[over_col].iloc[i]
+        pu = df[under_col].iloc[i]
+        if pd.isna(po) or pd.isna(pu):
+            continue
+        denom = float(po) + float(pu)
+        if denom <= 0:
             continue
         if total[i] == line:      # push (whole-number lines only)
             continue
-        p = float(p)
+        p = float(po) / denom
         pick_over = p >= 0.5
         went_over = total[i] > line
         ou_p.append(p if pick_over else 1.0 - p)

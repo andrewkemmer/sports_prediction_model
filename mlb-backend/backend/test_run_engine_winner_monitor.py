@@ -24,24 +24,35 @@ if str(_frontend) not in sys.path:
 
 
 def _mk_frame() -> pd.DataFrame:
-    """Synthetic OOF markets frame with known lines/picks.
+    """Synthetic OOF markets frame with known FAIR lines/picks.
 
-    Games 1-3 price at line 8.5 (λ sum 8.3); game 4 is a whole-number-line
-    PUSH (line 8.0, total 8); game 5 prices at 9.5 (λ sum 9.3).
+    The own total line is now the FAIR line (grid argmin of
+    |re-scaled P(over) − 0.5|), so the per-game p_over profile must make
+    the intended line the argmin — the p_over values below are set so the
+    FAIR line is 8.5 for games 1-3 (tie → lower), 8.0 for game 4 (whole
+    line, total 8 → PUSH), 9.5 for game 5. p_under mirrors p_over
+    (1 − p), so re-scaled P(over) = p_over at every line.
     """
     rows = [
         # game_pk, date, λh, λa, total, hs, as_, p_over_8_5, p_over_8_0,
-        # p_over_9_5, p_home_cover_1_5, p_home_win_derived
-        (1, "2026-08-20", 4.2, 4.1, 10, 6, 4, 0.60, 0.70, 0.60, 0.6, 0.6),
-        (2, "2026-08-20", 4.2, 4.1, 8, 4, 4, 0.55, 0.65, 0.55, 0.6, 0.6),
-        (3, "2026-08-20", 4.2, 4.1, 7, 3, 4, 0.45, 0.55, 0.45, 0.4, 0.4),
-        (4, "2026-08-20", 4.1, 3.9, 8, 5, 3, 0.60, 0.70, 0.60, 0.7, 0.7),
-        (5, "2026-08-20", 4.6, 4.7, 9, 4, 5, 0.40, 0.50, 0.40, 0.4, 0.4),
+        # p_over_9_5, p_under_8_5, p_under_8_0, p_under_9_5,
+        # p_home_cover_1_5, p_home_win_derived
+        (1, "2026-08-20", 4.2, 4.1, 10, 6, 4, 0.60, 0.70, 0.60,
+         0.40, 0.30, 0.40, 0.6, 0.6),
+        (2, "2026-08-20", 4.2, 4.1, 8, 4, 4, 0.55, 0.65, 0.55,
+         0.45, 0.35, 0.45, 0.6, 0.6),
+        (3, "2026-08-20", 4.2, 4.1, 7, 3, 4, 0.45, 0.60, 0.45,
+         0.55, 0.40, 0.55, 0.4, 0.4),
+        (4, "2026-08-20", 4.1, 3.9, 8, 5, 3, 0.28, 0.70, 0.28,
+         0.72, 0.30, 0.72, 0.7, 0.7),
+        (5, "2026-08-20", 4.6, 4.7, 9, 4, 5, 0.65, 0.75, 0.40,
+         0.35, 0.25, 0.60, 0.4, 0.4),
     ]
     df = pd.DataFrame(rows, columns=[
         "game_pk", "game_date", "home_expected_runs", "away_expected_runs",
         "total_runs", "home_score", "away_score", "p_over_8_5", "p_over_8_0",
-        "p_over_9_5", "p_home_cover_1_5", "p_home_win_derived"])
+        "p_over_9_5", "p_under_8_5", "p_under_8_0", "p_under_9_5",
+        "p_home_cover_1_5", "p_home_win_derived"])
     df["kind"] = "oof"
     return df
 

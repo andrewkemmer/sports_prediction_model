@@ -82,23 +82,27 @@ class TestRunEngineCardBits(unittest.TestCase):
         self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, places=9)
 
     def test_line_out_of_grid_clamped_with_note(self):
-        # 14.0 → clamps to the 12.5 edge of the shipped grid, flagged
+        # The own line is now the FAIR line (grid argmin |re-scaled P(over)
+        # − 0.5|): when the row only prices the 12.5 edge column, the fair
+        # argmin IS that grid boundary — taken verbatim, never clamped
+        # (clamped stays False because a real grid line was priced; the
+        # clamp flag only fires on the no-grid round-mean fallback).
         row = {"game_pk": "H", "home_expected_runs": 7.0,
                "away_expected_runs": 7.0, "p_over_12_5": 0.2,
                "p_under_12_5": 0.8, "p_home_cover_1_5": 0.3}
         bits = diag.run_engine_card_bits("H", {"H": row})
         self.assertTrue(bits["has_grid"])
         self.assertEqual(bits["total_line"], 12.5)
-        self.assertTrue(bits["clamped"])
+        self.assertFalse(bits["clamped"])
         self.assertEqual(bits["p_over"], 0.2)
-        # low edge: 6.0 → clamps to 6.5
+        # low edge: only the 6.5 column prices → fair argmin 6.5, taken as-is
         row2 = {"game_pk": "I", "home_expected_runs": 3.0,
                 "away_expected_runs": 3.0, "p_over_6_5": 0.9,
                 "p_under_6_5": 0.1, "p_home_cover_1_5": 0.3}
         bits2 = diag.run_engine_card_bits("I", {"I": row2})
         self.assertTrue(bits2["has_grid"])
         self.assertEqual(bits2["total_line"], 6.5)
-        self.assertTrue(bits2["clamped"])
+        self.assertFalse(bits2["clamped"])
 
     def test_missing_grid_columns_quiet_na(self):
         row = {"game_pk": "X", "home_expected_runs": 4.4}
@@ -177,11 +181,13 @@ class TestOUPushDisplay(unittest.TestCase):
     def test_p_push_matches_grid_difference(self):
         """p_push for a whole line equals p_over(L) - p_over(L+0.5)."""
         row = {"game_pk": "P", "home_expected_runs": 4.0,
-               "away_expected_runs": 4.0,  # line = 8.0
+               "away_expected_runs": 4.0,  # round mean → 8.0
                "p_over_8_0": 0.55, "p_under_8_0": 0.45,
                "p_over_8_5": 0.48, "p_under_8_5": 0.52,
                "p_home_cover_1_5": 0.35}
-        bits = diag.run_engine_card_bits("P", {"P": row})
+        # The FAIR default here is 8.5 (rescaled 0.48 is closer to 0.5 than
+        # 8.0's 0.55) — select the whole line explicitly to test its push.
+        bits = diag.run_engine_card_bits("P", {"P": row}, line=8.0)
         self.assertEqual(bits["total_line"], 8.0)
         self.assertAlmostEqual(bits["p_push"], 0.55 - 0.48, places=9)
 
@@ -304,8 +310,9 @@ class TestLineSelector(unittest.TestCase):
     """
 
     def _row(self, pk="SEL", h=4.5, a=4.5):
-        """λ_h + λ_a = 9.0 → model line 9.0. Grid carries 9.0 (whole,
-        push band 0.08) and 9.5 (half, no push)."""
+        """λ_h + λ_a = 9.0. Grid carries 9.0 (whole, push band 0.08), 8.5 /
+        9.5 (halves), 8.0 (whole) — the FAIR default (grid argmin
+        |re-scaled P(over) − 0.5|) is 8.5 (rescaled 0.48; 9.0 is 0.4565)."""
         return {"game_pk": pk, "home_expected_runs": h,
                 "away_expected_runs": a,
                 # p_under = 1 - p_over - p_push (artifact convention):
@@ -318,18 +325,18 @@ class TestLineSelector(unittest.TestCase):
                 "p_home_cover_1_5": 0.4}
 
     def test_defaults_to_model_line(self):
-        """No line override → the card prices at the model's assigned line
-        (own rounded total) with line_selected None."""
+        """No line override → the card prices at the FAIR line (grid argmin
+        |re-scaled P(over) − 0.5|, the 50/50 anchor) with line_selected
+        None. In this fixture that is 8.5 (rescaled 0.48 — closer to 0.5
+        than 9.0's 0.4565 or 8.0's 0.5914)."""
         row = self._row()
         bits = diag.run_engine_card_bits("SEL", {"SEL": row})
         self.assertTrue(bits["has_grid"])
-        self.assertEqual(bits["total_line"], 9.0)
+        self.assertEqual(bits["total_line"], 8.5)
         self.assertIsNone(bits["line_selected"])
-        # Whole line 9.0 carries a push band (p_over_9_0 − p_over_9_5 =
-        # 0.42 − 0.34 = 0.08) — the re-scaled 2-way split folds it in:
-        # p_over = 0.42/0.92, p_under = 0.50/0.92 (sums to 100%).
-        self.assertAlmostEqual(bits["p_over"], 0.42 / 0.92, places=4)
-        self.assertAlmostEqual(bits["p_under"], 0.50 / 0.92, places=4)
+        # Half-line 8.5: no push → re-scale is a no-op, headline == raw.
+        self.assertEqual(bits["p_over"], 0.48)
+        self.assertEqual(bits["p_under"], 0.52)
         self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
                                delta=0.01)
 
@@ -368,8 +375,8 @@ class TestLineSelector(unittest.TestCase):
         row = self._row()
         for bad in (14.0, 3.0, 9.3, "abc", None):
             bits = diag.run_engine_card_bits("SEL", {"SEL": row}, line=bad)
-            self.assertEqual(bits["total_line"], 9.0,
-                             f"line={bad!r} must fall back to model line")
+            self.assertEqual(bits["total_line"], 8.5,
+                             f"line={bad!r} must fall back to fair line")
             self.assertIsNone(bits["line_selected"])
 
     def test_selector_state_keyed_per_game(self):

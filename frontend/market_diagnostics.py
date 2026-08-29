@@ -231,13 +231,76 @@ def relativized_pairs(decided: pd.DataFrame,
     return pd.concat(frames, ignore_index=True)
 
 
+def fair_total_lines(decided: pd.DataFrame) -> np.ndarray:
+    """Per-game FAIR total line — the grid argmin of
+    |re-scaled P(over) − 0.5| over the shipped grid (6.5 … 12.5 by 0.5),
+    where re-scaled P(over) = p_over / (p_over + p_under) conditions out
+    the push band (whole-number lines). NaN where a game cannot be priced
+    (missing/NaN grid columns or zero denom) — NEVER fabricated.
+
+    Equates to the re-normalized median (where P(over | no push) = 50%)
+    snapped to the nearest 0.5 line, i.e. the same "cut at the 50/50 point"
+    logic as the run-line cut. Ties in |Δ| pick the LOWER line (strict
+    `<` keeps the first ascending match). If the argmin sits on a grid
+    boundary it is taken as-is (documented) — a line outside the grid is
+    never fabricated.
+    """
+    n = len(decided)
+    best_line = np.full(n, np.nan)
+    best_delta = np.full(n, np.inf)
+    for line in TOTAL_GRID:
+        over_col, under_col = grid_over_under_cols(line)
+        if over_col not in decided.columns or under_col not in decided.columns:
+            continue
+        po = decided[over_col].to_numpy(float)
+        pu = decided[under_col].to_numpy(float)
+        denom = po + pu
+        valid = (np.isfinite(po) & np.isfinite(pu) & np.isfinite(denom)
+                 & (denom > 0))
+        delta = np.full(n, np.inf)
+        delta[valid] = np.abs(po[valid] / denom[valid] - 0.5)
+        take = valid & (delta < best_delta - 1e-12)  # ties keep lower line
+        best_delta[take] = delta[take]
+        best_line[take] = line
+    return best_line
+
+
+def fair_total_line_row(row: Any) -> Optional[float]:
+    """FAIR total line for a single artifact/slate row (dict or Series).
+
+    Returns None when no grid Over/Under column pair is present+valid with
+    a positive sum (the caller falls back to the round-to-half projection
+    rather than fabricating a line). Uses the same argmin rule as
+    fair_total_lines; ties pick the lower line; a grid-boundary argmin is
+    taken verbatim.
+    """
+    best_line, best_delta = None, None
+    for line in TOTAL_GRID:
+        over_col, _ = grid_over_under_cols(line)
+        _, under_col = grid_over_under_cols(line)
+        po = _num(row, over_col)
+        pu = _num(row, under_col)
+        if po is None or pu is None:
+            continue
+        denom = po + pu
+        delta = abs(po / denom - 0.5)
+        if best_line is None or delta < best_delta - 1e-12:
+            best_line, best_delta = line, delta
+    return best_line
+
+
 def _rounded_lines(decided: pd.DataFrame) -> np.ndarray:
-    """Per-game rounded total line (nearest 0.5 of λ_home + λ_away, clamped
-    to the shipped grid) — shared by pairs, picks, and push detection."""
+    """Per-game OWN total line = FAIR line when the grid allows, else the
+    round-half-up λ_home + λ_away projection clamped to the grid (legacy
+    artifacts / unpriced rows). Shared by pairs, picks, and push
+    detection — the fair line is the legal-bookmaker anchor, so pick and
+    push logic operate on the same line the card quotes."""
+    fair = fair_total_lines(decided)
     exp_h = decided["home_expected_runs"].to_numpy(float)
     exp_a = decided["away_expected_runs"].to_numpy(float)
-    return np.array([clamp_to_grid(round_to_half(h + a))[0]
-                     for h, a in zip(exp_h, exp_a)])
+    fallback = np.array([clamp_to_grid(round_to_half(h + a))[0]
+                         for h, a in zip(exp_h, exp_a)])
+    return np.where(np.isnan(fair), fallback, fair)
 
 
 def push_stats(decided: pd.DataFrame) -> dict:
@@ -496,12 +559,14 @@ def _col_or(df: pd.DataFrame, name: str, default: Any = np.nan):
 def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
     """Per-game rows for the game-totals prediction-history table.
 
-    Each row is priced at the game's OWN rounded total — nearest 0.5 of
-    λ_home + λ_away, clamped to the shipped grid — the SAME line the
-    diagnostics' totals-picks chart uses, so the two agree exactly.
-    pick = Over if p_over(line) >= 0.5 else Under (the diagnostics tie
-    convention; p_under is the exact mirror 1 − p_over); pick_prob is the
-    favored side's probability. winner = Over when total_runs > line,
+    Each row is priced at the game's OWN total line = the FAIR line — the
+    grid argmin of |re-scaled P(over) − 0.5| (the legal 50/50 anchor) —
+    the SAME line the diagnostics' totals-picks chart and the card use, so
+    the three agree exactly. pick = Over if the 2-way RE-SCALED
+    P(over|no push) = p_over/(p_over + p_under) >= 0.5 else Under (raw
+    p_over under-states Over on whole-number lines via the push band);
+    pick_prob is the favored side's re-scaled probability. winner = Over
+    when total_runs > line,
     Under when total_runs < line, Push when total_runs == line
     (whole-number lines only — integer totals can never equal an X.5
     line). Push rows carry correct = NaN so win rates exclude them from
@@ -527,13 +592,24 @@ def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for i in range(len(decided)):
         line = lines[i]
-        over_col, _ = grid_over_under_cols(line)
-        if over_col not in decided.columns:
+        over_col, under_col = grid_over_under_cols(line)
+        if over_col not in decided.columns or under_col not in decided.columns:
             continue
-        p = decided[over_col].iloc[i]
-        if pd.isna(p):
+        po = decided[over_col].iloc[i]
+        pu = decided[under_col].iloc[i]
+        if pd.isna(po) or pd.isna(pu):
             continue
-        p = float(p)
+        po, pu = float(po), float(pu)
+        denom = po + pu
+        if denom <= 0:
+            continue
+        # 2-way RE-SCALED P(over|no push) — the same quantity the FAIR line
+        # is defined on. The raw p_over column under-states Over on whole-number
+        # lines (the push band dilutes it below 0.5 even at the 50/50 anchor),
+        # which made the split collapse to ~all-Under; pick/prob use the re-
+        # scaled value so the split is genuinely 50/50 and the probability is
+        # calibrated (pushes folded out, consistent with the monitor card).
+        p = po / denom
         pick = "Over" if p >= 0.5 else "Under"
         pick_prob = p if pick == "Over" else 1.0 - p
         t = total[i]
@@ -637,6 +713,286 @@ def history_win_rate(frame: pd.DataFrame) -> dict:
     return {"n_games": n,
             "win_rate": (round(wins / n, 6) if n else None),
             "n_pushes": n_pushes}
+
+
+# ---------------------------------------------------------------------------
+# Run-line cut history + monitor calibration cards — unified 3-way push
+# resolution. Everything reads the POST-FIX margin distribution: the
+# corrected p_rl_*_home/push/away columns (tie-mass renormalization 2531462
+# + home one-run adjustment fdd9187). −0.5 is derived from the corrected
+# moneyline (P(favored wins) = P(margin > 0)); there is no p_rl_0_5 column.
+# ---------------------------------------------------------------------------
+# Favorite-side run-line margins for the cut search and the monitor LINE
+# toggle. In MLB, line 0 ≡ −0.5 (integer margins, no ties — identical cover
+# sets), so 0 never appears; map_run_line_zero guards any rounding that
+# lands on 0.
+RUN_GRID_CUT = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
+# Favorite-side line choices for the run-line monitor card (−0.5 … −4).
+RUN_LINE_CHOICES = [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4.0]
+# Cumulative percent-confidence thresholds for the totals calibration card.
+TOTALS_CONF_THRESHOLDS = [40, 45, 50, 55, 60]
+
+
+def map_run_line_zero(line: float) -> float:
+    """Run-line 0 ≡ −0.5 in MLB: margins are integers and there are no
+    ties, so margin > 0 and margin >= 1 select identical cover sets. The
+    cut search never emits 0 (favored cover at 0.5 is P(favored win) >= 0.5
+    by construction); this maps any rounding that lands on 0 to the −0.5
+    line magnitude so a 0 line can never be priced/drawn."""
+    return 0.5 if abs(line) < 1e-9 else line
+
+
+def corrected_home_win(decided: pd.DataFrame) -> np.ndarray:
+    """Corrected NB home-win probability from the POST-FIX margin
+    distribution — never the legacy raw column.
+
+    P'(home win) = P'(margin > 0) = P(margin >= 2) + P'(margin == 1 resolved)
+                 = p_rl_1_0_home + p_rl_1_0_push
+    (p_rl_1_0_home = P(margin >= 2); p_rl_1_0_push = the resolved +1 band
+    on post-fix artifacts, which the home one-run structural adjustment
+    fdd9187 moved so pooled P(win) = 0.5084 → 0.5323 vs actual 0.5320).
+    Composing the pair is preferred over the shipped p_home_win_derived
+    column so a stale artifact (raw moneyline, e.g. 0.4566) cannot feed
+    legacy values. Falls back to p_home_win_derived, then p_rl_1_0_home,
+    when the +1 band column is absent. NaN where unpricable."""
+    n = len(decided)
+    nan = np.full(n, np.nan)
+    if not n:
+        return nan
+    if {"p_rl_1_0_home", "p_rl_1_0_push"}.issubset(decided.columns):
+        a = decided["p_rl_1_0_home"].to_numpy(float)
+        b = decided["p_rl_1_0_push"].to_numpy(float)
+        h = np.where(np.isfinite(a) & np.isfinite(b), a + b, np.nan)
+        return np.where((h >= 0.0) & (h <= 1.0), h, np.nan)
+    if "p_home_win_derived" in decided.columns:
+        v = decided["p_home_win_derived"].to_numpy(float)
+        return np.where(np.isfinite(v), v, np.nan)
+    if "p_rl_1_0_home" in decided.columns:
+        v = decided["p_rl_1_0_home"].to_numpy(float)
+        return np.where(np.isfinite(v), v, np.nan)
+    return nan
+
+
+def favored_cover_at(decided: pd.DataFrame, line: float,
+                     home_win: Optional[np.ndarray] = None):
+    """Per-game FAVORED-side cover probability at run-line margin
+    ``line`` (magnitude in RUN_GRID_CUT), from the corrected p_rl columns.
+
+    Favored side = the side with corrected P(win) > 0.5 (home_win from
+    corrected_home_win; at 0.5 the toss-up defaults home). line 0.5 →
+    P(favored win) (≡ outright win). line >= 1 → p_rl_{line}_home when the
+    favorite is home (P(margin > L)) / p_rl_{line}_away when away. Returns
+    (cover, is_home) float/bool (n,) arrays; cover NaN where unpricable."""
+    n = len(decided)
+    nan = np.full(n, np.nan)
+    if not n:
+        return nan, np.zeros(n, dtype=bool)
+    hw = corrected_home_win(decided) if home_win is None else home_win
+    is_home = np.where(np.isfinite(hw), hw >= 0.5, False)
+    if line == 0.5:
+        # Cover −0.5 ≡ outright win: P(favored wins) — always >= 0.5 by the
+        # favored definition. Shipped for both sides via the corrected win.
+        cover = np.where(np.isfinite(hw),
+                         np.where(is_home, hw, 1.0 - hw), np.nan)
+        return cover, is_home
+    key = f"{line:.1f}".replace(".", "_")
+    h_col, a_col = f"p_rl_{key}_home", f"p_rl_{key}_away"
+    cover = nan.copy()
+    if h_col in decided.columns:
+        hcv = decided[h_col].to_numpy(float)
+        # HOME favorite cover at −L = P(margin > L). For an AWAY favorite the
+        # favorite is also quoted at −L, so its cover = P(away wins by > L) =
+        # P(margin < −L) — which the home-frame artifact does NOT ship
+        # (p_rl_{L}_away = P(margin < L) is the away +L DOG line, not the
+        # favorite cover; using it would inflate away cover as L grows). Never
+        # fabricate: away-favorite deep favorite lines price as unavailable
+        # (NaN), so those games fall back to their reliable −0.5 line.
+        cover = np.where(is_home, hcv, np.nan)
+        cover = np.where(np.isfinite(cover), cover, np.nan)
+    return cover, is_home
+
+
+def runline_cut_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
+    """Cut-line run-line prediction history — per decided OOF game.
+
+    Favored side (corrected NB moneyline) is picked at its CUT line: the
+    DEEPEST margin L in {0.5, 1, 1.5, …, 4} with P(favored covers −L or
+    +L) >= 0.5. P(cover 0.5) = P(favored win) >= 0.5 by the favored
+    definition, so the cut is ALWAYS >= 0.5 and line 0 never occurs —
+    pick the favored side at its cut.
+    Resolution is the unified 3-way: favored COVERS if its margin > L,
+    PUSH if == L (whole lines only — 0.5/1.5/2.5/3.5 never push), LOSS if
+    < L. Push rows carry correct = NaN, so W/(W+L) excludes them from BOTH
+    numerator and denominator (history_win_rate). Rows the grid cannot
+    price are dropped — never fabricated."""
+    empty = pd.DataFrame(columns=["game_pk", "game_date", "home_score",
+                                  "away_score", "margin", "favored", "cut",
+                                  "pick", "pick_prob", "winner", "push",
+                                  "correct"])
+    if not len(decided) or {"home_score", "away_score"}.difference(
+            decided.columns):
+        return empty
+    if not {"p_rl_1_0_home", "p_rl_1_0_push"}.issubset(decided.columns):
+        return empty  # legacy artifact: no p_rl grid → cannot price the cut
+    hw = corrected_home_win(decided)
+    margin = (decided["home_score"].to_numpy(float)
+              - decided["away_score"].to_numpy(float))
+    covers, is_home = {}, None
+    for L in RUN_GRID_CUT:
+        c, is_home = favored_cover_at(decided, L, home_win=hw)
+        covers[L] = c
+    fav_margin = np.where(is_home, margin, -margin)
+    gd = _col_or(decided, "game_date")
+    pk = _col_or(decided, "game_pk")
+    rows = []
+    for i in range(len(decided)):
+        if not (np.isfinite(hw[i]) and np.isfinite(margin[i])):
+            continue
+        cut, cut_cover = 0.5, covers[0.5][i]
+        if not np.isfinite(cut_cover):
+            continue
+        for L in RUN_GRID_CUT[1:]:
+            v = covers[L][i]
+            if np.isfinite(v) and v >= 0.5:
+                cut, cut_cover = L, v
+        fav = "home" if is_home[i] else "away"
+        fm = fav_margin[i]
+        whole = float(cut).is_integer()
+        if fm > cut:
+            winner = fav
+            push = False
+        elif whole and abs(fm - cut) < 1e-9:
+            winner, push = "Push", True
+        else:
+            winner = "away" if fav == "home" else "home"
+            push = False
+        correct = np.nan if push else float(winner == fav)
+        rows.append({
+            "game_pk": pk.iloc[i], "game_date": gd.iloc[i],
+            "home_score": decided["home_score"].iloc[i],
+            "away_score": decided["away_score"].iloc[i],
+            "margin": margin[i], "favored": fav, "cut": cut,
+            "pick": fav, "pick_prob": round(float(cut_cover), 6),
+            "winner": winner, "push": push, "correct": correct,
+        })
+    return pd.DataFrame(rows) if rows else empty
+
+
+def filter_history_by_side(frame: pd.DataFrame, side: str) -> pd.DataFrame:
+    """Filter a pick history frame by the model's pick side.
+
+    side in {"All", "Over", "Under"} for totals frames, {"All", "home",
+    "away"} for run-line frames. Never mutates the input; empty/na → the
+    frame returned unchanged."""
+    s = (str(side) or "All").strip()
+    if not len(frame) or s == "All" or "pick" not in frame.columns:
+        return frame.copy()
+    m = frame["pick"].astype(str) == s
+    return frame[m].reset_index(drop=True)
+
+
+def totals_monitor_stats(decided: pd.DataFrame, min_pct: int = 50,
+                         side: str = "All") -> dict:
+    """Pooled win-rate calibration for the totals monitor card — the
+    scoring-mean diagnostic (Over under-predicting + Under over-predicting
+    can net to zero pooled, so the side filter is required).
+
+    Picks Over/Under at each game's OWN rounded total line (the same pick
+    rule as the prediction-history view); keeps games whose favored-side
+    pick_prob*100 > ``min_pct`` (cumulative — raising the threshold is a
+    nested subset); optional side filter {"All","Over","Under"}. Win rate
+    is W/(W+L) — pushes (total == whole-number line) excluded from BOTH
+    numerator and denominator and folded out of the 2-way display. When
+    side == "All" the per-side split is included (Over n / win rate vs
+    Under n / win rate)."""
+    empty = {"n": 0, "win_rate": None, "n_wins": 0, "n_losses": 0,
+             "n_pushes": 0, "side": side, "min_pct": min_pct,
+             "sides": {}}
+    if not len(decided):
+        return empty
+    frame = totals_history_frame(decided)
+    if not len(frame) or "pick_prob" not in frame.columns:
+        return empty
+    thr = max(float(min_pct) / 100.0, 0.0)
+    kept = frame[frame["pick_prob"] > thr].reset_index(drop=True)
+    view = filter_history_by_side(kept, side)
+    stats = history_win_rate(view)
+    ok = view["correct"].notna()
+    n_wins = int(view.loc[ok, "correct"].sum()) if ok.any() else 0
+    out = {"n": stats["n_games"], "win_rate": stats["win_rate"],
+           "n_wins": n_wins,
+           "n_losses": stats["n_games"] - n_wins,
+           "n_pushes": stats["n_pushes"], "side": side,
+           "min_pct": int(min_pct), "sides": {}}
+    if side == "All" and len(kept):
+        for s in ("Over", "Under"):
+            sub = filter_history_by_side(kept, s)
+            st = history_win_rate(sub)
+            out["sides"][s] = {"n": st["n_games"],
+                               "win_rate": st["win_rate"],
+                               "n_pushes": st["n_pushes"]}
+    return out
+
+
+def runline_monitor_stats(decided: pd.DataFrame, line: float) -> dict:
+    """Pooled win-rate calibration for the run-line monitor card at the
+    toggled favorite-side line ``line`` (magnitude in RUN_GRID_CUT).
+
+    Picks the MONEYLINE FAVORITE each game (NOT a >50% cover pick — its
+    cover P is often < 50% on deeper lines; this is a calibration check).
+    Resolution is the unified 3-way (favored covers if its margin > L,
+    push if == L on whole lines, loss if < L); win rate is 2-way
+    re-normalized W/(W+L) with whole-line pushes folded out of both.
+    Returns pooled stats + per-favored-side split."""
+    empty = {"line": line, "n": 0, "n_home": 0, "n_away": 0,
+             "n_wins": 0, "n_losses": 0, "n_pushes": 0,
+             "cover_pred_mean": None, "win_rate": None, "sides": {}}
+    if not len(decided):
+        return empty
+    if not RUN_GRID_CUT or line not in RUN_GRID_CUT:
+        return empty
+    margin = (decided["home_score"].to_numpy(float)
+              - decided["away_score"].to_numpy(float)) \
+        if {"home_score", "away_score"}.issubset(decided.columns) else None
+    if margin is None:
+        return empty
+    cover, is_home = favored_cover_at(decided, line)
+    hw = corrected_home_win(decided)
+    valid = np.isfinite(hw) & np.isfinite(margin)
+    n = int(valid.sum())
+    if not n:
+        return empty
+    fav_margin = np.where(is_home, margin, -margin)
+    whole = float(line).is_integer()
+    cov = fav_margin[valid] > line
+    pushes = (fav_margin[valid] == line) if whole else np.zeros(n, bool)
+    losses = ~cov & ~pushes
+    n_wins, n_pushes = int(cov.sum()), int(pushes.sum())
+    n_losses = int(losses.sum())
+    denom = n_wins + n_losses
+    # Predicted cover only where the artifact prices it (home favorites at
+    # deep lines; both sides at −0.5). Away-favorite deep favorite lines are
+    # not shipped → excluded from cover_pred_mean, never fabricated.
+    priced_cover = np.isfinite(cover) & valid
+    cp = float(cover[priced_cover].mean()) if priced_cover.any() else None
+    n_home = int((valid & is_home).sum())
+    out = {"line": line, "n": n, "n_home": n_home, "n_away": n - n_home,
+           "n_wins": n_wins, "n_losses": n_losses, "n_pushes": n_pushes,
+           "cover_pred_mean": (round(cp, 4) if cp is not None else None),
+           "win_rate": (round(n_wins / denom, 6) if denom else None),
+           "cover_available": int(priced_cover.sum()),
+           "sides": {}}
+    for label, mask in (("home", valid & is_home), ("away", valid & ~is_home)):
+        k = int(mask.sum())
+        if not k:
+            continue
+        w = int((fav_margin[mask] > line).sum())
+        p = int((fav_margin[mask] == line).sum()) if whole else 0
+        l = k - w - p
+        out["sides"][label] = {
+            "n": k, "n_wins": w, "n_losses": l, "n_pushes": p,
+            "win_rate": (round(w / (w + l), 6) if (w + l) else None)}
+    return out
 
 
 def build_team_map(game_level: pd.DataFrame) -> dict:
@@ -807,7 +1163,16 @@ def run_engine_card_bits(game_id: str,
     else:
         rl_unverified = True
     if proj_home is not None and proj_away is not None:
-        model_line, clamped = clamp_to_grid(round_to_half(proj_home + proj_away))
+        # Default own line = FAIR line (grid argmin of |re-scaled P(over)
+        # − 0.5|, ties → lower), the legal 50/50 anchor; falls back to the
+        # round-half-up λ_home+λ_away projection only when the grid cannot
+        # price the row (never fabricated).
+        fair = fair_total_line_row(row)
+        if fair is not None:
+            model_line, clamped = float(fair), False
+        else:
+            model_line, clamped = clamp_to_grid(
+                round_to_half(proj_home + proj_away))
         # Explicit line override: accept only a valid grid line; anything
         # else falls back to the model's own line (never crash the card).
         use_line = model_line

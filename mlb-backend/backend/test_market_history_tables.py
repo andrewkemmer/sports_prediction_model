@@ -31,15 +31,28 @@ import market_diagnostics as diag  # noqa: E402
 
 
 def _grid_row(exp_h, exp_a, hs, as_, total, p_over_map=None, pk=0,
-              date="2025-05-01", p_cover=None):
-    """One artifact-shaped row: flat 0.5 grid overridden per line map."""
+              date="2025-05-01", p_cover=None, fair_line=None, step=0.10):
+    """One artifact-shaped row: a realistic monotone-decreasing p_over grid
+    that CROSSES 0.5 at the FAIR line (default = round-to-half of
+    exp_h + exp_a), with p_under = 1 − p_over mirroring each line. The fair
+    own total line (grid argmin |re-scaled P(over) − 0.5|) therefore lands
+    at ``fair_line``, so picks/pushes follow the intended line. p_over_map
+    overrides a line's probability and mirrors p_under; keep the intended
+    line within ~±0.04 of 0.5 so it stays the fair argmin."""
+    fair_line = (diag.round_to_half(exp_h + exp_a) if fair_line is None
+                 else float(fair_line))
     row = {"game_pk": pk, "kind": "oof", "game_date": date,
            "home_expected_runs": exp_h, "away_expected_runs": exp_a,
            "home_score": hs, "away_score": as_, "total_runs": total}
-    for g in diag.TOTAL_GRID:
-        row[f"p_over_{str(g).replace('.', '_')}"] = 0.5
+    grid = diag.TOTAL_GRID
+    at_idx = grid.index(fair_line)
+    for i, g in enumerate(grid):
+        base = float(np.clip(0.5 + step * (at_idx - i), 0.02, 0.98))
+        row[f"p_over_{str(g).replace('.', '_')}"] = base
+        row[f"p_under_{str(g).replace('.', '_')}"] = round(1.0 - base, 6)
     for line, p in (p_over_map or {}).items():
         row[f"p_over_{str(line).replace('.', '_')}"] = p
+        row[f"p_under_{str(line).replace('.', '_')}"] = round(1.0 - p, 6)
     if p_cover is not None:
         row[diag.RUN_COVER_COL] = p_cover
     return row
@@ -47,37 +60,39 @@ def _grid_row(exp_h, exp_a, hs, as_, total, p_over_map=None, pk=0,
 
 class TestTotalsHistory(unittest.TestCase):
     def test_rounded_line_pick_over_and_under(self):
-        # 4.7 + 4.6 = 9.3 → line 9.5. p_over 0.62 → Over pick, prob 0.62.
+        # 4.7 + 4.6 = 9.3 → fair line 9.5. re-scaled P(over|no push) 0.52 →
+        # Over pick, prob 0.52 (the raw p_over is the re-scaled value here
+        # because the 9.5 half-line has no push mass in the fixture).
         over = pd.DataFrame([_grid_row(4.7, 4.6, 5, 5, 10,
-                                       {9.5: 0.62})])
+                                       {9.5: 0.52})])
         f = diag.totals_history_frame(over)
         self.assertEqual(f.iloc[0]["line"], 9.5)
         self.assertEqual(f.iloc[0]["pick"], "Over")
-        self.assertAlmostEqual(f.iloc[0]["pick_prob"], 0.62)
+        self.assertAlmostEqual(f.iloc[0]["pick_prob"], 0.52)
         self.assertEqual(f.iloc[0]["winner"], "Over")   # 10 > 9.5
         self.assertEqual(f.iloc[0]["correct"], 1.0)
-        # Same line, p_over 0.40 → Under pick (prob 0.60), total 8 < 9.5.
+        # Same line, re-scaled 0.46 → Under pick (prob 0.54), total 8 < 9.5.
         under = pd.DataFrame([_grid_row(4.7, 4.6, 4, 4, 8,
-                                        {9.5: 0.40})])
+                                        {9.5: 0.46})])
         g = diag.totals_history_frame(under)
         self.assertEqual(g.iloc[0]["pick"], "Under")
-        self.assertAlmostEqual(g.iloc[0]["pick_prob"], 0.60)
+        self.assertAlmostEqual(g.iloc[0]["pick_prob"], 0.54)
         self.assertEqual(g.iloc[0]["winner"], "Under")
         self.assertEqual(g.iloc[0]["correct"], 1.0)
 
     def test_whole_number_line_maps_to_own_column(self):
-        # 4.5 + 4.5 = 9.0 → whole-number line 9.0 → p_over_9_0 column.
-        row = _grid_row(4.5, 4.5, 6, 4, 10, {9.0: 0.58})
+        # 4.5 + 4.5 = 9.0 → whole-number fair line 9.0 → p_over_9_0 column.
+        row = _grid_row(4.5, 4.5, 6, 4, 10, {9.0: 0.56})
         f = diag.totals_history_frame(pd.DataFrame([row]))
         self.assertEqual(f.iloc[0]["line"], 9.0)
         self.assertEqual(f.iloc[0]["pick"], "Over")
-        self.assertAlmostEqual(f.iloc[0]["pick_prob"], 0.58)
-        # Same geometry but p_over_9_0 < 0.5 → Under, even though the
-        # bracketing half-line columns are flat 0.5.
-        row2 = _grid_row(4.5, 4.5, 6, 4, 10, {9.0: 0.42})
+        self.assertAlmostEqual(f.iloc[0]["pick_prob"], 0.56)
+        # Same geometry but re-scaled p_over_9_0 < 0.5 → Under, even though
+        # the bracketing half-line columns sit 0.10 away from 0.5.
+        row2 = _grid_row(4.5, 4.5, 6, 4, 10, {9.0: 0.44})
         g = diag.totals_history_frame(pd.DataFrame([row2]))
         self.assertEqual(g.iloc[0]["pick"], "Under")
-        self.assertAlmostEqual(g.iloc[0]["pick_prob"], 0.58)
+        self.assertAlmostEqual(g.iloc[0]["pick_prob"], 0.56)
 
     def test_push_excluded_from_win_rate(self):
         rows = [
@@ -97,7 +112,7 @@ class TestTotalsHistory(unittest.TestCase):
     def test_half_line_never_pushes(self):
         # Line 9.5 with total 9: 9 != 9.5 → not a push; over missed.
         f = diag.totals_history_frame(
-            pd.DataFrame([_grid_row(4.7, 4.8, 4, 5, 9, {9.5: 0.62})]))
+            pd.DataFrame([_grid_row(4.7, 4.8, 4, 5, 9, {9.5: 0.52})]))
         self.assertEqual(f.iloc[0]["winner"], "Under")
         self.assertEqual(f.iloc[0]["correct"], 0.0)   # Over pick missed
         stats = diag.history_win_rate(f)
@@ -105,11 +120,11 @@ class TestTotalsHistory(unittest.TestCase):
 
     def test_date_filtering(self):
         rows = [
-            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.62}, pk=0,
+            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.52}, pk=0,
                       date="2025-04-01"),
-            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.62}, pk=1,
+            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.52}, pk=1,
                       date="2025-06-15"),
-            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.62}, pk=2,
+            _grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.52}, pk=2,
                       date="2025-09-30"),
         ]
         f = diag.totals_history_frame(pd.DataFrame(rows))
@@ -129,8 +144,14 @@ class TestTotalsHistory(unittest.TestCase):
         self.assertEqual(len(sub3), 0)
 
     def test_missing_grid_column_dropped_not_fabricated(self):
-        df = pd.DataFrame([_grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.62})])
-        df = df.drop(columns=["p_over_9_5"])
+        # No grid columns at all → the fair line has nothing to price and
+        # the round-mean fallback's own column is absent too: dropped, never
+        # fabricated (a single missing column would just shift the fair
+        # argmin to an available neighbor).
+        df = pd.DataFrame([_grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.52})])
+        grid_cols = [c for c in df.columns
+                     if c.startswith("p_over_") or c.startswith("p_under_")]
+        df = df.drop(columns=grid_cols)
         f = diag.totals_history_frame(df)
         self.assertEqual(len(f), 0)     # cannot price → dropped
         stats = diag.history_win_rate(f)
@@ -422,6 +443,224 @@ class TestRenderSmokeSourceInspection(unittest.TestCase):
         self.assertIn("Nothing is fabricated in the meantime", self.src)
         self.assertGreaterEqual(self.src.count("is fabricated"), 2)
         self.assertIn("diag.decided_rows(markets)", self.src)
+
+
+def _rl_row(hs, as_, hw=None, cover=None, pk=0, date="2025-05-01"):
+    """One artifact-shaped row carrying a POST-FIX p_rl grid (home/push/
+    away for 1.0, 1.5, 2.0, …). """
+    row = {"game_pk": pk, "kind": "oof", "game_date": date,
+           "home_expected_runs": 5.0, "away_expected_runs": 4.0,
+           "home_score": hs, "away_score": as_,
+           "total_runs": hs + as_, "p_home_cover_1_5": 0.5}
+    if hw is not None:                    # home = P(margin≥1) = h + push
+        row["p_rl_1_0_home"] = hw
+        row["p_rl_1_0_push"] = 0.0
+    else:                                 # p_under mirror = 1 − over
+        row["p_rl_1_0_home"] = 0.55
+        row["p_rl_1_0_push"] = 0.15
+    if cover is not None:                 # fractional cover splits
+        for m, col in ((1.0, "home"), (1.5, "home"), (2.0, "home"),
+                       (2.5, "home"), (3.0, "home"), (3.5, "home"),
+                       (4.0, "home"), (1.0, "away"), (2.0, "away")):
+            key = f"{m:.1f}".replace(".", "_")
+            row[f"p_rl_{key}_{col}"] = cover
+    else:                                 # full post-fix grid (real bands)
+        for m, p in ((1.0, 0.55), (1.5, 0.55), (2.0, 0.40), (2.5, 0.40),
+                     (3.0, 0.25), (3.5, 0.25), (4.0, 0.15)):
+            key = f"{m:.1f}".replace(".", "_")
+            row[f"p_rl_{key}_home"] = p
+            row[f"p_rl_{key}_away"] = 1.0 - p
+        row["p_rl_1_0_push"] = 0.20
+        row["p_rl_2_0_push"] = 0.10
+        row["p_rl_3_0_push"] = 0.05
+    return row
+
+
+class TestFairTotalLine(unittest.TestCase):
+    """The own total line is the FAIR line: grid argmin of
+    |re-scaled P(over) − 0.5| over 6.5…12.5, ties → lower line, re-scaled
+    = p_over/(p_over+p_under) conditions out the push band, a grid-boundary
+    argmin is taken verbatim (never fabricated)."""
+
+    def _row(self, pairs: dict):
+        """Row with explicit per-line p_over/p_under values; lines not
+        listed get a far-from-0.5 profile (0.90/0.10 below, 0.10/0.90
+        above) so they can never win the argmin."""
+        row = {"game_pk": 1, "kind": "oof", "game_date": "2025-05-01",
+               "home_expected_runs": 4.5, "away_expected_runs": 4.5,
+               "home_score": 5, "away_score": 4, "total_runs": 9}
+        for i, g in enumerate(diag.TOTAL_GRID):
+            base = 0.90 if i < len(diag.TOTAL_GRID) // 2 else 0.10
+            key = str(g).replace(".", "_")
+            row[f"p_over_{key}"] = base
+            row[f"p_under_{key}"] = round(1.0 - base, 6)
+        for g, (po, pu) in pairs.items():
+            key = str(g).replace(".", "_")
+            row[f"p_over_{key}"] = po
+            row[f"p_under_{key}"] = pu
+        return row
+
+    def test_ties_pick_lower_line(self):
+        # 8.0 (0.55) and 9.0 (0.45) both sit exactly |0.05| from 0.5 — the
+        # LOWER line (8.0) must win, even though 8.5 is bracketed by them.
+        row = self._row({8.0: (0.55, 0.45), 9.0: (0.45, 0.55)})
+        self.assertEqual(diag.fair_total_line_row(row), 8.0)
+        df = pd.DataFrame([row])
+        self.assertEqual(float(diag.fair_total_lines(df)[0]), 8.0)
+
+    def test_fat_push_band_rescales_to_win_own_line(self):
+        # Whole line 9.0 with over 0.44 / push 0.14 / under 0.42: re-scaled
+        # P(over|no push) = 0.44/0.86 = 0.5116 (Δ 0.0116) — the raw p_over
+        # is BELOW 0.5, but the re-scaled value (push folded out) is the
+        # closest to 0.5 of the grid, so 9.0 is chosen over the 8.5/9.5
+        # neighbors (both Δ 0.10).
+        row = self._row({9.0: (0.44, 0.42), 8.5: (0.60, 0.40),
+                         9.5: (0.40, 0.60)})
+        self.assertEqual(diag.fair_total_line_row(row), 9.0)
+        self.assertAlmostEqual(0.44 / (0.44 + 0.42), 0.5116, places=3)
+        # The raw over+under leaves the 0.14 push band out (po+pu < 1).
+        self.assertAlmostEqual(0.44 + 0.42, 0.86, places=9)
+
+    def test_half_line_push_zero_prices_raw(self):
+        # Half-lines never push: po + pu == 1, so re-scaled == raw. A 8.5
+        # line at exactly 0.50/0.50 is the perfect fair line (Δ 0).
+        row = self._row({8.5: (0.50, 0.50)})
+        self.assertEqual(diag.fair_total_line_row(row), 8.5)
+        po, pu = row["p_over_8_5"], row["p_under_8_5"]
+        self.assertAlmostEqual(po + pu, 1.0, places=9)   # no push band
+        self.assertAlmostEqual(po / (po + pu), 0.5, places=9)
+
+    def test_grid_edge_argmin_taken_verbatim(self):
+        # Very low-total profile: 6.5 is the closest to 0.5 and sits on the
+        # grid LOW edge — the boundary argmin is taken as-is, never clamped
+        # or fabricated outside the grid.
+        row = self._row({6.5: (0.48, 0.52)})
+        self.assertEqual(diag.fair_total_line_row(row), 6.5)
+        # High edge symmetric case: 12.5 wins the argmin.
+        row2 = self._row({12.5: (0.48, 0.52)})
+        self.assertEqual(diag.fair_total_line_row(row2), 12.5)
+
+    def test_unpricable_returns_none(self):
+        # No grid Over/Under pair → None (caller falls back to the
+        # round-to-half projection; nothing fabricated).
+        self.assertIsNone(diag.fair_total_line_row({"game_pk": 1}))
+        self.assertIsNone(diag.fair_total_line_row(
+            {"game_pk": 1, "p_over_8_5": 0.5}))   # under missing
+
+
+class TestCutAndMonitor(unittest.TestCase):
+    """Unified 3-way run-line cut logic + the calibration-card monitors."""
+
+    def test_neg_half_equivalent_to_zero(self):
+        # In MLB, line 0 ≡ −0.5 (integer margins, no ties): cover ≥ 1 and
+        # cover ≥ 0 select identical sets, so a rounding landing on 0 maps
+        # to the −0.5 magnitude and −0.5 is never magnified to 0.
+        self.assertEqual(diag.map_run_line_zero(0.0), 0.5)
+        self.assertEqual(diag.map_run_line_zero(0.0 + 1e-12), 0.5)
+        self.assertEqual(diag.map_run_line_zero(0.5), 0.5)
+        # A favorite outright win (margin 4) is a −0.5 cover every time.
+        df = pd.DataFrame([_rl_row(6, 2)])           # home wins by 4
+        cov, is_home = diag.favored_cover_at(df, 0.5)
+        self.assertTrue(bool(is_home[0]))
+        self.assertAlmostEqual(cov[0], 0.55 + 0.20)  # P(margin > 0)
+
+    def test_cut_never_below_0_5_for_favored(self):
+        # The favored side's cover at 0.5 is P(win) >= 0.5 by construction,
+        # so the cut is ALWAYS >= 0.5 and line 0 never occurs.
+        df = pd.DataFrame([_rl_row(6, 2, hw=None), _rl_row(2, 6, hw=0.4)])
+        f = diag.runline_cut_history_frame(df)
+        self.assertEqual(len(f), 2)
+        for _, r in f.iterrows():
+            self.assertEqual(abs(r["cut"]), r["cut"])   # ≥ 0 by sign
+            self.assertGreaterEqual(r["cut"], 0.5)
+            self.assertIn(r["cut"], diag.RUN_GRID_CUT)
+        # The decisive home-favorite (margin 4) cuts at the deepest line
+        # whose cover >= 0.5: 1.5 in the fixture grid (0.55 >= 0.5), while
+        # 2.0 sits below at 0.40.
+        exact = diag.runline_cut_history_frame(pd.DataFrame([_rl_row(6, 2)]))
+        self.assertEqual(exact.iloc[0]["cut"], 1.5)
+
+    def test_whole_line_margin_equals_cut_is_push(self):
+        # Home-favorite at cut 1.0, final margin == 1 -> whole-line PUSH
+        # (excluded from W/(W+L) via correct=NaN). Margin 4 -> cover.
+        push = pd.DataFrame([_rl_row(5, 4)])          # margin 1 (== cut 1? cut is 2.0 in default grid)
+        # Force cut to 1.0 so margin == cut (whole line) -> push.
+        push.loc[0, "p_rl_1_5_home"] = 0.3      # stop the cut at 1.0
+        push.loc[0, "p_rl_2_0_home"] = 0.3
+        f = diag.runline_cut_history_frame(push)
+        r = f.iloc[0]
+        self.assertEqual(r["cut"], 1.0)
+        self.assertEqual(r["winner"], "Push")
+        self.assertTrue(r["push"])
+        self.assertTrue(pd.isna(r["correct"]))
+        stats = diag.history_win_rate(f)
+        self.assertEqual(stats["n_games"], 0)         # excluded from both
+        self.assertEqual(stats["n_pushes"], 1)
+
+    def test_win_rate_excludes_pushes_both_sides(self):
+        # Cover (margin>cut, cut 1.0… but margin 4 → cover) + a push (cut 1.0,
+        # margin == 1) + a loss: win rate = 1 / 2, push out of both.
+        cover = pd.DataFrame([_rl_row(6, 2)])
+        push = pd.DataFrame([_rl_row(5, 4)]); push.loc[0, "p_rl_1_5_home"] = 0.3
+        loss = pd.DataFrame([_rl_row(2, 6, hw=0.4)])
+        f = pd.concat([diag.runline_cut_history_frame(cover),
+                       diag.runline_cut_history_frame(push),
+                       diag.runline_cut_history_frame(loss)], ignore_index=True)
+        stats = diag.history_win_rate(f)
+        self.assertEqual(stats["n_pushes"], 1)
+        self.assertEqual(stats["n_games"], 2)         # push dropped from denom
+        self.assertAlmostEqual(stats["win_rate"], 1 / 2)
+
+    def test_totals_side_filter_partitions_population(self):
+        # Over + Under must exactly partition the All population (n sums,
+        # no double count) at the same threshold.
+        rows = [_grid_row(4.7, 4.8, 5, 4, 10, {9.5: 0.52}, pk=i)     # Over
+                for i in range(3)]
+        rows += [_grid_row(4.7, 4.8, 4, 4, 8, {9.5: 0.46}, pk=100 + i)  # Under
+                 for i in range(4)]
+        dec = pd.DataFrame(rows)
+        all_s = diag.totals_monitor_stats(dec, min_pct=50, side="All")
+        sum_n = sum(all_s["sides"][s]["n"] for s in ("Over", "Under"))
+        self.assertEqual(sum_n, all_s["n"])
+        over = diag.totals_monitor_stats(dec, min_pct=50, side="Over")
+        under = diag.totals_monitor_stats(dec, min_pct=50, side="Under")
+        self.assertEqual(over["n"] + under["n"], all_s["n"])
+        self.assertAlmostEqual(all_s["win_rate"],
+                               (over["n_wins"] + under["n_wins"]) /
+                               (over["n"] + under["n"]))
+
+    def test_percent_toggle_is_cumulative(self):
+        # Raising pick_prob> threshold is a NESTED subset: higher threshold
+        # keeps a subpopulation, so n never grows.
+        rows = [_grid_row(4.7, 4.8, 5, 4, 10, {9.5: p}, pk=i)
+                for i, p in enumerate([0.42, 0.48, 0.52, 0.58, 0.63])]
+        dec = pd.DataFrame(rows)
+        ns = [diag.totals_monitor_stats(dec, min_pct=t)['n']
+              for t in diag.TOTALS_CONF_THRESHOLDS]
+        for lo, hi in zip(ns, ns[1:]):
+            self.assertGreaterEqual(lo, hi)   # non-increasing with threshold
+
+    def test_line_toggle_enumerates_full_grid(self):
+        # The signed choice list (−0.5, −1, −1.5, … −4) maps injectively to
+        # the priced magnitudes RUN_GRID_CUT — 0 never appears.
+        mags = [diag.map_run_line_zero(abs(c)) for c in diag.RUN_LINE_CHOICES]
+        self.assertEqual(mags, diag.RUN_GRID_CUT)       # exact enumeration
+        self.assertNotIn(0.0, mags)
+        # A whole-number chosen line is handled as whole (push-capable).
+        self.assertTrue(float(1.0).is_integer())
+
+    def test_monitor_stats_structural_resolution(self):
+        # Whole-line −1: margin > 1 covers, margin == 1 pushes, else loss;
+        # half-line −1.5 never pushes (margin == 1.5 impossible on integers).
+        rows = [_rl_row(6, 2), _rl_row(5, 4), _rl_row(2, 6)]
+        dec = pd.DataFrame(rows)
+        s = diag.runline_monitor_stats(dec, 1.0)
+        self.assertEqual(s["n"], 3)
+        # wins=cover(margin>1): margins 4, 1, −4 → 1 win; push margin==1 → 1.
+        self.assertEqual(s["n_wins"] + s["n_losses"] + s["n_pushes"], 3)
+        self.assertEqual(s["n_pushes"], 1)
+        s15 = diag.runline_monitor_stats(dec, 1.5)
+        self.assertEqual(s15["n_pushes"], 0)          # half-line never pushes
 
 
 if __name__ == "__main__":

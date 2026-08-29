@@ -321,12 +321,18 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
     LINE (O/U X.5) | MODEL PICK (Over/Under X.5 (p%)) | WINNER | RESULT.
     Most recent first in a fixed-height scroll container; header win rate
     recomputes from the filtered rows; pushes excluded from the win rate
-    and counted in the caption (same semantics as the diagnostics)."""
+    and counted in the caption (same semantics as the diagnostics). An
+    ALL / OVER / UNDER side filter partitions the population — the Scoring-
+    Mean diagnostic (Over under-predicting + Under over-predicting would
+    otherwise net to zero pooled)."""
+    side = st.radio("Side filter", ["All", "Over", "Under"],
+                    index=0, horizontal=True, key="totals_history_side")
     view = diag.filter_history_frame(tot, start_d, end_d)
+    view = diag.filter_history_by_side(view, side)
     view = view.sort_values("game_date", ascending=False)
+    st.markdown("#### Game Totals — Prediction History")
     if not len(view):
-        st.markdown("#### Game Totals — Prediction History")
-        st.info("No games in the selected date range.")
+        st.info("No games in the selected date range / side.")
         return
     stats = diag.history_win_rate(view)
     rate = stats["win_rate"]
@@ -335,10 +341,10 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
     push_txt = (
         f" · {stats['n_pushes']:,} push(es) excluded — total == whole-"
         "number line, neither wins nor loses") if stats["n_pushes"] else ""
-    st.markdown("#### Game Totals — Prediction History")
+    side_txt = " · all sides" if side == "All" else f" · {side} picks only"
     st.caption(
-        f"{stats['n_games']:,} games · {rate_txt} · most recent first — "
-        f"scroll for older results{push_txt}{cal_note}"
+        f"{stats['n_games']:,} games{side_txt} · {rate_txt} · most recent "
+        f"first — scroll for older results{push_txt}{cal_note}"
     )
     rows = []
     for _, r in view.iterrows():
@@ -424,6 +430,71 @@ def _render_runline_history(rl: pd.DataFrame, teams: dict,
     )
 
 
+def _render_runline_cut_history(rl: pd.DataFrame, teams: dict,
+                                start_d, end_d, cal_note: str) -> None:
+    """Run-line prediction history — the CUT line (favored side at its
+    deepest line with cover >= 50%). DATE | MATCHUP | SCORE (A–H) |
+    LINE (favored side's cut, e.g. −1.5/+1.5) | MODEL PICK | WINNER |
+    RESULT. Whole-line pushes resolved 3-way: push rows render '—' and are
+    excluded from the W/(W+L) win rate (unified convention).
+
+    Resolution: favored covers if its margin > L; push if == L on whole
+    lines; loss if < L. Line 0 never occurs (integer margins, no ties)."""
+    view = diag.filter_history_frame(rl, start_d, end_d)
+    view = view.sort_values("game_date", ascending=False)
+    if not len(view):
+        st.markdown("#### Run Lines — Prediction History")
+        st.info("No games in the selected date range.")
+        return
+    stats = diag.history_win_rate(view)
+    rate = stats["win_rate"]
+    rate_txt = f"{rate * 100:.1f}% picks correct" if rate is not None \
+        else "no priced games"
+    push_txt = (f" · {stats['n_pushes']:,} push(es) excluded — favored "
+                "margin == whole run line, neither wins nor loses") \
+        if stats["n_pushes"] else ""
+    st.markdown("#### Run Lines — Prediction History")
+    st.caption(
+        f"{stats['n_games']:,} games · {rate_txt} · most recent first — "
+        f"scroll for older results{push_txt} · the pick is the MONEYLINE "
+        f"favorite at its CUT line (deepest line with cover ≥ 50%){cal_note}"
+    )
+    rows = []
+    for _, r in view.iterrows():
+        away, home = diag.resolve_matchup_teams(teams, r["game_pk"])
+        line_txt = f"RL {('−' if r['pick'] == 'home' else '+')}{r['cut']:.1f}"
+        team = home if r["pick"] == "home" else away
+        if r["winner"] == "Push":
+            winner_txt, pick_txt = "Push", f"{team} {r['cut']:.1f} ({r['pick_prob']:.0%})"
+        else:
+            winner_team = home if r["winner"] == "home" else away
+            winner_txt = winner_team
+            pick_txt = f"{team} {r['cut']:.1f} ({r['pick_prob']:.0%})"
+        rows.append(
+            f"<tr><td>{_date_str(r['game_date'])}</td>"
+            f"<td>{away} @ {home}</td>"
+            f"<td>{_score_cell(r)}</td>"
+            f"<td>{line_txt}</td>"
+            f"<td>{pick_txt}</td>"
+            f"<td>{winner_txt}</td>{_result_cell(r['correct'])}</tr>"
+        )
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <div style="max-height:480px;overflow-y:auto;">
+            <table class="fb-table">
+              <thead><tr><th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>
+              <th>LINE</th><th>MODEL PICK</th><th>WINNER</th>
+              <th>RESULT</th></tr></thead>
+              <tbody>{''.join(rows)}</tbody>
+            </table>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.markdown("### Prediction History — Totals & Run Lines")
 if decided.empty:
     st.info(
@@ -433,7 +504,15 @@ if decided.empty:
     )
 else:
     tot = diag.totals_history_frame(decided)
-    rl = diag.runline_history_frame(decided)
+    # Cut-line run-line history (favored side at its deepest cover>=50%
+    # line). If the artifact lacks the p_rl grid (legacy), fall back to the
+    # historical fixed ±1.5 frame so those artifacts still render — never
+    # fabricated.
+    rl_cut = diag.runline_cut_history_frame(decided)
+    rl_legacy = None
+    if not len(rl_cut):
+        rl_legacy = diag.runline_history_frame(decided)
+        rl_cut = rl_legacy
     teams = _team_map()
     if not teams:
         st.warning(
@@ -452,8 +531,14 @@ else:
         if start_d > end_d:
             start_d, end_d = end_d, start_d
         _cal_note = _market_prob_note(date_str)
+        # The pred-prob NOTE is 1-arg; keep the totes/cut calls in sync so
+        # both tables share the same caption + date range.
         _render_totals_history(tot, teams, start_d, end_d, _cal_note)
-        _render_runline_history(rl, teams, start_d, end_d, _cal_note)
+        if rl_legacy is None:
+            _render_runline_cut_history(rl_cut, teams, start_d, end_d,
+                                        _cal_note)
+        else:
+            _render_runline_history(rl_cut, teams, start_d, end_d, _cal_note)
 
 
 
@@ -576,6 +661,95 @@ def _render_winner_cards(winner_cards: dict) -> None:
                     f"{_fmt(rwr, pct=True) if rwr is not None else '--'} "
                     f"win rate (n={ref.get('n', '--'):,}) — the run-line "
                     "model's NB moneyline underweights the home edge")
+
+
+def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
+    """Interactive Totals calibration card — pick Over/Under at each
+    game's OWN line, percent-confidence toggle (cumulative) + ALL / OVER /
+    UNDER side filter, win rate 2-way re-normalized W/(W+L) (pushes folded
+    proportionally out of BOTH numerator and denominator, so Over + Under
+    at a whole line still sum to 100%). This is the Scoring-Mean
+    diagnostic: without the side filter, Over under-predicting + Under
+    over-predicting would net to zero pooled."""
+    st.markdown("**Totals — Over/Under calibration card**")
+    c1, c2 = st.columns([1, 1])
+    thresh = c1.selectbox("Confidence (pick_prob > …)",
+                          diag.TOTALS_CONF_THRESHOLDS, index=3,
+                          key="totals_card_conf")
+    side = c2.selectbox("Side", ["All", "Over", "Under"], index=0,
+                        key="totals_card_side")
+    s = diag.totals_monitor_stats(decided, min_pct=thresh, side=side)
+    if not s["n"]:
+        st.caption("No priced games at this confidence / side.")
+        return
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Games", f"{s['n']:,}")
+    wr = s["win_rate"]
+    m2.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
+    m3.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
+    m4.metric("Pushes excluded", f"{s['n_pushes']:,}")
+    if s["sides"]:
+        rows = []
+        for name, r in s["sides"].items():
+            rw = r["win_rate"]
+            rows.append({
+                "Side": name,
+                "n": r["n"],
+                "Win rate": f"{rw * 100:.1f}%" if rw else "—",
+                "Pushes": r["n_pushes"],
+            })
+        st.dataframe(pd.DataFrame(rows), hide_index=True,
+                     use_container_width=True)
+    st.caption(
+        f"Thresh: pick_prob > {thresh}% (cumulative — nested subsets). "
+        "Win rate is 2-way re-normalized: whole-number-line pushes are "
+        "neither wins nor losses (excluded from both). This side split is "
+        "the Scoring-Mean diagnostic — compare each side vs its own mean "
+        "predicted P.")
+
+
+def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
+    """Interactive Run-line calibration card — LINE toggle (−0.5, −1,
+    −1.5, …, −4); at the selected line pick the MONEYLINE favorite to win
+    (NOT a >50% cover pick — its cover P is often < 50% on deeper lines,
+    so this is a calibration check, not a profit rule). Win rate is 2-way
+    re-normalized W/(W+L); whole-line pushes folded out of both. No percent
+    toggle. −0.5 is derived from the corrected moneyline (P(favored win))."""
+    st.markdown("**Run Line — favorite cover calibration card**")
+    line = st.selectbox("Line (favorite −L)", diag.RUN_LINE_CHOICES,
+                        index=2, key="runline_card_line")
+    mag = diag.map_run_line_zero(abs(line))
+    if mag not in diag.RUN_GRID_CUT:
+        st.caption("Line outside the priced grid.")
+        return
+    s = diag.runline_monitor_stats(decided, mag)
+    if not s["n"]:
+        st.caption("No priced games at this line.")
+        return
+    cp = s["cover_pred_mean"]
+    wr = s["win_rate"]
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Games", f"{s['n']:,}")
+    m2.metric("Favored cover P", f"{cp * 100:.1f}%" if cp else "—")
+    m3.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
+    m4.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
+    m5.metric("Pushes", f"{s['n_pushes']:,}")
+    if s["sides"]:
+        rows = []
+        for name, r in s["sides"].items():
+            rw = r["win_rate"]
+            rows.append({"Favorite": "Home" if name == "home" else "Away",
+                         "n": r["n"],
+                         "Win rate": f"{rw * 100:.1f}%" if rw else "—",
+                         "Pushes": r["n_pushes"]})
+        st.dataframe(pd.DataFrame(rows), hide_index=True,
+                     use_container_width=True)
+    st.caption(
+        f"Favored side = MONEYLINE favorite (P(win) > 50%). At deeper lines "
+        "its cover P can fall below 50% — that is a calibration finding, "
+        "not a pick rule. 2-way re-normalized: whole-line pushes (favored "
+        "margin == L) folded out of both sides. −0.5 ≡ outright win "
+        "(integer margins, no ties).")
 
 
 def _render_fit_panel(fit: dict) -> None:
@@ -927,6 +1101,20 @@ else:
     else:
         st.info("No winner-card data in this monitor artifact (v1 monitor "
                 "files predate the winner-card schema).")
+
+    # Interactive calibration cards (unified 3-way push resolution) —
+    # computed from the POST-FIX run-engine margin columns in
+    # run_engine_markets_*.csv (fdd9187), never legacy values. Read-only
+    # over the artifact; no MC re-runs.
+    if not decided.empty and {"home_score", "away_score"}.issubset(
+            decided.columns):
+        st.markdown("---")
+        with st.expander("Calibration Cards — Totals & Run Line",
+                         expanded=True):
+            _render_totals_calibration_card(decided)
+            st.markdown("<div style='height:12px'></div>",
+                        unsafe_allow_html=True)
+            _render_runline_calibration_card(decided)
 
     # Fit panel
     fit = monitor.get("fit") or {}
