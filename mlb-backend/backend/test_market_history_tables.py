@@ -693,6 +693,73 @@ class TestCutAndMonitor(unittest.TestCase):
         s15 = diag.runline_monitor_stats(dec, 1.5)
         self.assertEqual(s15["n_pushes"], 0)          # half-line never pushes
 
+    @staticmethod
+    def _rl_3way(hs, as_, cover, push, pk):
+        """One artifact-shaped row with an explicit consistent 3-way split
+        at whole line −1.0 (home + push + away == 1.0)."""
+        return {"game_pk": pk, "kind": "oof", "game_date": "2025-05-01",
+                "home_expected_runs": 5.0, "away_expected_runs": 4.0,
+                "home_score": hs, "away_score": as_,
+                "total_runs": hs + as_, "p_home_cover_1_5": 0.5,
+                "p_rl_1_0_home": cover, "p_rl_1_0_push": push,
+                "p_rl_1_0_away": round(1.0 - cover - push, 6)}
+
+    def test_runline_predicted_2way_whole_line(self):
+        """At a WHOLE line with pushes, predicted_2way re-normalizes the raw
+        cover rate to the same basis as W/(W+L) (pushes folded out of both
+        sides): cover 0.363 / dog 0.469 / push 0.168 →
+        0.363/(0.363+0.469) ≈ 43.6%, NOT the raw 36.3%."""
+        rows = [self._rl_3way(5, 2, 0.363, 0.168, pk=0),   # margin 3 → win
+                self._rl_3way(4, 3, 0.363, 0.168, pk=1),   # margin 1 → PUSH
+                self._rl_3way(2, 5, 0.363, 0.168, pk=2)]   # margin −3 → loss
+        dec = pd.DataFrame(rows)
+        s = diag.runline_monitor_stats(dec, 1.0)
+        self.assertEqual(s["n"], 3)
+        self.assertEqual(s["n_pushes"], 1)
+        # Raw prediction stays raw (cross-check vs calibration record).
+        self.assertAlmostEqual(s["cover_pred_mean"], 0.363, places=4)
+        # 2-way prediction: 0.363 / (0.363 + 0.469) = 0.4363.
+        self.assertAlmostEqual(s["predicted_2way"], 0.4363, places=4)
+        # Win rate is W/(W+L): 1 win / (1 win + 1 loss).
+        self.assertAlmostEqual(s["win_rate"], 0.5, places=6)
+        # |predicted_2way − win_rate| ≪ |raw − win_rate| — the point of the
+        # fix (raw was an 8-pt under-prediction, 2-way is within noise).
+        self.assertLess(abs(s["predicted_2way"] - s["win_rate"]),
+                        abs(s["cover_pred_mean"] - s["win_rate"]))
+        # Home/Away rows unchanged: win rates only, 2-way, per side.
+        self.assertEqual(set(s["sides"]), {"home"})   # all home favorites
+        h = s["sides"]["home"]
+        self.assertEqual(h["n"], 3)
+        self.assertEqual(h["n_wins"], 1)
+        self.assertEqual(h["n_pushes"], 1)
+        self.assertAlmostEqual(h["win_rate"], 0.5, places=6)
+
+    def test_runline_predicted_2way_half_line_equals_raw(self):
+        """Half-lines never push → predicted_2way == raw cover_pred_mean
+        (and == the per-game cover P)."""
+        rows = [_rl_row(6, 2),          # margin 4 > 1.5 → win (cover 0.55)
+                _rl_row(4, 4)]          # margin 0 < 1.5 → loss (cover 0.55)
+        dec = pd.DataFrame(rows)
+        s = diag.runline_monitor_stats(dec, 1.5)
+        self.assertEqual(s["n_pushes"], 0)
+        self.assertAlmostEqual(s["cover_pred_mean"], 0.55, places=4)
+        self.assertEqual(s["predicted_2way"], s["cover_pred_mean"])
+        self.assertAlmostEqual(s["predicted_2way"], 0.55, places=4)
+
+    def test_runline_card_label_and_footer_source(self):
+        """The card labels the metric 'Model predicted' (2-way basis) and
+        the footer states BOTH predicted and win rate are 2-way re-
+        normalized — no raw cover label remains."""
+        src = (FRONTEND / "markets.py").read_text()
+        self.assertIn('"Model predicted"', src,
+                      "metric label must be 'Model predicted'")
+        self.assertNotIn('"Favored cover P"', src,
+                         "raw-cover label must be gone")
+        self.assertIn("BOTH 2-way", src,
+                      "footer must state both metrics are 2-way")
+        self.assertIn("P(cover)/[P(cover)+P(dog)]", src,
+                      "footer must name the re-scaling basis")
+
 
 if __name__ == "__main__":
     unittest.main()

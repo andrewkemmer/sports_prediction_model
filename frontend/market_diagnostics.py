@@ -946,7 +946,10 @@ def runline_monitor_stats(decided: pd.DataFrame, line: float) -> dict:
     Resolution is the unified 3-way (favored covers if its margin > L,
     push if == L on whole lines, loss if < L); win rate is 2-way
     re-normalized W/(W+L) with whole-line pushes folded out of both.
-    Returns pooled stats + per-favored-side split."""
+    ``cover_pred_mean`` is the RAW predicted cover rate (pushes in the
+    denominator); ``predicted_2way`` re-normalizes it to the SAME basis as
+    the win rate (whole-line pushes folded out of both sides — half-lines
+    are unchanged). Returns pooled stats + per-favored-side split."""
     empty = {"line": line, "n": 0, "n_home": 0, "n_away": 0,
              "n_wins": 0, "n_losses": 0, "n_pushes": 0,
              "cover_pred_mean": None, "win_rate": None, "sides": {}}
@@ -978,10 +981,36 @@ def runline_monitor_stats(decided: pd.DataFrame, line: float) -> dict:
     # not shipped → excluded from cover_pred_mean, never fabricated.
     priced_cover = np.isfinite(cover) & valid
     cp = float(cover[priced_cover].mean()) if priced_cover.any() else None
+    # 2-way re-normalized predicted cover — the SAME basis as win_rate
+    # (W/(W+L)): whole-line pushes folded out of both sides.
+    # predicted_2way = P(cover) / (P(cover) + P(dog)) = mean(cover) /
+    # (1 − mean(push)) over the priced subset (dog = 1 − cover − push per
+    # game; the same re-scaling convention as the totals card's re-scaled
+    # 2-way probabilities — ratio preserved, sums to 100%). Half-lines
+    # never push, so predicted_2way == raw cover_pred_mean there. Away-
+    # favorite deep lines are unpriced (cover NaN) and their push P is
+    # unshipped, so they drop out of both sides consistently.
+    p2 = None
+    if cp is not None:
+        if whole:
+            pkey = f"{line:.1f}".replace(".", "_")
+            pcol = f"p_rl_{pkey}_push"
+            pushp = (decided[pcol].to_numpy(float)
+                     if pcol in decided.columns else None)
+            mp = None
+            if pushp is not None:
+                pp_ok = np.isfinite(pushp) & priced_cover
+                if pp_ok.any():
+                    mp = float(pushp[pp_ok].mean())
+            if mp is not None and mp < 1.0:
+                p2 = cp / (1.0 - mp)
+        else:
+            p2 = cp
     n_home = int((valid & is_home).sum())
     out = {"line": line, "n": n, "n_home": n_home, "n_away": n - n_home,
            "n_wins": n_wins, "n_losses": n_losses, "n_pushes": n_pushes,
            "cover_pred_mean": (round(cp, 4) if cp is not None else None),
+           "predicted_2way": (round(p2, 4) if p2 is not None else None),
            "win_rate": (round(n_wins / denom, 6) if denom else None),
            "cover_available": int(priced_cover.sum()),
            "sides": {}}

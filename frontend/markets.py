@@ -730,11 +730,18 @@ def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
     if not s["n"]:
         st.caption("No priced games at this line.")
         return
-    cp = s["cover_pred_mean"]
+    # Display the 2-way re-normalized prediction (same basis as W/(W+L)):
+    # whole-line pushes folded out of both sides, so a whole-line card never
+    # reads as an 8-pt under-prediction. Half-lines have no push, so it
+    # equals the raw cover rate there. The raw cover_pred_mean stays in the
+    # stats dict (cross-checks against the calibration record's raw line
+    # values), but the card compares apples to apples.
+    cp = s["predicted_2way"] if s.get("predicted_2way") is not None \
+        else s.get("cover_pred_mean")
     wr = s["win_rate"]
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Games", f"{s['n']:,}")
-    m2.metric("Favored cover P", f"{cp * 100:.1f}%" if cp else "—")
+    m2.metric("Model predicted", f"{cp * 100:.1f}%" if cp else "—")
     m3.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
     m4.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
     m5.metric("Pushes", f"{s['n_pushes']:,}")
@@ -751,9 +758,11 @@ def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
     st.caption(
         f"Favored side = MONEYLINE favorite (P(win) > 50%). At deeper lines "
         "its cover P can fall below 50% — that is a calibration finding, "
-        "not a pick rule. 2-way re-normalized: whole-line pushes (favored "
-        "margin == L) folded out of both sides. −0.5 ≡ outright win "
-        "(integer margins, no ties).")
+        "not a pick rule. Model predicted and Win rate are BOTH 2-way "
+        "re-normalized (whole-line pushes, favored margin == L, folded out "
+        "of both sides — predicted = P(cover)/[P(cover)+P(dog)] on the same "
+        "basis as W/(W+L)), so a whole-line card is never read as an 8-pt "
+        "under-prediction. −0.5 ≡ outright win (integer margins, no ties).")
 
 
 def _render_fit_panel(fit: dict) -> None:
