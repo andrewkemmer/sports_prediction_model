@@ -158,30 +158,40 @@ class TestOUPushDisplay(unittest.TestCase):
                                          {row["game_pk"]: row})
         self.assertIsNotNone(bits)
         self.assertTrue(bits["has_grid"])
-        # Half-line 9.5: no push possible — p_push is 0 or None
-        pp = bits.get("p_push")
-        if pp is not None:
-            self.assertAlmostEqual(pp, 0.0, places=9)
+        # Half-line 9.5: no push possible — p_push is exactly 0.0, never a
+        # neighbor's push (the pre-fix fallback wrongly showed P(total=9)).
+        self.assertEqual(bits.get("p_push"), 0.0)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
+                               places=9)
 
     def test_whole_line_push_nonzero(self):
         """For whole-number lines (e.g. 9.0), p_push > 0."""
-        # Craft a row with λ_h + λ_a = 9.0 → line 9.0
+        # Craft a row with λ_h + λ_a = 9.0 → line 9.0, and select it
+        # explicitly (adding the 8.5 neighbor moves the fair default).
         row = {"game_pk": "W", "home_expected_runs": 4.5,
                "away_expected_runs": 4.5,
+               "p_over_8_5": 0.50, "p_under_8_5": 0.50,
                "p_over_9_0": 0.42, "p_under_9_0": 0.58,
                "p_over_9_5": 0.34, "p_under_9_5": 0.66,
                "p_home_cover_1_5": 0.4}
-        bits = diag.run_engine_card_bits("W", {"W": row})
+        bits = diag.run_engine_card_bits("W", {"W": row}, line=9.0)
         self.assertTrue(bits["has_grid"])
         self.assertEqual(bits["total_line"], 9.0)
-        # p_push = p_over_9_0 - p_over_9_5 = 0.42 - 0.34 = 0.08
+        # Fallback (no explicit p_push column): whole-line push = P(total==9)
+        # = p_over(8.5) − p_over(9.0) = 0.50 − 0.42 = 0.08. NOT the pre-fix
+        # inversion (p_over(9.0) − p_over(9.5) = 0).
         self.assertAlmostEqual(bits["p_push"], 0.08, places=9)
         self.assertGreater(bits["p_push"], 0)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
+                               delta=0.01)
 
     def test_p_push_matches_grid_difference(self):
-        """p_push for a whole line equals p_over(L) - p_over(L+0.5)."""
+        """p_push for a whole line equals p_over(L−0.5) − p_over(L): the
+        LOWER neighbor carries the push mass (strict over: p_over(L−0.5) =
+        P(total ≥ L), p_over(L) = P(total ≥ L+1) → P(total == L))."""
         row = {"game_pk": "P", "home_expected_runs": 4.0,
                "away_expected_runs": 4.0,  # round mean → 8.0
+               "p_over_7_5": 0.62, "p_under_7_5": 0.38,
                "p_over_8_0": 0.55, "p_under_8_0": 0.45,
                "p_over_8_5": 0.48, "p_under_8_5": 0.52,
                "p_home_cover_1_5": 0.35}
@@ -189,7 +199,11 @@ class TestOUPushDisplay(unittest.TestCase):
         # 8.0's 0.55) — select the whole line explicitly to test its push.
         bits = diag.run_engine_card_bits("P", {"P": row}, line=8.0)
         self.assertEqual(bits["total_line"], 8.0)
-        self.assertAlmostEqual(bits["p_push"], 0.55 - 0.48, places=9)
+        # Whole-line push comes from the LOWER neighbor: 0.62 − 0.55 = 0.07
+        # (the pre-fix direction p_over(8.0) − p_over(8.5) = 0.07 was
+        # coincidentally equal here but wrong for half-lines and 0 for
+        # whole lines whose upper neighbor lacks the mass).
+        self.assertAlmostEqual(bits["p_push"], 0.62 - 0.55, places=9)
 
     def test_html_push_for_whole_line_source_check(self):
         """todays_games.py must handle p_push in the O/U HTML line."""
@@ -261,26 +275,49 @@ class TestOUPushDisplay(unittest.TestCase):
         self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, delta=0.01)
 
     def test_legacy_artifact_fallback_still_works(self):
-        """LEGACY artifact (no p_push column): subtraction fallback derives
-        the push band (p_over was push-inclusive pre-fix), and the re-scale
-        folds it in so headline Over + Under = 100%."""
+        """LEGACY artifact (no p_push column): the corrected subtraction
+        fallback recovers the whole-line push band from the LOWER neighbor
+        (p_over(8.5) − p_over(9.0) = P(total == 9)), and the re-scale folds
+        it in so headline Over + Under = 100%."""
         row = {"game_pk": "LG", "home_expected_runs": 4.5,
                "away_expected_runs": 4.5,  # line = 9.0
+               "p_over_8_5": 0.58, "p_under_8_5": 0.42,
                "p_over_9_0": 0.50, "p_under_9_0": 0.50,
                "p_over_9_5": 0.42, "p_under_9_5": 0.58,
                "p_home_cover_1_5": 0.4}
         bits = diag.run_engine_card_bits("LG", {"LG": row})
         self.assertEqual(bits["total_line"], 9.0)
-        # Subtraction fallback still recovers the push band (0.50-0.42).
+        # Fallback recovers P(total == 9) = p_over_8_5 − p_over_9_0
+        # (0.58 − 0.50 = 0.08) — NOT the pre-fix p_over_9_0 − p_over_9_5.
         self.assertAlmostEqual(bits["p_push"], 0.08, places=9)
         # Over:Under ratio preserved after re-scale: 0.50/0.50 → 50/50.
         self.assertAlmostEqual(bits["p_over"], 0.50, places=9)
         self.assertAlmostEqual(bits["p_under"], 0.50, places=9)
         self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0, delta=0.01)
 
+    def test_legacy_half_line_fallback_is_zero_not_neighbor_push(self):
+        """LEGACY artifact, half-line 8.5 (no p_push column): the fallback
+        must be exactly 0.0 — never the neighbor's push. The pre-fix code
+        returned P(total == 9) here (p_over_8_5 − p_over_9_0 > 0), the
+        exact half-line-shows-push inversion this fix removes."""
+        row = {"game_pk": "LH", "home_expected_runs": 4.0,
+               "away_expected_runs": 4.3,  # line = 8.5
+               "p_over_8_5": 0.50, "p_under_8_5": 0.50,
+               "p_over_9_0": 0.42, "p_under_9_0": 0.58,
+               "p_home_cover_1_5": 0.4}
+        bits = diag.run_engine_card_bits("LH", {"LH": row})
+        self.assertEqual(bits["total_line"], 8.5)
+        # p_over_8_5 − p_over_9_0 = 0.08 (the neighbor's P(total=9)) must
+        # NOT leak into the half-line's push.
+        self.assertEqual(bits["p_push"], 0.0)
+        self.assertAlmostEqual(bits["p_over"] + bits["p_under"], 1.0,
+                               places=9)
+
     def test_postfix_explicit_column_wins_over_subtraction(self):
         """If BOTH the explicit column and the grid difference exist, the
-        explicit column must win (post-fix subtraction is always 0)."""
+        explicit column must win (it is exact — P(total == line) from the
+        same MC draws — and does not depend on the L−0.5 neighbor column
+        being present)."""
         row = {"game_pk": "PB", "home_expected_runs": 4.5,
                "away_expected_runs": 4.5,
                "p_over_9_0": 0.388, "p_push_9_0": 0.086,
@@ -310,18 +347,23 @@ class TestLineSelector(unittest.TestCase):
     """
 
     def _row(self, pk="SEL", h=4.5, a=4.5):
-        """λ_h + λ_a = 9.0. Grid carries 9.0 (whole, push band 0.08), 8.5 /
-        9.5 (halves), 8.0 (whole) — the FAIR default (grid argmin
-        |re-scaled P(over) − 0.5|) is 8.5 (rescaled 0.48; 9.0 is 0.4565)."""
+        """λ_h + λ_a = 9.0. Grid carries 9.0 (whole), 8.5 / 9.5 (halves),
+        8.0 / 7.5 (the 8.0 lower neighbor for its push) — the FAIR default
+        (grid argmin |re-scaled P(over) − 0.5|) is 8.5 (rescaled 0.48;
+        9.0 is 0.4468, 8.0 is 0.5914)."""
         return {"game_pk": pk, "home_expected_runs": h,
                 "away_expected_runs": a,
-                # p_under = 1 - p_over - p_push (artifact convention):
-                # 9.0 push = 0.42-0.34 = 0.08 → under = 1-0.42-0.08 = 0.50;
-                # 8.0 push = 0.55-0.48 = 0.07 → under = 1-0.55-0.07 = 0.38.
-                "p_over_9_0": 0.42, "p_under_9_0": 0.50,
+                # p_under = 1 - p_over - p_push (artifact convention; push
+                # from the LOWER neighbor: p_over(L−0.5) − p_over(L)):
+                # 9.0 push = p_over_8_5 − p_over_9_0 = 0.48-0.42 = 0.06 →
+                #   under = 1-0.42-0.06 = 0.52;
+                # 8.0 push = p_over_7_5 − p_over_8_0 = 0.62-0.55 = 0.07 →
+                #   under = 1-0.55-0.07 = 0.38.
+                "p_over_9_0": 0.42, "p_under_9_0": 0.52,
                 "p_over_9_5": 0.34, "p_under_9_5": 0.66,
                 "p_over_8_0": 0.55, "p_under_8_0": 0.38,
                 "p_over_8_5": 0.48, "p_under_8_5": 0.52,
+                "p_over_7_5": 0.62, "p_under_7_5": 0.38,
                 "p_home_cover_1_5": 0.4}
 
     def test_defaults_to_model_line(self):
@@ -353,14 +395,15 @@ class TestLineSelector(unittest.TestCase):
                                delta=0.01)
 
     def test_whole_line_override_rescales_to_100(self):
-        """Selecting whole line 8.0 (push band 0.55−0.48=0.07): the re-scaled
-        Over + Under still sums to 100% (±1 rounding) and the push is folded
-        in, preserving the over:under ratio."""
+        """Selecting whole line 8.0 (push band = p_over_7_5 − p_over_8_0 =
+        0.62−0.55 = 0.07): the re-scaled Over + Under still sums to 100%
+        (±1 rounding) and the push is folded in, preserving the over:under
+        ratio."""
         row = self._row()
         bits = diag.run_engine_card_bits("SEL", {"SEL": row}, line=8.0)
         self.assertEqual(bits["total_line"], 8.0)
         self.assertEqual(bits["line_selected"], 8.0)
-        self.assertAlmostEqual(bits["p_push"], 0.55 - 0.48, places=9)
+        self.assertAlmostEqual(bits["p_push"], 0.62 - 0.55, places=9)
         total = bits["p_over"] + bits["p_under"]
         self.assertAlmostEqual(total, 1.0, delta=0.01,
                                msg="selected-line over+under must sum to 100% (±1)")

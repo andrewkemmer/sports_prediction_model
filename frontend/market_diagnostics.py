@@ -1191,21 +1191,29 @@ def run_engine_card_bits(game_id: str,
         p_over = _num(row, over_col)
         p_under = _num(row, under_col)
         if p_over is not None and p_under is not None:
-            # P(push) for whole-number lines. Post-65b44ec artifacts ship an
-            # explicit p_push_<line> column (P(total == line) from the same
-            # MC draws) — read it DIRECTLY. Legacy pre-fix artifacts lack
-            # the column: fall back to the grid difference p_over(L) −
-            # p_over(L+0.5), which equals the push band on those artifacts
-            # (their p_over was push-inclusive). On post-fix artifacts the
-            # difference is always 0 (both thresholds = total ≥ L+0.5),
-            # which is why the explicit column is preferred. Half-lines
-            # can never push, so this is always 0 for them.
+            # P(push) for whole-number lines = P(total == line). Post-65b44ec
+            # artifacts ship an explicit p_push_<line> column (P(total ==
+            # line) from the same MC draws) — ALWAYS prefer it (exact, no
+            # neighbor dependency, works at grid edges). Legacy artifacts
+            # lack it: fall back to the grid difference against the LOWER
+            # neighbor, p_over(L−0.5) − p_over(L) = P(total == L) for
+            # integer totals (strict over: p_over(L−0.5) = P(total ≥ L),
+            # p_over(L) = P(total ≥ L+1)). The old p_over(L) − p_over(L+0.5)
+            # direction is INVERTED: on whole lines both thresholds reduce
+            # to total ≥ L+0.5, so it is always 0, and on half-lines it
+            # returns the NEIGHBOR line's push (P(total == L+0.5)) — the
+            # half-line-shows-push / whole-line-shows-none display bug.
+            # Half-lines can never push (totals are integers), so their
+            # fallback is exactly 0 — never a neighbor's push.
             p_push = _num(row, grid_push_col(line))
             if p_push is None:
-                over_next_col, _ = grid_over_under_cols(line + 0.5)
-                p_over_next = _num(row, over_next_col)
-                if p_over_next is not None:
-                    p_push = max(0.0, p_over - p_over_next)
+                if line == int(line):      # whole-number line
+                    over_prev_col, _ = grid_over_under_cols(line - 0.5)
+                    p_over_prev = _num(row, over_prev_col)
+                    if p_over_prev is not None:
+                        p_push = max(0.0, p_over_prev - p_over)
+                else:                      # half-line: integer totals never
+                    p_push = 0.0           #   land on x.5, so no push band
             # Re-scale Over/Under so they sum to 100% by folding the push
             # proportionately into each side (a push refunds the bet;
             # sportsbooks price whole-number lines this way). The over:under
