@@ -1,0 +1,348 @@
+{
+  "diagnostic": "margin_reliability",
+  "generated": "2026-08-30T17:05:00",
+  "artifacts": {
+    "oof": "run_engine_oof_20260830.csv",
+    "markets": "run_engine_markets_20260830.csv"
+  },
+  "n_games": 6829,
+  "method": {
+    "forecast": "per-game NB(lambda, alpha) marginals reconstructed exactly (no MC draws), with the SHIPPED post-fix structure: P(margin=0) resolves to +-1 home-weighted with share 0.744 (P(+1)'=P(+1)+a*P(0), P(-1)'=P(-1)+(1-a)*P(0), P(0)'=0); every other margin at its raw full-basis value",
+    "pit": "randomized PIT U_i = F(y_i-1) + V_i*p(y_i), V ~ U(0,1) i.i.d., seed 20260830",
+    "margin_grid": [
+      -60,
+      60
+    ],
+    "max_pmf_mass_loss": 8.687e-07
+  },
+  "pit": {
+    "bins": 20,
+    "histogram": [
+      321,
+      366,
+      369,
+      346,
+      343,
+      358,
+      345,
+      341,
+      292,
+      344,
+      346,
+      346,
+      336,
+      363,
+      315,
+      324,
+      348,
+      334,
+      353,
+      339
+    ],
+    "expected_per_bin": 341.45,
+    "ks_statistic": 0.01,
+    "ks_pvalue": 0.5002,
+    "chi2_statistic": 18.506,
+    "chi2_df": 19,
+    "chi2_pvalue": 0.4889,
+    "shape_verdict": "flat \u2014 distribution reliably specified (KS/chi2 do not reject uniformity)"
+  },
+  "coverage": [
+    {
+      "nominal": 0.9,
+      "empirical": 0.9177,
+      "delta": 0.0177,
+      "model_implied": 0.9153,
+      "delta_vs_implied": 0.0024
+    },
+    {
+      "nominal": 0.8,
+      "empirical": 0.8271,
+      "delta": 0.0271,
+      "model_implied": 0.828,
+      "delta_vs_implied": -0.0009
+    },
+    {
+      "nominal": 0.7,
+      "empirical": 0.7352,
+      "delta": 0.0352,
+      "model_implied": 0.7366,
+      "delta_vs_implied": -0.0013
+    },
+    {
+      "nominal": 0.6,
+      "empirical": 0.6424,
+      "delta": 0.0424,
+      "model_implied": 0.6483,
+      "delta_vs_implied": -0.0059
+    },
+    {
+      "nominal": 0.5,
+      "empirical": 0.5815,
+      "delta": 0.0815,
+      "model_implied": 0.5858,
+      "delta_vs_implied": -0.0043
+    },
+    {
+      "nominal": 0.4,
+      "empirical": 0.4705,
+      "delta": 0.0705,
+      "model_implied": 0.4737,
+      "delta_vs_implied": -0.0032
+    },
+    {
+      "nominal": 0.3,
+      "empirical": 0.3879,
+      "delta": 0.0879,
+      "model_implied": 0.3897,
+      "delta_vs_implied": -0.0018
+    },
+    {
+      "nominal": 0.2,
+      "empirical": 0.2935,
+      "delta": 0.0935,
+      "model_implied": 0.3017,
+      "delta_vs_implied": -0.0083
+    },
+    {
+      "nominal": 0.1,
+      "empirical": 0.2642,
+      "delta": 0.1642,
+      "model_implied": 0.2739,
+      "delta_vs_implied": -0.0098
+    }
+  ],
+  "per_margin": {
+    "margins": [
+      -10,
+      -9,
+      -8,
+      -7,
+      -6,
+      -5,
+      -4,
+      -3,
+      -2,
+      -1,
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "pred_p_in_window": 0.9723,
+    "actual_p_in_window": 0.9731,
+    "rows": [
+      {
+        "margin": -10,
+        "n": 56,
+        "pred_p": 0.0074,
+        "actual_p": 0.0082,
+        "delta": 0.0008
+      },
+      {
+        "margin": -9,
+        "n": 58,
+        "pred_p": 0.0107,
+        "actual_p": 0.0085,
+        "delta": -0.0022
+      },
+      {
+        "margin": -8,
+        "n": 120,
+        "pred_p": 0.0154,
+        "actual_p": 0.0176,
+        "delta": 0.0022
+      },
+      {
+        "margin": -7,
+        "n": 153,
+        "pred_p": 0.0217,
+        "actual_p": 0.0224,
+        "delta": 0.0007
+      },
+      {
+        "margin": -6,
+        "n": 226,
+        "pred_p": 0.0301,
+        "actual_p": 0.0331,
+        "delta": 0.003
+      },
+      {
+        "margin": -5,
+        "n": 285,
+        "pred_p": 0.0407,
+        "actual_p": 0.0417,
+        "delta": 0.001
+      },
+      {
+        "margin": -4,
+        "n": 371,
+        "pred_p": 0.0537,
+        "actual_p": 0.0543,
+        "delta": 0.0006
+      },
+      {
+        "margin": -3,
+        "n": 471,
+        "pred_p": 0.0684,
+        "actual_p": 0.069,
+        "delta": 0.0006
+      },
+      {
+        "margin": -2,
+        "n": 622,
+        "pred_p": 0.0833,
+        "actual_p": 0.0911,
+        "delta": 0.0078
+      },
+      {
+        "margin": -1,
+        "n": 738,
+        "pred_p": 0.1217,
+        "actual_p": 0.1081,
+        "delta": -0.0137
+      },
+      {
+        "margin": 0,
+        "n": 0,
+        "pred_p": 0.0,
+        "actual_p": 0.0,
+        "delta": 0.0
+      },
+      {
+        "margin": 1,
+        "n": 1190,
+        "pred_p": 0.1741,
+        "actual_p": 0.1743,
+        "delta": 0.0002
+      },
+      {
+        "margin": 2,
+        "n": 618,
+        "pred_p": 0.0873,
+        "actual_p": 0.0905,
+        "delta": 0.0032
+      },
+      {
+        "margin": 3,
+        "n": 464,
+        "pred_p": 0.0724,
+        "actual_p": 0.0679,
+        "delta": -0.0045
+      },
+      {
+        "margin": 4,
+        "n": 386,
+        "pred_p": 0.0569,
+        "actual_p": 0.0565,
+        "delta": -0.0004
+      },
+      {
+        "margin": 5,
+        "n": 299,
+        "pred_p": 0.0428,
+        "actual_p": 0.0438,
+        "delta": 0.0009
+      },
+      {
+        "margin": 6,
+        "n": 213,
+        "pred_p": 0.0311,
+        "actual_p": 0.0312,
+        "delta": 0.0
+      },
+      {
+        "margin": 7,
+        "n": 165,
+        "pred_p": 0.022,
+        "actual_p": 0.0242,
+        "delta": 0.0022
+      },
+      {
+        "margin": 8,
+        "n": 96,
+        "pred_p": 0.0152,
+        "actual_p": 0.0141,
+        "delta": -0.0011
+      },
+      {
+        "margin": 9,
+        "n": 68,
+        "pred_p": 0.0103,
+        "actual_p": 0.01,
+        "delta": -0.0003
+      },
+      {
+        "margin": 10,
+        "n": 46,
+        "pred_p": 0.0068,
+        "actual_p": 0.0067,
+        "delta": -0.0001
+      }
+    ]
+  },
+  "conditional_calibration": [
+    {
+      "m": 0,
+      "n": 6829,
+      "intercept": 0.66667,
+      "coef_lambda_home": -0.18863,
+      "t_lambda_home": -1.18,
+      "coef_lambda_away": 0.17089,
+      "t_lambda_away": 1.0,
+      "coef_fhat": -1.2564,
+      "t_fhat": -0.59,
+      "rmse_resid": 0.49627
+    },
+    {
+      "m": 1,
+      "n": 6829,
+      "intercept": 1.13407,
+      "coef_lambda_home": -0.19199,
+      "t_lambda_home": -0.92,
+      "coef_lambda_away": 0.15159,
+      "t_lambda_away": 1.08,
+      "coef_fhat": -1.48772,
+      "t_fhat": -0.64,
+      "rmse_resid": 0.47747
+    },
+    {
+      "m": -1,
+      "n": 6829,
+      "intercept": 0.66667,
+      "coef_lambda_home": -0.18863,
+      "t_lambda_home": -1.18,
+      "coef_lambda_away": 0.17089,
+      "t_lambda_away": 1.0,
+      "coef_fhat": -1.2564,
+      "t_fhat": -0.59,
+      "rmse_resid": 0.49627
+    }
+  ],
+  "scores": {
+    "model_crps": 2.4784,
+    "model_log_score": -2.7861,
+    "climatology_crps": 2.4943,
+    "climatology_log_score": -2.7896,
+    "poisson_crps": 2.5405,
+    "poisson_log_score": -2.9917,
+    "crps_gap_vs_climatology": -0.0159,
+    "log_gap_vs_climatology": 0.0036,
+    "crps_gap_vs_poisson": -0.0621,
+    "log_gap_vs_poisson": 0.2057
+  },
+  "verdicts": {
+    "pit": "flat \u2014 distribution reliably specified (KS/chi2 do not reject uniformity)",
+    "coverage": "empirical coverage tracks the forecast's own model-implied (discrete) coverage within 0.010 at every level (worst at nominal 0.1) \u2014 the apparent bow vs nominal is the discrete-CDF conservativeness artifact; forecast NOT over- or under-dispersed",
+    "conditional": "no strong conditional dependence",
+    "scores": "model CRPS 2.4784 vs climatology 2.4943 (gap -0.0159)"
+  },
+  "summary": "n=6829 \u00b7 PIT: flat \u2014 distribution reliably specified (KS/chi2 do not reject uniformity) \u00b7 coverage: empirical coverage tracks the forecast's own model-implied (discrete) coverage within 0.010 at every level (worst at nominal 0.1) \u2014 the apparent bow vs nominal is the discrete-CDF conservativeness artifact; forecast NOT over- or under-dispersed \u00b7 conditional: no strong conditional dependence \u00b7 scores: model CRPS 2.4784 vs climatology 2.4943 (gap -0.0159)"
+}
