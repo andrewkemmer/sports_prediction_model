@@ -26,7 +26,20 @@ from typing import Any, Iterable, Optional
 import altair as alt
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score
+
+
+def _auc(y_true, y_scores):
+    """Rank-based AUC (Mann-Whitney U) — identical to sklearn's default
+    roc_auc_score(average ranks), with no sklearn dependency."""
+    y_true = np.asarray(y_true, dtype=bool)
+    y_scores = np.asarray(y_scores, dtype=float)
+    n_pos = int(y_true.sum())
+    n_neg = int((~y_true).sum())
+    if n_pos == 0 or n_neg == 0:   # single class → undefined
+        return None
+    ranks = pd.Series(y_scores).rank(method="average").to_numpy()
+    return (ranks[y_true].sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+
 
 TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 TOTAL_GRID_LO = TOTAL_GRID[0]
@@ -607,13 +620,14 @@ def calibration_curve(pairs: pd.DataFrame, n_bins: int = 20,
 
 
 def _guarded_auc(pred: np.ndarray, event: np.ndarray) -> Optional[float]:
-    """roc_auc_score guarded for degenerate input: empty or single-class
-    outcome sets return None (never a fabricated value). Constant
-    predictions over BOTH classes legitimately yield 0.5 — the documented
-    per-bin rank-compression degeneracy, not a guard case."""
-    if len(pred) < 2 or len(np.unique(event)) < 2:
+    """Rank-based AUC (Mann-Whitney U) guarded for degenerate input: fewer
+    than 2 pairs return None (never a fabricated value); single-class sets
+    are handled inside ``_auc``. Constant predictions over BOTH classes
+    legitimately yield 0.5 — the documented per-bin rank-compression
+    degeneracy, not a guard case."""
+    if len(pred) < 2:
         return None
-    return float(roc_auc_score(event, pred))
+    return _auc(event, pred)
 
 
 def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
