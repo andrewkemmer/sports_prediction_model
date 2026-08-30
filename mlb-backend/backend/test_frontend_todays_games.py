@@ -976,5 +976,78 @@ class TestCalendarSingleNavigation(unittest.TestCase):
         self.assertIsNone(self._nav(None))
 
 
+class TestActionableDateAndMobileRail(unittest.TestCase):
+    """``todays_games._actionable_date`` (the shared single navigation decision)
+    and ``_mobile_date_options`` (the mobile rail option builder).
+
+    The desktop FullCalendar path and the touch-safe mobile date rail MUST
+    route every chosen date through the same decision so behavior is
+    identical: any valid date navigates, re-tapping the shown date closes,
+    and out-of-range/empty/None are no-ops — mirroring
+    ``TestCalendarSingleNavigation``. Also guards the rail option list is
+    deterministic, sorted, correctly labelled, and only ever contains valid
+    dates. Pure function tests, no component.
+    """
+
+    VALID = ["20260828", "20260829", "20260830", "20260831"]
+
+    @staticmethod
+    def _todays():
+        import streamlit as st  # noqa: F401  (session_state runtime)
+        import todays_games as todays
+        return todays
+
+    def _action(self, candidate, valid=None):
+        return self._todays()._actionable_date(candidate,
+                                               self.VALID if valid is None else valid)
+
+    def _options(self, current=None):
+        return self._todays()._mobile_date_options(self.VALID, current)
+
+    def test_other_valid_date_navigates(self):
+        """A valid (highlighted) date is actionable — mobile navigates."""
+        self.assertEqual(self._action("20260830"), "20260830")
+
+    def test_same_current_date_closes(self):
+        """Re-tapping the shown (valid) date is actionable so the caller
+        closes the calendar — matching the desktop re-tap-close behavior."""
+        self.assertEqual(self._action("20260829"), "20260829")
+
+    def test_out_of_range_never_actionable(self):
+        """Out-of-season / non-game days must be a no-op."""
+        self.assertIsNone(self._action("20260901"))
+        self.assertIsNone(self._action("20260701"))
+
+    def test_empty_valid_never_actionable(self):
+        """No valid dates -> nothing can navigate."""
+        self.assertIsNone(self._action("20260830", valid=[]))
+        self.assertIsNone(self._action("20260830", valid=()))
+
+    def test_none_or_garbage_never_actionable(self):
+        """Invalid input is a no-op, never a partial match."""
+        self.assertIsNone(self._action(None))
+        self.assertIsNone(self._action(""))
+        self.assertIsNone(self._action("not-a-date"))
+
+    def test_options_sorted_labelled_and_marked(self):
+        """The rail renders every valid date exactly once, sorted, with a
+        long-form label and the shown date flagged active."""
+        todays = self._todays()
+        opts = self._options(current="20260829")
+        self.assertEqual([o["date"] for o in opts], sorted(self.VALID))
+        self.assertEqual(set(o["date"] for o in opts), set(self.VALID))
+        for o in opts:
+            self.assertEqual(o["label"],
+                             todays.utils.format_date_long(o["date"]))
+        by_date = {o["date"]: o["active"] for o in opts}
+        self.assertTrue(by_date["20260829"])
+        self.assertFalse(by_date["20260830"])
+
+    def test_options_empty_valid_returns_empty(self):
+        """No valid dates -> no rail entries -> nothing rendered."""
+        self.assertEqual(self._todays()._mobile_date_options([], None), [])
+        self.assertEqual(self._todays()._mobile_date_options((), None), [])
+
+
 if __name__ == "__main__":
     unittest.main()

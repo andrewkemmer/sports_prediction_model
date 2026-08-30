@@ -637,25 +637,56 @@ def _is_mobile_viewport() -> bool:
     return any(tok in ua for tok in _MOBILE_UA_TOKENS)
 
 
+def _actionable_date(candidate: str | None, valid) -> str | None:
+    """Pure single navigation decision shared by desktop and mobile.
+
+    Returns ``candidate`` iff it is a valid, highlighted date; None otherwise
+    (out-of-range, blank, empty ``valid``, invalid input). Every chosen date —
+    the FullCalendar path on desktop and the touch-safe date rail on mobile —
+    is routed through this gate so behavior stays identical: any valid date
+    navigates, and re-tapping the currently-shown date closes the calendar.
+    Nothing else ever navigates.
+    """
+    if candidate and valid and candidate in set(valid):
+        return candidate
+    return None
+
+
+def _commit_date_choice(candidate: str | None, valid) -> bool:
+    """Apply the shared navigation decision to Streamlit state.
+
+    Validates ``candidate`` via ``_actionable_date``; when actionable, sets
+    ``selected_date``, closes the calendar, and signals the caller to rerun.
+    Re-tapping the shown date sets ``selected_date`` to the same value (a
+    harmless no-op) but still closes the calendar — matching desktop. Returns
+    True when the caller must ``st.rerun()``; False otherwise (a plain
+    open/close or a non-highlighted date does nothing).
+    """
+    chosen = _actionable_date(candidate, valid)
+    if not chosen:
+        return False
+    st.session_state["selected_date"] = chosen
+    st.session_state.pop("open_calendar", None)
+    return True
+
+
 def _single_calendar_navigation(cal, valid) -> str | None:
     """Collapse a streamlit-calendar return to a single date to act on.
 
-    Both ``dateClick`` and ``select`` are now subscribed: FullCalendar fires
-    ``select`` on a desktop click but only ``dateClick`` on a touch tap (the
-    Android bug), and on desktop a click can emit BOTH keys for the same
-    interaction. Reducing through the existing ``_extract_calendar_date``
-    (which prefers ``select.start``) folds the payload to one date. Returns
-    that date for ANY tap on a valid/highlighted date — INCLUDING a re-tap of
-    the currently-shown date, which the caller turns into a calendar close by
-    popping ``open_calendar`` and rerunning (setting ``selected_date`` to the
-    same value is a harmless no-op). Returns None for a plain open/close
-    (empty payload), a blank/out-of-range cell, or invalid input, so those
-    never trigger navigation.
+    Both ``dateClick`` and ``select`` are subscribed: FullCalendar fires
+    ``select`` on a desktop click but (the Android/touch bug) can leave a plain
+    tap with neither key, and on desktop a click can emit BOTH keys for the
+    same interaction. Reducing through ``_extract_calendar_date`` (which
+    prefers ``select.start``) folds the payload to one candidate date, then the
+    shared ``_actionable_date`` gate decides whether that candidate may
+    navigate. Returns a date for ANY tap on a valid/highlighted date —
+    INCLUDING a re-tap of the currently-shown date, which the caller turns
+    into a calendar close by popping ``open_calendar`` and rerunning (setting
+    ``selected_date`` to the same value is a harmless no-op). Returns None for
+    a plain open/close (empty payload), a blank/out-of-range cell, or invalid
+    input, so those never trigger navigation.
     """
-    chosen = _extract_calendar_date(cal)
-    if chosen and chosen in set(valid):
-        return chosen
-    return None
+    return _actionable_date(_extract_calendar_date(cal), valid)
 
 
 def _render_calendar_picker(valid, current: str) -> None:
@@ -711,11 +742,47 @@ def _render_calendar_picker(valid, current: str) -> None:
     except Exception:
         st.caption("Could not render the calendar.")
         return
-    chosen = _single_calendar_navigation(cal, valid)
-    if chosen:
-        st.session_state["selected_date"] = chosen
-        st.session_state.pop("open_calendar", None)
+    if _commit_date_choice(_single_calendar_navigation(cal, valid), valid):
         st.rerun()
+
+
+def _mobile_date_options(valid, current: str | None) -> list[dict]:
+    """Pure: ordered picker entries for the mobile date rail.
+
+    Sorted valid dates with long-form labels; ``active`` marks the
+    currently-shown date. Deterministic and dependency-free so it can be unit
+    tested alongside the navigation decision.
+    """
+    return [{"date": d, "label": utils.format_date_long(d),
+             "active": (d == current)}
+            for d in sorted(valid or ())]
+
+
+def _render_mobile_date_rail(valid, current: str) -> None:
+    """Touch-guaranteed fallback date picker for phone/tablet viewports.
+
+    FullCalendar (wrapped by streamlit-calendar) only commits a ``select`` on
+    touch after ``selectLongPressDelay`` (long-press) and can swallow a quick
+    tap's ``dateClick`` — so a plain tap on a day cell delivers no callback to
+    Streamlit (the component relays any fired callback, and our parser already
+    handles dateClick-only payloads). Rather than stacking more FullCalendar
+    options, mobile renders a compact, scrollable rail of the valid dates as
+    large tap targets. Each tap routes through the exact same navigation
+    decision as desktop (`_actionable_date`/`_commit_date_choice`): any valid
+    date navigates and closes; re-tapping the shown date closes. Non-game
+    dates are never rendered, so nothing else can navigate. Empty ``valid``
+    renders nothing. Desktop keeps ``_render_calendar_picker`` untouched.
+    """
+    options = _mobile_date_options(valid, current)
+    if not options:
+        return
+    with st.container(height=360, border=True):
+        for entry in options:
+            label = ("✓ " if entry["active"] else "") + entry["label"]
+            if st.button(label, key=f"mobile_date_{entry['date']}",
+                         use_container_width=True, type="secondary"):
+                if _commit_date_choice(entry["date"], valid):
+                    st.rerun()
 
 
 def _render_date_nav(valid, current: str) -> None:
@@ -743,7 +810,13 @@ def _render_date_nav(valid, current: str) -> None:
             st.session_state["open_calendar"] = not open_cal
             st.rerun()
         if open_cal:
-            _render_calendar_picker(valid, current)
+            if _is_mobile_viewport():
+                # FullCalendar cannot deliver a tap callback on touch (see
+                # _render_mobile_date_rail); give phones/tablets a rail that
+                # definitely works. Desktop keeps the FullCalendar month view.
+                _render_mobile_date_rail(valid, current)
+            else:
+                _render_calendar_picker(valid, current)
             st.caption("Only highlighted dates have game boards for this sport; "
                        "◀/▶ step through valid dates only.")
     with c3:
