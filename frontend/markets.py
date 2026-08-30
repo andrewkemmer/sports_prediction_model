@@ -195,11 +195,9 @@ else:
         else:
             if _gl_line is None:
                 _gl_title = "All games at each own fair line"
-                _gl_obs = "Observed % (picked side, no push)"
             else:
                 _gl_title = f"Fixed line {_gl_line:g} — every game at one line"
-                _gl_obs = "Observed over % (2-way, no push)"
-            built = diag.chart_game_total_lines(glc, _gl_title, obs_label=_gl_obs)
+            built = diag.chart_game_total_lines(glc, _gl_title)
             utils.show_chart(built["chart"])
             utils.show_chart(built["scatter"])
             st.table(built["table"])
@@ -212,15 +210,18 @@ else:
                 f"100 · pooled predicted {glc['pooled_pred']:.2f} vs pooled "
                 f"observed {glc['pooled_observed']:.2f}. "
                 + ("ALL: each game priced at ITS OWN fair line (the 50/50 "
-                   "grid search) — confidence is the picked side's re-scaled "
-                   "P, so 1-pt buckets 50–51…60+ and high buckets are thin "
-                   "(the fair line concentrates picks near 50%); observed = "
-                   "picked-side win rate." if _gl_line is None else
+                   "grid search) — predicted = the same re-scaled 2-way "
+                   "P(over) the Today's Games card shows at its default "
+                   "line, so the band hugs 50% (0.47–0.53 on this artifact) "
+                   "in 1-pt buckets 40–41…60+; observed = over rate."
+                   if _gl_line is None else
                    f"FIXED LINE {_gl_line:g}: all games at one line — the "
                    "predicted spread IS the calibration surface (the per-game "
                    "own-line view compressed it to 0.44–0.51); observed = "
-                   "over frequency; 5-pt bins over [0, 1].") + " The dashed "
-                "diagonal is perfect calibration."
+                   "over frequency; 5-pt bins over [0, 1].") + " The last "
+                "table row is the pooled Total (share 100%, the amber "
+                "diamond on the scatter); the dashed diagonal is perfect "
+                "calibration."
             )
 
     with _tabs[4]:   # 5 — run-line pick accuracy buckets

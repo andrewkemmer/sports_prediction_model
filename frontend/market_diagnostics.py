@@ -51,13 +51,16 @@ def rl_cols(margin: float) -> tuple[str, str, str]:
 def rl_legacy_col(margin: float) -> str:
     """Legacy p_home_cover_<margin> column (half-lines only, e.g. 1.5)."""
     return f"p_home_cover_{str(margin).replace('.', '_')}"
-# Own-line ('All') confidence buckets — 1% increments (50–51 … 59–60, 60+).
-# Empty high buckets render as 0 (never padded or dropped silently); at the
-# fair line every pick has P ≈ 0.50–0.55 so 60+ is empty on the shipped
-# artifact — a data property, not an error.
-OWN_LINE_EDGES = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 101]
-OWN_LINE_LABELS = ["50-51", "51-52", "52-53", "53-54", "54-55",
-                   "55-56", "56-57", "57-58", "58-59", "59-60", "60+"]
+# Own-line ('All') predicted-P(over) buckets — 1% increments (40–41 … 59–60,
+# 60+). The All view prices each game at its OWN fair line, where re-scaled
+# 2-way P(over) ≈ 0.5 BY CONSTRUCTION (the fair line IS the 50/50 anchor), so
+# the support is a tight band around 50% (0.47–0.53 on the shipped artifact).
+# Predicted is the SAME re-scaled P(over) the Today's Games card displays at
+# its default line — never the picked-side max (those agree only on
+# over-favored games). Empty buckets render as 0 — a data property, not an
+# error.
+OWN_LINE_EDGES = list(range(40, 61)) + [101]
+OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 
 
 def round_to_half(x: float) -> float:
@@ -462,11 +465,12 @@ def game_total_calibration(decided: pd.DataFrame,
 
     line=None ('All') → every game priced at its OWN FAIR line (grid argmin
     of |re-scaled P(over) − 0.5|, ties → lower — fair_total_lines):
-    predicted = the picked side's re-scaled 2-way P (max of P(over),
-    P(under) at the own line), bucketed at 1 pt (50–51 … 60+) because
-    own-line confidence compresses to ~50–53%; observed = picked-side win
-    rate (an over pick wins iff total > line; an under pick wins iff total
-    < line), pushes excluded from both sides.
+    predicted = re-scaled 2-way P(over) = p_over / (p_over + p_under) at the
+    own line — the SAME value run_engine_card_bits shows as the card's O/U
+    Over% at the default line (verified identical, pinned in tests) —
+    bucketed at 1 pt (40–41 … 60+) because own-line P(over) hugs 50% by
+    construction; observed = over rate (#over / (#over + #under)), pushes
+    excluded from both sides.
 
     line given → ALL games priced at that ONE fixed line: predicted =
     re-scaled 2-way P(over) = p_over / (p_over + p_under); observed = over
@@ -514,13 +518,12 @@ def game_total_calibration(decided: pd.DataFrame,
             if denom <= 0:
                 continue
             rso = float(v) / denom
-            pred[i] = max(rso, 1.0 - rso)      # picked side's re-scaled P
+            pred[i] = rso          # re-scaled 2-way P(over) = card's Over%
             priced[i] = True
             if total[i] == l:
                 push[i] = True                 # whole lines only
                 continue
-            over = float(total[i] >= l + 0.5)
-            event[i] = over if rso >= 0.5 else 1.0 - over
+            event[i] = float(total[i] >= l + 0.5)   # over rate, no-push basis
         edges, labels = OWN_LINE_EDGES, OWN_LINE_LABELS
     else:
         over_col, under_col = grid_over_under_cols(line)
@@ -1411,9 +1414,9 @@ def chart_game_total_lines(table: dict, title: str,
     line (right, 0-100 domain), 'scatter': observed vs predicted with the
     perfect-calibration diagonal, 'table': the bucket rows}.
 
-    ``obs_label`` is contextual: 'Observed over % (2-way, no push)' for a
-    fixed line, 'Observed % (picked side, no push)' for the own-line 'All'
-    branch. Empty buckets keep count 0 / None stats: bars render as
+    ``obs_label`` titles the observed % line (both branches observe the over
+    event on the no-push 2-way basis, so it is 'Observed over % (2-way, no
+    push)' everywhere). Empty buckets keep count 0 / None stats: bars render as
     zero-height, the observed line simply skips them (never fabricated), and
     the scatter drops them (a point needs both axes). The line/point
     encodings carry a REAL scale with an explicit domain (the scale=None ->
@@ -1452,7 +1455,34 @@ def chart_game_total_lines(table: dict, title: str,
             curve, "Observed vs predicted per bucket (dashed = calibrated)")
     else:
         scatter = alt.Chart(pd.DataFrame()).mark_point()
-    return {"chart": chart, "scatter": scatter, "table": tdf}
+    # Pooled marker (amber diamond) at (pooled predicted, pooled observed) so
+    # the chart and the Total row agree — the pooled calibration point without
+    # mental arithmetic.
+    pooled_pred = table.get("pooled_pred")
+    pooled_obs = table.get("pooled_observed")
+    if pooled_pred is not None and pooled_obs is not None:
+        pool_df = pd.DataFrame({"px": [pooled_pred], "py": [pooled_obs]})
+        pooled_marker = alt.Chart(pool_df).mark_point(
+            shape="diamond", size=150, color="#F59E0B",
+            filled=True).encode(
+            x="px:Q", y="py:Q",
+            tooltip=[alt.Tooltip("px:Q", title="pooled pred"),
+                    alt.Tooltip("py:Q", title="pooled observed")])
+        scatter = scatter + pooled_marker
+    # Total (summary) row appended to the bin table: count = sum of bucket
+    # counts (empty buckets contribute 0), mean_pred / observed = the pooled
+    # count-weighted values, share_pct = 100.00. It reads as a summary, not a
+    # bucket — never plotted (the chart uses only the per-bucket rows).
+    total_row = pd.DataFrame([{
+        "bin": "Total",
+        "bin_center": None,
+        "count": int(tdf["count"].sum()),
+        "mean_pred": pooled_pred,
+        "observed": pooled_obs,
+        "share_pct": 100.0,
+    }])
+    table_df = pd.concat([tdf, total_row], ignore_index=True)
+    return {"chart": chart, "scatter": scatter, "table": table_df}
 
 
 ACC_Y_AXIS_FLOOR = 75.0   # accuracy axis is in PERCENT units; floor in %

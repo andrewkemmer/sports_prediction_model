@@ -23,6 +23,20 @@ if str(FRONTEND) not in sys.path:
 
 import market_diagnostics as diag  # noqa: E402
 
+DATA_DELIVERY = Path(__file__).resolve().parents[1] / "data_delivery"
+
+
+def _latest_markets_artifact() -> Path:
+    """Newest committed run_engine_markets_*.csv (never the *_rl bridge copy
+    — the canonical file is what the frontend fetches). Skips gracefully
+    when no artifact is present locally."""
+    cands = sorted(DATA_DELIVERY.glob("run_engine_markets_*.csv"),
+                   reverse=True)
+    for c in cands:
+        if "_rl." not in c.name:
+            return c
+    return Path()
+
 
 def make_grid_df(n=50, lam_total=9.0, seed=0):
     """Artifact-shaped frame: full totals grid around a smooth curve."""
@@ -367,23 +381,74 @@ class TestFixedLineCalibration(unittest.TestCase):
         self.assertEqual(out["bins"][-1]["bin"], "60+")
         self.assertEqual(sum(b["count"] for b in out["bins"]),
                          out["n_games"] - out["n_pushes"])
-        # Own-line confidence compresses near 50-55% by construction
-        self.assertGreaterEqual(out["pooled_pred"], 0.5)
+        # Own-line re-scaled P(over) hugs 50% by construction (the fair
+        # line is the 50/50 grid argmin) — never a wide spread
+        self.assertGreaterEqual(out["pooled_pred"], 0.45)
         self.assertLessEqual(out["pooled_pred"], 0.6)
         self.assertGreaterEqual(out["pooled_observed"], 0.0)
         self.assertLessEqual(out["pooled_observed"], 1.0)
 
-    def test_all_whole_line_fat_push_band_uses_rescaled_side(self):
-        """A whole-line pick must use the re-scaled 2-way P, never raw
-        max(p_over, 1 - p_over): p_over=0.36 / p_under=0.48 at own line 9.0
-        → under pick, conf 0.5714 → 57-58 bucket; event = under wins."""
+    def test_all_whole_line_fat_push_band_uses_rescaled_p_over(self):
+        """The All branch prices the re-scaled P(over) = p_over/(p_over +
+        p_under) — the SAME value the Today's Games card displays — never
+        the picked-side max. p_over=0.36 / p_under=0.48 at own line 9.0
+        → rso = 0.36/0.84 ≈ 0.4286 → 42-43 bucket (not a bogus 57-58)."""
         rows = [{"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
                  "away_expected_runs": 4.5, "total_runs": 8,
                  "p_over_9_0": 0.36, "p_under_9_0": 0.48}]
         out = diag.game_total_calibration(pd.DataFrame(rows), None)
         by = {b["bin"]: b for b in out["bins"]}
-        self.assertEqual(by["57-58"]["count"], 1)
-        self.assertEqual(by["60+"]["count"], 0)
+        self.assertEqual(by["42-43"]["count"], 1)
+        self.assertEqual(by["57-58"]["count"], 0)
+        self.assertAlmostEqual(out["pooled_pred"], 0.4286, places=4)  # 4dp rounded
+        self.assertEqual(out["pooled_observed"], 0.0)  # 8 < 9.5 → under
+
+    def test_total_row_present_and_weighted_hand_computed(self):
+        """The bin table ends with a 'Total' summary row: count = sum of
+        bucket counts (empty buckets contribute 0), mean_pred / observed =
+        the pooled count-weighted values, share_pct = 100.00."""
+        rows = [
+            {"game_pk": 0, "total_runs": 8, "p_over_9_0": 0.50,
+             "p_under_9_0": 0.50},
+            {"game_pk": 1, "total_runs": 10, "p_over_9_0": 0.50,
+             "p_under_9_0": 0.50},
+            {"game_pk": 2, "total_runs": 10, "p_over_9_0": 0.80,
+             "p_under_9_0": 0.20},
+            # PUSH: total 9 == whole line 9.0 → excluded from both sides
+            {"game_pk": 3, "total_runs": 9, "p_over_9_0": 0.80,
+             "p_under_9_0": 0.20},
+        ]
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_pushes"], 1)
+        built = diag.chart_game_total_lines(out, "t")
+        tab = built["table"]
+        self.assertEqual(tab.iloc[-1]["bin"], "Total")
+        self.assertEqual(len(tab), len(out["bins"]) + 1)  # bins + Total
+        tot = tab.iloc[-1]
+        self.assertEqual(tot["count"], 3)          # 2 + 1 non-push games
+        self.assertAlmostEqual(tot["mean_pred"], 0.6, places=4)   # (0.5+0.5+0.8)/3
+        self.assertAlmostEqual(tot["observed"], 0.6667, places=4)  # 2 over / 3, 4dp
+        self.assertEqual(tot["share_pct"], 100.0)
+        self.assertAlmostEqual(tot["mean_pred"], out["pooled_pred"], places=9)
+        self.assertAlmostEqual(tot["observed"], out["pooled_observed"], places=9)
+        # Empty buckets contribute 0 to the Total count
+        self.assertEqual(tot["count"],
+                         sum(b["count"] for b in out["bins"]))
+
+    def test_total_row_empty_buckets_contribute_zero(self):
+        """With only one populated bin, the Total row still equals the sum
+        (the 19 empty buckets add nothing) and renders without error."""
+        rows = [{"game_pk": i, "total_runs": 10 if i % 2 else 8,
+                 "p_over_9_0": 0.52, "p_under_9_0": 0.47}
+                for i in range(60)]
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
+        built = diag.chart_game_total_lines(out, "t")
+        tab = built["table"]
+        self.assertEqual(tab.iloc[-1]["bin"], "Total")
+        self.assertEqual(tab.iloc[-1]["count"],
+                         sum(b["count"] for b in out["bins"]))
+        self.assertAlmostEqual(tab.iloc[-1]["share_pct"], 100.0, places=6)
 
     def test_empty_bins_kept_and_chart_builds(self):
         # All pred2 cluster in 0.50-0.55 -> only one populated bin; the rest
@@ -423,8 +488,7 @@ class TestFixedLineCalibration(unittest.TestCase):
         """On the shipped artifact a single line spreads predicted P(over)
         widely (the point of the view); buckets + shares sum over the
         non-push population."""
-        dd = Path(__file__).resolve().parents[1] / "data_delivery"
-        m_path = dd / "run_engine_markets_20260829.csv"
+        m_path = _latest_markets_artifact()
         if not m_path.exists():
             self.skipTest("run-engine artifact absent")
         out = diag.game_total_calibration(
@@ -442,11 +506,12 @@ class TestFixedLineCalibration(unittest.TestCase):
         self.assertGreater(mx, 0.55)
 
     def test_real_artifact_all_55plus_empty(self):
-        """The 'All' own-line view on the shipped artifact: 55+ is empty
-        (max picked-side re-scaled conf ≈ 52.7) and buckets sum to the
-        non-push population."""
-        dd = Path(__file__).resolve().parents[1] / "data_delivery"
-        m_path = dd / "run_engine_markets_20260829.csv"
+        """The 'All' own-line view on the shipped artifact: predicted is the
+        re-scaled P(over) (card basis), so the band spans BOTH sides of
+        50% (47-48 … 52-53) and 53+ is empty; buckets sum to the non-push
+        population; pooled pred/obs match the card's pooled calibration
+        (0.500/0.505)."""
+        m_path = _latest_markets_artifact()
         if not m_path.exists():
             self.skipTest("run-engine artifact absent")
         out = diag.game_total_calibration(
@@ -455,11 +520,89 @@ class TestFixedLineCalibration(unittest.TestCase):
         by = {b["bin"]: b for b in out["bins"]}
         self.assertEqual(sum(b["count"] for b in out["bins"]),
                          out["n_games"] - out["n_pushes"])
+        # rso semantics: populated buckets on BOTH sides of 50%
+        self.assertGreater(by["47-48"]["count"], 0)
+        self.assertGreater(by["48-49"]["count"], 0)
+        self.assertGreater(by["51-52"]["count"], 0)
+        self.assertGreater(by["52-53"]["count"], 0)
         hi = sum(by[k]["count"] for k in
-                 ("55-56", "56-57", "57-58", "58-59", "59-60", "60+"))
+                 ("53-54", "54-55", "55-56", "56-57", "57-58",
+                  "58-59", "59-60", "60+"))
         self.assertEqual(hi, 0)
-        self.assertAlmostEqual(out["pooled_pred"], 0.513, places=2)
-        self.assertAlmostEqual(out["pooled_observed"], 0.525, places=2)
+        self.assertAlmostEqual(out["pooled_pred"], 0.500, places=2)
+        self.assertAlmostEqual(out["pooled_observed"], 0.505, places=2)
+
+
+class TestAllViewMatchesCardDefaultLine(unittest.TestCase):
+    """PIN: the 'All' (own-line) view's per-game predicted P(over) is the
+    SAME value the Today's Games card displays at its default line —
+    re-scaled 2-way p_over/(p_over+p_under) at the fair line. Verified
+    identical on the shipped artifact (30/30 + hand-picked, max |diff| 0.0);
+    this locks the equivalence so the two code paths (fair_total_lines in
+    the diagnostics branch vs fair_total_line_row in run_engine_card_bits)
+    can never drift."""
+
+    def _slate_map(self, decided):
+        return {str(r["game_pk"]): r for _, r in decided.iterrows()}
+
+    def _assert_game_matches_card(self, decided):
+        slate = self._slate_map(decided)
+        fair_lines = diag.fair_total_lines(decided)
+        for i, (_, row) in enumerate(decided.iterrows()):
+            pk = str(row["game_pk"])
+            bits = diag.run_engine_card_bits(pk, slate, line=None)
+            self.assertIsNotNone(bits)
+            fair = diag.fair_total_line_row(row)
+            self.assertIsNotNone(fair)
+            self.assertEqual(bits["total_line"], fair,
+                             f"card default line == fair line for {pk}")
+            over_col, under_col = diag.grid_over_under_cols(fair)
+            po = float(row[over_col])
+            pu = float(row[under_col])
+            rso = po / (po + pu)
+            self.assertAlmostEqual(bits["p_over"], rso, places=6,
+                                   msg=f"card Over% == All-view pred for {pk}")
+            # All branch resolves the identical fair line
+            self.assertEqual(fair_lines[i], fair,
+                             f"All branch line == fair line for {pk}")
+
+    def test_hand_picked_whole_half_and_push_band_rows(self):
+        rows = [
+            # whole-number fair line with a FAT push band (p_over+p_under
+            # < 1) — the push-fold path: rso = 0.36/0.84 ≈ 0.4286
+            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
+             "away_expected_runs": 4.5, "total_runs": 8,
+             "p_over_9_0": 0.36, "p_under_9_0": 0.48,
+             "p_over_8_5": 0.45, "p_push_9_0": 0.09,
+             "p_home_cover_1_5": 0.5},
+            # half-line fair line, no push band (denom = 1)
+            {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.2,
+             "away_expected_runs": 4.3, "total_runs": 9,
+             "p_over_8_5": 0.53, "p_under_8_5": 0.47,
+             "p_home_cover_1_5": 0.5},
+            # half-line fair line below 50%
+            {"game_pk": 3, "kind": "oof", "home_expected_runs": 5.4,
+             "away_expected_runs": 5.1, "total_runs": 11,
+             "p_over_10_5": 0.49, "p_under_10_5": 0.51,
+             "p_home_cover_1_5": 0.5},
+            # grid-edge fair line (upper boundary taken verbatim)
+            {"game_pk": 4, "kind": "oof", "home_expected_runs": 6.4,
+             "away_expected_runs": 6.1, "total_runs": 13,
+             "p_over_12_5": 0.51, "p_under_12_5": 0.49,
+             "p_home_cover_1_5": 0.5},
+        ]
+        self._assert_game_matches_card(pd.DataFrame(rows))
+
+    def test_synthetic_grid_30_games_whole_and_half(self):
+        """make_grid_df prices every line with p_under mirrors (denom = 1,
+        no push band) — 30 games spanning whole AND half fair lines must
+        all match the card at the default line."""
+        decided = add_outcomes(make_grid_df(n=30, seed=5))
+        self._assert_game_matches_card(decided)
+        # Sanity: the fixture actually exercises both line kinds
+        fairs = diag.fair_total_lines(decided)
+        self.assertTrue(any(f == round(f) for f in fairs))
+        self.assertTrue(any(f != round(f) for f in fairs))
 
 
 class TestPushExclusion(unittest.TestCase):
