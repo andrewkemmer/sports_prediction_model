@@ -109,7 +109,7 @@ if decided.empty:
 else:
     _tabs = st.tabs([
         "Distribution", "Relativized", "Pooled lines",
-        "Money line (rounded)", "Totals picks", "Run-line picks",
+        "Fixed line", "Totals picks", "Run-line picks",
     ])
 
     with _tabs[0]:   # 1 — totals distribution fit-check
@@ -174,29 +174,33 @@ else:
                 "line games pooled in."
             )
 
-    with _tabs[3]:   # 4 — per-game rounded-total money line, pooled
-        mrt = diag.rounded_total_pairs(decided)
-        mrtc = diag.calibration_curve(mrt)
-        if mrtc["warning"]:
-            st.warning(mrtc["warning"])
+    with _tabs[3]:   # 4 — fixed-line totals calibration (line selector)
+        _fl_sel = st.selectbox(
+            "Fixed total line", [f"{l:g}" for l in diag.TOTAL_GRID],
+            index=diag.TOTAL_GRID.index(8.5), key="diag_fixed_line")
+        _fl_line = float(_fl_sel)
+        flc = diag.fixed_line_calibration(decided, _fl_line)
+        if flc["warning"]:
+            st.warning(flc["warning"])
         else:
-            utils.show_chart(diag.chart_calibration(
-                mrtc, "Per-game rounded total"))
-            xs = [b["mean_pred"] for b in mrtc["bins"]]
-            _ps = diag.push_stats(decided)
+            built = diag.chart_fixed_line(
+                flc, f"Fixed line {_fl_line:g} — every game at one line")
+            utils.show_chart(built["chart"])
+            utils.show_chart(built["scatter"])
+            st.table(built["table"])
             st.caption(
-                f"Each game priced at ITS OWN rounded total — nearest 0.5 of "
-                f"λ_home + λ_away (round half up; lines outside the shipped "
-                f"6.5–12.5 grid clamp to the edge) — then pooled. "
-                f"{_ps['n_games']:,} games · {_ps['n_pushes']:,} pushes "
-                f"excluded ({_ps['push_rate']:.1%}) · predicted range "
-                f"{min(xs):.2f}–{max(xs):.2f}. Pushes are UNDER-favored "
-                "games landing exactly on the line (rounded line at/above "
-                "the expected total → under favored) — excluded from the "
-                "curve because they are neither wins nor losses. Every game "
-                "sits at its own line, so probabilities concentrate near "
-                "the money line by construction — the wide calibration "
-                "spread lives in the Relativized tab."
+                f"ALL {flc['n_games']:,} decided games priced at ONE fixed "
+                f"line {_fl_line:g} (not each game's own line) · predicted = "
+                f"re-scaled 2-way P(over) = p_over / (p_over + p_under) · "
+                f"{flc['n_pushes']:,} pushes excluded ({flc['push_rate']:.1%}, "
+                f"whole lines only) · observed = over frequency on the same "
+                f"no-push basis (#over / (#over + #under)) · buckets are 5-pt "
+                f"(20 bins, empty bins render 0) · pooled predicted "
+                f"{flc['pooled_pred']:.2f} vs pooled observed "
+                f"{flc['pooled_observed']:.2f}. At one line the predicted "
+                "spread is the calibration surface itself (the per-game "
+                "own-line view compressed it to 0.44–0.51); the dashed "
+                "diagonal is perfect calibration."
             )
 
     with _tabs[4]:   # 5 — totals picks at each game's rounded line

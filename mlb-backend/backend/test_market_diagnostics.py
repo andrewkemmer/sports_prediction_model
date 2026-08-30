@@ -269,6 +269,129 @@ class TestRoundedTotalPairs(unittest.TestCase):
         self.assertEqual(len(pairs), 0)
 
 
+class TestFixedLineCalibration(unittest.TestCase):
+    """The Diagnostics fixed-line tab: ALL decided games priced at ONE line
+    (default 8.5), predicted = re-scaled 2-way P(over), observed = over
+    frequency on the same no-push basis, 5-pt buckets with empty bins kept."""
+
+    def test_line_selector_changes_bucket_distribution(self):
+        decided = add_outcomes(make_grid_df(n=200, seed=3))
+        c85 = diag.fixed_line_calibration(decided, 8.5)
+        c95 = diag.fixed_line_calibration(decided, 9.5)
+        self.assertIsNone(c85["warning"])
+        self.assertIsNone(c95["warning"])
+        dist85 = [b["count"] for b in c85["bins"]]
+        dist95 = [b["count"] for b in c95["bins"]]
+        self.assertNotEqual(dist85, dist95,
+                            "changing the line must re-bucket the games")
+        self.assertNotAlmostEqual(c85["pooled_pred"], c95["pooled_pred"])
+
+    def test_counts_sum_to_decided_games_at_that_line(self):
+        decided = add_outcomes(make_grid_df(n=150, seed=5))
+        for line in (8.5, 9.0, 9.5):
+            out = diag.fixed_line_calibration(decided, line)
+            self.assertEqual(sum(b["count"] for b in out["bins"]),
+                             out["n_games"])
+            self.assertEqual(out["n_games"], len(decided))
+            self.assertEqual(len(out["bins"]), 20)   # 5-pt buckets, all kept
+
+    def test_whole_line_pushes_excluded_2way_hand_computed(self):
+        # Line 9.0: g0 total==9 is a PUSH (excluded from observed); g1/g3
+        # over (10, 11), g2/g4 under (8, 7). pred2 = po/(po+pu).
+        rows = [
+            {"game_pk": 0, "total_runs": 9, "p_over_9_0": 0.45,
+             "p_under_9_0": 0.45},
+            {"game_pk": 1, "total_runs": 10, "p_over_9_0": 0.60,
+             "p_under_9_0": 0.30},
+            {"game_pk": 2, "total_runs": 8, "p_over_9_0": 0.55,
+             "p_under_9_0": 0.40},
+            {"game_pk": 3, "total_runs": 11, "p_over_9_0": 0.70,
+             "p_under_9_0": 0.20},
+            {"game_pk": 4, "total_runs": 7, "p_over_9_0": 0.50,
+             "p_under_9_0": 0.45},
+        ]
+        out = diag.fixed_line_calibration(pd.DataFrame(rows), 9.0)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_games"], 5)
+        self.assertEqual(out["n_pushes"], 1)
+        self.assertAlmostEqual(out["push_rate"], 0.2)
+        by = {b["bin"]: b for b in out["bins"]}
+        # 50-55 holds the push (pred2 0.5, observed None) + g4 (pred2
+        # 0.5263, under) -> observed 0.0
+        self.assertEqual(by["50-55"]["count"], 2)
+        self.assertEqual(by["50-55"]["observed"], 0.0)
+        self.assertAlmostEqual(by["50-55"]["mean_pred"],
+                               (0.5 + 0.5 / 0.95) / 2, places=4)
+        self.assertEqual(by["65-70"]["count"], 1)   # g1 over
+        self.assertEqual(by["65-70"]["observed"], 1.0)
+        self.assertEqual(by["75-80"]["count"], 1)   # g3 over
+        self.assertEqual(by["75-80"]["observed"], 1.0)
+        self.assertEqual(by["55-60"]["count"], 1)   # g2 under
+        self.assertEqual(by["55-60"]["observed"], 0.0)
+        # Pooled: pred over all 5 priced games; observed 2/4 excluding push
+        exp_pred = (0.5 + 0.6 / 0.9 + 0.55 / 0.95 + 0.7 / 0.9
+                    + 0.5 / 0.95) / 5
+        self.assertAlmostEqual(out["pooled_pred"], exp_pred, places=4)
+        self.assertAlmostEqual(out["pooled_observed"], 0.5)
+
+    def test_half_line_never_pushes(self):
+        decided = add_outcomes(make_grid_df(n=120, seed=7))
+        for line in (6.5, 8.5, 9.5, 12.5):
+            out = diag.fixed_line_calibration(decided, line)
+            self.assertEqual(out["n_pushes"], 0,
+                             f"half-line {line} cannot push")
+            self.assertIsNone(out["warning"])
+
+    def test_empty_bins_kept_and_chart_builds(self):
+        # All pred2 cluster in 0.50-0.55 -> only one populated bin; the rest
+        # keep count 0 / observed None and both charts still render.
+        rows = [{"game_pk": i, "total_runs": 10 if i % 2 else 8,
+                 "p_over_9_0": 0.52, "p_under_9_0": 0.47}
+                for i in range(60)]
+        out = diag.fixed_line_calibration(pd.DataFrame(rows), 9.0)
+        self.assertEqual(out["n_pushes"], 0)
+        populated = [b for b in out["bins"] if b["count"] > 0]
+        self.assertEqual(len(populated), 1)
+        empty = [b for b in out["bins"] if b["count"] == 0]
+        self.assertEqual(len(empty), 19)
+        for b in empty:
+            self.assertIsNone(b["observed"])
+            self.assertIsNone(b["mean_pred"])
+        built = diag.chart_fixed_line(out, "t")
+        for k in ("chart", "scatter", "table"):
+            self.assertIn(k, built)
+        self.assertFalse(built["table"].empty)
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+        self.assertGreater(len(built["scatter"].to_dict()), 1)
+
+    def test_missing_columns_warn_not_crash(self):
+        out = diag.fixed_line_calibration(pd.DataFrame(), 8.5)
+        self.assertIsNotNone(out["warning"])
+        out = diag.fixed_line_calibration(
+            make_grid_df(n=5).drop(columns=["p_under_8_5"]), 8.5)
+        self.assertIsNotNone(out["warning"])
+        self.assertEqual(out["bins"], [])
+
+    def test_real_artifact_fixed_line_spread_and_sum(self):
+        """On the shipped artifact a single line spreads predicted P(over)
+        widely (the point of the view) and buckets sum to all decided games."""
+        dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        m_path = dd / "run_engine_markets_20260829.csv"
+        if not m_path.exists():
+            self.skipTest("run-engine artifact absent")
+        out = diag.fixed_line_calibration(
+            diag.decided_rows(pd.read_csv(m_path)), 8.5)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(sum(b["count"] for b in out["bins"]),
+                         out["n_games"])
+        mn = min(b["mean_pred"] for b in out["bins"] if b["mean_pred"])
+        mx = max(b["mean_pred"] for b in out["bins"] if b["mean_pred"])
+        self.assertGreater(mx - mn, 0.20,
+                           "fixed-line predicted spread must be wide")
+        self.assertLess(mn, 0.40)
+        self.assertGreater(mx, 0.55)
+
+
 class TestPushExclusion(unittest.TestCase):
     """Whole-number-line pushes (total == rounded line) are neither wins
     nor losses — excluded from win rates, reported in push_rate. The card's

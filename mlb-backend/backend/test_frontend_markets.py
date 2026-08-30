@@ -325,6 +325,24 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertNotIn("underweights the home edge", src,
                          "stale underweighting claim must be gone")
 
+    def test_diagnostics_tab_uses_fixed_line_not_own_rounded_line(self):
+        """The 'Money line (rounded)' tab became a FIXED-line calibration:
+        all games at one selectable line (default 8.5), never the per-game
+        own rounded total (which compressed predicted P(over) to 0.44-0.51
+        — the low-info curve the user rejected)."""
+        src = (Path(__file__).resolve().parents[2]
+               / "frontend" / "markets.py").read_text()
+        self.assertIn("diag.fixed_line_calibration", src,
+                      "tab must pool at a fixed line via the new helper")
+        self.assertIn("diag.chart_fixed_line", src,
+                      "tab must render the bars + observed-vs-predicted view")
+        self.assertIn("diag_fixed_line", src,
+                      "line selector key present (default 8.5)")
+        self.assertNotIn("diag.rounded_total_pairs", src,
+                         "per-game own-line pricing must be gone from the tab")
+        self.assertNotIn("Per-game rounded total", src,
+                         "old own-line chart title must be gone")
+
 
 # ---------------------------------------------------------------------------
 # Date-pinning regression: Totals & Run Lines ignores selected_date

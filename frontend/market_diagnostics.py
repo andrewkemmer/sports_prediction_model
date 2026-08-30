@@ -424,6 +424,75 @@ def calibration_curve(pairs: pd.DataFrame, n_bins: int = 20,
             "n_dropped_bins": dropped, "warning": warning}
 
 
+def fixed_line_calibration(decided: pd.DataFrame, line: float,
+                           n_bins: int = 20) -> dict[str, Any]:
+    """Pool ALL decided games at ONE fixed total line (6.5–12.5 by 0.5).
+
+    Replaces the per-game own-line (rounded) convention: pricing every game
+    at its OWN line compresses predicted P(over) to ~0.44–0.51 (a low-info
+    curve); at a single line the predicted spread is the calibration surface
+    itself. predicted = the game's re-scaled 2-way P(over) at ``line``
+    (p_over / (p_over + p_under) — push band conditioned out, same convention
+    as the calibration card); observed = over frequency on the SAME no-push
+    basis (#over / (#over + #under)), with pushes (total == line, whole
+    lines only) excluded from both sides. Buckets are equal 5-pt bins over
+    [0, 1] (20 bins); EMPTY bins are kept with count 0 / None stats — never
+    dropped. Strict over: total > line (total >= line + 0.5).
+    """
+    empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
+             "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
+             "warning": "No decided games available for this line."}
+    if not len(decided) or "total_runs" not in decided.columns:
+        return empty
+    over_col, under_col = grid_over_under_cols(line)
+    if over_col not in decided.columns or under_col not in decided.columns:
+        empty["warning"] = (f"Grid columns for line {line} missing — "
+                            "cannot price at this line.")
+        return empty
+    total = decided["total_runs"].to_numpy(float)
+    po = decided[over_col].to_numpy(float)
+    pu = decided[under_col].to_numpy(float)
+    denom = po + pu
+    pred2 = np.full(len(decided), np.nan)
+    valid = np.isfinite(po) & np.isfinite(pu) & (denom > 0)
+    pred2[valid] = po[valid] / denom[valid]
+    ok = ~np.isnan(pred2)
+    if not ok.any():
+        empty["warning"] = f"No games priceable at line {line}."
+        return empty
+    is_push = (total == line) & ok      # whole lines only (int total == x.5 never)
+    over = (total >= line + 0.5) & ok & ~is_push
+    under = ok & ~is_push & ~over
+    n = int(ok.sum())
+    n_pushes = int(is_push.sum())
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    idx = np.clip(np.digitize(pred2[ok], edges[1:-1], right=False),
+                  0, n_bins - 1)
+    bins = []
+    for b in range(n_bins):
+        m = idx == b
+        cnt = int(m.sum())
+        p_m = pred2[ok][m]
+        n_over = int(over[ok][m].sum())
+        n_under = int(under[ok][m].sum())
+        n_np = n_over + n_under
+        bins.append({
+            "bin": f"{int(edges[b] * 100)}-{int(edges[b + 1] * 100)}",
+            "bin_center": round(float((edges[b] + edges[b + 1]) / 2), 3),
+            "count": cnt,
+            "mean_pred": (round(float(p_m.mean()), 4) if cnt else None),
+            "observed": (round(n_over / n_np, 4) if n_np else None),
+        })
+    n_over_all = int(over.sum())
+    n_under_all = int(under.sum())
+    return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
+            "push_rate": round(n_pushes / n, 4) if n else 0.0,
+            "pooled_pred": round(float(pred2[ok].mean()), 4),
+            "pooled_observed": (round(n_over_all / (n_over_all + n_under_all), 4)
+                                if (n_over_all + n_under_all) else None),
+            "warning": None}
+
+
 # ---------------------------------------------------------------------------
 # Charts 5–6 — favored-side pick accuracy buckets
 # ---------------------------------------------------------------------------
@@ -1346,6 +1415,51 @@ def chart_calibration(curve: dict, title: str,
     diag = alt.Chart(diag_df).mark_line(
         color="#64748B", strokeDash=[6, 4]).encode(x="x:Q", y="y:Q")
     return (diag + pts).properties(height=300, title=title)
+
+
+def chart_fixed_line(table: dict, title: str) -> dict:
+    """Renders the fixed-line calibration view for a ``fixed_line_calibration``
+    table: {'chart': dual-axis bars (count per 5-pt bucket, left) + observed
+    2-way over % line (right, 0-100 domain), 'scatter': observed vs predicted
+    with the perfect-calibration diagonal, 'table': the bucket rows}.
+
+    Empty buckets keep count 0 / None stats: bars render as zero-height,
+    the observed line simply skips them (never fabricated), and the scatter
+    drops them (a point needs both axes). The line/point encodings carry a
+    REAL scale with an explicit domain (the scale=None -> "scale": null
+    regression never re-enters this chart)."""
+    tdf = pd.DataFrame(table["bins"])
+    if tdf.empty:
+        return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
+                "scatter": alt.Chart(pd.DataFrame()).mark_point(),
+                "table": tdf}
+    tdf = tdf.copy()
+    tdf["observed_pct"] = tdf["observed"] * 100.0
+    base = alt.Chart(tdf).encode(
+        x=alt.X("bin:N", sort=list(tdf["bin"]), title=None))
+    bars = base.mark_bar(color="#3B82F6").encode(
+        y=alt.Y("count:Q", title="Games"),
+        tooltip=["bin", "count", "mean_pred", "observed"])
+    obs_line = base.mark_line(
+        color="#22C55E", strokeWidth=2.5,
+        point=alt.OverlayMarkDef(size=60)).encode(
+        y=alt.Y("observed_pct:Q", title="Observed over % (2-way, no push)",
+                scale=alt.Scale(domain=[0.0, 100.0])),
+        tooltip=["bin", "count", "observed_pct"])
+    chart = (bars + obs_line).resolve_scale(y="independent").properties(
+        height=300, title=title)
+    # Scatter: observed (2-way) vs mean predicted per populated bin + diagonal
+    pts = [{"bin_center": b["bin_center"], "mean_pred": b["mean_pred"],
+            "mean_actual": b["observed"], "count": b["count"]}
+           for b in table["bins"] if b["observed"] is not None]
+    if pts:
+        curve = {"bins": pts, "n_pairs": int(sum(p["count"] for p in pts)),
+                 "n_dropped_bins": 0, "warning": None}
+        scatter = chart_calibration(
+            curve, "Observed vs predicted per bucket (dashed = calibrated)")
+    else:
+        scatter = alt.Chart(pd.DataFrame()).mark_point()
+    return {"chart": chart, "scatter": scatter, "table": tdf}
 
 
 ACC_Y_AXIS_FLOOR = 75.0   # accuracy axis is in PERCENT units; floor in %
