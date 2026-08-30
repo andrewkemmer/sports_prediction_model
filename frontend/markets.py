@@ -254,10 +254,7 @@ else:
                 _rl_title = "Calibration Curve — Favorite (All = own fair run line)"
             else:
                 _rl_title = f"Calibration Curve — Favorite {_rl_line:.1f}"
-            # Fixed [0.25, 0.75] x-domain shared by every layer with normal
-            # vega-lite ticks; the GTL tab keeps its [0.0, 1.0] default.
-            built = diag.chart_game_total_curve(rlc, _rl_title,
-                                                x_domain=[0.25, 0.75])
+            built = diag.chart_game_total_curve(rlc, _rl_title)
             utils.show_chart(built["chart"])
             st.table(built["table"])
             priced_txt = ("decided games priced at their own fair run lines"

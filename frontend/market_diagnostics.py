@@ -140,8 +140,7 @@ def _gtl_table_frame(table: dict) -> pd.DataFrame:
 
 
 def chart_game_total_curve(table: dict, title: str,
-                           obs_label: str = "Observed % (2-way, no push)",
-                           x_domain: Optional[list] = None) -> dict:
+                           obs_label: str = "Observed % (2-way, no push)") -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
@@ -165,12 +164,6 @@ def chart_game_total_curve(table: dict, title: str,
     render as gray bars and their win-rate/observed points are DROPPED from
     the curves (never readable as reliable calibration). Pooled aggregates
     ride the Total table row, the caption, and the amber pooled marker.
-
-    ``x_domain`` (optional): the fixed x-axis domain shared by EVERY layer
-    (bars, curves, diagonal, pooled marker) — [0.25, 0.75] for the Run
-    Lines tab's favorite-side calibration; None keeps the default
-    [0.0, 1.0] (Game Total Lines). Axis ticks stay vega-lite defaults —
-    the domain is the only thing that changes.
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
@@ -179,8 +172,7 @@ def chart_game_total_curve(table: dict, title: str,
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    x_dom = alt.Scale(
-        domain=(x_domain if x_domain is not None else [0.0, 1.0]), nice=False)
+    x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
     y_pct_dom = alt.Scale(domain=[0.0, 100.0])
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n

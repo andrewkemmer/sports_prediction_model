@@ -1798,39 +1798,16 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertEqual(by["45-46"]["count"], 0)    # not the 0.45 line
 
     def test_chart_grammar_matches_gtl(self):
-        # The Run Lines chart renders through the same builder with the
-        # fixed [0.25, 0.75] x-domain shared by every layer (normal
-        # vega-lite ticks — no explicit tick values).
         out = diag.run_line_calibration(self._home_fav(), -1.5)
-        built = diag.chart_game_total_curve(
-            out, "Calibration Curve — Favorite -1.5", x_domain=[0.25, 0.75])
+        built = diag.chart_game_total_curve(out, "Calibration Curve — Favorite -1.5")
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertIn('"height": 300', d)
         self.assertNotIn('"width"', d)
         self.assertIn("Series", d)
         self.assertIn("#8B5CF6", d)
         self.assertNotIn("NaN", d)
         self.assertIn("Favorite -1.5", d)
-        # No explicit tick values anywhere (normal ticks restored).
-        self.assertNotIn('"tickMinStep"', d)
-        self.assertNotIn('"labelOverlap"', d)
-
-    def test_x_domain_shared_by_all_lines_and_default_unchanged(self):
-        # Every fixture-priceable selector (All / -0.5 / -1.5) emits the
-        # SAME fixed [0.25, 0.75] domain; the -0.5 view has no special tick
-        # treatment. (-4.0 renders on the real artifact via the AppTest.)
-        for line in (None, -0.5, -1.5):
-            out = diag.run_line_calibration(self._home_fav(), line)
-            built = diag.chart_game_total_curve(
-                out, f"t-{line}", x_domain=[0.25, 0.75])
-            d = _spec_dump(built["chart"])
-            self.assertIn('"domain": [0.25, 0.75]', d, f"line {line}")
-            self.assertNotIn("NaN", d, f"line {line}")
-        # Without the param the builder keeps the GTL default [0.0, 1.0].
-        out = diag.run_line_calibration(self._home_fav(), -1.5)
-        d = _spec_dump(diag.chart_game_total_curve(out, "t")["chart"])
-        self.assertIn('"domain": [0.0, 1.0]', d)
 
 
 class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
