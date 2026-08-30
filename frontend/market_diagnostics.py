@@ -199,6 +199,12 @@ def chart_game_total_curve(table: dict, title: str,
 
     chart = alt.layer(*layers).resolve_scale(
         x="shared", y="independent").properties(height=300, title=title)
+    # Interactive zoom/pan: wheel-zoom + drag-pan (Altair built-in) so the
+    # data sliver (All view ~0.46-0.53 on the 0-1 axis) can be inspected
+    # without custom domain logic. Zoom/pan apply to the shared x-scale
+    # (and the independent y-scales) transparently across the layered
+    # bars + curves.
+    chart = chart.interactive()
     # Pooled (Total) table row — the pooled-aggregates summary, share 100%.
     total_row = pd.DataFrame([{
         "bin": "Total", "bin_center": None, "count": int(tdf["count"].sum()),

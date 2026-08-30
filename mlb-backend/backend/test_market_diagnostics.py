@@ -337,6 +337,24 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertIn('"shape": "diamond"', d)
         self.assertIn("#8B5CF6", d)
 
+    def test_interactive_zoom_pan(self):
+        """The chart carries Altair's built-in wheel-zoom + drag-pan: a
+        top-level interval selection bound to scales. Zoom/pan apply across
+        the layered bars (Games) + curves (%) without breaking the dual-axis
+        structure."""
+        _, built = self._built()
+        import json
+        spec = built["chart"].to_dict()
+        params = spec.get("params")
+        self.assertTrue(params, "interactive() must emit a top-level params")
+        d = json.dumps(params)
+        self.assertIn('"type": "interval"', d,
+                     "wheel-zoom/pan is an interval (drag) selection")
+        self.assertIn('"bind": "scales"', d,
+                     "selection must bind to scales for wheel-zoom + drag-pan")
+        # 0-1 x domain + both y-axes still present after making it interactive
+        self.assertIn('[0.0, 1.0]', _spec_dump(built["chart"]))
+
     def test_each_axis_title_exactly_once(self):
         _, built = self._built()
         titles = []
