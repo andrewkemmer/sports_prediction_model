@@ -502,11 +502,21 @@ def _nfl_card_html(r) -> str:
     )
 
 
+def _render_nfl_cards(frame) -> None:
+    """Render the compact NFL moneyline cards (two per row) for a frame."""
+    for i in range(0, len(frame), 2):
+        cols = st.columns(2)
+        for col, (_, r) in zip(cols, frame.iloc[i:i + 2].iterrows()):
+            with col:
+                st.markdown(_nfl_card_html(r), unsafe_allow_html=True)
+    st.caption("NFL moneyline probabilities are point-in-time model outputs.")
+
+
 def _render_nfl_board() -> None:
-    """Moneyline-first NFL Today's Games board (step 2, minimal in-scope
-    render). MLB-only sections (pitchers, run engine, line selectors) are
-    absent; if the shipped moneyline v1 artifact carries no per-game rows
-    yet, show a clean step-3 notice instead of crashing."""
+    """Moneyline-first NFL Today's Games board (minimal render). MLB-only
+    sections (pitchers, run engine, line selectors) are absent; if the
+    shipped moneyline v1 artifact carries no per-game rows yet, show a clean
+    notice instead of crashing."""
     st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
                 unsafe_allow_html=True)
     fdate = utils.latest_artifact_date("nfl", "moneyline_json")
@@ -527,28 +537,222 @@ def _render_nfl_board() -> None:
             "win probabilities (step 3)."
         )
         return
-    for i in range(0, len(frame), 2):
-        cols = st.columns(2)
-        for col, (_, r) in zip(cols, frame.iloc[i:i + 2].iterrows()):
-            with col:
-                st.markdown(_nfl_card_html(r), unsafe_allow_html=True)
-    st.caption("NFL moneyline probabilities are point-in-time model outputs.")
+    _render_nfl_cards(frame)
+
+
+def _render_nearest_valid_fallback(valid, current: str) -> None:
+    """Missing-date fallback: never crash on a date with no board. Offer a
+    one-click jump to the nearest valid game date; if there are none, this
+    sport simply has no game-date artifacts yet."""
+    st.warning(f"No game board exists for {utils.format_date_long(current)} "
+               f"on this sport ({current}).")
+    if valid:
+        target = utils.nearest_valid_date(valid, current)
+        if target and st.button(
+                f"Jump to nearest game date — {utils.format_date_long(target)}"):
+            st.session_state["selected_date"] = target
+            st.session_state.pop("open_calendar", None)
+            st.rerun()
+    else:
+        st.info("No per-sport game-date artifacts are available yet "
+                "(run the pipeline / push artifacts).")
+
+
+def _extract_calendar_date(cal) -> str | None:
+    """Pull a picked date (YYYYMMDD) out of the streamlit-calendar return,
+    tolerating the several return shapes across versions. None when nothing
+    was (re)selected, so a plain calendar render never changes the date."""
+    if not isinstance(cal, dict):
+        return None
+
+    def norm(v):
+        if not v:
+            return None
+        s = str(v).strip()
+        if len(s) == 10 and s[4:5] == "-" and s.replace("-", "").isdigit():
+            return s.replace("-", "")
+        if len(s) == 8 and s.isdigit():
+            return s
+        return None
+
+    sel = cal.get("select")
+    if isinstance(sel, dict):
+        hit = norm(sel.get("start") or sel.get("date") or sel.get("dateStr"))
+        if hit:
+            return hit
+    else:
+        hit = norm(sel)
+        if hit:
+            return hit
+    for k in ("selectedDate", "dateClick", "eventClick"):
+        v = cal.get(k)
+        hit = norm(v if not isinstance(v, dict)
+                   else (v.get("date") or v.get("dateStr") or v.get("start")))
+        if hit:
+            return hit
+    for k, v in cal.items():
+        hit = norm(v if not isinstance(v, dict)
+                   else (v.get("start") or v.get("date") or v.get("dateStr")))
+        if hit:
+            return hit
+    return None
+
+
+def _render_calendar_picker(valid, current: str) -> None:
+    """FullCalendar (streamlit-calendar) month picker: only the sport's valid
+    dates are highlighted (background events) and selectable; the season is
+    bounded by validRange so the calendar never spans months of no games."""
+    try:
+        import streamlit_calendar as sl_cal
+    except Exception:
+        st.caption("Calendar component unavailable.")
+        return
+
+    def iso(d):
+        return f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+
+    events = [{"title": " ", "start": iso(d), "end": iso(d), "allDay": True,
+               "display": "background", "backgroundColor": "#10B981",
+               "textColor": "#022C22"} for d in valid]
+    from datetime import datetime, timedelta
+
+    def _day_after(yyyymmdd):
+        return (datetime.strptime(yyyymmdd, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
+
+    # FullCalendar's validRange.end is EXCLUSIVE by default, so set it to the
+    # day AFTER the latest valid date — otherwise the last valid date is cut.
+    vmin, vmax = iso(min(valid)), iso(_day_after(max(valid)))
+    options = {
+        "initialView": "dayGridMonth",
+        "headerToolbar": {"left": "prev,next today",
+                           "center": "title", "right": ""},
+        "height": 440,
+        "validRange": {"start": vmin, "end": vmax},
+        "selectable": True,
+        "selectMirror": True,
+        "navLinks": True,
+        "eventDisplay": "background",
+        "initialDate": iso(current),
+    }
+    try:
+        cal = sl_cal.calendar(events=events, options=options,
+                              callbacks=["select"], key="todays_cal")
+    except Exception:
+        st.caption("Could not render the calendar.")
+        return
+    chosen = _extract_calendar_date(cal)
+    if chosen and chosen in set(valid) and chosen != current:
+        st.session_state["selected_date"] = chosen
+        st.session_state.pop("open_calendar", None)
+        st.rerun()
+
+
+def _render_date_nav(valid, current: str) -> None:
+    """Prev/next step ONLY through the sport's valid dates (skipping gaps),
+    clamp + hint at the ends, and a clickable date field that opens the
+    calendar (valid dates highlighted). Never lands on a zero-card date."""
+    v = sorted(valid)
+    idx = v.index(current) if current in v else -1
+    prev = v[idx - 1] if idx > 0 else None
+    nxt = v[idx + 1] if 0 <= idx < len(v) - 1 else None
+    open_cal = st.session_state.get("open_calendar", False)
+    field = "🗓 " + utils.format_date_long(current) + (" ▾" if not open_cal else " ▴")
+    c1, c2, c3 = st.columns([1, 3, 1], gap="medium")
+    with c1:
+        prev_help = (f"Previous games: {utils.format_date_long(prev)}" if prev
+                     else "Earliest date with games (previous disabled)")
+        if st.button("◀", key="prev_day", use_container_width=True,
+                     disabled=(prev is None), help=prev_help):
+            st.session_state["selected_date"] = prev
+            st.session_state.pop("open_calendar", None)
+            st.rerun()
+    with c2:
+        if st.button(field, key="date_field", use_container_width=True,
+                     help="Open the calendar — highlighted dates have game boards"):
+            st.session_state["open_calendar"] = not open_cal
+            st.rerun()
+        if open_cal:
+            _render_calendar_picker(valid, current)
+            st.caption("Only highlighted dates have game boards for this sport; "
+                       "◀/▶ step through valid dates only.")
+    with c3:
+        nxt_help = (f"Next games: {utils.format_date_long(nxt)}" if nxt
+                    else "Latest date with games (next disabled)")
+        if st.button("▶", key="next_day", use_container_width=True,
+                     disabled=(nxt is None), help=nxt_help):
+            st.session_state["selected_date"] = nxt
+            st.session_state.pop("open_calendar", None)
+            st.rerun()
+
+
+def _render_nfl_day_board(frame, date_str: str) -> None:
+    """Per-date NFL moneyline board for the selected valid game date."""
+    st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
+                unsafe_allow_html=True)
+    fdate = utils.latest_artifact_date("nfl", "moneyline_json")
+    tag = f"v1_{fdate}" if fdate else "—"
+    st.markdown(
+        f"<div style='color:#94A3B8;margin:2px 0 14px;'>NFL moneyline board · "
+        f"{utils.format_date_long(date_str)} · artifact {tag}</div>",
+        unsafe_allow_html=True,
+    )
+    _render_nfl_cards(frame)
+
+
+def _run_nfl_main(valid, valid_set) -> None:
+    """NFL Today's Games: moneyline board filtered to the selected valid game
+    date. When the shipped record is aggregate-only (no per-game rows), a
+    clean notice renders and there is nothing to navigate."""
+    if not valid:
+        _render_nfl_board()
+        return
+    if (st.session_state.get("_nav_sport") != "nfl"
+            or "selected_date" not in st.session_state):
+        st.session_state["selected_date"] = (utils.nearest_valid_date(valid) or valid[0])
+        st.session_state["_nav_sport"] = "nfl"
+    date_str = st.session_state["selected_date"]
+    if date_str not in valid_set:
+        _render_nearest_valid_fallback(valid, date_str)
+        return
+    _render_date_nav(valid, date_str)
+    try:
+        frame = utils.load_nfl_moneyline()
+    except Exception:
+        frame = pd.DataFrame()
+    if frame is None or frame.empty:
+        st.info("No NFL per-game moneyline rows available.")
+        return
+    frame = frame.dropna(subset=["home_team", "away_team"]) if not frame.empty else frame
+    day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
+    if day.empty:
+        _render_nearest_valid_fallback(valid, date_str)
+        return
+    _render_nfl_day_board(day, date_str)
 
 
 def main() -> None:
-    if utils.get_sport() == "nfl":
-        _render_nfl_board()
+    """Sport-aware Today's Games: valid-date nav + calendar for the active
+    sport (MLB board, NFL moneyline day board), with a graceful missing-date
+    fallback. Touches date navigation only — card rendering/artifacts are
+    passed through the existing loaders unchanged."""
+    sport = utils.get_sport()
+    valid = list(utils.valid_dates(sport))
+    valid_set = set(valid)
+
+    if sport == "nfl":
+        _run_nfl_main(valid, valid_set)
         return
 
-    dates = utils.available_dates(**utils.get_source_config())
-    if not dates:
-        dates = ["20260809"]
-    if "selected_date" not in st.session_state:
-        # Default to today (ET) if an artifact exists for it, else latest.
-        et_today = _et_today_compact()
-        st.session_state["selected_date"] = (
-            et_today if et_today in dates else dates[0])
+    # Sport reset / first visit -> nearest valid date to today (ET).
+    if (st.session_state.get("_nav_sport") != "mlb"
+            or "selected_date" not in st.session_state):
+        st.session_state["selected_date"] = (utils.nearest_valid_date(valid) or "20260809")
+        st.session_state["_nav_sport"] = "mlb"
     date_str = st.session_state["selected_date"]
+
+    if date_str not in valid_set:
+        _render_nearest_valid_fallback(valid, date_str)
+        st.stop()
 
     games = utils.load_todays_games(date_str)
     cal = utils.load_calibration(date_str)
@@ -577,8 +781,7 @@ def main() -> None:
             history_view = True
 
     if games.empty:
-        st.warning(f"No game artifacts found for {date_str}. Run the Colab pipeline "
-                   "or configure your GitHub repo in the sidebar.")
+        _render_nearest_valid_fallback(valid, date_str)
         st.stop()
 
     # --- header: date + accuracy badge + evening note ---
@@ -595,7 +798,6 @@ def main() -> None:
     st.markdown(
         f"""
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:2px;">
-          <div style="font-size:1.35rem;font-weight:800;color:#E2E8F0;">{utils.format_date_long(date_str)}</div>
           <div style="color:#94A3B8;font-size:0.9rem;">· {len(games)} of {league_total} games shown</div>
           <span style="background:rgba(59,130,246,.18);color:#93C5FD;border-radius:999px;padding:2px 10px;font-size:0.78rem;font-weight:700;">
             {evening_league} evening games begin 7 PM ET+
@@ -608,7 +810,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    utils.arrow_nav(dates)
+    _render_date_nav(valid, date_str)
 
     if history_view:
         st.info(

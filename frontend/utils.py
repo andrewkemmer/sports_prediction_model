@@ -416,6 +416,108 @@ def latest_artifact_date(sport: str | None, family: str) -> Optional[str]:
 
 
 # ==========================================================================
+# Per-sport VALID game dates (the boards a user can land on)
+# ==========================================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _contents_todays_dates(owner: str, repo: str, branch: str) -> tuple[str, ...]:
+    """todays_games_*.csv dates listed by the GitHub contents API (cached),
+    or empty when the API is unreachable — callers also merge the local dir."""
+    dates: set[str] = set()
+    if owner and repo:
+        try:
+            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
+                   f"/{REPO_SUBDIR}/data_delivery")
+            resp = requests.get(api, timeout=15)
+            if resp.ok:
+                for item in resp.json():
+                    name = item.get("name", "")
+                    if name.startswith("todays_games_") and name.endswith(".csv"):
+                        d = name[len("todays_games_"):-len(".csv")]
+                        if len(d) == 8 and d.isdigit():
+                            dates.add(d)
+        except requests.RequestException:
+            pass
+    return tuple(sorted(dates))
+
+
+def _distinct_game_dates(frame: pd.DataFrame) -> list[str]:
+    """Distinct ``game_date`` values in a game frame, as YYYYMMDD, newest first.
+
+    NFL valid dates are the DISTINCT per-game ``game_date`` values in the
+    moneyline ``games[]`` array (NOT the artifact filename date). Empty frame
+    / no game_date column / aggregate-only record → [].
+    """
+    if frame is None or frame.empty or "game_date" not in frame.columns:
+        return []
+    out: set[str] = set()
+    for v in frame["game_date"].dropna().astype(str):
+        v = v.strip()
+        if len(v) == 10 and v[4:5] == "-" and v.replace("-", "").isdigit():
+            out.add(v.replace("-", ""))
+        elif len(v) == 8 and v.isdigit():
+            out.add(v)
+    return sorted(out, reverse=True)
+
+
+def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
+                      nfl_frame: pd.DataFrame) -> list[str]:
+    """Pure per-sport valid-date derivation (testable without Streamlit/net).
+
+    MLB: a date is valid when a ``todays_games_<YYYYMMDD>.csv`` board exists
+    (from the contents API listing merged with the local dir). NFL: distinct
+    ``game_date`` values from the moneyline ``games[]`` frame. Missing/empty
+    artifacts for either sport → [] (graceful, no boards to land on)."""
+    s = normalize_sport_key(sport_key)
+    if s == "nfl":
+        return _distinct_game_dates(nfl_frame)
+    dates = set(contents_dates or ())
+    for p in Path(local_dir).glob("todays_games_*.csv"):
+        d = p.name[len("todays_games_"):-len(".csv")]
+        if len(d) == 8 and d.isdigit():
+            dates.add(d)
+    return sorted(dates, reverse=True)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
+    """Valid game dates (YYYYMMDD, newest first) for a sport — the boards a
+    user can actually land on, cached so per-rerun enumeration is cheap.
+
+    MLB: ``todays_games_YYYYMMDD.csv`` artifacts (contents API + local).
+    NFL: distinct per-game ``game_date`` from the resolved moneyline
+    ``games[]`` array (empty when the shipped record is aggregate-only)."""
+    s = normalize_sport_key(sport_key if sport_key is not None else get_sport())
+    cfg = get_source_config()
+    contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
+    nfl_frame = load_nfl_moneyline("nfl") if s == "nfl" else pd.DataFrame()
+    return tuple(_valid_dates_impl(s, contents, LOCAL_DATA_DIR, nfl_frame))
+
+
+def nearest_valid_date(valid: list[str] | tuple[str, ...],
+                       target: str | None = None) -> Optional[str]:
+    """The valid date closest to ``target`` (default: today in America/New_York).
+
+    Ties break to the earlier date. Returns None when ``valid`` is empty or
+    has no parseable dates — callers fall back to a placeholder / empty state."""
+    vs = sorted({d for d in valid if len(str(d)) == 8 and str(d).isdigit()})
+    if not vs:
+        return None
+    if target is None:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _ZI
+        target = _dt.now(_ZI("America/New_York")).strftime("%Y%m%d")
+    base = datetime.strptime(str(target)[:8], "%Y%m%d")
+    best, best_gap = None, None
+    for d in vs:
+        dt = datetime.strptime(d, "%Y%m%d")
+        gap = abs((dt - base).days)
+        if best_gap is None or gap < best_gap or (gap == best_gap and d < best):
+            best, best_gap = d, gap
+    return best
+
+
+# ==========================================================================
 # NFL adapter — nfl_moneyline_v1_*.json → the shared card DataFrame contract
 # ==========================================================================
 

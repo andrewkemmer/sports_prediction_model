@@ -30,6 +30,7 @@ import re
 import subprocess
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parent
@@ -67,7 +68,7 @@ def _extract_utils(names):
             segments.append(ast.get_source_segment(src, node))
     ns = {
         "re": re, "json": json, "io": io, "pd": pd, "Path": Path,
-        "np": np,
+        "np": np, "datetime": datetime,
         "REPO_ROOT": _ROOT,
         "DEFAULT_SPORT": sports_config.DEFAULT_SPORT,
         "SPORTS": sports_config.SPORTS,
@@ -110,6 +111,79 @@ def _utils_with_sport(state: dict):
     u["st"] = st
     # load_todays_games MLB path needs these; wire real ones via fakes at use.
     return u
+
+
+# ---------------------------------------------------------------------------
+# 1b. Per-sport valid game dates (Today's Games nav)
+# ---------------------------------------------------------------------------
+
+class TestValidDates(unittest.TestCase):
+    """Per-sport valid game-date derivation (pure helpers, no Streamlit/net)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.u = _extract_utils([
+            "_distinct_game_dates", "_valid_dates_impl", "nearest_valid_date",
+        ])
+
+    def test_nfl_valid_dates_are_distinct_game_date_from_games_array(self):
+        fr = pd.DataFrame({"game_date": ["2026-09-09", "2026-09-13", "2026-09-09"]})
+        self.assertEqual(self.u["_distinct_game_dates"](fr),
+                         ["20260913", "20260909"])  # dedup, newest-first
+
+    def test_nfl_empty_or_aggregate_only_yields_empty(self):
+        self.assertEqual(self.u["_distinct_game_dates"](pd.DataFrame()), [])
+        self.assertEqual(
+            self.u["_distinct_game_dates"](pd.DataFrame({"home_team": ["A"]})), [])
+        # aggregate-only artifact: moneyline frame carries game_date as empty
+        self.assertEqual(
+            self.u["_distinct_game_dates"](pd.DataFrame({"game_date": []})), [])
+
+    def test_mlb_valid_dates_from_todays_games_artifact_listing(self):
+        import shutil
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        (tmp / "todays_games_20260829.csv").write_text("x")
+        (tmp / "todays_games_20260830.csv").write_text("x")
+        (tmp / "power_rankings_20260830.csv").write_text("x")  # NOT a board
+        got = self.u["_valid_dates_impl"](
+            "mlb", ("20260829", "20260828"), tmp, pd.DataFrame())
+        self.assertEqual(got, ["20260830", "20260829", "20260828"])
+
+    def test_mlb_missing_artifacts_yields_empty(self):
+        import tempfile
+        missing = Path(tempfile.mkdtemp()) / "nonexistent"
+        self.assertEqual(
+            self.u["_valid_dates_impl"]("mlb", (), missing, pd.DataFrame()), [])
+
+    def test_mlb_and_nfl_date_sets_are_independent(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        # NFL derives dates from game_date, never from the MLB filename set.
+        nfl = self.u["_valid_dates_impl"](
+            "nfl", ("20260830",), tmp,
+            pd.DataFrame({"game_date": ["2026-09-09"]}))
+        mlb = self.u["_valid_dates_impl"](
+            "mlb", ("20260830",), tmp, pd.DataFrame())
+        self.assertEqual(nfl, ["20260909"])
+        self.assertEqual(mlb, ["20260830"])
+
+    def test_nearest_valid_date(self):
+        nv = self.u["nearest_valid_date"]
+        self.assertIsNone(nv([], "20260830"))
+        self.assertEqual(nv(["20260829", "20260826"], "20260827"), "20260826")
+        self.assertEqual(nv(["20260913", "20260909"], "20260830"), "20260909")
+        self.assertEqual(nv(["20260830"], "20260830"), "20260830")
+
+    def test_todays_games_nav_uses_valid_dates_not_available_dates(self):
+        """The page steps/calendars off utils.valid_dates (per-sport), not the
+        wider available_dates; the old date-ribbon arrow_nav is gone."""
+        src = (_ROOT / "frontend" / "todays_games.py").read_text(encoding="utf-8")
+        self.assertIn("utils.valid_dates(", src)
+        self.assertIn("streamlit_calendar as sl_cal", src)
+        self.assertIn("callbacks=[\"select\"]", src)
+        self.assertNotIn("utils.arrow_nav(", src)
 
 
 # ---------------------------------------------------------------------------
@@ -190,8 +264,9 @@ class TestSportState(unittest.TestCase):
 class TestArtifactResolver(unittest.TestCase):
     def test_nfl_moneyline_resolves_real_artifact(self):
         u = _utils_with_sport({})
+        # Per-game moneyline slate (step 3) is the newest moneyline artifact.
         self.assertEqual(u["latest_artifact_date"]("nfl", "moneyline_json"),
-                         "20260829")
+                         "20260830")
 
     def test_nfl_feature_resolves(self):
         u = _utils_with_sport({})
@@ -401,6 +476,74 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "print('FALLBACK_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
         self.assertIn("FALLBACK_OK", self._run(script))
+
+
+    def test_mlb_invalid_selected_date_falls_back_gracefully(self):
+        """An invalid/stale selected_date (no board) never crashes — it shows
+        the graceful fallback with a jump action instead of a zero-card page."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.session_state['_nav_sport'] = 'mlb';\n"
+            "at.session_state['selected_date'] = '20260825';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "warns = ' '.join(w.value for w in at.warning);\n"
+            "assert 'No game board exists' in warns, warns[:400];\n"
+            "print('MLB_FALLBACK_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("MLB_FALLBACK_OK", self._run(script))
+
+    def test_mlb_valid_date_renders_board(self):
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.session_state['_nav_sport'] = 'mlb';\n"
+            "at.session_state['selected_date'] = '20260830';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "all_text = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "assert 'games shown' in all_text, all_text[:300];\n"
+            "print('MLB_BOARD_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("MLB_BOARD_OK", self._run(script))
+
+    def test_mlb_calendar_opens_no_exception(self):
+        """Opening the FullCalendar picker with the sport's valid dates
+        highlighted renders without crashing (streamlit-calendar loaded)."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.session_state['_nav_sport'] = 'mlb';\n"
+            "at.session_state['open_calendar'] = True;\n"
+            "at.session_state['selected_date'] = '20260830';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "print('MLB_CAL_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("MLB_CAL_OK", self._run(script))
+
+    def test_nfl_valid_date_renders_moneyline_day_board(self):
+        """NFL dates come from the moneyline games[] array; a real per-game
+        date renders the filtered moneyline cards (no aggregate-only notice)."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.session_state['sport'] = 'nfl';\n"
+            "at.session_state['selected_date'] = '20260913';\n"
+            "at.session_state['_nav_sport'] = 'nfl';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "all_text = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "assert 'NFL MONEYLINE' in all_text, all_text[:500];\n"
+            "assert at.session_state['selected_date'] == '20260913';\n"
+            "print('NFL_DATE_BOARD_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("NFL_DATE_BOARD_OK", self._run(script))
 
 
 if __name__ == "__main__":
