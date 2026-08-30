@@ -1951,6 +1951,39 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertAlmostEqual(cb[0]["bin_center"], 0.505, places=4)
 
 
+    def test_builder_signature_accepts_all_run_lines_kwargs(self):
+        """Hardening guard: the Run Lines call site passes 6 keyword args
+        (curve_bins, x_tick_values, show_win_rate, x_label, series_label,
+        obs_label) — the builder must accept EVERY one, or the tab raises
+        TypeError. Also pins that the GTL default call (no kwargs) equals
+        the explicit-defaults call (byte-identity contract)."""
+        import inspect
+        sig = inspect.signature(diag.chart_game_total_curve)
+        for kw in ("curve_bins", "x_tick_values", "show_win_rate",
+                   "x_label", "series_label", "obs_label"):
+            self.assertIn(kw, sig.parameters,
+                          f"builder must accept {kw} (call site passes it)")
+        # Defaults preserve GTL byte-identity.
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        plain = diag.chart_game_total_curve(out, "t")
+        explicit = diag.chart_game_total_curve(
+            out, "t", obs_label="Observed % (2-way, no push)",
+            curve_bins=None, x_tick_values=None, show_win_rate=True,
+            x_label="Predicted P(over)", series_label="Observed")
+        self.assertEqual(
+            __import__("json").dumps(plain["chart"].to_dict(), sort_keys=True),
+            __import__("json").dumps(explicit["chart"].to_dict(), sort_keys=True),
+            "GTL default call must stay byte-identical to explicit defaults")
+        self.assertTrue(plain["table"].equals(explicit["table"]))
+        # And the full Run Lines call (all 6 kwargs) builds without error.
+        built = diag.chart_game_total_curve(
+            out, "t", curve_bins=out["curve_bins"],
+            x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+            x_label="Mean Predicted", series_label="Mean Actual",
+            obs_label="Mean Actual")
+        self.assertGreater(len(built["chart"].to_dict().get("layer", [])), 0)
+
+
 class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
     """End-to-end through frontend/markets.py: the 'Run Lines' tab drives
     All / -0.5 / -1.5 / -4.0 with 0 exceptions (subprocess AppTest, same
