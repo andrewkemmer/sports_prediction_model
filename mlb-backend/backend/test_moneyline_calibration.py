@@ -112,6 +112,34 @@ class TestMergedChart(unittest.TestCase):
         self.assertIn('"field": "cal_mean_pct"', d)
         self.assertIn("independent", d)
 
+    def test_axis_titles_single_source(self):
+        """No overlapping axis labels: 'Actual win rate %' (right scale) and
+        'Games' (left scale) each appear on EXACTLY ONE layer's y-axis title —
+        the merged-chart regression where both the blue and green curve layers
+        emitted the right-axis title on top of each other."""
+        def _y_axis_titles(chart):
+            titles = []
+            for layer in chart.to_dict()["layer"]:
+                y = layer.get("encoding", {}).get("y", {})
+                axis = y.get("axis")
+                if isinstance(axis, dict) and isinstance(axis.get("title"), str):
+                    titles.append(axis.get("title"))
+            return titles
+
+        built = mlc.chart_favored_calibration(
+            self._pts(),
+            pd.DataFrame({"prob": [0.55], "cal_mean": [0.60], "n": [80]}))
+        titles = _y_axis_titles(built["chart"])
+        self.assertEqual(
+            titles.count("Actual win rate %"), 1,
+            "right-axis title must appear exactly once across all layers")
+        self.assertEqual(
+            titles.count("Games"), 1,
+            "'Games' title must appear exactly once across all layers")
+        # The green Platt layer (rotated right axis) must NOT repeat the title.
+        self.assertIn("Actual win rate %", titles)
+        self.assertIn("Games", titles)
+
     def test_hover_counts_present(self):
         built = mlc.chart_favored_calibration(self._pts(), pd.DataFrame())
         d = _dump(built["chart"]) + _dump(

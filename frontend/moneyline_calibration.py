@@ -76,7 +76,9 @@ def chart_favored_calibration(pts: pd.DataFrame,
 
     bars = alt.Chart(pts).mark_bar(color=BLUE, opacity=0.30).encode(
         x=alt.X("prob:Q", title="Predicted win probability", scale=x_dom),
-        y=alt.Y("n:Q", title="Games", axis=alt.Axis(grid=True)),
+        # LEFT axis (single owner): 'Games'. No right-axis title here — the
+        # right '%' title belongs to the curves layer below.
+        y=alt.Y("n:Q", axis=alt.Axis(title="Games", grid=True)),
         tooltip=[
             alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
             alt.Tooltip("n:Q", title="Games"),
@@ -87,8 +89,13 @@ def chart_favored_calibration(pts: pd.DataFrame,
         point=alt.OverlayMarkDef(filled=True, size=55), color=BLUE,
         strokeWidth=2.5).encode(
         x=alt.X("prob:Q", scale=x_dom),
-        y=alt.Y("win_rate_pct:Q", title="Actual win rate %",
-                axis=alt.Axis(orient="right", grid=False), scale=y_dom),
+        # RIGHT axis (single owner): 'Actual win rate %' for the blue actual-
+        # rate curve — the green Platt line below shares this right scale and
+        # deliberately carries NO title (avoid the overlapping-title bug).
+        y=alt.Y("win_rate_pct:Q",
+                axis=alt.Axis(title="Actual win rate %", orient="right",
+                              grid=False),
+                scale=y_dom),
         tooltip=[
             alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
             alt.Tooltip("win_rate_pct:Q", title="Actual win rate %", format=".1f"),
@@ -99,7 +106,9 @@ def chart_favored_calibration(pts: pd.DataFrame,
     diag = alt.Chart(diag_df).mark_line(
         color=GRAY, strokeDash=[5, 5], strokeWidth=1.5).encode(
         x=alt.X("prob:Q", scale=x_dom),
-        y=alt.Y("win_rate_pct:Q", scale=y_dom),
+        # Diagonal maps to the same right scale but renders NO axis/title
+        # (axis=None) so it never contributes an overlapping label.
+        y=alt.Y("win_rate_pct:Q", axis=None, scale=y_dom),
     )
     layers = [bars, diag, model_pts]
     if pts_cal is not None and len(pts_cal):
@@ -109,7 +118,10 @@ def chart_favored_calibration(pts: pd.DataFrame,
             point=alt.OverlayMarkDef(filled=True, size=45), color=GREEN,
             strokeDash=[6, 4], strokeWidth=2).encode(
             x=alt.X("prob:Q", scale=x_dom),
-            y=alt.Y("cal_mean_pct:Q", title="Actual win rate %"),
+            # Aligns with model_pts on the right scale but carries NO title
+            # (single source = the curves layer above owns 'Actual win rate %').
+            y=alt.Y("cal_mean_pct:Q",
+                    axis=alt.Axis(title=None, orient="right")),
             tooltip=[
                 alt.Tooltip("prob:Q", title="Raw predicted", format=".0%"),
                 alt.Tooltip("cal_mean:Q", title="Calibrated prediction", format=".1%"),
