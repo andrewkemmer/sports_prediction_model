@@ -476,6 +476,30 @@ def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
     return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
 
 
+def classify_drift_retention(gain: float, psi_adjusted: float,
+                             noise_floor: float,
+                             kept_median_gain: float) -> bool:
+    """Flag a CULLED feature for retention (false-positive-cull test).
+
+    The run engine's feature cull is a STATIC name rule (derive_run_features:
+    *_diff except park_factor_slug_diff, the RUN_EXTRA_EXCLUSIONS composites,
+    *_delta_home/away) — it never consults importance or drift. The read-only
+    cull diagnostic (run_engine_cull_diagnostic.py) measures the rule's
+    outcome: a feature is a FALSE-POSITIVE CULL when it was dropped by the
+    rule yet (a) its gain importance is at least the kept-view median and
+    (b) its noise-adjusted PSI is at or below its sampling noise floor — the
+    cull removed predictive signal with no measured distributional change.
+    Returns True → recommend retention. Both thresholds are INCLUSIVE
+    (gain == median, psi_adjusted == noise_floor flag) so a borderline
+    feature is never silently dropped.
+
+    Not called by production monitors — selection remains the static rule;
+    this is the retention-backstop policy the cull diagnostic (and its
+    fixture tests) pins.
+    """
+    return bool(gain >= kept_median_gain and psi_adjusted <= noise_floor)
+
+
 def compute_feature_drift(
     baseline_games: pd.DataFrame,
     current_games: pd.DataFrame,

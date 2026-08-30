@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from explainability import classify_drift_retention
 from run_engine import (
     RUN_EXTRA_EXCLUSIONS,
     derive_markets_v3,
@@ -111,6 +112,64 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
         for f in ship:
             self.assertNotIn("lineup_actual", f)
             self.assertNotIn("lineup_rest_count", f)
+
+
+class TestSelectionPartitionInvariants(unittest.TestCase):
+    def test_derive_run_features_partitions_feature_cols_exactly(self):
+        """kept ∪ dropped == FEATURE_COLS, disjoint, deterministic — the
+        rule is a pure function of the name list (no importance/drift input),
+        so the denominator/count invariants (59 = 29 kept + 30 dropped) are
+        structural, not incidental."""
+        keep, dropped = derive_run_features(list(FEATURE_COLS))
+        self.assertEqual(len(FEATURE_COLS), 59)
+        self.assertEqual(len(keep) + len(dropped), len(FEATURE_COLS))
+        self.assertEqual(set(keep) | set(dropped), set(FEATURE_COLS))
+        self.assertEqual(len(set(keep)) + len(set(dropped)),
+                         len(set(FEATURE_COLS)), "disjoint kept/dropped")
+        # Deterministic: identical input → identical output, no hidden state.
+        keep2, dropped2 = derive_run_features(list(FEATURE_COLS))
+        self.assertEqual(keep, keep2)
+        self.assertEqual(dropped, dropped2)
+
+
+class TestCullRetentionClassifier(unittest.TestCase):
+    """Pins the false-positive-cull policy used by the read-only cull
+    diagnostic: a feature dropped by the STATIC rule is flagged for retention
+    only when it carries kept-median gain AND no measured drift beyond its
+    noise floor. The run engine's selection rule itself has no importance/
+    drift input (derive_run_features is name-based); this classifier is the
+    retention backstop the diagnostic measures against."""
+
+    def test_high_importance_low_drift_never_culled(self):
+        """The headline policy: gain at the kept median with drift inside the
+        noise floor → retain (false-positive cull)."""
+        self.assertTrue(classify_drift_retention(
+            gain=21.0, psi_adjusted=0.04, noise_floor=0.055,
+            kept_median_gain=21.0))
+        self.assertTrue(classify_drift_retention(
+            gain=30.0, psi_adjusted=0.0, noise_floor=0.055,
+            kept_median_gain=21.0))
+
+    def test_genuine_drift_not_flagged(self):
+        """High importance but drift above the noise floor → the cull is
+        defensible (monitorable drift, not a false positive)."""
+        self.assertFalse(classify_drift_retention(
+            gain=30.0, psi_adjusted=0.13, noise_floor=0.055,
+            kept_median_gain=21.0))
+
+    def test_low_importance_not_flagged(self):
+        """Within-noise drift alone is not enough — the feature must also
+        clear the kept-view median gain."""
+        self.assertFalse(classify_drift_retention(
+            gain=5.0, psi_adjusted=0.0, noise_floor=0.055,
+            kept_median_gain=21.0))
+
+    def test_boundaries_are_inclusive(self):
+        """gain == median and psi == noise floor both flag (borderline
+        features are retained, never silently dropped)."""
+        self.assertTrue(classify_drift_retention(
+            gain=21.0, psi_adjusted=0.055, noise_floor=0.055,
+            kept_median_gain=21.0))
 
 
 class TestDeterminism(unittest.TestCase):
