@@ -279,11 +279,14 @@ def _extract_utils_funcs(names: list[str]) -> dict:
     })
     assert not missing, f"function(s) not found in utils.py: {missing}"
     import sports_config as _sc
+    from zoneinfo import ZoneInfo as _ZoneInfo
     ns: dict = {
         "re": re,
         "json": json,
         "datetime": datetime,
         "Path": Path,
+        "ZoneInfo": _ZoneInfo,
+        "_EASTERN_ZONE": _ZoneInfo("America/New_York"),
         "DEFAULT_SPORT": _sc.DEFAULT_SPORT,
         "normalize_sport_key": _sc.normalize_sport_key,
         "resolve_sport": _sc.resolve_sport,
@@ -310,7 +313,8 @@ class TestLastUpdated(unittest.TestCase):
             sys.path.insert(0, str(_frontend))
         cls.u = _extract_utils_funcs([
             "_full_run_timestamp", "_stamp_suffixes", "_max_stamp",
-            "_last_refresh_for_dir", "_format_refresh", "last_refresh_time",
+            "_last_refresh_for_dir", "_is_date_only", "_to_eastern",
+            "_format_refresh", "last_refresh_time",
         ])
 
     def _dir(self, files):
@@ -366,6 +370,64 @@ class TestLastUpdated(unittest.TestCase):
         self.assertNotEqual(nfl, "Last updated: —")
         # NFL resolves its own (JSON) artifacts, not MLB's CSV snapshot.
         self.assertNotEqual(mlb, nfl)
+
+
+class TestRefreshEasternFormat(unittest.TestCase):
+    """'Last updated' renders full timestamps in Eastern US time, DST-aware.
+
+    via zoneinfo America/New_York — EDT (UTC-4) in daylight time, EST (UTC-5)
+    in standard time, appended as %Z. Naive timestamps are treated as UTC (the
+    pipeline's convention); date-only artifacts keep the date-only display
+    (no fabricated time)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.u = _extract_utils_funcs([
+            "_format_refresh", "_is_date_only", "_to_eastern",
+        ])
+
+    def test_summer_utc_to_edt(self):
+        dt = datetime.fromisoformat("2026-08-30T17:05:00")  # naive UTC
+        self.assertEqual(
+            self.u["_format_refresh"](dt),
+            "Last updated: Aug 30, 2026, 1:05:00 PM EDT")
+
+    def test_winter_utc_to_est(self):
+        dt = datetime.fromisoformat("2026-01-15T23:30:00")  # naive UTC
+        self.assertEqual(
+            self.u["_format_refresh"](dt),
+            "Last updated: Jan 15, 2026, 6:30:00 PM EST")
+
+    def test_dst_boundary_offset_flip(self):
+        # US fall-back Nov 1 2026 02:00 EDT -> 01:00 EST (06:00 UTC). One
+        # minute on each side: 05:30 UTC is still EDT, 06:30 UTC is EST.
+        before = datetime.fromisoformat("2026-11-01T05:30:00")
+        after = datetime.fromisoformat("2026-11-01T06:30:00")
+        self.assertEqual(
+            self.u["_format_refresh"](before),
+            "Last updated: Nov 1, 2026, 1:30:00 AM EDT")
+        self.assertEqual(
+            self.u["_format_refresh"](after),
+            "Last updated: Nov 1, 2026, 1:30:00 AM EST")
+
+    def test_aware_utc_timestamp(self):
+        # 'Z' -> +00:00 first for Python 3.10 fromisoformat compatibility.
+        dt = datetime.fromisoformat("2026-08-28T23:13:02Z".replace("Z", "+00:00"))
+        self.assertEqual(
+            self.u["_format_refresh"](dt),
+            "Last updated: Aug 28, 2026, 7:13:02 PM EDT")
+
+    def test_naive_treated_as_utc(self):
+        # A naive daytime value must convert as UTC, not be re-anchored.
+        self.assertEqual(self.u["_to_eastern"](datetime(2026, 6, 1, 12, 0, 0))
+                         .strftime("%H:%M %Z"), "08:00 EDT")
+
+    def test_date_only_fallback_unchanged(self):
+        # Date-only (naive midnight, from a YYYYMMDD suffix) stays date-only.
+        self.assertIn("EDT", self.u["_format_refresh"](datetime(2026, 8, 30, 17, 5, 0)))
+        self.assertEqual(
+            self.u["_format_refresh"](datetime(2026, 8, 30)),
+            "Last updated: Aug 30, 2026", "date-only must not gain a time")
 
 
 class TestETDefaultDate(unittest.TestCase):

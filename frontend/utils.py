@@ -1159,11 +1159,50 @@ def _last_refresh_for_dir(sport_dir: Path) -> Optional[datetime]:
     return None
 
 
+# Eastern US timezone for the sidebar 'Last updated' line. Resolved via
+# zoneinfo (never a hardcoded offset) so DST is automatic: EDT (UTC-4) in
+# daylight time, EST (UTC-5) in standard time.
+_EASTERN_ZONE = ZoneInfo("America/New_York")
+
+
+def _is_date_only(dt: datetime) -> bool:
+    """True when a refresh value is a date-only artifact (no time component).
+
+    The ``run_engine_markets_*_YYYYMMDD`` suffix path (and similar dated
+    filenames) carries only a date — parsed as a naive midnight. A naive
+    datetime at 00:00:00 is the date-only marker; the formatter then keeps
+    the date-only display and does NOT fabricate a time."""
+    return (dt.tzinfo is None and dt.hour == 0 and dt.minute == 0
+            and dt.second == 0 and dt.microsecond == 0)
+
+
+def _to_eastern(dt: datetime) -> datetime:
+    """Convert a refresh datetime to Eastern US time, DST-aware via zoneinfo.
+
+    Naive timestamps are assumed to be UTC first (the Kaggle/Colab pipeline
+    writes naive UTC ``generated``/``created_utc`` values), then converted.
+    ``%Z`` on the result yields EDT or EST depending on the calendar date."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(_EASTERN_ZONE)
+
+
 def _format_refresh(dt: Optional[datetime]) -> str:
-    """Display string for a refresh time, e.g. 'Aug 30, 2026'; missing → '—'."""
+    """Display string for a refresh time.
+
+    Full timestamps render in Eastern US time with seconds + tz abbreviation,
+    e.g. 'Aug 30, 2026, 10:05:00 PM EDT'. Date-only artifacts (no time
+    component) keep the plain date 'Aug 30, 2026' — a time is never
+    fabricated. Missing → 'Last updated: —'."""
     if dt is None:
         return "Last updated: —"
-    return "Last updated: " + dt.strftime("%b %d, %Y")
+    if _is_date_only(dt):
+        return "Last updated: " + dt.strftime("%b %d, %Y")
+    et = _to_eastern(dt)
+    hour = et.hour % 12 or 12
+    ampm = "AM" if et.hour < 12 else "PM"
+    return (f"Last updated: {et:%b} {et.day}, {et.year}, "
+            f"{hour}:{et:%M}:{et:%S} {ampm} {et:%Z}")
 
 
 def last_refresh_time(sport_key: str | None = None) -> str:
