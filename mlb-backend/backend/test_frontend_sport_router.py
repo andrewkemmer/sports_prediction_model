@@ -139,6 +139,19 @@ class TestSportRegistryAndRouting(unittest.TestCase):
         self.assertIn("todays_games_csv",
                       sports_config.artifact_patterns("mlb"))
 
+    def test_every_sport_carries_title_and_subtitle(self):
+        # Registry-driven sidebar header: title/subtitle are per-sport so a
+        # new sport needs zero UI-code changes.
+        for key, cfg in sports_config.SPORTS.items():
+            self.assertIsInstance(cfg.get("title"), str)
+            self.assertTrue(cfg["title"].strip())
+            self.assertIsInstance(cfg.get("subtitle"), str)
+            self.assertTrue(cfg["subtitle"].strip())
+        self.assertEqual(sports_config.resolve_sport("mlb")["title"],
+                         "MLB Predictions")
+        self.assertEqual(sports_config.resolve_sport("nfl")["title"],
+                         "NFL Predictions")
+
     def test_normalize_defaults_and_unknowns(self):
         self.assertEqual(sports_config.normalize_sport_key("NFL"), "nfl")
         self.assertEqual(sports_config.normalize_sport_key(" mlb "), "mlb")
@@ -348,6 +361,46 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "print('NFL_CAL_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "model_calibration.py"))
         self.assertIn("NFL_CAL_OK", self._run(script))
+
+    def test_pills_select_nfl_updates_sport_and_header(self):
+        """Clicking the NFL pill writes session_state['sport'] = 'nfl' and the
+        registry-driven sidebar header switches to 'NFL Predictions'."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert len(at.sidebar.pills) == 1, 'sport picker pills not rendered';\n"
+            "assert at.session_state['sport'] == 'mlb';\n"
+            "at.sidebar.pills[0].set_value('nfl');\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert at.session_state['sport'] == 'nfl', at.session_state;\n"
+            "body = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "assert 'NFL Predictions' in body, body[:500];\n"
+            "assert 'NFL betting model dashboard' in body, body[:500];\n"
+            "print('PILL_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("PILL_OK", self._run(script))
+
+    def test_unknown_sport_falls_back_to_first_registry_key(self):
+        """A stale/unknown session_state sport id is normalized to the first
+        registry key (mlb) before the picker renders — never a crash or an
+        empty nav."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.session_state['sport'] = 'hockey';\n"
+            "at.run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert at.session_state['sport'] == 'mlb', at.session_state;\n"
+            "body = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "assert 'MLB Predictions' in body, body[:500];\n"
+            "print('FALLBACK_OK')\n"
+        ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
+        self.assertIn("FALLBACK_OK", self._run(script))
 
 
 if __name__ == "__main__":

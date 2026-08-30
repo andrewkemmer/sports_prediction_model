@@ -11,11 +11,15 @@ GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH env vars) with a local fallback
 to the real committed artifacts in ``data_delivery/`` when GitHub is
 unavailable.
 
-Multi-sport restructure (Phase B): the sidebar carries a sport selector
-above the dashboard nav — a single entry today (MLB, the default) rendered
-through ``sports_config.SPORTS`` so switching sports later needs no layout
-change. The per-sport nav list is built from the same registry; the literal
-``pages`` list below remains the sidebar-order contract.
+Multi-sport restructure (Phase B): the sidebar carries a registry-driven
+sport picker (``st.pills`` over ``sports_config.SPORTS``) above the
+dashboard nav, and the brand header title/subtitle also come from the
+registry — adding a sport (MLB, NFL, NBA, NHL, ...) needs zero UI-code
+changes. ``st.session_state["sport"]`` is the single source of truth
+(utils.get_sport() reads it); the picker widget mirrors it via its own
+key and writes changes back. The per-sport nav list is built from the
+same registry; the literal ``pages`` list below remains the
+sidebar-order contract.
 
 Run from the repository root::
 
@@ -38,10 +42,15 @@ utils.inject_css()
 
 # Set the sport default BEFORE the toggle/widget renders. A rerun that
 # navigates (e.g. clicking the brand above the dashboard list) can reach
-# this point with session_state["sport"] unset/None before the segmented
-# control materializes — setdefault guarantees it defaults to MLB silently
-# instead of surfacing an "Unknown sport" warning on every such click.
+# this point with session_state["sport"] unset/None before the sport picker
+# materializes — setdefault guarantees it defaults to the first registry
+# key (MLB) silently instead of surfacing an "Unknown sport" warning on
+# every such click. Stale/unknown values are normalized to a valid key
+# here so the widget always renders against a real registry entry.
 st.session_state.setdefault("sport", sports_config.DEFAULT_SPORT)
+_sport_key = sports_config.normalize_sport_key(st.session_state["sport"])
+if _sport_key != st.session_state["sport"]:
+    st.session_state["sport"] = _sport_key
 
 # ---------------------------------------------------------------------------
 # Sidebar: branding + sport toggle + GitHub source configuration (shared)
@@ -50,23 +59,24 @@ with st.sidebar:
     # Single branding block — rendered ABOVE the dashboard list by the
     # sidebar reorder CSS in utils.inject_css.
     utils.render_brand_header()
-    # Sport selector (multi-sport restructure, Phase B): one entry today
-    # (MLB), rendered as a toggle above the dashboard nav so switching
-    # sports later needs no layout change. The per-sport nav list below is
-    # built from sports_config.SPORTS.
-    # Sport selector — the app-wide single source of truth for the active
-    # sport (read via utils.get_sport() by every loader/page). MLB default,
-    # NFL added. Persisted across reruns through st.session_state["sport"];
-    # utils.get_sport() normalizes so any degraded value still resolves.
-    st.radio(
+    # Sport selector — a registry-driven pills toggle (Streamlit >= 1.40;
+    # installed 1.62.0). The WIDGET is a mirror with its own key
+    # ("sport_picker"); st.session_state["sport"] stays the single source of
+    # truth that every loader/page reads via utils.get_sport(). A picked
+    # value that differs is written back to session_state and triggers a
+    # rerun so the whole sidebar/header/nav render for the new sport.
+    _picked = st.pills(
         "Sport",
         options=list(sports_config.SPORTS.keys()),
         format_func=lambda s: f"{sports_config.SPORTS[s]['emoji']} {sports_config.SPORTS[s]['label']}",
-        index=list(sports_config.SPORTS.keys()).index(utils.get_sport()),
-        horizontal=True,
-        key="sport",
+        selection_mode="single",
+        default=st.session_state["sport"],
+        key="sport_picker",
         label_visibility="collapsed",
     )
+    if _picked is not None and _picked != st.session_state["sport"]:
+        st.session_state["sport"] = _picked
+        st.rerun()
     # Defensive empty-state note (only when the sport ships no artifacts at
     # all); the former fetch-failure warning is gone. In its place a muted,
     # sport-aware 'Last updated' line resolves the ACTIVE sport toggle's

@@ -27,6 +27,11 @@ SPORTS = {
     "mlb": {
         "label": "MLB",
         "emoji": "⚾",
+        # Sidebar brand header (title/subtitle) — rendered by
+        # utils.render_brand_header from this registry so a new sport needs
+        # zero UI-code changes.
+        "title": "MLB Predictions",
+        "subtitle": "MLB betting model dashboard",
         # Repo-relative directory holding this sport's backend + data_delivery.
         # Phase C renames the directory to mlb-backend/ — flip ONLY this value.
         "repo_subdir": "mlb-backend",
@@ -53,6 +58,8 @@ SPORTS = {
     "nfl": {
         "label": "NFL",
         "emoji": "🏈",
+        "title": "NFL Predictions",
+        "subtitle": "NFL betting model dashboard",
         "repo_subdir": "nfl-backend",
         "has_run_engine": False,
         # NFL ships the generic shared-contract dashboards only for now; the

@@ -26,6 +26,7 @@ _BACKEND = Path(__file__).resolve().parent
 _ROOT = _BACKEND.parent.parent
 _HOME = _ROOT / "frontend" / "Home.py"
 _UTILS = _ROOT / "frontend" / "utils.py"
+_SPORTS = _ROOT / "frontend" / "sports_config.py"
 
 # The intended sidebar order (url_path -> (title, icon)).
 EXPECTED_ORDER = [
@@ -113,12 +114,24 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         self.assertNotIn("MLB Predictions</div>", src,
                          "branding HTML must live in utils.render_brand_header")
 
-    def test_brand_component_keeps_asset_unchanged(self):
-        src = _UTILS.read_text(encoding="utf-8")
-        self.assertIn("def render_brand_header()", src)
-        self.assertIn("⚾ MLB Predictions", src)
-        self.assertIn("MLB betting model dashboard", src)
-        self.assertIn("unsafe_allow_html=True", src)
+    def test_brand_component_is_registry_driven(self):
+        """The sidebar header title/subtitle come from the ACTIVE sport's
+        registry entry (sport_config()), not hardcoded strings — a new sport
+        needs zero UI-code changes. The literal title/subtitle values live in
+        sports_config.SPORTS."""
+        util = _UTILS.read_text(encoding="utf-8")
+        self.assertIn("def render_brand_header()", util)
+        self.assertIn("sport_config()", util,
+                      "header must read the active sport's config")
+        self.assertIn("cfg['emoji']", util)
+        self.assertIn("cfg['title']", util)
+        self.assertIn("cfg['subtitle']", util)
+        self.assertIn("unsafe_allow_html=True", util)
+        reg = _SPORTS.read_text(encoding="utf-8")
+        self.assertIn('"title": "MLB Predictions"', reg)
+        self.assertIn('"subtitle": "MLB betting model dashboard"', reg)
+        self.assertIn('"title": "NFL Predictions"', reg)
+        self.assertIn('"subtitle": "NFL betting model dashboard"', reg)
 
     def test_sidebar_reorder_css_present(self):
         src = _UTILS.read_text(encoding="utf-8")
@@ -154,7 +167,11 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         self.assertIn("utils.render_last_updated(", home)
         self.assertIn("utils.render_last_updated(utils.get_sport())",
                       home, "caption must pass the active sport via get_sport()")
-        self.assertIn("st.radio(", home, "sport selector is the sidebar radio")
+        self.assertIn("st.pills(", home, "sport selector is a pills toggle")
+        self.assertIn('key="sport_picker"', home,
+                      "pills widget mirrors session_state via its own key")
+        self.assertIn('st.session_state["sport"] = _picked', home,
+                      "picked value must be written back to the source of truth")
         util = _UTILS.read_text(encoding="utf-8")
         self.assertIn("def get_sport", util, "single-source-of-truth sport state")
         self.assertIn("def last_refresh_time", util)

@@ -1071,13 +1071,18 @@ def render_brand_header() -> None:
 
     Streamlit stacks the sidebar page list (``stSidebarNav``) above user
     sidebar content by default, so the sidebar reorder CSS in ``inject_css``
-    flips the flex order: header -> brand block -> page list. Kept as one
-    clearly-delimited component so a sport toggle (MLB/NBA/...) can later
-    be added to this header without touching the page list in Home.py.
+    flips the flex order: header -> brand block -> page list. Title/subtitle
+    come from the ACTIVE sport's registry entry (``sport_config()``), so a
+    new sport needs zero UI-code changes here. MLB renders byte-identically
+    to the pre-registry header ("⚾ MLB Predictions" / "MLB betting model
+    dashboard").
     """
+    cfg = sport_config()
     st.markdown(
-        "<div style='font-size:1.25rem;font-weight:800;color:#E2E8F0;'>⚾ MLB Predictions</div>"
-        "<div style='color:#64748B;font-size:0.8rem;margin-bottom:10px;'>MLB betting model dashboard</div>",
+        f"<div style='font-size:1.25rem;font-weight:800;color:#E2E8F0;'>"
+        f"{cfg['emoji']} {cfg['title']}</div>"
+        f"<div style='color:#64748B;font-size:0.8rem;margin-bottom:10px;'>"
+        f"{cfg['subtitle']}</div>",
         unsafe_allow_html=True,
     )
 
