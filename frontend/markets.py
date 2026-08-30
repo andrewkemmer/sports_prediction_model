@@ -254,7 +254,13 @@ else:
                 _rl_title = "Calibration Curve — Favorite (All = own fair run line)"
             else:
                 _rl_title = f"Calibration Curve — Favorite {_rl_line:.1f}"
-            built = diag.chart_game_total_curve(rlc, _rl_title)
+            # Axis-only: the -0.5 view shows 1%-step tick marks on the shared
+            # x-axis for a fine readout; every other line keeps the default
+            # axis. The bucket table stays in 5-pt bins either way.
+            _x_step = (0.01 if _rl_line is not None
+                       and abs(_rl_line + 0.5) < 1e-9 else None)
+            built = diag.chart_game_total_curve(rlc, _rl_title,
+                                                x_tick_step=_x_step)
             utils.show_chart(built["chart"])
             st.table(built["table"])
             priced_txt = ("decided games priced at their own fair run lines"
@@ -298,43 +304,6 @@ else:
                 "diamond on the chart). Gray bars + dropped curve points "
                 "mark buckets with n < 30 (low sample — not reliable "
                 "calibration evidence)."
-            )
-
-        # Derived ML — the run-line model's moneyline at −0.5 (P(favored
-        # wins)) vs the favorite's actual win rate, 1-pt bins (mirroring the
-        # moneyline page). −0.5 never pushes, so the 2-way IS the raw win
-        # prob. Rendered through the SAME chart_game_total_curve builder.
-        st.markdown("#### Derived ML — run-line moneyline (P(win))")
-        dml = diag.derived_ml_calibration(decided)
-        if dml["warning"]:
-            st.warning(dml["warning"])
-        else:
-            built_d = diag.chart_game_total_curve(
-                dml, "Calibration Curve — Derived ML (Run Line)")
-            utils.show_chart(built_d["chart"])
-            st.table(built_d["table"])
-            st.caption(
-                f"Derived ML — {dml['n_games']:,} decided games · the run-line "
-                f"model's moneyline at −0.5 (P(favored wins)): bar heights = "
-                f"games priced in that predicted-P(win) band (LEFT 'Games' "
-                f"axis, 1-pt bins 0–1 … 99–100; the favored side lives "
-                f"≥ 50%) · observed curve (RIGHT '%' axis) = how often the "
-                f"favorite actually WON · −0.5 never pushes, so no pushes "
-                f"· % of Total = count_bin / count_total × 100 · pooled "
-                f"predicted {dml['pooled_pred']:.2f} vs pooled observed "
-                f"{dml['pooled_observed']:.2f} · pooled win rate "
-                f"{dml['pooled_winrate']:.1%} · pooled ECE "
-                f"{dml['pooled_ece']:.3f} · pooled Brier {dml['pooled_brier']:.3f} "
-                f"· pooled AUC {dml['pooled_auc']:.3f}. Per-bin AUC is "
-                f"degenerate (~0.5) — rank-compression inside a band; bins "
-                f"with n < 30 or a single outcome class show blank. The "
-                f"win-rate line is the picked-side W/(W+L) ('V' around 50%). "
-                f"The last table row is the pooled Total (share 100%, the "
-                f"amber diamond). Gray bars + dropped curve points mark "
-                f"buckets with n < 30. The −0.5 line isn't shipped as "
-                f"p_rl_0_5_* columns — it is derived from the corrected "
-                f"run-line moneyline (p_rl_1_0_home + p_rl_1_0_push), the "
-                f"same −0.5 construction the card uses."
             )
 
 

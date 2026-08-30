@@ -140,7 +140,8 @@ def _gtl_table_frame(table: dict) -> pd.DataFrame:
 
 
 def chart_game_total_curve(table: dict, title: str,
-                           obs_label: str = "Observed % (2-way, no push)") -> dict:
+                           obs_label: str = "Observed % (2-way, no push)",
+                           x_tick_step: Optional[float] = None) -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
@@ -164,6 +165,13 @@ def chart_game_total_curve(table: dict, title: str,
     render as gray bars and their win-rate/observed points are DROPPED from
     the curves (never readable as reliable calibration). Pooled aggregates
     ride the Total table row, the caption, and the amber pooled marker.
+
+    ``x_tick_step`` (optional, axis-only): when given, the shared x-axis
+    renders explicit tick MARKS at that probability step (e.g. 0.01 = 1%,
+    labels formatted to 2 decimals) with vega-lite thinning overlapping
+    LABELS — the domain, buckets, and bin centers are untouched. Used by
+    the Run Lines tab's -0.5 view for a fine readout; every other caller
+    keeps the default axis (no axis key emitted).
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
@@ -184,8 +192,18 @@ def chart_game_total_curve(table: dict, title: str,
         alt.Tooltip("observed:Q", title="Observed", format=".3f"),
         alt.Tooltip("win_rate:Q", title="Win rate", format=".3f"),
     ]
+    x_axis_kw = {}
+    if x_tick_step is not None:
+        # Explicit 1%-step tick MARKS over the fixed [0, 1] domain (labels
+        # at 2 decimals; labelOverlap lets vega-lite thin overlapping
+        # LABEL text while keeping every tick mark).
+        x_axis_kw["axis"] = alt.Axis(
+            values=[round(x_tick_step * i, 4)
+                    for i in range(int(round(1.0 / x_tick_step)) + 1)],
+            format=".2f", labelOverlap=True)
     bars = alt.Chart(chart_df).mark_bar(color="#3B82F6").encode(
-        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom),
+        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom,
+                **x_axis_kw),
         y=alt.Y("count:Q", axis=alt.Axis(title="Games", grid=True)),
         tooltip=bar_tip)
     bar_layer = bars
@@ -978,71 +996,6 @@ def run_line_calibration(decided: pd.DataFrame,
                                                      edges, labels)
     return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
-            "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
-            "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,
-            "pooled_brier": pooled_brier, "pooled_auc": pooled_auc,
-            "warning": None}
-
-
-def derived_ml_calibration(decided: pd.DataFrame) -> dict[str, Any]:
-    """'Derived ML' calibration curve for the Run Lines tab: the run-line
-    model's moneyline at −0.5 (P(favored wins)) vs the favorite's ACTUAL
-    win rate, in 1-pt bins over [0, 1] (mirroring the moneyline page's 1%
-    binning). −0.5 never pushes (integer margins, no ties), so the 2-way
-    IS the raw win probability.
-
-    Predicted: the p_rl_0_5_* columns (P(home win) = p_rl_0_5_home /
-    P(away win) = p_rl_0_5_away) when a future artifact ships them; else
-    the corrected run-line moneyline (corrected_home_win = p_rl_1_0_home +
-    p_rl_1_0_push, falling back to p_home_win_derived) — there is no
-    p_rl_0_5 column on the shipped grid, and this is the same −0.5
-    derivation the card uses. favorite = P(win) > 0.5 (toss-up → home);
-    predicted = the favorite's P(win) (>= 0.5); observed = the favorite
-    won (margin > 0 home-favored / < 0 away-favored).
-
-    Per-bin count / mean_pred / observed / win_rate ('V' convention) /
-    auc (_auc, low-n/single-class → None) / ece / brier / low_n (< 30) /
-    share_pct plus pooled aggregates incl. pooled_auc — the SAME contract
-    as game_total_calibration / run_line_calibration, rendered through the
-    same chart_game_total_curve builder and table frame.
-    """
-    empty = {"line": None, "bins": [], "n_games": 0, "n_pushes": 0,
-             "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
-             "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
-             "pooled_auc": None,
-             "warning": "No decided games available for this view."}
-    if not len(decided) or {"home_score", "away_score"}.difference(
-            decided.columns):
-        empty["warning"] = "Missing score columns (need home_score/away_score)."
-        return empty
-    if {"p_rl_0_5_home", "p_rl_0_5_away"}.issubset(decided.columns):
-        # Future artifact ships the −0.5 columns directly; 2-way == raw
-        # (−0.5 never pushes).
-        hw = decided["p_rl_0_5_home"].to_numpy(float)
-        hw = np.where(np.isfinite(hw), hw, np.nan)
-    else:
-        hw = corrected_home_win(decided)
-    if not np.isfinite(hw).any():
-        empty["warning"] = "No run-line moneyline — cannot price P(win)."
-        return empty
-    margin = (decided["home_score"].to_numpy(float)
-              - decided["away_score"].to_numpy(float))
-    is_home = np.where(np.isfinite(hw), hw >= 0.5, False)
-    pred = np.where(is_home, hw, 1.0 - hw)          # favored P(win) >= 0.5
-    won = np.where(is_home, margin > 0.0, margin < 0.0).astype(float)
-    valid = np.isfinite(hw) & np.isfinite(margin) & (pred > 0.0) & (pred < 1.0)
-    n = int(valid.sum())
-    if not valid.any():
-        empty.update({"n_games": n, "n_pushes": 0, "push_rate": 0.0,
-                      "warning": "No games priceable for the Derived ML view."})
-        return empty
-    edges = list(range(0, 101))                      # 1-pt bins 0-1 … 99-100
-    labels = [f"{e}-{e + 1}" for e in range(100)]
-    (bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece,
-     pooled_brier, pooled_auc) = _bucket_calibration(pred[valid], won[valid],
-                                                     edges, labels)
-    return {"line": None, "bins": bins, "n_games": n, "n_pushes": 0,
-            "push_rate": 0.0,
             "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
             "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,
             "pooled_brier": pooled_brier, "pooled_auc": pooled_auc,
