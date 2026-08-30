@@ -1147,16 +1147,47 @@ def _is_snapshot_record(name: str) -> bool:
     ))
 
 
+def _is_snapshot_artifact(name: str) -> bool:
+    """True when ``name`` is one of a sport's PRIMARY data-snapshot artifacts.
+
+    ``_is_snapshot_record`` covers the JSON record families (their
+    ``created_utc``/``generated`` set the sidebar time); this adds the dated
+    ``todays_games_*`` / ``predictions_history_*`` CSV snapshot artifacts so
+    their file mtime can stand in for freshness too. Stand-alone diagnostics
+    are excluded (their mtime is likewise never the data refresh)."""
+    return _is_snapshot_record(name) or name.startswith((
+        "todays_games_", "predictions_history_",
+    ))
+
+
+def _mtime_utc(p: Path) -> Optional[datetime]:
+    """A Path's file mtime as a timezone-aware UTC datetime, or None."""
+    try:
+        return datetime.fromtimestamp(p.stat().st_mtime,
+                                      tz=ZoneInfo("UTC"))
+    except (OSError, ValueError):
+        return None
+
+
+def _snapshot_dated_paths(sport_dir: Path) -> list[Path]:
+    """Dated PRIMARY snapshot artifact files (csv+json) under ``sport_dir``."""
+    return [p for p in list(sport_dir.glob("*.csv"))
+            + list(sport_dir.glob("*.json"))
+            if _stamp_suffixes(p) and _is_snapshot_artifact(p.name)]
+
+
 def _last_refresh_for_dir(sport_dir: Path) -> Optional[datetime]:
     """Newest refresh datetime for one sport's committed ``data_delivery`` dir.
 
-    Preference order (sidebar spec): (1) the newest full-run timestamp on any
-    PRIMARY snapshot ``<prefix>_<stamp>.json`` record (most precise — e.g.
-    ``generated``/``created_utc``; diagnostics are excluded by
-    ``_is_snapshot_record`` so their authoring time can't masquerade as the
-    data refresh), else (2) the newest YYYYMMDD suffix over
-    ``run_engine_markets_*.csv``, else (3) any other dated artifact. Returns
-    None when the dir carries no dated artifacts.
+    Unified single-source logic shared by every sport so the sidebar renders
+    the SAME full Eastern timestamp format everywhere (NFL kept as-is):
+    (1) newest full-run timestamp on any PRIMARY snapshot JSON record
+    (``created_utc``/``generated`` — e.g. NFL ``nfl_moneyline_v1_*``;
+    diagnostics are excluded by ``_is_snapshot_record``), else
+    (2) the newest PRIMARY snapshot artifact's FILE MTIME (MLB's CSV
+    artifacts carry no ``created_utc``, so mtime is its freshness proxy),
+    else (3) fall back to the strict date-only YYYYMMDD suffix. Returns None
+    when the dir carries no dated snapshot artifacts.
     """
     best_full: Optional[datetime] = None
     for p in sport_dir.glob("*_*.json"):
@@ -1171,6 +1202,14 @@ def _last_refresh_for_dir(sport_dir: Path) -> Optional[datetime]:
             best_full = ts
     if best_full is not None:
         return best_full
+
+    # No persisted run time (MLB artifacts are date-stamped CSVs): use the
+    # newest snapshot artifact's file mtime so MLB shows a full Eastern
+    # timestamp, exactly like NFL's created_utc path.
+    mts = [_mtime_utc(p) for p in _snapshot_dated_paths(sport_dir)]
+    mts = [t for t in mts if t is not None]
+    if mts:
+        return max(mts)
 
     market = _max_stamp(sport_dir.glob("run_engine_markets_*.csv"))
     if market:

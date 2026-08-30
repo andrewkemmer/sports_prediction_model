@@ -20,6 +20,7 @@ import re
 import unittest
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 _BACKEND = Path(__file__).resolve().parent
 # frontend/ moved to the repository root (multi-sport restructure, Phase B)
@@ -330,8 +331,10 @@ class TestLastUpdated(unittest.TestCase):
             sys.path.insert(0, str(_frontend))
         cls.u = _extract_utils_funcs([
             "_full_run_timestamp", "_stamp_suffixes", "_max_stamp",
-            "_is_snapshot_record", "_last_refresh_for_dir", "_is_date_only",
-            "_to_eastern", "_format_refresh", "last_refresh_time",
+            "_is_snapshot_record", "_is_snapshot_artifact",
+            "_snapshot_dated_paths", "_mtime_utc", "_last_refresh_for_dir",
+            "_is_date_only", "_to_eastern", "_format_refresh",
+            "last_refresh_time",
         ])
 
     def _dir(self, files):
@@ -343,13 +346,29 @@ class TestLastUpdated(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
         return tmp
 
-    def test_latest_date_suffix_picked(self):
+    def _set_mtime(self, p: Path, utc: datetime):
+        import os
+        ts = utc.replace(tzinfo=ZoneInfo("UTC")).timestamp()
+        os.utime(p, (ts, ts))
+
+    def test_mlb_csv_mtime_is_full_timestamp_freshness(self):
+        """MLB CSVs carry no created_utc/generated, so the newest snapshot
+        artifact's file mtime (recomposed as UTC) is the freshness — the
+        sidebar gets a FULL Eastern timestamp, like NFL's created_utc path."""
         d = self._dir([
             ("run_engine_markets_20260829.csv", "pk,stuff\n1,x\n"),
             ("run_engine_markets_20260830.csv", "pk,stuff\n2,y\n"),
         ])
+        self._set_mtime(d / "run_engine_markets_20260829.csv",
+                        datetime(2026, 8, 29, 18, 0, 0))
+        self._set_mtime(d / "run_engine_markets_20260830.csv",
+                        datetime(2026, 8, 30, 19, 3, 0))
         dt = self.u["_last_refresh_for_dir"](d)
-        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
+        self.assertEqual(dt, datetime(2026, 8, 30, 19, 3, 0,
+                                      tzinfo=ZoneInfo("UTC")))
+        self.assertFalse(self.u["_is_date_only"](dt))
+        self.assertEqual(self.u["_format_refresh"](dt),
+                         "Last updated: Aug 30, 2026, 3:03:00 PM EDT")
 
     def test_snapshot_full_run_timestamp_preferred_over_date(self):
         """A PRIMARY snapshot record carrying a full run timestamp is preferred
@@ -368,15 +387,22 @@ class TestLastUpdated(unittest.TestCase):
         d = self._dir([
             ("nfl_moneyline_v1_20260830.json",
              '{"created_utc": "2026-08-30T20:09:31.977894Z"}'),
+            # A dated artifact with a LATER mtime must not override created_utc
+            # (the JSON's persisted run time wins — NFL format unchanged).
+            ("nfl_feature_v1_20260830.json", "{}"),
         ])
+        self._set_mtime(d / "nfl_feature_v1_20260830.json",
+                        datetime(2026, 8, 30, 22, 30, 0))
         dt = self.u["_last_refresh_for_dir"](d)
         self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 20:09")
+        self.assertEqual(self.u["_format_refresh"](dt),
+                         "Last updated: Aug 30, 2026, 4:09:31 PM EDT")
 
     def test_diagnostic_full_timestamp_is_ignored(self):
         """The 2026-08-30 stale-time root cause: a stand-alone diagnostic's
         ``generated`` (e.g. deep_over_recheck at 17:29, margin_reliability at
-        17:05) must NOT masquerade as the data refresh. It falls back to the
-        actual snapshot date."""
+        17:05) must NOT masquerade as the data refresh. The snapshot artifact
+        (here its file mtime) sets the time instead."""
         d = self._dir([
             ("run_engine_markets_20260830.csv", "pk\n1\n"),
             ("deep_over_recheck_20260830.json",
@@ -384,10 +410,14 @@ class TestLastUpdated(unittest.TestCase):
             ("margin_reliability_20260830.json",
              '{"generated": "2026-08-30T17:05:00"}'),
         ])
+        self._set_mtime(d / "run_engine_markets_20260830.csv",
+                        datetime(2026, 8, 30, 19, 3, 0))
         dt = self.u["_last_refresh_for_dir"](d)
-        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
-        self.assertTrue(self.u["_is_date_only"](dt),
-                        "diagnostic times must not fabricate a run timestamp")
+        self.assertNotIn(dt.strftime("%H:%M"), ("17:29", "17:05"),
+                         "diagnostic times must not drive freshness")
+        self.assertEqual(dt, datetime(2026, 8, 30, 19, 3, 0,
+                                      tzinfo=ZoneInfo("UTC")))
+        self.assertFalse(self.u["_is_date_only"](dt))
 
     def test_newer_diagnostic_does_not_override_snapshot_time(self):
         """Even a diagnostic stamped LATER than a snapshot full-run time is
@@ -402,8 +432,14 @@ class TestLastUpdated(unittest.TestCase):
         self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 18:56")
     def test_other_dated_artifact_fallback_without_markets(self):
         d = self._dir([("todays_games_20260830.csv", "pk\n1\n")])
+        self._set_mtime(d / "todays_games_20260830.csv",
+                        datetime(2026, 8, 30, 12, 0, 0))
         dt = self.u["_last_refresh_for_dir"](d)
-        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
+        self.assertEqual(dt, datetime(2026, 8, 30, 12, 0, 0,
+                                      tzinfo=ZoneInfo("UTC")))
+        self.assertFalse(self.u["_is_date_only"](dt))
+        self.assertEqual(self.u["_format_refresh"](dt),
+                         "Last updated: Aug 30, 2026, 8:00:00 AM EDT")
 
     def test_missing_artifacts_fallback_dash(self):
         d = self._dir([])
@@ -425,6 +461,18 @@ class TestLastUpdated(unittest.TestCase):
         self.assertNotEqual(nfl, "Last updated: —")
         # NFL resolves its own (JSON) artifacts, not MLB's CSV snapshot.
         self.assertNotEqual(mlb, nfl)
+
+    def test_both_sports_render_full_eastern_timestamp(self):
+        """The sidebar target format for BOTH sports (real artifacts):
+        'Last updated: <Mon> <D>, <YYYY>, <H>:<MM>:<SS> <AM|PM> <ET|EST>'
+        — MLB via snapshot mtime, NFL via created_utc, one formatter."""
+        self.u["REPO_ROOT"] = self._root
+        pat = re.compile(r"^Last updated: [A-Z][a-z]{2} \d{1,2}, \d{4}, "
+                         r"\d{1,2}:\d{2}:\d{2} (AM|PM) (EDT|EST)$")
+        for sport in ("mlb", "nfl"):
+            s = self.u["last_refresh_time"](sport)
+            self.assertRegex(s, pat, f"{sport} must render the full Eastern "
+                                     f"format, got: {s!r}")
 
 
 class TestRefreshEasternFormat(unittest.TestCase):
