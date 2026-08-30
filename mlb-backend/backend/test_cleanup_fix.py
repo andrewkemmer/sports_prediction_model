@@ -12,6 +12,8 @@ import json
 import os
 import re
 import sys
+from datetime import datetime as _dt_dt
+from datetime import timedelta as _td
 from pathlib import Path
 from unittest import TestCase
 
@@ -74,16 +76,24 @@ def _is_recent_slate(rel: str, recent_dates: set[str]) -> bool:
 
 
 def classify_tracked(tracked, seen, run_date_compact="20260824",
-                     recent_dates=None):
+                     recent_dates=None, retention_dates=None):
     """Replicate the Phase 6 classification logic for testing.
 
     ``recent_dates`` is an optional set of YYYYMMDD strings within the
-    recent-slate protection window.  When provided, todays_games_* and
-    shap_game_* artifacts whose date is in this set survive even if they
-    are not in ``seen`` and not on the same day as ``run_date_compact``.
+    recent-slate protection window: todays_games_* / shap_game_* whose date
+    is in this set survive even if not in ``seen``.
+
+    ``retention_dates`` is the rolling 48h retention window for ALL dated
+    artifacts (current run date + previous GMT day). When omitted it
+    defaults to {run_date_compact, run_date_compact - 1 day} computed via
+    a timedelta — never strict string equality against today.
     """
     if recent_dates is None:
         recent_dates = {run_date_compact}  # default: only same-day
+    if retention_dates is None:
+        run_dt = _dt_dt.strptime(run_date_compact, "%Y%m%d").date()
+        retention_dates = {(run_dt - _td(days=i)).strftime("%Y%m%d")
+                           for i in range(2)}  # {today, yesterday}
     stale, kept_protected, kept_current = [], 0, 0
     for p in tracked:
         if p in seen:
@@ -92,9 +102,9 @@ def classify_tracked(tracked, seen, run_date_compact="20260824",
             kept_protected += 1
             continue
         art_date = _artifact_date(p)
-        if art_date == run_date_compact:
+        if art_date in retention_dates:
             kept_current += 1
-            continue
+            continue  # within the 48h retention window — keep
         # Recent-slate protection: keep todays_games / shap_game for
         # the current run date AND the 2 prior days.
         if _is_recent_slate(p, recent_dates):
@@ -436,9 +446,12 @@ class TestRecentSlateProtection(TestCase):
             any("20260822" in n for n in kept_names),
             "day -2 must be kept via recent-slate protection")
 
-    def test_non_slate_recent_artifacts_still_pruned(self):
-        """run_engine_markets / calibration from 1 day ago are NOT protected
-        by the recent-slate rule (only todays_games_ / shap_game_ are).
+    def test_previous_day_non_slate_kept_by_48h_window(self):
+        """run_engine_markets / calibration from 1 day ago survive via the
+        rolling 48h retention window (current run date + previous GMT day) —
+        the GMT-rollover regression fix. The recent-slate rule was the only
+        thing saving yesterday's todays_games before; now ALL dated artifacts
+        for the previous day are retained while those games are live.
         """
         tracked = [
             "mlb-backend/data_delivery/run_engine_markets_20260823.csv",
@@ -449,13 +462,93 @@ class TestRecentSlateProtection(TestCase):
         recent = {"20260824", "20260823", "20260822"}
         stale, prot, cur = classify_tracked(tracked, seen, "20260824",
                                             recent_dates=recent)
-        # run_engine_markets + calibration are NOT slate-protected → stale
+        # Day -1 (20260823) is inside the 48h window → NOT stale (for any
+        # dated artifact, slate-protected or not).
+        self.assertEqual(stale, [])
+        self.assertEqual(cur, 3)
+
+
+class TestRolloverRetentionWindow(TestCase):
+    """The GMT-rollover regression: dated artifacts for the current GMT day
+    AND the PREVIOUS GMT day are retained (a rolling 48h window), so US games
+    still live at the 00:00 GMT rollover keep their run-engine data. Older
+    dated artifacts are still pruned. Window is timedelta-based — never strict
+    date-string equality against today.
+    """
+
+    def test_rollover_day_both_29_and_30_kept(self):
+        """Today = 20260830: run_engine_markets/oof/predictions_history for
+        BOTH 20260829 (still-pre-game US night games) and 20260830 are kept;
+        only older (e.g. 20260828) artifacts are pruned."""
+        tracked = [
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260830.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260829.csv",
+            "mlb-backend/data_delivery/predictions_history_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260828.csv",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260830")
+        self.assertEqual(cur, 4, "29 + 30 run-engine/prediction artifacts kept")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/run_engine_markets_20260828.csv",
+        ], "only the 2-day-old artifact pruned")
+
+    def test_next_day_rollover_keeps_previous_only(self):
+        """Today = 20260831: the previous GMT day (20260830) + today are kept;
+        20260829 (now 2 days old) is pruned."""
+        tracked = [
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260830.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260831.csv",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260831")
+        self.assertEqual(cur, 2, "30 + 31 kept (previous day retained)")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+        ])
+
+    def test_window_rejects_two_days_old_run_engine_oof(self):
+        """run_engine_oof 2 days old is pruned even though its monitor
+        sibling is prefix-protected."""
+        tracked = [
+            "mlb-backend/data_delivery/run_engine_oof_20260828.csv",
+            "mlb-backend/data_delivery/calibration_20260828.json",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260830")
         self.assertEqual(len(stale), 2)
-        stale_names = {s.rsplit("/", 1)[-1] for s in stale}
-        self.assertIn("run_engine_markets_20260823.csv", stale_names)
-        self.assertIn("calibration_20260823.json", stale_names)
-        # todays_games IS slate-protected → kept
-        self.assertNotIn("todays_games_20260823.csv", stale_names)
+
+    def test_timedelta_window_not_string_equality(self):
+        """The window is {run_date, run_date - 1} via timedelta — a file dated
+        exactly 1 day before a run across a month boundary is still retained.
+        """
+        # Run on 20260901 → previous GMT day is 20260831, which a strict
+        # same-day '==' gate would have pruned.
+        tracked = [
+            "mlb-backend/data_delivery/run_engine_markets_20260831.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260901.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260830.csv",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260901")
+        self.assertEqual(cur, 2, "0930 pruned, 0831 + 0901 kept")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/run_engine_markets_20260830.csv",
+        ])
+
+    def test_protected_never_touched_outside_window(self):
+        """Protected / undated files survive even when their names sit outside
+        the retention window."""
+        tracked = [
+            "mlb-backend/data_delivery/model_history.json",
+            "mlb-backend/data_delivery/run_engine_monitor_20260810.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260810.csv",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260830")
+        self.assertEqual(prot, 2, "model_history + old monitor protected")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/run_engine_markets_20260810.csv",
+        ], "only the old non-protected dated artifact pruned")
 
 
 class TestDomeColumnExport(TestCase):

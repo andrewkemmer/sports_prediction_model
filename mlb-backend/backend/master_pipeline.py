@@ -395,8 +395,6 @@ _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"
 # Recent-slate protection window: keep todays_games_* and shap_game_*
 # for the current run date AND the 2 prior days so that games have time to
 # settle before their card snapshots are pruned.  Other dated artifacts
-# (run_engine_markets, predictions_history, etc.) keep the same-day-only
-# rule — those are either cumulative (history) or redundant after today.
 from datetime import timedelta as _td, timezone as _tz
 import datetime as _dt
 _now_utc = _dt.datetime.now(_tz.utc)
@@ -405,6 +403,20 @@ _RECENT_DATES = {
     for i in range(3)  # today, yesterday, 2 days ago
 }
 _SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
+
+# Rolling 48-hour retention window (GMT-rollover regression fix): keep EVERY
+# dated artifact for the current run date AND the previous GMT day. US games
+# end up to ~midnight ET (~05:00 GMT next day), so the previous GMT day is
+# never "stale" while those games are live — their card RUN ENGINE block
+# depends on run_engine_markets / run_engine_oof / predictions_history from
+# that day. The old strict same-day rule (`art_date == _run_date_compact`)
+# deleted yesterday's artifacts at the 00:00 GMT rollover even while those
+# games were still pre-game, silently dropping the RUN ENGINE block. Threshold
+# is timedelta(days=1) — never string equality against today.
+_RETENTION_DAYS = 1
+_run_date_obj = _date(*(int(x) for x in CONFIG["end_date"].split("-")))
+_RETENTION_DATES = {(_run_date_obj - _td(days=i)).strftime("%Y%m%d")
+                    for i in range(_RETENTION_DAYS + 1)}  # {today, yesterday}
 
 # Regex to extract an 8-digit date from artifact filenames like
 #   run_engine_markets_20260824.csv  →  20260824
@@ -435,8 +447,9 @@ else:
     try:
         repo = _open_sync_repo(token, sync_dir)
         tracked = repo.git.ls_files(f"{SPORT_DIR_NAME}/data_delivery").splitlines()
-        # Classify: protected → keep; in seen → keep; date-stamped with
-        # current date → keep; otherwise → stale.
+        # Classify: protected → keep; in seen → keep; date-stamped within the
+        # 48h retention window (current + previous GMT day) → keep; otherwise
+        # → stale.
         stale = []
         kept_protected = 0
         kept_current = 0
@@ -447,9 +460,9 @@ else:
                 kept_protected += 1
                 continue
             art_date = _artifact_date(p)
-            if art_date == _run_date_compact:
+            if art_date in _RETENTION_DATES:
                 kept_current += 1
-                continue  # same-day artifact — keep
+                continue  # within the 48h retention window — keep
             # Recent-slate protection: keep todays_games / shap_game for
             # the current run date AND the 2 prior days (games settle over
             # a 24-48h window; their card snapshots must survive until

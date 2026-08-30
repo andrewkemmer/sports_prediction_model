@@ -139,7 +139,13 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     −1.5 (the artifact ships home-cover columns only) — labeled as such.
     """
     if bits is None:
-        return ""
+        # No slate row for this game (run-engine artifacts missing for its
+        # date — e.g. pruned at the GMT rollover). Never crash or break the
+        # card layout: keep the block's container and show a muted notice
+        # instead of silently omitting the RUN ENGINE strip.
+        return ('<div class="fb-runengine"><span class="re-label">'
+                'RUN ENGINE</span><span class="re-na">Run Engine data '
+                'currently unavailable</span></div>')
     if not bits.get("has_grid"):
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')

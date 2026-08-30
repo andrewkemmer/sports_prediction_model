@@ -733,6 +733,45 @@ class TestRunEngineStripSmoke(unittest.TestCase):
         self.assertIn("p_push", func_src,
                       "_runengine_html must reference p_push")
 
+    def _todays(self):
+        import streamlit as st  # noqa: F401
+        import todays_games as todays
+        return todays
+
+    def test_missing_run_engine_data_renders_unavailable_not_omitted(self):
+        """When run_engine_card_bits yields no data (bits is None — the GMT-
+        rollover regression where yesterday's run-engine artifacts were pruned
+        while those games were still pre-game), the RUN ENGINE block stays in
+        the card with a muted 'Run Engine data currently unavailable' label
+        instead of silently disappearing (and the container is intact)."""
+        todays = self._todays()
+        out = todays._runengine_html(None, "BOS", "NYY")
+        self.assertNotEqual(out, "",
+                            "run-engine strip must not be silently omitted")
+        self.assertIn("fb-runengine", out, "block's container must stay")
+        self.assertIn("RUN ENGINE", out)
+        self.assertIn("Run Engine data currently unavailable", out)
+
+    def test_normal_render_unchanged_when_data_present(self):
+        """A game with run-engine data renders the full strip exactly as
+        before (projections, O/U split, run line) — no fallback string."""
+        todays = self._todays()
+        bits = {
+            "has_grid": True, "total_line": 9.0, "clamped": False,
+            "line_selected": None, "proj_away": 4.2, "proj_home": 4.8,
+            "p_over": 0.43, "p_under": 0.57, "p_push": 0.0,
+            "rl_line": None, "p_home_cover": 0.55, "p_away_cover": 0.45,
+        }
+        out = todays._runengine_html(bits, "BOS", "NYY")
+        self.assertEqual(
+            out,
+            '<div class="fb-runengine"><span class="re-label">RUN ENGINE</span>'
+            '<span>Proj: NYY 4.2 – BOS 4.8</span>'
+            '<span>O/U 9.0: Over 43% / Under 57%</span>'
+            '<span>RL: BOS −1.5 55% · NYY +1.5 45% (complement)</span></div>',
+            "normal run-engine strip must be byte-identical")
+        self.assertNotIn("currently unavailable", out)
+
 
 class TestResolveTotalsLineGridBinding(unittest.TestCase):
     """resolve_totals_line / resolve_rl_line must NEVER NameError.
