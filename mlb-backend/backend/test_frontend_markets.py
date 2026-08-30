@@ -338,8 +338,9 @@ class TestRunEngineModelMonitorRender(TestCase):
                       "selector must offer All first, then the grid")
         self.assertIn("diag.game_total_calibration", src,
                       "tab must pool via the shared game-total helper")
-        self.assertIn("diag.chart_game_total_curve", src,
-                      "tab must render the bars + curves + diagonal view")
+        self.assertIn("mlc.chart_game_total_calibration", src,
+                      "tab must render the bars + curves + diagonal view "
+                      "through the shared moneyline builder")
         self.assertIn("Calibration Curve — Over", src,
                       "dynamic title: 'Calibration Curve — Over <line>'")
         self.assertNotIn('built["scatter"]', src,
@@ -350,14 +351,16 @@ class TestRunEngineModelMonitorRender(TestCase):
                          "from the tab")
         self.assertIn("diag_game_total_line", src,
                       "line selector key present")
-        # The GTL chart sizes EXACTLY like Distribution: the same
-        # utils.show_chart call (st.altair_chart width="stretch"), and the
-        # builder pins NO spec width (height only) so the render call owns
-        # width for both charts identically.
+        # The GTL chart is built by the SAME shared builder as the moneyline
+        # Calibration Curve (moneyline_calibration.chart_game_total_calibration
+        # -> chart_calibration_curve, width='container') and renders through
+        # the SAME utils.show_chart call as Distribution.
+        self.assertIn("import moneyline_calibration as mlc", src,
+                      "GTL must use the shared moneyline builder")
         self.assertIn('utils.show_chart(built["chart"])', src,
                       "GTL chart must render through the SAME call as Distribution")
         self.assertIn(
-            'built = diag.chart_game_total_curve(glc, _gl_title)',
+            'built = mlc.chart_game_total_calibration(glc, _gl_title)',
             src, "GTL chart built from the shared builder")
         self.assertNotIn("diag.rounded_total_pairs", src,
                          "per-game own-line pricing must be gone from the tab")

@@ -97,6 +97,7 @@ elif "kind" not in markets.columns:
 # (pure functions over the artifact; the render layer only draws).
 # ---------------------------------------------------------------------------
 import market_diagnostics as diag  # noqa: E402  (page module, imported late)
+import moneyline_calibration as mlc  # noqa: E402  (shared calibration chart builder)
 
 decided = diag.decided_rows(markets)
 st.markdown("### Diagnostics")
@@ -197,7 +198,7 @@ else:
                 _gl_title = "Calibration Curve — Over (All = own fair line)"
             else:
                 _gl_title = f"Calibration Curve — Over {_gl_line:g}"
-            built = diag.chart_game_total_curve(glc, _gl_title)
+            built = mlc.chart_game_total_calibration(glc, _gl_title)
             utils.show_chart(built["chart"])
             st.table(built["table"])
             priced_txt = ("decided games priced at their own fair lines"
