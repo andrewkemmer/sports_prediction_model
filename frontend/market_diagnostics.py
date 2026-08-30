@@ -111,7 +111,11 @@ def chart_game_total_curve(table: dict, title: str,
     stats: bars render zero-height, lines skip them. low_n bins (n < LOW_N)
     render as gray bars and their win-rate/observed points are DROPPED from
     the curves (never readable as reliable calibration). Pooled aggregates
-    ride the Total table row, the caption, and the amber pooled marker.
+    ride the Total table row, the caption, and the amber pooled marker. The
+    x-domain auto-zooms to the populated (count >= 30, non-empty mean_pred)
+    bin range with a 0.05 margin on each side, clamped to [0, 1] (0-1 when
+    nothing qualifies); low-n / empty bins outside it are clipped, not
+    dropped. Static render -- no interactive zoom.
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
@@ -119,7 +123,24 @@ def chart_game_total_curve(table: dict, title: str,
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
+    # Dynamic x-domain: auto-zoom to the populated bin range with a
+    # guaranteed 5% blank margin on each side (the All view's data sliver
+    # ~0.46-0.53 is otherwise unreadable on a full 0-1 axis). Take bins with
+    # count >= LOW_N and a non-empty mean_pred; lo/hi = min/max bin center;
+    # pad = 0.05 on each side, clamped to [0, 1]. If no bin qualifies
+    # (low-n-only / empty data), fall back to the full 0-1 domain.
+    _qual = [float(b["bin_center"]) for b in table["bins"]
+             if b.get("mean_pred") is not None and (b.get("count") or 0) >= LOW_N]
+    if _qual:
+        _lo, _hi = min(_qual), max(_qual)
+        # Round to 4 dp so the padded bounds land on clean values (0.52 +
+        # 0.05 -> 0.57, not 0.5700000000000001) -- keeps the emitted domain
+        # readable and the spec deterministic for tests.
+        x_dom = alt.Scale(domain=[round(max(0.0, _lo - 0.05), 4),
+                                  round(min(1.0, _hi + 0.05), 4)],
+                          nice=False)
+    else:
+        x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
     y_pct_dom = alt.Scale(domain=[0.0, 100.0])
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
@@ -199,12 +220,6 @@ def chart_game_total_curve(table: dict, title: str,
 
     chart = alt.layer(*layers).resolve_scale(
         x="shared", y="independent").properties(height=300, title=title)
-    # Interactive zoom/pan: wheel-zoom + drag-pan (Altair built-in) so the
-    # data sliver (All view ~0.46-0.53 on the 0-1 axis) can be inspected
-    # without custom domain logic. Zoom/pan apply to the shared x-scale
-    # (and the independent y-scales) transparently across the layered
-    # bars + curves.
-    chart = chart.interactive()
     # Pooled (Total) table row — the pooled-aggregates summary, share 100%.
     total_row = pd.DataFrame([{
         "bin": "Total", "bin_center": None, "count": int(tdf["count"].sum()),

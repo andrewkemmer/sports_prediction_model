@@ -322,9 +322,8 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
     def test_continuous_probability_x_not_categorical(self):
         _, built = self._built()
         d = _spec_dump(built["chart"])
-        # Continuous bin-center x (0-1 probability scale), not categorical bins.
+        # Continuous bin-center x on a probability scale, not categorical bins.
         self.assertIn('"bin_center"', d)
-        self.assertIn('[0.0, 1.0]', d)
         # bin_center is the x field used on the continuous probability scale
         # (never a categorical bin axis).
         self.assertIn('"field": "bin_center"', d)
@@ -337,23 +336,60 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertIn('"shape": "diamond"', d)
         self.assertIn("#8B5CF6", d)
 
-    def test_interactive_zoom_pan(self):
-        """The chart carries Altair's built-in wheel-zoom + drag-pan: a
-        top-level interval selection bound to scales. Zoom/pan apply across
-        the layered bars (Games) + curves (%) without breaking the dual-axis
-        structure."""
+    def test_static_no_zoom_selection(self):
+        """The chart is static again - no zoom/pan selection in the spec."""
         _, built = self._built()
-        import json
         spec = built["chart"].to_dict()
-        params = spec.get("params")
-        self.assertTrue(params, "interactive() must emit a top-level params")
-        d = json.dumps(params)
-        self.assertIn('"type": "interval"', d,
-                     "wheel-zoom/pan is an interval (drag) selection")
-        self.assertIn('"bind": "scales"', d,
-                     "selection must bind to scales for wheel-zoom + drag-pan")
-        # 0-1 x domain + both y-axes still present after making it interactive
-        self.assertIn('[0.0, 1.0]', _spec_dump(built["chart"]))
+        self.assertIsNone(spec.get("params"),
+                          "no interactive()/zoom selection expected")
+        self.assertNotIn("interactive", _spec_dump(built["chart"]))
+        self.assertNotIn('"bind": "scales"', _spec_dump(built["chart"]))
+
+    @staticmethod
+    def _gtb(center, count=40, low_n=False, mean=None, observed=0.5):
+        return {"bin_center": center, "bin": f"{int(round(center * 100))}",
+                "count": count,
+                "mean_pred": (mean if mean is not None else center),
+                "observed": observed, "win_rate": observed,
+                "low_n": low_n}
+
+    @staticmethod
+    def _gtable(bins, **kw):
+        return {"bins": bins, "pooled_pred": kw.get("pooled_pred", 0.5),
+                "pooled_observed": kw.get("pooled_observed", 0.5),
+                "pooled_winrate": 0.5, "pooled_ece": 0.02,
+                "pooled_brier": 0.25}
+
+    def test_hand_fixture_domain_padding(self):
+        # Bins 0.50/0.51/0.52, n >= 30 -> lo=0.50, hi=0.52 -> [0.45, 0.57].
+        t = self._gtable([self._gtb(0.50), self._gtb(0.51), self._gtb(0.52)])
+        built = diag.chart_game_total_curve(t, "t")
+        self.assertIn('"domain": [0.45, 0.57]', _spec_dump(built["chart"]))
+
+    def test_low_n_only_falls_back_to_full_domain(self):
+        # Only low-n bins (n < LOW_N) -> no qualifying bin -> 0-1 domain.
+        t = self._gtable([self._gtb(0.50, count=10, low_n=True)])
+        built = diag.chart_game_total_curve(t, "t")
+        self.assertIn('"domain": [0.0, 1.0]', _spec_dump(built["chart"]))
+
+    def test_all_vs_fixed_line_domains_differ(self):
+        all_t = self._gtable([self._gtb(0.50), self._gtb(0.51)])
+        fixed_t = self._gtable([self._gtb(0.10), self._gtb(0.90)])
+        da = _spec_dump(diag.chart_game_total_curve(all_t, "t")["chart"])
+        df = _spec_dump(diag.chart_game_total_curve(fixed_t, "t")["chart"])
+        self.assertIn('"domain": [0.45, 0.56]', da)
+        self.assertIn('"domain": [0.05, 0.95]', df)
+        self.assertNotEqual(da, df)
+
+    def test_out_of_domain_bins_clipped_no_error(self):
+        # A low-n bin far outside the populated range renders (clipped) with
+        # no error; the domain is driven by the qualifying bins only.
+        t = self._gtable([self._gtb(0.50), self._gtb(0.51),
+                          self._gtb(0.90, count=12, low_n=True)])
+        built = diag.chart_game_total_curve(t, "t")
+        d = _spec_dump(built["chart"])
+        self.assertIn('"domain": [0.45, 0.56]', d)
+        self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_each_axis_title_exactly_once(self):
         _, built = self._built()
