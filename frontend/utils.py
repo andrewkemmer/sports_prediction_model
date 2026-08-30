@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -873,18 +874,108 @@ def render_brand_header() -> None:
 
 
 def render_source_note() -> None:
-    """One-line source note rendered ONLY when the GitHub fetch failed and
-    the app served the real committed data_delivery artifacts from the
-    local repo (the fallback path — not bundled samples). While streaming
-    from GitHub raw URLs, or in any other display state, nothing is shown.
+    """Empty-state note shown ONLY when the selected sport ships no committed
+    artifacts at all (defensive; the pipeline always commits a snapshot). The
+    former fetch-failure warning caption is gone — the sidebar instead shows a
+    sport-aware "Last updated" line via ``render_last_updated``.
     """
     src = st.session_state.get("data_source", "")
     if src == "missing" and not list(LOCAL_DATA_DIR.glob("todays_games_*.csv")):
         st.caption("⚠️ No artifacts found")
-        return
-    if src != "local":
-        return
-    st.caption("📦 Showing latest committed artifacts (GitHub fetch unavailable)")
+
+
+def _full_run_timestamp(d: dict) -> Optional[datetime]:
+    """Parse a full-run timestamp off a sport JSON record (e.g.
+    ``margin_reliability_*.json`` carries ``generated``), or None."""
+    for key in ("generated", "timestamp", "run_time", "created_at"):
+        raw = d.get(key)
+        if not raw:
+            continue
+        try:
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return None
+
+
+def _stamp_suffixes(path: Path) -> set[str]:
+    """Any trailing YYYYMMDD suffix(es) on a dated artifact filename."""
+    m = re.search(r"_(\d{8})$", path.stem)
+    return {m.group(1)} if m else set()
+
+
+def _max_stamp(paths) -> Optional[str]:
+    """The newest YYYYMMDD suffix across the given artifact paths, or None."""
+    stamps: set[str] = set()
+    for p in paths:
+        stamps |= _stamp_suffixes(p)
+    return max(stamps) if stamps else None
+
+
+def _last_refresh_for_dir(sport_dir: Path) -> Optional[datetime]:
+    """Newest refresh datetime for one sport's committed ``data_delivery`` dir.
+
+    Preference order (sidebar spec): (1) the newest full-run timestamp on any
+    ``<prefix>_<stamp>.json`` record (most precise — e.g. ``generated``),
+    else (2) the newest YYYYMMDD suffix over ``run_engine_markets_*.csv``,
+    else (3) any other dated artifact. Returns None when the dir carries no
+    dated artifacts.
+    """
+    best_full: Optional[datetime] = None
+    for p in sport_dir.glob("*_*.json"):
+        try:
+            obj = json.loads(p.read_text())
+        except Exception:
+            continue
+        ts = _full_run_timestamp(obj) if isinstance(obj, dict) else None
+        if ts and (best_full is None or ts > best_full):
+            best_full = ts
+    if best_full is not None:
+        return best_full
+
+    market = _max_stamp(sport_dir.glob("run_engine_markets_*.csv"))
+    if market:
+        return datetime.strptime(market, "%Y%m%d")
+    for pat in ("todays_games_*.csv", "predictions_history_*.csv",
+                "calibration_*.json", "model_monitor_*.json"):
+        s = _max_stamp(sport_dir.glob(pat))
+        if s:
+            return datetime.strptime(s, "%Y%m%d")
+    stamps: set[str] = set()
+    for p in list(sport_dir.glob("*.csv")) + list(sport_dir.glob("*.json")):
+        stamps |= _stamp_suffixes(p)
+    if stamps:
+        return datetime.strptime(max(stamps), "%Y%m%d")
+    return None
+
+
+def _format_refresh(dt: Optional[datetime]) -> str:
+    """Display string for a refresh time, e.g. 'Aug 30, 2026'; missing → '—'."""
+    if dt is None:
+        return "Last updated: —"
+    return "Last updated: " + dt.strftime("%b %d, %Y")
+
+
+def last_refresh_time(sport_key: str = "mlb") -> str:
+    """Sport-aware 'Last updated' string for the sidebar.
+
+    Resolves the selected sport to its committed ``data_delivery`` snapshot
+    and reports the newest refresh time (see ``_last_refresh_for_dir``).
+    Reads only committed artifacts — the same snapshot the sidebar serves
+    regardless of GitHub-vs-local fetch. Missing/empty → 'Last updated: —'.
+    """
+    from sports_config import resolve_sport
+    cfg = resolve_sport(sport_key)
+    sport_dir = REPO_ROOT / cfg["repo_subdir"] / "data_delivery"
+    if not sport_dir.is_dir():
+        return _format_refresh(None)
+    return _format_refresh(_last_refresh_for_dir(sport_dir))
+
+
+def render_last_updated(sport_key: str = "mlb") -> None:
+    """Small muted 'Last updated' caption in the sidebar, wired to the active
+    sport toggle so it resolves that sport's artifact set."""
+    st.caption(last_refresh_time(sport_key))
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,10 @@ Also keeps the layout parameterizable for a future sport toggle: the
 header is one component and the page list is one data-driven list.
 """
 import ast
+import json
+import re
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parent
@@ -128,25 +131,34 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         self.assertIn('[data-testid="stSidebarContent"]', src)
         self.assertIn("flex-direction: column", src)
 
-    def test_fallback_caption_truthful_and_gated_on_local(self):
-        """The offline-fallback note must (a) say what it actually serves
-        (the real committed data_delivery artifacts — not "bundled
-        samples") and (b) render only when the fallback path (source ==
-        "local") is active."""
+    def test_fetch_unavailable_warning_removed(self):
+        """The old 'Showing latest committed artifacts (GitHub fetch
+        unavailable)' warning is gone — the sidebar no longer labels the
+        local fetch fallback as an error, and shows a 'Last updated' line
+        instead."""
         src = _UTILS.read_text(encoding="utf-8")
-        self.assertIn(
-            "Showing latest committed artifacts (GitHub fetch unavailable)",
-            src)
-        # The old untruthful caption is gone (negated docstring phrases
-        # like "not bundled samples" are fine and intentional).
-        self.assertNotIn("Showing bundled sample data (offline fallback)", src)
-        self.assertNotIn("Local sample data", src)
-        # Gating: the fallback note is guarded by the local-source check.
-        i = src.find("def render_source_note")
-        self.assertGreater(i, -1)
-        body = src[i:]
-        self.assertIn('if src != "local":', body)
-        self.assertIn('st.caption("📦 Showing latest committed artifacts', body)
+        self.assertNotIn("Showing latest committed artifacts", src,
+                         "fetch-failure warning language must be gone")
+        self.assertNotIn("GitHub fetch unavailable", src,
+                         "fetch-failure warning language must be gone")
+        # No replacement warning text of any kind for the local path.
+        self.assertNotIn('if src != "local":', src,
+                         "the local-source caption branch must be removed")
+        # The empty-state guard (no artifacts at all) stays.
+        self.assertIn('st.caption("⚠️ No artifacts found")', src)
+
+    def test_last_updated_caption_wired_in_sidebar(self):
+        """Home.py renders the sport-aware 'Last updated' caption with the
+        ACTIVE sport toggle value, and utils exposes the helper + render."""
+        home = _HOME.read_text(encoding="utf-8")
+        self.assertIn("utils.render_last_updated(", home)
+        self.assertIn('st.session_state.get("sport", sports_config.DEFAULT_SPORT)',
+                      home, "caption must pass the active sport toggle value")
+        util = _UTILS.read_text(encoding="utf-8")
+        self.assertIn("def last_refresh_time", util)
+        self.assertIn("def render_last_updated", util)
+        self.assertIn("Last updated: —", util, "missing-artifact fallback text")
+        self.assertIn("Last updated: ", util)
 
 
 class TestSportNavSafety(unittest.TestCase):
@@ -230,6 +242,112 @@ class TestSportNavSafety(unittest.TestCase):
             cfg = self.sc.resolve_sport(bad)
             self.assertEqual(cfg["label"], "MLB",
                              f"resolve_sport({bad!r}) must fall back to MLB")
+
+
+def _extract_utils_funcs(names: list[str]) -> dict:
+    """Exec the named (pure, streamlit-free) functions out of frontend/utils.py.
+
+    utils.py imports streamlit/altair/pandas at module scope, which the
+    frontend tests deliberately never import (a real Streamlit runtime would
+    not be available and importing it early changes later test-module import
+    order). These helpers use only stdlib, so we pull just their definitions
+    from the source via AST and exec them in a minimal namespace — testing the
+    real code, not a copy.
+    """
+    src = _UTILS.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    wanted = set(names)
+    body = [
+        ast.get_source_segment(src, node)
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in wanted
+    ]
+    missing = sorted(wanted - {
+        n.name for n in tree.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    })
+    assert not missing, f"function(s) not found in utils.py: {missing}"
+    ns: dict = {
+        "re": re,
+        "json": json,
+        "datetime": datetime,
+        "Path": Path,
+    }
+    exec("from __future__ import annotations\n" + "\n\n".join(body), ns)
+    return ns
+
+
+class TestLastUpdated(unittest.TestCase):
+    """Sport-aware 'Last updated' (pure helpers from utils.py, extracted via
+    AST — no Streamlit import): newest dated artifact picked, a full-run JSON
+    timestamp preferred over date-only suffixes, per-sport resolution, and
+    graceful missing-artifact fallback."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        cls._root = Path(__file__).resolve().parents[2]  # repo root
+        _frontend = cls._root / "frontend"
+        if str(_frontend) not in sys.path:
+            sys.path.insert(0, str(_frontend))
+        cls.u = _extract_utils_funcs([
+            "_full_run_timestamp", "_stamp_suffixes", "_max_stamp",
+            "_last_refresh_for_dir", "_format_refresh", "last_refresh_time",
+        ])
+
+    def _dir(self, files):
+        import tempfile
+        import shutil
+        tmp = Path(tempfile.mkdtemp())
+        for name, content in files:
+            (tmp / name).write_text(content)
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        return tmp
+
+    def test_latest_date_suffix_picked(self):
+        d = self._dir([
+            ("run_engine_markets_20260829.csv", "pk,stuff\n1,x\n"),
+            ("run_engine_markets_20260830.csv", "pk,stuff\n2,y\n"),
+        ])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
+
+    def test_full_run_timestamp_preferred_over_date(self):
+        """A JSON record carrying a full run timestamp is preferred over the
+        (coarser) date-only run_engine_markets suffix."""
+        d = self._dir([
+            ("run_engine_markets_20260830.csv", "pk\n1\n"),
+            ("margin_reliability_20260830.json",
+             '{"generated": "2026-08-30T17:30:04"}'),
+        ])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 17:30")
+
+    def test_other_dated_artifact_fallback_without_markets(self):
+        d = self._dir([("todays_games_20260830.csv", "pk\n1\n")])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
+
+    def test_missing_artifacts_fallback_dash(self):
+        d = self._dir([])
+        self.assertIsNone(self.u["_last_refresh_for_dir"](d))
+        self.assertEqual(self.u["_format_refresh"](None), "Last updated: —")
+        self.assertEqual(
+            self.u["_format_refresh"](datetime(2026, 8, 30)),
+            "Last updated: Aug 30, 2026")
+
+    def test_sport_resolves_to_committed_dir(self):
+        # real-artifact check: the MLB snapshot present in the repo → a real
+        # date, not the missing fallback. An unknown sport resolves to MLB.
+        from sports_config import resolve_sport
+        self.u["REPO_ROOT"] = self._root
+        self.u["resolve_sport"] = resolve_sport
+        mlb = self.u["last_refresh_time"]("mlb")
+        self.assertTrue(mlb.startswith("Last updated: "), mlb)
+        self.assertNotEqual(mlb, "Last updated: —")
+        self.assertEqual(self.u["last_refresh_time"]("nfl"), mlb,
+                         "unknown sport falls back to MLB artifact set")
 
 
 class TestETDefaultDate(unittest.TestCase):

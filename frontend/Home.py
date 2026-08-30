@@ -61,11 +61,13 @@ with st.sidebar:
         default=sports_config.DEFAULT_SPORT,
         key="sport",
     )
-    # The artifact fetch honors GITHUB_OWNER / GITHUB_REPO / GITHUB_BRANCH
-    # env vars with a local fallback to the committed data_delivery
-    # artifacts. A one-line note renders only when that fallback is active
-    # (see render_source_note).
+    # Defensive empty-state note (only when the sport ships no artifacts at
+    # all); the former fetch-failure warning is gone. In its place a muted,
+    # sport-aware 'Last updated' line resolves the ACTIVE sport toggle's
+    # committed artifact set.
     utils.render_source_note()
+    utils.render_last_updated(
+        st.session_state.get("sport", sports_config.DEFAULT_SPORT))
     # Divider keeps the menu sitting cleanly under the logo/subtitle now
     # that the backend-source caption is gone.
     st.divider()
