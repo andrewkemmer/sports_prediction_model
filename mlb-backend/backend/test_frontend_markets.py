@@ -470,6 +470,14 @@ class TestRunlinePicksChart(TestCase):
                       "dynamic title must say 'Calibration Curve — Favorite {L}'")
         # Same render path as Distribution / Game Total Lines.
         self.assertIn("utils.show_chart(built[\"chart\"])", src)
+        # Run Lines: 1-pt curve frame + explicit 1% x-axis tick marks on
+        # every selection; bars + table stay 5-pt. GTL passes neither.
+        self.assertIn("curve_bins=rlc.get(\"curve_bins\")", src,
+                      "Run Lines must feed the 1-pt curve frame to the builder")
+        self.assertIn("x_tick_values=diag.X_1PCT_TICKS", src,
+                      "Run Lines must pass the explicit 1% x-axis tick values")
+        self.assertIn("diag.X_1PCT_TICKS", src,
+                      "the 1% tick constant must be referenced by the tab")
 
     def test_runline_pick_table_pick_rule_mentions_both_sides(self):
         """runline_pick_table pick_rule must mention both home -1.5

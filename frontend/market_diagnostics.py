@@ -82,15 +82,27 @@ OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 # strong calibration evidence.
 LOW_N = 30
 
+# Explicit 1% x-axis tick marks for the Run Lines calibration chart — one
+# mark every 0.01 over the fixed [0.0, 1.0] domain (101 values). Applied ONCE
+# to the single shared x-axis (bars layer) so every layer ticks together;
+# ``labelOverlap`` lets vega-lite thin overlapping LABEL text while keeping
+# every 1% tick MARK. Explicit values are deterministic — no tickCount/nice/
+# tickMinStep, which the embedded vega-lite versions auto-tick unreliably.
+X_1PCT_TICKS = [round(v, 2) for v in np.arange(0.0, 1.001, 0.01)]
 
-def _gtl_line_points(table: dict) -> pd.DataFrame:
-    """Win-rate + observed line points for the moneyline-style game-total
-    calibration chart — one row per (bin, series) over NON-low-n populated
-    bins only (low-n points are dropped: n < LOW_N is not reliable
-    calibration evidence). ``pct`` is on the 0-100 no-push 2-way basis."""
+
+def _gtl_line_points(table: dict, curve_bins: Optional[list] = None) -> pd.DataFrame:
+    """Win-rate + observed line points for the moneyline-style calibration
+    chart — one row per (bin, series). By default (``curve_bins`` None) the
+    points derive from the main table over NON-low-n populated bins only
+    (low-n points are dropped: n < LOW_N is not reliable calibration
+    evidence — the GTL contract). When ``curve_bins`` is given (the Run
+    Lines 1-pt curve frame) every POPULATED bin is plotted regardless of
+    low_n: the 5-pt count bars are the volume context, so no point is
+    dropped. ``pct`` is on the 0-100 no-push 2-way basis."""
     rows = []
-    for b in table.get("bins") or []:
-        if b.get("observed") is None or b.get("low_n"):
+    for b in curve_bins if curve_bins is not None else (table.get("bins") or []):
+        if b.get("observed") is None or (curve_bins is None and b.get("low_n")):
             continue
         rows.append({"bin_center": b.get("bin_center"), "series": "Win rate",
                      "pct": round(b["win_rate"] * 100.0, 4),
@@ -140,10 +152,22 @@ def _gtl_table_frame(table: dict) -> pd.DataFrame:
 
 
 def chart_game_total_curve(table: dict, title: str,
-                           obs_label: str = "Observed % (2-way, no push)") -> dict:
+                           obs_label: str = "Observed % (2-way, no push)",
+                           curve_bins: Optional[list] = None,
+                           x_tick_values: Optional[list] = None) -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
+
+    ``curve_bins`` (optional): a 1-pt curve frame — per-populated-bin
+    dicts (bin_center/count/mean_pred/observed/win_rate) — used for the
+    win-rate + observed curve POINTS while the count bars + table stay fed
+    by the 5-pt ``table`` bins. None (default) derives the points from the
+    main table with the GTL low-n (< LOW_N) suppression — the GTL tab is
+    byte-identical. ``x_tick_values`` (optional): explicit x-axis tick
+    MARKS (e.g. the 1% X_1PCT_TICKS) applied ONCE to the single shared
+    x-axis (bars layer) with 2-decimal labels + labelOverlap label
+    thinning; None (default) emits no axis key — GTL unchanged.
 
     Grammar mirrors the moneyline Calibration Curve page: a continuous
     predicted-P(over) x-axis (bin centers on a 0-1 probability scale — the
@@ -184,8 +208,15 @@ def chart_game_total_curve(table: dict, title: str,
         alt.Tooltip("observed:Q", title="Observed", format=".3f"),
         alt.Tooltip("win_rate:Q", title="Win rate", format=".3f"),
     ]
+    # Explicit 1% tick MARKS go on the bars layer's x-encoding — the SINGLE
+    # owner of the shared x-axis (resolve_scale(x="shared")); every other
+    # layer shares this axis, so no per-layer axis config. None emits no
+    # axis key (GTL byte-identical); labelOverlap thins LABEL text only.
+    x_axis = (alt.Axis(values=x_tick_values, format=".2f", labelOverlap=True)
+              if x_tick_values else None)
     bars = alt.Chart(chart_df).mark_bar(color="#3B82F6").encode(
-        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom),
+        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom,
+                axis=x_axis),
         y=alt.Y("count:Q", axis=alt.Axis(title="Games", grid=True)),
         tooltip=bar_tip)
     bar_layer = bars
@@ -201,10 +232,12 @@ def chart_game_total_curve(table: dict, title: str,
             tooltip=bar_tip)
         bar_layer = bars + low_bars
 
-    # Observed + win-rate curves over non-low-n populated bins — RIGHT '%'
-    # axis (0-100), the ONLY owner of the obs_label title (single title per
-    # axis: no duplicate/overlapping labels). low-n points dropped.
-    stack = _gtl_line_points(table)
+    # Observed + win-rate curves — RIGHT '%' axis (0-100), the ONLY owner of
+    # the obs_label title (single title per axis). With curve_bins (Run
+    # Lines 1-pt frame) EVERY populated bin is plotted (low-n included, the
+    # 5-pt bars are the volume context); otherwise points come from the main
+    # table with low-n dropped (the GTL contract).
+    stack = _gtl_line_points(table, curve_bins=curve_bins)
     if stack.empty:
         line_chart = alt.Chart(pd.DataFrame()).mark_line()
     else:
@@ -898,7 +931,8 @@ def run_line_calibration(decided: pd.DataFrame,
     line given → ALL games at that ONE fixed line (e.g. −1.5): 5-pt bins
     over [0, 1] (n_bins).
     """
-    empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
+    empty = {"line": line, "bins": [], "curve_bins": [],
+             "n_games": 0, "n_pushes": 0,
              "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
              "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
              "pooled_auc": None,
@@ -976,7 +1010,18 @@ def run_line_calibration(decided: pd.DataFrame,
     (bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece,
      pooled_brier, pooled_auc) = _bucket_calibration(pred[ok], event[ok],
                                                      edges, labels)
-    return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
+    # 1-pt curve frame: the SAME no-push 2-way population re-bucketed at 1%
+    # (0-1 … 99-100) for the observed + win-rate curve POINTS — one point
+    # per POPULATED 1-pt bin, low-n included (the 5-pt count bars are the
+    # volume context, so no curve point is dropped). The table + bars stay
+    # on the 5-pt ``bins`` above.
+    curve_edges = [float(b) for b in range(101)]
+    curve_labels = [f"{b}-{b + 1}" for b in range(100)]
+    (curve_bins, _, _, _, _, _, _) = _bucket_calibration(
+        pred[ok], event[ok], curve_edges, curve_labels)
+    curve_bins = [b for b in curve_bins if b["count"] > 0]
+    return {"line": line, "bins": bins, "curve_bins": curve_bins,
+            "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
             "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
             "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,

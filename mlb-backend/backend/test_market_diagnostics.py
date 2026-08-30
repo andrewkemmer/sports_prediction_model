@@ -1799,7 +1799,9 @@ class TestRunLineCalibration(unittest.TestCase):
 
     def test_chart_grammar_matches_gtl(self):
         out = diag.run_line_calibration(self._home_fav(), -1.5)
-        built = diag.chart_game_total_curve(out, "Calibration Curve — Favorite -1.5")
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Favorite -1.5",
+            curve_bins=out["curve_bins"], x_tick_values=diag.X_1PCT_TICKS)
         d = _spec_dump(built["chart"])
         self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertIn('"height": 300', d)
@@ -1808,6 +1810,103 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertIn("#8B5CF6", d)
         self.assertNotIn("NaN", d)
         self.assertIn("Favorite -1.5", d)
+
+    @staticmethod
+    def _axis_values(chart) -> list:
+        """All explicit axis ``values`` lists in the built spec."""
+        found = []
+
+        def _walk(node):
+            if isinstance(node, dict):
+                ax = node.get("axis")
+                if isinstance(ax, dict) and "values" in ax:
+                    found.append(ax["values"])
+                for v in node.values():
+                    _walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    _walk(v)
+
+        _walk(chart.to_dict())
+        return found
+
+    def test_curve_frame_1pt_spacing_includes_low_n(self):
+        """The Run Lines curve frame is 1-pt resolution (0-1 ... 99-100, bin
+        centers 0.005-step) and includes low-n (< 30) bins — every
+        populated 1-pt bin gets a point; the 5-pt bars/table are the volume
+        context."""
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        cb = out["curve_bins"]
+        # 1-pt labels + bin centers 0.005 apart on the 0-1 axis.
+        self.assertEqual([b["bin"] for b in cb], ["42-43", "56-57"])
+        self.assertEqual([b["bin_center"] for b in cb], [0.425, 0.565])
+        # Low-n bin (n=10 < 30) is PLOTTED, with its observed/win_rate.
+        lo = cb[0]
+        self.assertTrue(lo["low_n"])
+        self.assertEqual(lo["count"], 10)
+        self.assertAlmostEqual(lo["observed"], 0.40, places=4)
+        self.assertAlmostEqual(lo["win_rate"], 0.60, places=4)  # dog pick
+        # The chart spec's curve data carries BOTH 1-pt points.
+        built = diag.chart_game_total_curve(
+            out, "t", curve_bins=cb, x_tick_values=diag.X_1PCT_TICKS)
+        centers = {}
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if r.get("series") in ("Observed", "Win rate"):
+                    centers[r["bin_center"]] = True
+        self.assertEqual(sorted(centers), [0.425, 0.565],
+                         "low-n 1-pt bin must be plotted on the curve")
+        # The TABLE + bars stay 5-pt buckets.
+        tab = built["table"]
+        self.assertIn("40-45", list(tab["bucket"]))
+        self.assertIn("55-60", list(tab["bucket"]))
+        self.assertNotIn("42-43", list(tab["bucket"]))
+
+    def test_x_axis_1pct_ticks_all_run_lines_selections(self):
+        """Every Run Lines selection (All + fixed) carries explicit 1% tick
+        MARKS (101 values, 0.01 step) on the single shared x-axis; the GTL
+        path (no args) emits no tick values."""
+        # -4.0 is exercised against the real artifact by the AppTest (the
+        # _home_fav fixture has no p_rl_4_0 columns); every fixture-priced
+        # selection carries the 1% ticks.
+        for line in (None, -0.5, -1.5):
+            out = diag.run_line_calibration(self._home_fav(), line)
+            built = diag.chart_game_total_curve(
+                out, "t", curve_bins=out["curve_bins"],
+                x_tick_values=diag.X_1PCT_TICKS)
+            vals = self._axis_values(built["chart"])
+            self.assertEqual(len(vals), 1, f"one axis with ticks at {line}")
+            v = vals[0]
+            self.assertEqual(len(v), 101)
+            self.assertAlmostEqual(v[0], 0.0, places=6)
+            self.assertAlmostEqual(v[-1], 1.0, places=6)
+            for a, b in zip(v, v[1:]):
+                self.assertAlmostEqual(b - a, 0.01, places=6)
+        gtl = diag.chart_game_total_curve(
+            diag.run_line_calibration(self._home_fav(), -1.5), "t")
+        self.assertEqual(self._axis_values(gtl["chart"]), [],
+                         "GTL default path has no tick values")
+
+    def test_all_branch_curve_frame_full_0_1_grid(self):
+        """The All view's curve frame is still the 1-pt 0-1 grid (50-51
+        populated at the fair line) while the table keeps the own-line
+        1-pt buckets 40-41 ... 60+."""
+        rows = []
+        for k in range(60):
+            over = k < 30
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if over else 4, "away_score": 3,
+                         "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.35,
+                         "p_rl_1_5_home": 0.50, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.50})
+        out = diag.run_line_calibration(pd.DataFrame(rows), None)
+        self.assertIsNone(out["warning"])
+        cb = out["curve_bins"]
+        self.assertEqual([b["bin"] for b in cb], ["50-51"])
+        self.assertEqual(cb[0]["count"], 60)
+        self.assertEqual([b["bin"] for b in out["bins"]], diag.OWN_LINE_LABELS)
+        self.assertAlmostEqual(cb[0]["bin_center"], 0.505, places=4)
 
 
 class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
