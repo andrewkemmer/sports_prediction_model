@@ -360,35 +360,37 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
                 "pooled_winrate": 0.5, "pooled_ece": 0.02,
                 "pooled_brier": 0.25}
 
-    def test_hand_fixture_domain_padding(self):
-        # Bins 0.50/0.51/0.52, n >= 30 -> lo=0.50, hi=0.52 -> [0.45, 0.57].
+    def test_fixed_domain_0_25_0_75(self):
+        # x-axis domain is FIXED at [0.25, 0.75] regardless of the data.
         t = self._gtable([self._gtb(0.50), self._gtb(0.51), self._gtb(0.52)])
         built = diag.chart_game_total_curve(t, "t")
-        self.assertIn('"domain": [0.45, 0.57]', _spec_dump(built["chart"]))
+        self.assertIn('"domain": [0.25, 0.75]', _spec_dump(built["chart"]))
 
-    def test_low_n_only_falls_back_to_full_domain(self):
-        # Only low-n bins (n < LOW_N) -> no qualifying bin -> 0-1 domain.
+    def test_low_n_or_empty_data_still_fixed_domain_no_error(self):
+        # Even a low-n-only / degenerate table renders with the fixed domain.
         t = self._gtable([self._gtb(0.50, count=10, low_n=True)])
         built = diag.chart_game_total_curve(t, "t")
-        self.assertIn('"domain": [0.0, 1.0]', _spec_dump(built["chart"]))
+        d = _spec_dump(built["chart"])
+        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertNotIn("NaN", d)
 
-    def test_all_vs_fixed_line_domains_differ(self):
+    def test_all_and_fixed_line_share_same_fixed_domain(self):
+        # No adaptive domain: all selections emit the identical [0.25, 0.75].
         all_t = self._gtable([self._gtb(0.50), self._gtb(0.51)])
         fixed_t = self._gtable([self._gtb(0.10), self._gtb(0.90)])
         da = _spec_dump(diag.chart_game_total_curve(all_t, "t")["chart"])
         df = _spec_dump(diag.chart_game_total_curve(fixed_t, "t")["chart"])
-        self.assertIn('"domain": [0.45, 0.56]', da)
-        self.assertIn('"domain": [0.05, 0.95]', df)
-        self.assertNotEqual(da, df)
+        self.assertIn('"domain": [0.25, 0.75]', da)
+        self.assertIn('"domain": [0.25, 0.75]', df)
 
     def test_out_of_domain_bins_clipped_no_error(self):
-        # A low-n bin far outside the populated range renders (clipped) with
-        # no error; the domain is driven by the qualifying bins only.
+        # A low-n bin outside the fixed domain renders clipped, no error.
         t = self._gtable([self._gtb(0.50), self._gtb(0.51),
                           self._gtb(0.90, count=12, low_n=True)])
         built = diag.chart_game_total_curve(t, "t")
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.45, 0.56]', d)
+        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertNotIn("NaN", d)
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_each_axis_title_exactly_once(self):
@@ -1458,67 +1460,55 @@ class TestResolveSlateAcrossArtifacts(unittest.TestCase):
         self.assertEqual(diag._espy_matchup("778485"), "778485")
 
 
-class TestGameTotalXDynamicDomain(unittest.TestCase):
-    """Guarded dynamic x-domain for the Game Total Lines chart.
+class TestGameTotalFixedXDomain(unittest.TestCase):
+    """The Game Total Lines chart uses a FIXED x-domain of [0.25, 0.75].
 
-    Matching the reported 8.0 collapse: a NaN/reversed x-domain must be
-    impossible -- non-finite bin_centers / mean_pred are dropped before
-    min/max, lo <= hi is enforced, and anything degenerate (non-finite, empty
-    or reversed) falls back to [0.0, 1.0]. Tested on REAL qualifying bins (not
-    the fallback), on NaN exclusion, and on the emitted spec at line 8.0.
+    Replaces the adaptive/dynamic domain (bdf477d, b4a0562) entirely: the
+    domain is constant for ALL selections, so the degenerate-domain failure
+    class (NaN / reversed / collapsed strip) cannot recur. Assertions target
+    the emitted spec: the x-domain is exactly [0.25, 0.75] regardless of the
+    selected line, and nothing NaN leaks into the spec.
     """
 
     @staticmethod
-    def _b(center, count=40, mean=None):
-        return {"bin_center": center, "count": count,
-                "mean_pred": center if mean is None else mean}
+    def _b(center, count=40, mean=None, observed=0.5):
+        return {"bin_center": center, "bin": f"{int(round(center * 100))}",
+                "count": count,
+                "mean_pred": center if mean is None else mean,
+                "observed": observed, "win_rate": observed,
+                "low_n": count < 30 and count > 0}
 
-    def test_real_qualifying_fixed_line_fixture(self):
-        # Multiple populated qualifying bins (NOT the 0-1 fallback):
-        # 0.425/0.475/0.525 -> [0.375, 0.575] (0.05 pad each side).
-        dom = diag.game_total_x_domain(
-            [self._b(0.425), self._b(0.475), self._b(0.525)])
-        self.assertEqual(dom, [0.375, 0.575])
+    def test_fixture_domain_exactly_fixed(self):
+        built = diag.chart_game_total_curve({"bins": [self._b(0.50)]}, "t")
+        self.assertIn('"domain": [0.25, 0.75]', _spec_dump(built["chart"]))
 
-    def test_nan_mean_pred_excluded_from_domain(self):
-        # A qualifying-count bin with NaN mean_pred is dropped; the surviving
-        # bin drives a finite domain and no NaN leaks into the domain.
-        bins = [self._b(0.5, mean=float("nan")), self._b(0.6)]
-        dom = diag.game_total_x_domain(bins)
-        self.assertEqual(dom, [0.55, 0.65])
-        self.assertTrue(all(float(v) == float(v) for v in dom),
-                        "no NaN in the returned domain")
+    def test_low_n_and_nan_do_not_change_fixed_domain(self):
+        # Even a degenerate bin (NaN mean_pred) keeps the fixed domain -- no
+        # min/max/padding over the data, so nothing can drive it off-course.
+        bins = [self._b(0.5, mean=float("nan")), self._b(0.9, count=10)]
+        built = diag.chart_game_total_curve({"bins": bins}, "t")
+        d = _spec_dump(built["chart"])
+        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertNotIn("NaN", d)
 
-    def test_nan_bin_center_excluded(self):
-        bins = [{"bin_center": float("nan"), "count": 40, "mean_pred": 0.5},
-                self._b(0.7)]
-        self.assertEqual(diag.game_total_x_domain(bins), [0.65, 0.75])
+    def test_empty_bins_render_no_error(self):
+        # Empty bin table: the guarded early-return still yields a chart.
+        built = diag.chart_game_total_curve({"bins": []}, "t")
+        self.assertIn("chart", built)
+        self.assertNotIn("NaN", _spec_dump(built["chart"]))
 
-    def test_non_finite_only_falls_back(self):
-        bins = [self._b(0.5, mean=float("nan")),
-                self._b(0.6, mean=float("inf"))]
-        self.assertEqual(diag.game_total_x_domain(bins), [0.0, 1.0])
-
-    def test_empty_or_low_n_only_falls_back(self):
-        self.assertEqual(diag.game_total_x_domain([]), [0.0, 1.0])
-        self.assertEqual(diag.game_total_x_domain([self._b(0.5, count=10)]),
-                         [0.0, 1.0])
-
-    def test_chart_spec_domain_finite_ascending_at_line_8_0(self):
-        # The reported collapse: at line 8.0 the emitted x-domain must be
-        # finite and ascending (numeric ticks return, no tall strip).
+    def test_real_artifact_fixed_domain_all_lines(self):
+        # The fixed domain holds at every selection on the real artifact.
         m_path = _latest_markets_artifact()
         if not m_path.exists():
             self.skipTest("run-engine artifact absent")
-        out = diag.game_total_calibration(
-            diag.decided_rows(pd.read_csv(m_path)), 8.0)
-        built = diag.chart_game_total_curve(out, "t")
-        dom = diag.game_total_x_domain(out["bins"])
-        self.assertTrue(all(map(math.isfinite, dom)), f"nan domain {dom}")
-        self.assertLess(dom[0], dom[1], f"domain not ascending {dom}")
-        self.assertGreaterEqual(dom[0], 0.0)
-        self.assertLessEqual(dom[1], 1.0)
-        self.assertNotIn("NaN", _spec_dump(built["chart"]))
+        decided = diag.decided_rows(pd.read_csv(m_path))
+        for line in (None, 8.0, 8.5):   # None = 'All'
+            out = diag.game_total_calibration(decided, line)
+            built = diag.chart_game_total_curve(out, "t")
+            d = _spec_dump(built["chart"])
+            self.assertIn('"domain": [0.25, 0.75]', d, f"line={line}")
+            self.assertNotIn("NaN", d, f"line={line}")
 
 
 if __name__ == "__main__":

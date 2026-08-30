@@ -68,6 +68,14 @@ OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 # strong calibration evidence.
 LOW_N = 30
 
+# Fixed x-axis domain for the Game Total Lines calibration chart (the
+# probability axis for predicted P(over)). Constant [0.25, 0.75] for ALL
+# selections (All and every fixed line) — deliberately not adaptive, so the
+# degenerate-domain failure class (dynamic min/max/padding/clamp) cannot
+# recur. The dashed perfect-calibration diagonal is scale-bound and renders
+# correctly at any domain.
+FIXED_X_DOMAIN = [0.25, 0.75]
+
 
 def _gtl_line_points(table: dict) -> pd.DataFrame:
     """Win-rate + observed line points for the moneyline-style game-total
@@ -85,47 +93,6 @@ def _gtl_line_points(table: dict) -> pd.DataFrame:
                      "pct": round(b["observed"] * 100.0, 4),
                      "count": b["count"]})
     return pd.DataFrame(rows)
-
-
-def game_total_x_domain(bins: list) -> list:
-    """Guarded dynamic x-domain for the Game Total Lines chart.
-
-    Auto-zoom to the populated bin range with a fixed 5% blank margin per
-    side, instead of the full 0-1 axis (the All view's data sliver
-    ~0.46-0.53 is otherwise unreadable). Qualifying bins: count >= LOW_N with
-    a finite, non-empty ``mean_pred``; lo/hi = min/max of the qualifying
-    FINITE ``bin_center``s. Returns ``[lo-0.05, hi+0.05]`` clamped to [0, 1],
-    rounded to 4 dp so the emitted spec is clean (0.52 + 0.05 -> 0.57, not
-    0.5700000000000001) and deterministic for tests.
-
-    Hardening: NaN/inf ``bin_center`` or ``mean_pred`` values are DROPPED
-    before min/max, and an empty or non-finite or reversed (lo > hi)
-    qualifying set falls back to ``[0.0, 1.0]`` -- a NaN or reversed x-domain
-    is exactly the vega-lite symptom of the chart collapsing to a tall strip
-    (numeric ticks vanish, big blank column left of the plot). chart_game_total_curve
-    applies the SAME returned domain to every layer via the shared x-scale.
-    """
-    qual: list = []
-    for b in bins:
-        bc = b.get("bin_center")
-        mp = b.get("mean_pred")
-        cnt = b.get("count")
-        if bc is None or mp is None or cnt is None:
-            continue
-        try:
-            cnt_f = float(cnt)
-            mp_f = float(mp)
-            bc_f = float(bc)
-        except (TypeError, ValueError):
-            continue
-        if cnt_f >= LOW_N and math.isfinite(mp_f) and math.isfinite(bc_f):
-            qual.append(bc_f)
-    if not qual:
-        return [0.0, 1.0]
-    lo, hi = min(qual), max(qual)
-    if not (math.isfinite(lo) and math.isfinite(hi)) or lo > hi:
-        return [0.0, 1.0]
-    return [round(max(0.0, lo - 0.05), 4), round(min(1.0, hi + 0.05), 4)]
 
 
 def chart_game_total_curve(table: dict, title: str,
@@ -153,10 +120,10 @@ def chart_game_total_curve(table: dict, title: str,
     render as gray bars and their win-rate/observed points are DROPPED from
     the curves (never readable as reliable calibration). Pooled aggregates
     ride the Total table row, the caption, and the amber pooled marker. The
-    x-domain auto-zooms to the populated (count >= 30, non-empty mean_pred)
-    bin range with a 0.05 margin on each side, clamped to [0, 1] (0-1 when
-    nothing qualifies); low-n / empty bins outside it are clipped, not
-    dropped. Static render -- no interactive zoom.
+    x-axis domain is FIXED at [0.25, 0.75] for ALL selections (the constant
+    FIXED_X_DOMAIN) so the chart can never collapse to a degenerate strip;
+    low-n / empty bins outside the domain are clipped, not dropped. Static
+    render -- no interactive zoom.
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
@@ -164,11 +131,10 @@ def chart_game_total_curve(table: dict, title: str,
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    # Dynamic x-domain via the guarded helper (finite, ascending, padded,
-    # clamped, 0-1 fallback). The SAME scale is applied to every layer (bars,
-    # low-n bars, curves, diagonal, pooled marker) so a degenerate (NaN or
-    # reversed) domain can never collapse the plot to a tall strip.
-    x_dom = alt.Scale(domain=game_total_x_domain(table["bins"]), nice=False)
+    # FIXED x-domain applied to EVERY layer (bars, low-n bars, curves,
+    # diagonal, pooled marker) via the shared x-scale, so the plot can never
+    # collapse to a degenerate strip regardless of the selected line.
+    x_dom = alt.Scale(domain=FIXED_X_DOMAIN, nice=False)
     y_pct_dom = alt.Scale(domain=[0.0, 100.0])
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
