@@ -602,10 +602,73 @@ def _extract_calendar_date(cal) -> str | None:
     return None
 
 
+# Tokens that tell phone/tablet-sized browser apart from a desktop UA, used
+# only to relax the calendar's fixed outer height on narrow screens (where an
+# inner scrollbar can swallow touch taps before they register). Best-effort —
+# a missing/unknown UA just keeps the desktop height, never a degraded UI.
+_MOBILE_UA_TOKENS = ("android", "iphone", "ipad", "mobile")
+
+
+def _is_mobile_viewport() -> bool:
+    """True when the request looks phone/tablet-sized.
+
+    streamlit-calendar sets a fixed 440px ``height`` in its options dict; on a
+    narrow phone that container can grow an inner scrollbar that intercepts
+    the tap on a day cell before FullCalendar registers it. On small screens
+    we hand FullCalendar ``"auto"`` instead, so the calendar body expands to
+    fit (no inner scrollbar) and taps reach the highlighted cells. Desktop
+    keeps the fixed 440px, so its layout is unchanged. Read from the request
+    User-Agent where hosting exposes headers (Streamlit Community Cloud);
+    never raises when headers are absent (tests / local reshapes).
+    """
+    try:
+        headers = st.context.headers
+    except Exception:
+        return False
+    ua = ""
+    for key in ("User-Agent", "user-agent", "USER_AGENT"):
+        val = headers.get(key)
+        if isinstance(val, str):
+            ua = val.strip().lower()
+            if ua:
+                break
+    if not ua:
+        return False
+    return any(tok in ua for tok in _MOBILE_UA_TOKENS)
+
+
+def _single_calendar_navigation(cal, valid) -> str | None:
+    """Collapse a streamlit-calendar return to a single date to act on.
+
+    Both ``dateClick`` and ``select`` are now subscribed: FullCalendar fires
+    ``select`` on a desktop click but only ``dateClick`` on a touch tap (the
+    Android bug), and on desktop a click can emit BOTH keys for the same
+    interaction. Reducing through the existing ``_extract_calendar_date``
+    (which prefers ``select.start``) folds the payload to one date. Returns
+    that date for ANY tap on a valid/highlighted date — INCLUDING a re-tap of
+    the currently-shown date, which the caller turns into a calendar close by
+    popping ``open_calendar`` and rerunning (setting ``selected_date`` to the
+    same value is a harmless no-op). Returns None for a plain open/close
+    (empty payload), a blank/out-of-range cell, or invalid input, so those
+    never trigger navigation.
+    """
+    chosen = _extract_calendar_date(cal)
+    if chosen and chosen in set(valid):
+        return chosen
+    return None
+
+
 def _render_calendar_picker(valid, current: str) -> None:
     """FullCalendar (streamlit-calendar) month picker: only the sport's valid
     dates are highlighted (background events) and selectable; the season is
-    bounded by validRange so the calendar never spans months of no games."""
+    bounded by validRange so the calendar never spans months of no games.
+
+    Subscribes BOTH ``dateClick`` and ``select`` callbacks: on a desktop a
+    mouse click emits ``select`` (and often ``dateClick`` too), but on a touch
+    device (Android/Chrome) a single tap only emits ``dateClick``. Routing the
+    returned payload through ``_single_calendar_navigation`` keeps it to one
+    navigation per distinct chosen date regardless of which callback(s)
+    fire."""
     try:
         import streamlit_calendar as sl_cal
     except Exception:
@@ -630,7 +693,10 @@ def _render_calendar_picker(valid, current: str) -> None:
         "initialView": "dayGridMonth",
         "headerToolbar": {"left": "prev,next today",
                            "center": "title", "right": ""},
-        "height": 440,
+        # Fixed 440px on desktop; "auto" on phone/tablet-sized viewports so
+        # the calendar body expands to content and never hosts an inner
+        # scrollbar that swallows touch taps.
+        "height": "auto" if _is_mobile_viewport() else 440,
         "validRange": {"start": vmin, "end": vmax},
         "selectable": True,
         "selectMirror": True,
@@ -640,12 +706,13 @@ def _render_calendar_picker(valid, current: str) -> None:
     }
     try:
         cal = sl_cal.calendar(events=events, options=options,
-                              callbacks=["select"], key="todays_cal")
+                              callbacks=["select", "dateClick"],
+                              key="todays_cal")
     except Exception:
         st.caption("Could not render the calendar.")
         return
-    chosen = _extract_calendar_date(cal)
-    if chosen and chosen in set(valid) and chosen != current:
+    chosen = _single_calendar_navigation(cal, valid)
+    if chosen:
         st.session_state["selected_date"] = chosen
         st.session_state.pop("open_calendar", None)
         st.rerun()

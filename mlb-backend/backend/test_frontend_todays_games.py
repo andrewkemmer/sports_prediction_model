@@ -907,6 +907,74 @@ class TestResolveSlateAcrossArtifactsWiring(unittest.TestCase):
                          self.src,
                          "slate must not be built from the exact-date file only")
 
+class TestCalendarSingleNavigation(unittest.TestCase):
+    """``todays_games._single_calendar_navigation`` must resolve a calendar
+    return to AT MOST one date to navigate to.
+
+    Mobile (Android) regression: FullCalendar emits only ``dateClick`` on a
+    touch tap (``select`` is the desktop-click / drag path), so the picker
+    now subscribes both. A single interaction can therefore surface in both
+    payload keys; this helper reduces them to one chosen date and applies the
+    valid-set gate (blank/out-of-range/invalid never match). A re-tap of the
+    currently-shown date also returns it so the caller can close the calendar.
+    Pure function test, no component.
+    """
+
+    VALID = ["20260828", "20260829", "20260830", "20260831"]
+
+    @staticmethod
+    def _todays():
+        import streamlit as st  # noqa: F401  (session_state runtime)
+        import todays_games as todays
+        return todays
+
+    def _nav(self, cal):
+        return self._todays()._single_calendar_navigation(cal, self.VALID)
+
+    def test_touch_dateClick_only(self):
+        """A touch tap emits only dateClick — must still navigate."""
+        cal = {"callback": "dateClick",
+               "dateClick": {"date": "2026-08-30T04:00:00.000Z",
+                             "allDay": True, "view": {}}}
+        self.assertEqual(self._nav(cal), "20260830")
+
+    def test_desktop_both_callbacks_same_date(self):
+        """A desktop click can emit select AND dateClick for the same day; the
+        picker still resolves exactly one date (select.start wins)."""
+        cal = {"callback": "select",
+               "dateClick": {"date": "2026-08-30T04:00:00.000Z",
+                             "allDay": True, "view": {}},
+               "select": {"allDay": True,
+                          "start": "2026-08-30T04:00:00.000Z",
+                          "end": "2026-08-31T04:00:00.000Z", "view": {}}}
+        self.assertEqual(self._nav(cal), "20260830")
+
+    def test_select_only(self):
+        """Desktop select-only payload still navigates."""
+        cal = {"select": {"start": "2026-08-28", "end": "2026-08-29"}}
+        self.assertEqual(self._nav(cal), "20260828")
+
+    def test_out_of_range_never_navigates(self):
+        """A date outside the highlighted valid set must do nothing."""
+        cal = {"select": {"start": "2026-09-10T00:00:00.000Z"}}
+        self.assertIsNone(self._nav(cal))
+        # non-highlighted date parsed from rich payload -> still gated out
+        cal2 = {"dateClick": {"date": "2026-07-01T00:00:00.000Z"}}
+        self.assertIsNone(self._nav(cal2))
+
+    def test_same_current_date_closes(self):
+        """Re-tapping the already-shown (valid) date returns it so the caller
+        closes the calendar — a value-no-op on selected_date."""
+        cal = {"select": {"start": "2026-08-29T04:00:00.000Z"}}
+        self.assertEqual(self._nav(cal), "20260829")
+
+    def test_plain_open_close_returns_none(self):
+        """Opening the calendar (or a no-click render) must not navigate."""
+        self.assertIsNone(self._nav({}))
+        self.assertIsNone(self._nav({"callback": "select"}))
+        self.assertIsNone(self._nav({"select": {"view": {}}}))
+        self.assertIsNone(self._nav(None))
+
 
 if __name__ == "__main__":
     unittest.main()
