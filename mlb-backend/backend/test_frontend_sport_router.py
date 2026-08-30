@@ -40,11 +40,26 @@ _MARKETS = _ROOT / "mlb-backend" / "data_delivery"
 if str(_FRONTEND) not in sys.path:
     sys.path.insert(0, str(_FRONTEND))
 _UTILS = _FRONTEND / "utils.py"
+_TODAYS = _FRONTEND / "todays_games.py"
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import sports_config  # noqa: E402  (streamlit-free registry)
+
+
+def _extract_todays(names):
+    """Exec named top-level functions out of todays_games.py (pure parse
+    helpers only — no Streamlit/graph exec)."""
+    src = _TODAYS.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    segments = [
+        ast.get_source_segment(src, node) for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in names
+    ]
+    ns = {"pd": pd}
+    exec("from __future__ import annotations\n" + "\n\n".join(segments), ns, ns)
+    return ns
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +166,17 @@ class TestValidDates(unittest.TestCase):
             "mlb", ("20260829", "20260828"), tmp, pd.DataFrame())
         self.assertEqual(got, ["20260830", "20260829", "20260828"])
 
+    def test_mlb_valid_dates_merge_history_dates(self):
+        """MLB valid dates = todays_games snapshots UNION walk-forward history
+        (calibration daily / prediction-history game dates) so season-long date
+        navigation is preserved, not just the two committed snapshot days."""
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        got = self.u["_valid_dates_impl"](
+            "mlb", ("20260830", "20260829"), tmp, pd.DataFrame(),
+            history_dates=("20260425", "20260828", "20260829"))
+        self.assertEqual(got, ["20260830", "20260829", "20260828", "20260425"])
+
     def test_mlb_missing_artifacts_yields_empty(self):
         import tempfile
         missing = Path(tempfile.mkdtemp()) / "nonexistent"
@@ -184,6 +210,37 @@ class TestValidDates(unittest.TestCase):
         self.assertIn("streamlit_calendar as sl_cal", src)
         self.assertIn("callbacks=[\"select\"]", src)
         self.assertNotIn("utils.arrow_nav(", src)
+
+
+class TestCalendarExtraction(unittest.TestCase):
+    """Parsing the streamlit-calendar click value into a navigable YYYYMMDD.
+    Regression: the 'select' callback returns a full ISO timestamp
+    ('2026-08-29T00:00:00.000Z'); norm() must collapse it to the date part or
+    a calendar click never navigates."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._mod = _extract_todays(["_extract_calendar_date"])
+
+    def _extract(self, cal):
+        return self._mod["_extract_calendar_date"](cal)
+
+    def test_full_iso_select_payload(self):
+        cal = {"callback": "select",
+               "select": {"allDay": True,
+                          "start": "2026-08-29T00:00:00.000Z",
+                          "end": "2026-08-30T00:00:00.000Z"}}
+        self.assertEqual(self._extract(cal), "20260829")
+
+    def test_plain_date_and_other_shapes(self):
+        self.assertEqual(self._extract({"select": {"start": "2026-08-30"}}), "20260830")
+        self.assertEqual(self._extract({"selectedDate": "2026-09-13"}), "20260913")
+        self.assertIsNone(self._extract({}))
+        self.assertIsNone(self._extract(None))
+
+    def test_invalid_payload_returns_none(self):
+        self.assertIsNone(self._extract({"select": {"start": "not-a-date"}}))
+        self.assertIsNone(self._extract({"select": {}}))
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +543,7 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "from streamlit.testing.v1 import AppTest;\n"
             "at = AppTest.from_file(%r, default_timeout=60);\n"
             "at.session_state['_nav_sport'] = 'mlb';\n"
-            "at.session_state['selected_date'] = '20260825';\n"
+            "at.session_state['selected_date'] = '20000101';\n"
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
             "warns = ' '.join(w.value for w in at.warning);\n"
@@ -509,6 +566,23 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "print('MLB_BOARD_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
         self.assertIn("MLB_BOARD_OK", self._run(script))
+
+    def test_mlb_aug29_board_renders_without_duplicate_keys(self):
+        """Regression: the Aug 29 board crashed with StreamlitDuplicateElementKey
+        because normalize_games' scores merge exploded a duplicated game_id into
+        two rows (identical keyed selectboxes). It must render fully."""
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "import pandas as pd;\n"
+            "import utils;\n"
+            "g = utils.normalize_games(pd.read_csv(%r));\n"
+            "ids = list(g['game_id']);\n"
+            "assert len(ids) == len(set(ids)), 'duplicate game_id reached board';\n"
+            "assert len(ids) > 1;\n"
+            "print('AUG29_FRAME_OK', len(ids))\n"
+        ) % (str(_FRONTEND),
+             str(_ROOT / "mlb-backend/data_delivery/todays_games_20260829.csv"))
+        self.assertIn("AUG29_FRAME_OK", self._run(script))
 
     def test_mlb_calendar_opens_no_exception(self):
         """Opening the FullCalendar picker with the sport's valid dates

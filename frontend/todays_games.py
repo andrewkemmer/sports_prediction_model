@@ -569,6 +569,10 @@ def _extract_calendar_date(cal) -> str | None:
         if not v:
             return None
         s = str(v).strip()
+        # The 'select' callback returns a full ISO timestamp
+        # ('2026-08-29T00:00:00.000Z'); collapse it to the YYYY-MM-DD part.
+        if len(s) >= 10 and s[4:5] == "-" and s[7:8] == "-":
+            s = s[:10]
         if len(s) == 10 and s[4:5] == "-" and s.replace("-", "").isdigit():
             return s.replace("-", "")
         if len(s) == 8 and s.isdigit():

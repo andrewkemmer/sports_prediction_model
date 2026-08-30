@@ -226,6 +226,10 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
                     else:
                         df[col] = df[f"{col}_feat"]
                     df.drop(columns=[f"{col}_feat"], inplace=True)
+        # Defensive net: never let a duplicated game_id reach the card loop,
+        # where the same keyed selectbox would be emitted twice.
+        if "game_id" in df.columns:
+            df = df.drop_duplicates(subset=["game_id"], keep="last").reset_index(drop=True)
 
     return df
 
@@ -248,6 +252,11 @@ def _load_scores() -> pd.DataFrame:
                                                  "home_score", "away_score"))
         d = pd.to_datetime(gl["game_date"], errors="coerce").dt.strftime("%Y%m%d")
         gl["game_id"] = d + "_" + gl["away_team"].astype(str) + "@" + gl["home_team"].astype(str)
+        # game_level_features can carry duplicate (game, date) rows; a one-per-
+        # game scores frame is required so the leaky left-merge in normalize_games
+        # never EXPLODES a todays_games row into duplicates (which crashed the
+        # per-card keyed selectboxes). Keep the last occurrence.
+        gl = gl.drop_duplicates(subset=["game_id"], keep="last")
         return gl[["game_id", "home_score", "away_score"]]
     except Exception:
         return pd.DataFrame(columns=["game_id", "home_score", "away_score"])
@@ -441,6 +450,41 @@ def _contents_todays_dates(owner: str, repo: str, branch: str) -> tuple[str, ...
     return tuple(sorted(dates))
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _mlb_history_dates(owner: str, repo: str, branch: str,
+                       max_snapshot: str | None) -> tuple[str, ...]:
+    """Walk-forward dates a Today's Games board can be REBUILT for (cached):
+    calibration ``daily`` entries + per-game prediction-history ``game_date``
+    values, keyed off the newest todays_games snapshot. Missing/unparseable
+    artifacts → (). This restores season-long date navigation that the
+    todays_games-artifact-only set dropped."""
+    if not max_snapshot:
+        return ()
+    dates: set[str] = set()
+    try:
+        cal, _ = _fetch_bytes(f"calibration_{max_snapshot}.json",
+                              owner=owner, repo=repo, branch=branch)
+        if cal:
+            for entry in json.loads(cal).get("daily", []):
+                d = str(entry.get("date", ""))
+                if len(d) == 8 and d.isdigit():
+                    dates.add(d)
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        pass
+    try:
+        hist, _ = _fetch_bytes(f"predictions_history_{max_snapshot}.csv",
+                               owner=owner, repo=repo, branch=branch)
+        if hist:
+            h = pd.read_csv(io.BytesIO(hist), usecols=["game_date"])
+            for d in h["game_date"].dropna().astype(str):
+                d = d.replace("-", "")
+                if len(d) == 8 and d.isdigit():
+                    dates.add(d)
+    except (ValueError, TypeError, KeyError, pd.errors.EmptyDataError):
+        pass
+    return tuple(sorted(dates))
+
+
 def _distinct_game_dates(frame: pd.DataFrame) -> list[str]:
     """Distinct ``game_date`` values in a game frame, as YYYYMMDD, newest first.
 
@@ -461,17 +505,19 @@ def _distinct_game_dates(frame: pd.DataFrame) -> list[str]:
 
 
 def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
-                      nfl_frame: pd.DataFrame) -> list[str]:
+                      nfl_frame: pd.DataFrame, history_dates=()) -> list[str]:
     """Pure per-sport valid-date derivation (testable without Streamlit/net).
 
     MLB: a date is valid when a ``todays_games_<YYYYMMDD>.csv`` board exists
-    (from the contents API listing merged with the local dir). NFL: distinct
-    ``game_date`` values from the moneyline ``games[]`` frame. Missing/empty
-    artifacts for either sport → [] (graceful, no boards to land on)."""
+    (contents listing + local dir) OR the walk-forward history can rebuild it
+    from calibration ``daily`` entries / prediction-history game dates
+    (``history_dates``). NFL: distinct ``game_date`` from the moneyline
+    ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
     s = normalize_sport_key(sport_key)
     if s == "nfl":
         return _distinct_game_dates(nfl_frame)
     dates = set(contents_dates or ())
+    dates.update(history_dates or ())
     for p in Path(local_dir).glob("todays_games_*.csv"):
         d = p.name[len("todays_games_"):-len(".csv")]
         if len(d) == 8 and d.isdigit():
@@ -491,7 +537,15 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     cfg = get_source_config()
     contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
     nfl_frame = load_nfl_moneyline("nfl") if s == "nfl" else pd.DataFrame()
-    return tuple(_valid_dates_impl(s, contents, LOCAL_DATA_DIR, nfl_frame))
+    snap = set(contents)
+    for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
+        d = p.name[len("todays_games_"):-len(".csv")]
+        if len(d) == 8 and d.isdigit():
+            snap.add(d)
+    max_snap = max(snap) if snap else None
+    history = (_mlb_history_dates(cfg["owner"], cfg["repo"], cfg["branch"],
+                                  max_snap) if s == "mlb" else ())
+    return tuple(_valid_dates_impl(s, contents, LOCAL_DATA_DIR, nfl_frame, history))
 
 
 def nearest_valid_date(valid: list[str] | tuple[str, ...],
