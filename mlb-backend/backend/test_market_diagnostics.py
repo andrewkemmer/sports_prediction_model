@@ -276,8 +276,8 @@ class TestFixedLineCalibration(unittest.TestCase):
 
     def test_line_selector_changes_bucket_distribution(self):
         decided = add_outcomes(make_grid_df(n=200, seed=3))
-        c85 = diag.fixed_line_calibration(decided, 8.5)
-        c95 = diag.fixed_line_calibration(decided, 9.5)
+        c85 = diag.game_total_calibration(decided, 8.5)
+        c95 = diag.game_total_calibration(decided, 9.5)
         self.assertIsNone(c85["warning"])
         self.assertIsNone(c95["warning"])
         dist85 = [b["count"] for b in c85["bins"]]
@@ -286,18 +286,19 @@ class TestFixedLineCalibration(unittest.TestCase):
                             "changing the line must re-bucket the games")
         self.assertNotAlmostEqual(c85["pooled_pred"], c95["pooled_pred"])
 
-    def test_counts_sum_to_decided_games_at_that_line(self):
+    def test_counts_sum_to_non_push_games_at_that_line(self):
         decided = add_outcomes(make_grid_df(n=150, seed=5))
         for line in (8.5, 9.0, 9.5):
-            out = diag.fixed_line_calibration(decided, line)
+            out = diag.game_total_calibration(decided, line)
             self.assertEqual(sum(b["count"] for b in out["bins"]),
-                             out["n_games"])
+                             out["n_games"] - out["n_pushes"],
+                             "pushes excluded from the calibration population")
             self.assertEqual(out["n_games"], len(decided))
             self.assertEqual(len(out["bins"]), 20)   # 5-pt buckets, all kept
 
     def test_whole_line_pushes_excluded_2way_hand_computed(self):
-        # Line 9.0: g0 total==9 is a PUSH (excluded from observed); g1/g3
-        # over (10, 11), g2/g4 under (8, 7). pred2 = po/(po+pu).
+        # Line 9.0: g0 total==9 is a PUSH (excluded from count AND observed);
+        # g1/g3 over (10, 11), g2/g4 under (8, 7). pred2 = po/(po+pu).
         rows = [
             {"game_pk": 0, "total_runs": 9, "p_over_9_0": 0.45,
              "p_under_9_0": 0.45},
@@ -310,45 +311,87 @@ class TestFixedLineCalibration(unittest.TestCase):
             {"game_pk": 4, "total_runs": 7, "p_over_9_0": 0.50,
              "p_under_9_0": 0.45},
         ]
-        out = diag.fixed_line_calibration(pd.DataFrame(rows), 9.0)
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
         self.assertIsNone(out["warning"])
         self.assertEqual(out["n_games"], 5)
         self.assertEqual(out["n_pushes"], 1)
         self.assertAlmostEqual(out["push_rate"], 0.2)
         by = {b["bin"]: b for b in out["bins"]}
-        # 50-55 holds the push (pred2 0.5, observed None) + g4 (pred2
-        # 0.5263, under) -> observed 0.0
-        self.assertEqual(by["50-55"]["count"], 2)
+        # 50-55 holds ONLY g4 (pred2 0.5263, under) — the push game is
+        # excluded from the count, observed and share denominator
+        self.assertEqual(by["50-55"]["count"], 1)
         self.assertEqual(by["50-55"]["observed"], 0.0)
-        self.assertAlmostEqual(by["50-55"]["mean_pred"],
-                               (0.5 + 0.5 / 0.95) / 2, places=4)
+        self.assertAlmostEqual(by["50-55"]["mean_pred"], 0.5 / 0.95,
+                               places=4)
+        self.assertAlmostEqual(by["50-55"]["share_pct"], 25.0)  # 1/4 obs
         self.assertEqual(by["65-70"]["count"], 1)   # g1 over
         self.assertEqual(by["65-70"]["observed"], 1.0)
         self.assertEqual(by["75-80"]["count"], 1)   # g3 over
         self.assertEqual(by["75-80"]["observed"], 1.0)
         self.assertEqual(by["55-60"]["count"], 1)   # g2 under
         self.assertEqual(by["55-60"]["observed"], 0.0)
-        # Pooled: pred over all 5 priced games; observed 2/4 excluding push
-        exp_pred = (0.5 + 0.6 / 0.9 + 0.55 / 0.95 + 0.7 / 0.9
-                    + 0.5 / 0.95) / 5
+        # Pooled pred/observed over the 4 NON-PUSH games
+        exp_pred = (0.6 / 0.9 + 0.55 / 0.95 + 0.7 / 0.9 + 0.5 / 0.95) / 4
         self.assertAlmostEqual(out["pooled_pred"], exp_pred, places=4)
         self.assertAlmostEqual(out["pooled_observed"], 0.5)
+
+    def test_share_pct_hand_computed(self):
+        # 3 games in 0-5, 1 in 5-10 -> shares 75% / 25%, sum 100
+        rows = [{"game_pk": i, "total_runs": 8 if i % 2 else 10,
+                 "p_over_8_5": p, "p_under_8_5": 1.0 - p}
+                for i, p in enumerate((0.02, 0.04, 0.03, 0.06))]
+        out = diag.game_total_calibration(pd.DataFrame(rows), 8.5)
+        self.assertIsNone(out["warning"])
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["0-5"]["count"], 3)
+        self.assertAlmostEqual(by["0-5"]["share_pct"], 75.0, places=2)
+        self.assertEqual(by["5-10"]["count"], 1)
+        self.assertAlmostEqual(by["5-10"]["share_pct"], 25.0, places=2)
+        self.assertAlmostEqual(sum(b["share_pct"] for b in out["bins"]),
+                               100.0, places=1)
 
     def test_half_line_never_pushes(self):
         decided = add_outcomes(make_grid_df(n=120, seed=7))
         for line in (6.5, 8.5, 9.5, 12.5):
-            out = diag.fixed_line_calibration(decided, line)
+            out = diag.game_total_calibration(decided, line)
             self.assertEqual(out["n_pushes"], 0,
                              f"half-line {line} cannot push")
             self.assertIsNone(out["warning"])
 
+    def test_all_branch_uses_own_line_1pt_buckets(self):
+        decided = add_outcomes(make_grid_df(n=200, seed=11))
+        out = diag.game_total_calibration(decided, None)
+        self.assertIsNone(out["warning"])
+        self.assertEqual([b["bin"] for b in out["bins"]],
+                         diag.OWN_LINE_LABELS)
+        self.assertEqual(out["bins"][-1]["bin"], "60+")
+        self.assertEqual(sum(b["count"] for b in out["bins"]),
+                         out["n_games"] - out["n_pushes"])
+        # Own-line confidence compresses near 50-55% by construction
+        self.assertGreaterEqual(out["pooled_pred"], 0.5)
+        self.assertLessEqual(out["pooled_pred"], 0.6)
+        self.assertGreaterEqual(out["pooled_observed"], 0.0)
+        self.assertLessEqual(out["pooled_observed"], 1.0)
+
+    def test_all_whole_line_fat_push_band_uses_rescaled_side(self):
+        """A whole-line pick must use the re-scaled 2-way P, never raw
+        max(p_over, 1 - p_over): p_over=0.36 / p_under=0.48 at own line 9.0
+        → under pick, conf 0.5714 → 57-58 bucket; event = under wins."""
+        rows = [{"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
+                 "away_expected_runs": 4.5, "total_runs": 8,
+                 "p_over_9_0": 0.36, "p_under_9_0": 0.48}]
+        out = diag.game_total_calibration(pd.DataFrame(rows), None)
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["57-58"]["count"], 1)
+        self.assertEqual(by["60+"]["count"], 0)
+
     def test_empty_bins_kept_and_chart_builds(self):
         # All pred2 cluster in 0.50-0.55 -> only one populated bin; the rest
-        # keep count 0 / observed None and both charts still render.
+        # keep count 0 / None stats and both charts still render.
         rows = [{"game_pk": i, "total_runs": 10 if i % 2 else 8,
                  "p_over_9_0": 0.52, "p_under_9_0": 0.47}
                 for i in range(60)]
-        out = diag.fixed_line_calibration(pd.DataFrame(rows), 9.0)
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
         self.assertEqual(out["n_pushes"], 0)
         populated = [b for b in out["bins"] if b["count"] > 0]
         self.assertEqual(len(populated), 1)
@@ -357,7 +400,8 @@ class TestFixedLineCalibration(unittest.TestCase):
         for b in empty:
             self.assertIsNone(b["observed"])
             self.assertIsNone(b["mean_pred"])
-        built = diag.chart_fixed_line(out, "t")
+            self.assertEqual(b["share_pct"], 0.0)
+        built = diag.chart_game_total_lines(out, "t")
         for k in ("chart", "scatter", "table"):
             self.assertIn(k, built)
         self.assertFalse(built["table"].empty)
@@ -365,31 +409,57 @@ class TestFixedLineCalibration(unittest.TestCase):
         self.assertGreater(len(built["scatter"].to_dict()), 1)
 
     def test_missing_columns_warn_not_crash(self):
-        out = diag.fixed_line_calibration(pd.DataFrame(), 8.5)
+        out = diag.game_total_calibration(pd.DataFrame(), 8.5)
         self.assertIsNotNone(out["warning"])
-        out = diag.fixed_line_calibration(
+        out = diag.game_total_calibration(
             make_grid_df(n=5).drop(columns=["p_under_8_5"]), 8.5)
         self.assertIsNotNone(out["warning"])
         self.assertEqual(out["bins"], [])
+        out = diag.game_total_calibration(
+            make_grid_df(n=5).drop(columns=["home_expected_runs"]), None)
+        self.assertIsNotNone(out["warning"])
 
     def test_real_artifact_fixed_line_spread_and_sum(self):
         """On the shipped artifact a single line spreads predicted P(over)
-        widely (the point of the view) and buckets sum to all decided games."""
+        widely (the point of the view); buckets + shares sum over the
+        non-push population."""
         dd = Path(__file__).resolve().parents[1] / "data_delivery"
         m_path = dd / "run_engine_markets_20260829.csv"
         if not m_path.exists():
             self.skipTest("run-engine artifact absent")
-        out = diag.fixed_line_calibration(
+        out = diag.game_total_calibration(
             diag.decided_rows(pd.read_csv(m_path)), 8.5)
         self.assertIsNone(out["warning"])
         self.assertEqual(sum(b["count"] for b in out["bins"]),
-                         out["n_games"])
+                         out["n_games"] - out["n_pushes"])
+        self.assertAlmostEqual(sum(b["share_pct"] for b in out["bins"]),
+                               100.0, places=1)
         mn = min(b["mean_pred"] for b in out["bins"] if b["mean_pred"])
         mx = max(b["mean_pred"] for b in out["bins"] if b["mean_pred"])
         self.assertGreater(mx - mn, 0.20,
                            "fixed-line predicted spread must be wide")
         self.assertLess(mn, 0.40)
         self.assertGreater(mx, 0.55)
+
+    def test_real_artifact_all_55plus_empty(self):
+        """The 'All' own-line view on the shipped artifact: 55+ is empty
+        (max picked-side re-scaled conf ≈ 52.7) and buckets sum to the
+        non-push population."""
+        dd = Path(__file__).resolve().parents[1] / "data_delivery"
+        m_path = dd / "run_engine_markets_20260829.csv"
+        if not m_path.exists():
+            self.skipTest("run-engine artifact absent")
+        out = diag.game_total_calibration(
+            diag.decided_rows(pd.read_csv(m_path)), None)
+        self.assertIsNone(out["warning"])
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(sum(b["count"] for b in out["bins"]),
+                         out["n_games"] - out["n_pushes"])
+        hi = sum(by[k]["count"] for k in
+                 ("55-56", "56-57", "57-58", "58-59", "59-60", "60+"))
+        self.assertEqual(hi, 0)
+        self.assertAlmostEqual(out["pooled_pred"], 0.513, places=2)
+        self.assertAlmostEqual(out["pooled_observed"], 0.525, places=2)
 
 
 class TestPushExclusion(unittest.TestCase):
@@ -400,28 +470,29 @@ class TestPushExclusion(unittest.TestCase):
     def _decided(self, rows):
         return pd.DataFrame(rows)
 
-    def test_pick_table_excludes_push(self):
+    def test_all_branch_excludes_push(self):
         rows = [
-            # PUSH: total 9 == fair/rounded line 9.0 (4.5 + 4.5)
+            # PUSH: total 9 == own fair line 9.0 (4.5 + 4.5)
             {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
              "away_expected_runs": 4.5, "total_runs": 9, "p_over_9_0": 0.52,
              "p_under_9_0": 0.47},
-            # over hit: 10 >= 9.5
+            # over pick wins: 10 >= 9.5
             {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
              "away_expected_runs": 4.5, "total_runs": 10, "p_over_9_0": 0.52,
              "p_under_9_0": 0.47},
-            # over miss: 8 < 9.5
+            # over pick loses: 8 < 9.5
             {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.5,
              "away_expected_runs": 4.5, "total_runs": 8, "p_over_9_0": 0.52,
              "p_under_9_0": 0.47},
         ]
-        out = diag.totals_pick_table(self._decided(rows))
+        out = diag.game_total_calibration(self._decided(rows), None)
         self.assertIsNone(out["warning"])
-        self.assertEqual(out["n_games"], 2)        # push dropped
+        self.assertEqual(out["n_games"], 3)
         self.assertEqual(out["n_pushes"], 1)
         self.assertAlmostEqual(out["push_rate"], 1 / 3, places=4)
-        self.assertAlmostEqual(out["win_rate"], 0.5)  # 1 hit / 2 non-push
-        self.assertEqual(sum(b["count"] for b in out["buckets"]), 2)
+        # Push excluded from the calibration population (2 non-push games)
+        self.assertEqual(sum(b["count"] for b in out["bins"]), 2)
+        self.assertAlmostEqual(out["pooled_observed"], 0.5)  # 1 win / 2
 
     def test_pairs_exclude_push_rows(self):
         rows = [
@@ -441,10 +512,10 @@ class TestPushExclusion(unittest.TestCase):
         rows = [{"game_pk": 0, "kind": "oof", "home_expected_runs": 4.7,
                  "away_expected_runs": 4.8, "total_runs": 9, "p_over_9_5": 0.62,
                  "p_under_9_5": 0.31}]
-        out = diag.totals_pick_table(self._decided(rows))
+        out = diag.game_total_calibration(self._decided(rows), 9.5)
         self.assertEqual(out["n_pushes"], 0)
         self.assertEqual(out["n_games"], 1)
-        self.assertAlmostEqual(out["win_rate"], 0.0)   # over pick missed
+        self.assertAlmostEqual(out["pooled_observed"], 0.0)  # over pick missed
 
     def test_push_stats_helper(self):
         rows = [
@@ -461,124 +532,6 @@ class TestPushExclusion(unittest.TestCase):
         self.assertAlmostEqual(stats["push_rate"], 1 / 3, places=4)
         # Empty input → zeros, no crash
         self.assertEqual(diag.push_stats(pd.DataFrame())["n_pushes"], 0)
-
-
-class TestTotalsPickTable(unittest.TestCase):
-    def test_hand_computed_buckets_and_win_rate(self):
-        # Each game carries ONLY its target line's columns, so the fair line
-        # resolves to that line deterministically. re-scaled P(over) =
-        # po/(po+pu); pick = the side with re-scaled P >= 0.5; confidence =
-        # picked side's re-scaled P; 1% buckets (50-51 … 60+).
-        rows = [
-            # A: line 9.0, rso=0.54/0.94=0.5745 over, total 10 -> hit, 57-58
-            {"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
-             "away_expected_runs": 4.5, "total_runs": 10, "p_over_9_0": 0.54,
-             "p_under_9_0": 0.40},
-            # B: same line/prob, total 8 -> over MISS (8 < 9.5), 57-58
-            {"game_pk": 1, "kind": "oof", "home_expected_runs": 4.5,
-             "away_expected_runs": 4.5, "total_runs": 8, "p_over_9_0": 0.54,
-             "p_under_9_0": 0.40},
-            # C: line 9.5, rso=0.60, over, total 9 -> MISS (9 < 10), 60+
-            {"game_pk": 2, "kind": "oof", "home_expected_runs": 4.7,
-             "away_expected_runs": 4.8, "total_runs": 9, "p_over_9_5": 0.60,
-             "p_under_9_5": 0.40},
-            # D: line 8.5, rso=0.45 -> PICK UNDER conf 0.55, total 7 -> hit,
-            #    55-56
-            {"game_pk": 3, "kind": "oof", "home_expected_runs": 4.2,
-             "away_expected_runs": 4.3, "total_runs": 7, "p_over_8_5": 0.45,
-             "p_under_8_5": 0.55},
-            # E: line 9.5, rso=0.51 over, total 12 -> hit (12 >= 10), 51-52
-            {"game_pk": 4, "kind": "oof", "home_expected_runs": 4.7,
-             "away_expected_runs": 4.8, "total_runs": 12, "p_over_9_5": 0.51,
-             "p_under_9_5": 0.49},
-        ]
-        decided = pd.DataFrame(rows)
-        out = diag.totals_pick_table(decided)
-        self.assertIsNone(out["warning"])
-        self.assertEqual(out["n_games"], 5)
-        by = {b["bucket"]: b for b in out["buckets"]}
-        # A over@0.5745 hit (10 >= 9.5) + B over@0.5745 MISS (8 < 9.5)
-        self.assertEqual(by["57-58"]["count"], 2)
-        self.assertAlmostEqual(by["57-58"]["accuracy"], 50.0)
-        # C over@0.60 MISS (9 < 10)
-        self.assertEqual(by["60+"]["count"], 1)
-        self.assertAlmostEqual(by["60+"]["accuracy"], 0.0)
-        # D under@0.55 hit (7 < 9)
-        self.assertEqual(by["55-56"]["count"], 1)
-        self.assertAlmostEqual(by["55-56"]["accuracy"], 100.0)
-        # E over@0.51 hit (12 >= 10)
-        self.assertEqual(by["51-52"]["count"], 1)
-        self.assertAlmostEqual(by["51-52"]["accuracy"], 100.0)
-        # Empty 1% buckets present with count 0, never dropped
-        self.assertEqual(by["50-51"]["count"], 0)
-        self.assertEqual(by["58-59"]["count"], 0)
-        self.assertEqual(sum(b["count"] for b in out["buckets"]), 5)
-        self.assertAlmostEqual(out["win_rate"], 0.6)  # 3/5 pooled
-        self.assertIn("fair line", out["pick_rule"])
-
-    def test_missing_columns_warn_not_crash(self):
-        out = diag.totals_pick_table(
-            make_grid_df(n=5).drop(columns=["home_expected_runs"]))
-        self.assertIsNotNone(out["warning"])
-        self.assertEqual(out["buckets"], [])
-        out = diag.totals_pick_table(pd.DataFrame())
-        self.assertIsNotNone(out["warning"])
-        # No p_under anywhere → re-scaled 2-way can't be priced → empty, not
-        # a crash (fair-line confidence is always 2-way re-normalized).
-        bare = pd.DataFrame({
-            "game_pk": [0], "kind": ["oof"],
-            "home_expected_runs": [4.5], "away_expected_runs": [4.5],
-            "total_runs": [10], "p_over_9_0": [0.52],
-        })
-        out = diag.totals_pick_table(bare)
-        self.assertIsNotNone(out["warning"])
-        self.assertEqual(out["buckets"], [])
-
-    def test_confidence_is_rescaled_not_raw_over(self):
-        """A whole-line pick must use the re-scaled 2-way P, never raw
-        max(p_over, 1 - p_over) (which folds the push band into the under
-        complement and inflates confidence). Here p_over=0.36 with a fat
-        push band (p_under=0.48): raw max = 0.64 → a bogus 64% bucket;
-        re-scaled picked side = 0.48/0.84 = 0.571 → 57-58 bucket."""
-        rows = [{"game_pk": 0, "kind": "oof", "home_expected_runs": 4.5,
-                 "away_expected_runs": 4.5, "total_runs": 8,
-                 "p_over_9_0": 0.36, "p_under_9_0": 0.48}]
-        out = diag.totals_pick_table(pd.DataFrame(rows))
-        by = {b["bucket"]: b for b in out["buckets"]}
-        # Under pick, conf = 0.48/(0.36+0.48) = 0.5714 → 57-58
-        self.assertEqual(by["57-58"]["count"], 1)
-        # No game lands in 60+/any bucket above 59-60 from the raw impulse
-        self.assertEqual(by["60+"]["count"], 0)
-        self.assertEqual(sum(b["count"] for b in out["buckets"]), 1)
-
-    def test_conf_buckets_are_1pct_increments(self):
-        self.assertEqual(diag.TOTALS_PICK_LABELS,
-                         ["50-51", "51-52", "52-53", "53-54", "54-55",
-                          "55-56", "56-57", "57-58", "58-59", "59-60",
-                          "60+"])
-        self.assertEqual(diag.TOTALS_PICK_EDGES,
-                         [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 101])
-
-    def test_real_artifact_fairline_shift_and_sum(self):
-        """On the shipped artifact the fair-line pick is re-scaled, so the
-        former 55-60 population lands in the 50-53 bands: buckets sum to the
-        priced non-push games and nothing sits at 55+ (max re-scaled conf ≈
-        52.7)."""
-        dd = Path(__file__).resolve().parents[1] / "data_delivery"
-        m_path = dd / "run_engine_markets_20260829.csv"
-        if not m_path.exists():
-            self.skipTest("run-engine artifact absent")
-        out = diag.totals_pick_table(diag.decided_rows(pd.read_csv(m_path)))
-        self.assertIsNone(out["warning"])
-        by = {b["bucket"]: b for b in out["buckets"]}
-        # Buckets sum exactly to the priced non-push games (no double count)
-        self.assertEqual(sum(b["count"] for b in out["buckets"]),
-                         out["n_games"])
-        # 55+ is empty on this artifact — the max re-scaled conf is ~52.7
-        hi = sum(by[k]["count"] for k in
-                 ("55-56", "56-57", "57-58", "58-59", "59-60", "60+"))
-        self.assertEqual(hi, 0)
-        self.assertEqual(by["60+"]["count"], 0)
 
 
 class TestOversAndRunlineTables(unittest.TestCase):
@@ -662,13 +615,14 @@ class TestRealArtifactPushSmoke(unittest.TestCase):
         # real artifact — and win rate must exclude them.
         self.assertGreater(stats["n_pushes"], 0)
         self.assertLess(stats["push_rate"], 0.10)
-        tp = diag.totals_pick_table(decided)
+        tp = diag.game_total_calibration(decided, None)
         self.assertIsNone(tp["warning"])
         self.assertEqual(tp["n_pushes"], stats["n_pushes"])
-        self.assertEqual(tp["n_games"] + tp["n_pushes"],
-                         stats["n_games"],
-                         "win-rate denominator excludes pushes exactly")
+        self.assertEqual(tp["n_games"], stats["n_games"])
         self.assertAlmostEqual(tp["push_rate"], stats["push_rate"], places=4)
+        # Pushes excluded from the calibration population (2-way convention)
+        self.assertEqual(sum(b["count"] for b in tp["bins"]),
+                         tp["n_games"] - tp["n_pushes"])
         # Pairs: every push excluded, one pair per non-push game.
         pairs = diag.rounded_total_pairs(decided)
         self.assertEqual(len(pairs), stats["n_games"] - stats["n_pushes"])
@@ -739,9 +693,12 @@ class TestAccuracyAxisAlwaysIndependent(unittest.TestCase):
         self.assertGreaterEqual(domain[1], 90.0)   # full 0–100% scale
 
     def test_no_null_scale_in_any_build(self):
+        table = diag.pick_buckets(
+            np.array([0.52, 0.54, 0.57, 0.51, 0.55, 0.53] * 20),
+            np.array([1, 0, 1, 1, 0, 1] * 20, float),
+            labels=diag.OWN_LINE_LABELS, edges=diag.OWN_LINE_EDGES)
         for kwargs in ({}, {"total_line": True, "acc_y_max": 75.0}):
-            built = diag.chart_pick_buckets(
-                diag.totals_pick_table(self.decided), "t", **kwargs)
+            built = diag.chart_pick_buckets(table, "t", **kwargs)
             dump = _spec_dump(built["chart"])
             self.assertNotIn('"scale": null', dump,
                              f"null scale leaks into spec with {kwargs}")
@@ -846,27 +803,36 @@ class TestRenderSmoke(unittest.TestCase):
         self._assert_chart_has_data(
             diag.chart_calibration(curve, "Per-game rounded total"))
 
-    def test_7_totals_picks_renders(self):
-        built = diag.chart_pick_buckets(
-            diag.totals_pick_table(self.decided), "Totals picks")
-        self._assert_chart_has_data(built["chart"])
-        self.assertFalse(built["table"].empty)
-        # Labels follow the 4-bucket convention (50–55 … 65+)
-        self.assertEqual(built["table"]["bucket"].tolist(),
-                         diag.TOTALS_PICK_LABELS)
-        # Default build: no reference line (that's the total_line=True
-        # amber rule), but the accuracy axis is ALWAYS present with an
-        # explicit domain (the fix for the Run-line picks regression —
-        # scale=None serialized to "scale": null and dropped the axis).
-        default_dump = _spec_dump(built["chart"])
-        self.assertNotIn('"rule"', default_dump)
-        self.assertIn('"domain": [0.0, 100.0]', default_dump)
+    @staticmethod
+    def _synthetic_own_line_table():
+        """Synthetic pick-buckets table (chart_pick_buckets contract) for
+        the total_line/axis tests — the deleted Totals picks tab no longer
+        provides a real fixture."""
+        p = np.array([0.52, 0.54, 0.57, 0.51, 0.55, 0.53] * 20)
+        hit = np.array([1, 0, 1, 1, 0, 1] * 20, float)
+        table = diag.pick_buckets(p, hit, labels=diag.OWN_LINE_LABELS,
+                                  edges=diag.OWN_LINE_EDGES)
+        table["n_games"] = len(p)
+        table["win_rate"] = round(float(hit.mean()), 4)
+        return table
 
-    def test_totals_picks_total_line_at_pooled_rate(self):
+    def test_7_game_total_lines_renders(self):
+        for line in (None, 8.5):
+            out = diag.game_total_calibration(self.decided, line)
+            self.assertIsNone(out["warning"])
+            built = diag.chart_game_total_lines(out, "t")
+            self._assert_chart_has_data(built["chart"])
+            self._assert_chart_has_data(built["scatter"])
+            self.assertFalse(built["table"].empty)
+            # New table contract: share_pct replaces the redundant observed_pct
+            self.assertIn("share_pct", built["table"].columns)
+            self.assertNotIn("observed_pct", built["table"].columns)
+
+    def test_pick_buckets_total_line_at_pooled_rate(self):
         import json
-        tp = diag.totals_pick_table(self.decided)
+        tp = self._synthetic_own_line_table()
         built = diag.chart_pick_buckets(
-            tp, "Totals picks", total_line=True)
+            tp, "Pick accuracy", total_line=True)
         dump = json.dumps(built["chart"].to_dict())
         # Constant horizontal line at the POOLED win rate, not a bucket point
         self.assertIn('"rule"', dump)
@@ -878,9 +844,9 @@ class TestRenderSmoke(unittest.TestCase):
 
     def test_accuracy_axis_floor_not_pinned_to_top(self):
         import json
-        tp = diag.totals_pick_table(self.decided)
+        tp = self._synthetic_own_line_table()
         built = diag.chart_pick_buckets(
-            tp, "Totals picks", total_line=True, acc_y_max=75.0)
+            tp, "Pick accuracy", total_line=True, acc_y_max=75.0)
         dump = json.dumps(built["chart"].to_dict())
         # Accuracy axis is in PERCENT units; domain max >= 75 (the floor),
         # extended with headroom above the largest visible value.
@@ -898,8 +864,8 @@ class TestRenderSmoke(unittest.TestCase):
         # Five picks at 0.80 confidence, 4/5 hit → a genuine 80% bucket
         p = np.full(5, 0.8)
         hit = np.array([1, 1, 1, 1, 0], float)
-        table = diag.pick_buckets(p, hit, labels=diag.TOTALS_PICK_LABELS,
-                                  edges=diag.TOTALS_PICK_EDGES)
+        table = diag.pick_buckets(p, hit, labels=diag.OWN_LINE_LABELS,
+                                  edges=diag.OWN_LINE_EDGES)
         table["n_games"] = 5
         table["win_rate"] = 0.8
         built = diag.chart_pick_buckets(

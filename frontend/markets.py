@@ -109,7 +109,7 @@ if decided.empty:
 else:
     _tabs = st.tabs([
         "Distribution", "Relativized", "Pooled lines",
-        "Fixed line", "Totals picks", "Run-line picks",
+        "Game Total Lines", "Run-line picks",
     ])
 
     with _tabs[0]:   # 1 — totals distribution fit-check
@@ -174,63 +174,47 @@ else:
                 "line games pooled in."
             )
 
-    with _tabs[3]:   # 4 — fixed-line totals calibration (line selector)
-        _fl_sel = st.selectbox(
-            "Fixed total line", [f"{l:g}" for l in diag.TOTAL_GRID],
-            index=diag.TOTAL_GRID.index(8.5), key="diag_fixed_line")
-        _fl_line = float(_fl_sel)
-        flc = diag.fixed_line_calibration(decided, _fl_line)
-        if flc["warning"]:
-            st.warning(flc["warning"])
+    with _tabs[3]:   # 4 — game total lines (All own-line / fixed line)
+        _gl_sel = st.selectbox(
+            "Line (All = own fair line)",
+            ["All"] + [str(l) for l in diag.TOTAL_GRID],
+            index=1 + diag.TOTAL_GRID.index(8.5), key="diag_game_total_line")
+        _gl_line = None if _gl_sel == "All" else float(_gl_sel)
+        glc = diag.game_total_calibration(decided, _gl_line)
+        if glc["warning"]:
+            st.warning(glc["warning"])
         else:
-            built = diag.chart_fixed_line(
-                flc, f"Fixed line {_fl_line:g} — every game at one line")
+            if _gl_line is None:
+                _gl_title = "All games at each own fair line"
+                _gl_obs = "Observed % (picked side, no push)"
+            else:
+                _gl_title = f"Fixed line {_gl_line:g} — every game at one line"
+                _gl_obs = "Observed over % (2-way, no push)"
+            built = diag.chart_game_total_lines(glc, _gl_title, obs_label=_gl_obs)
             utils.show_chart(built["chart"])
             utils.show_chart(built["scatter"])
             st.table(built["table"])
             st.caption(
-                f"ALL {flc['n_games']:,} decided games priced at ONE fixed "
-                f"line {_fl_line:g} (not each game's own line) · predicted = "
-                f"re-scaled 2-way P(over) = p_over / (p_over + p_under) · "
-                f"{flc['n_pushes']:,} pushes excluded ({flc['push_rate']:.1%}, "
-                f"whole lines only) · observed = over frequency on the same "
-                f"no-push basis (#over / (#over + #under)) · buckets are 5-pt "
-                f"(20 bins, empty bins render 0) · pooled predicted "
-                f"{flc['pooled_pred']:.2f} vs pooled observed "
-                f"{flc['pooled_observed']:.2f}. At one line the predicted "
-                "spread is the calibration surface itself (the per-game "
-                "own-line view compressed it to 0.44–0.51); the dashed "
+                f"{glc['n_games']:,} decided games · predicted = re-scaled "
+                f"2-way P (p_over / (p_over + p_under)) · "
+                f"{glc['n_pushes']:,} pushes excluded ({glc['push_rate']:.1%}, "
+                f"whole lines only, neither wins nor losses) · observed on "
+                f"the same no-push basis · share % = count_bin / count_total × "
+                f"100 · pooled predicted {glc['pooled_pred']:.2f} vs pooled "
+                f"observed {glc['pooled_observed']:.2f}. "
+                + ("ALL: each game priced at ITS OWN fair line (the 50/50 "
+                   "grid search) — confidence is the picked side's re-scaled "
+                   "P, so 1-pt buckets 50–51…60+ and high buckets are thin "
+                   "(the fair line concentrates picks near 50%); observed = "
+                   "picked-side win rate." if _gl_line is None else
+                   f"FIXED LINE {_gl_line:g}: all games at one line — the "
+                   "predicted spread IS the calibration surface (the per-game "
+                   "own-line view compressed it to 0.44–0.51); observed = "
+                   "over frequency; 5-pt bins over [0, 1].") + " The dashed "
                 "diagonal is perfect calibration."
             )
 
-    with _tabs[4]:   # 5 — totals picks at each game's rounded line
-        tpicks = diag.totals_pick_table(decided)
-        if tpicks["warning"] or not tpicks["buckets"]:
-            st.warning(tpicks.get("warning")
-                       or "No totals picks could be formed.")
-        else:
-            built = diag.chart_pick_buckets(
-                tpicks, "Totals picks (per-game fair line)",
-                total_line=True, acc_y_max=75.0)
-            utils.show_chart(built["chart"])
-            st.table(built["table"])
-            st.caption(
-                f"Pick rule: {tpicks['pick_rule']} · {tpicks['n_games']:,} "
-                f"decided games · {tpicks['n_pushes']:,} pushes excluded "
-                f"({tpicks['push_rate']:.1%}) · pooled win rate: "
-                f"{tpicks['win_rate']:.1%}. Every game is priced at its own "
-                "FAIR line — the 50/50 grid search (argmin of |re-scaled "
-                "P(over) − 0.5|, ties → lower) — so pick confidence is the "
-                "picked side's re-scaled 2-way probability and buckets sit "
-                "in 1% steps; high buckets (55+) are empty on this artifact "
-                "because the fair line concentrates every pick near 50%. "
-                "Pushes (total == whole-number line) are excluded from both "
-                "sides — neither wins nor losses. Hit rate is NOT "
-                "calibration — it is binary pick accuracy per favored-side "
-                "confidence bucket."
-            )
-
-    with _tabs[5]:   # 6 — run-line pick accuracy buckets
+    with _tabs[4]:   # 5 — run-line pick accuracy buckets
         rpicks = diag.runline_pick_table(decided)
         if rpicks["warning"] or not rpicks["buckets"]:
             st.warning(rpicks.get("warning")

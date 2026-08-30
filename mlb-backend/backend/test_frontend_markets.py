@@ -325,23 +325,31 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertNotIn("underweights the home edge", src,
                          "stale underweighting claim must be gone")
 
-    def test_diagnostics_tab_uses_fixed_line_not_own_rounded_line(self):
-        """The 'Money line (rounded)' tab became a FIXED-line calibration:
-        all games at one selectable line (default 8.5), never the per-game
-        own rounded total (which compressed predicted P(over) to 0.44-0.51
-        — the low-info curve the user rejected)."""
+    def test_diagnostics_tab_uses_game_total_lines_not_own_rounded_line(self):
+        """The totals diagnostics tab is now 'Game Total Lines': an 'All'
+        option (each game at its own fair line, 1-pt buckets) plus fixed
+        lines, one shared code path. The old 'Totals picks' tab is deleted;
+        per-game own-ROUNDED pricing is gone entirely."""
         src = (Path(__file__).resolve().parents[2]
                / "frontend" / "markets.py").read_text()
-        self.assertIn("diag.fixed_line_calibration", src,
-                      "tab must pool at a fixed line via the new helper")
-        self.assertIn("diag.chart_fixed_line", src,
+        self.assertIn('"Game Total Lines"', src,
+                      "tab renamed to Game Total Lines")
+        self.assertIn('["All"] + [str(l) for l in diag.TOTAL_GRID]', src,
+                      "selector must offer All first, then the grid")
+        self.assertIn("diag.game_total_calibration", src,
+                      "tab must pool via the shared game-total helper")
+        self.assertIn("diag.chart_game_total_lines", src,
                       "tab must render the bars + observed-vs-predicted view")
-        self.assertIn("diag_fixed_line", src,
-                      "line selector key present (default 8.5)")
+        self.assertIn("diag_game_total_line", src,
+                      "line selector key present")
         self.assertNotIn("diag.rounded_total_pairs", src,
                          "per-game own-line pricing must be gone from the tab")
         self.assertNotIn("Per-game rounded total", src,
                          "old own-line chart title must be gone")
+        self.assertNotIn('"Totals picks"', src,
+                         "the Totals picks tab is deleted (absorbed by All)")
+        self.assertNotIn("totals_pick_table", src,
+                         "the deleted tab's renderer path must be gone")
 
 
 # ---------------------------------------------------------------------------

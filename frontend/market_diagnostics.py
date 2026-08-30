@@ -51,13 +51,13 @@ def rl_cols(margin: float) -> tuple[str, str, str]:
 def rl_legacy_col(margin: float) -> str:
     """Legacy p_home_cover_<margin> column (half-lines only, e.g. 1.5)."""
     return f"p_home_cover_{str(margin).replace('.', '_')}"
-# Totals-pick confidence buckets — 1% increments (50–51 … 59–60, 60+).
+# Own-line ('All') confidence buckets — 1% increments (50–51 … 59–60, 60+).
 # Empty high buckets render as 0 (never padded or dropped silently); at the
 # fair line every pick has P ≈ 0.50–0.55 so 60+ is empty on the shipped
 # artifact — a data property, not an error.
-TOTALS_PICK_EDGES = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 101]
-TOTALS_PICK_LABELS = ["50-51", "51-52", "52-53", "53-54", "54-55",
-                      "55-56", "56-57", "57-58", "58-59", "59-60", "60+"]
+OWN_LINE_EDGES = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 101]
+OWN_LINE_LABELS = ["50-51", "51-52", "52-53", "53-54", "54-55",
+                   "55-56", "56-57", "57-58", "58-59", "59-60", "60+"]
 
 
 def round_to_half(x: float) -> float:
@@ -424,72 +424,136 @@ def calibration_curve(pairs: pd.DataFrame, n_bins: int = 20,
             "n_dropped_bins": dropped, "warning": warning}
 
 
-def fixed_line_calibration(decided: pd.DataFrame, line: float,
-                           n_bins: int = 20) -> dict[str, Any]:
-    """Pool ALL decided games at ONE fixed total line (6.5–12.5 by 0.5).
+def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
+                        edges: list[float],
+                        labels: list[str]) -> tuple[list[dict], float, float]:
+    """Bucket predicted probabilities + binary outcomes into ``edges``
+    (percent units; last bucket open-ended). Returns (bins, pooled_pred,
+    pooled_event). EMPTY bins are kept with count 0 / None stats — never
+    dropped. ``event`` is the outcome the prediction refers to: the over
+    event for a fixed line, the picked-side win for the own-line 'All'
+    branch (so observed-vs-predicted stays apples-to-apples). share_pct =
+    % of total observations in the group = count_bin / count_total × 100
+    (count_total = all observations passed in — the priced non-push games)."""
+    pct = np.clip(np.asarray(pred, float), 0.0, 1.0) * 100.0
+    ev = np.asarray(event, float)
+    n = len(pct)
+    bins = []
+    for b, lab in enumerate(labels):
+        lo, hi = edges[b], edges[b + 1]
+        m = (pct >= lo) & (pct < hi) if b < len(labels) - 1 else (pct >= lo)
+        cnt = int(m.sum())
+        bins.append({
+            "bin": lab,
+            "bin_center": round(float((lo + hi) / 200.0), 3),
+            "count": cnt,
+            "mean_pred": (round(float(pred[m].mean()), 4) if cnt else None),
+            "observed": (round(float(ev[m].mean()), 4) if cnt else None),
+            "share_pct": (round(cnt / n * 100.0, 2) if n else None),
+        })
+    return (bins, round(float(pred.mean()), 4),
+            round(float(ev.mean()), 4))
 
-    Replaces the per-game own-line (rounded) convention: pricing every game
-    at its OWN line compresses predicted P(over) to ~0.44–0.51 (a low-info
-    curve); at a single line the predicted spread is the calibration surface
-    itself. predicted = the game's re-scaled 2-way P(over) at ``line``
-    (p_over / (p_over + p_under) — push band conditioned out, same convention
-    as the calibration card); observed = over frequency on the SAME no-push
-    basis (#over / (#over + #under)), with pushes (total == line, whole
-    lines only) excluded from both sides. Buckets are equal 5-pt bins over
-    [0, 1] (20 bins); EMPTY bins are kept with count 0 / None stats — never
-    dropped. Strict over: total > line (total >= line + 0.5).
+
+def game_total_calibration(decided: pd.DataFrame,
+                           line: Optional[float] = None,
+                           n_bins: int = 20) -> dict[str, Any]:
+    """Calibration table for the 'Game Total Lines' diagnostics tab.
+
+    line=None ('All') → every game priced at its OWN FAIR line (grid argmin
+    of |re-scaled P(over) − 0.5|, ties → lower — fair_total_lines):
+    predicted = the picked side's re-scaled 2-way P (max of P(over),
+    P(under) at the own line), bucketed at 1 pt (50–51 … 60+) because
+    own-line confidence compresses to ~50–53%; observed = picked-side win
+    rate (an over pick wins iff total > line; an under pick wins iff total
+    < line), pushes excluded from both sides.
+
+    line given → ALL games priced at that ONE fixed line: predicted =
+    re-scaled 2-way P(over) = p_over / (p_over + p_under); observed = over
+    frequency on the same no-push basis (#over / (#over + #under)); 5-pt
+    bins over [0, 1] (n_bins).
+
+    Both branches share one code path: pushes (total == whole-number line)
+    are excluded from the calibration population — neither wins nor losses
+    — and reported as n_pushes / push_rate. share_pct = count_bin /
+    count_total × 100 with count_total = priced non-push games. Strict over:
+    total > line (total >= line + 0.5).
     """
     empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
              "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
-             "warning": "No decided games available for this line."}
+             "warning": "No decided games available for this view."}
     if not len(decided) or "total_runs" not in decided.columns:
         return empty
-    over_col, under_col = grid_over_under_cols(line)
-    if over_col not in decided.columns or under_col not in decided.columns:
-        empty["warning"] = (f"Grid columns for line {line} missing — "
-                            "cannot price at this line.")
+    if line is None and ({"home_expected_runs", "away_expected_runs"}
+                         .difference(decided.columns)):
+        # Only the 'All' (own-line) branch needs the expected runs to resolve
+        # each game's fair line; a fixed line reads its own grid columns.
+        empty["warning"] = "Missing expected-runs columns."
         return empty
     total = decided["total_runs"].to_numpy(float)
-    po = decided[over_col].to_numpy(float)
-    pu = decided[under_col].to_numpy(float)
-    denom = po + pu
-    pred2 = np.full(len(decided), np.nan)
-    valid = np.isfinite(po) & np.isfinite(pu) & (denom > 0)
-    pred2[valid] = po[valid] / denom[valid]
-    ok = ~np.isnan(pred2)
+    n_all = len(decided)
+    pred = np.full(n_all, np.nan)
+    event = np.zeros(n_all)
+    push = np.zeros(n_all, bool)
+    priced = np.zeros(n_all, bool)
+    if line is None:
+        lines = _rounded_lines(decided)
+        for i in range(n_all):
+            l = lines[i]
+            if np.isnan(l):
+                continue
+            over_col, under_col = grid_over_under_cols(l)
+            if (over_col not in decided.columns
+                    or under_col not in decided.columns):
+                continue
+            v = decided[over_col].iloc[i]
+            u = decided[under_col].iloc[i]
+            if pd.isna(v) or pd.isna(u):
+                continue
+            denom = float(v) + float(u)
+            if denom <= 0:
+                continue
+            rso = float(v) / denom
+            pred[i] = max(rso, 1.0 - rso)      # picked side's re-scaled P
+            priced[i] = True
+            if total[i] == l:
+                push[i] = True                 # whole lines only
+                continue
+            over = float(total[i] >= l + 0.5)
+            event[i] = over if rso >= 0.5 else 1.0 - over
+        edges, labels = OWN_LINE_EDGES, OWN_LINE_LABELS
+    else:
+        over_col, under_col = grid_over_under_cols(line)
+        if (over_col not in decided.columns
+                or under_col not in decided.columns):
+            empty["warning"] = (f"Grid columns for line {line} missing — "
+                                "cannot price at this line.")
+            return empty
+        po = decided[over_col].to_numpy(float)
+        pu = decided[under_col].to_numpy(float)
+        denom = po + pu
+        valid = np.isfinite(po) & np.isfinite(pu) & (denom > 0)
+        pred[valid] = po[valid] / denom[valid]
+        priced = valid
+        push = (total == line) & valid
+        over = (total >= line + 0.5) & valid & ~push
+        event = over.astype(float)
+        edges = [round(5.0 * b, 2) for b in range(n_bins + 1)]  # 0, 5, …, 100
+        labels = [f"{int(edges[b])}-{int(edges[b + 1])}"
+                  for b in range(n_bins)]
+    ok = priced & ~push
+    n = int(priced.sum())
+    n_pushes = int(push.sum())
     if not ok.any():
-        empty["warning"] = f"No games priceable at line {line}."
+        empty.update({"n_games": n, "n_pushes": n_pushes,
+                      "push_rate": (round(n_pushes / n, 4) if n else 0.0),
+                      "warning": "No non-push games priceable in this view."})
         return empty
-    is_push = (total == line) & ok      # whole lines only (int total == x.5 never)
-    over = (total >= line + 0.5) & ok & ~is_push
-    under = ok & ~is_push & ~over
-    n = int(ok.sum())
-    n_pushes = int(is_push.sum())
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    idx = np.clip(np.digitize(pred2[ok], edges[1:-1], right=False),
-                  0, n_bins - 1)
-    bins = []
-    for b in range(n_bins):
-        m = idx == b
-        cnt = int(m.sum())
-        p_m = pred2[ok][m]
-        n_over = int(over[ok][m].sum())
-        n_under = int(under[ok][m].sum())
-        n_np = n_over + n_under
-        bins.append({
-            "bin": f"{int(edges[b] * 100)}-{int(edges[b + 1] * 100)}",
-            "bin_center": round(float((edges[b] + edges[b + 1]) / 2), 3),
-            "count": cnt,
-            "mean_pred": (round(float(p_m.mean()), 4) if cnt else None),
-            "observed": (round(n_over / n_np, 4) if n_np else None),
-        })
-    n_over_all = int(over.sum())
-    n_under_all = int(under.sum())
+    bins, pooled_pred, pooled_obs = _bucket_calibration(
+        pred[ok], event[ok], edges, labels)
     return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
-            "pooled_pred": round(float(pred2[ok].mean()), 4),
-            "pooled_observed": (round(n_over_all / (n_over_all + n_under_all), 4)
-                                if (n_over_all + n_under_all) else None),
+            "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
             "warning": None}
 
 
@@ -543,83 +607,6 @@ def overs_pick_table(decided: pd.DataFrame, line: float = 8.5) -> dict:
            == (decided["total_runs"].to_numpy(float) >= math.ceil(line)).astype(float))
     out = pick_buckets(np.maximum(p, 1 - p), hit.astype(float))
     out["pick_rule"] = f"over if P(over {line}) >= 0.5"
-    return out
-
-
-def totals_pick_table(decided: pd.DataFrame) -> dict:
-    """Favored-side pick at each game's own FAIR total line.
-
-    pick = over if P(over own fair line) ≥ 0.5 else under; confidence = the
-    picked side's RE-SCALED 2-way probability (p_over / (p_over + p_under)
-    when over, p_under / (p_over + p_under) when under) — the same convention
-    as the calibration card, which conditions the push band out so confidence
-    never inflates from raw 1 − p_over at whole lines. Bucketed at 1% (50–51
-    … 60). PUSHES (total == whole-number line) excluded from buckets and
-    pooled win_rate — neither wins nor losses — reported as n_pushes /
-    push_rate. win_rate is POOLED accuracy across every non-push pick: hit
-    rate is NOT calibration, and high-confidence buckets are small because
-    every game sits at its own line.
-    """
-    if not len(decided) or "total_runs" not in decided.columns:
-        return {"buckets": [], "n_games": 0, "n_pushes": 0,
-                "push_rate": 0.0,
-                "warning": "Missing outcomes or expected totals."}
-    if ({"home_expected_runs", "away_expected_runs"}
-            .difference(decided.columns)):
-        return {"buckets": [], "n_games": 0, "n_pushes": 0,
-                "push_rate": 0.0,
-                "warning": "Missing expected-runs columns."}
-    total = decided["total_runs"].to_numpy(float)
-    lines = _rounded_lines(decided)
-    rso_arr = np.full(len(decided), np.nan)   # re-scaled P(over) at own line
-    p2_arr = np.full(len(decided), np.nan)    # picked side's re-scaled P
-    line_arr = np.full(len(decided), np.nan)
-    for i in range(len(decided)):
-        line = lines[i]
-        over_col, under_col = grid_over_under_cols(line)
-        if over_col in decided.columns and under_col in decided.columns:
-            v = decided[over_col].iloc[i]
-            u = decided[under_col].iloc[i]
-            if not pd.isna(v) and not pd.isna(u):
-                denom = float(v) + float(u)
-                if denom > 0:
-                    rso = float(v) / denom
-                    rso_arr[i] = rso
-                    p2_arr[i] = (rso if rso >= 0.5 else 1.0 - rso)
-                    line_arr[i] = line
-    ok = ~np.isnan(rso_arr)
-    # Pushes (total == whole-number line) are UNDER-favored games landing
-    # exactly on the line — neither wins nor losses — excluded from the
-    # win-rate denominator and the accuracy buckets.
-    is_push = (total == line_arr) & ok
-    non_push = ok & ~is_push
-    n = int(non_push.sum())
-    n_pushes = int(is_push.sum())
-    if not n:
-        return {"buckets": [], "n_games": 0, "n_pushes": n_pushes,
-                "push_rate": (round(n_pushes / (n + n_pushes), 4)
-                              if (n + n_pushes) else 0.0),
-                "warning": "No non-push games with a fair-line grid "
-                            "column."}
-    rso = rso_arr[non_push]
-    p2 = p2_arr[non_push]
-    line_v = line_arr[non_push]
-    total_v = total[non_push]
-    # Pick by the RE-SCALED over probability (push band conditioned out) —
-    # the same side the calibration card picks; comparing raw p_over >= 0.5
-    # would mix push mass into the under complement at whole lines and bias
-    # every pick under.
-    pick_over = rso >= 0.5
-    hit = (pick_over.astype(float)
-           == (total_v >= line_v + 0.5).astype(float))
-    out = pick_buckets(p2, hit.astype(float),
-                       labels=TOTALS_PICK_LABELS, edges=TOTALS_PICK_EDGES)
-    out["n_games"] = n
-    out["n_pushes"] = n_pushes
-    out["push_rate"] = round(n_pushes / (n + n_pushes), 4)
-    out["win_rate"] = round(float(hit.mean()), 4)
-    out["pick_rule"] = ("over if re-scaled P(over own fair line) >= 0.5, "
-                        "else under")
     return out
 
 
@@ -1417,33 +1404,39 @@ def chart_calibration(curve: dict, title: str,
     return (diag + pts).properties(height=300, title=title)
 
 
-def chart_fixed_line(table: dict, title: str) -> dict:
-    """Renders the fixed-line calibration view for a ``fixed_line_calibration``
-    table: {'chart': dual-axis bars (count per 5-pt bucket, left) + observed
-    2-way over % line (right, 0-100 domain), 'scatter': observed vs predicted
-    with the perfect-calibration diagonal, 'table': the bucket rows}.
+def chart_game_total_lines(table: dict, title: str,
+                            obs_label: str = "Observed % (2-way, no push)") -> dict:
+    """Renders the game-total calibration view for a ``game_total_calibration``
+    table: {'chart': dual-axis bars (count per bucket, left) + observed %
+    line (right, 0-100 domain), 'scatter': observed vs predicted with the
+    perfect-calibration diagonal, 'table': the bucket rows}.
 
-    Empty buckets keep count 0 / None stats: bars render as zero-height,
-    the observed line simply skips them (never fabricated), and the scatter
-    drops them (a point needs both axes). The line/point encodings carry a
-    REAL scale with an explicit domain (the scale=None -> "scale": null
-    regression never re-enters this chart)."""
+    ``obs_label`` is contextual: 'Observed over % (2-way, no push)' for a
+    fixed line, 'Observed % (picked side, no push)' for the own-line 'All'
+    branch. Empty buckets keep count 0 / None stats: bars render as
+    zero-height, the observed line simply skips them (never fabricated), and
+    the scatter drops them (a point needs both axes). The line/point
+    encodings carry a REAL scale with an explicit domain (the scale=None ->
+    "scale": null regression never re-enters this chart)."""
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
         return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
                 "scatter": alt.Chart(pd.DataFrame()).mark_point(),
                 "table": tdf}
-    tdf = tdf.copy()
-    tdf["observed_pct"] = tdf["observed"] * 100.0
-    base = alt.Chart(tdf).encode(
-        x=alt.X("bin:N", sort=list(tdf["bin"]), title=None))
+    # The chart needs observed as a percent internally, but the ST.table the
+    # user sees keeps the raw rate + share_pct — never the redundant
+    # observed*100 column (share_pct = count_bin / count_total x 100).
+    chart_df = tdf.copy()
+    chart_df["observed_pct"] = chart_df["observed"] * 100.0
+    base = alt.Chart(chart_df).encode(
+        x=alt.X("bin:N", sort=list(chart_df["bin"]), title=None))
     bars = base.mark_bar(color="#3B82F6").encode(
         y=alt.Y("count:Q", title="Games"),
-        tooltip=["bin", "count", "mean_pred", "observed"])
+        tooltip=["bin", "count", "mean_pred", "observed", "share_pct"])
     obs_line = base.mark_line(
         color="#22C55E", strokeWidth=2.5,
         point=alt.OverlayMarkDef(size=60)).encode(
-        y=alt.Y("observed_pct:Q", title="Observed over % (2-way, no push)",
+        y=alt.Y("observed_pct:Q", title=obs_label,
                 scale=alt.Scale(domain=[0.0, 100.0])),
         tooltip=["bin", "count", "observed_pct"])
     chart = (bars + obs_line).resolve_scale(y="independent").properties(
