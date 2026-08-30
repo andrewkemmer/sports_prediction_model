@@ -587,9 +587,16 @@ class TestRunLineCalibrationRecord(unittest.TestCase):
     totals gate); the record covers n_games == the OOF count."""
 
     def setUp(self):
-        rec = (Path(__file__).resolve().parents[1] / "data_delivery"
-               / "run_line_calibration_20260829.json")
-        self.record = json.loads(rec.read_text())
+        # The record is a human diagnostic output, not pipeline-generated —
+        # the pipeline prunes stale data_delivery artifacts, so load the
+        # NEWEST run-line calibration record and skip when none exists
+        # (the assertions are pins for whatever record is committed).
+        cands = sorted((Path(__file__).resolve().parents[1]
+                        / "data_delivery").glob("run_line_calibration_*.json"),
+                       reverse=True)
+        if not cands:
+            self.skipTest("no run_line_calibration_*.json record committed")
+        self.record = json.loads(cands[0].read_text())
 
     def test_all_grid_lines_present_with_verdict(self):
         lines = {r["line"] for r in self.record["lines"]}
@@ -795,16 +802,29 @@ class TestResolveTotalsLineGridBinding(unittest.TestCase):
         """End-to-end through Home.py -> nav.run() -> todays_games.main() ->
         resolve_totals_line (the exact crash path): run 1 seeds
         ou_line_<game_pk> into session_state; run 2 (the deployed crash)
-        must render with 0 exceptions. Runs in a SUBPROCESS so the
-        canonical suite's streamlit stubs (test_frontend_markets swaps
-        sys.modules['streamlit'] and leaves utils.st bound to the MagicMock)
-        cannot poison the real Streamlit run."""
+        must render with 0 exceptions. The card's O/U + run-line selectors
+        only render when the run-engine markets artifact exists for the
+        shown date, so the test seeds session_state.selected_date to the
+        NEWEST markets artifact (the pipeline prunes older ones on each
+        run — the ET-default date can be mid-rotation and strip-less).
+        Runs in a SUBPROCESS so the canonical suite's streamlit stubs
+        (test_frontend_markets swaps sys.modules['streamlit'] and leaves
+        utils.st bound to the MagicMock) cannot poison the real Streamlit
+        run."""
         import subprocess
         import sys as _sys
         script = (
-            "import sys; sys.path.insert(0, %r);\n"
+            "import sys, glob, re;\n"
+            "sys.path.insert(0, %r);\n"
+            "from pathlib import Path;\n"
             "from streamlit.testing.v1 import AppTest;\n"
+            "dd = Path(%r) / 'data_delivery';\n"
+            "mkt = sorted(p for p in dd.glob('run_engine_markets_*.csv')\n"
+            "             if '_rl.' not in p.name);\n"
+            "date = (re.search(r'\\d{8}', mkt[-1].name).group() if mkt\n"
+            "        else '');\n"
             "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "if date: at.session_state['selected_date'] = date;\n"
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
             "assert len(at.selectbox) > 0, 'no game cards rendered';\n"
@@ -812,7 +832,8 @@ class TestResolveTotalsLineGridBinding(unittest.TestCase):
             "assert not at.exception, at.exception;\n"
             "assert len(at.selectbox) > 0, 'rerun lost game cards';\n"
             "print('APP_OK')\n"
-        ) % (str(FRONTEND), str(FRONTEND / "Home.py"))
+        ) % (str(FRONTEND), str(FRONTEND / ".." / "mlb-backend"),
+             str(FRONTEND / "Home.py"))
         res = subprocess.run([_sys.executable, "-c", script],
                              capture_output=True, text=True, timeout=180)
         self.assertEqual(
