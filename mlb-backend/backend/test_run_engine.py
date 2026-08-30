@@ -60,14 +60,25 @@ from training import FEATURE_COLS
 
 
 class TestFeatureViewDerivation(unittest.TestCase):
-    def test_zero_diff_columns_in_kept_view(self):
+    def test_restored_and_exception_diffs_in_kept_view(self):
+        """2026-08-30 restore: the 24 matchup-gap _diff features and
+        park_factor_slug_diff are in the kept view; run_margin_diff and any
+        other non-restored _diff column are dropped."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        offenders = [f for f in keep
-                     if f.endswith("_diff") and f != re_.RUN_DIFF_EXCEPTION]
-        self.assertEqual(offenders, [])
-        # park_factor_slug_diff is the sanctioned survivor — kept, not dropped.
-        self.assertIn("park_factor_slug_diff", keep)
-        self.assertIn("park_factor_slug_diff", FEATURE_COLS)
+        restorable = set(re_.RUN_RESTORED_DIFF_FEATURES)
+        kept_diffs = {f for f in keep if f.endswith("_diff")}
+        # Every kept _diff is either a restored matchup-gap diff or the park
+        # exception — no stray/non-restored diff leaks in.
+        self.assertTrue(kept_diffs <= restorable | {re_.RUN_DIFF_EXCEPTION})
+        # park_factor_slug_diff is the sanctioned park-context survivor.
+        self.assertIn(re_.RUN_DIFF_EXCEPTION, keep)
+        self.assertIn(re_.RUN_DIFF_EXCEPTION, FEATURE_COLS)
+        # run_margin_diff stays excluded (lambda-derived moneyline-side).
+        self.assertIn("run_margin_diff", dropped)
+        # All 24 restored diffs are kept.
+        self.assertTrue(restorable <= set(keep))
+        # Active view is 53 = 29 original + 24 restored.
+        self.assertEqual(len(keep), 53)
 
     def test_pure_matchup_and_diff_products_dropped(self):
         keep, _ = derive_run_features(list(FEATURE_COLS))

@@ -356,15 +356,15 @@ class TestPlumbing(unittest.TestCase):
 class TestRunEngineGuardrail(unittest.TestCase):
     def test_derive_run_features_excludes_all_deltas(self):
         # Guardrail stays meaningful even though the deltas are currently out
-        # of FEATURE_COLS: feed the full 58 + 38 list so that IF a future
+        # of FEATURE_COLS: feed the full 59 + 38 list so that IF a future
         # re-test re-enables them, the run engine still drops every one and
-        # keeps its raw-only 29-feature view byte-identical.
+        # keeps its raw-only 53-feature view (2026-08-30 restore) byte-identical.
         full = list(FEATURE_COLS) + list(FORM_DELTA_COLS)
         kept, dropped = derive_run_features(full)
         leaked = [c for c in kept if c.endswith(("_delta_home", "_delta_away"))]
         self.assertEqual(leaked, [])
-        self.assertEqual(len(kept), 29)
-        self.assertEqual(len(dropped), len(full) - 29)
+        self.assertEqual(len(kept), 53)
+        self.assertEqual(len(dropped), len(full) - 53)
         dropped_deltas = [c for c in dropped if c.endswith(("_delta_home", "_delta_away"))]
         # 38 momentum deltas (never re-enabled). The 4 SHIPPED Phase-2 lineup
         # deltas (lineup_actual_*_delta_*) were removed from FEATURE_COLS on

@@ -16,6 +16,9 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pandas as pd
 
+from backend.explainability import run_engine_feature_cols
+from backend.run_engine import RUN_RESTORED_DIFF_FEATURES
+
 # frontend/ moved to the repository root (multi-sport restructure, Phase B)
 _frontend = Path(__file__).resolve().parents[2] / "frontend"
 if str(_frontend) not in sys.path:
@@ -287,6 +290,24 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.markets._render_run_engine_coverage(pd.DataFrame())
         self.markets._render_run_engine_model_card(
             {"fit": {}, "phase1": {}, "market_metrics": {}})
+
+    def test_drift_monitor_covers_all_53_active_features(self):
+        """2026-08-30 feature-restore: the run-engine drift/coverage monitor
+        must cover ALL 53 active features (run_engine_feature_cols derives
+        from derive_run_features, which now keeps the 24 restored diffs) — so
+        a future drift artifact covers every shipped feature the next run
+        writes, not just the pre-restore 29. The committed CSV still reflects
+        the last pre-restore run (29) until the next pipeline run."""
+        cols = run_engine_feature_cols()
+        self.assertEqual(len(cols), 53)
+        # All 24 restored diffs are covered by the monitor.
+        self.assertTrue(set(RUN_RESTORED_DIFF_FEATURES) <= set(cols))
+        # The excluded margin/composite features are NOT monitored.
+        self.assertNotIn("run_margin_diff", cols)
+        for f in ("lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
+                  "pitcher_regression_indicator", "lineup_depth_multiplier",
+                  "ace_efficiency_factor"):
+            self.assertNotIn(f, cols)
 
     def test_winner_cards_render_real_auc_values(self):
         """The winner-card renderer runs on the REAL monitor JSON and every

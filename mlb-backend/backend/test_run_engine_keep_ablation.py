@@ -1,17 +1,17 @@
-"""Run-engine-native keep-list ablation tests.
+"""Run-engine-native keep-list tests.
 
-Covers the 2026-08 keep-list decision:
-- derive_run_features routing matches the adopted (DON'T SHIP) outcome, and the
-  ship-outcome variant is exactly kept + 25 diffs (54 cols, incl. the shipped
-  run_margin_diff) — both sides of the decision are pinned so a future rule
-  change is a deliberate, tested act.
+Covers the 2026-08-30 feature-restore decision:
+- derive_run_features KEEPS the 24 matchup-gap _diff features
+  (RUN_RESTORED_DIFF_FEATURES) — 53 active cols; run_margin_diff and the 5
+  composites stay excluded (6 dropped). Both sides pinned exactly so a
+  future rule change is a deliberate, tested act.
 - Same folds → identical table (run_oof determinism).
-- Market-level scoring harness on a fixture: reference lines exist, base rates
-  correct, ECE-cal computed with no holdout leakage.
-- Regressions: moneyline FEATURE_COLS is 65 (run_margin_diff shipped
-  2026-08-26, excluded from the run view by the *_diff rule — the 29-col
-  keep-list is unchanged); run_oof default call path (no explicit feature
-  list) unchanged; α(λ)/MC market path still derives.
+- Market-level scoring harness on a fixture: reference lines exist, base
+  rates correct, ECE-cal computed with no holdout leakage.
+- Regressions: moneyline FEATURE_COLS is 59; run_margin_diff stays excluded
+  from the run view (lambda-derived moneyline-side); run_oof default call
+  path (no explicit feature list) derives the 53-col rule; α(λ)/MC market
+  path still derives.
 """
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ import pandas as pd
 
 from explainability import classify_drift_retention
 from run_engine import (
+    RUN_DIFF_EXCEPTION,
     RUN_EXTRA_EXCLUSIONS,
+    RUN_RESTORED_DIFF_FEATURES,
     derive_markets_v3,
     derive_run_features,
     run_oof,
@@ -58,34 +60,27 @@ def _synthetic_games(n_days: int = 100, per_day: int = 6,
 
 
 class TestRoutingAdoptedOutcome(unittest.TestCase):
-    def test_dont_ship_outcome_exact_sets(self):
-        """Current rule (adopted: DO NOT SHIP) — exact kept/dropped sets.
+    def test_restore_outcome_exact_sets(self):
+        """Current rule (adopted: RESTORE) — exact kept/dropped sets.
 
-        Post-2026-08-29: the 6 lineup-delta features were removed from
-        FEATURE_COLS (train-serve skew fix), so derive_run_features no
-        longer drops them (they're absent from the input).
+        The 24 matchup-gap _diff features are KEPT (RUN_RESTORED_DIFF_FEATURES);
+        run_margin_diff (the only remaining _diff) and the 5 composites are
+        dropped. Active view: 53 cols.
         """
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        diffs = [d for d in dropped if d.endswith("_diff")]
-        composites = [d for d in dropped
-                      if not d.endswith("_diff")
-                      and "lineup_actual" not in d
-                      and "lineup_rest_count" not in d]
-        lineup = [d for d in dropped if "lineup_actual" in d
-                  or "lineup_rest_count" in d]
-        self.assertEqual(len(keep), 29, "kept view must stay 29 cols")
-        # 25 diffs = the original 24 matchup-gap diffs + run_margin_diff
-        # (shipped 2026-08-26, moneyline-only, excluded by the same *_diff
-        # rule) — the kept view is byte-identical to pre-margin.
-        self.assertEqual(len(dropped), 30)
-        self.assertEqual(len(diffs), 25)
+        dropped_diffs = [d for d in dropped if d.endswith("_diff")]
+        composites = [d for d in dropped if not d.endswith("_diff")]
+        self.assertEqual(len(keep), 53, "kept view must stay 53 cols")
+        self.assertEqual(len(dropped), 6)
+        self.assertEqual(dropped_diffs, ["run_margin_diff"],
+                         "run_margin_diff is the only excluded _diff")
         self.assertEqual(len(composites), 5)
-        self.assertEqual(len(lineup), 0, "lineup delta features removed from FEATURE_COLS")
-        # No _diff in the kept view except the sanctioned survivor.
-        for f in keep:
-            if f.endswith("_diff"):
-                self.assertEqual(f, "park_factor_slug_diff")
-        self.assertIn("park_factor_slug_diff", keep)
+        # The restored 24 diffs + the park exception are the only _diff kept.
+        kept_diffs = {f for f in keep if f.endswith("_diff")}
+        self.assertEqual(kept_diffs,
+                         set(RUN_RESTORED_DIFF_FEATURES)
+                         | {RUN_DIFF_EXCEPTION})
+        self.assertIn(RUN_DIFF_EXCEPTION, keep)
         # The 5 engineered composites are excluded by name.
         for f in ("lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
                   "pitcher_regression_indicator", "lineup_depth_multiplier",
@@ -98,30 +93,31 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
             self.assertNotIn(f, FEATURE_COLS)
             self.assertNotIn(f, keep)
 
-    def test_ship_outcome_exact_sets(self):
-        """Hypothetical ship rule (kept + 25 diffs incl. run_margin_diff) —
-        54 cols, no lineup."""
+    def test_run_margin_diff_and_composites_stay_excluded(self):
+        """Restoring the 24 diffs does NOT restore run_margin_diff or the 5
+        composites. All restored features end in _diff and are not composites.
+        Re-adding run_margin_diff would be a distinct 54-col choice."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        diffs = [d for d in dropped if d.endswith("_diff")]
-        ship = list(keep) + diffs
-        self.assertEqual(len(ship), 54)
-        self.assertEqual(len(set(ship)), 54, "ship variant must not duplicate")
-        for f in diffs:
-            self.assertTrue(f.endswith("_diff"))
-            self.assertNotEqual(f, "park_factor_slug_diff")
-        for f in ship:
-            self.assertNotIn("lineup_actual", f)
-            self.assertNotIn("lineup_rest_count", f)
+        self.assertTrue(all(f.endswith("_diff")
+                            for f in RUN_RESTORED_DIFF_FEATURES),
+                        "restored set must be matchup-gap _diff features")
+        self.assertFalse(RUN_RESTORED_DIFF_FEATURES & set(RUN_EXTRA_EXCLUSIONS),
+                         "restored set must not overlap the composite exclusions")
+        self.assertNotIn("run_margin_diff", keep)
+        ship = sorted(set(keep) | {"run_margin_diff"})
+        self.assertEqual(len(ship), 54, "ship variant is a distinct choice")
 
 
 class TestSelectionPartitionInvariants(unittest.TestCase):
     def test_derive_run_features_partitions_feature_cols_exactly(self):
         """kept ∪ dropped == FEATURE_COLS, disjoint, deterministic — the
         rule is a pure function of the name list (no importance/drift input),
-        so the denominator/count invariants (59 = 29 kept + 30 dropped) are
+        so the denominator/count invariants (59 = 53 kept + 6 dropped) are
         structural, not incidental."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertEqual(len(FEATURE_COLS), 59)
+        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(dropped), 6)
         self.assertEqual(len(keep) + len(dropped), len(FEATURE_COLS))
         self.assertEqual(set(keep) | set(dropped), set(FEATURE_COLS))
         self.assertEqual(len(set(keep)) + len(set(dropped)),
@@ -240,14 +236,12 @@ class TestRegressions(unittest.TestCase):
         self.assertEqual(len(FEATURE_COLS), 59)
         self.assertIn("run_margin_diff", FEATURE_COLS)
 
-    def test_default_run_oof_path_unchanged(self):
-        """run_features=None must still derive the 29-col rule (backward
-        compatible hook — the ablation arm A path). Dropped is 30: the
-        original 24 matchup-gap diffs + run_margin_diff (25) + 5 composites.
-        KEPT view is byte-identical to pre-margin."""
+    def test_default_run_oof_path_derives_53(self):
+        """run_features=None must derive the 53-col rule (2026-08-30 restored
+        view). Dropped is 6: run_margin_diff + the 5 composites."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(len(keep), 29)
-        self.assertEqual(len(dropped), 30)
+        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(dropped), 6)
 
     def test_alpha_lambda_mc_path_still_derives(self):
         """derive_markets_v3 still produces α(λ) curves + full grid + holdout

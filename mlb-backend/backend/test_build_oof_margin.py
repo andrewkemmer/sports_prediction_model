@@ -180,12 +180,12 @@ class TestConfigRegressions(unittest.TestCase):
     def test_run_engine_stays_read_only_wrt_margin(self):
         """The run view drops run_margin_diff by the *_diff rule (the only
         survivor is park_factor_slug_diff) — the run engine cannot consume
-        the margin, so the margin path cannot leak into itself. The 29-col
-        keep-list is byte-identical to the pre-margin view."""
+        the margin, so the margin path cannot leak into itself. The 53-col
+        keep-list (2026-08-30 restore) keeps run_margin_diff excluded."""
         feats, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertNotIn(bom.MARGIN_COL, feats)
         self.assertIn(bom.MARGIN_COL, dropped)
-        self.assertEqual(len(feats), 29)
+        self.assertEqual(len(feats), 53)
 
 
 class TestProductionWiring(unittest.TestCase):

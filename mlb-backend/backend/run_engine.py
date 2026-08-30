@@ -1,26 +1,18 @@
 """Run engine Phase 1 — per-team expected-runs models (λ per side).
 
-THE GOLDEN RULE: run models consume LEVELS + ENVIRONMENT only. Diff features
-(sp_era_diff ≈ 0 for ace-vs-ace AND bad-vs-bad) carry no information about
-scoring LEVEL, so they are excluded — EXCEPT park_factor_slug_diff, which is a
-park-context term, and the four engineered interactions that are products of
-excluded diffs. The kept list is DERIVED from FEATURE_COLS at call time so new
-features flow in (and are logged); only the exclusion RULE lives here.
-
-2026-08 run-engine-native keep-list ablation (run_engine_keep_ablation.py,
-data_delivery/run_engine_keep_ablation_2bc3ba1*.json) — verdict: the 24
-matchup-gap _diff features STAY EXCLUDED (DO NOT SHIP). Restoring them (arm B,
-53 cols) improved the count objective on BOTH sides — home Δdev −0.0032 /
-ΔRMSE −0.0026; away Δdev −0.0131 / ΔRMSE −0.0084 (pooled OOF, 48 folds /
-4,354 games) — but DEGRADED the totals-market calibration the engine sells:
-prequential ECE-cal on the 6 reference lines rose 0.0119 → 0.0144 pooled
-(over_8_5 0.0109 → 0.0178) and again on the sealed 21-day holdout
-(over_7_5/8_5/9_5 +0.008/+0.010/+0.013); tail fit (P(X≤1)/P(X≥10), χ²/df)
-unchanged. The moneyline-side audit (feature_audit_3b929cfcf3e2.json)
-recommended restore through the binary harness — that result does NOT
-transfer to λ: the diff-level signal helps the count model but hurts the
-prices. Gate: B must beat A on core metrics on BOTH sides without degrading
-market calibration (ECE-cal, tail fit) — core won, calibration leg failed.
+THE GOLDEN RULE (REVISED 2026-08-30): run models consume LEVELS + ENVIRONMENT
++ the 24 restored matchup-gap _diff features. Diff features (sp_era_diff ≈ 0
+for ace-vs-ace AND bad-vs-bad) carry no scoring-LEVEL information, so an
+earlier rule excluded them all — but the 2026-08-30 A/B on the current frame
+(run_engine_cull_diagnostic_20260830.json, 6,829 OOF) showed that restore
+helps the prices, not just the count: derived-ML AUC 0.5515→0.5682, spread sd
++27%, share>0.55 up 0.19→0.25, lambda deviance/RMSE down on both sides,
+holdout LL 0.6865→0.6846 (the earlier DO-NOT-SHIP verdict was measured on a
+stale artifact where calibration degraded 0.0119→0.0144). park_factor_slug_diff
+stays kept as a park-context term; the 5 engineered composite interactions and
+run_margin_diff (a lambda-derived moneyline-side feature) stay excluded. The
+kept list is DERIVED from FEATURE_COLS at call time so new features flow in
+(and are logged); only the exclusion RULE lives here.
 
 One regularized LightGBM regressor (objective="poisson") per side, trained on
 the SAME fixed walk-forward folds as the moneyline pipeline. Pooled OOF scoring,
@@ -76,6 +68,29 @@ RUN_EXTRA_EXCLUSIONS = {
 # The one sanctioned _diff survivor: a PARK context multiplier, not a matchup gap.
 RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
 
+# 2026-08-30 feature-restore decision (run_engine_cull_diagnostic_20260830.json):
+# the 24 matchup-gap _diff features are RESTORED. The earlier DO-NOT-SHIP
+# verdict (2026-08 ablation) measured calibration on an older artifact; the
+# fresh A/B on the 2026-08-30 frame (6,829 OOF) shows restoring them improves
+# EVERYTHING: derived-ML AUC 0.5515 -> 0.5682, margin-spread sd +27%, the
+# share of wide prices (~>0.55) up 0.19 -> 0.25, home/away lambda deviance and
+# RMSE DOWN, holdout logloss 0.6865 -> 0.6846. The levels-only GOLDEN RULE is
+# relaxed to LEVELS + these restored matchup gaps; the 5 engineered composites
+# (RUN_EXTRA_EXCLUSIONS) and run_margin_diff (a lambda-derived moneyline-side
+# feature) stay excluded. Two restored features show material drift
+# (woba_30g_diff 0.296, lineup_woba_top3_diff 0.104 WARN) but still net-improve
+# in the A/B; they are now drift-monitored so classify_drift_retention can act.
+RUN_RESTORED_DIFF_FEATURES = frozenset({
+    "win_pct_diff", "elo_diff", "rest_days_diff",
+    "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
+    "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
+    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
+    "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
+    "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
+    "closer_availability_diff",
+})
+
 # Phase 3.5b — standalone ENVIRONMENT-LEVEL features. These live OUTSIDE
 # FEATURE_COLS (the moneyline's list is untouched until its own ablation
 # says otherwise); the run engine appends whichever are present in the frame.
@@ -107,24 +122,30 @@ RUN_LGBM_PARAMS = {
 def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     """Derive (run_features, dropped) from FEATURE_COLS by rule:
 
-      drop  f  if f.endswith("_diff") and f != RUN_DIFF_EXCEPTION
+      drop  f  if f.endswith("_diff")
+                   and f not in RUN_RESTORED_DIFF_FEATURES
+                   and f != RUN_DIFF_EXCEPTION
          or  f in RUN_EXTRA_EXCLUSIONS
          or  f ends with _delta_home/_delta_away (momentum form deltas)
 
-    Everything else flows in automatically (new level/env features included
-    without touching this file). Returns both lists so callers log the drops.
+    The 24 matchup-gap _diff features in RUN_RESTORED_DIFF_FEATURES are KEPT
+    (2026-08-30 restore); run_margin_diff, the 5 composites, and any other
+    new _diff column are still dropped. Everything else flows in automatically
+    (new level/env features included without touching this file). Returns both
+    lists so callers log the drops. Net active view: 53 features.
     """
     run_feats, dropped = [], []
     for f in feature_cols:
-        if f.endswith("_diff") and f != RUN_DIFF_EXCEPTION:
+        if f.endswith("_diff") and f not in RUN_RESTORED_DIFF_FEATURES \
+                and f != RUN_DIFF_EXCEPTION:
             dropped.append(f)
         elif f in RUN_EXTRA_EXCLUSIONS:
             dropped.append(f)
         elif f.endswith("_delta_home") or f.endswith("_delta_away"):
             # Momentum form deltas (recent − season baseline) are matchup/form
             # signal, not scoring LEVEL — moneyline-only per the 2026-08
-            # momentum feature set. Excluded here so the run engine's raw-only
-            # view stays byte-identical (GOLDEN RULE: levels + environment).
+            # momentum feature set. Excluded here so the run engine's view
+            # stays byte-identical (GOLDEN RULE: levels + environment).
             dropped.append(f)
         else:
             run_feats.append(f)

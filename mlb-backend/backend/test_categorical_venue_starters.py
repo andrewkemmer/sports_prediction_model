@@ -183,12 +183,23 @@ class TestTreeDataframeVocab(unittest.TestCase):
 
 
 class TestRunEngineIsolation(unittest.TestCase):
+    # 2026-08-30 feature restore: the 24 matchup-gap _diff features are kept
+    # (RUN_RESTORED_DIFF_FEATURES), so the active view is 53 — the original 29
+    # plus the restored diffs, in FEATURE_COLS order.
     _EXPECTED_KEPT = [
-        "is_home", "dome_is_neutral", "park_factor_slug_diff",
-        "wind_advantage_flyball_factor", "air_density_velocity_boost",
-        "home_elo", "away_elo", "home_win_pct", "away_win_pct",
-        "sp_era_home", "sp_era_away", "sp_k9_home", "sp_k9_away",
-        "sp_xwoba_home", "sp_xwoba_away",
+        "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
+        "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
+        "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff",
+        "sp_xwoba_diff", "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff", "lineup_woba_std_diff", "woba_30g_diff",
+        "bullpen_whip_diff", "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff", "team_barrel_diff", "team_hardhit_diff",
+        "team_exitvelo_diff", "travel_fatigue_diff",
+        "closer_availability_diff", "dome_is_neutral",
+        "park_factor_slug_diff", "wind_advantage_flyball_factor",
+        "air_density_velocity_boost", "home_elo", "away_elo",
+        "home_win_pct", "away_win_pct", "sp_era_home", "sp_era_away",
+        "sp_k9_home", "sp_k9_away", "sp_xwoba_home", "sp_xwoba_away",
         "lineup_woba_mean_home", "lineup_woba_mean_away",
         "lineup_woba_top3_home", "lineup_woba_top3_away",
         "woba_30g_home", "woba_30g_away",
@@ -205,12 +216,12 @@ class TestRunEngineIsolation(unittest.TestCase):
 
     def test_kept_dropped_lists_byte_identical(self):
         """Adding the 3 categorical-context names must NOT move the derived
-        lists: the run engine's 29-feature view is byte-identical to the
-        pre-change contract."""
+        lists: the run engine's 53-feature view is byte-identical to the
+        2026-08-30 restore contract (53 = 29 original + 24 restored diffs)."""
         keep, dropped = derive_run_features(list(training.FEATURE_COLS))
         self.assertEqual(keep, self._EXPECTED_KEPT)
-        self.assertEqual(len(keep), 29)
-        self.assertEqual(len(dropped), 30)
+        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(dropped), 6)
         for f in _CAT_SOURCE_EXCLUSIONS:
             self.assertNotIn(f, keep)
             self.assertNotIn(f, dropped)  # never in FEATURE_COLS input either
