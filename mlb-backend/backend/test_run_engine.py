@@ -52,6 +52,7 @@ from run_engine import (
     persist_oof,
     poisson_deviance,
     prequential_calibrate,
+    rl_col,
     select_alpha_curve,
     split_side_view,
 )
@@ -440,6 +441,81 @@ class TestDeriveMarketsEndToEnd(unittest.TestCase):
             with self.assertRaises(ValueError):
                 persist_markets(bad, "TEST", self.out["summary"],
                                 out_dir=Path(tmp))
+
+    def test_artifact_ships_native_push_and_rl_columns(self):
+        """The persisted markets CSV must carry p_push_<line> for EVERY grid
+        line (whole AND half) and the p_rl_<m>_<side> 3-way — the frontend's
+        explicit-column path, not the subtraction fallback. Regression: the
+        frame always had p_push_* (derive_markets_v3 writes them) but
+        MARKET_COLUMNS_V3 omitted them, so persist_markets silently dropped
+        them via frame = markets[MARKET_COLUMNS_V3]."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = persist_markets(self.out["markets"], "TEST",
+                                   self.out["summary"], out_dir=Path(tmp))
+            out = pd.read_csv(path)
+            cols = set(out.columns)
+            # Whole AND half lines both ship a p_push_ column
+            for line in (6.5, 8.5, 9.0, 9.5, 12.5):
+                self.assertIn(f"p_push_{str(line).replace('.', '_')}", cols)
+            # Injective naming: whole vs half keys never collide
+            self.assertEqual(
+                {f"p_push_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID},
+                {c for c in cols if c.startswith("p_push_")},
+                "exactly one p_push_ column per grid line, injectively named")
+            # p_rl_* whole + half 3-way columns present
+            for m in (1.0, 1.5, 2.0, 4.0):
+                for side in ("home", "push", "away"):
+                    self.assertIn(rl_col(m, side), cols)
+            # Legacy half-line columns untouched
+            for m in RUN_LINE_GRID:
+                self.assertIn(f"p_home_cover_{str(m).replace('.', '_')}", cols)
+
+    def test_half_line_push_is_exactly_zero(self):
+        mk = self.out["markets"]
+        for line in (6.5, 8.5, 9.5, 10.5, 12.5):
+            col = f"p_push_{str(line).replace('.', '_')}"
+            self.assertTrue((mk[col] == 0.0).all(),
+                            f"half-line {line} push must be exactly 0.0")
+
+    def test_whole_line_push_equals_strict_over_difference(self):
+        """Same-run identity: p_push_9_0 == P(total==9) == p_over_8_5 -
+        p_over_9_0 (both from the SAME MC draw matrix; strict over). The
+        persisted rounding (5 dp each side) bounds the check to ~2e-5."""
+        mk = self.out["markets"]
+        for line, lo in ((7.0, 6.5), (8.0, 7.5), (9.0, 8.5), (10.0, 9.5)):
+            key = str(line).replace('.', '_')
+            lo_key = str(lo).replace('.', '_')
+            got = mk[f"p_push_{key}"].to_numpy(float)
+            want = mk[f"p_over_{lo_key}"].to_numpy(float) \
+                - mk[f"p_over_{key}"].to_numpy(float)
+            np.testing.assert_allclose(got, np.maximum(want, 0.0), atol=2e-5)
+            self.assertGreater(mk[f"p_push_{key}"].mean(), 0.0,
+                               f"whole-line {line} push must be nonzero pooled")
+
+    def test_three_way_sums_hold_in_persisted_artifact(self):
+        """Whole line: p_over + p_push + p_under == 1; half line: p_over +
+        p_under == 1 with push == 0; run line: home + push + away == 1 on
+        every line — within the 5-dp persist rounding."""
+        mk = self.out["markets"]
+        for line in TOTAL_LINE_GRID:
+            key = str(line).replace('.', '_')
+            s = (mk[f"p_over_{key}"] + mk[f"p_push_{key}"]
+                 + mk[f"p_under_{key}"])
+            np.testing.assert_allclose(s.to_numpy(float), 1.0, atol=1e-4)
+        for m in RUN_LINE_GRID_FULL:
+            s = (mk[rl_col(m, "home")] + mk[rl_col(m, "push")]
+                 + mk[rl_col(m, "away")])
+            np.testing.assert_allclose(s.to_numpy(float), 1.0, atol=1e-4)
+
+    def test_legacy_half_line_equals_rl_home_in_artifact(self):
+        """Legacy p_home_cover_* (half-lines) is byte-identical to the native
+        p_rl_*_home on the same margin (same underlying array — backward
+        compat is exact, not a re-fit)."""
+        mk = self.out["markets"]
+        for m in (1.5, 2.5, 3.5):
+            np.testing.assert_array_equal(
+                mk[f"p_home_cover_{str(m).replace('.', '_')}"].to_numpy(),
+                mk[rl_col(m, "home")].to_numpy())
 
 class TestAlphaCurveFits(unittest.TestCase):
     @classmethod

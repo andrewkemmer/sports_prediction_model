@@ -788,9 +788,13 @@ def derive_markets(oof: pd.DataFrame,
 
 
 # Persisted Phase-3 contract. Grid columns are named p_over_<line> /
-# p_under_<line> / p_home_cover_<margin> so the dashboard toggle reads exact
-# per-line values with zero frontend math. ml_win_prob may be null when the
-# moneyline history lacks the game (conflicts then uncomputable, loudly).
+# p_push_<line> / p_under_<line> / p_home_cover_<margin> / p_rl_<m>_<side>
+# so the dashboard toggle reads exact per-line values with zero frontend
+# math. p_push_<line> is P(total == line) from the MC draws (exactly 0.0 on
+# half-lines — integer totals never equal x.5); p_rl_<m>_{home,push,away} is
+# the 3-way margin split (margin > L cover / == L push / < L away) under the
+# post-fix margin distribution. ml_win_prob may be null when the moneyline
+# history lacks the game (conflicts then uncomputable, loudly).
 def rl_col(m: float, side: str) -> str:
     """Injective p_rl column name for a run-line margin + side.
 
@@ -806,6 +810,7 @@ MARKET_COLUMNS_V3 = (
     ["game_pk", "game_date", "kind", "home_expected_runs", "away_expected_runs",
      "alpha_home", "alpha_away"]
     + [f"p_over_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
+    + [f"p_push_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_under_{str(l).replace('.', '_')}" for l in TOTAL_LINE_GRID]
     + [f"p_home_cover_{str(m).replace('.', '_')}" for m in RUN_LINE_GRID]
     + [rl_col(m, side) for m in RUN_LINE_GRID_FULL
