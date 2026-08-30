@@ -26,7 +26,13 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from sports_config import DEFAULT_SPORT, SPORTS
+from sports_config import (
+    DEFAULT_SPORT,
+    SPORTS,
+    artifact_patterns,
+    normalize_sport_key,
+    resolve_sport,
+)
 
 # frontend/ lives at the repository root (multi-sport restructure, Phase B),
 # so parents[1] of this module IS the repo root.
@@ -73,6 +79,27 @@ def source_label() -> str:
     if cfg["owner"] and cfg["repo"]:
         return f"GitHub raw · {cfg['owner']}/{cfg['repo']}@{cfg['branch']}"
     return "Local committed artifacts (no GitHub repo configured)"
+
+
+# ---------------------------------------------------------------------------
+# Sport state (single source of truth)
+# ---------------------------------------------------------------------------
+
+def get_sport() -> str:
+    """The active sport key (normalized, always a valid SPORTS entry).
+
+    Single source of truth for the app: reads ``st.session_state["sport"]``
+    (set by the sidebar sport selector, persisted across reruns) and
+    normalizes through the registry so every loader/page resolves the same
+    value — never a hardcoded sport downstream. Missing/None/unknown falls
+    back to DEFAULT_SPORT (MLB) so a nav rerun never KeyErrors.
+    """
+    return normalize_sport_key(st.session_state.get("sport", DEFAULT_SPORT))
+
+
+def sport_config() -> dict:
+    """The resolving config dict for the active sport (registry entry)."""
+    return resolve_sport(get_sport())
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +369,170 @@ def _pick_artifact_date(date_str: str, prefix: str) -> str:
     return date_str or "20260809"
 
 
-def load_todays_games(date_str: str) -> pd.DataFrame:
+# ==========================================================================
+# Artifact resolver (sport → data_delivery dir + artifact family)
+# ==========================================================================
+
+def _latest_artifact_path(sport_dir: Path, pattern: str) -> Optional[Path]:
+    """Newest file matching ``pattern`` under ``sport_dir``.
+
+    Prefers the newest embedded YYYYMMDD suffix (the pipeline's dating
+    convention); falls back to newest by mtime. None when no file matches.
+    """
+    cands = sorted(sport_dir.glob(pattern))
+    if not cands:
+        return None
+    dated = [p for p in cands if _stamp_suffixes(p)]
+    if dated:
+        return max(dated, key=lambda p: max(_stamp_suffixes(p)))
+    return max(cands, key=lambda p: p.stat().st_mtime)
+
+
+def resolve_sport_artifact(sport: str | None, family: str) -> Optional[Path]:
+    """Latest committed artifact path for a sport/artifact-family, or None.
+
+    Resolves the sport to its ``data_delivery`` dir + the family's glob
+    pattern from the registry and returns the newest dated file. Seasons the
+    loader/adapter layer so every page reads through the same resolver — no
+    hardcoded paths or per-sport branching in the pages.
+    """
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    pat = artifact_patterns(s).get(family)
+    if not pat:
+        return None
+    sport_dir = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery"
+    if not sport_dir.is_dir():
+        return None
+    return _latest_artifact_path(sport_dir, pat)
+
+
+def latest_artifact_date(sport: str | None, family: str) -> Optional[str]:
+    """Newest YYYYMMDD date (as a string) available for a family, or None."""
+    path = resolve_sport_artifact(sport, family)
+    if path is None:
+        return None
+    stamps = _stamp_suffixes(path)
+    return max(stamps) if stamps else None
+
+
+# ==========================================================================
+# NFL adapter — nfl_moneyline_v1_*.json → the shared card DataFrame contract
+# ==========================================================================
+
+# The moneyline/card DataFrame contract the UI already expects (the column
+# set ``todays_games_*.csv`` + ``normalize_games`` produce for a card). NFL
+# adapters emit this exact schema; MLB-only fields (pitchers, run engine,
+# venue, records) are left null/absent rather than fabricated.
+NFL_CARD_COLUMNS = [
+    "game_id", "home_team", "away_team", "home_win_prob_model",
+    "away_win_prob_model", "home_record", "away_record", "edge_home",
+    "edge_away", "start_time_utc", "venue", "model_pick", "home_score",
+    "away_score", "game_status", "game_date", "home_team_name",
+    "away_team_name",
+]
+
+
+def _nl(row: dict) -> Optional[float]:
+    """Safely coerce a numeric field, tolerating ''/None/strings."""
+    if row in (None, ""):
+        return None
+    try:
+        v = float(row)
+    except (TypeError, ValueError):
+        return None
+    return v if v == v else None  # NaN → None
+
+
+def nfl_moneyline_to_frame(data) -> pd.DataFrame:
+    """Adapt an ``nfl_moneyline_v1_*.json`` record into the shared card frame.
+
+    The canonical per-game list is read from ``games`` (or ``predictions``);
+    each entry maps onto the MLB moneyline/card contract. Where MLB fields
+    don't exist for NFL (pitchers, run-engine projection, venue, records) the
+    columns are present but null — never fabricated. When the record carries
+    no per-game list (the current v1 is an aggregate/calibration record), the
+    frame is returned empty WITH the full column schema so downstream card
+    code never KeyErrors. Explicit schema is pinned by a fixture test.
+    """
+    if not isinstance(data, dict):
+        return pd.DataFrame(columns=NFL_CARD_COLUMNS)
+    rows = data.get("games") or data.get("predictions") or []
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        home = str(r.get("home_team", "") or "").strip()
+        away = str(r.get("away_team", "") or "").strip()
+        ph = _nl(r.get("home_win_prob", r.get("home_win_prob_model",
+                                                r.get("p_home"))))
+        if ph is None and _nl(r.get("away_win_prob")) is not None:
+            ph = 1.0 - _nl(r.get("away_win_prob"))
+        if ph is not None:
+            ph = min(1.0, max(0.0, ph))
+        pa = None if ph is None else 1.0 - ph
+        game_id = r.get("game_id") or r.get("game_pk") or ""
+        game_date = r.get("game_date") or r.get("gameday") or ""
+        if not game_id and (home or away):
+            game_id = f"{str(game_date or '').replace('-', '')}_{away}@{home}"
+
+        hs, as_ = _nl(r.get("home_score")), _nl(r.get("away_score"))
+        status = r.get("game_status") or r.get("game_state")
+        if not status:
+            status = "Final" if (hs is not None and as_ is not None) else "Scheduled"
+        status = {"post": "Final", "in": "Live", "pre": "Scheduled"}.get(
+            str(status).lower(), str(status).title())
+
+        pick = r.get("model_pick") or (home if (ph is not None and ph >= 0.5) else away)
+        out.append({
+            "game_id": game_id,
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob_model": ph,
+            "away_win_prob_model": pa,
+            "home_record": r.get("home_record"),
+            "away_record": r.get("away_record"),
+            "edge_home": _nl(r.get("edge_home")),
+            "edge_away": _nl(r.get("edge_away")),
+            "start_time_utc": r.get("start_time_utc")
+            or (f"{game_date}T00:00:00Z" if game_date else ""),
+            "venue": r.get("venue") or r.get("stadium") or r.get("roof") or "",
+            "model_pick": pick or "",
+            "home_score": hs,
+            "away_score": as_,
+            "game_status": status,
+            "game_date": game_date,
+            "home_team_name": r.get("home_team_name") or "",
+            "away_team_name": r.get("away_team_name") or "",
+        })
+    return pd.DataFrame(out, columns=NFL_CARD_COLUMNS)
+
+
+def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
+    """Load the latest NFL moneyline v1 artifact through the adapter.
+
+    Resolves the newest ``nfl_moneyline_v1_*.json`` in the NFL data_delivery
+    dir, reads it, and adapts to the shared card frame. Missing/invalid →
+    empty frame with the full card schema (never fabricated)."""
+    path = resolve_sport_artifact(sport or "nfl", "moneyline_json")
+    if path is None:
+        return pd.DataFrame(columns=NFL_CARD_COLUMNS)
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return pd.DataFrame(columns=NFL_CARD_COLUMNS)
+    return nfl_moneyline_to_frame(data)
+
+
+def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
+    """Game board for a date, dispatched on the active sport (default).
+
+    MLB (default): byte-identical to today — fetches ``todays_games_<date>.csv``
+    through ``normalize_games``. NFL: adapts the latest moneyline v1 JSON
+    through the resolver/adapter (no MLB CSV exists). Any sport other than
+    MLB/NFL degrades to the MLB path (safe fallback)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    if s == "nfl":
+        return load_nfl_moneyline("nfl")
     cfg = get_source_config()
     data, src = _fetch_bytes(f"todays_games_{_pick_date(date_str)}.csv", **cfg)
     st.session_state["data_source"] = src
@@ -355,14 +545,19 @@ def load_todays_games(date_str: str) -> pd.DataFrame:
     return normalize_games(df)
 
 
-def load_run_engine_markets(date_str: str) -> pd.DataFrame:
+def load_run_engine_markets(date_str: str,
+                             sport: str | None = None) -> pd.DataFrame:
     """Run-engine markets artifact for a date; empty frame when missing.
 
-    Mirrors markets._load_markets (bare filename — _fetch_bytes prepends the
-    repo subdir + data_delivery/). Today's Games joins slate rows by
-    game_id == game_pk to enrich the cards; missing/stale artifacts degrade
-    to an empty frame with a loud log line, never fabricated data.
+    MLB-only (run-engine); any other sport (NFL) returns an empty frame —
+    the run-engine slate is a MLB artifact family. Mirrors markets._load_markets
+    (bare filename — _fetch_bytes prepends the repo subdir + data_delivery/).
+    Today's Games joins slate rows by game_id == game_pk to enrich the cards;
+    missing/stale artifacts degrade to an empty frame with a loud log line,
+    never fabricated data.
     """
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return pd.DataFrame()
     import logging
     _log = logging.getLogger("utils.run_engine")
     fname = f"run_engine_markets_{date_str}.csv"
@@ -386,8 +581,13 @@ def load_run_engine_markets(date_str: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_prediction_history(date_str: str) -> pd.DataFrame:
-    """Per-game walk-forward predictions + results (Calibration page table)."""
+def load_prediction_history(date_str: str,
+                            sport: str | None = None) -> pd.DataFrame:
+    """Per-game walk-forward predictions + results (Calibration page table).
+
+    MLB artifact family; other sports return an empty frame."""
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return pd.DataFrame()
     cfg = get_source_config()
     data, src = _fetch_bytes(f"predictions_history_{_pick_date(date_str)}.csv", **cfg)
     st.session_state["data_source"] = src
@@ -446,7 +646,10 @@ def load_history_games(date_str: str) -> pd.DataFrame:
     return df
 
 
-def load_power_rankings(date_str: str) -> pd.DataFrame:
+def load_power_rankings(date_str: str,
+                         sport: str | None = None) -> pd.DataFrame:
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return pd.DataFrame()
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, "power_rankings")
     data, src = _fetch_bytes(f"power_rankings_{picked}.csv", **cfg)
@@ -482,7 +685,10 @@ def load_rl_calibration() -> dict:
         return {}
 
 
-def load_calibration(date_str: str, use_daily: bool = True) -> dict:
+def load_calibration(date_str: str, use_daily: bool = True,
+                      sport: str | None = None) -> dict:
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return {}
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, "calibration")
     data, src = _fetch_bytes(f"calibration_{picked}.json", **cfg)
@@ -574,7 +780,10 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True) -> 
     return cal
 
 
-def load_model_monitor(date_str: str) -> dict:
+def load_model_monitor(date_str: str,
+                        sport: str | None = None) -> dict:
+    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
+        return {}
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, "model_monitor")
     data, src = _fetch_bytes(f"model_monitor_{picked}.json", **cfg)
@@ -887,7 +1096,8 @@ def render_source_note() -> None:
 def _full_run_timestamp(d: dict) -> Optional[datetime]:
     """Parse a full-run timestamp off a sport JSON record (e.g.
     ``margin_reliability_*.json`` carries ``generated``), or None."""
-    for key in ("generated", "timestamp", "run_time", "created_at"):
+    for key in ("generated", "created_utc", "timestamp", "run_time",
+                "created_at"):
         raw = d.get(key)
         if not raw:
             continue
@@ -956,23 +1166,24 @@ def _format_refresh(dt: Optional[datetime]) -> str:
     return "Last updated: " + dt.strftime("%b %d, %Y")
 
 
-def last_refresh_time(sport_key: str = "mlb") -> str:
+def last_refresh_time(sport_key: str | None = None) -> str:
     """Sport-aware 'Last updated' string for the sidebar.
 
     Resolves the selected sport to its committed ``data_delivery`` snapshot
     and reports the newest refresh time (see ``_last_refresh_for_dir``).
-    Reads only committed artifacts — the same snapshot the sidebar serves
-    regardless of GitHub-vs-local fetch. Missing/empty → 'Last updated: —'.
+    Defaults to the active sport (``get_sport``). Reads only committed
+    artifacts — the same snapshot the sidebar serves regardless of
+    GitHub-vs-local fetch. Missing/empty → 'Last updated: —'.
     """
-    from sports_config import resolve_sport
-    cfg = resolve_sport(sport_key)
+    s = normalize_sport_key(sport_key if sport_key is not None else get_sport())
+    cfg = resolve_sport(s)
     sport_dir = REPO_ROOT / cfg["repo_subdir"] / "data_delivery"
     if not sport_dir.is_dir():
         return _format_refresh(None)
     return _format_refresh(_last_refresh_for_dir(sport_dir))
 
 
-def render_last_updated(sport_key: str = "mlb") -> None:
+def render_last_updated(sport_key: str | None = None) -> None:
     """Small muted 'Last updated' caption in the sidebar, wired to the active
     sport toggle so it resolves that sport's artifact set."""
     st.caption(last_refresh_time(sport_key))

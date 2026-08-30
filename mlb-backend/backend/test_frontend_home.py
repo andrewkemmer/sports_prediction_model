@@ -152,9 +152,11 @@ class TestBrandAboveDashboardList(unittest.TestCase):
         ACTIVE sport toggle value, and utils exposes the helper + render."""
         home = _HOME.read_text(encoding="utf-8")
         self.assertIn("utils.render_last_updated(", home)
-        self.assertIn('st.session_state.get("sport", sports_config.DEFAULT_SPORT)',
-                      home, "caption must pass the active sport toggle value")
+        self.assertIn("utils.render_last_updated(utils.get_sport())",
+                      home, "caption must pass the active sport via get_sport()")
+        self.assertIn("st.radio(", home, "sport selector is the sidebar radio")
         util = _UTILS.read_text(encoding="utf-8")
+        self.assertIn("def get_sport", util, "single-source-of-truth sport state")
         self.assertIn("def last_refresh_time", util)
         self.assertIn("def render_last_updated", util)
         self.assertIn("Last updated: —", util, "missing-artifact fallback text")
@@ -207,13 +209,19 @@ class TestSportNavSafety(unittest.TestCase):
         )
 
     def test_unknown_sport_degrades_to_full_set_not_blank(self):
-        # An unknown sport must never yield an empty nav (blank sidebar).
-        for bad in ("nfl", "nba", "nhl", "hockey"):
+        # A truly unknown sport must never yield an empty nav (blank sidebar);
+        # it falls back to the full page set. NFL is now a REAL sport with
+        # its own (run-engine-independent) page set.
+        for bad in ("nba", "nhl", "hockey"):
             self.assertEqual(
                 self.sc.active_page_url_paths(bad),
                 self.sc.ALL_PAGE_URL_PATHS,
                 f"unknown sport {bad!r} must fall back to the full page set",
             )
+        # NFL is registered → its ordered page set (markets is MLB-only).
+        self.assertEqual(
+            self.sc.active_page_url_paths("nfl"),
+            ["todays-games", "power-rankings", "calibration", "model-monitor"])
 
     def test_missing_default_sport_is_silent_not_a_warning(self):
         # The logo-click / navigation rerun leaves sport unset or None/"none"
@@ -227,9 +235,10 @@ class TestSportNavSafety(unittest.TestCase):
         # Valid/whitespace-padded valid keys are never "unknown" either.
         self.assertFalse(self.sc.is_unknown_sport("mlb"))
         self.assertFalse(self.sc.is_unknown_sport(" MLB "))
+        self.assertFalse(self.sc.is_unknown_sport("nfl"))  # a real sport now
         # A genuine unknown non-empty sport still registers as unknown
         # (caller warns then).
-        for bad in ("nfl", "nba", "hockey", "!!"):
+        for bad in ("nba", "hockey", "!!"):
             self.assertTrue(
                 self.sc.is_unknown_sport(bad),
                 f"genuine unknown {bad!r} should warn",
@@ -237,11 +246,12 @@ class TestSportNavSafety(unittest.TestCase):
 
     def test_normalize_resolves_defaults_and_unknowns_silently(self):
         # resolve_sport returns a valid config for every bad/missing state
-        # (never raises) and lands on MLB.
-        for bad in (None, "", "none", "  ", "nfl", "hockey"):
+        # (never raises); empty/unknown lands on MLB, NFL resolves to NFL.
+        for bad in (None, "", "none", "  ", "hockey"):
             cfg = self.sc.resolve_sport(bad)
             self.assertEqual(cfg["label"], "MLB",
                              f"resolve_sport({bad!r}) must fall back to MLB")
+        self.assertEqual(self.sc.resolve_sport("nfl")["label"], "NFL")
 
 
 def _extract_utils_funcs(names: list[str]) -> dict:
@@ -268,11 +278,18 @@ def _extract_utils_funcs(names: list[str]) -> dict:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     })
     assert not missing, f"function(s) not found in utils.py: {missing}"
+    import sports_config as _sc
     ns: dict = {
         "re": re,
         "json": json,
         "datetime": datetime,
         "Path": Path,
+        "DEFAULT_SPORT": _sc.DEFAULT_SPORT,
+        "normalize_sport_key": _sc.normalize_sport_key,
+        "resolve_sport": _sc.resolve_sport,
+        # utils.get_sport reads st.session_state; tests call the refresh
+        # helpers with an explicit sport so this default is never exercised.
+        "get_sport": lambda: _sc.DEFAULT_SPORT,
     }
     exec("from __future__ import annotations\n" + "\n\n".join(body), ns)
     return ns
@@ -338,16 +355,17 @@ class TestLastUpdated(unittest.TestCase):
             "Last updated: Aug 30, 2026")
 
     def test_sport_resolves_to_committed_dir(self):
-        # real-artifact check: the MLB snapshot present in the repo → a real
-        # date, not the missing fallback. An unknown sport resolves to MLB.
-        from sports_config import resolve_sport
+        # real-artifact check: each sport resolves ITS OWN committed
+        # data_delivery set (per-sport isolation) to a real, distinct date.
         self.u["REPO_ROOT"] = self._root
-        self.u["resolve_sport"] = resolve_sport
         mlb = self.u["last_refresh_time"]("mlb")
+        nfl = self.u["last_refresh_time"]("nfl")
         self.assertTrue(mlb.startswith("Last updated: "), mlb)
+        self.assertTrue(nfl.startswith("Last updated: "), nfl)
         self.assertNotEqual(mlb, "Last updated: —")
-        self.assertEqual(self.u["last_refresh_time"]("nfl"), mlb,
-                         "unknown sport falls back to MLB artifact set")
+        self.assertNotEqual(nfl, "Last updated: —")
+        # NFL resolves its own (JSON) artifacts, not MLB's CSV snapshot.
+        self.assertNotEqual(mlb, nfl)
 
 
 class TestETDefaultDate(unittest.TestCase):

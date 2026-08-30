@@ -21,6 +21,12 @@ import utils
 
 utils.inject_css()
 
+if utils.get_sport() == "nfl":
+    st.info("🏈 NFL Calibration arrives with step 3. The shipped moneyline "
+            "record carries pooled/sealed aggregate metrics; the "
+            "calibration-curve view ships with the full conditional UI.")
+    st.stop()
+
 dates = utils.available_dates(**utils.get_source_config())
 # Always show the most recent run (like Power Rankings / Model Monitor):
 # ignore the date picked on Today's Games so the tab never drills into a

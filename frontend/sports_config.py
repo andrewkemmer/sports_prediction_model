@@ -20,6 +20,9 @@ Future sports (nfl/nba/nhl) add one registry entry here plus their
 ``<sport>-backend/data_delivery/`` contract — no frontend layout changes.
 """
 
+from pathlib import Path
+
+
 SPORTS = {
     "mlb": {
         "label": "MLB",
@@ -38,6 +41,34 @@ SPORTS = {
             "model-monitor",
             "markets",
         ],
+        # Artifact resolver (step 2): sport → the dated artifact families under
+        # ``<repo_subdir>/data_delivery`` the loader/adapter layer dispatches
+        # on. Patterns are globs relative to that dir.
+        "artifacts": {
+            "todays_games_csv": "todays_games_*.csv",
+            "markets_csv": "run_engine_markets_*.csv",
+            "calibration_json": "calibration_*.json",
+        },
+    },
+    "nfl": {
+        "label": "NFL",
+        "emoji": "🏈",
+        "repo_subdir": "nfl-backend",
+        "has_run_engine": False,
+        # NFL ships the generic shared-contract dashboards only for now; the
+        # run-engine Totals & Run Lines page (markets) is MLB-only. Today's
+        # Games keeps a moneyline-first board; Calibration / Model Monitor /
+        # Power Rankings render the shared contract or a step-3 notice.
+        "pages": [
+            "todays-games",
+            "power-rankings",
+            "calibration",
+            "model-monitor",
+        ],
+        "artifacts": {
+            "moneyline_json": "nfl_moneyline_v1_*.json",
+            "feature_json": "nfl_feature_v1_*.json",
+        },
     },
 }
 
@@ -100,6 +131,23 @@ def is_unknown_sport(sport_key: str) -> bool:
     if not key or key == "none":
         return False
     return key not in SPORTS
+
+
+def artifact_patterns(sport_key: str) -> dict:
+    """The sport → artifact-family map for the loader/adapter resolver.
+
+    Returns ``config.artifacts`` (name → glob pattern under the sport's
+    ``data_delivery`` dir). Falls back to {} for a degenerate/unregistered
+    sport so callers can safely iterate. MLB carries the card/calibration
+    CSV·JSON families; NFL carries its JSON-only v1 artifacts.
+    """
+    return dict(resolve_sport(sport_key).get("artifacts", {}) or {})
+
+
+def data_delivery_dir(sport_key: str) -> Path:
+    """Local ``data_delivery`` directory for the sport, resolved via the
+    repo-relative ``repo_subdir`` registry entry."""
+    return Path(__file__).resolve().parents[1] / resolve_sport(sport_key)["repo_subdir"] / "data_delivery"
 
 
 def active_page_url_paths(sport_key: str) -> list[str]:

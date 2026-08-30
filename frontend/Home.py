@@ -54,20 +54,27 @@ with st.sidebar:
     # (MLB), rendered as a toggle above the dashboard nav so switching
     # sports later needs no layout change. The per-sport nav list below is
     # built from sports_config.SPORTS.
-    st.segmented_control(
+    # Sport selector — the app-wide single source of truth for the active
+    # sport (read via utils.get_sport() by every loader/page). MLB default,
+    # NFL added. Persisted across reruns through st.session_state["sport"];
+    # utils.get_sport() normalizes so any degraded value still resolves.
+    st.radio(
         "Sport",
         options=list(sports_config.SPORTS.keys()),
         format_func=lambda s: f"{sports_config.SPORTS[s]['emoji']} {sports_config.SPORTS[s]['label']}",
-        default=sports_config.DEFAULT_SPORT,
+        index=list(sports_config.SPORTS.keys()).index(utils.get_sport()),
+        horizontal=True,
         key="sport",
+        label_visibility="collapsed",
     )
     # Defensive empty-state note (only when the sport ships no artifacts at
     # all); the former fetch-failure warning is gone. In its place a muted,
     # sport-aware 'Last updated' line resolves the ACTIVE sport toggle's
     # committed artifact set.
     utils.render_source_note()
-    utils.render_last_updated(
-        st.session_state.get("sport", sports_config.DEFAULT_SPORT))
+    # 'Last updated' resolves the ACTIVE sport's committed artifact set
+    # (MLB stocks CSV cards/calibration; NFL stocks JSON moneyline records).
+    utils.render_last_updated(utils.get_sport())
     # Divider keeps the menu sitting cleanly under the logo/subtitle now
     # that the backend-source caption is gone.
     st.divider()
@@ -89,7 +96,7 @@ pages = [
 # zip (never reading ``p.url_path`` off the objects — Streamlit only attaches
 # that inside st.navigation and reading it pre-attach raises AttributeError
 # or returns "", the deployed line-81 crash that hid Today's Games).
-_sport = str(st.session_state.get("sport", sports_config.DEFAULT_SPORT)).strip().lower()
+_sport = utils.get_sport()
 _sport_config = sports_config.resolve_sport(_sport)
 if sports_config.is_unknown_sport(_sport):
     # Only a genuinely unknown NON-EMPTY sport warns. None/""/"none" (the

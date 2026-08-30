@@ -460,7 +460,86 @@ def _et_today_compact() -> str:
     return datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
 
 
+def _nfl_card_html(r) -> str:
+    """Compact NFL moneyline card (teams + win prob) from the adapted frame.
+
+    Honors the shared card look (fb-card / fb-team / fb-bar) but omits the
+    MLB-only sections (pitchers, run engine, ML odds). Win prob renders as
+    '—' when the artifact carries none (per-game predictions ship with step
+    3)."""
+    home = str(r.get("home_team", "") or "")
+    away = str(r.get("away_team", "") or "")
+    home_name = str(r.get("home_team_name", "") or "") or home
+    away_name = str(r.get("away_team_name", "") or "") or away
+    ph = r.get("home_win_prob_model")
+    pa = None if ph is None else 1.0 - float(ph)
+
+    def _row(name, team, p):
+        if p is None:
+            pct = "—"
+            width = 0
+            color = "#334155"
+        else:
+            pct = f"{p:.0%}"
+            width = int(round(p * 100))
+            color = utils.PRIMARY if p >= 0.5 else "#38BDF8"
+        return (
+            f'<div class="fb-team"><span class="fb-accent" style="background:{color};"></span>'
+            f'<div><span class="name">{name}</span> <span class="sub">{team}</span></div>'
+            f'<span class="pct" style="color:{color};">{pct}</span></div>'
+            f'<div class="fb-bar"><div class="fill" style="width:{width}%;background:{color};"></div></div>'
+        )
+
+    start = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
+    meta = str(r.get("game_date", "") or "")
+    meta += f" · {start}" if start else ""
+    meta_html = (f'<div class="fb-venue">📅 {meta}</div>' if meta
+                 else '<div class="fb-venue">&nbsp;</div>')
+    return (
+        f'<div class="fb-card"><div class="fb-top">'
+        f'<span class="fb-tag">NFL MONEYLINE</span><span class="spacer"></span></div>'
+        f'{_row(home_name, home, ph)}{_row(away_name, away, pa)}{meta_html}</div>'
+    )
+
+
+def _render_nfl_board() -> None:
+    """Moneyline-first NFL Today's Games board (step 2, minimal in-scope
+    render). MLB-only sections (pitchers, run engine, line selectors) are
+    absent; if the shipped moneyline v1 artifact carries no per-game rows
+    yet, show a clean step-3 notice instead of crashing."""
+    st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
+                unsafe_allow_html=True)
+    fdate = utils.latest_artifact_date("nfl", "moneyline_json")
+    tag = f"v1_{fdate}" if fdate else "—"
+    st.markdown(
+        f"<div style='color:#94A3B8;margin:2px 0 14px;'>NFL moneyline-first board · "
+        f"artifact {tag} · per-game cards ship with step 3 (Calibration / "
+        f"Model Monitor / Power Rankings show notices meanwhile).</div>",
+        unsafe_allow_html=True,
+    )
+    frame = utils.load_nfl_moneyline()
+    frame = frame.dropna(subset=["home_team", "away_team"]) if not frame.empty else frame
+    if frame.empty:
+        st.info(
+            "No per-game NFL moneyline predictions are in the shipped "
+            "nfl_moneyline_v1 artifact yet (it is aggregate-only). Moneyline "
+            "cards will render here once the NFL pipeline ships per-game "
+            "win probabilities (step 3)."
+        )
+        return
+    for i in range(0, len(frame), 2):
+        cols = st.columns(2)
+        for col, (_, r) in zip(cols, frame.iloc[i:i + 2].iterrows()):
+            with col:
+                st.markdown(_nfl_card_html(r), unsafe_allow_html=True)
+    st.caption("NFL moneyline probabilities are point-in-time model outputs.")
+
+
 def main() -> None:
+    if utils.get_sport() == "nfl":
+        _render_nfl_board()
+        return
+
     dates = utils.available_dates(**utils.get_source_config())
     if not dates:
         dates = ["20260809"]
