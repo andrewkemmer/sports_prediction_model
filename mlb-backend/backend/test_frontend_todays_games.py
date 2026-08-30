@@ -1030,11 +1030,13 @@ class TestActionableDateAndMobileRail(unittest.TestCase):
         self.assertIsNone(self._action("not-a-date"))
 
     def test_options_sorted_labelled_and_marked(self):
-        """The rail renders every valid date exactly once, sorted, with a
-        long-form label and the shown date flagged active."""
+        """The rail renders every valid date exactly once, sorted most-recent-
+        first (newest at top), with a long-form label and the shown date
+        flagged active."""
         todays = self._todays()
         opts = self._options(current="20260829")
-        self.assertEqual([o["date"] for o in opts], sorted(self.VALID))
+        self.assertEqual([o["date"] for o in opts],
+                         sorted(self.VALID, reverse=True))
         self.assertEqual(set(o["date"] for o in opts), set(self.VALID))
         for o in opts:
             self.assertEqual(o["label"],

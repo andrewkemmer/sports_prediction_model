@@ -749,13 +749,14 @@ def _render_calendar_picker(valid, current: str) -> None:
 def _mobile_date_options(valid, current: str | None) -> list[dict]:
     """Pure: ordered picker entries for the mobile date rail.
 
-    Sorted valid dates with long-form labels; ``active`` marks the
-    currently-shown date. Deterministic and dependency-free so it can be unit
-    tested alongside the navigation decision.
+    Valid dates with long-form labels, sorted most-recent-first (newest at
+    top, so the latest slate is reachable without scrolling); ``active`` marks
+    the currently-shown date. Deterministic and dependency-free so it can be
+    unit tested alongside the navigation decision.
     """
     return [{"date": d, "label": utils.format_date_long(d),
              "active": (d == current)}
-            for d in sorted(valid or ())]
+            for d in sorted(valid or (), reverse=True)]
 
 
 def _render_mobile_date_rail(valid, current: str) -> None:
