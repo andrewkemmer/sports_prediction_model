@@ -169,9 +169,18 @@ else:
             utils.show_chart(diag.chart_calibration(
                 fcurve, "Games pooled across 7.5 / 8.5 / 9.5 / 10.5"))
             st.caption(
-                f"{fcurve['n_pairs']:,} (game × line) pairs; every game counts "
-                "once per line — near-line degeneracy is diluted by the off-"
-                "line games pooled in."
+                "**How to read this:** every game is priced at FOUR lines "
+                "(7.5 / 8.5 / 9.5 / 10.5) so the predictions spread across "
+                "the full probability range — a single game contributes 4 "
+                "pairs (e.g. predicted P(over) ≈ 0.62 / 0.48 / 0.32 / 0.19 "
+                "at the four lines). X = the model's predicted P(over); Y = "
+                "how often the over actually hit among the pairs in that "
+                "bin. The dashed diagonal is perfect calibration — points on "
+                "it mean the model's probabilities are honest at every "
+                "confidence level, not just near 50%. "
+                f"({fcurve['n_pairs']:,} pairs, but NOT independent: each "
+                "game appears 4×, so the shape is trustworthy while the "
+                "effective sample is the ~6,812 games themselves.)"
             )
 
     with _tabs[3]:   # 4 — game total lines (All own-line / fixed line)

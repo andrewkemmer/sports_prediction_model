@@ -351,6 +351,30 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertNotIn("totals_pick_table", src,
                          "the deleted tab's renderer path must be gone")
 
+    def test_pooled_lines_caption_explains_the_chart(self):
+        """The Pooled lines footer must explain in plain terms how the chart
+        works: every game priced at the four lines, what X/Y mean, the
+        diagonal = perfect calibration, and the non-independence honesty
+        note (27,248 pairs = 4 per game, effective sample ~6,812)."""
+        src = (Path(__file__).resolve().parents[2]
+               / "frontend" / "markets.py").read_text()
+        # Sub-heading unchanged
+        self.assertIn("Games pooled across 7.5 / 8.5 / 9.5 / 10.5", src)
+        # Chart path unchanged (same four lines, same helpers)
+        self.assertIn("fixed_line_pairs(decided, (7.5, 8.5, 9.5, 10.5))", src)
+        self.assertIn("chart_calibration", src)
+        # New caption: the four lines, the example spread, X/Y meaning,
+        # the diagonal, and the non-independence honesty note
+        self.assertIn("How to read this", src)
+        self.assertIn("0.62 / 0.48 / 0.32 / 0.19", src)
+        self.assertIn("predicted P(over)", src)
+        self.assertIn("The dashed diagonal is perfect calibration", src)
+        self.assertIn("NOT independent", src)
+        self.assertIn("game appears 4×", src)
+        self.assertIn("effective sample is the ~6,812 games", src)
+        # The old cryptic footer is gone
+        self.assertNotIn("near-line degeneracy", src)
+
 
 # ---------------------------------------------------------------------------
 # Date-pinning regression: Totals & Run Lines ignores selected_date
