@@ -345,6 +345,13 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertNotIn("interactive", _spec_dump(built["chart"]))
         self.assertNotIn('"bind": "scales"', _spec_dump(built["chart"]))
 
+    def test_comfortable_height_in_spec(self):
+        # The chart is sized to a comfortable fixed height (not the tiny
+        # default), so it fills its container readably.
+        _, built = self._built()
+        d = _spec_dump(built["chart"])
+        self.assertIn('"height": 480', d, "explicit comfortable height")
+
     @staticmethod
     def _gtb(center, count=40, low_n=False, mean=None, observed=0.5):
         return {"bin_center": center, "bin": f"{int(round(center * 100))}",

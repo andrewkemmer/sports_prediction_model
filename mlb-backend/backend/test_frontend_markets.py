@@ -350,6 +350,13 @@ class TestRunEngineModelMonitorRender(TestCase):
                          "from the tab")
         self.assertIn("diag_game_total_line", src,
                       "line selector key present")
+        # The GTL chart fills its container: it renders via utils.show_chart
+        # (width="stretch" / use_container_width=True), not a fixed width.
+        self.assertIn('utils.show_chart(built["chart"])', src,
+                      "GTL chart must render through the container-stretch path")
+        self.assertIn(
+            'built = diag.chart_game_total_curve(glc, _gl_title)',
+            src, "GTL chart built from the shared builder")
         self.assertNotIn("diag.rounded_total_pairs", src,
                          "per-game own-line pricing must be gone from the tab")
         self.assertNotIn("Per-game rounded total", src,
