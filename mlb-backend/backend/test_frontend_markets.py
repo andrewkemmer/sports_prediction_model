@@ -470,6 +470,14 @@ class TestRunlinePicksChart(TestCase):
                       "dynamic title must say 'Calibration Curve — Favorite {L}'")
         # Same render path as Distribution / Game Total Lines.
         self.assertIn("utils.show_chart(built[\"chart\"])", src)
+        # Derived ML section: the run-line moneyline at -0.5, rendered
+        # through the same shared builder with the moneyline-style title.
+        self.assertIn("diag.derived_ml_calibration(decided)", src,
+                      "tab must build the Derived ML calibration table")
+        self.assertIn("Calibration Curve — Derived ML (Run Line)", src,
+                      "Derived ML title must be exact")
+        self.assertIn("utils.show_chart(built_d[\"chart\"])", src,
+                      "Derived ML must use the same render path")
 
     def test_runline_pick_table_pick_rule_mentions_both_sides(self):
         """runline_pick_table pick_rule must mention both home -1.5

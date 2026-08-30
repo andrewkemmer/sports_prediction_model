@@ -1810,6 +1810,142 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertIn("Favorite -1.5", d)
 
 
+class TestDerivedMLCalibration(unittest.TestCase):
+    """'Derived ML' calibration on the Run Lines tab: the run-line model's
+    moneyline at -0.5 (P(favored wins)) vs the favorite's ACTUAL win rate,
+    in 1-pt bins (mirroring the moneyline page). -0.5 never pushes, so the
+    2-way IS the raw win prob. Predicted = p_rl_0_5_* when shipped, else
+    the corrected run-line moneyline (corrected_home_win)."""
+
+    @staticmethod
+    def _decided():
+        """50 home-favored @ P(win) 0.65 (32 won / 18 lost), 50 away-favored
+        @ 0.60 (30 won / 20 lost). corrected P(home win) = p_rl_1_0_home +
+        p_rl_1_0_push."""
+        rows = []
+        for k in range(50):
+            won = k < 32
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if won else 3,
+                         "away_score": 3 if won else 4,
+                         "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.35})
+        for k in range(50):
+            won = k < 30
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 3 if won else 5,
+                         "away_score": 5 if won else 4,
+                         "p_rl_1_0_home": 0.30, "p_rl_1_0_push": 0.10,
+                         "p_rl_1_0_away": 0.60})
+        return pd.DataFrame(rows)
+
+    def test_favored_win_probability_and_observed(self):
+        out = diag.derived_ml_calibration(self._decided())
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_games"], 100)
+        self.assertEqual(out["n_pushes"], 0)          # -0.5 never pushes
+        by = {b["bin"]: b for b in out["bins"]}
+        b65, b60 = by["65-66"], by["60-61"]
+        self.assertEqual(b65["count"], 50)
+        self.assertAlmostEqual(b65["mean_pred"], 0.65, places=4)
+        self.assertAlmostEqual(b65["observed"], 0.64, places=4)  # 32/50
+        self.assertAlmostEqual(b65["win_rate"], 0.64, places=4)  # fav pick
+        self.assertEqual(b60["count"], 50)
+        self.assertAlmostEqual(b60["mean_pred"], 0.60, places=4)
+        self.assertAlmostEqual(b60["observed"], 0.60, places=4)  # 30/50
+        self.assertAlmostEqual(b60["win_rate"], 0.60, places=4)
+
+    def test_1pt_bins_and_pooled_auc_total_row(self):
+        out = diag.derived_ml_calibration(self._decided())
+        self.assertEqual([b["bin"] for b in out["bins"]][:3],
+                         ["0-1", "1-2", "2-3"])       # 1-pt bins over [0, 1]
+        po = np.array([0.65] * 50 + [0.60] * 50)
+        ev = np.array([1.0] * 32 + [0.0] * 18 + [1.0] * 30 + [0.0] * 20)
+        self.assertAlmostEqual(out["pooled_auc"],
+                               round(float(diag._auc(ev, po)), 4), places=9)
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Derived ML (Run Line)")
+        tot = built["table"].iloc[-1]
+        self.assertEqual(tot["bucket"], "Total")
+        self.assertEqual(tot["count"], 100)
+        self.assertEqual(tot["auc"], out["pooled_auc"])
+        self.assertEqual(tot["% of Total"], 100.0)
+        self.assertEqual(
+            list(built["table"].columns),
+            ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+             "auc", "ece", "brier", "% of Total"])
+
+    def test_low_n_auc_none(self):
+        rows = [{"game_pk": i, "kind": "oof",
+                 "home_score": 5 if i < 6 else 3,
+                 "away_score": 3 if i < 6 else 4,
+                 "p_rl_1_0_home": 0.65, "p_rl_1_0_push": 0.05,
+                 "p_rl_1_0_away": 0.30} for i in range(10)]
+        out = diag.derived_ml_calibration(pd.DataFrame(rows))
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["70-71"]["count"], 10)    # n=10 < LOW_N=30
+        self.assertTrue(bool(by["70-71"]["low_n"]))
+        self.assertIsNone(by["70-71"]["auc"])
+        self.assertAlmostEqual(by["70-71"]["observed"], 0.6, places=4)
+
+    def test_p_rl_0_5_columns_preferred_when_shipped(self):
+        rows = [{"game_pk": i, "kind": "oof",
+                 "home_score": 5 if i < 32 else 3,
+                 "away_score": 3 if i < 32 else 4,
+                 "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                 "p_rl_1_0_away": 0.35,            # corrected moneyline 0.65
+                 "p_rl_0_5_home": 0.70, "p_rl_0_5_away": 0.30}  # shipped 0.70
+                for i in range(50)]
+        out = diag.derived_ml_calibration(pd.DataFrame(rows))
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["70-71"]["count"], 50)   # p_rl_0_5 wins
+        self.assertEqual(by["65-66"]["count"], 0)    # not the 0.65 fallback
+        self.assertAlmostEqual(by["70-71"]["mean_pred"], 0.70, places=4)
+
+    def test_toss_up_home_favored_at_exactly_half(self):
+        rows = [{"game_pk": i, "kind": "oof",
+                 "home_score": 5 if i < 20 else 3,
+                 "away_score": 3 if i < 20 else 4,
+                 "p_rl_1_0_home": 0.45, "p_rl_1_0_push": 0.05,
+                 "p_rl_1_0_away": 0.50} for i in range(60)]
+        out = diag.derived_ml_calibration(pd.DataFrame(rows))
+        self.assertIsNone(out["warning"])
+        by = {b["bin"]: b for b in out["bins"]}
+        b50 = by["50-51"]
+        self.assertEqual(b50["count"], 60)
+        self.assertAlmostEqual(b50["mean_pred"], 0.5, places=4)
+        self.assertAlmostEqual(b50["observed"], 1 / 3, places=4)
+        # pred == 0.5 is NOT > 0.5 -> dog pick -> win rate = 1 - observed
+        self.assertAlmostEqual(b50["win_rate"], 2 / 3, places=4)
+
+    def test_chart_grammar_and_title(self):
+        out = diag.derived_ml_calibration(self._decided())
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Derived ML (Run Line)")
+        d = _spec_dump(built["chart"])
+        self.assertIn('"domain": [0.0, 1.0]', d)
+        self.assertIn('"height": 300', d)
+        self.assertNotIn('"width"', d)
+        self.assertIn("Series", d)
+        self.assertIn("#8B5CF6", d)
+        self.assertNotIn("NaN", d)
+        self.assertIn("Derived ML (Run Line)", d)
+
+    def test_renders_on_real_artifact(self):
+        m_path = _latest_markets_artifact()
+        if not m_path.exists():
+            self.skipTest("run-engine artifact absent")
+        decided = diag.decided_rows(pd.read_csv(m_path))
+        out = diag.derived_ml_calibration(decided)
+        self.assertIsNone(out["warning"])
+        self.assertGreater(out["n_games"], 0)
+        self.assertEqual(out["n_pushes"], 0)
+        self.assertIsNotNone(out["pooled_auc"])
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Derived ML (Run Line)")
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+
+
 class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
     """End-to-end through frontend/markets.py: the 'Run Lines' tab drives
     All / -0.5 / -1.5 / -4.0 with 0 exceptions (subprocess AppTest, same
@@ -1828,6 +1964,8 @@ class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
             "at.tabs[idx].run();\n"
             "assert not at.exception, at.exception;\n"
             "assert len(at.caption) > 0, 'no captions rendered';\n"
+            "assert any('Derived ML' in c.value for c in at.caption), "
+            "[c.value for c in at.caption];\n"
             "for _val in ['All', '-0.5', '-1.5', '-4.0']:\n"
             "    at.tabs[idx].selectbox[0].set_value(_val);\n"
             "    at.tabs[idx].run();\n"
