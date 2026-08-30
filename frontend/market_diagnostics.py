@@ -220,7 +220,7 @@ def chart_game_total_curve(table: dict, title: str,
         layers.append(pooled_marker)
 
     chart = alt.layer(*layers).resolve_scale(
-        x="shared", y="independent").properties(height=480, title=title)
+        x="shared", y="independent").properties(width="container", height=480, title=title)
     # Pooled (Total) table row — the pooled-aggregates summary, share 100%.
     total_row = pd.DataFrame([{
         "bin": "Total", "bin_center": None, "count": int(tdf["count"].sum()),

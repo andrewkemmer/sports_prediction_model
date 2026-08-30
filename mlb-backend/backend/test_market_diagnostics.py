@@ -347,10 +347,14 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
 
     def test_comfortable_height_in_spec(self):
         # The chart is sized to a comfortable fixed height (not the tiny
-        # default), so it fills its container readably.
+        # default), and signals container-fill width so it spans the SAME
+        # full width as the other Diagnostics charts (moneyline-reference
+        # width="container" convention), not a narrower fixed plot.
         _, built = self._built()
         d = _spec_dump(built["chart"])
         self.assertIn('"height": 480', d, "explicit comfortable height")
+        self.assertIn('"width": "container"', d,
+                      "chart must fill its container at full width")
 
     @staticmethod
     def _gtb(center, count=40, low_n=False, mean=None, observed=0.5):
