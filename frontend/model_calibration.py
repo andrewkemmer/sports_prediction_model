@@ -1,9 +1,9 @@
 """Page 3 — Model Calibration.
 
 Header, summary (today's record + upsets), KPI cards (AUC-ROC, Brier,
-Log-Loss, Cal. Error), calibration curve vs a perfect-calibration diagonal,
-the Prediction Confidence & Accuracy combo chart, and the reliability table
-with color-coded GAP values.
+Log-Loss, Cal. Error), a merged confidence-vs-accuracy + calibration curve
+(count bars + actual rate vs the Platt map vs the perfect-calibration
+diagonal), and the reliability table with color-coded GAP values.
 """
 
 from __future__ import annotations
@@ -11,12 +11,12 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import altair as alt
 import inspect
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+import moneyline_calibration as mlc
 import utils
 
 utils.inject_css()
@@ -41,7 +41,6 @@ artifact_date = cal.get("_artifact_date", date_str)
 n_games = cal.get("n_games", 0)
 kpis = cal.get("kpis", {})
 curve = cal.get("calibration_curve", [])
-confidence = cal.get("confidence", [])
 record = cal.get("today_record", {})
 upsets = cal.get("upsets", [])
 
@@ -169,24 +168,10 @@ st.markdown("### Calibration Curve — Favored Team")
 
 # Per-1%-probability calibration, built from the game-level prediction
 # history: each OOF prediction is taken from the FAVORED team's side
-# (probability >= 50%), rounded to the nearest 1%, and the actual win rate
-# of that 1% slice is plotted at that point.
+# (probability >= 50%), binned to the nearest 1%; each 1% slice yields one
+# calibration point (win_rate) AND one count bar (n) from the same frame.
 hist_curve = utils.load_prediction_history(date_str)
-pts = pd.DataFrame()
-if (hist_curve is not None and not hist_curve.empty
-        and {"home_win_prob_model", "correct"} <= set(hist_curve.columns)):
-    _p = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce")
-    _w = pd.to_numeric(hist_curve["correct"], errors="coerce")
-    _ok = _p.notna() & _w.notna()
-    _p, _w = _p[_ok], _w[_ok]
-    _fav = np.maximum(_p, 1.0 - _p)          # favored-side probability
-    _fav = (_fav * 100).round() / 100        # nearest 1%
-    pts = (
-        pd.DataFrame({"prob": _fav, "won": _w})
-        .groupby("prob")
-        .agg(win_rate=("won", "mean"), n=("won", "size"))
-        .reset_index()
-    )
+pts = mlc.favored_calibration_pts(hist_curve)
 
 # Green curve on the SAME RAW AXIS: the DEPLOYED Platt calibration map
 # σ(a·logit(p)+b) evaluated at every raw favored probability. Because it
@@ -234,70 +219,30 @@ if pts.empty:
         })[["prob", "win_rate", "n"]]
 
 if not pts.empty:
-    model_pts = alt.Chart(pts).mark_line(
-        point=alt.OverlayMarkDef(filled=True, size=55), color=utils.BLUE, strokeWidth=2.5,
-    ).encode(
-        x=alt.X("prob:Q", title="Predicted win probability", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("win_rate:Q", title="Actual win rate", scale=alt.Scale(domain=[0, 1])),
-        tooltip=[alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
-                 alt.Tooltip("win_rate:Q", title="Actual win rate", format=".1%"),
-                 alt.Tooltip("n:Q", title="Games")],
-    )
-    diag_df = pd.DataFrame({"prob": [0.45, 1.0], "win_rate": [0.45, 1.0]})
-    diag = alt.Chart(diag_df).mark_line(color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
-        x=alt.X("prob:Q", scale=alt.Scale(domain=[0.45, 1.0])),
-        y=alt.Y("win_rate:Q", scale=alt.Scale(domain=[0, 1])),
-    )
-    # Shared scales + explicit container width: without these, layered
-    # charts fall back to natural size and collapse to a narrow strip.
-    layers = [diag, model_pts]
+    # Merged confidence-vs-accuracy + calibration curve: count bars (LEFT
+    # 'Games' axis) + blue actual-rate curve / green Platt map (RIGHT '%'
+    # axis, independent) + gray dashed perfect-calibration diagonal. Bars and
+    # the blue curve come from the SAME filled 1% bins, so bar height = games
+    # in that confidence bucket and the curve = their accuracy — one chart, no
+    # information lost from the former standalone 'Prediction Confidence &
+    # Accuracy' section.
+    built = mlc.chart_favored_calibration(pts, pts_cal)
     legend_extra = ""
     if not pts_cal.empty:
-        cal_line = alt.Chart(pts_cal).mark_line(
-            point=alt.OverlayMarkDef(filled=True, size=45), color="#34D399",
-            strokeDash=[6, 4], strokeWidth=2,
-        ).encode(
-            x=alt.X("prob:Q"),
-            y=alt.Y("cal_mean:Q", title="Actual win rate"),
-            tooltip=[alt.Tooltip("prob:Q", title="Raw predicted", format=".0%"),
-                     alt.Tooltip("cal_mean:Q", title="Calibrated prediction", format=".1%"),
-                     alt.Tooltip("n:Q", title="Games")],
-        )
-        layers.append(cal_line)
         legend_extra = (" · Green dashed: deployed Platt calibration map "
                         "(vertical gap = correction applied at that raw probability)")
-    layer = alt.layer(*layers).resolve_scale(x="shared", y="shared").properties(
-        width="container", height=340,
-    )
-    utils.show_chart(layer)
+    utils.show_chart(built["chart"])
     st.caption(
-        f"Model (n={n_games:,}) · Blue: actual win rate at each raw probability · "
+        f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
+        f"1% predicted-probability bin — the bars are the confidence-vs-"
+        f"accuracy view, bar height = how many games the model priced in that "
+        f"confidence band and the blue curve = how often those games won · "
+        f"Blue: actual win rate at each raw probability · "
         f"Green: calibrated probability σ(a·logit(p)+b) at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
         "blue curve binned to the nearest 1% — hover for games per point"
     )
-
-# ---------------------------------------------------------------------------
-# Confidence & accuracy combo chart
-# ---------------------------------------------------------------------------
-st.markdown("### Prediction Confidence & Accuracy")
-conf_df = pd.DataFrame(confidence) if confidence else pd.DataFrame()
-if conf_df.empty:
-    st.info("No confidence distribution data available.")
-else:
-    bars = alt.Chart(conf_df).mark_bar(color=utils.BLUE, opacity=0.85).encode(
-        x=alt.X("bucket:N", title="Confidence bucket", sort=None),
-        y=alt.Y("count:Q", title="Game Count", axis=alt.Axis(grid=True)),
-    )
-    line = alt.Chart(conf_df).mark_line(point=alt.OverlayMarkDef(filled=True, size=50), color=utils.PRIMARY, strokeWidth=2.5).encode(
-        x=alt.X("bucket:N", sort=None),
-        y=alt.Y("accuracy_pct:Q", title="Actual Accuracy %", axis=alt.Axis(orient="right", grid=False),
-                scale=alt.Scale(domain=[0, 100])),
-    )
-    combo = alt.layer(bars, line).resolve_scale(y="independent").properties(width="container", height=330)
-    utils.show_chart(combo)
-    st.caption("Blue bars: game count per bucket (left axis) · green line: actual accuracy % (right axis)")
 
 # ---------------------------------------------------------------------------
 # Reliability table
