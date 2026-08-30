@@ -86,6 +86,21 @@ scores, and a spot-check of 2019 W1 KC@JAX (40–26, ESPN-verified) plus the
 spread-line sign convention. The CSV is a generated artifact and is not
 committed; the artifact tests skip gracefully until the module has been run.
 
+## Run on Kaggle
+
+`kaggle_nfl_run.ipynb` (repo root) runs the phase-driven `backend/master_pipeline.py`
+in `/kaggle/working` (secrets → `MY_GITHUB_TOKEN`, fresh clone, pip install
+`nflreadpy polars scikit-learn lightgbm xgboost pandas numpy joblib gitpython`,
+then ingest → features → moneyline ensemble → sync): `python nfl-backend/backend/master_pipeline.py`,
+with `--no-push --features-csv <csv> --out-dir <dir>` as the local dry path.
+
+**Stale-cleanup retention rule**: cleanup never deletes `nfl_game_level_features.csv`
+(exact-name protected) or `models/`, and keeps a dated `nfl_moneyline_v1_<d>.json` /
+`nfl_feature_v1_<d>.json` while `<d>` still renders a board (i.e. `<d>` is a distinct
+`game_date` in the moneyline record(s)' `games[]`) — the board-backed rule that
+prevented the MLB run-engine regression (a navigable date never loses the artifact
+it renders); other dated files stay on the 48h retention window.
+
 ## Notes / known risks
 
 - **Line provenance**: `spread_line`/`total_line` are nflverse closing lines
