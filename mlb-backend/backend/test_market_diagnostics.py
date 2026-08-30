@@ -298,16 +298,24 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         for k in range(10):            # bin 40-45 (n=10 < LOW_N=30)
             over = k < 4
             rows.append({"game_pk": k, "total_runs": 9 if over else 8,
-                         "p_over_8_5": 0.42, "p_under_8_5": 0.58})
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58,
+                         "p_over_8_0": 0.42, "p_under_8_0": 0.58})
         for k in range(50):            # bin 55-60 (n=50 >= LOW_N)
             over = k < 29
             rows.append({"game_pk": 100 + k, "total_runs": 10 if over else 8,
-                         "p_over_8_5": 0.57, "p_under_8_5": 0.43})
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43,
+                         "p_over_8_0": 0.57, "p_under_8_0": 0.43})
         return pd.DataFrame(rows)
 
     def _built(self, line=8.5, title="Calibration Curve — Over 8.5"):
         out = diag.game_total_calibration(self._decided(), line)
-        return out, diag.chart_game_total_curve(out, title)
+        # The GTL tab now mirrors the Run Lines layout exactly: 1-pt curve
+        # frame + bars, 1% ticks, no Win rate series, table-matching labels.
+        return out, diag.chart_game_total_curve(
+            out, title, curve_bins=out.get("curve_bins"),
+            x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+            x_label="Mean Predicted", series_label="Mean Actual",
+            obs_label="Mean Actual")
 
     def test_returns_chart_and_table_no_scatter(self):
         out, built = self._built()
@@ -334,7 +342,10 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertIn("#64748B", d)
         self.assertIn("#F59E0B", d)
         self.assertIn('"shape": "diamond"', d)
-        self.assertIn("#8B5CF6", d)
+        # Single green observed series (no purple Win rate) — GTL mirrors
+        # the Run Lines layout.
+        self.assertIn("#22C55E", d)
+        self.assertNotIn("#8B5CF6", d)
 
     def test_static_no_zoom_selection(self):
         """The chart is static again - no zoom/pan selection in the spec."""
@@ -444,7 +455,7 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
                     _walk(v)
 
         _walk(built["chart"].to_dict())
-        self.assertEqual(titles.count("Observed % (2-way, no push)"), 1,
+        self.assertEqual(titles.count("Mean Actual"), 1,
                          "right '%' axis title must appear exactly once")
         self.assertEqual(titles.count("Games"), 1,
                          "left 'Games' axis title must appear exactly once")
@@ -459,32 +470,39 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         _, built8 = self._built(line=8.5, title="Calibration Curve — Over 8.5")
         self.assertIn("Over 8.5", _spec_dump(built8["chart"]))
 
-    def test_hover_metadata_and_low_n_suppression(self):
+    def test_hover_metadata_and_low_n_gray_bars(self):
         _, built = self._built()
         d = _spec_dump(built["chart"])
-        # Hover carries games / mean predicted / observed / win rate.
+        # Hover carries games / mean predicted / observed / mean actual.
         self.assertIn('"Games"', d)
         self.assertIn("Mean predicted", d)
-        self.assertIn("Win rate", d)
-        # low-n bin (40-45, n=10) rendered as a gray bar; its curve point
-        # dropped; non-low-n (55-60) point kept.
+        # low-n bin (40-45, n=10) rendered as a gray bar.
         self.assertIn("#94A3B8", d)
-        pts = diag._gtl_line_points(diag.game_total_calibration(
-            self._decided(), 8.5))
-        self.assertIn(0.575, list(pts["bin_center"]))
-        self.assertNotIn(0.425, list(pts["bin_center"]))
+        # GTL now plots every populated 1-pt bin — low-n included (mirrors
+        # Run Lines); the gray bars are the volume context.
+        centers = set()
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if r.get("series") == "Mean Actual":
+                    centers.add(r["bin_center"])
+        self.assertIn(0.425, centers, "low-n 1-pt bin plotted on the curve")
+        self.assertIn(0.565, centers)
 
-    def test_legend_present_with_both_series(self):
-        # The Observed / Win rate series legend is present with its color
-        # scale (green observed, purple win rate) -- the restored
-        # last-known-good legend (title 'Series', no forced placement).
+    def test_legend_present_mean_actual_only(self):
+        # The GTL legend mirrors Run Lines: a single green 'Mean Actual'
+        # series (no purple Win rate entry), titled after the series.
         _, built = self._built()
         d = _spec_dump(built["chart"])
-        self.assertIn("Series", d)
-        self.assertIn('"Observed"', d)
-        self.assertIn('"Win rate"', d)
+        self.assertIn("Mean Actual", d)
         self.assertIn("#22C55E", d)
-        self.assertIn("#8B5CF6", d)
+        self.assertNotIn('"Win rate"', d)
+        self.assertNotIn("#8B5CF6", d)
+        series = set()
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if "series" in r:
+                    series.add(r["series"])
+        self.assertEqual(series, {"Mean Actual"})
 
     def test_all_branch_uses_own_line_and_renders(self):
         decided = add_outcomes(make_grid_df(n=200, seed=11))
@@ -1396,16 +1414,25 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
 
     def test_low_n_bins_flagged_and_points_suppressed(self):
         out = diag.game_total_calibration(self._metrics_decided(), 8.5)
-        built = diag.chart_game_total_curve(out, "t")
+        built = diag.chart_game_total_curve(
+            out, "t", curve_bins=out.get("curve_bins"),
+            x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+            x_label="Mean Predicted", series_label="Mean Actual",
+            obs_label="Mean Actual")
         by = {b["bin"]: b for b in out["bins"]}
         self.assertTrue(bool(by["40-45"]["low_n"]))    # n=10 < 30
         self.assertFalse(bool(by["55-60"]["low_n"]))   # n=50 >= 30
         # low_n is INTERNAL only (gray-bar suppression) - never rendered.
         self.assertNotIn("low_n", built["table"].columns)
-        # Line/point spec keeps ONLY non-low-n populated bins (55-60); the
-        # low-n bin (0.42) is dropped from the win-rate/observed points.
-        dump = _spec_dump(built["chart"])
-        self.assertIn("Observed", dump)    # curves present
+        # The chart plots every populated 1-pt bin — low-n included (the
+        # gray bars + table are the volume context; GTL mirrors Run Lines).
+        centers = set()
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if r.get("series") == "Mean Actual":
+                    centers.add(r["bin_center"])
+        self.assertIn(0.425, centers, "low-n 1-pt bin plotted")
+        self.assertIn(0.565, centers)
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_all_branch_flat_own_line_win_rate_renders(self):
@@ -1494,14 +1521,19 @@ class TestGameTotalTableColumns(unittest.TestCase):
 
     def test_internal_columns_not_rendered(self):
         out = diag.game_total_calibration(self._metrics_decided(), 8.5)
-        built = diag.chart_game_total_curve(out, "t")
+        built = diag.chart_game_total_curve(
+            out, "t", curve_bins=out.get("curve_bins"),
+            x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+            x_label="Mean Predicted", series_label="Mean Actual",
+            obs_label="Mean Actual")
         for col in ("bin_center", "win_rate", "low_n"):
             self.assertNotIn(col, built["table"].columns)
-        # ...but they still drive the CHART (x-encoding / win-rate line /
-        # gray-bar suppression).
+        # ...but they still drive the CHART (x-encoding / observed curve /
+        # gray-bar suppression); the series is named after the table.
         dump = _spec_dump(built["chart"])
         self.assertIn('"field": "bin_center"', dump)
-        self.assertIn("Win rate", dump)
+        self.assertIn("Mean Actual", dump)
+        self.assertNotIn('"Win rate"', dump)
         self.assertIn("#94A3B8", dump)     # low-n gray bars still rendered
 
     def test_row_value_mapping(self):
@@ -2015,6 +2047,127 @@ class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
             f"AppTest subprocess failed:\nSTDOUT:\n{res.stdout}\n"
             f"STDERR:\n{res.stderr[-2000:]}")
         self.assertIn("DIAG_RL_OK", res.stdout)
+
+
+class TestGameTotalCurveMirrorsRunLines(unittest.TestCase):
+    """The GTL tab renders structurally identical to Run Lines: 1-pt curve
+    frame + count bars, 1% x-axis ticks, no Win rate series (single green
+    'Mean Actual' curve), labels matching the table — while the bucket
+    TABLE below stays 5-pt (fixed) / own-line (All)."""
+
+    @staticmethod
+    def _decided():
+        rows = []
+        for k in range(10):            # bin 40-45 (n=10 < LOW_N=30)
+            over = k < 4
+            rows.append({"game_pk": k, "total_runs": 9 if over else 8,
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58,
+                         "p_over_8_0": 0.42, "p_under_8_0": 0.58})
+        for k in range(50):            # bin 55-60 (n=50 >= LOW_N)
+            over = k < 29
+            rows.append({"game_pk": 100 + k, "total_runs": 10 if over else 8,
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43,
+                         "p_over_8_0": 0.57, "p_under_8_0": 0.43})
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _built(out, title="Calibration Curve — Over 8.5"):
+        return diag.chart_game_total_curve(
+            out, title, curve_bins=out.get("curve_bins"),
+            x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+            x_label="Mean Predicted", series_label="Mean Actual",
+            obs_label="Mean Actual")
+
+    @staticmethod
+    def _bar_rows(chart) -> list:
+        for _name, data in chart.to_dict().get("datasets", {}).items():
+            vals = [r for r in data if "series" not in r
+                    and "bin_center" in r and "count" in r]
+            if vals:
+                return vals
+        return []
+
+    def test_curve_frame_1pt_includes_low_n_and_bars_match(self):
+        out = diag.game_total_calibration(self._decided(), 8.5)
+        cb = out["curve_bins"]
+        self.assertEqual([b["bin"] for b in cb], ["42-43", "56-57"])
+        self.assertEqual([b["bin_center"] for b in cb], [0.425, 0.565])
+        lo = cb[0]
+        self.assertTrue(lo["low_n"])               # n=10 < 30, still plotted
+        self.assertEqual(lo["count"], 10)
+        built = self._built(out)
+        # Curve points AND bars come from the same 1-pt frame.
+        centers = set()
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if r.get("series") == "Mean Actual":
+                    centers.add(r["bin_center"])
+        self.assertEqual(sorted(centers), [0.425, 0.565])
+        bars = self._bar_rows(built["chart"])
+        self.assertEqual(sorted(r["bin_center"] for r in bars), [0.425, 0.565])
+        # Table unchanged: 5-pt buckets + Total row.
+        tab = built["table"]
+        self.assertIn("40-45", list(tab["bucket"]))
+        self.assertIn("55-60", list(tab["bucket"]))
+        self.assertNotIn("42-43", list(tab["bucket"]))
+        self.assertEqual(tab.iloc[-1]["bucket"], "Total")
+
+    @staticmethod
+    def _all_capable_decided():
+        """The All branch prices each game at its OWN fair line via the
+        TOTAL_GRID columns (plus the expected-runs fallback), so the
+        fixture ships every grid column at a flat 0.50/0.50 two-way."""
+        rows = []
+        for k in range(60):
+            over = k < 29
+            r = {"game_pk": k, "total_runs": 10 if over else 8,
+                 "home_expected_runs": 4.2, "away_expected_runs": 4.3}
+            for line in diag.TOTAL_GRID:
+                key = str(line).replace(".", "_")
+                r[f"p_over_{key}"] = 0.50
+                r[f"p_under_{key}"] = 0.50
+            rows.append(r)
+        return pd.DataFrame(rows)
+
+    def test_x_axis_1pct_ticks_all_selections(self):
+        for line, df in ((None, self._all_capable_decided()),
+                         (8.0, self._decided()), (8.5, self._decided())):
+            out = diag.game_total_calibration(df, line)
+            built = self._built(out)
+            vals = []
+            def _walk(node):
+                if isinstance(node, dict):
+                    ax = node.get("axis")
+                    if isinstance(ax, dict) and "values" in ax:
+                        vals.append(ax["values"])
+                    for v in node.values():
+                        _walk(v)
+                elif isinstance(node, list):
+                    for v in node:
+                        _walk(v)
+            _walk(built["chart"].to_dict())
+            self.assertEqual(len(vals), 1, f"one axis with ticks at {line}")
+            v = vals[0]
+            self.assertEqual(len(v), 101)
+            for a, b in zip(v, v[1:]):
+                self.assertAlmostEqual(b - a, 0.01, places=6)
+        d = _spec_dump(diag.chart_game_total_curve(
+            diag.game_total_calibration(self._decided(), 8.5), "t")["chart"])
+        self.assertNotIn('"values"', d, "GTL default path has no tick values")
+
+    def test_no_win_rate_series_and_labels_match_table(self):
+        out = diag.game_total_calibration(self._decided(), 8.5)
+        built = self._built(out)
+        d = _spec_dump(built["chart"])
+        self.assertNotIn("Win rate", d)
+        self.assertNotIn("#8B5CF6", d)
+        self.assertIn("Mean Actual", d)
+        self.assertIn("Mean Predicted", d)
+        self.assertNotIn("Predicted P(over)", d)
+        self.assertNotIn("Observed % (2-way, no push)", d)
+        self.assertIn('"domain": [0.0, 1.0]', d)
+        self.assertIn('"height": 300', d)
+        self.assertNotIn('"width"', d)
 
 
 class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):

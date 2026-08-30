@@ -209,8 +209,7 @@ def chart_game_total_curve(table: dict, title: str,
     # the curve points (populated 1-pt bins only, empty bins keep zero
     # height via their 5-pt row in the table); without one the bars stay on
     # the 5-pt table bins (GTL byte-identical).
-    chart_df = pd.DataFrame(curve_bins if curve_bins is not None
-                            else table["bins"]).copy()
+    chart_df = pd.DataFrame(curve_bins if curve_bins else table["bins"]).copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
     x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
@@ -281,7 +280,7 @@ def chart_game_total_curve(table: dict, title: str,
                                              range=["#22C55E", "#8B5CF6"])),
                             title=("Series" if show_win_rate else series_label)),
             tooltip=[
-                alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
+                alt.Tooltip("bin_center:Q", title=x_label, format=".3f"),
                 alt.Tooltip("series:N", title="Series"),
                 alt.Tooltip("pct:Q", title=obs_label, format=".1f"),
                 alt.Tooltip("count:Q", title="Games")])
@@ -785,7 +784,8 @@ def game_total_calibration(decided: pd.DataFrame,
     count_total × 100 with count_total = priced non-push games. Strict over:
     total > line (total >= line + 0.5).
     """
-    empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
+    empty = {"line": line, "bins": [], "curve_bins": [],
+             "n_games": 0, "n_pushes": 0,
              "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
              "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
              "pooled_auc": None,
@@ -859,7 +859,18 @@ def game_total_calibration(decided: pd.DataFrame,
     (bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece,
      pooled_brier, pooled_auc) = _bucket_calibration(pred[ok], event[ok],
                                                      edges, labels)
-    return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
+    # 1-pt curve frame: the SAME no-push 2-way population re-bucketed at 1%
+    # (0-1 … 99-100) for the observed curve POINTS and count BARS — one
+    # point/bar per POPULATED 1-pt bin, low-n included (mirrors the Run
+    # Lines curve_bins). The table stays on the 5-pt (fixed) / own-line
+    # (All) ``bins`` above.
+    curve_edges = [float(b) for b in range(101)]
+    curve_labels = [f"{b}-{b + 1}" for b in range(100)]
+    (curve_bins, _, _, _, _, _, _) = _bucket_calibration(
+        pred[ok], event[ok], curve_edges, curve_labels)
+    curve_bins = [b for b in curve_bins if b["count"] > 0]
+    return {"line": line, "bins": bins, "curve_bins": curve_bins,
+            "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
             "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
             "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,

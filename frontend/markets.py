@@ -197,7 +197,16 @@ else:
                 _gl_title = "Calibration Curve — Over (All = own fair line)"
             else:
                 _gl_title = f"Calibration Curve — Over {_gl_line:g}"
-            built = diag.chart_game_total_curve(glc, _gl_title)
+            # GTL mirrors the Run Lines layout exactly: 1-pt curve POINTS
+            # + count BARS from glc['curve_bins'], explicit 1% x-axis tick
+            # MARKS, NO win-rate series (only the observed curve, named to
+            # match the table) — on EVERY selection (All + fixed). The
+            # table below keeps its 5-pt (fixed) / own-line (All) buckets.
+            built = diag.chart_game_total_curve(
+                glc, _gl_title, curve_bins=glc.get("curve_bins"),
+                x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+                x_label="Mean Predicted", series_label="Mean Actual",
+                obs_label="Mean Actual")
             utils.show_chart(built["chart"])
             st.table(built["table"])
             priced_txt = ("decided games priced at their own fair lines"

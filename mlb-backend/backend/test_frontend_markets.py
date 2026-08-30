@@ -357,8 +357,25 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertIn('utils.show_chart(built["chart"])', src,
                       "GTL chart must render through the SAME call as Distribution")
         self.assertIn(
-            'built = diag.chart_game_total_curve(glc, _gl_title)',
-            src, "GTL chart built via the restored bespoke builder")
+            "built = diag.chart_game_total_curve(",
+            src, "GTL chart built via the shared bespoke builder")
+        self.assertIn(
+            "glc, _gl_title, curve_bins=glc.get(\"curve_bins\")",
+            src, "GTL builder call feeds the 1-pt curve frame")
+        # The GTL tab now mirrors the Run Lines layout exactly: same kwargs
+        # (1-pt curve frame, 1% ticks, no Win rate series, table labels).
+        self.assertIn("curve_bins=glc.get(\"curve_bins\")", src,
+                      "GTL must feed the 1-pt curve frame to the builder")
+        self.assertIn("x_tick_values=diag.X_1PCT_TICKS", src,
+                      "GTL must pass the explicit 1% x-axis tick values")
+        self.assertIn("show_win_rate=False", src,
+                      "GTL must drop the Win rate series")
+        self.assertIn('x_label="Mean Predicted"', src,
+                      "GTL x-axis renamed to 'Mean Predicted'")
+        self.assertIn('series_label="Mean Actual"', src,
+                      "GTL series renamed to 'Mean Actual'")
+        self.assertIn('obs_label="Mean Actual"', src,
+                      "GTL y-axis renamed to 'Mean Actual'")
         self.assertNotIn("diag.rounded_total_pairs", src,
                          "per-game own-line pricing must be gone from the tab")
         self.assertNotIn("Per-game rounded total", src,
