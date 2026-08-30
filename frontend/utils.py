@@ -1127,17 +1127,41 @@ def _max_stamp(paths) -> Optional[str]:
     return max(stamps) if stamps else None
 
 
+def _is_snapshot_record(name: str) -> bool:
+    """True when ``name`` is a PRIMARY data-snapshot JSON record.
+
+    Only a sport's primary snapshot families carry the data refresh — the
+    pipeline output the sidebar reports (MLB: ``calibration_``,
+    ``model_monitor_``, ``run_engine_monitor_``, ``run_engine_markets_``
+    meta; NFL: ``nfl_moneyline_v1_``, ``nfl_feature_v1_``). Stand-alone
+    read-only diagnostics — ``margin_reliability_*``, ``deep_over_recheck_*``,
+    ``*_cull_diagnostic_*``, ``rolling_brier_*``, ``features_metadata_*`` —
+    are EXCLUDED: their ``generated`` field records when the analysis was
+    authored, NOT when the pipeline refreshed predictions, so trusting it
+    makes the sidebar 'Last updated' drift from the actual data snapshot
+    (this is the 2026-08-30 stale-time root cause).
+    """
+    return name.startswith((
+        "calibration_", "model_monitor_", "run_engine_monitor_",
+        "run_engine_markets_", "nfl_moneyline_v1_", "nfl_feature_v1_",
+    ))
+
+
 def _last_refresh_for_dir(sport_dir: Path) -> Optional[datetime]:
     """Newest refresh datetime for one sport's committed ``data_delivery`` dir.
 
     Preference order (sidebar spec): (1) the newest full-run timestamp on any
-    ``<prefix>_<stamp>.json`` record (most precise — e.g. ``generated``),
-    else (2) the newest YYYYMMDD suffix over ``run_engine_markets_*.csv``,
-    else (3) any other dated artifact. Returns None when the dir carries no
-    dated artifacts.
+    PRIMARY snapshot ``<prefix>_<stamp>.json`` record (most precise — e.g.
+    ``generated``/``created_utc``; diagnostics are excluded by
+    ``_is_snapshot_record`` so their authoring time can't masquerade as the
+    data refresh), else (2) the newest YYYYMMDD suffix over
+    ``run_engine_markets_*.csv``, else (3) any other dated artifact. Returns
+    None when the dir carries no dated artifacts.
     """
     best_full: Optional[datetime] = None
     for p in sport_dir.glob("*_*.json"):
+        if not _is_snapshot_record(p.name):
+            continue
         try:
             obj = json.loads(p.read_text())
         except Exception:

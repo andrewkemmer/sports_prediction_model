@@ -330,8 +330,8 @@ class TestLastUpdated(unittest.TestCase):
             sys.path.insert(0, str(_frontend))
         cls.u = _extract_utils_funcs([
             "_full_run_timestamp", "_stamp_suffixes", "_max_stamp",
-            "_last_refresh_for_dir", "_is_date_only", "_to_eastern",
-            "_format_refresh", "last_refresh_time",
+            "_is_snapshot_record", "_last_refresh_for_dir", "_is_date_only",
+            "_to_eastern", "_format_refresh", "last_refresh_time",
         ])
 
     def _dir(self, files):
@@ -351,17 +351,55 @@ class TestLastUpdated(unittest.TestCase):
         dt = self.u["_last_refresh_for_dir"](d)
         self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
 
-    def test_full_run_timestamp_preferred_over_date(self):
-        """A JSON record carrying a full run timestamp is preferred over the
-        (coarser) date-only run_engine_markets suffix."""
+    def test_snapshot_full_run_timestamp_preferred_over_date(self):
+        """A PRIMARY snapshot record carrying a full run timestamp is preferred
+        over the (coarser) date-only run_engine_markets suffix."""
         d = self._dir([
             ("run_engine_markets_20260830.csv", "pk\n1\n"),
-            ("margin_reliability_20260830.json",
-             '{"generated": "2026-08-30T17:30:04"}'),
+            ("model_monitor_20260830.json",
+             '{"generated": "2026-08-30T19:55:00"}'),
         ])
         dt = self.u["_last_refresh_for_dir"](d)
-        self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 17:30")
+        self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 19:55")
 
+    def test_nfl_snapshot_created_utc_still_preferred(self):
+        """NFL's primary moneyline record keeps its precise run timestamp
+        (created_utc) — the whitelist covers the NFL snapshot family too."""
+        d = self._dir([
+            ("nfl_moneyline_v1_20260830.json",
+             '{"created_utc": "2026-08-30T20:09:31.977894Z"}'),
+        ])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 20:09")
+
+    def test_diagnostic_full_timestamp_is_ignored(self):
+        """The 2026-08-30 stale-time root cause: a stand-alone diagnostic's
+        ``generated`` (e.g. deep_over_recheck at 17:29, margin_reliability at
+        17:05) must NOT masquerade as the data refresh. It falls back to the
+        actual snapshot date."""
+        d = self._dir([
+            ("run_engine_markets_20260830.csv", "pk\n1\n"),
+            ("deep_over_recheck_20260830.json",
+             '{"generated": "2026-08-30T17:29:04"}'),
+            ("margin_reliability_20260830.json",
+             '{"generated": "2026-08-30T17:05:00"}'),
+        ])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d"), "2026-08-30")
+        self.assertTrue(self.u["_is_date_only"](dt),
+                        "diagnostic times must not fabricate a run timestamp")
+
+    def test_newer_diagnostic_does_not_override_snapshot_time(self):
+        """Even a diagnostic stamped LATER than a snapshot full-run time is
+        ignored — diagnostics never set the sidebar time."""
+        d = self._dir([
+            ("model_monitor_20260830.json",
+             '{"generated": "2026-08-30T18:56:00"}'),
+            ("deep_over_recheck_20260830.json",
+             '{"generated": "2026-08-30T19:58:00"}'),
+        ])
+        dt = self.u["_last_refresh_for_dir"](d)
+        self.assertEqual(dt.strftime("%Y-%m-%d %H:%M"), "2026-08-30 18:56")
     def test_other_dated_artifact_fallback_without_markets(self):
         d = self._dir([("todays_games_20260830.csv", "pk\n1\n")])
         dt = self.u["_last_refresh_for_dir"](d)
