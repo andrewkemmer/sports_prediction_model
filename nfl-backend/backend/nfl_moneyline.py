@@ -1,16 +1,20 @@
-"""NFL moneyline v1 — the feature-admission model gate (NO adoption unless the
-sealed window earns it).
+"""NFL moneyline — 5-member ensemble gate + gated per-game slate.
 
-Builds on the v1 admitted features (``nfl_features.py``): elo_diff,
-form_diff_pts, rest_days_diff, ypp_diff, is_dome_home, and is_home (the
-home-edge anchor — a constant, so it is carried by the baselines/intercept and
-NOT fed as a model column). Target = home_win (home_score > away_score).
+Model arm (the Part-1 upgrade): a 5-member weighted ensemble mirroring
+mlb-backend's ``train_moneyline_ensemble`` — XGBoost, LightGBM, Logistic,
+RandomForest, MLP — with train-fold-median imputation, StandardScaler,
+32-team-ID categoricals for the tree members (LightGBM by name, XGBoost via
+pd.Categorical, RF as integer features), per-member try/except degradation,
+and an ADAPTIVE blend (pooled OOF member AUC softmax, floor/cap projection)
+that replaces the static priors for the deployed bundle. Features come from
+the admission-gate record (``nfl_features.py``): the v1 base plus the gated
+v2 candidates (decaying-window strength aggregates, opponent-adjusted
+margin, pace, short-rest edge, QB EPA, weather, division). ``is_home`` stays
+a constant anchor — it is carried by the baselines/intercept and never fed
+as a model column.
 
 Discipline (MLB retrospective):
-- START SIMPLE: a single LightGBM with modest regularization + a logistic
-  reference arm. NO 5-member weighted ensemble (that is a later upgrade to
-  gate, not the v1 baseline). No interactions; no new features.
-- STRICT point-in-time: every feature is already leakage-safe (v1 gate;
+- STRICT point-in-time: every feature is already leakage-safe (feature gate;
   ``team_stats_ladder`` asserts per-team strict gameday monotonicity). At the
   model entry point we additionally assert walk-forward folds never train on a
   row at/after the fold's validation week, and that season 2025 (the SEALED
@@ -26,8 +30,12 @@ Discipline (MLB retrospective):
   / sealed-loss inversion means DON'T ADOPT.
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
-per-arm pooled + sealed tables (raw + Platt twins), baselines, verdict+reason.
-No predictions artifacts are written yet (that is the NEXT task, only if ADOPT).
+per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
+adaptive weights, baselines, verdict+reason, and — ONLY when adopted — the
+per-game ``games[]`` slate for the current schedule (2026 week 1). When the
+sealed window does not earn adoption the record carries
+``predictions: {status: "blocked (not adopted)"}`` and the run continues
+normally (never errors).
 """
 from __future__ import annotations
 
@@ -40,6 +48,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# sklearn pieces the ensemble uses. Imported at module level (a guarded import
+# inside train_ensemble would duplicate this); the ensemble members themselves
+# are imported lazily so a missing xgboost/lightgbm degrades a single member.
+try:
+    from sklearn.preprocessing import StandardScaler
+    _SKLEARN_OK = True
+except Exception:  # pragma: no cover - sklearn is a hard requirement
+    _SKLEARN_OK = False
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +106,45 @@ ECE_BINS = 10
 ECE_MAX = 0.08          # "sane" calibration bar for adoption
 PROB_EPS = 1e-6
 
+# ---------------------------------------------------------------------------
+# 5-member ensemble config (mirrors mlb-backend/backend/training.py)
+# ---------------------------------------------------------------------------
+# Static base blend weights — the pre-adaptive FALLBACK, renormalized over
+# whichever members actually trained. After the walk-forward run the blend
+# switches to ADAPTIVE weights earned from pooled OOF member AUC (the same
+# softmax + floor/cap projection MLB ships).
+ENSEMBLE_WEIGHTS = {
+    "xgboost": 0.25, "lightgbm": 0.25, "logistic": 0.30,
+    "randomforest": 0.10, "mlp": 0.10,
+}
+ADAPTIVE_WEIGHT_METRIC = "auc"
+ADAPTIVE_WEIGHT_TEMPERATURE = 0.03
+ADAPTIVE_WEIGHT_AUC_TEMPERATURE = 0.015
+ADAPTIVE_WEIGHT_FLOOR = 0.05
+ADAPTIVE_WEIGHT_CAP = 0.45
+RANDOM_SEED = 42
+
+# Tree-member categoricals (the 32 NFL teams). NOT model columns — native
+# categoricals for LightGBM (by name) / XGBoost (pd.Categorical); the RF
+# member consumes them as integer features. Logistic/MLP never see them.
+TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+UNK_TEAM_ID = 99      # reserved slot — never auto-assigned, never a real team
+
+# Season of the CURRENT schedule (undecided games) the slate stage targets.
+# The orchestrator overrides this from the loaded schedule; 2026 week 1 is
+# the default for the no-schedule (features-csv) dry path.
+SLATE_SEASON = 2026
+
+# Adaptive weights earned by the most recent walk-forward run; prediction
+# (sealed + slate) blends with these instead of the static priors, mirroring
+# MLB's ``_LAST_ADAPTIVE_WEIGHTS`` persistence pattern.
+_ADAPTIVE_WEIGHTS: dict[str, float] = {}
+
+# Fit-only deployed bundle + sealed Platt map from the most recent run (used
+# by the slate stage; re-fit per run, never persisted across runs).
+_DEPLOYED_BUNDLE: dict | None = None
+_SEALED_PLATT: object | None = None
+
 
 # ---------------------------------------------------------------------------
 # Metrics (pure)
@@ -131,6 +187,12 @@ def auc(y: np.ndarray, p: np.ndarray) -> float:
 # Platt calibration (pure, via sklearn; fit maps are sealed-off-holdout)
 # ---------------------------------------------------------------------------
 def platt_fit(p: np.ndarray, y: np.ndarray):
+    """Fit the 2-parameter Platt map on (logit(p), y). Returns None when the
+    pool cannot support a fit (single class, too few games) — callers treat
+    None as the identity map (raw probabilities), mirroring MLB's fit_platt."""
+    y = np.asarray(y, dtype=int)
+    if len(y) < 10 or len(np.unique(y)) < 2:
+        return None
     from sklearn.linear_model import LogisticRegression
     x = np.log(clip_p(p) / (1 - clip_p(p))).reshape(-1, 1)
     lr = LogisticRegression(C=1e6)          # essentially unregularized Platt map
@@ -139,6 +201,8 @@ def platt_fit(p: np.ndarray, y: np.ndarray):
 
 
 def platt_predict(p: np.ndarray, lr) -> np.ndarray:
+    if lr is None:
+        return np.asarray(p, dtype=float)
     x = np.log(clip_p(p) / (1 - clip_p(p))).reshape(-1, 1)
     return lr.predict_proba(x)[:, 1]
 
@@ -188,8 +252,211 @@ def generate_weekly_folds(preq: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Model arms
 # ---------------------------------------------------------------------------
-def _valid_rows(df: pd.DataFrame) -> np.ndarray:
-    return df[V1_FEATURES + [TARGET]].notna().all(axis=1).to_numpy()
+def _valid_rows(df: pd.DataFrame, features: list[str] | None = None) -> np.ndarray:
+    features = features or V1_FEATURES
+    return df[features + [TARGET]].notna().all(axis=1).to_numpy()
+
+
+# ---- Team-ID categorical mapping for the tree members ----------------------
+_TEAM_ABBR_TO_ID: dict[str, int] = {}
+_TEAM_ID_TO_ABBR: dict[int, str] = {}
+
+
+def _team_id(abbr: object) -> int:
+    """Stable integer ID for an NFL team abbreviation (same team = same ID
+    across seasons). Unknown/short/missing values map to UNK_TEAM_ID — a
+    dedicated category with near-zero training presence so trees learn a
+    neutral weight instead of aliasing a real team."""
+    if abbr in _TEAM_ABBR_TO_ID:
+        return _TEAM_ABBR_TO_ID[abbr]
+    if not isinstance(abbr, str) or len(abbr.strip()) < 2:
+        return UNK_TEAM_ID
+    key = abbr.strip().upper()
+    if key in _TEAM_ABBR_TO_ID:
+        return _TEAM_ABBR_TO_ID[key]
+    tid = len(_TEAM_ABBR_TO_ID)
+    if tid >= UNK_TEAM_ID:
+        tid += 1  # skip the reserved slot
+    _TEAM_ABBR_TO_ID[key] = tid
+    _TEAM_ID_TO_ABBR[tid] = key
+    return tid
+
+
+def _cat_unk_for(col: str) -> int:
+    return UNK_TEAM_ID
+
+
+def _cat_known_ids(col: str) -> list[int]:
+    return sorted(set(_TEAM_ID_TO_ABBR) | {UNK_TEAM_ID})
+
+
+def _add_team_ids(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["home_team_id"] = df["home_team"].apply(_team_id)
+    df["away_team_id"] = df["away_team"].apply(_team_id)
+    for abbr, tid in sorted(_TEAM_ABBR_TO_ID.items()):
+        if tid == UNK_TEAM_ID:
+            raise AssertionError(
+                f"UNK_TEAM_ID={UNK_TEAM_ID} collides with real team '{abbr}' → {tid}")
+    return df
+
+
+# ---- Feature matrices (mirror MLB _feature_matrix / _prepare_features) -----
+def _feature_matrix(df: pd.DataFrame, features: list[str]) -> np.ndarray:
+    """Numeric matrix over ``features`` in canonical order, NaN preserved.
+
+    Missing columns come back all-NaN with one loud warning (never silently
+    dropped) — trees route NaN natively; logistic/MLP/RF get train-fold
+    medians via the bundle's impute_median."""
+    missing = [c for c in features if c not in df.columns]
+    if missing:
+        logger.warning(
+            "Feature matrix: %d/%d expected columns absent (%s%s) — filled NULL",
+            len(missing), len(features), ", ".join(missing[:6]),
+            " …" if len(missing) > 6 else "",
+        )
+    return df.reindex(columns=features).to_numpy(dtype=float)
+
+
+def _categorical_matrix(df: pd.DataFrame) -> np.ndarray:
+    return df[TREE_CATEGORICAL_COLS].to_numpy(dtype=int)
+
+
+def _prepare_features(df: pd.DataFrame, features: list[str]):
+    df = _add_team_ids(df)
+    X = _feature_matrix(df, features)
+    X_cat = _categorical_matrix(df)
+    y = df[TARGET].values.astype(float)
+    return X, X_cat, y
+
+
+def _impute_median(X: np.ndarray, medians=None):
+    """Fill NaN with column medians (fit on TRAIN when medians is None).
+    All-NaN columns fall back to 0.0. Returns (imputed, medians_used)."""
+    X = np.asarray(X, dtype=float)
+    if medians is None:
+        with np.errstate(all="ignore"):
+            medians = np.nanmedian(X, axis=0) if len(X) else np.zeros(X.shape[1])
+        medians = np.where(np.isnan(medians), 0.0, medians)
+    X = X.copy()
+    idx = np.isnan(X)
+    X[idx] = np.take(np.asarray(medians, dtype=float), idx.nonzero()[1])
+    return X, np.asarray(medians, dtype=float)
+
+
+def _tree_dataframe(X_num: np.ndarray, X_cat: np.ndarray, numeric_cols: list[str],
+                    vocabs: dict | None = None) -> pd.DataFrame:
+    """Named numeric + pd.Categorical team-ID frame for XGBoost (explicit
+    category set so predict-time newcomers never throw 'category not in the
+    training set'). LightGBM builds its own int-coded frame."""
+    df = pd.DataFrame(X_num, columns=numeric_cols)
+    for i, c in enumerate(TREE_CATEGORICAL_COLS):
+        vals = X_cat[:, i].copy()
+        unk = _cat_unk_for(c)
+        vals = np.where(vals < 0, unk, vals)
+        vocab = (vocabs or {}).get(c)
+        if vocab is not None:
+            known = np.asarray(sorted(set(vocab)), dtype=int)
+            vals = np.where(np.isin(vals, known), vals, unk)
+            df[c] = pd.Categorical(vals, categories=sorted(set(vocab)))
+        else:
+            df[c] = pd.Categorical(vals, categories=_cat_known_ids(c))
+    return df
+
+
+def _lgbm_dataframe(X_num: np.ndarray, X_cat: np.ndarray, numeric_cols: list[str],
+                    vocabs: dict | None = None) -> pd.DataFrame:
+    """Named numeric + int team-ID frame for LightGBM (categorical by NAME)."""
+    df = pd.DataFrame(X_num, columns=numeric_cols)
+    for i, c in enumerate(TREE_CATEGORICAL_COLS):
+        vals = X_cat[:, i].copy()
+        unk = _cat_unk_for(c)
+        vals = np.where(vals < 0, unk, vals)
+        vocab = (vocabs or {}).get(c)
+        if vocab is not None:
+            known = np.asarray(sorted(set(vocab)), dtype=int)
+            vals = np.where(np.isin(vals, known), vals, unk)
+        df[c] = vals.astype(int)
+    return df
+
+
+def _member_weights(member_names: list[str], adaptive: dict | None = None) -> dict[str, float]:
+    """Blend weights normalized over the members that actually trained.
+
+    Prefers the run's adaptive weights when available; falls back to the
+    static ENSEMBLE_WEIGHTS priors (e.g. before the first OOF cycle). A
+    member that failed to train contributes 0% and the rest renormalize to
+    exactly 1.0."""
+    names = [n for n in member_names
+             if n not in ("scaler", "impute_median", "categorical_vocab")]
+    source = adaptive or ENSEMBLE_WEIGHTS
+    raw = {n: float(source.get(n, 0.0)) for n in names}
+    zeroed = [n for n, v in raw.items() if v <= 0]
+    for n in zeroed:
+        prior = float(ENSEMBLE_WEIGHTS.get(n, 0.0))
+        if prior > 0:
+            raw[n] = min(prior, ADAPTIVE_WEIGHT_FLOOR * 2)
+    total = sum(raw.values())
+    if total <= 0:
+        w = 1.0 / max(len(names), 1)
+        return {n: w for n in names}
+    return {n: v / total for n, v in raw.items()}
+
+
+def compute_metrics(y_true: np.ndarray, p: np.ndarray) -> dict[str, float]:
+    """logloss / auc / ece / brier for an NFL probability vector."""
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(p, dtype=float)
+    n = len(y)
+    brier = float(np.mean((y - p) ** 2)) if n else 0.25
+    return {
+        "logloss": round(logloss(y, p), 4),
+        "auc": round(auc(y, p), 4),
+        "ece": round(ece(y, p), 4),
+        "brier": round(brier, 4),
+    }
+
+
+def compute_adaptive_weights(oof_members: dict[str, list[float]],
+                             y_oof: np.ndarray) -> dict[str, float]:
+    """Blend weights earned by pooled OOF member AUC (softmax + floor/cap
+    projection, mirroring MLB). Sums to exactly 1.0."""
+    y = np.asarray(y_oof, dtype=float)
+    scores: dict[str, float] = {}
+    if len(y) == 0:
+        return {}
+    for name, preds in oof_members.items():
+        if not preds or len(preds) != len(y):
+            continue
+        a = auc(y, np.asarray(preds, dtype=float))
+        if a is not None and np.isfinite(a):
+            scores[name] = float(a)
+    if not scores:
+        return {}
+    if ADAPTIVE_WEIGHT_METRIC == "auc":
+        _t = ADAPTIVE_WEIGHT_AUC_TEMPERATURE
+        best = max(scores.values())
+        exp_w = {n: np.exp((a - best) / _t) for n, a in scores.items()}
+    else:
+        _t = ADAPTIVE_WEIGHT_TEMPERATURE
+        best = min(scores.values())
+        exp_w = {n: np.exp(-(ll - best) / _t) for n, ll in scores.items()}
+    tot = sum(exp_w.values())
+    w = {n: float(v / tot) for n, v in exp_w.items()}
+    eff_cap = max(ADAPTIVE_WEIGHT_CAP, 1.02 / len(w))
+    for _ in range(50):
+        w = {n: max(v, ADAPTIVE_WEIGHT_FLOOR) for n, v in w.items()}
+        s = sum(w.values())
+        w = {n: v / s for n, v in w.items()}
+        w = {n: min(v, eff_cap) for n, v in w.items()}
+        s = sum(w.values())
+        w = {n: v / s for n, v in w.items()}
+    rounded = {n: round(v, 4) for n, v in w.items()}
+    drift = round(1.0 - sum(rounded.values()), 4)
+    if drift:
+        top = max(rounded, key=lambda n: w[n])
+        rounded[top] = round(rounded[top] + drift, 4)
+    return rounded
 
 
 def fit_predict_lgbm(Xtr: np.ndarray, ytr: np.ndarray,
@@ -215,68 +482,316 @@ def _platt_on(ppool: list[np.ndarray], ypool: list[np.ndarray]) -> object:
     return platt_fit(np.concatenate(ppool), np.concatenate(ypool).astype(int))
 
 
-def run_walk_forward(feats: pd.DataFrame) -> dict:
-    """Prequential fold evaluation over 2019-2024 + sealed 2025 evaluation.
+# ---------------------------------------------------------------------------
+# 5-member ensemble (mirrors mlb-backend training.py::train_moneyline_ensemble)
+# ---------------------------------------------------------------------------
+def train_ensemble(train: pd.DataFrame, val: pd.DataFrame | None = None,
+                   features: list[str] | None = None) -> tuple[dict, dict]:
+    """Train the 5-member moneyline ensemble (XGB/LGB/Logistic/RF/MLP).
 
-    Returns per-arm pooled tables + sealed tables (raw + Platt twins) and the
-    adoption verdict. No training ever sees 2025; the sealed Platt map is fit
-    only on the pooled pre-holdout OOF (2021-2024), never 2025.
+    ``val`` is supplied for walk-forward folds so the boosting members can
+    evaluate against a strictly-future holdout; when omitted the call is a
+    fit-only refit on every decided game for the deployed bundle.
+
+    Prep (mirror MLB): numeric features are imputed with TRAIN-fold medians
+    only (never val), StandardScaler fit on train → transform val; tree
+    members get numeric diffs + the 32-team-ID categoricals — LightGBM as
+    named categorical cols, XGBoost as pd.Categorical, RF on imputed-numeric
+    + integer team IDs. Every member is try/except-degraded: a member that
+    fails to import or fit is skipped, never fatal.
+
+    Returns (models, metrics) where metrics is {} for fit-only refits and
+    the val-window metrics dict otherwise."""
+    features = features or V1_FEATURES
+    X_train, X_cat_train, y_train = _prepare_features(train, features)
+    X_val = X_cat_val = y_val = None
+    if val is not None:
+        X_val, X_cat_val, y_val = _prepare_features(val, features)
+
+    if len(X_train) == 0 or (val is not None and len(X_val) == 0):
+        raise ValueError("Insufficient training or validation data")
+
+    X_train_lr, impute_medians = _impute_median(X_train)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train_lr)
+    X_val_scaled = None
+    X_val_lr = None
+    if X_val is not None:
+        X_val_lr, _ = _impute_median(X_val, impute_medians)
+        X_val_scaled = scaler.transform(X_val_lr)
+
+    models: dict = {}
+
+    # XGBoost — imputed matrix + pd.Categorical team IDs, enable_categorical.
+    try:
+        from xgboost import XGBClassifier
+        X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, features)
+        xgb_kw = dict(objective="binary:logistic", max_depth=2,
+                      min_child_weight=8, gamma=1.0, subsample=0.6,
+                      colsample_bytree=0.6, learning_rate=0.06,
+                      n_estimators=600, random_state=RANDOM_SEED,
+                      enable_categorical=True, eval_metric="logloss")
+        if X_val is not None:
+            X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, features)
+            xgb = XGBClassifier(**xgb_kw, early_stopping_rounds=20)
+            xgb.fit(X_train_xgb, y_train, eval_set=[(X_val_xgb, y_val)],
+                    verbose=False)
+        else:
+            xgb = XGBClassifier(**xgb_kw)
+            xgb.fit(X_train_xgb, y_train, verbose=False)
+        models["xgboost"] = xgb
+    except ImportError:
+        logger.warning("xgboost not available, skipping XGB member")
+    except Exception as e:
+        logger.warning("XGBoost member failed: %s", e)
+
+    # LightGBM — raw NaN numeric + int team IDs, categorical_feature BY NAME.
+    try:
+        from lightgbm import LGBMClassifier
+        X_train_lgbm = _lgbm_dataframe(X_train, X_cat_train, features)
+        lgbm = LGBMClassifier(**LGB_PARAMS)
+        if X_val is not None:
+            X_val_lgbm = _lgbm_dataframe(X_val, X_cat_val, features)
+            lgbm.fit(X_train_lgbm, y_train, eval_set=[(X_val_lgbm, y_val)],
+                     categorical_feature=TREE_CATEGORICAL_COLS)
+        else:
+            lgbm.fit(X_train_lgbm, y_train, categorical_feature=TREE_CATEGORICAL_COLS)
+        models["lightgbm"] = lgbm
+    except ImportError:
+        logger.warning("lightgbm not available, skipping LGB member")
+    except Exception as e:
+        logger.warning("LightGBM member failed: %s", e)
+
+    # Logistic Regression — imputed + scaled, full feature set.
+    try:
+        from sklearn.linear_model import LogisticRegression
+        lr = LogisticRegression(max_iter=1000, random_state=RANDOM_SEED)
+        lr.fit(X_train_scaled, y_train)
+        models["logistic"] = lr
+    except Exception as e:
+        logger.warning("Logistic member failed: %s", e)
+    models["scaler"] = scaler
+    models["impute_median"] = impute_medians
+
+    # Random Forest — imputed-numeric + integer team IDs (no native cats).
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+        X_train_lr_tree = np.hstack([X_train_lr, X_cat_train])
+        rf = RandomForestClassifier(n_estimators=200, min_samples_leaf=10,
+                                    random_state=RANDOM_SEED, n_jobs=-1)
+        rf.fit(X_train_lr_tree, y_train)
+        models["randomforest"] = rf
+    except Exception as e:
+        logger.warning("RandomForest member failed: %s", e)
+
+    # MLP — small net with early stopping (diversity wildcard).
+    try:
+        from sklearn.neural_network import MLPClassifier
+        mlp = MLPClassifier(hidden_layer_sizes=(32, 16), alpha=0.01,
+                            early_stopping=True, validation_fraction=0.15,
+                            max_iter=300, learning_rate_init=0.001,
+                            n_iter_no_change=10, random_state=RANDOM_SEED)
+        mlp.fit(X_train_scaled, y_train)
+        models["mlp"] = mlp
+    except Exception as e:
+        logger.warning("MLP member failed: %s", e)
+
+    # Record the team-ID vocabulary the tree members were FIT with, so
+    # predict-time frames clamp unseen teams to UNK (never a fresh category).
+    models["categorical_vocab"] = {c: _cat_known_ids(c) for c in TREE_CATEGORICAL_COLS}
+
+    if X_val is None:
+        return models, {}
+
+    weights = _member_weights(list(models.keys()))
+    probs, wts = [], []
+    for name, model in models.items():
+        if name in ("scaler", "impute_median", "categorical_vocab"):
+            continue
+        if name == "logistic" or name == "mlp":
+            Xuse = X_val_scaled
+        elif name == "xgboost":
+            Xuse = X_val_xgb
+        elif name == "randomforest":
+            Xuse = np.hstack([X_val_lr, X_cat_val])
+        elif name == "lightgbm":
+            Xuse = X_val_lgbm
+        else:
+            Xuse = X_val
+        probs.append(model.predict_proba(Xuse)[:, 1])
+        wts.append(weights[name])
+    ensemble_prob = np.average(probs, axis=0, weights=wts) if probs \
+        else np.full(len(y_val), 0.5)
+    return models, compute_metrics(y_val, ensemble_prob)
+
+
+def ensemble_predict(models: dict, games: pd.DataFrame,
+                     features: list[str] | None = None) -> tuple:
+    """Weighted-blend prediction plus per-member probabilities and weights.
+
+    Returns (blended_prob, {member_name: prob_vector}, {member_name: weight}).
+    Falls back to 0.5 when no member can predict. Blending uses the run's
+    adaptive weights when available, else the static priors."""
+    features = features or V1_FEATURES
+    games = _add_team_ids(games)
+    X = _feature_matrix(games, features)
+    X_cat = _categorical_matrix(games)
+    scaler = models.get("scaler")
+    medians = models.get("impute_median")
+    vocab = models.get("categorical_vocab") or {}
+
+    members: dict[str, np.ndarray] = {}
+    for name, model in models.items():
+        if name in ("scaler", "impute_median", "categorical_vocab"):
+            continue
+        try:
+            if name in ("logistic", "mlp"):
+                Xi, _ = _impute_median(X, medians)
+                Xuse = scaler.transform(Xi) if scaler is not None else Xi
+            elif name == "xgboost":
+                Xi, _ = _impute_median(X, medians)
+                Xuse = _tree_dataframe(Xi, X_cat, features, vocabs=vocab)
+            elif name == "lightgbm":
+                Xuse = _lgbm_dataframe(X, X_cat, features, vocabs=vocab)
+            elif name == "randomforest":
+                Xuse = np.hstack([X, X_cat])
+            else:
+                Xuse = X
+            members[name] = model.predict_proba(Xuse)[:, 1]
+        except Exception as e:
+            logger.warning("Member %s failed to predict: %s", name, e)
+
+    if not members:
+        return np.full(len(games), 0.5), {}, {}
+
+    weights = _member_weights(list(members.keys()), adaptive=_ADAPTIVE_WEIGHTS)
+    blend = np.zeros(len(games))
+    for name, p in members.items():
+        blend += weights[name] * p
+    return blend, members, weights
+
+
+def _elo_logistic_p(tr: pd.DataFrame, va: pd.DataFrame,
+                    features: list[str]) -> np.ndarray:
+    """Cheap elo-only logistic reference arm (fit on ``tr``, predict ``va``)."""
+    from sklearn.linear_model import LogisticRegression
+    i = features.index("elo_diff") if "elo_diff" in features else 0
+    elo = LogisticRegression(max_iter=1000)
+    elo.fit(tr[features].to_numpy(dtype=float)[:, i].reshape(-1, 1),
+            tr[TARGET].to_numpy(dtype=float))
+    return elo.predict_proba(
+        va[features].to_numpy(dtype=float)[:, i].reshape(-1, 1))[:, 1]
+
+
+def _adaptive_blend(oof_members: dict[str, list[float]],
+                    adaptive: dict[str, float], n: int) -> np.ndarray:
+    """Re-blend pooled OOF member probs with the ADAPTIVE weights — the same
+    weighting family the deployed (sealed/slate) blend uses, so the sealed
+    Platt map is fit on OOF pairs produced like the ones it will correct."""
+    out = np.zeros(n)
+    for name, preds in oof_members.items():
+        w = adaptive.get(name, 0.0)
+        if w and len(preds) == n:
+            out += w * np.asarray(preds, dtype=float)
+    return out
+
+
+def _latest_feature_record() -> dict | None:
+    """Newest nfl_feature_v1_*.json in data_delivery (the admission-gate
+    output), or None. Used to resolve the model feature set dynamically."""
+    recs = sorted(DATA_DELIVERY_DIR.glob("nfl_feature_v1_*.json")) if DATA_DELIVERY_DIR.exists() else []
+    if not recs:
+        return None
+    try:
+        import json
+        with open(recs[-1], encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def admitted_model_features() -> list[str]:
+    """The model-facing admitted feature set: the gate's admitted list minus
+    the constant ``is_home`` anchor. Falls back to the v1 base set when no
+    feature-gate record exists (e.g. the committed v1-only frame)."""
+    rec = _latest_feature_record()
+    if rec is not None:
+        admitted = rec.get("feature_admission", {}).get("v1_features") or []
+        admit = [f for f in admitted if f != "is_home"]
+        if admit:
+            return admit
+    return list(V1_FEATURES)
+
+
+def run_walk_forward(feats: pd.DataFrame,
+                     model_features: list[str] | None = None) -> dict:
+    """Prequential fold evaluation over 2019-2024 + sealed 2025 evaluation,
+    with the 5-member ensemble as the model arm.
+
+    Returns per-arm pooled + sealed tables (raw + Platt twins), per-member
+    OOF tables, the adaptive blend weights, and the adoption verdict. No
+    training ever sees 2025; the sealed Platt map is fit only on the pooled
+    pre-holdout OOF (2021-2024), never 2025.
     """
     preq_all = feats[feats["season"].isin(TRAIN_SEASONS)].copy()
     sealed = feats[feats["season"] == SEALED_SEASON].copy()
 
-    # Universe for a fair comparison: rows with all v1 numeric features + target.
-    preq = preq_all[_valid_rows(preq_all)].copy()
-    sld = sealed[_valid_rows(sealed)].copy()
+    # Model features: the admitted set (v1 base + gated v2 additions), kept
+    # only where the frame actually carries the column (never silently all-
+    # NaN, which would zero out the valid universe).
+    Xcol = [f for f in (model_features or admitted_model_features())
+            if f in feats.columns]
+    if not Xcol:
+        raise ValueError("no model features present in the frame")
+
+    # Universe for a fair comparison: rows with all model features + target.
+    preq = preq_all[_valid_rows(preq_all, Xcol)].copy()
+    sld = sealed[_valid_rows(sealed, Xcol)].copy()
 
     folds = generate_weekly_folds(preq)          # asserts no future-week leak
 
-    # NOTE: warm-up (2019-2020) is never validated -> folds cover 2021-2024.
-    Xcol = V1_FEATURES
-    ycol = TARGET
-
     # ---- per-fold store for nested (honest) preq Platt twin ----
     order_actual, order_raw, order_elo, ws_list = [], [], [], []
+    oof_members: dict[str, list[float]] = {}
+    oof_members_cal: dict[str, list[float]] = {}
+    cal_pool, raw_pool, elo_pool, y_pool = [], [], [], []
 
     for f in folds:
         tr, va = f["train"], f["val"]
-        Xtr = tr[Xcol].to_numpy(dtype=float)
-        ytr = tr[ycol].to_numpy(dtype=float)
-        Xva = va[Xcol].to_numpy(dtype=float)
-        yva = va[ycol].to_numpy(dtype=float)
-        # model: single LightGBM, early stop on the fold's train itself? No —
-        # early-stop on validation WOULD let the fold's own labels shape the
-        # model. Use a holdout-free default: fixed rounds (no early stopping).
-        raw = fit_predict_lgbm(Xtr, ytr, Xva)
-        # elo-only logistic reference
-        from sklearn.linear_model import LogisticRegression
-        elo = LogisticRegression(max_iter=1000)
-        elo.fit(Xtr[:, V1_FEATURES.index("elo_diff")].reshape(-1, 1), ytr)
-        elo_p = elo.predict_proba(
-            Xva[:, V1_FEATURES.index("elo_diff")].reshape(-1, 1))[:, 1]
+        yva = va[TARGET].to_numpy(dtype=float)
+        try:
+            models, _mets = train_ensemble(tr, va, features=Xcol)
+        except Exception as e:
+            logger.warning("fold %s ensemble failed: %s", f["week_start"], e)
+            continue
+        blend, member_probs, _wts = ensemble_predict(models, va, features=Xcol)
+        elo_p = _elo_logistic_p(tr, va, Xcol)
+
+        # nested Platt twin: fit on all STRICTLY-EARLIER folds' OOF pairs
+        lr = None
+        if y_pool:
+            lr = platt_fit(np.concatenate(raw_pool),
+                           np.concatenate(y_pool).astype(int))
+            cal_p = platt_predict(blend, lr)
+        else:
+            cal_p = blend.copy()
+        for name, p in member_probs.items():
+            p_arr = np.asarray(p, dtype=float)
+            oof_members.setdefault(name, []).extend(p_arr.tolist())
+            pc = platt_predict(p_arr, lr) if lr is not None else p_arr
+            oof_members_cal.setdefault(name, []).extend(pc.tolist())
 
         order_actual.append(yva)
-        order_raw.append(raw)
+        order_raw.append(blend)
         order_elo.append(elo_p)
         ws_list.append(f["week_start"])
-
-    # ---- nested Platt twin for the preq window (honest per-fold) ----
-    cal_pool, raw_pool, elo_pool, y_pool = [], [], [], []
-    cal_cum = []
-    for i, (ya, raw) in enumerate(zip(order_actual, order_raw)):
-        # fit Platt on all STRICTLY-EARLIER folds' OOF, apply to this fold
-        if i == 0:
-            cal_p = raw.copy()
-        else:
-            pp = [r for (_, r) in cal_cum]
-            yy = [y_ for (y_, _) in cal_cum]
-            lr = platt_fit(np.concatenate(pp), np.concatenate(yy).astype(int))
-            cal_p = platt_predict(raw, lr)
         cal_pool.append(cal_p)
-        raw_pool.append(raw)
-        elo_pool.append(order_elo[i])
-        y_pool.append(ya)
-        cal_cum.append((ya, raw))
+        raw_pool.append(blend)
+        elo_pool.append(elo_p)
+        y_pool.append(yva)
+
+    if not y_pool:
+        raise RuntimeError("no folds produced ensemble predictions")
 
     y_po = np.concatenate(y_pool)
     raw_po = np.concatenate(raw_pool)
@@ -284,7 +799,7 @@ def run_walk_forward(feats: pd.DataFrame) -> dict:
     elo_po = np.concatenate(elo_pool)
 
     # constant home-edge baseline fit on pre-holdout (2019-2024) only
-    const_p = preq[ycol].mean()
+    const_p = preq[TARGET].mean()
 
     pooled = {
         "n": int(len(y_po)),
@@ -309,48 +824,70 @@ def run_walk_forward(feats: pd.DataFrame) -> dict:
         },
     }
 
+    # ---- adaptive blend weights (pooled OOF member AUC) ----------------
+    adaptive = compute_adaptive_weights(oof_members, y_po)
+    _ADAPTIVE_WEIGHTS.clear()
+    _ADAPTIVE_WEIGHTS.update(adaptive)
+
+    # per-member tables (raw + prequential-calibrated twins + deployed weight)
+    members_table = {}
+    for name in sorted(set(oof_members)):
+        raw_p = np.asarray(oof_members[name], dtype=float)
+        entry = {"weight": float(adaptive.get(name, 0.0))}
+        if len(raw_p) == len(y_po):
+            m = compute_metrics(y_po, raw_p)
+            entry.update({k: m[k] for k in ("logloss", "auc", "ece", "brier")})
+        if len(oof_members_cal.get(name, [])) == len(y_po):
+            mc = compute_metrics(y_po, np.asarray(oof_members_cal[name], dtype=float))
+            entry.update({"logloss_calibrated": mc["logloss"],
+                          "auc_calibrated": mc["auc"],
+                          "ece_calibrated": mc["ece"]})
+        members_table[name] = entry
+
     # ---- SEALED 2025 ----
-    # model fitted on ALL 2019-2024 (no fold) -> predict 2025
-    Xtr = preq[Xcol].to_numpy(dtype=float)
-    ytr = preq[ycol].to_numpy(dtype=float)
-    Xse = sld[Xcol].to_numpy(dtype=float)
-    yse = sld[ycol].to_numpy(dtype=float)
+    # fit-only refit on ALL 2019-2024 (no fold) -> predict 2025 with the
+    # adaptive blend (the deployed weighting)
+    models_sealed, _ = train_ensemble(preq, None, features=Xcol)
+    sealed_raw, sealed_members, _w = ensemble_predict(models_sealed, sld, features=Xcol)
+    sealed_elo = _elo_logistic_p(preq, sld, Xcol)
 
-    sealed_raw = fit_predict_lgbm(Xtr, ytr, Xse)
-    from sklearn.linear_model import LogisticRegression
-    elo_sealed = LogisticRegression(max_iter=1000)
-    elo_sealed.fit(Xtr[:, V1_FEATURES.index("elo_diff")].reshape(-1, 1), ytr)
-    sealed_elo = elo_sealed.predict_proba(
-        Xse[:, V1_FEATURES.index("elo_diff")].reshape(-1, 1))[:, 1]
-
-    # Platt twin for the sealed window: fit on pooled pre-holdout OOF only
-    platt_sealed = platt_fit(raw_po, y_po.astype(int))
+    # Platt twin for the sealed window: fit on the pooled pre-holdout OOF
+    # re-blended with the SAME adaptive weights the deployed blend uses
+    # (never 2025).
+    oof_adaptive_blend = _adaptive_blend(oof_members, adaptive, len(y_po))
+    platt_sealed = platt_fit(oof_adaptive_blend, y_po.astype(int))
     sealed_cal = platt_predict(sealed_raw, platt_sealed)
 
-    const_sealed = ytr.mean()
+    const_sealed = preq[TARGET].mean()
     sealed = {
-        "n": int(len(yse)),
+        "n": int(len(sld)),
         "constant_home_edge": {
             "proba": round(float(const_sealed), 4),
-            "logloss": round(logloss(yse, np.full_like(yse, const_sealed)), 4),
-            "auc": round(auc(yse, np.full_like(yse, const_sealed)), 4),
+            "logloss": round(logloss(sld[TARGET], np.full(len(sld), const_sealed)), 4),
+            "auc": round(auc(sld[TARGET], np.full(len(sld), const_sealed)), 4),
         },
         "elo_logistic": {
-            "logloss": round(logloss(yse, sealed_elo), 4),
-            "auc": round(auc(yse, sealed_elo), 4),
+            "logloss": round(logloss(sld[TARGET], sealed_elo), 4),
+            "auc": round(auc(sld[TARGET], sealed_elo), 4),
         },
         "model_raw": {
-            "logloss": round(logloss(yse, sealed_raw), 4),
-            "auc": round(auc(yse, sealed_raw), 4),
+            "logloss": round(logloss(sld[TARGET], sealed_raw), 4),
+            "auc": round(auc(sld[TARGET], sealed_raw), 4),
         },
         "model_platt": {
-            "logloss": round(logloss(yse, sealed_cal), 4),
-            "auc": round(auc(yse, sealed_cal), 4),
-            "ece": round(ece(yse, sealed_cal), 4),
+            "logloss": round(logloss(sld[TARGET], sealed_cal), 4),
+            "auc": round(auc(sld[TARGET], sealed_cal), 4),
+            "ece": round(ece(sld[TARGET], sealed_cal), 4),
         },
     }
 
     verdict = adopt_decision(pooled, sealed)
+    global _DEPLOYED_BUNDLE, _SEALED_PLATT
+    _DEPLOYED_BUNDLE = {"models": models_sealed, "platt": platt_sealed,
+                        "adaptive_weights": dict(adaptive),
+                        "features": Xcol}
+    _SEALED_PLATT = platt_sealed
+
     return {
         "fold_geometry": {
             "train_seasons": TRAIN_SEASONS,
@@ -358,12 +895,15 @@ def run_walk_forward(feats: pd.DataFrame) -> dict:
             "sealed_season": SEALED_SEASON,
             "fold_count": len(folds),
             "pooled_oof_games": int(len(y_po)),
-            "sealed_games": int(len(yse)),
+            "sealed_games": int(len(sld)),
             "preq_weeks": [str(f["week_start"].date()) for f in folds],
         },
         "pooled_preq_2021_2024": pooled,
         "sealed_2025": sealed,
+        "adaptive_weights": adaptive,
+        "members": members_table,
         "verdict": verdict,
+        "_deployed": {"features": Xcol},
     }
 
 
@@ -416,12 +956,83 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Slate stage (Part 3) — reproducible per-game games[], gated on adoption
+# ---------------------------------------------------------------------------
+def _start_utc(gameday, gametime):
+    """nflverse gametime is ET; combine with gameday and convert to UTC
+    (matches the existing 20260830 games[] reference exactly)."""
+    if pd.isna(gametime) or not isinstance(gametime, str) or ":" not in gametime:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        dt = pd.Timestamp(f"{gameday} {gametime}")
+        dt = dt.replace(tzinfo=ZoneInfo("America/New_York"))
+        return dt.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return str(pd.Timestamp(f"{gameday} {gametime}"))
+
+
+def build_games_list(slate_feats: pd.DataFrame,
+                     models: dict, platt: object, features: list[str]) -> list[dict]:
+    """Predict the adopted calibrated ensemble on scheduled games and emit the
+    per-game games[] entries (the 20260830 shape: home_win_prob/away_win_prob,
+    model_pick, game_date, game_status 'pre', start_time_utc, venue,
+    home/away_record, spread_line, total_line)."""
+    if slate_feats is None or slate_feats.empty:
+        return []
+    sf = slate_feats.copy()
+    blend, _members, _wts = ensemble_predict(models, sf, features=features)
+    if platt is not None:
+        blend = platt_predict(blend, platt)
+    sf["_p"] = np.clip(blend, 0.0, 1.0)
+
+    games = []
+    for _, r in sf.iterrows():
+        home = str(r.get("home_team", "") or "").strip()
+        away = str(r.get("away_team", "") or "").strip()
+        ph = float(r["_p"])
+        gameday = str(r.get("gameday", "") or "")[:10]
+        games.append({
+            "game_id": str(r.get("game_id", "") or ""),
+            "game_date": gameday,
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob": round(ph, 4),
+            "away_win_prob": round(1.0 - ph, 4),
+            "home_score": None,
+            "away_score": None,
+            "game_status": "pre",
+            "start_time_utc": _start_utc(gameday, r.get("gametime")),
+            "venue": str(r.get("stadium", "") or "").strip(),
+            "model_pick": home if ph >= 0.5 else away,
+            "home_record": r.get("home_record") or "",
+            "away_record": r.get("away_record") or "",
+            "spread_line": _nl(r.get("spread_line")),
+            "total_line": _nl(r.get("total_line")),
+        })
+    return games
+
+
+def _nl(v):
+    try:
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 def pull_and_run(out_dir: Path | None = None,
                  write_record: bool = True,
-                 features_csv: Path | None = None) -> dict:
-    from nfl_features import _load_raw, build_features, DEFAULT_SEASONS
+                 features_csv: Path | None = None,
+                 schedule: pd.DataFrame | None = None,
+                 pbp: pd.DataFrame | None = None,
+                 slate_season: int | None = None) -> dict:
+    from nfl_features import (_load_raw, build_features, build_slate_features,
+                              DEFAULT_SEASONS)
     out_dir = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
 
     if features_csv is not None and Path(features_csv).exists():
@@ -435,8 +1046,10 @@ def pull_and_run(out_dir: Path | None = None,
             raise FileNotFoundError(
                 f"{DECIDED_FRAME} absent — run `python3 nfl_game_frame.py` first")
         decided = pd.read_csv(DECIDED_FRAME)
-        logger.info("Computing v1 features over %s seasons", DEFAULT_SEASONS)
-        schedule, pbp = _load_raw(DEFAULT_SEASONS)
+        logger.info("Computing features over %s seasons", DEFAULT_SEASONS)
+        sched, pbp_raw = _load_raw(DEFAULT_SEASONS)
+        schedule = sched if schedule is None else schedule
+        pbp = pbp_raw if pbp is None else pbp
         feats = build_features(decided, schedule, pbp)
         feats[TARGET] = (feats["home_score"] > feats["away_score"]).astype(int)
 
@@ -446,43 +1059,92 @@ def pull_and_run(out_dir: Path | None = None,
         assert not feats[feats["season"] == SEALED_SEASON].empty
 
     result = run_walk_forward(feats)
+    model_features = list(result.get("_deployed", {}).get("features", V1_FEATURES))
+
+    # ---- slate stage: current schedule, gated on adoption ----------------
+    slate_info = None
+    if schedule is not None and "gameday" in schedule.columns:
+        # Slate target = the CURRENT schedule year (e.g. 2026 week 1), NOT the
+        # max season in the feed (all-decided 2025 would yield an empty slate).
+        ss = slate_season or datetime.now().year
+        try:
+            from nfl_features import DECIDED_FRAME as _DDF
+            decided = (pd.read_csv(_DDF) if _DDF.exists() else feats)
+            slate_feats = build_slate_features(schedule, pbp, decided, ss)
+            bundle = _DEPLOYED_BUNDLE or {}
+            if result["verdict"]["adopt"] and bundle.get("models"):
+                games = build_games_list(slate_feats, bundle["models"],
+                                         bundle.get("platt"), model_features)
+                slate_info = {
+                    "season": int(ss),
+                    "week": int(slate_feats["week"].iloc[0])
+                    if not slate_feats.empty and "week" in slate_feats.columns else None,
+                    "n_games": len(games),
+                    "model": "sealed 2019-2024 fit + pre-holdout-OOF Platt map",
+                }
+            else:
+                slate_info = {"season": int(ss),
+                              "week": None, "n_games": 0,
+                              "model": "sealed 2019-2024 fit + pre-holdout-OOF Platt map"}
+        except Exception as e:
+            logger.warning("Slate stage failed (continuing): %s", e)
+            slate_info = None
 
     if write_record:
         record = {
             "created_utc": datetime.utcnow().isoformat() + "Z",
             "config": {
-                "features": V1_FEATURES,
+                "features": model_features,
+                "feature_source": "latest nfl_feature_v1_*.json admission gate (v2)",
                 "excluded_constant_anchor": "is_home",
-                "model": "LightGBM (single, modest reg) + Platt twin",
+                "model": ("5-member ensemble (XGBoost/LightGBM/Logistic/RF/MLP) "
+                          "+ adaptive AUC blend + Platt twin"),
+                "ensemble_weights": dict(_ADAPTIVE_WEIGHTS or ENSEMBLE_WEIGHTS),
                 "reference_arm": "logistic (full-fitted, elo-only for cheap signal)",
                 "baselines": ["constant home-edge", "elo-only logistic"],
                 "lgb_params": {k: v for k, v in LGB_PARAMS.items()},
-                "num_boost_round": NUM_BOOST_ROUND,
                 "ece_bins": ECE_BINS, "ece_max": ECE_MAX,
-                "leakage": ("features strictly-trailing (v1 gate); folds assert "
-                            "train.gameday < week_start; 2025 never in any "
-                            "pre-sealed fit or calibration map"),
+                "leakage": ("features strictly-trailing (gate, windowed + ewm); "
+                            "folds assert train.gameday < week_start; 2025 never "
+                            "in any pre-sealed fit or calibration map; sealed Platt "
+                            "fit on pooled pre-holdout OOF only"),
             },
-            **result,
+            **{k: v for k, v in result.items() if k != "_deployed"},
         }
+        if result["verdict"]["adopt"]:
+            if slate_info is not None:
+                record["slate"] = slate_info
+                record["games"] = games if slate_info.get("n_games") else []
+            else:
+                record["predictions"] = {"status": "blocked (no schedule loaded)"}
+        else:
+            record["predictions"] = {"status": "blocked (not adopted)"}
         out_dir.mkdir(parents=True, exist_ok=True)
         rec_path = out_dir / RECORD_TEMPLATE.format(date=datetime.now().strftime(DATE_FMT))
         with open(rec_path, "w") as fh:
             json.dump(record, fh, indent=2)
         result["record"] = str(rec_path)
+        result["games_written"] = bool(result["verdict"]["adopt"] and slate_info
+                                        and slate_info.get("n_games"))
 
     _print_report(result)
     return result
 
 
 def _print_report(result: dict) -> None:
-    print("\n=== NFL moneyline v1 gate ===")
+    print("\n=== NFL moneyline ensemble gate ===")
     print("pooled OOF (2021-2024):", result["fold_geometry"]["pooled_oof_games"],
           "games,", result["fold_geometry"]["fold_count"], "folds")
+    print("adaptive blend weights:",
+          {k: f"{v:.1%}" for k, v in sorted(result.get("adaptive_weights", {}).items())})
     print(format_table("sealed_2025", result["sealed_2025"]))
     print("VERDICT:", "ADOPT" if result["verdict"]["adopt"] else "DO NOT ADOPT")
     for r in result["verdict"]["reasons"]:
         print("  -", r)
+    if result.get("games_written"):
+        print("  [OK] games[] written (adopted)")
+    else:
+        print("  [BLOCKED] no games[] (not adopted - predictions blocked)")
 
 
 def format_table(window: str, arms: dict) -> str:
@@ -501,14 +1163,19 @@ def format_table(window: str, arms: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(
-        description="Run the NFL moneyline v1 walk-forward + sealed gate (no adopt "
-                    "unless the sealed window earns it).")
+        description="Run the NFL moneyline 5-member ensemble walk-forward + sealed "
+                    "gate (no adopt unless the sealed window earns it).")
     ap.add_argument("--no-record", action="store_true",
                     help="compute/report only; skip writing the JSON record")
     ap.add_argument("--features-csv", type=Path, default=None,
                     help="path to pre-computed features CSV (skips nflreadpy download)")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="directory for the JSON record (default: data_delivery)")
+    ap.add_argument("--slate-season", type=int, default=None,
+                    help="slate target season (default: latest in the schedule)")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
-    pull_and_run(write_record=not args.no_record, features_csv=args.features_csv)
+    pull_and_run(write_record=not args.no_record, features_csv=args.features_csv,
+                 out_dir=args.out_dir, slate_season=args.slate_season)
     return 0
 
 

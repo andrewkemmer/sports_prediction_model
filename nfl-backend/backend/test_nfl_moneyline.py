@@ -1,17 +1,23 @@
-"""NFL moneyline v1 (``nfl_moneyline.py``) — tests for the model gate.
+"""NFL moneyline (``nfl_moneyline.py``) — tests for the model gate.
 
 Pure-function tests (no network) cover:
 - Metrics: logloss, AUC, ECE correctness on known arrays.
 - Fold generation: every fold satisfies train.gameday < min(val.gameday)
   (the walk-forward leakage assertion).
 - Sealed isolation: season 2025 never appears in any pre-sealed train set.
+- Ensemble construction: the 5-member trainer (XGB/LGB/Logistic/RF/MLP),
+  per-member degradation, blend weights, train-only median imputation, and
+  predict-time UNK clamping for unseen teams.
+- Adaptive blend weights: sum to exactly 1.0 with floor/cap respected.
 - Baselines: constant home-edge and elo-only logistic produce valid outputs.
 - Gate logic: ADOPT/NO-ADOPT decision rules, including the pooled-gain /
   sealed-loss inversion path.
+- games[] -> frontend adapter mapping: a record's per-game list adapts onto
+  the shared card frame; a blocked (not adopted) record yields an empty
+  schema'd frame, never a crash.
 
 Artifact tests read the real ``data_delivery/nfl_game_level_features.csv``
-when present and run the full walk-forward + sealed gate, confirming the
-module produces a valid record JSON with correct fold geometry and verdict.
+when present and confirm the frame covers the train + sealed seasons.
 """
 import json
 import sys
@@ -28,14 +34,20 @@ from nfl_moneyline import (  # noqa: E402
     SEALED_SEASON,
     TRAIN_SEASONS,
     V1_FEATURES,
+    UNK_TEAM_ID,
+    _member_weights,
     adopt_decision,
     auc,
+    build_games_list,
     clip_p,
+    compute_adaptive_weights,
     ece,
+    ensemble_predict,
     generate_weekly_folds,
     logloss,
     platt_fit,
     platt_predict,
+    train_ensemble,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,6 +300,184 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertTrue(v["pooled_gain_sealed_loss_inversion"])
         inv_reasons = [r for r in v["reasons"] if "inversion" in r]
         self.assertTrue(len(inv_reasons) > 0)
+
+
+# ---------------------------------------------------------------------------
+# Ensemble construction (Part 1)
+# ---------------------------------------------------------------------------
+class TestEnsembleConstruction(unittest.TestCase):
+    """5-member trainer + predictor on a synthetic frame (no network)."""
+
+    def _split(self):
+        df = _synth_fold_frame()  # 8 games/week x 18 weeks x 6 seasons
+        df = df[_valid_cols(df)].copy()
+        tr = df[df["season"] <= 2021]
+        va = df[df["season"] == 2022]
+        return tr, va
+
+    def test_five_members_train_with_bundle(self):
+        tr, va = self._split()
+        models, mets = train_ensemble(tr, va, features=V1_FEATURES)
+        for m in ("xgboost", "lightgbm", "logistic", "randomforest", "mlp"):
+            self.assertIn(m, models, f"{m} member should train")
+        for k in ("scaler", "impute_median", "categorical_vocab"):
+            self.assertIn(k, models, f"bundle must carry {k}")
+        # val metrics present (fit-only refits return {})
+        self.assertIn("auc", mets)
+        self.assertIn("logloss", mets)
+
+    def test_fit_only_refit_returns_empty_metrics(self):
+        tr, _ = self._split()
+        models, mets = train_ensemble(tr, None, features=V1_FEATURES)
+        self.assertEqual(mets, {})
+        self.assertIn("xgboost", models)
+
+    def test_blend_probs_in_unit_interval_weights_sum_to_one(self):
+        tr, va = self._split()
+        models, _ = train_ensemble(tr, va, features=V1_FEATURES)
+        blend, members, weights = ensemble_predict(models, va, features=V1_FEATURES)
+        self.assertTrue(np.all(blend >= 0.0) and np.all(blend <= 1.0))
+        self.assertAlmostEqual(sum(weights.values()), 1.0, places=6)
+        self.assertEqual(set(members.keys()), set(weights.keys()))
+        for name, p in members.items():
+            self.assertEqual(len(p), len(va))
+
+    def test_unseen_team_clamped_to_unk(self):
+        """A predict-time team never seen in training must route to the
+        reserved UNK category (no 'category not in training set' crash)."""
+        tr, va = self._split()
+        models, _ = train_ensemble(tr, va, features=V1_FEATURES)
+        probe = va.head(3).copy()
+        probe["home_team"] = "ZZ"
+        probe["away_team"] = "Q7"
+        blend, members, _ = ensemble_predict(models, probe, features=V1_FEATURES)
+        self.assertEqual(len(blend), 3)
+        self.assertTrue(np.all(np.isfinite(blend)))
+
+    def test_member_weights_renormalize_over_present_members(self):
+        w = _member_weights(["xgboost", "lightgbm", "logistic"])
+        self.assertEqual(set(w.keys()), {"xgboost", "lightgbm", "logistic"})
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+        self.assertGreater(w["logistic"], w["xgboost"])
+
+    def test_adaptive_weights_sum_to_one_with_floor_and_cap(self):
+        rng = np.random.default_rng(3)
+        y = rng.integers(0, 2, 200).astype(float)
+        oof = {
+            "xgboost": rng.uniform(0.2, 0.9, 200).tolist(),
+            "lightgbm": rng.uniform(0.2, 0.9, 200).tolist(),
+            "logistic": rng.uniform(0.2, 0.9, 200).tolist(),
+            "randomforest": rng.uniform(0.2, 0.9, 200).tolist(),
+            "mlp": rng.uniform(0.2, 0.9, 200).tolist(),
+        }
+        w = compute_adaptive_weights(oof, y)
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=4)
+        for v in w.values():
+            self.assertGreaterEqual(v, 0.04)   # floor, rounding tolerance
+            self.assertLessEqual(v, 0.46)      # cap, rounding tolerance
+
+    def test_imputation_medians_come_from_train_only(self):
+        """The bundle's impute_median must equal the TRAIN column medians
+        (a val-median leak would shift the stored medians)."""
+        tr, va = self._split()
+        # Give the val set a DIFFERENT ypp_diff distribution (shift +10) and
+        # NaN rows in both; the stored medians must track TRAIN, never val.
+        tr2 = tr.copy(); va2 = va.copy()
+        tr2.loc[tr2.index[:10], "ypp_diff"] = np.nan
+        va2["ypp_diff"] = va2["ypp_diff"] + 10.0
+        va2.loc[va2.index[:10], "ypp_diff"] = np.nan
+        models, _ = train_ensemble(tr2, va2, features=V1_FEATURES)
+        med = models["impute_median"]
+        i = V1_FEATURES.index("ypp_diff")
+        train_med = np.nanmedian(tr2["ypp_diff"].to_numpy(dtype=float))
+        val_med = np.nanmedian(va2["ypp_diff"].to_numpy(dtype=float))
+        self.assertAlmostEqual(med[i], train_med, places=4)
+        self.assertNotAlmostEqual(med[i], val_med, places=1)
+
+
+def _valid_cols(df: pd.DataFrame) -> pd.Series:
+    return df[V1_FEATURES + ["home_win"]].notna().all(axis=1)
+
+
+# ---------------------------------------------------------------------------
+# games[] -> adapter mapping (Part 3)
+# ---------------------------------------------------------------------------
+class TestGamesAdapterMapping(unittest.TestCase):
+    """A record's per-game list must adapt onto the shared card frame exactly
+    like the existing 20260830 reference (contract: never edit the adapter)."""
+
+    @staticmethod
+    def _record(with_games: bool = True) -> dict:
+        rec = {"created_utc": "2026-08-30T00:00:00Z",
+               "verdict": {"adopt": with_games}}
+        if with_games:
+            rec["games"] = [{
+                "game_id": "2026_01_NE_SEA", "game_date": "2026-09-09",
+                "home_team": "SEA", "away_team": "NE",
+                "home_win_prob": 0.7132, "away_win_prob": 0.2868,
+                "game_status": "pre", "start_time_utc": "2026-09-10T00:20:00Z",
+                "venue": "Lumen Field", "model_pick": "SEA",
+                "home_record": "86-55", "away_record": "76-66",
+                "spread_line": 3.5, "total_line": 44.5,
+            }]
+        else:
+            rec["predictions"] = {"status": "blocked (not adopted)"}
+        return rec
+
+    @staticmethod
+    def _adapter():
+        _frontend = Path(__file__).resolve().parents[2] / "frontend"
+        if str(_frontend) not in sys.path:
+            sys.path.insert(0, str(_frontend))
+        from utils import nfl_moneyline_to_frame
+        return nfl_moneyline_to_frame
+
+    def test_games_adapt_to_shared_card_frame(self):
+        adapter = self._adapter()
+        frame = adapter(self._record(with_games=True))
+        self.assertEqual(len(frame), 1)
+        row = frame.iloc[0]
+        self.assertEqual(row["game_id"], "2026_01_NE_SEA")
+        self.assertEqual(row["home_team"], "SEA")
+        self.assertEqual(row["away_team"], "NE")
+        self.assertAlmostEqual(row["home_win_prob_model"], 0.7132, places=4)
+        self.assertAlmostEqual(row["away_win_prob_model"], 0.2868, places=4)
+        self.assertEqual(row["model_pick"], "SEA")
+        self.assertEqual(row["game_status"], "Scheduled")  # 'pre' -> Scheduled
+        self.assertEqual(row["start_time_utc"], "2026-09-10T00:20:00Z")
+        self.assertEqual(row["venue"], "Lumen Field")
+        self.assertEqual(row["home_record"], "86-55")
+
+    def test_blocked_record_adapts_to_empty_schema_frame(self):
+        adapter = self._adapter()
+        frame = adapter(self._record(with_games=False))
+        self.assertEqual(len(frame), 0)  # never a crash, never fabricated rows
+        self.assertIn("home_win_prob_model", frame.columns)
+        self.assertIn("game_status", frame.columns)
+
+    def test_build_games_list_emits_reference_shape(self):
+        tr = _synth_fold_frame(seasons=[2019, 2020, 2021])
+        va = _synth_fold_frame(seasons=[2022]).head(4)
+        models, _ = train_ensemble(tr, va, features=V1_FEATURES)
+        sf = va.copy()
+        sf["stadium"] = "Lumen Field"
+        sf["gametime"] = "20:20"
+        sf["spread_line"] = 3.5
+        sf["total_line"] = 44.5
+        sf["home_record"] = "86-55"
+        sf["away_record"] = "76-66"
+        lr = platt_fit(np.linspace(0.3, 0.7, 40), np.tile([1, 0], 20))
+        games = build_games_list(sf, models, lr, V1_FEATURES)
+        self.assertEqual(len(games), 4)
+        keys = {"game_id", "game_date", "home_team", "away_team",
+                "home_win_prob", "away_win_prob", "home_score", "away_score",
+                "game_status", "start_time_utc", "venue", "model_pick",
+                "home_record", "away_record", "spread_line", "total_line"}
+        self.assertEqual(set(games[0].keys()), keys)
+        self.assertEqual(games[0]["game_status"], "pre")
+        self.assertAlmostEqual(games[0]["home_win_prob"] +
+                               games[0]["away_win_prob"], 1.0, places=4)
+        self.assertEqual(games[0]["spread_line"], 3.5)
 
 
 # ---------------------------------------------------------------------------

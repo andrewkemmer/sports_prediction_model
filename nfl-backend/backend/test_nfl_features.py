@@ -17,8 +17,9 @@ import numpy as np
 import pandas as pd
 
 from nfl_features import (
-    COVERAGE_FLOOR, FEATURE_COLUMNS, build_features, compute_elo,
-    team_events, team_stats_ladder, univariate_auc,
+    COVERAGE_FLOOR, FEATURE_COLUMNS, build_features, build_slate_features,
+    compute_elo, run_feature_gate, team_events, team_stats_ladder,
+    univariate_auc,
 )
 
 
@@ -185,6 +186,183 @@ class TestGate(unittest.TestCase):
             self.assertIn(f, res["dropped"], f"{f} should be dropped for coverage")
             self.assertIn("coverage", res["reasons"][f])
         self.assertIn("elo_diff", res["v1_features"])
+
+
+class TestV2TrailingLeakage(unittest.TestCase):
+    """The v2 decaying-window / opponent-adjusted / pace candidates must obey
+    the same strictly-prior discipline as the v1 windowed features."""
+
+    def _pbp(self, game_id, plays):
+        rows = []
+        for team, yds, epa, qb_epa, clock in plays:
+            rows.append(dict(game_id=game_id, posteam=team, yards_gained=yds,
+                             epa=epa, qb_epa=qb_epa, game_seconds_remaining=clock))
+        return pd.DataFrame(rows)
+
+    def test_ewm_uses_only_strictly_prior_games(self):
+        """ewm values at game k must equal the ewm of PRIOR games' values,
+        and appending a future game must not change earlier rows."""
+        g1 = synth_games([
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=30, away_score=10),
+            dict(game_id="G2", gameday="2019-09-08", home_team="B", away_team="A",
+                 home_score=7, away_score=21),
+            dict(game_id="G3", gameday="2019-09-15", home_team="A", away_team="C",
+                 home_score=14, away_score=10),
+        ])
+        base = team_stats_ladder(team_events(g1)).set_index(["game_id", "team"])
+        # append a FUTURE game for A (would leak if it changed G2/G3 rows)
+        g2 = synth_games([
+            dict(game_id="G4", gameday="2019-09-22", home_team="A", away_team="D",
+                 home_score=3, away_score=40),
+        ])
+        alt = team_stats_ladder(team_events(pd.concat([g1, g2], ignore_index=True)))\
+            .set_index(["game_id", "team"])
+        for gid in ("G1", "G2", "G3"):
+            for team in ("A", "B", "C"):
+                if (gid, team) not in base.index:
+                    continue
+                v1 = base.loc[(gid, team), "ewm_net_pts"]
+                v2 = alt.loc[(gid, team), "ewm_net_pts"]
+                if pd.isna(v1) and pd.isna(v2):
+                    continue  # both NaN = equal
+                self.assertEqual(v1, v2)
+
+    def test_ewm_first_game_nan_and_window_small(self):
+        """A team's FIRST game has no prior ewm (NaN); a big early blowout
+        decays within a few games (halflife=2), so ewm stays recent-form."""
+        g = synth_games([
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=40, away_score=3),
+            dict(game_id="G2", gameday="2019-09-08", home_team="A", away_team="C",
+                 home_score=10, away_score=9),
+            dict(game_id="G3", gameday="2019-09-15", home_team="A", away_team="D",
+                 home_score=12, away_score=7),
+        ])
+        ladder = team_stats_ladder(team_events(g))
+        a = ladder[ladder["team"] == "A"].set_index("game_id")
+        self.assertTrue(pd.isna(a.loc["G1", "ewm_net_pts"]))       # no prior
+        self.assertEqual(a.loc["G2", "ewm_net_pts"], 37.0)          # only G1
+        self.assertGreater(a.loc["G2", "ewm_net_pts"],
+                           a.loc["G3", "ewm_net_pts"])              # decays
+        self.assertGreater(a.loc["G3", "ewm_net_pts"], 1.0)         # still positive
+
+    def test_opponent_adjusted_margin_uses_prior_opponents(self):
+        """opp_adj_form subtracts the trailing form of the OPPONENTS faced
+        (strictly-prior), so a team that faced weak opponents scores HIGHER
+        (its raw margin is discounted)."""
+        g = synth_games([
+            # priors so every opponent has real trailing form
+            dict(game_id="G0", gameday="2019-08-25", home_team="B", away_team="Z",
+                 home_score=24, away_score=14),     # B +10
+            dict(game_id="G0c", gameday="2019-08-25", home_team="C", away_team="Y",
+                 home_score=45, away_score=15),    # C +30
+            dict(game_id="G0d", gameday="2019-08-25", home_team="D", away_team="W",
+                 home_score=42, away_score=3),     # D +39
+            # A beats weak B, then loses to strong C, then beats strong D
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=20, away_score=10),    # A +10
+            dict(game_id="G2", gameday="2019-09-08", home_team="C", away_team="A",
+                 home_score=24, away_score=10),    # A -14
+            dict(game_id="G3", gameday="2019-09-15", home_team="A", away_team="D",
+                 home_score=21, away_score=14),    # A +7
+        ])
+        ladder = team_stats_ladder(team_events(g))
+        a = ladder[ladder["team"] == "A"].set_index("game_id")
+        self.assertIn("opp_adj_form", a.columns)
+        # G2: A.form = mean([+10]) = 10; prior opponents' form = [B@G1 = 10]
+        self.assertAlmostEqual(a.loc["G2", "opp_adj_form"], 0.0, places=6)
+        # G3: A.form = mean([+10, -14]) = -2; prior opponents = [10 (B), 30 (C)]
+        self.assertAlmostEqual(a.loc["G3", "opp_adj_form"], -22.0, places=6)
+        self.assertLess(a.loc["G3", "opp_adj_form"], a.loc["G2", "opp_adj_form"])
+
+    def test_pace_and_qb_epa_use_pbp_columns(self):
+        pbp = pd.concat([
+            self._pbp("G1", [("A", 5, 0.1, 0.2, 3000), ("A", 3, 0.2, 0.3, 2800),
+                              ("B", -2, -0.3, None, 2600)]),
+            self._pbp("G2", [("A", 7, 0.4, 0.5, 1500), ("B", 2, 0.1, 0.2, 1200)]),
+        ])
+        g = synth_games([
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=20, away_score=10),
+            dict(game_id="G2", gameday="2019-09-08", home_team="B", away_team="A",
+                 home_score=7, away_score=14),
+        ])
+        from nfl_features import _pbp_team_agg
+        ladder = team_stats_ladder(team_events(g), team_game_agg=_pbp_team_agg(pbp))
+        # A at G2 has prior pace (G1) and prior QB EPA (G1): both non-null
+        a2 = ladder[(ladder["team"] == "A") & (ladder["game_id"] == "G2")].iloc[0]
+        self.assertTrue(pd.notna(a2["pace_plays_min"]))
+        self.assertTrue(pd.notna(a2["ewm_qb_epa"]))
+        self.assertTrue(pd.notna(a2["ewm_epa"]))
+        # G1 rows have no prior -> NaN
+        a1 = ladder[(ladder["team"] == "A") & (ladder["game_id"] == "G1")].iloc[0]
+        self.assertTrue(pd.isna(a1["ewm_qb_epa"]))
+
+
+class TestSlateFeatures(unittest.TestCase):
+    def test_scheduled_game_uses_only_prior_decided(self):
+        """A 2026 scheduled game's trailing features must come from strictly
+        prior decided games, and the games[] fields (records, venue, lines)
+        must be present."""
+        rows = [
+            dict(game_id="2019_01_A_B", season=2019, week=1, gameday="2019-09-08",
+                 home_team="A", away_team="B", home_score=24, away_score=10,
+                 roof="outdoors", temp=70.0, wind=8.0, div_game=0,
+                 stadium="S1", gametime="13:00", spread_line=1.5, total_line=44.0),
+            dict(game_id="2019_01_B_A", season=2019, week=2, gameday="2019-09-15",
+                 home_team="B", away_team="A", home_score=7, away_score=17,
+                 roof="outdoors", temp=72.0, wind=6.0, div_game=0,
+                 stadium="S2", gametime="13:00", spread_line=2.5, total_line=43.5),
+            dict(game_id="2026_01_A_C", season=2026, week=1, gameday="2026-09-09",
+                 home_team="A", away_team="C", home_score=None, away_score=None,
+                 roof="dome", temp=74.0, wind=4.0, div_game=1,
+                 stadium="Dome", gametime="20:20", spread_line=3.5, total_line=45.5),
+        ]
+        sched = pd.DataFrame(rows)
+        decided = sched[sched["home_score"].notna()].copy()
+        slate = build_slate_features(sched, None, decided, 2026)
+        self.assertEqual(len(slate), 1)
+        row = slate.iloc[0]
+        self.assertEqual(row["game_id"], "2026_01_A_C")
+        # A won both prior games -> 2-0; C never played -> record blank
+        self.assertEqual(row["home_record"], "2-0")
+        self.assertEqual(row["away_record"], "")
+        self.assertEqual(row["stadium"], "Dome")
+        self.assertEqual(row["spread_line"], 3.5)
+        self.assertEqual(row["total_line"], 45.5)
+        # elo_diff strictly from the two prior decided games (A's rating - 1500)
+        self.assertTrue(pd.notna(row["elo_diff"]))
+        self.assertTrue(pd.isna(row["form_diff_pts"]))  # C never played
+        self.assertEqual(row["is_dome_home"], 1.0)
+
+
+class TestV2Gate(unittest.TestCase):
+    def test_v2_candidate_dropped_for_coverage(self):
+        """A v2 candidate below the coverage floor is dropped with a reason;
+        the base features survive."""
+        frame = synth_games([dict(game_id=f"G{i}", gameday=f"2019-09-{1+2*i:02d}",
+                                  home_team="H", away_team="A",
+                                  home_score=24, away_score=10) for i in range(20)])
+        frame["season"] = 2019
+        for f in FEATURE_COLUMNS:
+            frame[f] = 0.0
+        frame["elo_diff"] = np.linspace(-2, 2, len(frame))
+        frame["ewm_epa_play_diff"] = frame["ewm_epa_play_diff"].mask(
+            np.array([i % 2 == 0 for i in range(len(frame))]))
+        res = run_feature_gate(frame)
+        self.assertIn("ewm_epa_play_diff", res["dropped"])
+        self.assertIn("coverage", res["reasons"]["ewm_epa_play_diff"])
+        self.assertIn("elo_diff", res["v1_features"])
+
+    def test_v2_columns_scored_in_audit(self):
+        """Every v2 candidate is audited (coverage + univariate AUC on
+        seasons < 2025)."""
+        for f in ("ewm_net_pts_diff", "ewm_epa_play_diff", "ewm_qb_epa_play_diff",
+                  "ewm_scoring_diff", "ewm_ypp_diff", "opp_adj_net_pts_diff",
+                  "pace_plays_min_diff", "rest_short_diff", "temp_f",
+                  "wind_mph", "div_game"):
+            self.assertIn(f, FEATURE_COLUMNS)
 
 
 class TestBuildFeatures(unittest.TestCase):

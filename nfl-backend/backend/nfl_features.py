@@ -1,13 +1,29 @@
-"""NFL feature engineering v1 — leakage-safe raw candidates + admission gate.
+"""NFL feature engineering — leakage-safe raw candidates + admission gate.
 
 Builds on the committed game-level frame produced by ``nfl_game_frame.py``
 (``nfl-backend/data_delivery/nfl_game_level_features.csv``). This module is
 the feature-ADMISSION stage only: it proposes raw candidates, audits coverage
-and (point-in-time) leakage, and gates them into a v1 set. It does NOT train
-any model — walk-forward / ensemble / sealed-holdout is the NEXT task.
+and (point-in-time) leakage, and gates them into an admitted set. It does NOT
+train any model — the walk-forward ensemble lives in ``nfl_moneyline.py``.
+
+v1 base (admitted 2026-08-28): elo_diff, form_diff_pts, rest_days_diff,
+ypp_diff, is_dome_home (+ is_home anchor). v2 candidates (this file):
+trailing per-team strength aggregates with SMALL DECAYING WINDOWS
+(exponentially-weighted net-points margin, EPA/play, yards/play, scoring
+output), opponent-adjusted variants (trailing margin minus the trailing form
+of the opponents faced), pace (plays/min), rest-days edge (short-rest flag),
+QB/offense-quality edge (decaying QB EPA/play), weather beyond the dome flag
+(game temp / wind at the home venue), and the division-game flag. All are
+leak-safe by construction and pass the SAME admission gate (coverage floor,
+redundancy pruning, near-random-AUC pruning) with 2025 kept sealed.
 
 Leakage discipline (MLB retrospective lessons — "raw-not-clever, pre-game
 coverage rule, gated entry, no model-output-as-input"):
+- Same rule, extended to v2: every trailing feature (windowed OR decaying-
+  ewm) is a function ONLY of that team's games with ``gameday`` STRICTLY
+  BEFORE the target game — the ewm/opponent-adjusted columns use the same
+  per-team shift(1) as the v1 windowed columns, asserted by the same
+  strict-monotonicity check in :func:`team_stats_ladder`.
 - Every trailing feature is a function ONLY of that team's games with
   ``gameday`` STRICTLY BEFORE the target game. Enforced by chronological sort
   + per-team window shift + an explicit per-team strict-monotonicity assertion
@@ -71,6 +87,10 @@ ELO_SCALE = 400.0
 FORM_WINDOW = 4       # net pts/game window
 WINPCT_WINDOW = 12    # trailing win% window
 YPP_WINDOW = 5        # net yards/play window
+# v2 windows: small decaying (ewm) windows for strength aggregates
+EWM_HALFLIFE = 2      # decaying-window halflife (games) — ewm net pts/EPA/scoring/ypp
+OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing-margin window (games)
+PACE_WINDOW = 4       # trailing plays/min window (games)
 
 # admission gate
 COVERAGE_FLOOR = 0.95
@@ -87,11 +107,27 @@ RECORD_TEMPLATE = f"nfl_feature_v1_{{date}}.json"
 FEATURE_PRIORITY = {
     "elo_diff": 0, "ypp_diff": 1, "form_diff_pts": 2, "win_pct_diff": 3,
     "rest_days_diff": 4, "is_dome_home": 5,
+    "ewm_net_pts_diff": 6, "ewm_epa_play_diff": 7, "ewm_qb_epa_play_diff": 8,
+    "ewm_scoring_diff": 9, "ewm_ypp_diff": 10, "opp_adj_net_pts_diff": 11,
+    "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
+    "wind_mph": 15, "div_game": 16,
 }
 
+# v1 base + v2 candidates (the admission gate scores every column; the
+# admitted set is what ``nfl_moneyline`` consumes). ``is_home`` is the
+# constant home-edge anchor — it is reported but never fed as a model column.
 FEATURE_COLUMNS = [
+    # ---- v1 base ------------------------------------------------------
     "elo_diff", "form_diff_pts", "win_pct_diff", "rest_days_diff",
-    "ypp_diff", "is_dome_home", "is_home",
+    "ypp_diff", "is_dome_home",
+    # ---- v2: decaying-window strength aggregates (home − away) --------
+    "ewm_net_pts_diff", "ewm_epa_play_diff", "ewm_qb_epa_play_diff",
+    "ewm_scoring_diff", "ewm_ypp_diff",
+    # ---- v2: opponent-adjusted / pace / rest / weather / division -----
+    "opp_adj_net_pts_diff", "pace_plays_min_diff", "rest_short_diff",
+    "temp_f", "wind_mph", "div_game",
+    # ---- constant anchor ----------------------------------------------
+    "is_home",
 ]
 
 CANONICAL_SOURCE = {
@@ -101,6 +137,17 @@ CANONICAL_SOURCE = {
     "rest_days_diff": "days since each team's prior game",
     "ypp_diff": "trailing net yards/play (last 5, from pbp)",
     "is_dome_home": "home venue roof (nflverse schedule field)",
+    "ewm_net_pts_diff": "trailing net pts/game, ewm halflife=2 (decaying)",
+    "ewm_epa_play_diff": "trailing EPA/play, ewm halflife=2 (from pbp epa)",
+    "ewm_qb_epa_play_diff": "trailing QB EPA/play, ewm halflife=2 (from pbp qb_epa)",
+    "ewm_scoring_diff": "trailing points-for/game, ewm halflife=2 (scoring output)",
+    "ewm_ypp_diff": "trailing yards/play, ewm halflife=2 (from pbp)",
+    "opp_adj_net_pts_diff": "trailing net pts minus avg trailing form of opponents faced (last 6)",
+    "pace_plays_min_diff": "trailing plays per minute (last 4, from pbp clock)",
+    "rest_short_diff": "short-rest flag (home rest < 7 days) − away flag",
+    "temp_f": "home-venue game temperature F (nflverse schedule field)",
+    "wind_mph": "home-venue game wind mph (nflverse schedule field)",
+    "div_game": "division game flag (nflverse schedule field)",
     "is_home": "constant anchor for the home edge",
 }
 
@@ -141,14 +188,13 @@ def team_events(game: pd.DataFrame) -> pd.DataFrame:
     return ev
 
 
-def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
-    """Attach ``elo_entering`` to each (team,event) row: the team's rating at
-    kickoff, from ONLY games strictly before this game's gameday.
+def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Iterate ELO over events chronologically; returns (events+elo, ratings).
 
-    Update rule: expected = 1/(1+10**((r_opp - r_self)/400));  r += K*(actual-exp).
-    actual = win(1)/loss(0)/tie(0.5). Prior = 1500. Iterated strictly
-    chronologically, so a future game can never feed an earlier rating.
-    """
+    ``ratings`` is the final per-team rating dict after the last game — used
+    by the slate builder to give scheduled (pre-game) rows their entering
+    rating. The per-game ``elo_entering`` values come from ONLY strictly
+    prior games (see compute_elo)."""
     K, prior, scale = ELO_K, ELO_PRIOR, ELO_SCALE
     ev = events.sort_values(["gameday", "game_id", "is_home"]).reset_index(drop=True)
     rating: dict = {}
@@ -166,7 +212,18 @@ def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
     ev = ev.copy()
     ev["elo_entering"] = ev.apply(
         lambda r: entering.get((r["game_id"], r["team"]), prior), axis=1)
-    return ev
+    return ev, rating
+
+
+def compute_elo(events: pd.DataFrame) -> pd.DataFrame:
+    """Attach ``elo_entering`` to each (team,event) row: the team's rating at
+    kickoff, from ONLY games strictly before this game's gameday.
+
+    Update rule: expected = 1/(1+10**((r_opp - r_self)/400));  r += K*(actual-exp).
+    actual = win(1)/loss(0)/tie(0.5). Prior = 1500. Iterated strictly
+    chronologically, so a future game can never feed an earlier rating.
+    """
+    return _elo_apply(events)[0]
 
 
 def _trailing_per_team(srt: pd.DataFrame, value_col: str, window: int) -> np.ndarray:
@@ -182,22 +239,48 @@ def _trailing_per_team(srt: pd.DataFrame, value_col: str, window: int) -> np.nda
     return roll.reset_index(level=0, drop=True).to_numpy()
 
 
+def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndarray:
+    """Per-team exponentially-weighted mean over STRICTLY-PRIOR games.
+
+    Same shift(1) discipline as ``_trailing_per_team`` — the ewm is computed
+    per team over its own games, then shifted so the current row only sees
+    strictly-prior games. Small halflife = recent form dominates (decaying
+    window, per the v2 candidate spec)."""
+    roll = srt.groupby("team", sort=False)[value_col].ewm(
+        halflife=halflife, min_periods=1).mean()
+    roll = roll.groupby(level=0).shift(1)
+    return roll.reset_index(level=0, drop=True).to_numpy()
+
+
 def team_stats_ladder(events: pd.DataFrame,
-                      ypp_game: pd.DataFrame | None = None) -> pd.DataFrame:
+                      team_game_agg: pd.DataFrame | None = None) -> pd.DataFrame:
     """For every (game_id, team): elo_entering, form_pts (prior net pts/gm),
     win_pct (prior), rest_days (days since the team's previous game), ypp
-    (prior net yards/play). ``ypp_game``: (game_id, team, total_yards, n_plays).
+    (prior net yards/play), plus the v2 trailing columns: ewm_net_pts,
+    ewm_epa, ewm_qb_epa, ewm_scoring, ewm_ypp (decaying windows),
+    pace_plays_min, short_rest, and opp_adj_form (opponent-adjusted margin).
+
+    ``team_game_agg``: per (game_id, team) play aggregates from
+    ``_pbp_team_agg`` (total_yards, n_plays, epa_sum/epa_n, qb_epa_sum/
+    qb_epa_n, elapsed_min). Backward-compatible with the old ``ypp_game``
+    shape (game_id, team, total_yards, n_plays).
 
     LEAKAGE GATE: after sorting by (team, gameday, game_id), gameday must be
-    strictly increasing within each team. Combined with the per-team shift, no
-    future game can touch any row's trailing statistics. This is asserted.
+    strictly increasing within each team. Combined with the per-team shift
+    (windowed AND ewm), no future game can touch any row's trailing
+    statistics. This is asserted.
     """
     ev = events.copy()
-    if ypp_game is not None:
-        ygp = ypp_game.rename(columns={"total_yards": "tot_yd", "n_plays": "npl"})
-        ygp["ypp_game"] = ygp["tot_yd"] / ygp["npl"].replace(0, np.nan)
-        ev = ev.merge(ygp.drop(columns=["tot_yd", "npl"]),
-                      on=["game_id", "team"], how="left")
+    if team_game_agg is not None:
+        agg = team_game_agg.rename(columns={"total_yards": "tot_yd",
+                                            "n_plays": "npl"})
+        agg["ypp_game"] = agg["tot_yd"] / agg["npl"].replace(0, np.nan)
+        agg["epa_play"] = agg["epa_sum"] / agg["epa_n"].replace(0, np.nan)
+        agg["qb_epa_play"] = agg["qb_epa_sum"] / agg["qb_epa_n"].replace(0, np.nan)
+        agg["pace_plays_min_game"] = agg["npl"] / agg["elapsed_min"].replace(0, np.nan)
+        drop = [c for c in ("tot_yd", "npl", "epa_sum", "epa_n",
+                            "qb_epa_sum", "qb_epa_n") if c in agg.columns]
+        ev = ev.merge(agg.drop(columns=drop), on=["game_id", "team"], how="left")
 
     srt = ev.sort_values(["team", "gameday", "game_id"]).reset_index(drop=True)
 
@@ -211,10 +294,41 @@ def team_stats_ladder(events: pd.DataFrame,
     srt["form_pts"] = _trailing_per_team(srt, "net_from_team", FORM_WINDOW)
     srt["win_pct"] = _trailing_per_team(srt, "team_win", WINPCT_WINDOW)
     srt["rest_days"] = srt.groupby("team", sort=False)["gameday"].diff().dt.days
+    srt["short_rest"] = np.where(
+        srt["rest_days"].notna(), (srt["rest_days"] < 7).astype(float), np.nan)
     if "ypp_game" in srt.columns:
         srt["ypp"] = _trailing_per_team(srt, "ypp_game", YPP_WINDOW)
     else:
         srt["ypp"] = np.nan
+
+    # ---- v2 decaying-window aggregates (strictly-prior, per team) --------
+    srt["ewm_net_pts"] = _trailing_ewm(srt, "net_from_team", EWM_HALFLIFE)
+    srt["ewm_scoring"] = _trailing_ewm(srt, "for", EWM_HALFLIFE)
+    if "epa_play" in srt.columns:
+        srt["ewm_epa"] = _trailing_ewm(srt, "epa_play", EWM_HALFLIFE)
+        srt["ewm_qb_epa"] = _trailing_ewm(srt, "qb_epa_play", EWM_HALFLIFE)
+    else:
+        srt["ewm_epa"] = np.nan
+        srt["ewm_qb_epa"] = np.nan
+    if "ypp_game" in srt.columns:
+        srt["ewm_ypp"] = _trailing_ewm(srt, "ypp_game", EWM_HALFLIFE)
+    else:
+        srt["ewm_ypp"] = np.nan
+    if "pace_plays_min_game" in srt.columns:
+        srt["pace_plays_min"] = _trailing_per_team(srt, "pace_plays_min_game", PACE_WINDOW)
+    else:
+        srt["pace_plays_min"] = np.nan
+
+    # ---- opponent-adjusted trailing margin -------------------------------
+    # opp_form = the opponent's OWN trailing form entering the same game
+    # (strictly-prior for the opponent too). The trailing mean over THIS
+    # team's prior games of opp_form is the schedule strength faced; the
+    # team's margin minus that is the opponent-adjusted variant.
+    opp = srt[["game_id", "team", "form_pts"]].rename(
+        columns={"team": "opponent", "form_pts": "opp_form"})
+    srt = srt.merge(opp, on=["game_id", "opponent"], how="left")
+    srt["opp_adj_form"] = srt["form_pts"] - _trailing_per_team(
+        srt, "opp_form", OPP_ADJ_WINDOW)
     return srt
 
 
@@ -226,6 +340,57 @@ def _home_minus_away(ladder: pd.DataFrame, game_ids: pd.Index,
     home = ladder[ladder["is_home"]].set_index("game_id")[col]
     away = ladder[~ladder["is_home"]].set_index("game_id")[col]
     return (home.reindex(game_ids) - away.reindex(game_ids)).to_numpy()
+
+
+def _pbp_team_agg(pbp: pd.DataFrame) -> pd.DataFrame:
+    """Per (game_id, team) play-level aggregates for the v2 candidates.
+
+    Columns: total_yards, n_plays, epa_sum/epa_n, qb_epa_sum/qb_epa_n (NaN
+    when the pbp lacks the source column), elapsed_min (game length from the
+    final play's clock; NaN when ``game_seconds_remaining`` is absent). The
+    epa/qb_epa columns are kept as sums+counts so the ladder computes the
+    per-game rates itself (and the sums are never leaked by the trailing
+    shift).
+    """
+    cols = ["game_id", "team", "total_yards", "n_plays",
+            "epa_sum", "epa_n", "qb_epa_sum", "qb_epa_n", "elapsed_min"]
+    if pbp is None or "posteam" not in pbp.columns:
+        return pd.DataFrame(columns=cols)
+    p = pbp.copy()
+    p = p.dropna(subset=["posteam"])
+    if "game_id" not in p.columns or "yards_gained" not in p.columns:
+        return pd.DataFrame(columns=cols)
+    agg = {"total_yards": ("yards_gained", "sum"),
+           "n_plays": ("yards_gained", "count")}
+    if "epa" in p.columns:
+        agg["epa_sum"] = ("epa", "sum")
+        agg["epa_n"] = ("epa", "count")
+    if "qb_epa" in p.columns:
+        agg["qb_epa_sum"] = ("qb_epa", "sum")
+        agg["qb_epa_n"] = ("qb_epa", "count")
+    g = p.groupby(["game_id", "posteam"], as_index=False).agg(**agg)
+    for c in ("epa_sum", "epa_n", "qb_epa_sum", "qb_epa_n"):
+        if c not in g.columns:
+            g[c] = np.nan
+    if "game_seconds_remaining" in p.columns:
+        last = (p.dropna(subset=["game_seconds_remaining"])
+                 .sort_values("game_seconds_remaining")
+                 .drop_duplicates("game_id", keep="first"))
+        last["elapsed_min"] = (3600.0 - last["game_seconds_remaining"]) / 60.0
+        g = g.merge(last[["game_id", "elapsed_min"]], on="game_id", how="left")
+    else:
+        g["elapsed_min"] = np.nan
+    return g.rename(columns={"posteam": "team"})[cols]
+
+
+def _decided_rows(sched: pd.DataFrame) -> pd.DataFrame:
+    """Rows of a schedule frame with both scores decided (numeric)."""
+    s = sched.copy()
+    for c in ("home_score", "away_score"):
+        if c in s.columns:
+            s[c] = pd.to_numeric(s[c], errors="coerce")
+    return s[pd.to_numeric(s["home_score"], errors="coerce").notna() &
+             pd.to_numeric(s["away_score"], errors="coerce").notna()].copy()
 
 
 def build_features(decided: pd.DataFrame,
@@ -241,28 +406,25 @@ def build_features(decided: pd.DataFrame,
     """
     # --- full decided timeline across warmup+core seasons, from the schedule ---
     sched = schedule.copy() if schedule is not None else decided.copy()
-    for c in ("home_score", "away_score"):
-        if c in sched.columns:
-            sched[c] = pd.to_numeric(sched[c], errors="coerce")
-    full = sched[pd.to_numeric(sched["home_score"], errors="coerce").notna() &
-                 pd.to_numeric(sched["away_score"], errors="coerce").notna()].copy()
+    full = _decided_rows(sched)
 
     events = compute_elo(team_events(full))
-    ypp_game = None
+    team_agg = None
     if pbp is not None and {"yards_gained", "posteam"}.issubset(pbp.columns):
-        p = pbp[["game_id", "posteam", "yards_gained"]].dropna(subset=["posteam"])
-        p = p.groupby(["game_id", "posteam"], as_index=False).agg(
-            total_yards=("yards_gained", "sum"), n_plays=("yards_gained", "count"))
-        ypp_game = p.rename(columns={"posteam": "team"})
-    ladder = team_stats_ladder(events, ypp_game)
+        team_agg = _pbp_team_agg(pbp)
+    ladder = team_stats_ladder(events, team_agg)
 
     df = decided.copy()
-    # --- dome flag directly from the feed's roof (dome/closed = indoor) ---
-    if schedule is not None and "roof" in schedule.columns:
-        roof = schedule[["game_id", "roof"]].drop_duplicates("game_id")
-        df = df.merge(roof, on="game_id", how="left")
-    if "roof" not in df.columns:
-        df["roof"] = np.nan
+    # --- per-game schedule facts (roof -> dome, temp, wind, division) ---
+    for col, out in (("roof", "roof"), ("temp", "temp_f"),
+                     ("wind", "wind_mph"), ("div_game", "div_game")):
+        # Never merge a column the frame already carries (pandas would
+        # suffix it into roof_x/roof_y and drop the plain name).
+        if col not in df.columns and schedule is not None and col in schedule.columns:
+            sub = schedule[["game_id", col]].drop_duplicates("game_id")
+            df = df.merge(sub, on="game_id", how="left")
+        if out not in df.columns:
+            df[out] = np.nan
     df["is_dome_home"] = np.where(
         df["roof"].isin(["dome", "closed"]), 1.0,
         np.where(df["roof"].isin(["outdoors"]), 0.0, np.nan))
@@ -274,6 +436,102 @@ def build_features(decided: pd.DataFrame,
     df["win_pct_diff"] = _home_minus_away(ladder, gids, "win_pct")
     df["rest_days_diff"] = _home_minus_away(ladder, gids, "rest_days")
     df["ypp_diff"] = _home_minus_away(ladder, gids, "ypp")
+    # --- v2 diff candidates (decaying windows / opponent-adj / pace / rest) ---
+    df["ewm_net_pts_diff"] = _home_minus_away(ladder, gids, "ewm_net_pts")
+    df["ewm_epa_play_diff"] = _home_minus_away(ladder, gids, "ewm_epa")
+    df["ewm_qb_epa_play_diff"] = _home_minus_away(ladder, gids, "ewm_qb_epa")
+    df["ewm_scoring_diff"] = _home_minus_away(ladder, gids, "ewm_scoring")
+    df["ewm_ypp_diff"] = _home_minus_away(ladder, gids, "ewm_ypp")
+    df["opp_adj_net_pts_diff"] = _home_minus_away(ladder, gids, "opp_adj_form")
+    df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
+    df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
+    return df
+
+
+def build_slate_features(schedule: pd.DataFrame,
+                         pbp: pd.DataFrame | None,
+                         decided: pd.DataFrame,
+                         slate_season: int) -> pd.DataFrame:
+    """Leak-safe features + games[] fields for SCHEDULED (undecided) games.
+
+    The trailing/ELO ladder spans the full decided timeline (warmup + core,
+    2018-2025), then the scheduled rows of ``slate_season`` are appended so
+    their per-team trailing stats are computed from strictly-prior DECIDED
+    games only (same shift(1) discipline as ``build_features``; the
+    monotonicity assertion in ``team_stats_ladder`` still holds because the
+    scheduled rows are the latest). Each scheduled row's ``elo_entering`` is
+    the team's rating after the last decided game.
+
+    Returns a frame with one row per scheduled game carrying every
+    FEATURE_COLUMNS candidate plus the games[]-shaped fields: season, week,
+    gameday, gametime, stadium, spread_line, total_line, home_record,
+    away_record.
+    """
+    full = _decided_rows(schedule)
+    ev, ratings = _elo_apply(team_events(full))
+    team_agg = None
+    if pbp is not None and {"yards_gained", "posteam"}.issubset(pbp.columns):
+        team_agg = _pbp_team_agg(pbp)
+
+    sched = schedule.copy()
+    for c in ("home_score", "away_score"):
+        if c in sched.columns:
+            sched[c] = pd.to_numeric(sched[c], errors="coerce")
+    sched_rows = sched[(sched.get("season") == slate_season) &
+                       (sched["home_score"].isna() | sched["away_score"].isna())].copy()
+    if sched_rows.empty:
+        return pd.DataFrame()
+
+    ev_sched = team_events(sched_rows)
+    ev_sched["elo_entering"] = ev_sched["team"].map(
+        lambda t: ratings.get(t, ELO_PRIOR))
+    combined = pd.concat([ev, ev_sched], ignore_index=True)
+    ladder = team_stats_ladder(combined, team_agg)
+
+    df = sched_rows.copy()
+    for col, out in (("roof", "roof"), ("temp", "temp_f"),
+                     ("wind", "wind_mph"), ("div_game", "div_game")):
+        if col not in df.columns and col in sched.columns:
+            sub = sched[["game_id", col]].drop_duplicates("game_id")
+            df = df.merge(sub, on="game_id", how="left")
+        if out not in df.columns:
+            df[out] = np.nan
+    df["is_dome_home"] = np.where(
+        df["roof"].isin(["dome", "closed"]), 1.0,
+        np.where(df["roof"].isin(["outdoors"]), 0.0, np.nan))
+
+    gids = df["game_id"]
+    df["is_home"] = 1.0
+    df["elo_diff"] = _home_minus_away(ladder, gids, "elo_entering")
+    df["form_diff_pts"] = _home_minus_away(ladder, gids, "form_pts")
+    df["win_pct_diff"] = _home_minus_away(ladder, gids, "win_pct")
+    df["rest_days_diff"] = _home_minus_away(ladder, gids, "rest_days")
+    df["ypp_diff"] = _home_minus_away(ladder, gids, "ypp")
+    df["ewm_net_pts_diff"] = _home_minus_away(ladder, gids, "ewm_net_pts")
+    df["ewm_epa_play_diff"] = _home_minus_away(ladder, gids, "ewm_epa")
+    df["ewm_qb_epa_play_diff"] = _home_minus_away(ladder, gids, "ewm_qb_epa")
+    df["ewm_scoring_diff"] = _home_minus_away(ladder, gids, "ewm_scoring")
+    df["ewm_ypp_diff"] = _home_minus_away(ladder, gids, "ewm_ypp")
+    df["opp_adj_net_pts_diff"] = _home_minus_away(ladder, gids, "opp_adj_form")
+    df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
+    df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
+
+    # --- cumulative records entering the slate (from the decided timeline) ---
+    rec = ev.groupby("team").agg(
+        wins=("team_win", lambda s: float((s == 1).sum())),
+        losses=("team_win", lambda s: float((s == 0).sum())),
+        ties=("team_win", lambda s: float((s == 0.5).sum())),
+    )
+
+    def _record(team: str) -> str:
+        if team not in rec.index:
+            return ""
+        r = rec.loc[team]
+        base = f"{int(r['wins'])}-{int(r['losses'])}"
+        return f"{base}-{int(r['ties'])}" if r["ties"] > 0 else base
+
+    df["home_record"] = df["home_team"].map(_record)
+    df["away_record"] = df["away_team"].map(_record)
     return df
 
 
@@ -437,8 +695,11 @@ def _load_raw(seasons: list[int]):
     import nflreadpy
     sched = nflreadpy.load_schedules(seasons).to_pandas()
     pbp = nflreadpy.load_pbp(seasons)
-    cols = [c for c in ["game_id", "posteam", "yards_gained"] if c in pbp.columns]
-    pbp = pbp.select(cols).to_pandas()
+    # v2 candidates need EPA / QB-EPA / the game clock (pace); select only the
+    # needed columns in polars before converting (pbp is ~370 columns wide).
+    keep = [c for c in ("game_id", "posteam", "yards_gained", "epa",
+                        "qb_epa", "game_seconds_remaining") if c in pbp.columns]
+    pbp = pbp.select(keep).to_pandas()
     return sched, pbp
 
 
@@ -459,6 +720,7 @@ def pull_and_build(out_dir: Path | None = None,
     if write_record:
         record = {
             "created_utc": datetime.utcnow().isoformat() + "Z",
+            "version": "v2",
             "build": {
                 "core_seasons": CORE_SEASONS,
                 "warmup_seasons": WARMUP_SEASONS,
@@ -466,10 +728,16 @@ def pull_and_build(out_dir: Path | None = None,
                 "decided_frame": str(DECIDED_FRAME),
                 "elo_prior": ELO_PRIOR, "elo_k": ELO_K,
                 "windows": {"form": FORM_WINDOW, "win_pct": WINPCT_WINDOW,
-                            "ypp": YPP_WINDOW},
-                "leakage_rule": ("every trailing feature uses only games with "
-                                 "gameday strictly before the target (asserted in "
-                                 "code: team_stats_ladder strict monotonicity)."),
+                            "ypp": YPP_WINDOW, "ewm_halflife": EWM_HALFLIFE,
+                            "opp_adj": OPP_ADJ_WINDOW, "pace": PACE_WINDOW},
+                "candidate_set": ("v1 base + v2: decaying-window strength "
+                                  "aggregates (net pts / EPA / yards / scoring), "
+                                  "opponent-adjusted margin, pace, short-rest "
+                                  "edge, QB EPA, weather (temp/wind), division"),
+                "leakage_rule": ("every trailing feature (windowed OR decaying-ewm) "
+                                 "uses only games with gameday strictly before the "
+                                 "target (asserted in code: team_stats_ladder strict "
+                                 "monotonicity)."),
                 "holdout": "2025 is not in the decided frame; all AUC computed on "
                            "seasons < 2025.",
             },
@@ -486,7 +754,7 @@ def pull_and_build(out_dir: Path | None = None,
 
 
 def _print_report(feats: pd.DataFrame, result: dict) -> None:
-    print("\n=== NFL feature admission v1 (no model) ===")
+    print("\n=== NFL feature admission (v1 base + v2 candidates, no model) ===")
     print(f"decided games scored: {len(feats)}")
     cov = pd.DataFrame(result["audit_coverage"]).T
     print("\ncoverage / 12h availability:")
@@ -496,8 +764,8 @@ def _print_report(feats: pd.DataFrame, result: dict) -> None:
         print(f"  {p['feat_a']} ~ {p['feat_b']}: r={p['corr']}")
     print("\nunivariate AUC (seasons < 2025):")
     for f, v in result["univariate_auc"].items():
-        print(f"  {f:16s} {v if v is not None else 'n/a'}")
-    print("\nv1 features:", result["v1_features"])
+        print(f"  {f:18s} {v if v is not None else 'n/a'}")
+    print("\nadmitted features:", result["v1_features"])
     print("dropped:", result.get("dropped"))
     for f, r in result.get("reasons", {}).items():
         print(f"  drop {f}: {r}")
