@@ -350,10 +350,12 @@ class TestRunEngineModelMonitorRender(TestCase):
                          "from the tab")
         self.assertIn("diag_game_total_line", src,
                       "line selector key present")
-        # The GTL chart fills its container: it renders via utils.show_chart
-        # (width="stretch" / use_container_width=True), not a fixed width.
+        # The GTL chart sizes EXACTLY like Distribution: the same
+        # utils.show_chart call (st.altair_chart width="stretch"), and the
+        # builder pins NO spec width (height only) so the render call owns
+        # width for both charts identically.
         self.assertIn('utils.show_chart(built["chart"])', src,
-                      "GTL chart must render through the container-stretch path")
+                      "GTL chart must render through the SAME call as Distribution")
         self.assertIn(
             'built = diag.chart_game_total_curve(glc, _gl_title)',
             src, "GTL chart built from the shared builder")

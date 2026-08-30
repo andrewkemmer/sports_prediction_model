@@ -347,14 +347,33 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
 
     def test_comfortable_height_in_spec(self):
         # The chart is sized to a comfortable fixed height (not the tiny
-        # default), and signals container-fill width so it spans the SAME
-        # full width as the other Diagnostics charts (moneyline-reference
-        # width="container" convention), not a narrower fixed plot.
+        # default). The spec carries NO width of its own: width is owned
+        # entirely by the shared Streamlit render call (utils.show_chart ->
+        # st.altair_chart(width="stretch")), the SAME mechanism as the
+        # Distribution chart -- so both charts size identically.
         _, built = self._built()
         d = _spec_dump(built["chart"])
         self.assertIn('"height": 480', d, "explicit comfortable height")
-        self.assertIn('"width": "container"', d,
-                      "chart must fill its container at full width")
+        self.assertNotIn('"width"', d,
+                         "no spec width -- the render call owns width")
+
+    def test_same_width_mechanism_as_distribution(self):
+        # Verbatim parity with the Distribution chart: after Streamlit's
+        # _prepare_vega_lite_spec stretch path, both charts must carry the
+        # SAME width handling -- no user width, same fit autosize.
+        from streamlit.elements.vega_charts import _prepare_vega_lite_spec
+        _, built = self._built()
+        gtl = dict(built["chart"].to_dict())
+        dist = dict(diag.chart_distribution(diag.total_distribution(
+            add_outcomes(make_grid_df(n=150)))).to_dict())
+        pg = _prepare_vega_lite_spec(gtl, True)
+        pd_ = _prepare_vega_lite_spec(dist, True)
+        self.assertEqual(pg.get("width"), pd_.get("width"),
+                         "identical spec width handling")
+        self.assertEqual(pg.get("autosize"), pd_.get("autosize"),
+                         "identical autosize (same stretch path)")
+        self.assertIsNone(pg.get("width"),
+                          "neither chart pins a spec width")
 
     @staticmethod
     def _gtb(center, count=40, low_n=False, mean=None, observed=0.5):
