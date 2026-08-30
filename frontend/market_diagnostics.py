@@ -806,6 +806,185 @@ def game_total_calibration(decided: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Run-line calibration — mirrors game_total_calibration (favorite side)
+# ---------------------------------------------------------------------------
+def fair_run_lines(decided: pd.DataFrame) -> np.ndarray:
+    """Per-game FAIR run-line MAGNITUDE — the grid argmin of
+    |2-way favorite-cover P − 0.5| over RUN_GRID_CUT (0.5 … 4.0 by 0.5),
+    where 2-way P(cover) = cover / (cover + dog) conditions out the push
+    band. Mirrors fair_total_lines exactly: ties in |Δ| pick the LOWER
+    magnitude (strict `<` keeps the first ascending match); the argmin lies
+    on the grid by construction (a line outside the grid is never
+    fabricated). NaN where a game cannot be priced (missing/NaN grid
+    columns or zero denom).
+    """
+    n = len(decided)
+    best = np.full(n, np.nan)
+    best_delta = np.full(n, np.inf)
+    hw = corrected_home_win(decided)
+    is_home = np.where(np.isfinite(hw), hw >= 0.5, False)
+    for m in RUN_GRID_CUT:
+        if m == 0.5:
+            # Cover −0.5 ≡ outright win: P(favored wins). No p_rl_0_5 column.
+            cover = np.where(np.isfinite(hw), np.where(is_home, hw, 1.0 - hw),
+                             np.nan)
+            dog = 1.0 - cover
+        else:
+            h_col, _, a_col = rl_cols(m)
+            if h_col not in decided.columns or a_col not in decided.columns:
+                continue
+            hc = decided[h_col].to_numpy(float)
+            ac = decided[a_col].to_numpy(float)
+            cover = np.where(is_home, hc, ac)
+            dog = np.where(is_home, ac, hc)
+        denom = cover + dog
+        valid = (np.isfinite(hw) & np.isfinite(cover) & np.isfinite(dog)
+                 & np.isfinite(denom) & (denom > 0))
+        delta = np.full(n, np.inf)
+        delta[valid] = np.abs(cover[valid] / denom[valid] - 0.5)
+        take = valid & (delta < best_delta - 1e-12)  # ties keep lower line
+        best_delta[take] = delta[take]
+        best[take] = m
+    return best
+
+
+def _run_line_cover_dog(decided: pd.DataFrame, i: int, m: float,
+                        hw_val: float, is_home_val: bool):
+    """Favorite-side cover/dog probabilities for game ``i`` at magnitude
+    ``m``: cover = p_rl_<m>_home when the favorite is home (P(margin > m))
+    else p_rl_<m>_away (P(margin < m)); dog = the other side's column.
+    m == 0.5 uses the corrected moneyline (P(favored win) = P(margin > 0);
+    there is no p_rl_0_5 column). Returns (cover, dog) floats, or
+    (None, None) when the game cannot be priced.
+    """
+    if m == 0.5:
+        cover = hw_val if is_home_val else 1.0 - hw_val
+        return cover, 1.0 - cover
+    h_col, _, a_col = rl_cols(m)
+    if h_col not in decided.columns or a_col not in decided.columns:
+        return None, None
+    hv = decided[h_col].iloc[i]
+    av = decided[a_col].iloc[i]
+    if pd.isna(hv) or pd.isna(av):
+        return None, None
+    hv, av = float(hv), float(av)
+    return (hv, av) if is_home_val else (av, hv)
+
+
+def run_line_calibration(decided: pd.DataFrame,
+                         line: Optional[float] = None,
+                         n_bins: int = 20) -> dict[str, Any]:
+    """Calibration table for the 'Run Lines' diagnostics tab — mirrors
+    game_total_calibration for the FAVORITE side of the run-line market.
+
+    favorite = moneyline favorite (corrected P(win) > 0.5; toss-up → home).
+    At magnitude m: cover prob = p_rl_<m>_home when the favorite is home
+    (P(margin > m)) else p_rl_<m>_away (P(margin < m)); dog = the other
+    side's column; the shared push band p_rl_<m>_push (P(margin == m),
+    whole lines only) is folded out of the 2-way. predicted = 2-way
+    P(cover) = cover / (cover + dog); observed = cover rate on the same
+    no-push basis; pushes reported as n_pushes / push_rate (−0.5 never
+    pushes — integer margins). win_rate = the moneyline-card 'V'
+    convention: pick the favorite to cover if P(cover) > 0.5 else the dog
+    → observed above 0.5, 1 − observed below. Per-bin auc (_auc,
+    low-n/single-class → None), ece, brier, low_n (< 30), share_pct;
+    pooled Total includes pooled_auc (_auc on the line's full no-push set).
+
+    line=None ('All') → every game priced at ITS OWN FAIR run line: the
+    grid argmin of |2-way cover P − 0.5| over the 0.5 grid, ties → lower
+    (fair_run_lines), bucketed at 1 pt (40–41 … 60+) — own-line P(cover)
+    hugs 50% by construction.
+
+    line given → ALL games at that ONE fixed line (e.g. −1.5): 5-pt bins
+    over [0, 1] (n_bins).
+    """
+    empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
+             "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
+             "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
+             "pooled_auc": None,
+             "warning": "No decided games available for this view."}
+    if not len(decided) or {"home_score", "away_score"}.difference(
+            decided.columns):
+        empty["warning"] = "Missing score columns (need home_score/away_score)."
+        return empty
+    hw = corrected_home_win(decided)
+    if not np.isfinite(hw).any():
+        empty["warning"] = "No corrected moneyline — cannot resolve the favorite."
+        return empty
+    margin = (decided["home_score"].to_numpy(float)
+              - decided["away_score"].to_numpy(float))
+    is_home = np.where(np.isfinite(hw), hw >= 0.5, False)
+    n_all = len(decided)
+    pred = np.full(n_all, np.nan)
+    event = np.zeros(n_all)
+    push = np.zeros(n_all, bool)
+    priced = np.zeros(n_all, bool)
+    if line is None:
+        mags = fair_run_lines(decided)
+        for i in range(n_all):
+            m = mags[i]
+            if np.isnan(m):
+                continue
+            cover, dog = _run_line_cover_dog(decided, i, m, hw[i], is_home[i])
+            if cover is None or dog is None:
+                continue
+            denom = cover + dog
+            if denom <= 0:
+                continue
+            pred[i] = cover / denom          # 2-way P(cover) = card's line
+            priced[i] = True
+            if margin[i] == m:               # whole lines only
+                push[i] = True
+                continue
+            event[i] = float((margin[i] > m) if is_home[i]
+                             else (margin[i] < m))  # favorite covers
+        edges, labels = OWN_LINE_EDGES, OWN_LINE_LABELS
+    else:
+        m = map_run_line_zero(abs(line))
+        if m == 0.5:
+            cover = np.where(is_home, hw, 1.0 - hw)
+            dog = 1.0 - cover
+        else:
+            h_col, _, a_col = rl_cols(m)
+            if h_col not in decided.columns or a_col not in decided.columns:
+                empty["warning"] = (f"Run-line grid columns for line {line} "
+                                    "missing — cannot price at this line.")
+                return empty
+            hc = decided[h_col].to_numpy(float)
+            ac = decided[a_col].to_numpy(float)
+            cover = np.where(is_home, hc, ac)
+            dog = np.where(is_home, ac, hc)
+        denom = cover + dog
+        valid = (np.isfinite(hw) & np.isfinite(margin) & np.isfinite(cover)
+                 & np.isfinite(dog) & (denom > 0))
+        pred[valid] = cover[valid] / denom[valid]
+        priced = valid
+        push = (margin == m) & valid
+        ev = np.where(is_home, margin > m, margin < m)
+        event = (ev & valid & ~push).astype(float)
+        edges = [round(5.0 * b, 2) for b in range(n_bins + 1)]  # 0, 5, …, 100
+        labels = [f"{int(edges[b])}-{int(edges[b + 1])}"
+                  for b in range(n_bins)]
+    ok = priced & ~push
+    n = int(priced.sum())
+    n_pushes = int(push.sum())
+    if not ok.any():
+        empty.update({"n_games": n, "n_pushes": n_pushes,
+                      "push_rate": (round(n_pushes / n, 4) if n else 0.0),
+                      "warning": "No non-push games priceable in this view."})
+        return empty
+    (bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece,
+     pooled_brier, pooled_auc) = _bucket_calibration(pred[ok], event[ok],
+                                                     edges, labels)
+    return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
+            "push_rate": round(n_pushes / n, 4) if n else 0.0,
+            "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
+            "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,
+            "pooled_brier": pooled_brier, "pooled_auc": pooled_auc,
+            "warning": None}
+
+
+# ---------------------------------------------------------------------------
 # Charts 5–6 — favored-side pick accuracy buckets
 # ---------------------------------------------------------------------------
 def pick_buckets(p_pick_prob: np.ndarray, hit: np.ndarray,

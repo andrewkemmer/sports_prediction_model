@@ -1599,6 +1599,250 @@ class TestGameTotalTableColumns(unittest.TestCase):
         self.assertIsNotNone(out["pooled_auc"])
 
 
+class TestRunLineCalibration(unittest.TestCase):
+    """Run Lines tab calibration (mirrors the Game Total Lines metrics):
+    favorite-side 2-way cover calibration at a fixed run line AND the own
+    fair run-line All view. favorite = corrected moneyline P(win) > 0.5
+    (toss-up -> home); cover prob = p_rl_<L>_home when home favored else
+    p_rl_<L>_away; dog = the other side's column; pushes (margin == L,
+    whole lines only) folded out of the 2-way; win-rate 'V' around 50%;
+    per-bin + pooled AUC via diag._auc (low-n/single-class -> None)."""
+
+    @staticmethod
+    def _home_fav():
+        """Home-favored games (corrected P(win) = 0.65). At line -1.5:
+        bin 40-45 (10 games @ P(cover) 0.42, 4 cover), bin 55-60 (50 games
+        @ 0.57, 29 cover) — mirrors the GTL hand-computed fixture."""
+        rows = []
+        for k in range(10):
+            over = k < 4
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if over else 4, "away_score": 3,
+                         "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.35,
+                         "p_rl_1_5_home": 0.42, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.58})
+        for k in range(50):
+            over = k < 29
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if over else 4, "away_score": 3,
+                         "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.35,
+                         "p_rl_1_5_home": 0.57, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.43})
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _away_fav():
+        """Away-favored games (corrected P(win) = 0.40). At line -1.5 the
+        favorite is AWAY, so cover = p_rl_1_5_away (P(margin < 1.5)):
+        bin 60-65 (50 games @ 0.62, 31 cover via margin 0), bin 45-50
+        (10 games @ 0.48, 4 cover)."""
+        rows = []
+        for k in range(50):
+            over = k < 31
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 4 if over else 5,
+                         "away_score": 4 if over else 3,
+                         "p_rl_1_0_home": 0.30, "p_rl_1_0_push": 0.10,
+                         "p_rl_1_0_away": 0.60,
+                         "p_rl_1_5_home": 0.38, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.62})
+        for k in range(10):
+            over = k < 4
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 4 if over else 5,
+                         "away_score": 4 if over else 3,
+                         "p_rl_1_0_home": 0.30, "p_rl_1_0_push": 0.10,
+                         "p_rl_1_0_away": 0.60,
+                         "p_rl_1_5_home": 0.52, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.48})
+        return pd.DataFrame(rows)
+
+    def test_home_favored_mapping_and_win_rate_v(self):
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_pushes"], 0)          # half-line never pushes
+        by = {b["bin"]: b for b in out["bins"]}
+        b40, b55 = by["40-45"], by["55-60"]
+        self.assertEqual(b40["count"], 10)
+        self.assertAlmostEqual(b40["mean_pred"], 0.42, places=4)
+        self.assertAlmostEqual(b40["observed"], 0.40, places=4)
+        self.assertAlmostEqual(b40["win_rate"], 0.60, places=4)  # dog pick
+        self.assertEqual(b55["count"], 50)
+        self.assertAlmostEqual(b55["mean_pred"], 0.57, places=4)
+        self.assertAlmostEqual(b55["observed"], 0.58, places=4)
+        self.assertAlmostEqual(b55["win_rate"], 0.58, places=4)  # fav pick
+
+    def test_away_favored_uses_away_cover_column(self):
+        out = diag.run_line_calibration(self._away_fav(), -1.5)
+        self.assertIsNone(out["warning"])
+        by = {b["bin"]: b for b in out["bins"]}
+        b60, b45 = by["60-65"], by["45-50"]
+        self.assertEqual(b60["count"], 50)
+        self.assertAlmostEqual(b60["mean_pred"], 0.62, places=4)
+        self.assertAlmostEqual(b60["observed"], 0.62, places=4)   # 31/50
+        self.assertAlmostEqual(b60["win_rate"], 0.62, places=4)
+        self.assertEqual(b45["count"], 10)
+        self.assertAlmostEqual(b45["mean_pred"], 0.48, places=4)
+        self.assertAlmostEqual(b45["observed"], 0.40, places=4)   # 4/10
+        self.assertAlmostEqual(b45["win_rate"], 0.60, places=4)   # dog pick
+
+    def test_minus_half_never_pushes_and_uses_moneyline(self):
+        out = diag.run_line_calibration(self._home_fav(), -0.5)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_pushes"], 0)
+        # Cover -0.5 == outright win: P(cover) = corrected P(win) = 0.65.
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["65-70"]["count"], 60)
+        self.assertAlmostEqual(by["65-70"]["mean_pred"], 0.65, places=4)
+
+    def test_whole_line_push_folding(self):
+        rows = [
+            {"game_pk": 0, "kind": "oof", "home_score": 5, "away_score": 4,
+             "p_rl_1_0_home": 0.55, "p_rl_1_0_push": 0.10,
+             "p_rl_1_0_away": 0.35},     # margin 1 == line -> PUSH
+            {"game_pk": 1, "kind": "oof", "home_score": 5, "away_score": 3,
+             "p_rl_1_0_home": 0.55, "p_rl_1_0_push": 0.10,
+             "p_rl_1_0_away": 0.35},     # margin 2 -> cover
+            {"game_pk": 2, "kind": "oof", "home_score": 4, "away_score": 4,
+             "p_rl_1_0_home": 0.55, "p_rl_1_0_push": 0.10,
+             "p_rl_1_0_away": 0.35},     # margin 0 -> dog
+            {"game_pk": 3, "kind": "oof", "home_score": 3, "away_score": 4,
+             "p_rl_1_0_home": 0.55, "p_rl_1_0_push": 0.10,
+             "p_rl_1_0_away": 0.35},     # margin -1 -> dog
+        ]
+        out = diag.run_line_calibration(pd.DataFrame(rows), -1.0)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_games"], 4)
+        self.assertEqual(out["n_pushes"], 1)
+        self.assertAlmostEqual(out["push_rate"], 0.25)
+        self.assertEqual(sum(b["count"] for b in out["bins"]), 3)
+        self.assertAlmostEqual(out["pooled_observed"], 1 / 3, places=4)
+
+    def test_per_bin_auc_low_n_none_and_pooled_auc(self):
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertIsNone(by["40-45"]["auc"])      # n=10 < LOW_N=30
+        self.assertAlmostEqual(by["55-60"]["auc"], 0.5, places=4)  # const pred
+        # Pooled AUC == _auc on the full no-push (pred, outcome) set.
+        po = np.array([0.42] * 10 + [0.57] * 50)
+        ev = np.array([1.0] * 4 + [0.0] * 6 + [1.0] * 29 + [0.0] * 21)
+        self.assertAlmostEqual(out["pooled_auc"],
+                               round(float(diag._auc(ev, po)), 4), places=9)
+
+    def test_table_columns_and_total_row(self):
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        built = diag.chart_game_total_curve(out, "t")
+        tab = built["table"]
+        self.assertEqual(
+            list(tab.columns),
+            ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+             "auc", "ece", "brier", "% of Total"])
+        tot = tab.iloc[-1]
+        self.assertEqual(tot["bucket"], "Total")
+        self.assertEqual(tot["count"], 60)
+        self.assertEqual(tot["auc"], out["pooled_auc"])
+        self.assertEqual(tot["% of Total"], 100.0)
+        self.assertAlmostEqual(tot["Mean Predicted (Raw)"],
+                               out["pooled_pred"], places=9)
+        self.assertAlmostEqual(tot["Mean Actual"], out["pooled_observed"],
+                               places=9)
+
+    def test_all_branch_own_fair_run_line_1pt_buckets(self):
+        # Fair magnitude = 1.5: 2-way P(cover) hits 0.5 exactly there
+        # (m=0.5 -> 0.65, m=1.0 -> 0.6316, m=1.5 -> 0.5).
+        rows = []
+        for k in range(60):
+            over = k < 30
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if over else 4, "away_score": 3,
+                         "p_rl_1_0_home": 0.60, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.35,
+                         "p_rl_1_5_home": 0.50, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.50})
+        decided = pd.DataFrame(rows)
+        self.assertEqual(diag.fair_run_lines(decided)[0], 1.5)
+        out = diag.run_line_calibration(decided, None)
+        self.assertIsNone(out["warning"])
+        self.assertEqual([b["bin"] for b in out["bins"]], diag.OWN_LINE_LABELS)
+        self.assertAlmostEqual(out["pooled_pred"], 0.5, places=4)
+        self.assertAlmostEqual(out["pooled_observed"], 0.5, places=4)
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["50-51"]["count"], 60)
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Favorite (All = own fair run line)")
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+
+    def test_fair_line_ties_pick_lower(self):
+        # m=1.0 gives 2-way 0.55 (delta 0.05); m=2.0 gives 0.45 (delta
+        # 0.05) -> tie keeps the LOWER magnitude (1.0). m=0.5 (0.60) and
+        # m=1.5 (0.60) are both further out (delta 0.10).
+        rows = []
+        for k in range(60):
+            over = k < 30
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_score": 5 if over else 4,
+                         "away_score": 3 if over else 4,
+                         "p_rl_1_0_home": 0.55, "p_rl_1_0_push": 0.05,
+                         "p_rl_1_0_away": 0.45,
+                         "p_rl_1_5_home": 0.60, "p_rl_1_5_push": 0.0,
+                         "p_rl_1_5_away": 0.40,
+                         "p_rl_2_0_home": 0.45, "p_rl_2_0_push": 0.0,
+                         "p_rl_2_0_away": 0.55})
+        decided = pd.DataFrame(rows)
+        self.assertEqual(diag.fair_run_lines(decided)[0], 1.0)
+        out = diag.run_line_calibration(decided, None)
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertEqual(by["55-56"]["count"], 60)   # pred 0.55 at own line
+        self.assertEqual(by["45-46"]["count"], 0)    # not the 0.45 line
+
+    def test_chart_grammar_matches_gtl(self):
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        built = diag.chart_game_total_curve(out, "Calibration Curve — Favorite -1.5")
+        d = _spec_dump(built["chart"])
+        self.assertIn('"domain": [0.0, 1.0]', d)
+        self.assertIn('"height": 300', d)
+        self.assertNotIn('"width"', d)
+        self.assertIn("Series", d)
+        self.assertIn("#8B5CF6", d)
+        self.assertNotIn("NaN", d)
+        self.assertIn("Favorite -1.5", d)
+
+
+class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
+    """End-to-end through frontend/markets.py: the 'Run Lines' tab drives
+    All / -0.5 / -1.5 / -4.0 with 0 exceptions (subprocess AppTest, same
+    pattern as the Game Total Lines tab)."""
+
+    def test_diagnostics_run_line_tab_renders(self):
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.run();\n"
+            "labels = [t.proto.label for t in at.tabs];\n"
+            "assert 'Run Lines' in labels, labels;\n"
+            "assert 'Run-line picks' not in labels, labels;\n"
+            "idx = labels.index('Run Lines');\n"
+            "at.tabs[idx].run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert len(at.caption) > 0, 'no captions rendered';\n"
+            "for _val in ['All', '-0.5', '-1.5', '-4.0']:\n"
+            "    at.tabs[idx].selectbox[0].set_value(_val);\n"
+            "    at.tabs[idx].run();\n"
+            "    assert not at.exception, (_val, at.exception);\n"
+            "print('DIAG_RL_OK')\n"
+        ) % (str(FRONTEND), str(FRONTEND / "markets.py"))
+        res = subprocess.run([sys.executable, "-c", script],
+                             capture_output=True, text=True, timeout=180)
+        self.assertEqual(
+            res.returncode, 0,
+            f"AppTest subprocess failed:\nSTDOUT:\n{res.stdout}\n"
+            f"STDERR:\n{res.stderr[-2000:]}")
+        self.assertIn("DIAG_RL_OK", res.stdout)
+
+
 class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):
     """End-to-end through frontend/markets.py (the Diagnostics page): the
     'Game Total Lines' tab (All own-line / fixed line) renders the merged

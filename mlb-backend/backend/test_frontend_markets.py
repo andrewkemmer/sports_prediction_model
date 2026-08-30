@@ -453,19 +453,23 @@ class TestRunlinePicksChart(TestCase):
     (d) n_games == len(decided_rows).
     """
 
-    def test_chart_title_reflects_mixed_rule(self):
-        """The chart title must say '(home -1.5 / away +1.5)' — NOT
-        'at -1.5' — because the pick set includes both sides."""
+    def test_run_lines_tab_is_calibration_view(self):
+        """The 'Run-line picks' tab is renamed 'Run Lines' and replaced by
+        the favorite-side calibration view (run_line_calibration + the same
+        chart_game_total_curve builder + utils.show_chart as Distribution)."""
         src = (_frontend / "markets.py").read_text()
-        self.assertIn(
-            "Run-line picks (home −1.5 / away +1.5)", src,
-            "markets.py must pass the corrected title with both sides"
-        )
-        # The old misleading title must be gone
-        self.assertNotIn(
-            "Run-line picks at −1.5", src,
-            "Old misleading title must be removed"
-        )
+        self.assertIn('"Run Lines"', src,
+                      "tabs list must contain the renamed 'Run Lines' tab")
+        self.assertNotIn('"Run-line picks"', src,
+                         "old tab label must be gone from the tabs list")
+        self.assertIn("diag.run_line_calibration(decided, _rl_line)", src,
+                      "tab must build the run-line calibration table")
+        self.assertIn("key=\"diag_run_line\"", src,
+                      "run-line selector key must be diag_run_line")
+        self.assertIn("Calibration Curve — Favorite", src,
+                      "dynamic title must say 'Calibration Curve — Favorite {L}'")
+        # Same render path as Distribution / Game Total Lines.
+        self.assertIn("utils.show_chart(built[\"chart\"])", src)
 
     def test_runline_pick_table_pick_rule_mentions_both_sides(self):
         """runline_pick_table pick_rule must mention both home -1.5
@@ -509,16 +513,17 @@ class TestRunlinePicksChart(TestCase):
         self.assertEqual(total_in_buckets, result["n_games"],
                          "Bucket counts must sum to n_games")
 
-    def test_x_axis_uses_picked_side_probability(self):
-        """The chart_pick_buckets receives max(p, 1-p) as the x-axis,
-        which is the picked side's probability. Verify the function
-        is called with the correct data shape."""
+    def test_run_lines_caption_describes_calibration(self):
+        """The renamed 'Run Lines' tab's caption describes the favorite-side
+        2-way cover calibration (P(cover) band on the x-axis, favorite
+        cover rate on the y-axis, the 'V' pick convention)."""
         src = (_frontend / "markets.py").read_text()
-        # The title must match what chart_pick_buckets receives
-        self.assertIn(
-            "x-axis is the picked side's probability", src,
-            "Caption must describe the x-axis as picked-side probability"
-        )
+        self.assertIn("predicted P(cover) band", src,
+                      "caption must describe the x-axis as a P(cover) band")
+        self.assertIn("the favorite side covered, on the 2-way no-push basis",
+                      src, "caption must describe the observed series")
+        self.assertIn("pick the favorite to cover if P(cover) > 50%", src,
+                      "caption must describe the win-rate 'V' pick rule")
 
 
 def _latest_artifact(dd: Path, pattern: str) -> Path:

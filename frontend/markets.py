@@ -2,7 +2,7 @@
 
 Temporary UI simplification: this page renders ONLY the six diagnostics
 charts (Distribution, Relativized, Pooled lines, Money line (rounded),
-Totals picks, Run-line picks) from
+Game Total Lines, Run Lines) from
 frontend/market_diagnostics.py — pure functions
 over run_engine_markets_<date>.csv; the render layer only draws what they
 produce. The per-game slate board, total/run-line selectors, calibration
@@ -109,7 +109,7 @@ if decided.empty:
 else:
     _tabs = st.tabs([
         "Distribution", "Relativized", "Pooled lines",
-        "Game Total Lines", "Run-line picks",
+        "Game Total Lines", "Run Lines",
     ])
 
     with _tabs[0]:   # 1 — totals distribution fit-check
@@ -240,21 +240,64 @@ else:
                 "(low sample — not reliable calibration evidence)."
             )
 
-    with _tabs[4]:   # 5 — run-line pick accuracy buckets
-        rpicks = diag.runline_pick_table(decided)
-        if rpicks["warning"] or not rpicks["buckets"]:
-            st.warning(rpicks.get("warning")
-                       or "No run-line picks could be formed.")
+    with _tabs[4]:   # 5 — run-line calibration (favorite side)
+        _rl_sel = st.selectbox(
+            "Line (All = own fair run line)",
+            ["All"] + [str(l) for l in diag.RUN_LINE_CHOICES],
+            index=1 + diag.RUN_LINE_CHOICES.index(-1.5), key="diag_run_line")
+        _rl_line = None if _rl_sel == "All" else float(_rl_sel)
+        rlc = diag.run_line_calibration(decided, _rl_line)
+        if rlc["warning"]:
+            st.warning(rlc["warning"])
         else:
-            built = diag.chart_pick_buckets(
-                rpicks, "Run-line picks (home −1.5 / away +1.5)")
+            if _rl_line is None:
+                _rl_title = "Calibration Curve — Favorite (All = own fair run line)"
+            else:
+                _rl_title = f"Calibration Curve — Favorite {_rl_line:.1f}"
+            built = diag.chart_game_total_curve(rlc, _rl_title)
             utils.show_chart(built["chart"])
             st.table(built["table"])
+            priced_txt = ("decided games priced at their own fair run lines"
+                          if _rl_line is None else
+                          f"decided games priced at run line {_rl_line:.1f}")
             st.caption(
-                f"Pick rule: {rpicks['pick_rule']} · {rpicks['n_games']:,} "
-                "decided games · x-axis is the picked side's probability "
-                "(max of P(home −1.5 cover), P(away +1.5 cover)) · "
-                "hit rate is NOT calibration."
+                f"{rlc['n_games']:,} {priced_txt} · bar heights = games "
+                f"priced in that predicted P(cover) band (LEFT 'Games' axis) "
+                f"· observed and win-rate curves (RIGHT '%' axis) = how often "
+                f"the favorite side covered, on the 2-way no-push basis · "
+                f"{rlc['n_pushes']:,} pushes excluded ({rlc['push_rate']:.1%}, "
+                f"whole lines only — the favorite loses by exactly the line, "
+                f"neither wins nor losses) · % of Total = "
+                f"count_bin / count_total × 100 · pooled predicted "
+                f"{rlc['pooled_pred']:.2f} vs pooled observed "
+                f"{rlc['pooled_observed']:.2f} · pooled win "
+                f"rate {rlc['pooled_winrate']:.1%} · pooled ECE "
+                f"{rlc['pooled_ece']:.3f} · pooled Brier {rlc['pooled_brier']:.3f} "
+                f"· pooled AUC {rlc['pooled_auc']:.3f} (roc_auc over ALL "
+                f"decided no-push games at this line). Per-bin AUC is "
+                f"degenerate (~0.5) by construction — predictions are "
+                f"rank-compressed inside a narrow band, so read it as a "
+                f"within-bin consistency check, not discrimination power; "
+                f"bins with n < 30 or a single outcome class show blank. "
+                + ("ALL: each game priced at ITS OWN fair run line (the 50/50 "
+                   "grid search over 0.5 … 4.0) — predicted = the same 2-way "
+                   "P(cover) the favorite side is quoted at, so the band hugs "
+                   "50% in 1-pt buckets 40–41…60+; observed = favorite-cover "
+                   "rate."
+                   if _rl_line is None else
+                   f"FIXED LINE {_rl_line:.1f}: all games at one line — the "
+                   "predicted spread IS the calibration surface; observed = "
+                   "favorite-cover frequency; 5-pt bins line the 0–1 axis "
+                   "(0.025…0.975).")
+                + " The dashed diagonal is perfect calibration: points on it "
+                "mean the model's probabilities are honest at every level, "
+                "not just near 50%. The win-rate line is the picked-side "
+                "W/(W+L) (pick the favorite to cover if P(cover) > 50%; "
+                "below 50% the dog pick flips it — a 'V' around 50%). The "
+                "last table row is the pooled Total (share 100%, the amber "
+                "diamond on the chart). Gray bars + dropped curve points "
+                "mark buckets with n < 30 (low sample — not reliable "
+                "calibration evidence)."
             )
 
 
