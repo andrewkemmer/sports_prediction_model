@@ -1031,5 +1031,133 @@ class TestRenderSmoke(unittest.TestCase):
         self.assertFalse(built["table"].empty)
 
 
+
+
+class TestTotalsCalibrationMetrics(unittest.TestCase):
+    """Win rate + ECE/Brier + low-n on the totals calibration chart (fixed
+    line AND All own-line views). Mirrors the moneyline calibration card:
+    pick over if P(over) > 50% else under; win rate = W/(W+L) per bin on the
+    no-push 2-way basis (a 'V' around 50%; bins below 50% give 1 - observed);
+    ECE = |mean_pred - observed|; Brier = mean((pred - outcome)^2). low_n
+    (n < LOW_N) bins are flagged and their chart points suppressed."""
+
+    @staticmethod
+    def _metrics_decided():
+        """Line 8.5 (half-line, no pushes). bin 40-45: 10 games @ 0.42,
+        4 over/6 under. bin 55-60: 50 games @ 0.57, 29 over/21 under."""
+        rows = []
+        for k in range(10):
+            over = k < 4
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 9 if over else 8,
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58})
+        for k in range(50):
+            over = k < 29
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 10 if over else 8,
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43})
+        return pd.DataFrame(rows)
+
+    def test_win_rate_line_hand_computed_v_shape(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        self.assertIsNone(out["warning"])
+        self.assertEqual(out["n_pushes"], 0)          # half-line never pushes
+        by = {b["bin"]: b for b in out["bins"]}
+        # 40-45 (pred 0.42 < 0.5 -> UNDER pick): win rate = 1 - observed 0.40
+        self.assertEqual(by["40-45"]["count"], 10)
+        self.assertAlmostEqual(by["40-45"]["observed"], 0.40, places=4)
+        self.assertAlmostEqual(by["40-45"]["win_rate"], 0.60, places=4)
+        # 55-60 (pred 0.57 > 0.5 -> OVER pick): win rate = observed 0.58
+        self.assertEqual(by["55-60"]["count"], 50)
+        self.assertAlmostEqual(by["55-60"]["observed"], 0.58, places=4)
+        self.assertAlmostEqual(by["55-60"]["win_rate"], 0.58, places=4)
+
+    def test_per_bin_ece_and_brier_hand_computed(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        by = {b["bin"]: b for b in out["bins"]}
+        b40 = by["40-45"]
+        self.assertAlmostEqual(b40["mean_pred"], 0.42, places=4)
+        self.assertAlmostEqual(b40["ece"], 0.02, places=4)       # |0.42-0.40|
+        # Brier over 10 games (4 over @(0.42-1)^2, 6 under @0.42^2) = 2.404/10
+        self.assertAlmostEqual(b40["brier"], 0.2404, places=4)
+        b55 = by["55-60"]
+        self.assertAlmostEqual(b55["ece"], 0.01, places=4)       # |0.57-0.58|
+        # (29*0.1849 + 21*0.3249)/50 = 12.185/50
+        self.assertAlmostEqual(b55["brier"], 0.2437, places=4)
+
+    def test_pooled_aggregates_weighted(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        self.assertAlmostEqual(out["pooled_pred"], (4.2 + 28.5) / 60, places=4)
+        self.assertAlmostEqual(out["pooled_observed"], 33 / 60, places=4)
+        # wins = 6 (under bin) + 29 (over bin) = 35 / 60
+        self.assertAlmostEqual(out["pooled_winrate"], 35 / 60, places=4)
+        # pooled ECE = (10/60)*0.02 + (50/60)*0.01, rounded to 4dp
+        self.assertAlmostEqual(
+            out["pooled_ece"],
+            round((10 / 60) * 0.02 + (50 / 60) * 0.01, 4), places=9)
+        # pooled Brier = mean of squared errors over all pairs, rounded 4dp
+        po = np.array([0.42] * 10 + [0.57] * 50)
+        ev = np.array([1.0] * 4 + [0.0] * 6 + [1.0] * 29 + [0.0] * 21)
+        self.assertAlmostEqual(
+            out["pooled_brier"],
+            round(float(((po - ev) ** 2).mean()), 4), places=9)
+
+    def test_low_n_bins_flagged_and_points_suppressed(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_lines(out, "t")
+        tab = built["table"]
+        row40 = tab[tab["bin"] == "40-45"].iloc[0]
+        row55 = tab[tab["bin"] == "55-60"].iloc[0]
+        self.assertTrue(bool(row40["low_n"]))    # n=10 < 30
+        self.assertFalse(bool(row55["low_n"]))   # n=50 >= 30
+        # Scatter keeps ONLY non-low-n populated bins (55-60); 40-45 dropped.
+        dump = _spec_dump(built["scatter"])
+        self.assertIn("0.57", dump)        # kept bin present
+        self.assertNotIn("0.42", dump)     # low-n bin's value suppressed
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+
+    def test_all_branch_flat_own_line_win_rate_renders(self):
+        decided = add_outcomes(make_grid_df(n=200, seed=11))
+        out = diag.game_total_calibration(decided, None)
+        self.assertIsNone(out["warning"])
+        populated = [b for b in out["bins"] if b["count"] > 0]
+        self.assertTrue(populated)
+        for b in populated:
+            self.assertIsNotNone(b["win_rate"])
+            self.assertGreaterEqual(b["win_rate"], 0.0)
+            self.assertLessEqual(b["win_rate"], 1.0)
+        # Flat own-line win rate (the documented finding, not a bug)
+        self.assertGreaterEqual(out["pooled_winrate"], 0.35)
+        self.assertLessEqual(out["pooled_winrate"], 0.65)
+        built = diag.chart_game_total_lines(out, "t")
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+
+    def test_empty_bins_render_zero_none_no_error(self):
+        # All preds cluster in 0.50-0.55 at line 9.0 -> one populated bin.
+        rows = [{"game_pk": i, "total_runs": 10 if i % 2 else 8,
+                 "p_over_9_0": 0.52, "p_under_9_0": 0.47}
+                for i in range(60)]
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
+        built = diag.chart_game_total_lines(out, "t")
+        empty = [b for b in out["bins"] if b["count"] == 0]
+        self.assertTrue(empty)
+        for b in empty:
+            self.assertIsNone(b["observed"])
+            self.assertIsNone(b["mean_pred"])
+            self.assertIsNone(b["win_rate"])
+            self.assertIsNone(b["ece"])
+            self.assertIsNone(b["brier"])
+            self.assertFalse(b["low_n"])
+            self.assertEqual(b["share_pct"], 0.0)
+        for k in ("chart", "scatter", "table"):
+            self.assertIn(k, built)
+        self.assertFalse(built["table"].empty)
+        # table carries the new columns
+        for col in ("win_rate", "ece", "brier", "low_n"):
+            self.assertIn(col, built["table"].columns)
+
+
 if __name__ == "__main__":
     unittest.main()

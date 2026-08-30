@@ -62,6 +62,12 @@ def rl_legacy_col(margin: float) -> str:
 OWN_LINE_EDGES = list(range(40, 61)) + [101]
 OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 
+# Low-sample threshold for the totals calibration chart: buckets with
+# n < LOW_N games are shaded gray, their win-rate/observed points dropped
+# from the chart, and flagged in the table + footnote — never readable as
+# strong calibration evidence.
+LOW_N = 30
+
 
 def round_to_half(x: float) -> float:
     """Round to the nearest 0.5, ties away from zero (round half up).
@@ -435,27 +441,54 @@ def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
     pooled_event). EMPTY bins are kept with count 0 / None stats — never
     dropped. ``event`` is the outcome the prediction refers to: the over
     event for a fixed line, the picked-side win for the own-line 'All'
-    branch (so observed-vs-predicted stays apples-to-apples). share_pct =
+    branch    (so observed-vs-predicted stays apples-to-apples). share_pct =
     % of total observations in the group = count_bin / count_total × 100
-    (count_total = all observations passed in — the priced non-push games)."""
-    pct = np.clip(np.asarray(pred, float), 0.0, 1.0) * 100.0
+    (count_total = all observations passed in — the priced non-push games).
+
+    Extends the moneyline-calibration-card convention to totals: per-bin
+    ``win_rate`` = W/(W+L) for the pick rule 'over if P(over) > 50% else
+    under' (a 'V' around 50% — bins below 50% give 1 − observed, bins
+    above give observed); ``ece`` = |mean_pred − observed| (per-bin, 0–1);
+    ``brier`` = mean((prediction − outcome)²) both on the same 2-way
+    no-push event basis. ``low_n`` flags bins with n < LOW_N for the
+    chart/table. Pooled aggregates returned: pooled_pred, pooled_observed,
+    pooled_winrate, pooled_ece (count-weighted over bins),
+    pooled_brier (mean over all pairs)."""
+    pred_frac = np.clip(np.asarray(pred, float), 0.0, 1.0)
     ev = np.asarray(event, float)
+    win = np.where(pred_frac > 0.5, ev, 1.0 - ev)  # over pick / under pick
+    pct = pred_frac * 100.0
     n = len(pct)
     bins = []
     for b, lab in enumerate(labels):
         lo, hi = edges[b], edges[b + 1]
         m = (pct >= lo) & (pct < hi) if b < len(labels) - 1 else (pct >= lo)
         cnt = int(m.sum())
+        mean_pred = float(pred_frac[m].mean()) if cnt else None
+        observed = float(ev[m].mean()) if cnt else None
         bins.append({
             "bin": lab,
             "bin_center": round(float((lo + hi) / 200.0), 3),
             "count": cnt,
-            "mean_pred": (round(float(pred[m].mean()), 4) if cnt else None),
-            "observed": (round(float(ev[m].mean()), 4) if cnt else None),
+            "mean_pred": (round(mean_pred, 4) if cnt else None),
+            "observed": (round(observed, 4) if cnt else None),
+            "win_rate": (round(float(win[m].mean()), 4) if cnt else None),
+            "ece": (round(abs(mean_pred - observed), 4)
+                    if (cnt and mean_pred is not None
+                        and observed is not None) else None),
+            "brier": (round(float(((pred_frac[m] - ev[m]) ** 2).mean()), 4)
+                      if cnt else None),
+            "low_n": (cnt < LOW_N and cnt > 0),
             "share_pct": (round(cnt / n * 100.0, 2) if n else None),
         })
-    return (bins, round(float(pred.mean()), 4),
-            round(float(ev.mean()), 4))
+    tot = n if n else 0
+    pooled_ece = sum((b["count"] / tot * b["ece"])
+                     for b in bins if b["count"] and b["ece"] is not None)
+    return (bins, round(float(pred_frac.mean()), 4),
+            round(float(ev.mean()), 4),
+            round(float(win.mean()), 4),
+            round(pooled_ece, 4),
+            round(float(((pred_frac - ev) ** 2).mean()), 4))
 
 
 def game_total_calibration(decided: pd.DataFrame,
@@ -485,6 +518,7 @@ def game_total_calibration(decided: pd.DataFrame,
     """
     empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
              "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
+             "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
              "warning": "No decided games available for this view."}
     if not len(decided) or "total_runs" not in decided.columns:
         return empty
@@ -552,11 +586,13 @@ def game_total_calibration(decided: pd.DataFrame,
                       "push_rate": (round(n_pushes / n, 4) if n else 0.0),
                       "warning": "No non-push games priceable in this view."})
         return empty
-    bins, pooled_pred, pooled_obs = _bucket_calibration(
-        pred[ok], event[ok], edges, labels)
+    bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece, pooled_brier = (
+        _bucket_calibration(pred[ok], event[ok], edges, labels))
     return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
             "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
+            "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,
+            "pooled_brier": pooled_brier,
             "warning": None}
 
 
@@ -1410,15 +1446,20 @@ def chart_calibration(curve: dict, title: str,
 def chart_game_total_lines(table: dict, title: str,
                             obs_label: str = "Observed % (2-way, no push)") -> dict:
     """Renders the game-total calibration view for a ``game_total_calibration``
-    table: {'chart': dual-axis bars (count per bucket, left) + observed %
-    line (right, 0-100 domain), 'scatter': observed vs predicted with the
-    perfect-calibration diagonal, 'table': the bucket rows}.
+    table: {'chart': bars (count per bucket, left) + observed % and picked-side
+    win-rate lines (right, shared 0-100 domain), 'scatter': observed vs
+    predicted with the perfect-calibration diagonal (pooled amber diamond),
+    'table': the bucket rows + a pooled Total row}.
 
-    ``obs_label`` titles the observed % line (both branches observe the over
-    event on the no-push 2-way basis, so it is 'Observed over % (2-way, no
-    push)' everywhere). Empty buckets keep count 0 / None stats: bars render as
-    zero-height, the observed line simply skips them (never fabricated), and
-    the scatter drops them (a point needs both axes). The line/point
+    The win-rate line is the moneyline-card convention: pick over if
+    P(over) > 50% else under; W/(W+L) per bin on the no-push 2-way basis - a
+    'V' centered on 50% (bins below 50% give 1 - observed). ``obs_label``
+    titles the percent axis (both branches observe the over event on the
+    no-push basis). Empty buckets keep count 0 / None stats: bars render
+    zero-height, lines skip them, and the scatter drops them (a point needs
+    both axes). low_n bins (n < LOW_N) are shaded gray, their win-rate/
+    observed points dropped from the lines and scatter (never readable as
+    reliable calibration), and flagged in the table. The line/point
     encodings carry a REAL scale with an explicit domain (the scale=None ->
     "scale": null regression never re-enters this chart)."""
     tdf = pd.DataFrame(table["bins"])
@@ -1426,28 +1467,61 @@ def chart_game_total_lines(table: dict, title: str,
         return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
                 "scatter": alt.Chart(pd.DataFrame()).mark_point(),
                 "table": tdf}
-    # The chart needs observed as a percent internally, but the ST.table the
-    # user sees keeps the raw rate + share_pct — never the redundant
-    # observed*100 column (share_pct = count_bin / count_total x 100).
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
+    chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
+    # The chart needs the percents internally, but the ST.table the user
+    # sees keeps the raw rates + share_pct — never the redundant *100
+    # columns (share_pct = count_bin / count_total x 100). low_n bins are
+    # shaded gray and their win-rate/observed points dropped.
+    x_sort = list(chart_df["bin"])
     base = alt.Chart(chart_df).encode(
-        x=alt.X("bin:N", sort=list(chart_df["bin"]), title=None))
+        x=alt.X("bin:N", sort=x_sort, title=None))
     bars = base.mark_bar(color="#3B82F6").encode(
         y=alt.Y("count:Q", title="Games"),
-        tooltip=["bin", "count", "mean_pred", "observed", "share_pct"])
-    obs_line = base.mark_line(
-        color="#22C55E", strokeWidth=2.5,
-        point=alt.OverlayMarkDef(size=60)).encode(
-        y=alt.Y("observed_pct:Q", title=obs_label,
-                scale=alt.Scale(domain=[0.0, 100.0])),
-        tooltip=["bin", "count", "observed_pct"])
-    chart = (bars + obs_line).resolve_scale(y="independent").properties(
+        tooltip=["bin", "count", "mean_pred", "observed", "win_rate",
+                 "ece", "brier", "share_pct"])
+    bar_layer = bars
+    low_df = chart_df[chart_df["low_n"]]
+    if not low_df.empty:
+        low_bars = alt.Chart(low_df).mark_bar(
+            color="#94A3B8", opacity=0.45).encode(
+            x=alt.X("bin:N", sort=x_sort, title=None),
+            y=alt.Y("count:Q", title="Games"),
+            tooltip=["bin", "count", "mean_pred", "observed", "share_pct"])
+        bar_layer = bars + low_bars
+    # Win-rate + observed lines over non-low-n populated cells (low-n points
+    # are dropped — they are not reliable calibration evidence). Win rate is
+    # the picked-side W/(W+L); below 50% the under pick flips it to 1 − over,
+    # so a wider V around 50% = accuracy tracking confidence.
+    line_df = chart_df[(~chart_df["low_n"]) & chart_df["observed"].notna()]
+    stack = pd.DataFrame(
+        [{"bin": r["bin"], "series": "Win rate",
+          "pct": r["win_rate_pct"], "count": r["count"]}
+         for _, r in line_df.iterrows()]
+        + [{"bin": r["bin"], "series": "Observed",
+            "pct": r["observed_pct"], "count": r["count"]}
+           for _, r in line_df.iterrows()])
+    if stack.empty:
+        line_chart = alt.Chart(pd.DataFrame()).mark_line()
+    else:
+        line_chart = alt.Chart(stack).mark_line(
+            strokeWidth=2.5, point=alt.OverlayMarkDef(size=60)).encode(
+            x=alt.X("bin:N", sort=x_sort, title=None),
+            y=alt.Y("pct:Q", title=obs_label,
+                    scale=alt.Scale(domain=[0.0, 100.0])),
+            color=alt.Color("series:N",
+                            scale=alt.Scale(domain=["Observed", "Win rate"],
+                                            range=["#22C55E", "#8B5CF6"]),
+                            title="Series"),
+            tooltip=["bin", "series", "pct", "count"])
+    chart = (bar_layer + line_chart).resolve_scale(y="independent").properties(
         height=300, title=title)
     # Scatter: observed (2-way) vs mean predicted per populated bin + diagonal
     pts = [{"bin_center": b["bin_center"], "mean_pred": b["mean_pred"],
             "mean_actual": b["observed"], "count": b["count"]}
-           for b in table["bins"] if b["observed"] is not None]
+           for b in table["bins"]
+           if b["observed"] is not None and not b["low_n"]]
     if pts:
         curve = {"bins": pts, "n_pairs": int(sum(p["count"] for p in pts)),
                  "n_dropped_bins": 0, "warning": None}
@@ -1479,6 +1553,10 @@ def chart_game_total_lines(table: dict, title: str,
         "count": int(tdf["count"].sum()),
         "mean_pred": pooled_pred,
         "observed": pooled_obs,
+        "win_rate": table.get("pooled_winrate"),
+        "ece": table.get("pooled_ece"),
+        "brier": table.get("pooled_brier"),
+        "low_n": False,
         "share_pct": 100.0,
     }])
     table_df = pd.concat([tdf, total_row], ignore_index=True)

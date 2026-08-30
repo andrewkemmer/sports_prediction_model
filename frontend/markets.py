@@ -208,7 +208,10 @@ else:
                 f"whole lines only, neither wins nor losses) · observed on "
                 f"the same no-push basis · share % = count_bin / count_total × "
                 f"100 · pooled predicted {glc['pooled_pred']:.2f} vs pooled "
-                f"observed {glc['pooled_observed']:.2f}. "
+                f"observed {glc['pooled_observed']:.2f} · pooled win "
+                f"rate {glc['pooled_winrate']:.1%} (picked side) · "
+                f"pooled ECE {glc['pooled_ece']:.3f} · pooled Brier "
+                f"{glc['pooled_brier']:.3f}. "
                 + ("ALL: each game priced at ITS OWN fair line (the 50/50 "
                    "grid search) — predicted = the same re-scaled 2-way "
                    "P(over) the Today's Games card shows at its default "
@@ -219,9 +222,13 @@ else:
                    "predicted spread IS the calibration surface (the per-game "
                    "own-line view compressed it to 0.44–0.51); observed = "
                    "over frequency; 5-pt bins over [0, 1].") + " The last "
-                "table row is the pooled Total (share 100%, the amber "
-                "diamond on the scatter); the dashed diagonal is perfect "
-                "calibration."
+                "table row is the pooled Total (win rate / ECE / Brier on "
+                "it; share 100%, the amber diamond on the scatter); the "
+                "dashed diagonal is perfect calibration. The win-rate line "
+                "is the picked-side W/(W+L) (over if P(over) > 50%; below "
+                "50% the under pick flips it — a 'V' around 50%). Gray "
+                "bars + dropped points mark buckets with n < 30 (low "
+                "sample — not reliable calibration evidence)."
             )
 
     with _tabs[4]:   # 5 — run-line pick accuracy buckets
