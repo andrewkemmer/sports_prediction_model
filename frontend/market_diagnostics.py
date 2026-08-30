@@ -141,7 +141,7 @@ def _gtl_table_frame(table: dict) -> pd.DataFrame:
 
 def chart_game_total_curve(table: dict, title: str,
                            obs_label: str = "Observed % (2-way, no push)",
-                           x_tick_step: Optional[float] = None) -> dict:
+                           x_domain: Optional[list] = None) -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
@@ -166,12 +166,11 @@ def chart_game_total_curve(table: dict, title: str,
     the curves (never readable as reliable calibration). Pooled aggregates
     ride the Total table row, the caption, and the amber pooled marker.
 
-    ``x_tick_step`` (optional, axis-only): when given, the shared x-axis
-    renders explicit tick MARKS at that probability step (e.g. 0.01 = 1%,
-    labels formatted to 2 decimals) with vega-lite thinning overlapping
-    LABELS — the domain, buckets, and bin centers are untouched. Used by
-    the Run Lines tab's -0.5 view for a fine readout; every other caller
-    keeps the default axis (no axis key emitted).
+    ``x_domain`` (optional): the fixed x-axis domain shared by EVERY layer
+    (bars, curves, diagonal, pooled marker) — [0.25, 0.75] for the Run
+    Lines tab's favorite-side calibration; None keeps the default
+    [0.0, 1.0] (Game Total Lines). Axis ticks stay vega-lite defaults —
+    the domain is the only thing that changes.
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
@@ -180,7 +179,8 @@ def chart_game_total_curve(table: dict, title: str,
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
+    x_dom = alt.Scale(
+        domain=(x_domain if x_domain is not None else [0.0, 1.0]), nice=False)
     y_pct_dom = alt.Scale(domain=[0.0, 100.0])
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
@@ -192,18 +192,8 @@ def chart_game_total_curve(table: dict, title: str,
         alt.Tooltip("observed:Q", title="Observed", format=".3f"),
         alt.Tooltip("win_rate:Q", title="Win rate", format=".3f"),
     ]
-    x_axis_kw = {}
-    if x_tick_step is not None:
-        # Explicit 1%-step tick MARKS over the fixed [0, 1] domain (labels
-        # at 2 decimals; labelOverlap lets vega-lite thin overlapping
-        # LABEL text while keeping every tick mark).
-        x_axis_kw["axis"] = alt.Axis(
-            values=[round(x_tick_step * i, 4)
-                    for i in range(int(round(1.0 / x_tick_step)) + 1)],
-            format=".2f", labelOverlap=True)
     bars = alt.Chart(chart_df).mark_bar(color="#3B82F6").encode(
-        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom,
-                **x_axis_kw),
+        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom),
         y=alt.Y("count:Q", axis=alt.Axis(title="Games", grid=True)),
         tooltip=bar_tip)
     bar_layer = bars

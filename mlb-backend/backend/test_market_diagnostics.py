@@ -1798,77 +1798,39 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertEqual(by["45-46"]["count"], 0)    # not the 0.45 line
 
     def test_chart_grammar_matches_gtl(self):
+        # The Run Lines chart renders through the same builder with the
+        # fixed [0.25, 0.75] x-domain shared by every layer (normal
+        # vega-lite ticks — no explicit tick values).
         out = diag.run_line_calibration(self._home_fav(), -1.5)
-        built = diag.chart_game_total_curve(out, "Calibration Curve — Favorite -1.5")
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Favorite -1.5", x_domain=[0.25, 0.75])
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.0, 1.0]', d)
+        self.assertIn('"domain": [0.25, 0.75]', d)
         self.assertIn('"height": 300', d)
         self.assertNotIn('"width"', d)
         self.assertIn("Series", d)
         self.assertIn("#8B5CF6", d)
         self.assertNotIn("NaN", d)
         self.assertIn("Favorite -1.5", d)
+        # No explicit tick values anywhere (normal ticks restored).
+        self.assertNotIn('"tickMinStep"', d)
+        self.assertNotIn('"labelOverlap"', d)
 
-    @staticmethod
-    def _axis_values(chart) -> list:
-        """All explicit axis ``values`` lists in the built spec."""
-        found = []
-
-        def _walk(node):
-            if isinstance(node, dict):
-                ax = node.get("axis")
-                if isinstance(ax, dict) and "values" in ax:
-                    found.append(ax["values"])
-                for v in node.values():
-                    _walk(v)
-            elif isinstance(node, list):
-                for v in node:
-                    _walk(v)
-
-        _walk(chart.to_dict())
-        return found
-
-    def test_minus_half_x_axis_1pct_ticks_only(self):
-        """The -0.5 view carries explicit 1%-step (0.01) tick marks on the
-        x-axis with 2-decimal labels; other lines keep the default axis.
-        Axis-only: the fixed [0.0, 1.0] domain is unchanged."""
-        out05 = diag.run_line_calibration(self._home_fav(), -0.5)
-        built05 = diag.chart_game_total_curve(
-            out05, "Calibration Curve — Favorite -0.5", x_tick_step=0.01)
-        vals = self._axis_values(built05["chart"])
-        self.assertEqual(len(vals), 1, "exactly one axis carries tick values")
-        v = vals[0]
-        self.assertGreaterEqual(len(v), 101)          # 0.00 … 1.00
-        self.assertAlmostEqual(v[0], 0.0, places=6)
-        self.assertAlmostEqual(v[-1], 1.0, places=6)
-        for a, b in zip(v, v[1:]):
-            self.assertAlmostEqual(b - a, 0.01, places=6)  # 1% spacing
-        d = _spec_dump(built05["chart"])
-        self.assertIn('"format": ".2f"', d)           # 2-decimal labels
-        self.assertIn('"domain": [0.0, 1.0]', d)      # domain untouched
-        # -1.5 (and every other line) has NO explicit tick values.
-        out15 = diag.run_line_calibration(self._home_fav(), -1.5)
-        built15 = diag.chart_game_total_curve(
-            out15, "Calibration Curve — Favorite -1.5")
-        self.assertEqual(self._axis_values(built15["chart"]), [],
-                         "-1.5 must keep the default axis")
-
-    def test_minus_half_bucket_table_still_5pt_bins(self):
-        """Even with the 1%-tick axis, the -0.5 bucket table stays in the
-        5-pt groupings (0-5, 5-10, …, 95-100) — labels never become 1-pt."""
-        out = diag.run_line_calibration(self._home_fav(), -0.5)
-        self.assertEqual([b["bin"] for b in out["bins"]][:3],
-                         ["0-5", "5-10", "10-15"])
-        self.assertEqual([b["bin"] for b in out["bins"]][-1], "95-100")
-        by = {b["bin"]: b for b in out["bins"]}
-        self.assertEqual(by["65-70"]["count"], 60)    # pred 0.65 → 5-pt bin
-        built = diag.chart_game_total_curve(
-            out, "Calibration Curve — Favorite -0.5", x_tick_step=0.01)
-        tab = built["table"]
-        self.assertEqual(tab.iloc[-1]["bucket"], "Total")
-        buckets = [r["bucket"] for _, r in tab.iloc[:-1].iterrows()]
-        self.assertNotIn("65-66", buckets)            # no 1-pt labels rendered
-        self.assertIn("65-70", buckets)
+    def test_x_domain_shared_by_all_lines_and_default_unchanged(self):
+        # Every fixture-priceable selector (All / -0.5 / -1.5) emits the
+        # SAME fixed [0.25, 0.75] domain; the -0.5 view has no special tick
+        # treatment. (-4.0 renders on the real artifact via the AppTest.)
+        for line in (None, -0.5, -1.5):
+            out = diag.run_line_calibration(self._home_fav(), line)
+            built = diag.chart_game_total_curve(
+                out, f"t-{line}", x_domain=[0.25, 0.75])
+            d = _spec_dump(built["chart"])
+            self.assertIn('"domain": [0.25, 0.75]', d, f"line {line}")
+            self.assertNotIn("NaN", d, f"line {line}")
+        # Without the param the builder keeps the GTL default [0.0, 1.0].
+        out = diag.run_line_calibration(self._home_fav(), -1.5)
+        d = _spec_dump(diag.chart_game_total_curve(out, "t")["chart"])
+        self.assertIn('"domain": [0.0, 1.0]', d)
 
 
 class TestRunLineCalibrationDiagnosticsAppTest(unittest.TestCase):
