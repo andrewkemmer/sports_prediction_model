@@ -410,6 +410,36 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertNotIn("near-line degeneracy", src)
 
 
+class TestRelativizedDeepOverCallout(TestCase):
+    """The Relativized tab's deep-over callout was refreshed from the stale
+    2026-08-24 measurement (prediction 0.66 vs actual 0.60, n≈4,156) to the
+    current 2026-08-30 recheck (gap gone at −2.0; 2-way now under-prices the
+    over). Source guard: the stale numbers must not return, and the page must
+    cite the recheck record."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = (_frontend / "markets.py").read_text()
+
+    def test_stale_20260824_numbers_gone(self):
+        for stale in ("0.66 vs actual ≈ 0.60", "≈ 0.06 shortfall, n ≈ 4,156",
+                      "prediction ≈ 0.66", "n ≈ 4,156", "+0.058 vs +0.054"):
+            self.assertNotIn(stale, self.src,
+                             f"stale deep-over number must be gone: {stale!r}")
+        self.assertNotIn("weather-independent — the gap is identical",
+                         self.src, "stale weather claim must be gone")
+
+    def test_fresh_recheck_text_present(self):
+        self.assertIn("deep_over_recheck_20260830.json", self.src,
+                      "callout must cite the fresh recheck record")
+        self.assertIn("0.606 vs actual 0.607", self.src,
+                      "callout must carry the −2.0 pred/actual")
+        self.assertIn("0.636 vs 0.647", self.src,
+                      "callout must carry the 2-way under-price at −2.0")
+        self.assertIn("EV-haircut on deep-over lines would give away",
+                      self.src, "callout must warn against the harmful haircut")
+
+
 # ---------------------------------------------------------------------------
 # Date-pinning regression: Totals & Run Lines ignores selected_date
 # ---------------------------------------------------------------------------
