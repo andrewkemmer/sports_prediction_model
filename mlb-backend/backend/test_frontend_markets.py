@@ -277,6 +277,19 @@ class TestRunEngineModelMonitorRender(TestCase):
         mon = json.loads((_latest_artifact(self.root / "data_delivery", "run_engine_monitor_*.json")).read_text())
         self.markets._render_run_engine_model_card(mon)  # no crash
 
+    def test_run_engine_drift_caption_has_no_feature_counts(self):
+        """The run-engine drift caption/body must not hardcode a feature
+        count (it went stale at 29/36 after the 53-feature restore) — title
+        is the bare 'Run-Engine Feature Drift (PSI)' and the body keeps the
+        useful legend without any keep/drop numbers."""
+        src = Path(__file__).resolve().parents[2] / "frontend" / "markets.py"
+        text = src.read_text(encoding="utf-8")
+        self.assertIn("### Run-Engine Feature Drift (PSI)", text)
+        self.assertNotIn("its own 29 features", text)
+        self.assertNotIn("OWN 29", text)
+        self.assertNotIn("the 36 dropped", text)
+        self.assertIn("INSUFFICIENT = window too small to judge drift", text)
+
     def test_drift_and_coverage_render_real_artifacts(self):
         d = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_drift_*.csv"))
         self.assertEqual(len(d), 29)

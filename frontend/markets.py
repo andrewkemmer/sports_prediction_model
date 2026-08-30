@@ -994,7 +994,7 @@ def _render_run_engine_model_card(monitor: dict) -> None:
 def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
     """Run-engine feature drift — same PSI table as the moneyline monitor
     (no MODEL WEIGHT column: single sampler, not a blend)."""
-    st.markdown("### Run-Engine Feature Drift (PSI — its own 29 features)")
+    st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
         st.info("No run-engine drift data for this date "
                 "(run_engine_feature_drift_*.csv appears after a pipeline "
@@ -1034,8 +1034,6 @@ def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          The run engine's OWN 29 kept features (the 36 dropped — diff /
-          momentum / moneyline-only, incl. run_margin_diff — are excluded).
           Same windows as the moneyline drift; statuses on noise-adjusted PSI.
           INSUFFICIENT = window too small to judge drift.
         </div>
