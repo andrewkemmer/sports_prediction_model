@@ -47,6 +47,12 @@ _DATE_RE = re.compile(r"_(\d{8})")
 # Recent-slate protection (mirrors master_pipeline.py constants).
 _SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
 
+# Board-backed retention (mirrors master_pipeline.py constants): dated
+# run-engine/predictions artifacts survive as long as the date still has a
+# tracked todays_games_<date>.csv board.
+_BOARD_BACKED_PREFIXES = ("run_engine_markets_", "run_engine_oof_",
+                          "predictions_history_")
+
 
 def _is_protected(rel: str) -> bool:
     """True if ``rel`` is a persistent asset that cleanup must never touch."""
@@ -75,8 +81,20 @@ def _is_recent_slate(rel: str, recent_dates: set[str]) -> bool:
     return any(basename.startswith(pfx) for pfx in _SLATE_PROTECTED_PREFIXES)
 
 
+def _is_board_backed(rel: str, board_dates: set[str]) -> bool:
+    """True for a run-engine/predictions artifact whose extracted date still
+    has a tracked todays_games_<date>.csv board (mirrors the Phase 6
+    board-backed retention rule)."""
+    art_date = _artifact_date(rel)
+    if art_date not in board_dates:
+        return False
+    basename = rel.rsplit("/", 1)[-1]
+    return any(basename.startswith(pfx) for pfx in _BOARD_BACKED_PREFIXES)
+
+
 def classify_tracked(tracked, seen, run_date_compact="20260824",
-                     recent_dates=None, retention_dates=None):
+                     recent_dates=None, retention_dates=None,
+                     board_dates=None):
     """Replicate the Phase 6 classification logic for testing.
 
     ``recent_dates`` is an optional set of YYYYMMDD strings within the
@@ -87,6 +105,11 @@ def classify_tracked(tracked, seen, run_date_compact="20260824",
     artifacts (current run date + previous GMT day). When omitted it
     defaults to {run_date_compact, run_date_compact - 1 day} computed via
     a timedelta — never strict string equality against today.
+
+    ``board_dates`` is the set of YYYYMMDD dates that still have a tracked
+    todays_games_<date>.csv board: run_engine_markets_* / run_engine_oof_* /
+    predictions_history_* for those dates survive even outside the 48h and
+    recent-slate windows. Defaults to empty (board rule inert).
     """
     if recent_dates is None:
         recent_dates = {run_date_compact}  # default: only same-day
@@ -94,6 +117,8 @@ def classify_tracked(tracked, seen, run_date_compact="20260824",
         run_dt = _dt_dt.strptime(run_date_compact, "%Y%m%d").date()
         retention_dates = {(run_dt - _td(days=i)).strftime("%Y%m%d")
                            for i in range(2)}  # {today, yesterday}
+    if board_dates is None:
+        board_dates = set()
     stale, kept_protected, kept_current = [], 0, 0
     for p in tracked:
         if p in seen:
@@ -108,6 +133,11 @@ def classify_tracked(tracked, seen, run_date_compact="20260824",
         # Recent-slate protection: keep todays_games / shap_game for
         # the current run date AND the 2 prior days.
         if _is_recent_slate(p, recent_dates):
+            kept_current += 1
+            continue
+        # Board-backed retention: keep run-engine/predictions for any date
+        # that still has a tracked todays_games_<date>.csv board.
+        if _is_board_backed(p, board_dates):
             kept_current += 1
             continue
         stale.append(p)
@@ -549,6 +579,124 @@ class TestRolloverRetentionWindow(TestCase):
         self.assertEqual(stale, [
             "mlb-backend/data_delivery/run_engine_markets_20260810.csv",
         ], "only the old non-protected dated artifact pruned")
+
+
+class TestBoardBackedRunEngineProtection(TestCase):
+    """Board-backed retention (2026-08-29 doubleheader regression): a dated
+    run_engine_markets_* / run_engine_oof_* / predictions_history_* artifact
+    survives cleanup as long as a todays_games_<date>.csv board for that date
+    is still tracked — a navigable board must never lose the RUN ENGINE
+    columns its cards need. The 3-day recent-slate window keeps the board;
+    before this fix, run-engine data for that date was pruned on the 2nd
+    retention drop while the board remained.
+    """
+
+    # Run date 20260831: retention = {31, 30}; recent = {31, 30, 29}.
+    # 20260829 is OUTSIDE the 48h window and is not a slate prefix — only
+    # the board-backed rule can save its run-engine data (the regression).
+    RUN = "20260831"
+    RECENT = {"20260831", "20260830", "20260829"}
+    RETENTION = {"20260831", "20260830"}
+    BOARD = {"20260829"}
+
+    def test_kept_when_board_tracked(self):
+        """(a) run_engine_markets/oof/predictions_history for 20260829 are
+        kept when todays_games_20260829.csv is tracked (outside the 48h
+        window, day -2 of the recent-slate window)."""
+        tracked = [
+            "mlb-backend/data_delivery/todays_games_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260829.csv",
+            "mlb-backend/data_delivery/predictions_history_20260829.csv",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=self.BOARD)
+        self.assertEqual(stale, [], "board-backed run-engine data must be kept")
+        self.assertEqual(cur, 4)
+
+    def test_pruned_when_no_board_tracked(self):
+        """(b) the same run-engine file IS pruned when no todays_games board
+        for that date is tracked (board rule inert; 48h/recent don't apply)."""
+        tracked = [
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260829.csv",
+            "mlb-backend/data_delivery/predictions_history_20260829.csv",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION)  # no board_dates
+        self.assertEqual(len(stale), 3,
+                         "without a tracked board the 48h/recent windows don't apply")
+
+    def test_slate_protection_unchanged(self):
+        """(c) todays_games_* keeps its existing 3-day recent-slate
+        protection (independent of the board rule), and boards outside the
+        window are still pruned."""
+        tracked = [
+            "mlb-backend/data_delivery/todays_games_20260829.csv",  # recent
+            "mlb-backend/data_delivery/todays_games_20260825.csv",  # >3 days
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=self.BOARD)
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/todays_games_20260825.csv",
+        ], "recent board kept, old board still pruned")
+        self.assertEqual(cur, 1)
+
+    def test_older_board_keeps_run_engine_while_board_persists(self):
+        """(d) a board older than the 3-day window (still tracked this run)
+        keeps its run-engine data — the board itself prunes, its run-engine
+        survives until the board is gone from a later run."""
+        board_dates = {"20260825"}
+        tracked = [
+            "mlb-backend/data_delivery/todays_games_20260825.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260825.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260825.csv",
+            "mlb-backend/data_delivery/predictions_history_20260825.csv",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=board_dates)
+        # Board itself is stale (outside the 3-day window) but its run-engine
+        # family is kept while the board persists.
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/todays_games_20260825.csv",
+        ])
+        self.assertEqual(cur, 3)
+
+    def test_unrelated_dated_artifacts_unaffected(self):
+        """(e) the 48h retention for unrelated dated artifacts is unchanged:
+        calibration_* / model_monitor_* for the window survive, older ones
+        prune — the board rule never widens what they keep."""
+        tracked = [
+            "mlb-backend/data_delivery/calibration_20260830.json",
+            "mlb-backend/data_delivery/model_monitor_20260830.json",
+            "mlb-backend/data_delivery/calibration_20260825.json",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=self.BOARD)
+        self.assertEqual(cur, 2, "48h window keeps 30th calibration + monitor")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/calibration_20260825.json",
+        ], "older unrelated dated artifact still pruned despite board_dates")
+
+    def test_board_rule_does_not_save_non_matching_families(self):
+        """Only the run-engine/predictions families ride the board rule — an
+        old calibration for a board-backed date is still pruned."""
+        tracked = [
+            "mlb-backend/data_delivery/calibration_20260829.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260829.csv",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=self.BOARD)
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/calibration_20260829.json",
+        ], "calibration is not board-backed; run_engine is")
+        self.assertEqual(cur, 1)
 
 
 class TestDomeColumnExport(TestCase):

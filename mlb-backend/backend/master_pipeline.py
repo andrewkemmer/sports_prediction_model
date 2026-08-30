@@ -404,6 +404,17 @@ _RECENT_DATES = {
 }
 _SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
 
+# Board-backed retention (doubleheader regression fix): a dated run-engine /
+# predictions artifact is kept for ANY date that still has a tracked
+# todays_games_<date>.csv board, so a navigable board is never left without
+# the RUN ENGINE columns its cards need. todays_games_* boards ride the
+# 3-day _RECENT_DATES window, but run_engine_markets_* / run_engine_oof_* /
+# predictions_history_* only had the 48h _RETENTION_DATES window — a board
+# surviving into day 3 lost its run-engine data (the 2026-08-29 _2_2
+# regression). Keep them for as long as the board itself is tracked.
+_BOARD_BACKED_PREFIXES = ("run_engine_markets_", "run_engine_oof_",
+                          "predictions_history_")
+
 # Rolling 48-hour retention window (GMT-rollover regression fix): keep EVERY
 # dated artifact for the current run date AND the previous GMT day. US games
 # end up to ~midnight ET (~05:00 GMT next day), so the previous GMT day is
@@ -438,6 +449,51 @@ def _artifact_date(rel: str) -> str | None:
     m = _DATE_RE.search(rel)
     return m.group(1) if m else None
 
+
+def _basename(rel: str) -> str:
+    """Local filename of an artifact path (after any data_delivery/ dir)."""
+    _DD = "data_delivery/"
+    idx = rel.find(_DD)
+    local = rel[idx + len(_DD):] if idx >= 0 else rel
+    return local.rsplit("/", 1)[-1]
+
+
+def _classify_artifact(rel, seen, protected, retention_dates, recent_dates,
+                       board_dates,
+                       board_backed_prefixes=_BOARD_BACKED_PREFIXES,
+                       slate_prefixes=_SLATE_PROTECTED_PREFIXES) -> str:
+    """Pure keep/stale decision for one tracked artifact path.
+
+    Returns one of:
+      "seen"      - staged by this run (kept; never counted)
+      "protected" - persistent asset cleanup must never touch
+      "current"   - kept via a date window: the 48h retention window, a
+                    recent slate snapshot (todays_games_*/shap_game_* in the
+                    3-day _RECENT_DATES window), or a board-backed
+                    run-engine/predictions artifact whose date still has a
+                    tracked todays_games_<date>.csv board
+      "stale"     - safe to delete
+
+    Pure (no I/O, no module state beyond the passed sets/tuples) so it is
+    unit-testable in isolation — master_pipeline runs top-to-bottom on
+    import, so the live Phase 6 loop only calls this predicate.
+    """
+    if rel in seen:
+        return "seen"
+    if protected(rel):
+        return "protected"
+    art_date = _artifact_date(rel)
+    if art_date in retention_dates:
+        return "current"  # within the 48h retention window — keep
+    base = _basename(rel)
+    if (art_date in recent_dates
+            and any(base.startswith(pfx) for pfx in slate_prefixes)):
+        return "current"  # recent slate snapshot (3-day window) — keep
+    if (art_date in board_dates
+            and any(base.startswith(pfx) for pfx in board_backed_prefixes)):
+        return "current"  # board still tracked -> keep its run-engine data
+    return "stale"
+
 _banner("PHASE 6", "Stale artifact cleanup (final step)")
 if not token:
     print("  ⏭️  No token — skipping cleanup")
@@ -447,32 +503,31 @@ else:
     try:
         repo = _open_sync_repo(token, sync_dir)
         tracked = repo.git.ls_files(f"{SPORT_DIR_NAME}/data_delivery").splitlines()
-        # Classify: protected → keep; in seen → keep; date-stamped within the
-        # 48h retention window (current + previous GMT day) → keep; otherwise
-        # → stale.
+        # Board-backed retention: every date that still has a tracked
+        # todays_games_<date>.csv board keeps its run-engine/predictions
+        # artifacts — a navigable board must never lose the RUN ENGINE data
+        # its cards need (the 2026-08-29 doubleheader regression).
+        board_dates = {d for p in tracked
+                       if _basename(p).startswith("todays_games_")
+                       for d in [_artifact_date(p)] if d}
+        # Classify: protected → keep; in seen → keep; within the 48h
+        # retention window (current + previous GMT day) → keep; recent or
+        # board-backed slate/run-engine artifacts → keep; otherwise → stale.
         stale = []
         kept_protected = 0
         kept_current = 0
         for p in tracked:
-            if p in seen:
+            verdict = _classify_artifact(
+                p, seen, _is_protected, _RETENTION_DATES, _RECENT_DATES,
+                board_dates)
+            if verdict == "seen":
                 continue  # this run staged it
-            if _is_protected(p):
+            if verdict == "protected":
                 kept_protected += 1
                 continue
-            art_date = _artifact_date(p)
-            if art_date in _RETENTION_DATES:
+            if verdict == "current":
                 kept_current += 1
-                continue  # within the 48h retention window — keep
-            # Recent-slate protection: keep todays_games / shap_game for
-            # the current run date AND the 2 prior days (games settle over
-            # a 24-48h window; their card snapshots must survive until
-            # results land in predictions_history).
-            if (art_date in _RECENT_DATES
-                    and any(p.endswith("/" + sfx)
-                            or "/" + sfx in p
-                            for sfx in _SLATE_PROTECTED_PREFIXES)):
-                kept_current += 1
-                continue  # recent slate snapshot — keep
+                continue
             stale.append(p)
         if kept_protected:
             print(f"  🛡️  Kept {kept_protected} protected file(s) (never deleted)")
