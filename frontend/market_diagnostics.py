@@ -21,7 +21,7 @@ Lines outside [6.5, 12.5] clamp to the nearest edge column.
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import altair as alt
 import numpy as np
@@ -1358,6 +1358,111 @@ def resolve_matchup_teams(team_map: dict, key: Any) -> tuple:
 # ---------------------------------------------------------------------------
 # Today's Games card enrichment (read-only over the slate rows)
 # ---------------------------------------------------------------------------
+
+
+def resolve_slate_across_artifacts(
+        frames_by_date: dict, game_ids: Iterable[Any]) -> dict:
+    """Resolve one run-engine slate row per card ``game_id`` across the
+    available dated ``run_engine_markets_*.csv`` frames, instead of
+    keying the lookup to the game's exact date file.
+
+    ``frames_by_date`` maps ``{YYYYMMDD: frame}`` (card calls it with the
+    available run-engine artifacts, newest-first iterations handled here).
+    Precedence per ``game_id``:
+
+      (a) the frame whose date == the game_id's leading 8-digit date (the
+          exact game-date file) when it holds an EXACT ``game_pk`` match —
+          the unchanged fast path, byte-identical to current behavior when
+          data is present;
+      (b) otherwise the NEWEST frame holding an EXACT ``game_pk`` match —
+          the general case where a later run priced the game (artifact
+          date > game date) under the same id;
+      (c) otherwise the NEWEST frame holding a MATCHUP match (same
+          away@home under a differing date prefix): the GMT-rollover case
+          where the evening game's id carries the next day's prefix (the
+          Aug 29 game priced as ``20260830_BAL@ATH`` by the Aug 30 run);
+      (d) otherwise the id is absent -> the caller renders the quiet
+          'unavailable' fallback. Never fabricates rows.
+
+    Returns ``{str(game_id): slate_record}`` for the resolvable ids.
+    """
+    ids = [str(g) for g in game_ids if str(g).strip()]
+    frames_by_date = {str(d): f for d, f in frames_by_date.items()
+                      if f is not None}
+    dates = sorted(frames_by_date, reverse=True)
+
+    def _exact(d, g):
+        for pk, rec in _slate_rows(frames_by_date[d]):
+            if pk == g:
+                return rec
+        return None
+
+    def _matchup(d, g):
+        m = _espy_matchup(g)
+        for pk, rec in _slate_rows(frames_by_date[d]):
+            if pk != g and _espy_matchup(pk) == m:
+                return rec
+        return None
+
+    result: dict = {}
+    # (a) exact-date file wins when it holds the exact game_pk.
+    for g in ids:
+        d = g[:8] if len(g) > 8 else None
+        if d is not None and d in frames_by_date:
+            r = _exact(d, g)
+            if r is not None:
+                result[g] = r
+    # (b) newest frame holding the exact game_pk fills the gaps.
+    for d in dates:
+        for g in ids:
+            if g in result:
+                continue
+            r = _exact(d, g)
+            if r is not None:
+                result[g] = r
+    # (c) newest frame holding a same-matchup row (GMT rollover reconcile).
+    for d in dates:
+        for g in ids:
+            if g in result:
+                continue
+            r = _matchup(d, g)
+            if r is not None:
+                result[g] = r
+    return result
+
+
+def _espy_matchup(game_id: Any) -> str:
+    """Stable matchup key for a markets frame's game key.
+
+    ESPN ids look like ``<8-digit-date>_AWAY@HOME`` (doubleheaders add a
+    ``_2_2`` leg suffix). The leading date prefix is the SCHEDULED date and
+    can differ by a GMT-rollover day between a Today's Games card snapshot
+    and the pricing run: the same evening game is ``20260829_BAL@ATH`` on
+    the Aug 29 card but was priced as ``20260830_BAL@ATH`` by the Aug 30
+    run (it was still pre-game at 00:00 GMT). Strip the date prefix so the
+    away@home side is the stable key. Non-date-prefixed keys (numeric
+    game_pk records) pass through unchanged.
+    """
+    s = str(game_id).strip()
+    if len(s) > 9 and s[:8].isdigit() and s[8] == "_":
+        return s[9:]
+    return s
+
+
+def _slate_rows(frame: Optional[pd.DataFrame]) -> list:
+    """(str(game_pk), record) pairs for the slate rows of one markets frame.
+    ``None``/empty frames and frames without a ``kind`` column yield []
+    (run-engine frames predating Phase 3 carry no slate rows).
+    """
+    if frame is None or not len(frame) or "kind" not in frame.columns:
+        return []
+    sl = frame[frame["kind"] == "slate"]
+    rows = []
+    for pk, rec in zip(sl["game_pk"], sl.to_dict("records")):
+        if pd.isna(pk):
+            continue
+        rows.append((str(pk), rec))
+    return rows
 
 
 def _num(row, key: str) -> Optional[float]:

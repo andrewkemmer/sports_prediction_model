@@ -418,6 +418,39 @@ def resolve_totals_line(game_id, default_line: float) -> float:
     return val
 
 
+def _run_engine_dates() -> list[str]:
+    """Available ``run_engine_markets_*.csv`` dates (YYYYMMDD), newest first.
+
+    Enumerates the data_delivery contents API (same shape as
+    ``utils.available_dates`` but for the run-engine artifact family) plus the
+    local fallback. The ``*_rl`` bridge copy is excluded (not a date). Returns
+    [] when nothing is reachable -- the resolver then degrades to 'unavailable'.
+    """
+    import requests
+    cfg = utils.get_source_config()
+    owner, repo, branch = cfg["owner"], cfg["repo"], cfg["branch"]
+    dates: set[str] = set()
+    if owner and repo:
+        try:
+            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
+                   f"/{utils.REPO_SUBDIR}/data_delivery")
+            resp = requests.get(api, timeout=15)
+            if resp.ok:
+                for item in resp.json():
+                    name = item.get("name", "")
+                    if name.startswith("run_engine_markets_") and name.endswith(".csv"):
+                        rem = name[len("run_engine_markets_"):-len(".csv")]
+                        if len(rem) == 8 and rem.isdigit():
+                            dates.add(rem)
+        except requests.RequestException:
+            pass
+    for p in utils.LOCAL_DATA_DIR.glob("run_engine_markets_*.csv"):
+        rem = p.name[len("run_engine_markets_"):-len(".csv")]
+        if len(rem) == 8 and rem.isdigit():
+            dates.add(rem)
+    return sorted(dates, reverse=True)
+
+
 def _et_today_compact() -> str:
     """Today's date in America/New_York as YYYYMMDD, used so the frontend
     defaults to the user's real calendar date rather than UTC (which would
@@ -441,18 +474,19 @@ def main() -> None:
     games = utils.load_todays_games(date_str)
     cal = utils.load_calibration(date_str)
 
-    # Run-engine slate rows keyed by game_pk (ESPN game_id pre-game — the
-    # 145d841 convention); joined to cards by game_id. Empty frame when the
-    # artifact is missing or predates Phase 3 → cards just omit the strip.
-    # (diag is a module-level import — see the top of this file.)
-    _markets = utils.load_run_engine_markets(date_str)
-    slate_map = {}
-    if len(_markets) and "kind" in _markets.columns:
-        _sl = _markets[_markets["kind"] == "slate"]
-        if len(_sl):
-            slate_map = {str(pk): rec
-                         for pk, rec in zip(_sl["game_pk"],
-                                            _sl.to_dict("records"))}
+    # Run-engine slate rows resolved across the available dated
+    # run_engine_markets_*.csv artifacts by game_pk (ESPN game_id pre-game --
+    # the 145d841 convention), newest-first, instead of keying the lookup to
+    # the game's exact date file. A game priced by a later run (artifact date
+    # > game date) or a GMT-rollover evening game whose id carries the next
+    # day's prefix still resolves here. An unresolvable id is simply absent
+    # from the map -> the card renders the quiet 'unavailable' fallback.
+    _frames = {}
+    for _d in [date_str] + [d for d in _run_engine_dates() if d >= date_str]:
+        if _d not in _frames:
+            _frames[_d] = utils.load_run_engine_markets(_d)
+    _gids = [str(g.get("game_id", "")) for _, g in games.iterrows()]
+    slate_map = diag.resolve_slate_across_artifacts(_frames, _gids)
 
     history_view = False
     if games.empty:

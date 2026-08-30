@@ -882,5 +882,31 @@ class TestResolveTotalsLineGridBinding(unittest.TestCase):
         self.assertIn("APP_OK", res.stdout)
 
 
+class TestResolveSlateAcrossArtifactsWiring(unittest.TestCase):
+    """Today's Games resolves the run-engine slate by game_pk across the
+    available dated artifacts -- not the exact game-date file alone -- so a
+    game priced by a later run still renders its RUN ENGINE block."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = (Path(__file__).resolve().parents[2] / "frontend"
+                   / "todays_games.py").read_text()
+
+    def test_uses_cross_artifact_resolver(self):
+        self.assertIn("_run_engine_dates", self.src,
+                      "module must enumerate run-engine artifact dates")
+        self.assertIn("diag.resolve_slate_across_artifacts", self.src,
+                      "card slate must be resolved across dated artifacts")
+        self.assertIn('_frames[_d] = utils.load_run_engine_markets(_d)',
+                      self.src)
+        self.assertIn("Run-engine slate rows resolved across the available",
+                      self.src)
+
+    def test_no_longer_keys_lookup_to_exact_date_file_alone(self):
+        self.assertNotIn("_markets = utils.load_run_engine_markets(date_str)",
+                         self.src,
+                         "slate must not be built from the exact-date file only")
+
+
 if __name__ == "__main__":
     unittest.main()

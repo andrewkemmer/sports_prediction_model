@@ -1325,5 +1325,96 @@ class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):
         self.assertIn("DIAG_GT_OK", res.stdout)
 
 
+class TestResolveSlateAcrossArtifacts(unittest.TestCase):
+    """Run-engine slate resolution across dated run_engine_markets frames.
+
+    ``resolve_slate_across_artifacts`` keys a card's run-engine lookup by
+    game_pk across the available dated artifacts (instead of the exact
+    game-date file alone): exact-date wins when it holds the id; otherwise
+    the newest artifact with an EXACT game_pk; otherwise a same-matchup row
+    (the GMT-rollover case where the Aug 30 run priced the Aug 29 evening
+    game under the next-day prefix). Absent ids never fabricate a row.
+    """
+
+    @staticmethod
+    def _frame(*rows):
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _slate(game_pk, proj=4.5):
+        return {"game_pk": game_pk, "kind": "slate",
+                "home_expected_runs": proj, "away_expected_runs": 4.0}
+
+    def test_game_only_in_newer_artifact_resolves_rollover(self):
+        # Aug 29 card; the Aug 29 file was deleted; the Aug 30 run priced the
+        # SAME evening game under the next-day prefix (GMT rollover).
+        f29 = self._frame()
+        f30 = self._frame(self._slate("20260830_BAL@ATH", 4.44))
+        res = diag.resolve_slate_across_artifacts(
+            {"20260829": f29, "20260830": f30}, ["20260829_BAL@ATH"])
+        self.assertIn("20260829_BAL@ATH", res,
+                      "rollover card must resolve via the newer artifact")
+        self.assertEqual(res["20260829_BAL@ATH"]["game_pk"], "20260830_BAL@ATH")
+
+    def test_exact_date_file_wins_over_newer(self):
+        # Both the exact-date file and a newer run price the id: exact wins.
+        f29 = self._frame(self._slate("20260829_BAL@ATH", 4.1))
+        f30 = self._frame(self._slate("20260830_BAL@ATH", 4.44))
+        res = diag.resolve_slate_across_artifacts(
+            {"20260829": f29, "20260830": f30}, ["20260829_BAL@ATH"])
+        self.assertEqual(res["20260829_BAL@ATH"]["home_expected_runs"], 4.1)
+
+    def test_absent_everywhere_graceful_no_crash(self):
+        res = diag.resolve_slate_across_artifacts(
+            {"20260830": self._frame(self._slate("20260830_MIA@WSH"))},
+            ["20260829_ARI@SF_2_2"])
+        self.assertEqual(res, {}, "unresolvable id -> absent (fallback)")
+
+    def test_newest_first_tiebreak_when_multiple_have_id(self):
+        # No exact-date file; two artifacts carry the same EXACT id -> the
+        # newest wins (tier b newest-first).
+        f28 = self._frame(self._slate("20260830_BAL@ATH", 4.0))
+        f31 = self._frame(self._slate("20260830_BAL@ATH", 5.0))
+        res = diag.resolve_slate_across_artifacts(
+            {"20260828": f28, "20260831": f31}, ["20260830_BAL@ATH"])
+        self.assertEqual(res["20260830_BAL@ATH"]["home_expected_runs"], 5.0)
+
+    def test_later_run_same_id_general_case(self):
+        # A game whose EXACT id lives only in a LATER-dated artifact (a game
+        # on Aug 30 priced by the Aug 31 run) resolves that row.
+        f30 = self._frame()
+        f31 = self._frame(self._slate("20260830_MIA@WSH", 4.38))
+        res = diag.resolve_slate_across_artifacts(
+            {"20260830": f30, "20260831": f31}, ["20260830_MIA@WSH"])
+        self.assertEqual(res["20260830_MIA@WSH"]["home_expected_runs"], 4.38)
+
+    def test_present_row_is_the_raw_slate_record(self):
+        # When the exact-date file holds the id, the map carries the RAW row
+        # unchanged -- render is byte-identical to current behavior.
+        row = self._slate("20260829_PHI@LAA", 4.36)
+        f29 = self._frame(row)
+        res = diag.resolve_slate_across_artifacts(
+            {"20260829": f29}, ["20260829_PHI@LAA"])
+        self.assertEqual(res["20260829_PHI@LAA"], row)
+
+    def test_invalid_and_blank_game_pk_fall_back(self):
+        f30 = self._frame(self._slate("20260830_MIA@WSH"))
+        res = diag.resolve_slate_across_artifacts(
+            {"20260830": f30}, ["", "nonsense"])
+        self.assertEqual(res, {}, "blank/non-date ids never fabricate")
+
+    def test_ood_rows_and_non_slate_ignored(self):
+        # kind != 'slate' (OOF rows) and NaN game_pk never match a card id.
+        oof = pd.DataFrame([{"game_pk": 778485, "kind": "oof",
+                             "home_expected_runs": 4.5}])
+        res = diag.resolve_slate_across_artifacts(
+            {"20260830": oof}, ["778485", "20260830_MIA@WSH"])
+        self.assertEqual(res, {})
+        # Matchup helper strips the date prefix only for dated ESPN ids.
+        self.assertEqual(diag._espy_matchup("20260830_BAL@ATH"), "BAL@ATH")
+        self.assertEqual(diag._espy_matchup("20260829_ARI@SF_2_2"), "ARI@SF_2_2")
+        self.assertEqual(diag._espy_matchup("778485"), "778485")
+
+
 if __name__ == "__main__":
     unittest.main()
