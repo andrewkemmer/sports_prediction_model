@@ -478,6 +478,16 @@ class TestRunlinePicksChart(TestCase):
                       "Run Lines must pass the explicit 1% x-axis tick values")
         self.assertIn("diag.X_1PCT_TICKS", src,
                       "the 1% tick constant must be referenced by the tab")
+        # Run Lines hides the Win rate series and renames the labels to the
+        # table's column names; the GTL call passes none of these.
+        self.assertIn("show_win_rate=False", src,
+                      "Run Lines must drop the Win rate series")
+        self.assertIn('x_label="Mean Predicted"', src,
+                      "x-axis renamed to 'Mean Predicted'")
+        self.assertIn('series_label="Mean Actual"', src,
+                      "series renamed to 'Mean Actual'")
+        self.assertIn('obs_label="Mean Actual"', src,
+                      "y-axis renamed to 'Mean Actual'")
 
     def test_runline_pick_table_pick_rule_mentions_both_sides(self):
         """runline_pick_table pick_rule must mention both home -1.5

@@ -255,13 +255,16 @@ else:
             else:
                 _rl_title = f"Calibration Curve — Favorite {_rl_line:.1f}"
             # Run Lines: curve POINTS at 1% resolution (rlc['curve_bins'],
-            # low-n bins plotted — the 5-pt bars are the volume context) and
-            # explicit 1% x-axis tick MARKS — on EVERY selection (All and
-            # -0.5 … -4.0). Bars + table stay on the 5-pt buckets. The GTL
-            # tab calls this builder with neither, staying byte-identical.
+            # low-n bins plotted — the 1-pt bars are the volume context),
+            # explicit 1% x-axis tick MARKS, NO win-rate series (only the
+            # observed curve, named to match the table), on EVERY selection
+            # (All and -0.5 … -4.0). The GTL tab calls this builder with
+            # defaults, staying byte-identical.
             built = diag.chart_game_total_curve(
                 rlc, _rl_title, curve_bins=rlc.get("curve_bins"),
-                x_tick_values=diag.X_1PCT_TICKS)
+                x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+                x_label="Mean Predicted", series_label="Mean Actual",
+                obs_label="Mean Actual")
             utils.show_chart(built["chart"])
             st.table(built["table"])
             priced_txt = ("decided games priced at their own fair run lines"

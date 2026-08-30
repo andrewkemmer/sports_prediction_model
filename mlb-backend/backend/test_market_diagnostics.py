@@ -1801,15 +1801,29 @@ class TestRunLineCalibration(unittest.TestCase):
         out = diag.run_line_calibration(self._home_fav(), -1.5)
         built = diag.chart_game_total_curve(
             out, "Calibration Curve — Favorite -1.5",
-            curve_bins=out["curve_bins"], x_tick_values=diag.X_1PCT_TICKS)
+            curve_bins=out["curve_bins"], x_tick_values=diag.X_1PCT_TICKS,
+            show_win_rate=False, x_label="Mean Predicted",
+            series_label="Mean Actual", obs_label="Mean Actual")
         d = _spec_dump(built["chart"])
         self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertIn('"height": 300', d)
         self.assertNotIn('"width"', d)
-        self.assertIn("Series", d)
-        self.assertIn("#8B5CF6", d)
         self.assertNotIn("NaN", d)
         self.assertIn("Favorite -1.5", d)
+        # No Win rate series / purple / legend entry — only the observed
+        # curve, renamed to match the table; axis labels renamed too.
+        self.assertNotIn("Win rate", d)
+        self.assertNotIn("#8B5CF6", d)
+        self.assertIn("Mean Actual", d)
+        self.assertIn("Mean Predicted", d)
+        self.assertNotIn("Observed % (2-way, no push)", d)
+        series = set()
+        for _name, data in built["chart"].to_dict().get("datasets", {}).items():
+            for r in data:
+                if "series" in r:
+                    series.add(r["series"])
+        self.assertEqual(series, {"Mean Actual"},
+                         "only the observed series survives, renamed")
 
     @staticmethod
     def _axis_values(chart) -> list:
@@ -1856,13 +1870,16 @@ class TestRunLineCalibration(unittest.TestCase):
         self.assertEqual(lo["count"], 10)
         self.assertAlmostEqual(lo["observed"], 0.40, places=4)
         self.assertAlmostEqual(lo["win_rate"], 0.60, places=4)  # dog pick
-        # The chart spec's curve data carries BOTH 1-pt points.
+        # The chart spec's curve data carries BOTH 1-pt points (observed
+        # series only — the Run Lines chart drops the Win rate series).
         built = diag.chart_game_total_curve(
-            out, "t", curve_bins=cb, x_tick_values=diag.X_1PCT_TICKS)
+            out, "t", curve_bins=cb, x_tick_values=diag.X_1PCT_TICKS,
+            show_win_rate=False, x_label="Mean Predicted",
+            series_label="Mean Actual", obs_label="Mean Actual")
         centers = {}
         for _name, data in built["chart"].to_dict().get("datasets", {}).items():
             for r in data:
-                if r.get("series") in ("Observed", "Win rate"):
+                if r.get("series") == "Mean Actual":
                     centers[r["bin_center"]] = True
         self.assertEqual(sorted(centers), [0.425, 0.565],
                          "low-n 1-pt bin must be plotted on the curve")
@@ -1896,7 +1913,9 @@ class TestRunLineCalibration(unittest.TestCase):
             out = diag.run_line_calibration(self._home_fav(), line)
             built = diag.chart_game_total_curve(
                 out, "t", curve_bins=out["curve_bins"],
-                x_tick_values=diag.X_1PCT_TICKS)
+                x_tick_values=diag.X_1PCT_TICKS, show_win_rate=False,
+                x_label="Mean Predicted", series_label="Mean Actual",
+                obs_label="Mean Actual")
             vals = self._axis_values(built["chart"])
             self.assertEqual(len(vals), 1, f"one axis with ticks at {line}")
             v = vals[0]

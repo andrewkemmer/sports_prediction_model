@@ -154,7 +154,10 @@ def _gtl_table_frame(table: dict) -> pd.DataFrame:
 def chart_game_total_curve(table: dict, title: str,
                            obs_label: str = "Observed % (2-way, no push)",
                            curve_bins: Optional[list] = None,
-                           x_tick_values: Optional[list] = None) -> dict:
+                           x_tick_values: Optional[list] = None,
+                           show_win_rate: bool = True,
+                           x_label: str = "Predicted P(over)",
+                           series_label: str = "Observed") -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
@@ -169,6 +172,13 @@ def chart_game_total_curve(table: dict, title: str,
     X_1PCT_TICKS) applied ONCE to the single shared x-axis (bars layer)
     with 2-decimal labels + labelOverlap label thinning; None (default)
     emits no axis key — GTL unchanged.
+    ``show_win_rate`` (optional): False drops the purple Win rate series
+    (its line/points/legend entry) so the only curve is the observed
+    series — the Run Lines tab names it ``series_label`` (default
+    "Observed"; Run Lines passes "Mean Actual") and renames the x-axis
+    to ``x_label`` (default "Predicted P(over)"; Run Lines passes "Mean
+    Predicted"). True (default) keeps the Observed + Win rate pair and
+    the GTL labels — the GTL tab is byte-identical.
 
     Grammar mirrors the moneyline Calibration Curve page: a continuous
     predicted-P(over) x-axis (bin centers on a 0-1 probability scale — the
@@ -208,12 +218,17 @@ def chart_game_total_curve(table: dict, title: str,
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
     # bins render gray (n < LOW_N suppressed exactly as before).
+    # Bars tooltip mirrors the series naming: with the win-rate series
+    # hidden (Run Lines), the pick-side win-rate field is titled after the
+    # table's Mean Actual column; otherwise it stays "Win rate" (GTL).
     bar_tip = [
-        alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
+        alt.Tooltip("bin_center:Q", title=x_label, format=".3f"),
         alt.Tooltip("count:Q", title="Games"),
         alt.Tooltip("mean_pred:Q", title="Mean predicted", format=".3f"),
         alt.Tooltip("observed:Q", title="Observed", format=".3f"),
-        alt.Tooltip("win_rate:Q", title="Win rate", format=".3f"),
+        alt.Tooltip("win_rate:Q",
+                    title=("Mean Actual" if not show_win_rate else "Win rate"),
+                    format=".3f"),
     ]
     # Explicit 1% tick MARKS go on the bars layer's x-encoding — the SINGLE
     # owner of the shared x-axis (resolve_scale(x="shared")); every other
@@ -222,7 +237,7 @@ def chart_game_total_curve(table: dict, title: str,
     x_axis = (alt.Axis(values=x_tick_values, format=".2f", labelOverlap=True)
               if x_tick_values else None)
     bars = alt.Chart(chart_df).mark_bar(color="#3B82F6").encode(
-        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom,
+        x=alt.X("bin_center:Q", title=x_label, scale=x_dom,
                 axis=x_axis),
         y=alt.Y("count:Q", axis=alt.Axis(title="Games", grid=True)),
         tooltip=bar_tip)
@@ -239,12 +254,16 @@ def chart_game_total_curve(table: dict, title: str,
             tooltip=bar_tip)
         bar_layer = bars + low_bars
 
-    # Observed + win-rate curves — RIGHT '%' axis (0-100), the ONLY owner of
-    # the obs_label title (single title per axis). With curve_bins (Run
-    # Lines 1-pt frame) EVERY populated bin is plotted (low-n included, the
-    # 1-pt bars are the volume context); otherwise points come from the main
-    # table with low-n dropped (the GTL contract).
+    # Curves — RIGHT '%' axis (0-100), the ONLY owner of the obs_label
+    # title (single title per axis). With curve_bins (Run Lines 1-pt frame)
+    # EVERY populated bin is plotted (low-n included, the 1-pt bars are the
+    # volume context); otherwise points come from the main table with low-n
+    # dropped (the GTL contract). show_win_rate=False (Run Lines) keeps the
+    # observed series only, renamed series_label / x_label to match the table.
     stack = _gtl_line_points(table, curve_bins=curve_bins)
+    if not show_win_rate and not stack.empty:
+        stack = stack[stack["series"] == "Observed"].copy()
+        stack["series"] = series_label
     if stack.empty:
         line_chart = alt.Chart(pd.DataFrame()).mark_line()
     else:
@@ -255,9 +274,12 @@ def chart_game_total_curve(table: dict, title: str,
                                           grid=False),
                     scale=y_pct_dom),
             color=alt.Color("series:N",
-                            scale=alt.Scale(domain=["Observed", "Win rate"],
-                                            range=["#22C55E", "#8B5CF6"]),
-                            title="Series"),
+                            scale=(alt.Scale(domain=[series_label],
+                                             range=["#22C55E"])
+                                   if not show_win_rate else
+                                   alt.Scale(domain=["Observed", "Win rate"],
+                                             range=["#22C55E", "#8B5CF6"])),
+                            title=("Series" if show_win_rate else series_label)),
             tooltip=[
                 alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
                 alt.Tooltip("series:N", title="Series"),
