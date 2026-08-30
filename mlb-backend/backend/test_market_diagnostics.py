@@ -23,7 +23,6 @@ if str(FRONTEND) not in sys.path:
     sys.path.insert(0, str(FRONTEND))
 
 import market_diagnostics as diag  # noqa: E402
-import moneyline_calibration as mlc  # noqa: E402  (shared chart builder)
 
 DATA_DELIVERY = Path(__file__).resolve().parents[1] / "data_delivery"
 
@@ -287,7 +286,7 @@ class TestRoundedTotalPairs(unittest.TestCase):
 
 class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
     """The Game Total Lines tab is now a single moneyline-style chart
-    (``mlc.chart_game_total_calibration``): continuous probability x, left 'Games' count
+    (``diag.chart_game_total_curve``): continuous probability x, left 'Games' count
     bars, right '%' observed + win-rate curves, dashed perfect-calibration
     diagonal and amber pooled marker rolled into ONE chart (no separate
     scatter), and each axis title on exactly one layer — the same grammar as
@@ -308,7 +307,7 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
 
     def _built(self, line=8.5, title="Calibration Curve — Over 8.5"):
         out = diag.game_total_calibration(self._decided(), line)
-        return out, mlc.chart_game_total_calibration(out, title)
+        return out, diag.chart_game_total_curve(out, title)
 
     def test_returns_chart_and_table_no_scatter(self):
         out, built = self._built()
@@ -347,40 +346,33 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertNotIn('"bind": "scales"', _spec_dump(built["chart"]))
 
     def test_comfortable_height_in_spec(self):
-        # The chart is sized to a comfortable fixed height (not the tiny
-        # default) and carries the SAME spec width as the moneyline
-        # Calibration Curve reference (width='container') — the shared
-        # builder's proven full-width mechanism, rendered through the same
-        # utils.show_chart call as Distribution.
+        # Restored last-known-good sizing: an explicit comfortable height and
+        # NO spec width of its own — width is owned entirely by the shared
+        # Streamlit render call (utils.show_chart -> st.altair_chart
+        # width="stretch"), the SAME mechanism as the Distribution chart.
         _, built = self._built()
         d = _spec_dump(built["chart"])
-        self.assertIn('"height": 480', d, "explicit comfortable height")
-        self.assertIn('"width": "container"', d,
-                      "moneyline-reference container width")
+        self.assertIn('"height": 300', d, "explicit comfortable height")
+        self.assertNotIn('"width"', d,
+                         "no spec width -- the render call owns width")
 
-    def test_same_width_mechanism_as_moneyline_reference(self):
-        # The GTL chart is built by the SAME shared builder as the moneyline
-        # Calibration Curve (moneyline_calibration.chart_calibration_curve),
-        # so both carry the identical width mechanism (width='container' —
-        # the proven full-width path) and the same layered grammar (x
-        # shared, y independent), and both render through the same
-        # utils.show_chart call as Distribution.
-        import json as _json
+    def test_same_width_mechanism_as_distribution(self):
+        # Verbatim parity with the Distribution chart: after Streamlit's
+        # _prepare_vega_lite_spec stretch path, both charts must carry the
+        # SAME width handling -- no user width, same fit autosize.
+        from streamlit.elements.vega_charts import _prepare_vega_lite_spec
         _, built = self._built()
-        gtl = _json.loads(_json.dumps(built["chart"].to_dict(), sort_keys=True))
-        pts = pd.DataFrame({"prob": [0.51, 0.55, 0.62, 0.71],
-                            "win_rate": [0.60, 0.55, 0.50, 0.45],
-                            "n": [100, 80, 60, 40]})
-        ml = _json.loads(_json.dumps(mlc.chart_favored_calibration(
-            pts, pd.DataFrame())["chart"].to_dict(), sort_keys=True))
-        self.assertEqual(gtl.get("width"), ml.get("width"),
-                         "same width mechanism as the moneyline reference")
-        self.assertEqual(gtl.get("width"), "container",
-                         "moneyline-reference full-width mechanism")
-        self.assertEqual(gtl.get("resolve"), ml.get("resolve"),
-                         "same x-shared / y-independent layered grammar")
-        self.assertIn("layer", gtl)
-        self.assertIn("layer", ml)
+        gtl = dict(built["chart"].to_dict())
+        dist = dict(diag.chart_distribution(diag.total_distribution(
+            add_outcomes(make_grid_df(n=150)))).to_dict())
+        pg = _prepare_vega_lite_spec(gtl, True)
+        pd_ = _prepare_vega_lite_spec(dist, True)
+        self.assertEqual(pg.get("width"), pd_.get("width"),
+                         "identical spec width handling")
+        self.assertEqual(pg.get("autosize"), pd_.get("autosize"),
+                         "identical autosize (same stretch path)")
+        self.assertIsNone(pg.get("width"),
+                          "neither chart pins a spec width")
 
     @staticmethod
     def _gtb(center, count=40, low_n=False, mean=None, observed=0.5):
@@ -397,36 +389,38 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
                 "pooled_winrate": 0.5, "pooled_ece": 0.02,
                 "pooled_brier": 0.25}
 
-    def test_fixed_domain_0_25_0_75(self):
-        # x-axis domain is FIXED at [0.25, 0.75] regardless of the data.
+    def test_full_0_1_domain(self):
+        # Restored last-known-good: the x-axis domain is the FULL [0.0, 1.0]
+        # probability axis regardless of the data (no adaptive/zoomed domain).
         t = self._gtable([self._gtb(0.50), self._gtb(0.51), self._gtb(0.52)])
-        built = mlc.chart_game_total_calibration(t, "t")
-        self.assertIn('"domain": [0.25, 0.75]', _spec_dump(built["chart"]))
+        built = diag.chart_game_total_curve(t, "t")
+        self.assertIn('"domain": [0.0, 1.0]', _spec_dump(built["chart"]))
 
-    def test_low_n_or_empty_data_still_fixed_domain_no_error(self):
-        # Even a low-n-only / degenerate table renders with the fixed domain.
+    def test_low_n_or_empty_data_still_full_domain_no_error(self):
+        # Even a low-n-only / degenerate table renders with the full domain.
         t = self._gtable([self._gtb(0.50, count=10, low_n=True)])
-        built = mlc.chart_game_total_calibration(t, "t")
+        built = diag.chart_game_total_curve(t, "t")
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertNotIn("NaN", d)
 
-    def test_all_and_fixed_line_share_same_fixed_domain(self):
-        # No adaptive domain: all selections emit the identical [0.25, 0.75].
+    def test_all_and_fixed_line_share_same_full_domain(self):
+        # No adaptive domain: all selections emit the identical [0.0, 1.0].
         all_t = self._gtable([self._gtb(0.50), self._gtb(0.51)])
         fixed_t = self._gtable([self._gtb(0.10), self._gtb(0.90)])
-        da = _spec_dump(mlc.chart_game_total_calibration(all_t, "t")["chart"])
-        df = _spec_dump(mlc.chart_game_total_calibration(fixed_t, "t")["chart"])
-        self.assertIn('"domain": [0.25, 0.75]', da)
-        self.assertIn('"domain": [0.25, 0.75]', df)
+        da = _spec_dump(diag.chart_game_total_curve(all_t, "t")["chart"])
+        df = _spec_dump(diag.chart_game_total_curve(fixed_t, "t")["chart"])
+        self.assertIn('"domain": [0.0, 1.0]', da)
+        self.assertIn('"domain": [0.0, 1.0]', df)
 
-    def test_out_of_domain_bins_clipped_no_error(self):
-        # A low-n bin outside the fixed domain renders clipped, no error.
+    def test_any_probability_bins_render_no_error(self):
+        # Every bin on the 0-1 axis (even low-n at the edges) renders without
+        # error; nothing NaN leaks into the spec.
         t = self._gtable([self._gtb(0.50), self._gtb(0.51),
                           self._gtb(0.90, count=12, low_n=True)])
-        built = mlc.chart_game_total_calibration(t, "t")
+        built = diag.chart_game_total_curve(t, "t")
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertNotIn("NaN", d)
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
@@ -475,26 +469,28 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         # low-n bin (40-45, n=10) rendered as a gray bar; its curve point
         # dropped; non-low-n (55-60) point kept.
         self.assertIn("#94A3B8", d)
-        pts = mlc.game_total_line_points(diag.game_total_calibration(
+        pts = diag._gtl_line_points(diag.game_total_calibration(
             self._decided(), 8.5))
         self.assertIn(0.575, list(pts["bin_center"]))
         self.assertNotIn(0.425, list(pts["bin_center"]))
 
-    def test_legend_placed_outside_plot_area(self):
-        # The Observed / Win rate legend must render OUTSIDE the plot at the
-        # bottom -- never inside over the upper-right diagonal, and clear of
-        # the rotated right %-axis title.
+    def test_legend_present_with_both_series(self):
+        # The Observed / Win rate series legend is present with its color
+        # scale (green observed, purple win rate) -- the restored
+        # last-known-good legend (title 'Series', no forced placement).
         _, built = self._built()
         d = _spec_dump(built["chart"])
         self.assertIn("Series", d)
-        self.assertIn('"orient": "bottom"', d,
-                      "legend must be placed at the bottom, outside the plot")
+        self.assertIn('"Observed"', d)
+        self.assertIn('"Win rate"', d)
+        self.assertIn("#22C55E", d)
+        self.assertIn("#8B5CF6", d)
 
     def test_all_branch_uses_own_line_and_renders(self):
         decided = add_outcomes(make_grid_df(n=200, seed=11))
         out = diag.game_total_calibration(decided, None)
         self.assertIsNone(out["warning"])
-        built = mlc.chart_game_total_calibration(
+        built = diag.chart_game_total_curve(
             out, "Calibration Curve — Over (All = own fair line)")
         self.assertIn("chart", built)
         self.assertNotIn("scatter", built)
@@ -531,7 +527,7 @@ class TestGameTotalCurveSeriesFixes(unittest.TestCase):
 
     def test_win_rate_spans_both_sides_of_half(self):
         out = diag.game_total_calibration(self._both_sides_decided(), 8.5)
-        pts = mlc.game_total_line_points(out)
+        pts = diag._gtl_line_points(out)
         wr = pts[pts["series"] == "Win rate"]
         self.assertGreaterEqual(wr["bin_center"].min(), 0.4)
         self.assertLess(wr[wr["bin_center"] < 0.5]["bin_center"].max(), 0.5)
@@ -549,7 +545,7 @@ class TestGameTotalCurveSeriesFixes(unittest.TestCase):
         self.assertAlmostEqual(u["win_rate"], 1.0 - u["observed"], places=4)
         self.assertAlmostEqual(o["win_rate"], o["observed"], places=4)
         # And the chart's win-rate points reflect the same values (as %).
-        pts = mlc.game_total_line_points(out)
+        pts = diag._gtl_line_points(out)
         pu = pts[(pts["series"] == "Win rate") & (pts["bin_center"] == 0.425)]
         po = pts[(pts["series"] == "Win rate") & (pts["bin_center"] == 0.575)]
         self.assertAlmostEqual(float(pu["pct"].iloc[0]),
@@ -559,7 +555,7 @@ class TestGameTotalCurveSeriesFixes(unittest.TestCase):
 
     def test_observed_line_ascending_and_low_n_excluded(self):
         out = diag.game_total_calibration(self._both_sides_decided(), 8.5)
-        pts = mlc.game_total_line_points(out)
+        pts = diag._gtl_line_points(out)
         for series in ("Observed", "Win rate"):
             grp = pts[pts["series"] == series]
             # Strictly ascending bin_center within the series.
@@ -708,7 +704,7 @@ class TestFixedLineCalibration(unittest.TestCase):
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
         self.assertIsNone(out["warning"])
         self.assertEqual(out["n_pushes"], 1)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         self.assertEqual(tab.iloc[-1]["bin"], "Total")
         self.assertEqual(len(tab), len(out["bins"]) + 1)  # bins + Total
@@ -730,7 +726,7 @@ class TestFixedLineCalibration(unittest.TestCase):
                  "p_over_9_0": 0.52, "p_under_9_0": 0.47}
                 for i in range(60)]
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         self.assertEqual(tab.iloc[-1]["bin"], "Total")
         self.assertEqual(tab.iloc[-1]["count"],
@@ -753,7 +749,7 @@ class TestFixedLineCalibration(unittest.TestCase):
             self.assertIsNone(b["observed"])
             self.assertIsNone(b["mean_pred"])
             self.assertEqual(b["share_pct"], 0.0)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         for k in ("chart", "table"):
             self.assertIn(k, built)
         self.assertNotIn("scatter", built, "no separate scatter chart")
@@ -1250,7 +1246,7 @@ class TestRenderSmoke(unittest.TestCase):
         for line in (None, 8.5):
             out = diag.game_total_calibration(self.decided, line)
             self.assertIsNone(out["warning"])
-            built = mlc.chart_game_total_calibration(out, "t")
+            built = diag.chart_game_total_curve(out, "t")
             self._assert_chart_has_data(built["chart"])
             self.assertFalse(built["table"].empty)
             # New table contract: share_pct replaces the redundant observed_pct
@@ -1392,7 +1388,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
 
     def test_low_n_bins_flagged_and_points_suppressed(self):
         out = diag.game_total_calibration(self._metrics_decided(), 8.5)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         row40 = tab[tab["bin"] == "40-45"].iloc[0]
         row55 = tab[tab["bin"] == "55-60"].iloc[0]
@@ -1417,7 +1413,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
         # Flat own-line win rate (the documented finding, not a bug)
         self.assertGreaterEqual(out["pooled_winrate"], 0.35)
         self.assertLessEqual(out["pooled_winrate"], 0.65)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_empty_bins_render_zero_none_no_error(self):
@@ -1426,7 +1422,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
                  "p_over_9_0": 0.52, "p_under_9_0": 0.47}
                 for i in range(60)]
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
-        built = mlc.chart_game_total_calibration(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         empty = [b for b in out["bins"] if b["count"] == 0]
         self.assertTrue(empty)
         for b in empty:
@@ -1576,14 +1572,14 @@ class TestResolveSlateAcrossArtifacts(unittest.TestCase):
         self.assertEqual(diag._espy_matchup("778485"), "778485")
 
 
-class TestGameTotalFixedXDomain(unittest.TestCase):
-    """The Game Total Lines chart uses a FIXED x-domain of [0.25, 0.75].
+class TestGameTotalFullXDomain(unittest.TestCase):
+    """The Game Total Lines chart uses the FULL [0.0, 1.0] x-domain.
 
-    Replaces the adaptive/dynamic domain (bdf477d, b4a0562) entirely: the
-    domain is constant for ALL selections, so the degenerate-domain failure
-    class (NaN / reversed / collapsed strip) cannot recur. Assertions target
-    the emitted spec: the x-domain is exactly [0.25, 0.75] regardless of the
-    selected line, and nothing NaN leaks into the spec.
+    Restored to the last-known-good restructure commit (f836e12): the
+    probability axis spans 0-1 for ALL selections — no adaptive/zoomed
+    domain, no constant [0.25, 0.75] slice. Assertions target the emitted
+    spec: the x-domain is exactly [0.0, 1.0] regardless of the selected
+    line, and nothing NaN leaks into the spec.
     """
 
     @staticmethod
@@ -1594,36 +1590,36 @@ class TestGameTotalFixedXDomain(unittest.TestCase):
                 "observed": observed, "win_rate": observed,
                 "low_n": count < 30 and count > 0}
 
-    def test_fixture_domain_exactly_fixed(self):
-        built = mlc.chart_game_total_calibration({"bins": [self._b(0.50)]}, "t")
-        self.assertIn('"domain": [0.25, 0.75]', _spec_dump(built["chart"]))
+    def test_fixture_domain_exactly_full(self):
+        built = diag.chart_game_total_curve({"bins": [self._b(0.50)]}, "t")
+        self.assertIn('"domain": [0.0, 1.0]', _spec_dump(built["chart"]))
 
-    def test_low_n_and_nan_do_not_change_fixed_domain(self):
-        # Even a degenerate bin (NaN mean_pred) keeps the fixed domain -- no
-        # min/max/padding over the data, so nothing can drive it off-course.
+    def test_low_n_and_nan_do_not_break_full_domain(self):
+        # Even a degenerate bin (NaN mean_pred) keeps the full 0-1 domain --
+        # no min/max/padding over the data, so nothing can drive it off-course.
         bins = [self._b(0.5, mean=float("nan")), self._b(0.9, count=10)]
-        built = mlc.chart_game_total_calibration({"bins": bins}, "t")
+        built = diag.chart_game_total_curve({"bins": bins}, "t")
         d = _spec_dump(built["chart"])
-        self.assertIn('"domain": [0.25, 0.75]', d)
+        self.assertIn('"domain": [0.0, 1.0]', d)
         self.assertNotIn("NaN", d)
 
     def test_empty_bins_render_no_error(self):
         # Empty bin table: the guarded early-return still yields a chart.
-        built = mlc.chart_game_total_calibration({"bins": []}, "t")
+        built = diag.chart_game_total_curve({"bins": []}, "t")
         self.assertIn("chart", built)
         self.assertNotIn("NaN", _spec_dump(built["chart"]))
 
-    def test_real_artifact_fixed_domain_all_lines(self):
-        # The fixed domain holds at every selection on the real artifact.
+    def test_real_artifact_full_domain_all_lines(self):
+        # The full 0-1 domain holds at every selection on the real artifact.
         m_path = _latest_markets_artifact()
         if not m_path.exists():
             self.skipTest("run-engine artifact absent")
         decided = diag.decided_rows(pd.read_csv(m_path))
         for line in (None, 8.0, 8.5):   # None = 'All'
             out = diag.game_total_calibration(decided, line)
-            built = mlc.chart_game_total_calibration(out, "t")
+            built = diag.chart_game_total_curve(out, "t")
             d = _spec_dump(built["chart"])
-            self.assertIn('"domain": [0.25, 0.75]', d, f"line={line}")
+            self.assertIn('"domain": [0.0, 1.0]', d, f"line={line}")
             self.assertNotIn("NaN", d, f"line={line}")
 
 

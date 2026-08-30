@@ -338,9 +338,9 @@ class TestRunEngineModelMonitorRender(TestCase):
                       "selector must offer All first, then the grid")
         self.assertIn("diag.game_total_calibration", src,
                       "tab must pool via the shared game-total helper")
-        self.assertIn("mlc.chart_game_total_calibration", src,
+        self.assertIn("diag.chart_game_total_curve", src,
                       "tab must render the bars + curves + diagonal view "
-                      "through the shared moneyline builder")
+                      "via the restored bespoke GTL builder")
         self.assertIn("Calibration Curve — Over", src,
                       "dynamic title: 'Calibration Curve — Over <line>'")
         self.assertNotIn('built["scatter"]', src,
@@ -351,17 +351,14 @@ class TestRunEngineModelMonitorRender(TestCase):
                          "from the tab")
         self.assertIn("diag_game_total_line", src,
                       "line selector key present")
-        # The GTL chart is built by the SAME shared builder as the moneyline
-        # Calibration Curve (moneyline_calibration.chart_game_total_calibration
-        # -> chart_calibration_curve, width='container') and renders through
-        # the SAME utils.show_chart call as Distribution.
-        self.assertIn("import moneyline_calibration as mlc", src,
-                      "GTL must use the shared moneyline builder")
+        # The GTL chart is the restored bespoke builder (chart_game_total_curve,
+        # full 0-1 domain, no spec width) and renders through the SAME
+        # utils.show_chart call as Distribution -- width owned by the render.
         self.assertIn('utils.show_chart(built["chart"])', src,
                       "GTL chart must render through the SAME call as Distribution")
         self.assertIn(
-            'built = mlc.chart_game_total_calibration(glc, _gl_title)',
-            src, "GTL chart built from the shared builder")
+            'built = diag.chart_game_total_curve(glc, _gl_title)',
+            src, "GTL chart built via the restored bespoke builder")
         self.assertNotIn("diag.rounded_total_pairs", src,
                          "per-game own-line pricing must be gone from the tab")
         self.assertNotIn("Per-game rounded total", src,
