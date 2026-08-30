@@ -92,7 +92,13 @@ def _gtl_line_points(table: dict) -> pd.DataFrame:
         rows.append({"bin_center": b.get("bin_center"), "series": "Observed",
                      "pct": round(b["observed"] * 100.0, 4),
                      "count": b["count"]})
-    return pd.DataFrame(rows)
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    # Sort by (series, bin_center) so each series always connects in ascending
+    # x order -- no bent/zig-zag line from an out-of-order or noisy slice.
+    df = df.sort_values(["series", "bin_center"]).reset_index(drop=True)
+    return df
 
 
 def chart_game_total_curve(table: dict, title: str,
@@ -179,7 +185,8 @@ def chart_game_total_curve(table: dict, title: str,
             color=alt.Color("series:N",
                             scale=alt.Scale(domain=["Observed", "Win rate"],
                                             range=["#22C55E", "#8B5CF6"]),
-                            title="Series"),
+                            legend=alt.Legend(title="Series", orient="bottom",
+                                              titleAnchor="start", offset=14)),
             tooltip=[
                 alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
                 alt.Tooltip("series:N", title="Series"),

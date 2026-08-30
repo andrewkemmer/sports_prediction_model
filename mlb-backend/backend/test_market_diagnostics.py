@@ -450,6 +450,16 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertIn(0.575, list(pts["bin_center"]))
         self.assertNotIn(0.425, list(pts["bin_center"]))
 
+    def test_legend_placed_outside_plot_area(self):
+        # The Observed / Win rate legend must render OUTSIDE the plot at the
+        # bottom -- never inside over the upper-right diagonal, and clear of
+        # the rotated right %-axis title.
+        _, built = self._built()
+        d = _spec_dump(built["chart"])
+        self.assertIn("Series", d)
+        self.assertIn('"orient": "bottom"', d,
+                      "legend must be placed at the bottom, outside the plot")
+
     def test_all_branch_uses_own_line_and_renders(self):
         decided = add_outcomes(make_grid_df(n=200, seed=11))
         out = diag.game_total_calibration(decided, None)
@@ -459,6 +469,75 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertIn("chart", built)
         self.assertNotIn("scatter", built)
         self.assertGreater(len(built["chart"].to_dict()), 1)
+
+
+class TestGameTotalCurveSeriesFixes(unittest.TestCase):
+    """The Game Total Lines chart's series geometry: the Win rate line spans
+    BOTH sides of 0.5 (over-pick side gives win_rate = observed, under-pick
+    side 1 - observed), every series connects in ascending bin order, and
+    low-n bins are excluded from both curves.
+    """
+
+    @staticmethod
+    def _both_sides_decided():
+        """Line 8.5, two populated non-low-n bins on EITHER side of 0.5.
+        under-side bin 40-45 (P(over) 0.42, 18/45 over -> observed 0.40,
+        win_rate 0.60). over-side bin 55-60 (P(over) 0.57, 29/50 over ->
+        observed 0.58, win_rate 0.58)."""
+        rows = []
+        for k in range(45):
+            over = k < 18
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 9 if over else 8,
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58})
+        for k in range(50):
+            over = k < 29
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 10 if over else 8,
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43})
+        return pd.DataFrame(rows)
+
+    def test_win_rate_spans_both_sides_of_half(self):
+        out = diag.game_total_calibration(self._both_sides_decided(), 8.5)
+        pts = diag._gtl_line_points(out)
+        wr = pts[pts["series"] == "Win rate"]
+        self.assertGreaterEqual(wr["bin_center"].min(), 0.4)
+        self.assertLess(wr[wr["bin_center"] < 0.5]["bin_center"].max(), 0.5)
+        self.assertGreater(wr[wr["bin_center"] > 0.5]["bin_center"].min(), 0.5)
+        self.assertGreater(len(wr[wr["bin_center"] < 0.5]), 0,
+                           "under-pick side has win-rate points")
+        self.assertGreater(len(wr[wr["bin_center"] > 0.5]), 0,
+                           "over-pick side has win-rate points - not truncated")
+
+    def test_win_rate_equals_observed_above_and_1_minus_below(self):
+        out = diag.game_total_calibration(self._both_sides_decided(), 8.5)
+        by = {b["bin"]: b for b in out["bins"]}
+        u = by["40-45"]; o = by["55-60"]
+        self.assertNotEqual(u["count"], 0)
+        self.assertAlmostEqual(u["win_rate"], 1.0 - u["observed"], places=4)
+        self.assertAlmostEqual(o["win_rate"], o["observed"], places=4)
+        # And the chart's win-rate points reflect the same values (as %).
+        pts = diag._gtl_line_points(out)
+        pu = pts[(pts["series"] == "Win rate") & (pts["bin_center"] == 0.425)]
+        po = pts[(pts["series"] == "Win rate") & (pts["bin_center"] == 0.575)]
+        self.assertAlmostEqual(float(pu["pct"].iloc[0]),
+                               round(u["win_rate"] * 100, 4), places=2)
+        self.assertAlmostEqual(float(po["pct"].iloc[0]),
+                              round(o["win_rate"] * 100, 4), places=2)
+
+    def test_observed_line_ascending_and_low_n_excluded(self):
+        out = diag.game_total_calibration(self._both_sides_decided(), 8.5)
+        pts = diag._gtl_line_points(out)
+        for series in ("Observed", "Win rate"):
+            grp = pts[pts["series"] == series]
+            # Strictly ascending bin_center within the series.
+            self.assertEqual(list(grp["bin_center"]),
+                             sorted(grp["bin_center"]), f"{series} ascending")
+        # A low-n bin (n < 30, no populated neighbors here) contributes no line
+        # point at all; only the two populated non-low-n bins are present.
+        self.assertEqual(set(pts["bin_center"]), {0.425, 0.575})
 
 
 class TestFixedLineCalibration(unittest.TestCase):
