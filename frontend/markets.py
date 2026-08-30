@@ -897,6 +897,29 @@ def _render_fit_panel(fit: dict) -> None:
         st.caption(rows["mc_caption"])
 
 
+def _feature_weight_map(ds: str) -> dict:
+    """Per-feature blend-weighted importances for the MODEL WEIGHT column.
+
+    Source: the shared moneyline feature-drift analysis in the monitor cell
+    (``model_monitor_*.json`` -> ``feature_drift[]`` -> ``weight_pct``) — the
+    exact field the Model Monitor's Feature Drift table renders. There is no
+    run-engine-specific weight artifact, so run-engine feature names map onto
+    these shared weights. Graceful: empty dict when the monitor is missing or
+    unparseable (the drift table then omits the column rather than crash).
+    Never fabricated — a feature simply absent from the map renders '—'.
+    """
+    try:
+        mon = utils.load_model_monitor(ds)
+    except Exception:
+        return {}
+    w: dict = {}
+    for r in mon.get("feature_drift", []) or []:
+        f = r.get("feature")
+        if f:
+            w[str(f)] = r.get("weight_pct")
+    return w
+
+
 def _load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
     """Fetch run_engine_feature_{drift,coverage}_YYYYMMDD.csv — the run
     engine's own drift/coverage artifacts (additive pipeline outputs over
@@ -991,17 +1014,41 @@ def _render_run_engine_model_card(monitor: dict) -> None:
     )
 
 
-def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
-    """Run-engine feature drift — same PSI table as the moneyline monitor
-    (no MODEL WEIGHT column: single sampler, not a blend)."""
+def _render_run_engine_drift(
+        drift: pd.DataFrame | None,
+        weights: dict | None = None) -> None:
+    """Run-engine feature drift — same PSI table as the moneyline monitor,
+    plus a MODEL WEIGHT column (layout parity with the Model Monitor's
+    Feature Drift Analysis table).
+
+    MODEL WEIGHT = per-feature blend-weighted importance from the shared
+    feature-drift analysis (``model_monitor_*.json`` -> ``feature_drift`` ->
+    ``weight_pct``). The run engine has no per-model weight artifact, so
+    run-engine feature names map onto those shared weights; a run-engine
+    feature with no weight renders '—' (the monitor's own fallback). The
+    column is omitted entirely when no weight data is available (parity with
+    the monitor's ``has_weights`` gate), so the table still renders without
+    the monitor artifact.
+    """
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
         st.info("No run-engine drift data for this date "
                 "(run_engine_feature_drift_*.csv appears after a pipeline "
                 "run).")
         return
+    records = drift.to_dict("records")
+    if weights is None:
+        # App path: resolve the shared feature-drift weights from the day's
+        # moneyline monitor at render time (no caller wiring to keep in sync).
+        weights = _feature_weight_map(date_str)
+    weights = weights or {}
+    # MODEL WEIGHT per row — every cell is formatted by the SAME helper the
+    # Model Monitor uses (utils.feature_weight_pct), so the column is byte-identical.
+    weight_pcts = [weights.get(str(r.get("feature", ""))) for r in records]
+    has_weights = any(w is not None for w in weight_pcts)
+    weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
-    for r in drift.to_dict("records"):
+    for r, w in zip(records, weight_pcts):
         psi = r.get("psi", 0.0)
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
@@ -1013,6 +1060,8 @@ def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
                    if n_base is not None and n_cur is not None else "")
         label = utils.describe_feature(r.get("feature", "")) \
             or r.get("feature", "")
+        weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
+                       if has_weights else "")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -1021,6 +1070,7 @@ def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
@@ -1029,13 +1079,16 @@ def _render_run_engine_drift(drift: pd.DataFrame | None) -> None:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th><th>STATUS</th></tr></thead>
+            <th>PSI</th>{weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Same windows as the moneyline drift; statuses on noise-adjusted PSI.
           INSUFFICIENT = window too small to judge drift.
+          MODEL WEIGHT = blend-weighted feature importance from the shared
+          feature-drift analysis (run engine has no per-model weight; '—' = no
+          weight for this feature).
         </div>
         """,
         unsafe_allow_html=True,

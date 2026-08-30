@@ -290,6 +290,41 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertNotIn("the 36 dropped", text)
         self.assertIn("INSUFFICIENT = window too small to judge drift", text)
 
+    def test_run_engine_drift_model_weight_column_renders(self):
+        """MODEL WEIGHT column (layout parity with the Model Monitor): header
+        sits between PSI and STATUS, cells formatted by utils.feature_weight_pct
+        (e.g. '2.47%'), and a run-engine feature with no weight renders '—'."""
+        d = pd.DataFrame.from_records([
+            {"feature": "elo_diff", "current_mean": 12.0, "baseline_mean": 10.0,
+             "psi": 0.233, "status": "OK"},
+            {"feature": "unweighted_feat", "current_mean": 1.0,
+             "baseline_mean": 1.0, "psi": 0.011, "status": "OK"},
+        ])
+        self.markets.st.reset_mock()
+        self.markets._render_run_engine_drift(
+            d, weights={"elo_diff": 2.473, "other": 5.0})
+        html = "".join(c[0][0] for c in self.markets.st.markdown.call_args_list)
+        self.assertIn("<th>MODEL WEIGHT</th>", html)
+        self.assertIn("2.47%", html)          # formatted elo_diff weight
+        self.assertIn("—", html)              # missing weight → '—' fallback
+        self.assertIn("<th>STATUS</th>", html)
+        self.assertIn("INSUFFICIENT = window too small to judge drift", html)
+
+    def test_run_engine_drift_model_weight_absent_omits_column(self):
+        """No weight source available → the MODEL WEIGHT column (header + cells)
+        is omitted entirely; the table still renders (graceful, never crashes)."""
+        d = pd.DataFrame.from_records([
+            {"feature": "elo_diff", "current_mean": 1.0, "baseline_mean": 1.0,
+             "psi": 0.2, "status": "OK"},
+        ])
+        self.markets.st.reset_mock()
+        self.markets._render_run_engine_drift(d, weights={})
+        html = "".join(c[0][0] for c in self.markets.st.markdown.call_args_list)
+        # The column HEADER/data cells are omitted (the footnote may still name
+        # the column); the table still renders with FEATURE..STATUS intact.
+        self.assertNotIn("<th>MODEL WEIGHT</th>", html)
+        self.assertIn("<th>STATUS</th>", html)
+
     def test_drift_and_coverage_render_real_artifacts(self):
         d = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_drift_*.csv"))
         self.assertEqual(len(d), 29)
