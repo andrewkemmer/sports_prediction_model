@@ -1830,11 +1830,21 @@ class TestRunLineCalibration(unittest.TestCase):
         _walk(chart.to_dict())
         return found
 
+    @staticmethod
+    def _bar_rows(chart) -> list:
+        """Rows of the count-bars dataset in the built spec (rows without a
+        ``series`` key that carry ``bin_center`` + ``count``)."""
+        for _name, data in chart.to_dict().get("datasets", {}).items():
+            vals = [r for r in data if "series" not in r
+                    and "bin_center" in r and "count" in r]
+            if vals:
+                return vals
+        return []
+
     def test_curve_frame_1pt_spacing_includes_low_n(self):
         """The Run Lines curve frame is 1-pt resolution (0-1 ... 99-100, bin
         centers 0.005-step) and includes low-n (< 30) bins — every
-        populated 1-pt bin gets a point; the 5-pt bars/table are the volume
-        context."""
+        populated 1-pt bin gets a point; the TABLE stays 5-pt buckets."""
         out = diag.run_line_calibration(self._home_fav(), -1.5)
         cb = out["curve_bins"]
         # 1-pt labels + bin centers 0.005 apart on the 0-1 axis.
@@ -1856,11 +1866,24 @@ class TestRunLineCalibration(unittest.TestCase):
                     centers[r["bin_center"]] = True
         self.assertEqual(sorted(centers), [0.425, 0.565],
                          "low-n 1-pt bin must be plotted on the curve")
-        # The TABLE + bars stay 5-pt buckets.
+        # Bars come from the SAME 1-pt frame (matching resolution): one bar
+        # per populated 1-pt bin, counts preserved.
+        bars = self._bar_rows(built["chart"])
+        self.assertEqual(sorted(r["bin_center"] for r in bars), [0.425, 0.565],
+                         "bars must be fed from the 1-pt frame")
+        by_center = {r["bin_center"]: r["count"] for r in bars}
+        self.assertEqual(by_center[0.425], 10)
+        self.assertEqual(by_center[0.565], 50)
+        # The TABLE stays at 5-pt buckets.
         tab = built["table"]
         self.assertIn("40-45", list(tab["bucket"]))
         self.assertIn("55-60", list(tab["bucket"]))
         self.assertNotIn("42-43", list(tab["bucket"]))
+        # The GTL default path keeps its 5-pt bars (20 bins incl. empty
+        # zero-height rows) — bars and table agree there.
+        gtl_bars = self._bar_rows(diag.chart_game_total_curve(out, "t")["chart"])
+        self.assertEqual(len(gtl_bars), 20,
+                         "GTL default path bars stay on the 5-pt table")
 
     def test_x_axis_1pct_ticks_all_run_lines_selections(self):
         """Every Run Lines selection (All + fixed) carries explicit 1% tick

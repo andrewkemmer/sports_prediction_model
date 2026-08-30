@@ -159,15 +159,16 @@ def chart_game_total_curve(table: dict, title: str,
     — count bars + calibration curves + dashed diagonal in ONE chart
     ('chart'), plus the pooled table ('table'). No separate scatter.
 
-    ``curve_bins`` (optional): a 1-pt curve frame — per-populated-bin
-    dicts (bin_center/count/mean_pred/observed/win_rate) — used for the
-    win-rate + observed curve POINTS while the count bars + table stay fed
-    by the 5-pt ``table`` bins. None (default) derives the points from the
-    main table with the GTL low-n (< LOW_N) suppression — the GTL tab is
-    byte-identical. ``x_tick_values`` (optional): explicit x-axis tick
-    MARKS (e.g. the 1% X_1PCT_TICKS) applied ONCE to the single shared
-    x-axis (bars layer) with 2-decimal labels + labelOverlap label
-    thinning; None (default) emits no axis key — GTL unchanged.
+    ``curve_bins`` (optional): a 1-pt frame — per-populated-bin dicts
+    (bin_center/count/mean_pred/observed/win_rate) — used for BOTH the
+    count BARS and the win-rate + observed curve POINTS (matching
+    resolution), while the table stays fed by the 5-pt ``table`` bins.
+    None (default) feeds bars + points from the main table with the GTL
+    low-n (< LOW_N) suppression — the GTL tab is byte-identical.
+    ``x_tick_values`` (optional): explicit x-axis tick MARKS (e.g. the 1%
+    X_1PCT_TICKS) applied ONCE to the single shared x-axis (bars layer)
+    with 2-decimal labels + labelOverlap label thinning; None (default)
+    emits no axis key — GTL unchanged.
 
     Grammar mirrors the moneyline Calibration Curve page: a continuous
     predicted-P(over) x-axis (bin centers on a 0-1 probability scale — the
@@ -193,7 +194,13 @@ def chart_game_total_curve(table: dict, title: str,
     if tdf.empty:
         return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
                 "table": _gtl_table_frame(table)}
-    chart_df = tdf.copy()
+    # Bars + curve come from the SAME frame at the same resolution: with a
+    # 1-pt frame (curve_bins — Run Lines) the count bars render at 1% like
+    # the curve points (populated 1-pt bins only, empty bins keep zero
+    # height via their 5-pt row in the table); without one the bars stay on
+    # the 5-pt table bins (GTL byte-identical).
+    chart_df = pd.DataFrame(curve_bins if curve_bins is not None
+                            else table["bins"]).copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
     x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
@@ -235,7 +242,7 @@ def chart_game_total_curve(table: dict, title: str,
     # Observed + win-rate curves — RIGHT '%' axis (0-100), the ONLY owner of
     # the obs_label title (single title per axis). With curve_bins (Run
     # Lines 1-pt frame) EVERY populated bin is plotted (low-n included, the
-    # 5-pt bars are the volume context); otherwise points come from the main
+    # 1-pt bars are the volume context); otherwise points come from the main
     # table with low-n dropped (the GTL contract).
     stack = _gtl_line_points(table, curve_bins=curve_bins)
     if stack.empty:
