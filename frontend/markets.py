@@ -206,7 +206,7 @@ else:
                        or "No totals picks could be formed.")
         else:
             built = diag.chart_pick_buckets(
-                tpicks, "Totals picks (per-game rounded line)",
+                tpicks, "Totals picks (per-game fair line)",
                 total_line=True, acc_y_max=75.0)
             utils.show_chart(built["chart"])
             st.table(built["table"])
@@ -214,15 +214,16 @@ else:
                 f"Pick rule: {tpicks['pick_rule']} · {tpicks['n_games']:,} "
                 f"decided games · {tpicks['n_pushes']:,} pushes excluded "
                 f"({tpicks['push_rate']:.1%}) · pooled win rate: "
-                f"{tpicks['win_rate']:.1%}. Pushes are UNDER-favored games "
-                "landing exactly on the line (rounded line at/above the "
-                "expected total → under favored) and were "
-                "previously scored as wins — excluding them LOWERS the honest "
-                "win rate vs the inflated one (2026-08-24 artifact: 56.1% → 54.1%, "
-                "≈2,420 wins/4,314 → ≈2,200 wins/4,066). Every game is priced "
-                "at its own rounded total, so high-confidence buckets are "
-                "small. Hit rate is NOT calibration — it is binary pick "
-                "accuracy per favored-side confidence bucket."
+                f"{tpicks['win_rate']:.1%}. Every game is priced at its own "
+                "FAIR line — the 50/50 grid search (argmin of |re-scaled "
+                "P(over) − 0.5|, ties → lower) — so pick confidence is the "
+                "picked side's re-scaled 2-way probability and buckets sit "
+                "in 1% steps; high buckets (55+) are empty on this artifact "
+                "because the fair line concentrates every pick near 50%. "
+                "Pushes (total == whole-number line) are excluded from both "
+                "sides — neither wins nor losses. Hit rate is NOT "
+                "calibration — it is binary pick accuracy per favored-side "
+                "confidence bucket."
             )
 
     with _tabs[5]:   # 6 — run-line pick accuracy buckets

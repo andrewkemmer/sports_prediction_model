@@ -51,7 +51,13 @@ def rl_cols(margin: float) -> tuple[str, str, str]:
 def rl_legacy_col(margin: float) -> str:
     """Legacy p_home_cover_<margin> column (half-lines only, e.g. 1.5)."""
     return f"p_home_cover_{str(margin).replace('.', '_')}"
-TOTALS_PICK_LABELS = ["50-55", "55-60", "60-65", "65+"]
+# Totals-pick confidence buckets — 1% increments (50–51 … 59–60, 60+).
+# Empty high buckets render as 0 (never padded or dropped silently); at the
+# fair line every pick has P ≈ 0.50–0.55 so 60+ is empty on the shipped
+# artifact — a data property, not an error.
+TOTALS_PICK_EDGES = [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 101]
+TOTALS_PICK_LABELS = ["50-51", "51-52", "52-53", "53-54", "54-55",
+                      "55-56", "56-57", "57-58", "58-59", "59-60", "60+"]
 
 
 def round_to_half(x: float) -> float:
@@ -422,10 +428,17 @@ def calibration_curve(pairs: pd.DataFrame, n_bins: int = 20,
 # Charts 5–6 — favored-side pick accuracy buckets
 # ---------------------------------------------------------------------------
 def pick_buckets(p_pick_prob: np.ndarray, hit: np.ndarray,
-                 labels: Optional[list[str]] = None) -> dict[str, Any]:
+                 labels: Optional[list[str]] = None,
+                 edges: Optional[list[float]] = None) -> dict[str, Any]:
     """Count + hit rate per confidence bucket on the FAVORED-side probability.
-    Hit rate is NOT calibration — it is binary pick accuracy per bucket."""
+    Hit rate is NOT calibration — it is binary pick accuracy per bucket.
+
+    ``edges``/``labels`` jointly define the buckets: bucket i covers
+    [edges[i], edges[i+1]), except the last bucket which is ``>= edges[i]``
+    (open-ended). Defaults to the generic 5% buckets (BUCKET_LABELS). Empty
+    buckets are kept with count 0 and accuracy None — never dropped."""
     labels = BUCKET_LABELS if labels is None else labels
+    edges = BUCKET_EDGES if edges is None else edges
     p = np.asarray(p_pick_prob, float)
     h = np.asarray(hit, float)
     ok = np.isfinite(p) & np.isfinite(h)
@@ -436,8 +449,8 @@ def pick_buckets(p_pick_prob: np.ndarray, hit: np.ndarray,
                 "warning": "No decided games available for picks."}
     pct = np.clip(p, 0.5, 1.0) * 100.0
     for i, lab in enumerate(labels):
-        lo = BUCKET_EDGES[i]
-        hi = BUCKET_EDGES[i + 1]
+        lo = edges[i]
+        hi = edges[i + 1]
         m = (pct >= lo) & (pct < hi) if i < len(labels) - 1 else (pct >= lo)
         n = int(m.sum())
         rows.append({
@@ -465,19 +478,18 @@ def overs_pick_table(decided: pd.DataFrame, line: float = 8.5) -> dict:
 
 
 def totals_pick_table(decided: pd.DataFrame) -> dict:
-    """Favored-side pick at each game's rounded total line.
+    """Favored-side pick at each game's own FAIR total line.
 
-    pick = over if P(over own rounded total) ≥ 0.5 else under; confidence
-    = max(p_over, 1 − p_over). Bucketed by that confidence (50–55, 55–60,
-    60–65, 65+). PUSHES (total == whole-number line) are excluded from the
-    buckets and the pooled win_rate — neither wins nor losses — and reported
-    as n_pushes / push_rate. Pushed games are UNDER-favored games landing
-    exactly on the line (rounded line at/above the expected total → under
-    favored), previously scored as wins, so excluding them LOWERS the
-    honest win_rate vs the inflated one. win_rate is the POOLED accuracy
-    across every non-push pick: hit rate is NOT calibration, and
-    high-confidence buckets are small because every game sits at its own
-    line.
+    pick = over if P(over own fair line) ≥ 0.5 else under; confidence = the
+    picked side's RE-SCALED 2-way probability (p_over / (p_over + p_under)
+    when over, p_under / (p_over + p_under) when under) — the same convention
+    as the calibration card, which conditions the push band out so confidence
+    never inflates from raw 1 − p_over at whole lines. Bucketed at 1% (50–51
+    … 60). PUSHES (total == whole-number line) excluded from buckets and
+    pooled win_rate — neither wins nor losses — reported as n_pushes /
+    push_rate. win_rate is POOLED accuracy across every non-push pick: hit
+    rate is NOT calibration, and high-confidence buckets are small because
+    every game sits at its own line.
     """
     if not len(decided) or "total_runs" not in decided.columns:
         return {"buckets": [], "n_games": 0, "n_pushes": 0,
@@ -490,17 +502,23 @@ def totals_pick_table(decided: pd.DataFrame) -> dict:
                 "warning": "Missing expected-runs columns."}
     total = decided["total_runs"].to_numpy(float)
     lines = _rounded_lines(decided)
-    p_arr = np.full(len(decided), np.nan)
+    rso_arr = np.full(len(decided), np.nan)   # re-scaled P(over) at own line
+    p2_arr = np.full(len(decided), np.nan)    # picked side's re-scaled P
     line_arr = np.full(len(decided), np.nan)
     for i in range(len(decided)):
         line = lines[i]
-        over_col, _ = grid_over_under_cols(line)
-        if over_col in decided.columns:
+        over_col, under_col = grid_over_under_cols(line)
+        if over_col in decided.columns and under_col in decided.columns:
             v = decided[over_col].iloc[i]
-            if not pd.isna(v):
-                p_arr[i] = float(v)
-                line_arr[i] = line
-    ok = ~np.isnan(p_arr)
+            u = decided[under_col].iloc[i]
+            if not pd.isna(v) and not pd.isna(u):
+                denom = float(v) + float(u)
+                if denom > 0:
+                    rso = float(v) / denom
+                    rso_arr[i] = rso
+                    p2_arr[i] = (rso if rso >= 0.5 else 1.0 - rso)
+                    line_arr[i] = line
+    ok = ~np.isnan(rso_arr)
     # Pushes (total == whole-number line) are UNDER-favored games landing
     # exactly on the line — neither wins nor losses — excluded from the
     # win-rate denominator and the accuracy buckets.
@@ -512,21 +530,26 @@ def totals_pick_table(decided: pd.DataFrame) -> dict:
         return {"buckets": [], "n_games": 0, "n_pushes": n_pushes,
                 "push_rate": (round(n_pushes / (n + n_pushes), 4)
                               if (n + n_pushes) else 0.0),
-                "warning": "No non-push games with a rounded-total grid "
+                "warning": "No non-push games with a fair-line grid "
                             "column."}
-    p = p_arr[non_push]
+    rso = rso_arr[non_push]
+    p2 = p2_arr[non_push]
     line_v = line_arr[non_push]
     total_v = total[non_push]
-    pick_over = p >= 0.5
+    # Pick by the RE-SCALED over probability (push band conditioned out) —
+    # the same side the calibration card picks; comparing raw p_over >= 0.5
+    # would mix push mass into the under complement at whole lines and bias
+    # every pick under.
+    pick_over = rso >= 0.5
     hit = (pick_over.astype(float)
            == (total_v >= line_v + 0.5).astype(float))
-    out = pick_buckets(np.maximum(p, 1 - p), hit.astype(float),
-                       labels=TOTALS_PICK_LABELS)
+    out = pick_buckets(p2, hit.astype(float),
+                       labels=TOTALS_PICK_LABELS, edges=TOTALS_PICK_EDGES)
     out["n_games"] = n
     out["n_pushes"] = n_pushes
     out["push_rate"] = round(n_pushes / (n + n_pushes), 4)
     out["win_rate"] = round(float(hit.mean()), 4)
-    out["pick_rule"] = ("over if P(over own rounded total) >= 0.5, "
+    out["pick_rule"] = ("over if re-scaled P(over own fair line) >= 0.5, "
                         "else under")
     return out
 
