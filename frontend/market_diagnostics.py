@@ -26,6 +26,7 @@ from typing import Any, Iterable, Optional
 import altair as alt
 import numpy as np
 import pandas as pd
+from sklearn.metrics import roc_auc_score
 
 TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 TOTAL_GRID_LO = TOTAL_GRID[0]
@@ -87,6 +88,44 @@ def _gtl_line_points(table: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _gtl_table_frame(table: dict) -> pd.DataFrame:
+    """Display columns for the Game Total Lines calibration table, in order:
+    bucket, count, Mean Predicted (Raw), Mean Actual, auc, ece, brier,
+    % of Total.
+
+    bin_center / win_rate / low_n stay INTERNAL (chart x-encoding, the
+    purple win-rate line, gray-bar suppression) and are never rendered.
+    ``auc`` = per-bin roc_auc over (pred, outcome) on the 2-way no-push
+    basis — None for low-n (n < LOW_N) or single-class bins. The final
+    'Total' row carries the pooled aggregates: pooled predicted/observed,
+    pooled AUC (roc_auc over ALL decided no-push games at the line) and
+    share 100%."""
+    rows = []
+    for b in table.get("bins") or []:
+        rows.append({
+            "bucket": b.get("bin"),
+            "count": b.get("count"),
+            "Mean Predicted (Raw)": b.get("mean_pred"),
+            "Mean Actual": b.get("observed"),
+            "auc": b.get("auc"),
+            "ece": b.get("ece"),
+            "brier": b.get("brier"),
+            "% of Total": b.get("share_pct"),
+        })
+    rows.append({
+        "bucket": "Total",
+        "count": int(sum((b.get("count") or 0)
+                         for b in table.get("bins") or [])),
+        "Mean Predicted (Raw)": table.get("pooled_pred"),
+        "Mean Actual": table.get("pooled_observed"),
+        "auc": table.get("pooled_auc"),
+        "ece": table.get("pooled_ece"),
+        "brier": table.get("pooled_brier"),
+        "% of Total": 100.0,
+    })
+    return pd.DataFrame(rows)
+
+
 def chart_game_total_curve(table: dict, title: str,
                            obs_label: str = "Observed % (2-way, no push)") -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
@@ -115,7 +154,8 @@ def chart_game_total_curve(table: dict, title: str,
     """
     tdf = pd.DataFrame(table["bins"])
     if tdf.empty:
-        return {"chart": alt.Chart(pd.DataFrame()).mark_bar(), "table": tdf}
+        return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
+                "table": _gtl_table_frame(table)}
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
@@ -199,16 +239,7 @@ def chart_game_total_curve(table: dict, title: str,
 
     chart = alt.layer(*layers).resolve_scale(
         x="shared", y="independent").properties(height=300, title=title)
-    # Pooled (Total) table row — the pooled-aggregates summary, share 100%.
-    total_row = pd.DataFrame([{
-        "bin": "Total", "bin_center": None, "count": int(tdf["count"].sum()),
-        "mean_pred": pooled_pred, "observed": pooled_obs,
-        "win_rate": table.get("pooled_winrate"),
-        "ece": table.get("pooled_ece"), "brier": table.get("pooled_brier"),
-        "low_n": False, "share_pct": 100.0,
-    }])
-    table_df = pd.concat([tdf, total_row], ignore_index=True)
-    return {"chart": chart, "table": table_df}
+    return {"chart": chart, "table": _gtl_table_frame(table)}
 
 
 def round_to_half(x: float) -> float:
@@ -575,6 +606,16 @@ def calibration_curve(pairs: pd.DataFrame, n_bins: int = 20,
             "n_dropped_bins": dropped, "warning": warning}
 
 
+def _guarded_auc(pred: np.ndarray, event: np.ndarray) -> Optional[float]:
+    """roc_auc_score guarded for degenerate input: empty or single-class
+    outcome sets return None (never a fabricated value). Constant
+    predictions over BOTH classes legitimately yield 0.5 — the documented
+    per-bin rank-compression degeneracy, not a guard case."""
+    if len(pred) < 2 or len(np.unique(event)) < 2:
+        return None
+    return float(roc_auc_score(event, pred))
+
+
 def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
                         edges: list[float],
                         labels: list[str]) -> tuple[list[dict], float, float]:
@@ -592,10 +633,16 @@ def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
     under' (a 'V' around 50% — bins below 50% give 1 − observed, bins
     above give observed); ``ece`` = |mean_pred − observed| (per-bin, 0–1);
     ``brier`` = mean((prediction − outcome)²) both on the same 2-way
-    no-push event basis. ``low_n`` flags bins with n < LOW_N for the
+    no-push event basis. ``auc`` = per-bin roc_auc over (pred, outcome)
+    within the bin on the same 2-way no-push basis — None for low-n
+    (n < LOW_N) or single-class bins (no fabricated value). Per-bin AUC is
+    degenerate (~0.5) by construction: predictions are rank-compressed
+    inside a narrow band, so it reads as a within-bin consistency check,
+    not discrimination power. ``low_n`` flags bins with n < LOW_N for the
     chart/table. Pooled aggregates returned: pooled_pred, pooled_observed,
     pooled_winrate, pooled_ece (count-weighted over bins),
-    pooled_brier (mean over all pairs)."""
+    pooled_brier (mean over all pairs), pooled_auc (roc_auc over ALL
+    no-push pairs at the line)."""
     pred_frac = np.clip(np.asarray(pred, float), 0.0, 1.0)
     ev = np.asarray(event, float)
     win = np.where(pred_frac > 0.5, ev, 1.0 - ev)  # over pick / under pick
@@ -608,6 +655,7 @@ def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
         cnt = int(m.sum())
         mean_pred = float(pred_frac[m].mean()) if cnt else None
         observed = float(ev[m].mean()) if cnt else None
+        bin_auc = _guarded_auc(pred_frac[m], ev[m]) if cnt >= LOW_N else None
         bins.append({
             "bin": lab,
             "bin_center": round(float((lo + hi) / 200.0), 3),
@@ -615,6 +663,7 @@ def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
             "mean_pred": (round(mean_pred, 4) if cnt else None),
             "observed": (round(observed, 4) if cnt else None),
             "win_rate": (round(float(win[m].mean()), 4) if cnt else None),
+            "auc": (round(bin_auc, 4) if bin_auc is not None else None),
             "ece": (round(abs(mean_pred - observed), 4)
                     if (cnt and mean_pred is not None
                         and observed is not None) else None),
@@ -626,11 +675,13 @@ def _bucket_calibration(pred: np.ndarray, event: np.ndarray,
     tot = n if n else 0
     pooled_ece = sum((b["count"] / tot * b["ece"])
                      for b in bins if b["count"] and b["ece"] is not None)
+    pooled_auc = _guarded_auc(pred_frac, ev)
     return (bins, round(float(pred_frac.mean()), 4),
             round(float(ev.mean()), 4),
             round(float(win.mean()), 4),
             round(pooled_ece, 4),
-            round(float(((pred_frac - ev) ** 2).mean()), 4))
+            round(float(((pred_frac - ev) ** 2).mean()), 4),
+            (round(pooled_auc, 4) if pooled_auc is not None else None))
 
 
 def game_total_calibration(decided: pd.DataFrame,
@@ -661,6 +712,7 @@ def game_total_calibration(decided: pd.DataFrame,
     empty = {"line": line, "bins": [], "n_games": 0, "n_pushes": 0,
              "push_rate": 0.0, "pooled_pred": None, "pooled_observed": None,
              "pooled_winrate": None, "pooled_ece": None, "pooled_brier": None,
+             "pooled_auc": None,
              "warning": "No decided games available for this view."}
     if not len(decided) or "total_runs" not in decided.columns:
         return empty
@@ -728,13 +780,14 @@ def game_total_calibration(decided: pd.DataFrame,
                       "push_rate": (round(n_pushes / n, 4) if n else 0.0),
                       "warning": "No non-push games priceable in this view."})
         return empty
-    bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece, pooled_brier = (
-        _bucket_calibration(pred[ok], event[ok], edges, labels))
+    (bins, pooled_pred, pooled_obs, pooled_winrate, pooled_ece,
+     pooled_brier, pooled_auc) = _bucket_calibration(pred[ok], event[ok],
+                                                     edges, labels)
     return {"line": line, "bins": bins, "n_games": n, "n_pushes": n_pushes,
             "push_rate": round(n_pushes / n, 4) if n else 0.0,
             "pooled_pred": pooled_pred, "pooled_observed": pooled_obs,
             "pooled_winrate": pooled_winrate, "pooled_ece": pooled_ece,
-            "pooled_brier": pooled_brier,
+            "pooled_brier": pooled_brier, "pooled_auc": pooled_auc,
             "warning": None}
 
 

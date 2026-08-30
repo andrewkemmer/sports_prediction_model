@@ -316,8 +316,8 @@ class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
         self.assertNotIn("scatter", built,
                          "no separate observed-vs-predicted scatter")
         self.assertFalse(built["table"].empty)
-        self.assertEqual(built["table"].iloc[-1]["bin"], "Total")
-        self.assertEqual(built["table"].iloc[-1]["share_pct"], 100.0)
+        self.assertEqual(built["table"].iloc[-1]["bucket"], "Total")
+        self.assertEqual(built["table"].iloc[-1]["% of Total"], 100.0)
 
     def test_continuous_probability_x_not_categorical(self):
         _, built = self._built()
@@ -706,15 +706,19 @@ class TestFixedLineCalibration(unittest.TestCase):
         self.assertEqual(out["n_pushes"], 1)
         built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
-        self.assertEqual(tab.iloc[-1]["bin"], "Total")
+        self.assertEqual(tab.iloc[-1]["bucket"], "Total")
         self.assertEqual(len(tab), len(out["bins"]) + 1)  # bins + Total
         tot = tab.iloc[-1]
         self.assertEqual(tot["count"], 3)          # 2 + 1 non-push games
-        self.assertAlmostEqual(tot["mean_pred"], 0.6, places=4)   # (0.5+0.5+0.8)/3
-        self.assertAlmostEqual(tot["observed"], 0.6667, places=4)  # 2 over / 3, 4dp
-        self.assertEqual(tot["share_pct"], 100.0)
-        self.assertAlmostEqual(tot["mean_pred"], out["pooled_pred"], places=9)
-        self.assertAlmostEqual(tot["observed"], out["pooled_observed"], places=9)
+        self.assertAlmostEqual(tot["Mean Predicted (Raw)"], 0.6,
+                               places=4)                       # (0.5+0.5+0.8)/3
+        self.assertAlmostEqual(tot["Mean Actual"], 0.6667,
+                               places=4)                       # 2 over / 3, 4dp
+        self.assertEqual(tot["% of Total"], 100.0)
+        self.assertAlmostEqual(tot["Mean Predicted (Raw)"],
+                               out["pooled_pred"], places=9)
+        self.assertAlmostEqual(tot["Mean Actual"], out["pooled_observed"],
+                               places=9)
         # Empty buckets contribute 0 to the Total count
         self.assertEqual(tot["count"],
                          sum(b["count"] for b in out["bins"]))
@@ -728,10 +732,10 @@ class TestFixedLineCalibration(unittest.TestCase):
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
         built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
-        self.assertEqual(tab.iloc[-1]["bin"], "Total")
+        self.assertEqual(tab.iloc[-1]["bucket"], "Total")
         self.assertEqual(tab.iloc[-1]["count"],
                          sum(b["count"] for b in out["bins"]))
-        self.assertAlmostEqual(tab.iloc[-1]["share_pct"], 100.0, places=6)
+        self.assertAlmostEqual(tab.iloc[-1]["% of Total"], 100.0, places=6)
 
     def test_empty_bins_kept_and_chart_builds(self):
         # All pred2 cluster in 0.50-0.55 -> only one populated bin; the rest
@@ -1249,9 +1253,13 @@ class TestRenderSmoke(unittest.TestCase):
             built = diag.chart_game_total_curve(out, "t")
             self._assert_chart_has_data(built["chart"])
             self.assertFalse(built["table"].empty)
-            # New table contract: share_pct replaces the redundant observed_pct
-            self.assertIn("share_pct", built["table"].columns)
-            self.assertNotIn("observed_pct", built["table"].columns)
+            # Table contract: bucket / count / Mean Predicted (Raw) / Mean
+            # Actual / auc / ece / brier / % of Total — internal columns
+            # (bin_center / win_rate / low_n) never rendered.
+            self.assertEqual(
+                list(built["table"].columns),
+                ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+                 "auc", "ece", "brier", "% of Total"])
 
     def test_pick_buckets_total_line_at_pooled_rate(self):
         import json
@@ -1389,11 +1397,11 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
     def test_low_n_bins_flagged_and_points_suppressed(self):
         out = diag.game_total_calibration(self._metrics_decided(), 8.5)
         built = diag.chart_game_total_curve(out, "t")
-        tab = built["table"]
-        row40 = tab[tab["bin"] == "40-45"].iloc[0]
-        row55 = tab[tab["bin"] == "55-60"].iloc[0]
-        self.assertTrue(bool(row40["low_n"]))    # n=10 < 30
-        self.assertFalse(bool(row55["low_n"]))   # n=50 >= 30
+        by = {b["bin"]: b for b in out["bins"]}
+        self.assertTrue(bool(by["40-45"]["low_n"]))    # n=10 < 30
+        self.assertFalse(bool(by["55-60"]["low_n"]))   # n=50 >= 30
+        # low_n is INTERNAL only (gray-bar suppression) - never rendered.
+        self.assertNotIn("low_n", built["table"].columns)
         # Line/point spec keeps ONLY non-low-n populated bins (55-60); the
         # low-n bin (0.42) is dropped from the win-rate/observed points.
         dump = _spec_dump(built["chart"])
@@ -1429,6 +1437,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
             self.assertIsNone(b["observed"])
             self.assertIsNone(b["mean_pred"])
             self.assertIsNone(b["win_rate"])
+            self.assertIsNone(b["auc"])
             self.assertIsNone(b["ece"])
             self.assertIsNone(b["brier"])
             self.assertFalse(b["low_n"])
@@ -1437,11 +1446,157 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
             self.assertIn(k, built)
         self.assertNotIn("scatter", built, "no separate scatter view")
         self.assertFalse(built["table"].empty)
-        # table carries the new columns
-        for col in ("win_rate", "ece", "brier", "low_n"):
-            self.assertIn(col, built["table"].columns)
+        # table carries EXACTLY the display columns (bin_center / win_rate /
+        # low_n stay internal and are never rendered)
+        self.assertEqual(
+            list(built["table"].columns),
+            ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+             "auc", "ece", "brier", "% of Total"])
 
 
+
+
+class TestGameTotalTableColumns(unittest.TestCase):
+    """Reworked Game Total Lines calibration table columns: bucket, count,
+    Mean Predicted (Raw), Mean Actual, auc, ece, brier, % of Total — with
+    bin_center / win_rate / low_n kept INTERNAL (chart encoding / purple
+    win-rate line / gray-bar suppression) and never rendered. auc = per-bin
+    roc_auc on the 2-way no-push basis (None for low-n or single-class
+    bins); the Total row carries the pooled AUC at the selected line."""
+
+    @staticmethod
+    def _metrics_decided():
+        """Line 8.5 (half-line, no pushes). bin 40-45: 10 games @ 0.42
+        (4 over/6 under, n < LOW_N); bin 55-60: 50 games @ 0.57
+        (29 over/21 under)."""
+        rows = []
+        for k in range(10):
+            over = k < 4
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 9 if over else 8,
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58})
+        for k in range(50):
+            over = k < 29
+            rows.append({"game_pk": len(rows), "kind": "oof",
+                         "home_expected_runs": 4.2, "away_expected_runs": 4.3,
+                         "total_runs": 10 if over else 8,
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43})
+        return pd.DataFrame(rows)
+
+    def test_column_headers_exact_order(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_curve(out, "t")
+        self.assertEqual(
+            list(built["table"].columns),
+            ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+             "auc", "ece", "brier", "% of Total"])
+
+    def test_internal_columns_not_rendered(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_curve(out, "t")
+        for col in ("bin_center", "win_rate", "low_n"):
+            self.assertNotIn(col, built["table"].columns)
+        # ...but they still drive the CHART (x-encoding / win-rate line /
+        # gray-bar suppression).
+        dump = _spec_dump(built["chart"])
+        self.assertIn('"field": "bin_center"', dump)
+        self.assertIn("Win rate", dump)
+        self.assertIn("#94A3B8", dump)     # low-n gray bars still rendered
+
+    def test_row_value_mapping(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_curve(out, "t")
+        tab = built["table"]
+        by = {b["bin"]: b for b in out["bins"]}
+        rows = {r["bucket"]: r for _, r in tab.iterrows()}
+        b40, b55 = by["40-45"], by["55-60"]
+        self.assertEqual(rows["40-45"]["count"], b40["count"])
+        self.assertEqual(rows["40-45"]["Mean Predicted (Raw)"], b40["mean_pred"])
+        self.assertEqual(rows["40-45"]["Mean Actual"], b40["observed"])
+        self.assertEqual(rows["40-45"]["ece"], b40["ece"])
+        self.assertEqual(rows["40-45"]["brier"], b40["brier"])
+        self.assertEqual(rows["55-60"]["Mean Predicted (Raw)"], b55["mean_pred"])
+        self.assertEqual(rows["55-60"]["Mean Actual"], b55["observed"])
+
+    def test_per_bin_auc_low_n_none_and_degenerate_0_5(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        by = {b["bin"]: b for b in out["bins"]}
+        # 40-45: n=10 < LOW_N=30 -> blank (no fabricated value).
+        self.assertIsNone(by["40-45"]["auc"])
+        # 55-60: n=50, both outcome classes, but ALL predictions equal 0.57
+        # -> rank-compression degeneracy gives exactly 0.5.
+        self.assertAlmostEqual(by["55-60"]["auc"], 0.5, places=4)
+        from sklearn.metrics import roc_auc_score
+        y55 = np.array([1.0] * 29 + [0.0] * 21)
+        p55 = np.full(50, 0.57)
+        self.assertAlmostEqual(by["55-60"]["auc"],
+                               round(float(roc_auc_score(y55, p55)), 4),
+                               places=9)
+
+    def test_pooled_auc_in_total_row_matches_roc_auc(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_curve(out, "t")
+        # Full no-push set at the line (half-line 8.5 -> no pushes).
+        from sklearn.metrics import roc_auc_score
+        po = np.array([0.42] * 10 + [0.57] * 50)
+        ev = np.array([1.0] * 4 + [0.0] * 6 + [1.0] * 29 + [0.0] * 21)
+        expected = round(float(roc_auc_score(ev, po)), 4)
+        self.assertEqual(out["n_pushes"], 0)
+        self.assertAlmostEqual(out["pooled_auc"], expected, places=9)
+        total = built["table"].iloc[-1]
+        self.assertEqual(total["bucket"], "Total")
+        self.assertEqual(total["auc"], out["pooled_auc"])
+        self.assertEqual(total["Mean Predicted (Raw)"], out["pooled_pred"])
+        self.assertEqual(total["Mean Actual"], out["pooled_observed"])
+        self.assertEqual(total["ece"], out["pooled_ece"])
+        self.assertEqual(total["brier"], out["pooled_brier"])
+        self.assertEqual(total["% of Total"], 100.0)
+
+    def test_pooled_auc_excludes_pushes(self):
+        # Line 9.0 (whole): 20 pushes (total == 9) must be EXCLUDED from the
+        # pooled AUC population. 80 no-push games: 40 @ 0.55 (20 over/20
+        # under), 40 @ 0.65 (20 over/20 under).
+        rows = []
+        for k in range(40):
+            over = k < 20
+            rows.append({"game_pk": len(rows), "total_runs": 10 if over else 8,
+                         "p_over_9_0": 0.55, "p_under_9_0": 0.44})
+        for k in range(40):
+            over = k < 20
+            rows.append({"game_pk": len(rows), "total_runs": 10 if over else 8,
+                         "p_over_9_0": 0.65, "p_under_9_0": 0.34})
+        for k in range(20):          # pushes: total == whole line 9.0
+            rows.append({"game_pk": len(rows), "total_runs": 9.0,
+                         "p_over_9_0": 0.60, "p_under_9_0": 0.39})
+        out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
+        self.assertEqual(out["n_pushes"], 20)
+        self.assertEqual(out["n_games"], 100)
+        from sklearn.metrics import roc_auc_score
+        po = np.array([0.55] * 40 + [0.65] * 40)
+        ev = np.array([1.0] * 20 + [0.0] * 20 + [1.0] * 20 + [0.0] * 20)
+        self.assertAlmostEqual(out["pooled_auc"],
+                               round(float(roc_auc_score(ev, po)), 4), places=9)
+
+    def test_share_pct_sums_to_100(self):
+        out = diag.game_total_calibration(self._metrics_decided(), 8.5)
+        built = diag.chart_game_total_curve(out, "t")
+        rows = built["table"].iloc[:-1]     # buckets only, Total excluded
+        self.assertAlmostEqual(rows["% of Total"].sum(), 100.0, places=2)
+        self.assertEqual(built["table"].iloc[-1]["% of Total"], 100.0)
+
+    def test_all_branch_table_and_pooled_auc_render(self):
+        decided = add_outcomes(make_grid_df(n=200, seed=11))
+        out = diag.game_total_calibration(decided, None)
+        self.assertIsNone(out["warning"])
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Over (All = own fair line)")
+        self.assertEqual(
+            list(built["table"].columns),
+            ["bucket", "count", "Mean Predicted (Raw)", "Mean Actual",
+             "auc", "ece", "brier", "% of Total"])
+        self.assertEqual(built["table"].iloc[-1]["bucket"], "Total")
+        self.assertIsNotNone(out["pooled_auc"])
 
 
 class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):
