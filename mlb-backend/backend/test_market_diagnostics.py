@@ -1350,6 +1350,12 @@ class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):
             "at.tabs[idx].run();\n"
             "assert not at.exception, at.exception;\n"
             "assert len(at.caption) > 0, 'no captions rendered';\n"
+            "# Smoke the line selector at All, 8.0 and 8.5 (the reported 8.0\n"
+            "# degenerate-domain strip must not appear in any).\n"
+            "for _val in ['All', '8.0', '8.5']:\n"
+            "    at.tabs[idx].selectbox[0].set_value(_val);\n"
+            "    at.tabs[idx].run();\n"
+            "    assert not at.exception, (_val, at.exception);\n"
             "print('DIAG_GT_OK')\n"
         ) % (str(FRONTEND), str(FRONTEND / "markets.py"))
         res = subprocess.run([sys.executable, "-c", script],
@@ -1450,6 +1456,69 @@ class TestResolveSlateAcrossArtifacts(unittest.TestCase):
         self.assertEqual(diag._espy_matchup("20260830_BAL@ATH"), "BAL@ATH")
         self.assertEqual(diag._espy_matchup("20260829_ARI@SF_2_2"), "ARI@SF_2_2")
         self.assertEqual(diag._espy_matchup("778485"), "778485")
+
+
+class TestGameTotalXDynamicDomain(unittest.TestCase):
+    """Guarded dynamic x-domain for the Game Total Lines chart.
+
+    Matching the reported 8.0 collapse: a NaN/reversed x-domain must be
+    impossible -- non-finite bin_centers / mean_pred are dropped before
+    min/max, lo <= hi is enforced, and anything degenerate (non-finite, empty
+    or reversed) falls back to [0.0, 1.0]. Tested on REAL qualifying bins (not
+    the fallback), on NaN exclusion, and on the emitted spec at line 8.0.
+    """
+
+    @staticmethod
+    def _b(center, count=40, mean=None):
+        return {"bin_center": center, "count": count,
+                "mean_pred": center if mean is None else mean}
+
+    def test_real_qualifying_fixed_line_fixture(self):
+        # Multiple populated qualifying bins (NOT the 0-1 fallback):
+        # 0.425/0.475/0.525 -> [0.375, 0.575] (0.05 pad each side).
+        dom = diag.game_total_x_domain(
+            [self._b(0.425), self._b(0.475), self._b(0.525)])
+        self.assertEqual(dom, [0.375, 0.575])
+
+    def test_nan_mean_pred_excluded_from_domain(self):
+        # A qualifying-count bin with NaN mean_pred is dropped; the surviving
+        # bin drives a finite domain and no NaN leaks into the domain.
+        bins = [self._b(0.5, mean=float("nan")), self._b(0.6)]
+        dom = diag.game_total_x_domain(bins)
+        self.assertEqual(dom, [0.55, 0.65])
+        self.assertTrue(all(float(v) == float(v) for v in dom),
+                        "no NaN in the returned domain")
+
+    def test_nan_bin_center_excluded(self):
+        bins = [{"bin_center": float("nan"), "count": 40, "mean_pred": 0.5},
+                self._b(0.7)]
+        self.assertEqual(diag.game_total_x_domain(bins), [0.65, 0.75])
+
+    def test_non_finite_only_falls_back(self):
+        bins = [self._b(0.5, mean=float("nan")),
+                self._b(0.6, mean=float("inf"))]
+        self.assertEqual(diag.game_total_x_domain(bins), [0.0, 1.0])
+
+    def test_empty_or_low_n_only_falls_back(self):
+        self.assertEqual(diag.game_total_x_domain([]), [0.0, 1.0])
+        self.assertEqual(diag.game_total_x_domain([self._b(0.5, count=10)]),
+                         [0.0, 1.0])
+
+    def test_chart_spec_domain_finite_ascending_at_line_8_0(self):
+        # The reported collapse: at line 8.0 the emitted x-domain must be
+        # finite and ascending (numeric ticks return, no tall strip).
+        m_path = _latest_markets_artifact()
+        if not m_path.exists():
+            self.skipTest("run-engine artifact absent")
+        out = diag.game_total_calibration(
+            diag.decided_rows(pd.read_csv(m_path)), 8.0)
+        built = diag.chart_game_total_curve(out, "t")
+        dom = diag.game_total_x_domain(out["bins"])
+        self.assertTrue(all(map(math.isfinite, dom)), f"nan domain {dom}")
+        self.assertLess(dom[0], dom[1], f"domain not ascending {dom}")
+        self.assertGreaterEqual(dom[0], 0.0)
+        self.assertLessEqual(dom[1], 1.0)
+        self.assertNotIn("NaN", _spec_dump(built["chart"]))
 
 
 if __name__ == "__main__":

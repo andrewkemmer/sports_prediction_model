@@ -87,6 +87,47 @@ def _gtl_line_points(table: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def game_total_x_domain(bins: list) -> list:
+    """Guarded dynamic x-domain for the Game Total Lines chart.
+
+    Auto-zoom to the populated bin range with a fixed 5% blank margin per
+    side, instead of the full 0-1 axis (the All view's data sliver
+    ~0.46-0.53 is otherwise unreadable). Qualifying bins: count >= LOW_N with
+    a finite, non-empty ``mean_pred``; lo/hi = min/max of the qualifying
+    FINITE ``bin_center``s. Returns ``[lo-0.05, hi+0.05]`` clamped to [0, 1],
+    rounded to 4 dp so the emitted spec is clean (0.52 + 0.05 -> 0.57, not
+    0.5700000000000001) and deterministic for tests.
+
+    Hardening: NaN/inf ``bin_center`` or ``mean_pred`` values are DROPPED
+    before min/max, and an empty or non-finite or reversed (lo > hi)
+    qualifying set falls back to ``[0.0, 1.0]`` -- a NaN or reversed x-domain
+    is exactly the vega-lite symptom of the chart collapsing to a tall strip
+    (numeric ticks vanish, big blank column left of the plot). chart_game_total_curve
+    applies the SAME returned domain to every layer via the shared x-scale.
+    """
+    qual: list = []
+    for b in bins:
+        bc = b.get("bin_center")
+        mp = b.get("mean_pred")
+        cnt = b.get("count")
+        if bc is None or mp is None or cnt is None:
+            continue
+        try:
+            cnt_f = float(cnt)
+            mp_f = float(mp)
+            bc_f = float(bc)
+        except (TypeError, ValueError):
+            continue
+        if cnt_f >= LOW_N and math.isfinite(mp_f) and math.isfinite(bc_f):
+            qual.append(bc_f)
+    if not qual:
+        return [0.0, 1.0]
+    lo, hi = min(qual), max(qual)
+    if not (math.isfinite(lo) and math.isfinite(hi)) or lo > hi:
+        return [0.0, 1.0]
+    return [round(max(0.0, lo - 0.05), 4), round(min(1.0, hi + 0.05), 4)]
+
+
 def chart_game_total_curve(table: dict, title: str,
                            obs_label: str = "Observed % (2-way, no push)") -> dict:
     """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
@@ -123,24 +164,11 @@ def chart_game_total_curve(table: dict, title: str,
     chart_df = tdf.copy()
     chart_df["observed_pct"] = chart_df["observed"] * 100.0
     chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    # Dynamic x-domain: auto-zoom to the populated bin range with a
-    # guaranteed 5% blank margin on each side (the All view's data sliver
-    # ~0.46-0.53 is otherwise unreadable on a full 0-1 axis). Take bins with
-    # count >= LOW_N and a non-empty mean_pred; lo/hi = min/max bin center;
-    # pad = 0.05 on each side, clamped to [0, 1]. If no bin qualifies
-    # (low-n-only / empty data), fall back to the full 0-1 domain.
-    _qual = [float(b["bin_center"]) for b in table["bins"]
-             if b.get("mean_pred") is not None and (b.get("count") or 0) >= LOW_N]
-    if _qual:
-        _lo, _hi = min(_qual), max(_qual)
-        # Round to 4 dp so the padded bounds land on clean values (0.52 +
-        # 0.05 -> 0.57, not 0.5700000000000001) -- keeps the emitted domain
-        # readable and the spec deterministic for tests.
-        x_dom = alt.Scale(domain=[round(max(0.0, _lo - 0.05), 4),
-                                  round(min(1.0, _hi + 0.05), 4)],
-                          nice=False)
-    else:
-        x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
+    # Dynamic x-domain via the guarded helper (finite, ascending, padded,
+    # clamped, 0-1 fallback). The SAME scale is applied to every layer (bars,
+    # low-n bars, curves, diagonal, pooled marker) so a degenerate (NaN or
+    # reversed) domain can never collapse the plot to a tall strip.
+    x_dom = alt.Scale(domain=game_total_x_domain(table["bins"]), nice=False)
     y_pct_dom = alt.Scale(domain=[0.0, 100.0])
 
     # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
