@@ -155,6 +155,12 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
+    # Reconcile stale boards against authoritative finals FIRST, so the
+    # derived win/status/grading columns below are computed from real results
+    # (todays_games_<date>.csv is a point-in-time snapshot -- a day's later
+    # games can still say 'pre'/'in' at 0-0 even after they are final).
+    df = _reconcile_board_finals(df)
+
     # Outcome flag: 1.0 home won, 0.0 away won, NaN no result yet
     win = pd.to_numeric(df.get("home_win"), errors="coerce")
 
@@ -260,6 +266,185 @@ def _load_scores() -> pd.DataFrame:
         return gl[["game_id", "home_score", "away_score"]]
     except Exception:
         return pd.DataFrame(columns=["game_id", "home_score", "away_score"])
+
+
+# ---------------------------------------------------------------------------
+# Final-result reconciliation (stale-board fix)
+# ---------------------------------------------------------------------------
+
+# Team-abbreviation aliases that differ between artifacts (StatsAPI vs ESPN,
+# historic renames). Normalized so a board row and a game_level_features row
+# for the same game always join.
+_TEAM_ALIAS = {
+    "CWS": "CWS", "CHW": "CWS",
+    "ARI": "ARI", "AZ": "ARI",
+    "OAK": "OAK", "ATH": "OAK",
+    "TB": "TB", "TBA": "TB",
+}
+
+
+def _normalize_team(code) -> str:
+    """Canonical team code used to match the same game across artifacts (they
+    spell teams differently: CHW vs CWS, AZ vs ARI, ATH vs OAK). Unknown codes
+    pass through uppercased/stripped (best-effort), never None."""
+    if code is None:
+        return ""
+    c = str(code).strip().upper()
+    return _TEAM_ALIAS.get(c, c)
+
+
+def _game_date_compact(d) -> str:
+    """YYYY-MM-DD (or any leading-date form) -> YYYYMMDD, else ''."""
+    try:
+        s = str(d).strip()
+        if len(s) >= 10 and s[4:5] == "-":
+            return s[:10].replace("-", "")
+    except Exception:
+        pass
+    return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_final_results() -> pd.DataFrame:
+    """Authoritative final scores/results from game_level_features.csv (the
+    decided frame). Carries the per-leg game_pk so doubleheader identity
+    survives; empty frame when the artifact is unavailable."""
+    cfg = get_source_config()
+    data, _src = _fetch_bytes("game_level_features.csv", **cfg)
+    cols = ["game_pk", "game_date", "home_team", "away_team",
+            "home_score", "away_score", "home_win"]
+    if data is None:
+        return pd.DataFrame(columns=cols)
+    try:
+        return pd.read_csv(io.BytesIO(data), usecols=lambda c: c in cols)
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+
+def _leg_eq(a, b) -> bool:
+    try:
+        return bool(pd.notna(a) and pd.notna(b) and float(a) == float(b))
+    except (TypeError, ValueError):
+        return False
+
+
+def _authority_by_key(gl: pd.DataFrame) -> dict:
+    """Authority lookup: (YYYYMMDD, norm_home, norm_away) -> ordered list of
+    leg row dicts (1 or 2 for a doubleheader), ordered by game_pk."""
+    keyed: dict = {}
+    for _, r in gl.iterrows():
+        key = (_game_date_compact(r.get("game_date")),
+               _normalize_team(r.get("home_team")),
+               _normalize_team(r.get("away_team")))
+        if not key[0]:
+            continue
+        keyed.setdefault(key, []).append({
+            "game_pk": r.get("game_pk"),
+            "home_score": r.get("home_score"),
+            "away_score": r.get("away_score"),
+            "home_win": r.get("home_win"),
+        })
+    for legs in keyed.values():
+        def _pk(leg):
+            try:
+                return int(leg["game_pk"])
+            except (TypeError, ValueError):
+                return 0
+        legs.sort(key=_pk)
+    return keyed
+
+
+def _board_rows_by_key(df: pd.DataFrame) -> dict:
+    """Board row indices grouped by (date, home, away), in board order."""
+    by_key: dict = {}
+    for idx, row in df.iterrows():
+        key = (_game_date_compact(row.get("game_date")),
+               _normalize_team(row.get("home_team")),
+               _normalize_team(row.get("away_team")))
+        if not key[0]:
+            continue
+        by_key.setdefault(key, []).append(idx)
+    return by_key
+
+
+def _apply_leg(frame: pd.DataFrame, idx, leg) -> None:
+    """Write one authoritative leg's result onto a board row and mark it Final."""
+    hs = pd.to_numeric(leg["home_score"], errors="coerce")
+    as_ = pd.to_numeric(leg["away_score"], errors="coerce")
+    frame.at[idx, "home_score"] = hs
+    frame.at[idx, "away_score"] = as_
+    if pd.notna(hs) and pd.notna(as_) and "total_runs" in frame.columns:
+        frame.at[idx, "total_runs"] = float(hs) + float(as_)
+    frame.at[idx, "home_win"] = leg["home_win"]
+    if "game_state" in frame.columns:
+        frame.at[idx, "game_state"] = "post"
+    if "game_status" in frame.columns:
+        frame.at[idx, "game_status"] = "Final"
+
+
+def _reconcile_board_finals(df: pd.DataFrame,
+                            finals: pd.DataFrame = None) -> pd.DataFrame:
+    """Overlay authoritative final results onto a possibly-stale board frame.
+
+    todays_games_<date>.csv is a point-in-time snapshot: a day's later games
+    can still say 'pre'/'in' at 0-0 even after they are final in
+    game_level_features.csv. For every board game with an authoritative result
+    we set home_score/away_score/home_win/total_runs and flip game_state to
+    'post' (so normalize_games grades it Final). A genuinely still-scheduled
+    future game has NO result in the decided frame and is left untouched --
+    never fabricated.
+
+    Doubleheaders carry one row per leg (distinct game_pk). If the board
+    already holds a real captured final for one leg that uniquely equals one
+    authority leg, that leg is anchored and the sibling gets the other;
+    otherwise legs are matched deterministically by game_pk order (best-effort,
+    documented) so both legs always surface a score.
+    """
+    if df is None or df.empty or "home_team" not in df.columns:
+        return df
+    if finals is None:
+        finals = _load_final_results()
+    if finals is None or finals.empty:
+        return df
+
+    out = df.copy()
+    authority = _authority_by_key(finals)
+    for key, board_rows in _board_rows_by_key(out).items():
+        legs = authority.get(key)
+        if not legs:
+            continue  # no authoritative result in the decided frame -> keep pre/live
+        if len(board_rows) == 1:
+            _apply_leg(out, board_rows[0], legs[0])
+            continue
+        # Doubleheader: match both board rows to the two authority legs.
+        assigned = {}
+        # 1) Anchor rows that already captured a real final to the exact leg.
+        for bi in board_rows:
+            hs = pd.to_numeric(out.at[bi, "home_score"]
+                               if "home_score" in out.columns else None,
+                               errors="coerce")
+            as_ = pd.to_numeric(out.at[bi, "away_score"]
+                               if "away_score" in out.columns else None,
+                               errors="coerce")
+            if pd.notna(hs) and pd.notna(as_) and not (hs == 0 and as_ == 0):
+                for li, leg in enumerate(legs):
+                    if li in assigned.values():
+                        continue
+                    if _leg_eq(leg["home_score"], hs) and _leg_eq(leg["away_score"], as_):
+                        assigned[bi] = li
+                        break
+        # 2) Assign any remaining rows to any remaining legs by order.
+        for bi in board_rows:
+            if bi in assigned:
+                continue
+            for li in range(len(legs)):
+                if li in assigned.values():
+                    continue
+                assigned[bi] = li
+                break
+        for bi, li in assigned.items():
+            _apply_leg(out, bi, legs[li])
+    return out
 
 
 # ---------------------------------------------------------------------------
