@@ -21,11 +21,34 @@ Lines outside [6.5, 12.5] clamp to the nearest edge column.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Iterable, Optional
 
 import altair as alt
 import numpy as np
 import pandas as pd
+
+# Reuse utils' canonical team-abbreviation normalization for the slate
+# matchup key (AZ<->ARI, CHW<->CWS, ATH<->OAK, TB<->TBA) so the two identity
+# systems can never drift. Imported lazily/guarded because this module stays
+# import-safe in bare/test contexts that have no Streamlit runtime; when utils
+# is unavailable the fallback is a lossless uppercase — never a second alias
+# table (no drift, no duplication).
+try:
+    from utils import _normalize_team as _utils_normalize_team
+except Exception:  # pragma: no cover - bare context without frontend/utils.py
+    _utils_normalize_team = None
+
+
+def _team_alias(code) -> str:
+    """Canonical team code for a matchup key (mirror of utils._normalize_team)."""
+    c = str(code).strip().upper() if code is not None else ""
+    if _utils_normalize_team is not None:
+        try:
+            return _utils_normalize_team(c) or c
+        except Exception:
+            return c
+    return c
 
 
 def _auc(y_true, y_scores):
@@ -1703,9 +1726,12 @@ def resolve_slate_across_artifacts(
           the general case where a later run priced the game (artifact
           date > game date) under the same id;
       (c) otherwise the NEWEST frame holding a MATCHUP match (same
-          away@home under a differing date prefix): the GMT-rollover case
-          where the evening game's id carries the next day's prefix (the
-          Aug 29 game priced as ``20260830_BAL@ATH`` by the Aug 30 run);
+          normalized away@home AND same doubleheader leg suffix under a
+          differing date prefix): the GMT-rollover case where the evening
+          game's id carries the next day's prefix. Leg-partitioned and
+          team-alias-normalized (see ``_slate_match_key``), so a ``_2_2``
+          card binds only to a ``_2_2`` slate row and never collapses two
+          legs onto leg 1's row;
       (d) otherwise the id is absent -> the caller renders the quiet
           'unavailable' fallback. Never fabricates rows.
 
@@ -1723,9 +1749,14 @@ def resolve_slate_across_artifacts(
         return None
 
     def _matchup(d, g):
-        m = _espy_matchup(g)
+        # Leg-aware, alias-normalized matchup: a card may bind only to a slate
+        # row with the SAME normalized away@home AND the same doubleheader leg
+        # suffix. This backstops the date-prefix/GMT-rollover reconcile without
+        # ever collapsing a _2_2 card onto leg 1's bare row (or a bare card
+        # onto a leg row).
+        m = _slate_match_key(g)
         for pk, rec in _slate_rows(frames_by_date[d]):
-            if pk != g and _espy_matchup(pk) == m:
+            if pk != g and _slate_match_key(pk) == m:
                 return rec
         return None
 
@@ -1772,6 +1803,41 @@ def _espy_matchup(game_id: Any) -> str:
     if len(s) > 9 and s[:8].isdigit() and s[8] == "_":
         return s[9:]
     return s
+
+
+# Trailing doubleheader leg, e.g. ``_2`` or ``_2_2`` (an underscore followed
+# by one or two digit groups). Team codes never contain '_' or '@'.
+_LEG_RE = re.compile(r"\d+(?:_\d+)*")
+
+
+def _slate_match_key(game_id: Any) -> tuple:
+    """``(normalized_matchup, leg_suffix)`` identity for a slate key.
+
+    ESPN ids look like ``<8-digit-date>_AWAY@HOME`` and doubleheaders add a
+    trailing leg suffix (``_2`` / ``_2_2``). The date prefix is the SCHEDULED
+    date and can differ by a GMT-rollover day from the pricing run, so it is
+    stripped — away@home + leg is the stable identity. Teams are normalized
+    through ``utils._normalize_team`` so alias pairs (AZ/ARI, CHW/CWS,
+    ATH/OAK, TB/TBA) can't drift apart.
+
+    Separating the leg suffix from the matchup is what lets a ``_2_2`` card
+    bind ONLY to a ``_2_2`` slate row (and a bare card only to a bare row) —
+    never leg 1's projection onto leg 2, and never two cards collapsed onto
+    one slate row. Keys without a matchup (numeric ``game_pk`` slate rows)
+    pass through as an opaque ``(id, '')`` pair. Pure, dependency-light.
+    """
+    s = str(game_id).strip()
+    body = s[9:] if (len(s) > 9 and s[:8].isdigit() and s[8] == "_") else s
+    if "@" not in body:
+        return (body, "")
+    away, right = body.split("@", 1)
+    if "_" in right:
+        home, sep, leg = right.partition("_")
+        if sep and _LEG_RE.fullmatch(leg):
+            return (_team_alias(away) + "@" + _team_alias(home), f"_{leg}")
+    else:
+        home = right
+    return (_team_alias(away) + "@" + _team_alias(home), "")
 
 
 def _slate_rows(frame: Optional[pd.DataFrame]) -> list:

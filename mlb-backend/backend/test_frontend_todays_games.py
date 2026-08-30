@@ -1051,5 +1051,89 @@ class TestActionableDateAndMobileRail(unittest.TestCase):
         self.assertEqual(self._todays()._mobile_date_options((), None), [])
 
 
+class TestRunEngineSlateLegMatching(unittest.TestCase):
+    """Doubleheader-leg-aware, alias-normalized run-engine join
+    (``market_diagnostics._slate_match_key`` + ``resolve_slate_across_artifacts``
+    matchup reconcile). A ``_2_2``-suffixed card's projection must come from a
+    ``_2_2`` slate row only — never from leg 1's bare row — and a bare card
+    must never bind to a leg row. Team aliases (AZ/ARI, etc.) normalize so the
+    two identity systems can't drift. Pure function tests, no component.
+    """
+
+    @staticmethod
+    def _diag():
+        import market_diagnostics as m
+        return m
+
+    def _key(self, game_id):
+        return self._diag()._slate_match_key(game_id)
+
+    # --- _slate_match_key: id -> (normalized matchup, leg suffix) ---
+
+    def test_bare_matchup(self):
+        self.assertEqual(self._key("20260829_BOS@NYY"), ("BOS@NYY", ""))
+
+    def test_leg_suffix_1(self):
+        self.assertEqual(self._key("20260829_BOS@NYY_2_2"),
+                         ("BOS@NYY", "_2_2"))
+        self.assertEqual(self._key("20260829_BOS@NYY_2"), ("BOS@NYY", "_2"))
+
+    def test_team_alias_normalized(self):
+        # board stores AZ, slate stores ARI -> must agree after normalization
+        self.assertEqual(self._key("20260829_AZ@SF"), ("ARI@SF", ""))
+        self.assertEqual(self._key("20260829_AZ@SF_2_2"), ("ARI@SF", "_2_2"))
+        self.assertEqual(self._key("20260830_CHW@MIN"), ("CWS@MIN", ""))
+
+    def test_date_prefix_ignored(self):
+        # GMT-rollover: same game, next-day id prefix -> same matchup key
+        self.assertEqual(self._key("20260829_BOS@NYY")[0],
+                         self._key("20260830_BOS@NYY")[0])
+
+    def test_numeric_pk_passthrough(self):
+        self.assertEqual(self._key("4712345"), ("4712345", ""))
+
+    # --- resolution: legs never collapse / alias never drifts ---
+
+    def _resolve(self, gids, slate_pks):
+        diag = self._diag()
+        import pandas as pd
+        frame = pd.DataFrame({
+            "game_pk": slate_pks,
+            "kind": ["slate"] * len(slate_pks),
+            "home_expected_runs": [4.0] * len(slate_pks),
+            "away_expected_runs": [4.5] * len(slate_pks),
+        })
+        return diag.resolve_slate_across_artifacts({"20260830": frame}, gids)
+
+    def test_leg2_binds_to_own_leg_not_leg1(self):
+        """A _2_2 board card resolves to the _2_2 slate row, and leg 1 to the
+        bare row — never two cards collapsing onto leg 1's row."""
+        m = self._resolve(
+            ["20260829_BOS@NYY", "20260829_BOS@NYY_2_2"],
+            ["20260830_BOS@NYY", "20260830_BOS@NYY_2_2"])
+        self.assertEqual(m["20260829_BOS@NYY"]["game_pk"], "20260830_BOS@NYY")
+        self.assertEqual(m["20260829_BOS@NYY_2_2"]["game_pk"],
+                         "20260830_BOS@NYY_2_2")
+
+    def test_alias_leg2_binds_to_alias_slate_row(self):
+        """Board AZ@SF_2_2 resolves to the slate's ARI@SF_2_2 row via the
+        team-alias normalization."""
+        m = self._resolve(["20260829_AZ@SF_2_2"],
+                          ["20260830_ARI@SF_2_2", "20260830_ARI@SF"])
+        self.assertEqual(m["20260829_AZ@SF_2_2"]["game_pk"],
+                         "20260830_ARI@SF_2_2")
+
+    def test_leg2_never_binds_bare_row(self):
+        """With only a bare slate row available, a _2_2 board card does NOT
+        steal leg 1's projection (absent, not mis-bound)."""
+        m = self._resolve(["20260829_BOS@NYY_2_2"], ["20260830_BOS@NYY"])
+        self.assertNotIn("20260829_BOS@NYY_2_2", m)
+
+    def test_bare_never_binds_leg_row(self):
+        """A bare board card does not bind to a _2_2 slate row."""
+        m = self._resolve(["20260829_BOS@NYY"], ["20260830_BOS@NYY_2_2"])
+        self.assertNotIn("20260829_BOS@NYY", m)
+
+
 if __name__ == "__main__":
     unittest.main()
