@@ -69,6 +69,148 @@ OWN_LINE_LABELS = [f"{lo}-{lo + 1}" for lo in range(40, 60)] + ["60+"]
 LOW_N = 30
 
 
+def _gtl_line_points(table: dict) -> pd.DataFrame:
+    """Win-rate + observed line points for the moneyline-style game-total
+    calibration chart — one row per (bin, series) over NON-low-n populated
+    bins only (low-n points are dropped: n < LOW_N is not reliable
+    calibration evidence). ``pct`` is on the 0-100 no-push 2-way basis."""
+    rows = []
+    for b in table.get("bins") or []:
+        if b.get("observed") is None or b.get("low_n"):
+            continue
+        rows.append({"bin_center": b.get("bin_center"), "series": "Win rate",
+                     "pct": round(b["win_rate"] * 100.0, 4),
+                     "count": b["count"]})
+        rows.append({"bin_center": b.get("bin_center"), "series": "Observed",
+                     "pct": round(b["observed"] * 100.0, 4),
+                     "count": b["count"]})
+    return pd.DataFrame(rows)
+
+
+def chart_game_total_curve(table: dict, title: str,
+                           obs_label: str = "Observed % (2-way, no push)") -> dict:
+    """Moneyline-style single chart for the 'Game Total Lines' diagnostics tab
+    — count bars + calibration curves + dashed diagonal in ONE chart
+    ('chart'), plus the pooled table ('table'). No separate scatter.
+
+    Grammar mirrors the moneyline Calibration Curve page: a continuous
+    predicted-P(over) x-axis (bin centers on a 0-1 probability scale — the
+    same 5-pt buckets, 0.025…0.975, for a fixed line; the All branch keeps
+    its 1-pt own-line buckets ~0.50–0.61), count bars on a LEFT 'Games'
+    axis, the observed + picked-side win-rate lines on a shared RIGHT '%'
+    axis (0-100), a gray dashed perfect-calibration diagonal, an amber
+    pooled marker at the pooled calibration point, and hover per bin (games,
+    mean predicted, observed, win rate). Each axis title lives on EXACTLY
+    ONE layer (the bars own 'Games' left; the lines own the right '%'
+    title; diagonal + pooled marker render axis-less) so labels never
+    overlap — the same single-title-per-axis fix as the moneyline curve.
+
+    Win rate = the moneyline-card convention: pick over if P(over) > 50%
+    else under; W/(W+L) per bin on the no-push 2-way basis (a 'V' around
+    50%; bins below 50% give 1 − observed). Empty bins keep count 0 / None
+    stats: bars render zero-height, lines skip them. low_n bins (n < LOW_N)
+    render as gray bars and their win-rate/observed points are DROPPED from
+    the curves (never readable as reliable calibration). Pooled aggregates
+    ride the Total table row, the caption, and the amber pooled marker.
+    """
+    tdf = pd.DataFrame(table["bins"])
+    if tdf.empty:
+        return {"chart": alt.Chart(pd.DataFrame()).mark_bar(), "table": tdf}
+    chart_df = tdf.copy()
+    chart_df["observed_pct"] = chart_df["observed"] * 100.0
+    chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
+    x_dom = alt.Scale(domain=[0.0, 1.0], nice=False)
+    y_pct_dom = alt.Scale(domain=[0.0, 100.0])
+
+    # Count bars — LEFT 'Games' axis (the single owner of that title). low_n
+    # bins render gray (n < LOW_N suppressed exactly as before).
+    bar_tip = [
+        alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
+        alt.Tooltip("count:Q", title="Games"),
+        alt.Tooltip("mean_pred:Q", title="Mean predicted", format=".3f"),
+        alt.Tooltip("observed:Q", title="Observed", format=".3f"),
+        alt.Tooltip("win_rate:Q", title="Win rate", format=".3f"),
+    ]
+    bars = alt.Chart(chart_df).mark_bar(color="#3B82F6").encode(
+        x=alt.X("bin_center:Q", title="Predicted P(over)", scale=x_dom),
+        y=alt.Y("count:Q", axis=alt.Axis(title="Games", grid=True)),
+        tooltip=bar_tip)
+    bar_layer = bars
+    low_df = chart_df[chart_df["low_n"]]
+    if not low_df.empty:
+        # low-n bars are gray and axis-title-less — "Games" (the left
+        # axis title) belongs to the main bars layer ONLY, so independent
+        # y-scales never draw it twice (single title per axis fix).
+        low_bars = alt.Chart(low_df).mark_bar(
+            color="#94A3B8", opacity=0.45).encode(
+            x=alt.X("bin_center:Q", scale=x_dom),
+            y=alt.Y("count:Q", axis=alt.Axis(title=None)),
+            tooltip=bar_tip)
+        bar_layer = bars + low_bars
+
+    # Observed + win-rate curves over non-low-n populated bins — RIGHT '%'
+    # axis (0-100), the ONLY owner of the obs_label title (single title per
+    # axis: no duplicate/overlapping labels). low-n points dropped.
+    stack = _gtl_line_points(table)
+    if stack.empty:
+        line_chart = alt.Chart(pd.DataFrame()).mark_line()
+    else:
+        line_chart = alt.Chart(stack).mark_line(
+            strokeWidth=2.5, point=alt.OverlayMarkDef(size=60)).encode(
+            x=alt.X("bin_center:Q", scale=x_dom),
+            y=alt.Y("pct:Q", axis=alt.Axis(title=obs_label, orient="right",
+                                          grid=False),
+                    scale=y_pct_dom),
+            color=alt.Color("series:N",
+                            scale=alt.Scale(domain=["Observed", "Win rate"],
+                                            range=["#22C55E", "#8B5CF6"]),
+                            title="Series"),
+            tooltip=[
+                alt.Tooltip("bin_center:Q", title="Predicted P(over)", format=".3f"),
+                alt.Tooltip("series:N", title="Series"),
+                alt.Tooltip("pct:Q", title=obs_label, format=".1f"),
+                alt.Tooltip("count:Q", title="Games")])
+
+    # Dashed perfect-calibration diagonal (y = x on the 0-100 % scale),
+    # axis-less so it never emits a competing axis title.
+    diag_df = pd.DataFrame({"bin_center": [0.0, 1.0], "pct": [0.0, 100.0]})
+    diag = alt.Chart(diag_df).mark_line(
+        color="#64748B", strokeDash=[5, 5], strokeWidth=1.5).encode(
+        x=alt.X("bin_center:Q", scale=x_dom),
+        y=alt.Y("pct:Q", axis=None, scale=y_pct_dom))
+
+    layers = [bar_layer, line_chart, diag]
+    # Amber pooled marker on the SAME chart (not a separate scatter) so the
+    # chart and the Total table row agree about the pooled calibration point.
+    pooled_pred = table.get("pooled_pred")
+    pooled_obs = table.get("pooled_observed")
+    if pooled_pred is not None and pooled_obs is not None:
+        pool_df = pd.DataFrame({"bin_center": [pooled_pred],
+                                "pct": [round(pooled_obs * 100.0, 4)]})
+        pooled_marker = alt.Chart(pool_df).mark_point(
+            shape="diamond", size=150, color="#F59E0B", filled=True).encode(
+            x=alt.X("bin_center:Q", scale=x_dom),
+            y=alt.Y("pct:Q", axis=None, scale=y_pct_dom),
+            tooltip=[alt.Tooltip("bin_center:Q", title="Pooled predicted",
+                                 format=".3f"),
+                     alt.Tooltip("pct:Q", title="Pooled observed %",
+                                 format=".1f")])
+        layers.append(pooled_marker)
+
+    chart = alt.layer(*layers).resolve_scale(
+        x="shared", y="independent").properties(height=300, title=title)
+    # Pooled (Total) table row — the pooled-aggregates summary, share 100%.
+    total_row = pd.DataFrame([{
+        "bin": "Total", "bin_center": None, "count": int(tdf["count"].sum()),
+        "mean_pred": pooled_pred, "observed": pooled_obs,
+        "win_rate": table.get("pooled_winrate"),
+        "ece": table.get("pooled_ece"), "brier": table.get("pooled_brier"),
+        "low_n": False, "share_pct": 100.0,
+    }])
+    table_df = pd.concat([tdf, total_row], ignore_index=True)
+    return {"chart": chart, "table": table_df}
+
+
 def round_to_half(x: float) -> float:
     """Round to the nearest 0.5, ties away from zero (round half up).
 
@@ -1443,124 +1585,8 @@ def chart_calibration(curve: dict, title: str,
     return (diag + pts).properties(height=300, title=title)
 
 
-def chart_game_total_lines(table: dict, title: str,
-                            obs_label: str = "Observed % (2-way, no push)") -> dict:
-    """Renders the game-total calibration view for a ``game_total_calibration``
-    table: {'chart': bars (count per bucket, left) + observed % and picked-side
-    win-rate lines (right, shared 0-100 domain), 'scatter': observed vs
-    predicted with the perfect-calibration diagonal (pooled amber diamond),
-    'table': the bucket rows + a pooled Total row}.
 
-    The win-rate line is the moneyline-card convention: pick over if
-    P(over) > 50% else under; W/(W+L) per bin on the no-push 2-way basis - a
-    'V' centered on 50% (bins below 50% give 1 - observed). ``obs_label``
-    titles the percent axis (both branches observe the over event on the
-    no-push basis). Empty buckets keep count 0 / None stats: bars render
-    zero-height, lines skip them, and the scatter drops them (a point needs
-    both axes). low_n bins (n < LOW_N) are shaded gray, their win-rate/
-    observed points dropped from the lines and scatter (never readable as
-    reliable calibration), and flagged in the table. The line/point
-    encodings carry a REAL scale with an explicit domain (the scale=None ->
-    "scale": null regression never re-enters this chart)."""
-    tdf = pd.DataFrame(table["bins"])
-    if tdf.empty:
-        return {"chart": alt.Chart(pd.DataFrame()).mark_bar(),
-                "scatter": alt.Chart(pd.DataFrame()).mark_point(),
-                "table": tdf}
-    chart_df = tdf.copy()
-    chart_df["observed_pct"] = chart_df["observed"] * 100.0
-    chart_df["win_rate_pct"] = chart_df["win_rate"] * 100.0
-    # The chart needs the percents internally, but the ST.table the user
-    # sees keeps the raw rates + share_pct — never the redundant *100
-    # columns (share_pct = count_bin / count_total x 100). low_n bins are
-    # shaded gray and their win-rate/observed points dropped.
-    x_sort = list(chart_df["bin"])
-    base = alt.Chart(chart_df).encode(
-        x=alt.X("bin:N", sort=x_sort, title=None))
-    bars = base.mark_bar(color="#3B82F6").encode(
-        y=alt.Y("count:Q", title="Games"),
-        tooltip=["bin", "count", "mean_pred", "observed", "win_rate",
-                 "ece", "brier", "share_pct"])
-    bar_layer = bars
-    low_df = chart_df[chart_df["low_n"]]
-    if not low_df.empty:
-        low_bars = alt.Chart(low_df).mark_bar(
-            color="#94A3B8", opacity=0.45).encode(
-            x=alt.X("bin:N", sort=x_sort, title=None),
-            y=alt.Y("count:Q", title="Games"),
-            tooltip=["bin", "count", "mean_pred", "observed", "share_pct"])
-        bar_layer = bars + low_bars
-    # Win-rate + observed lines over non-low-n populated cells (low-n points
-    # are dropped — they are not reliable calibration evidence). Win rate is
-    # the picked-side W/(W+L); below 50% the under pick flips it to 1 − over,
-    # so a wider V around 50% = accuracy tracking confidence.
-    line_df = chart_df[(~chart_df["low_n"]) & chart_df["observed"].notna()]
-    stack = pd.DataFrame(
-        [{"bin": r["bin"], "series": "Win rate",
-          "pct": r["win_rate_pct"], "count": r["count"]}
-         for _, r in line_df.iterrows()]
-        + [{"bin": r["bin"], "series": "Observed",
-            "pct": r["observed_pct"], "count": r["count"]}
-           for _, r in line_df.iterrows()])
-    if stack.empty:
-        line_chart = alt.Chart(pd.DataFrame()).mark_line()
-    else:
-        line_chart = alt.Chart(stack).mark_line(
-            strokeWidth=2.5, point=alt.OverlayMarkDef(size=60)).encode(
-            x=alt.X("bin:N", sort=x_sort, title=None),
-            y=alt.Y("pct:Q", title=obs_label,
-                    scale=alt.Scale(domain=[0.0, 100.0])),
-            color=alt.Color("series:N",
-                            scale=alt.Scale(domain=["Observed", "Win rate"],
-                                            range=["#22C55E", "#8B5CF6"]),
-                            title="Series"),
-            tooltip=["bin", "series", "pct", "count"])
-    chart = (bar_layer + line_chart).resolve_scale(y="independent").properties(
-        height=300, title=title)
-    # Scatter: observed (2-way) vs mean predicted per populated bin + diagonal
-    pts = [{"bin_center": b["bin_center"], "mean_pred": b["mean_pred"],
-            "mean_actual": b["observed"], "count": b["count"]}
-           for b in table["bins"]
-           if b["observed"] is not None and not b["low_n"]]
-    if pts:
-        curve = {"bins": pts, "n_pairs": int(sum(p["count"] for p in pts)),
-                 "n_dropped_bins": 0, "warning": None}
-        scatter = chart_calibration(
-            curve, "Observed vs predicted per bucket (dashed = calibrated)")
-    else:
-        scatter = alt.Chart(pd.DataFrame()).mark_point()
-    # Pooled marker (amber diamond) at (pooled predicted, pooled observed) so
-    # the chart and the Total row agree — the pooled calibration point without
-    # mental arithmetic.
-    pooled_pred = table.get("pooled_pred")
-    pooled_obs = table.get("pooled_observed")
-    if pooled_pred is not None and pooled_obs is not None:
-        pool_df = pd.DataFrame({"px": [pooled_pred], "py": [pooled_obs]})
-        pooled_marker = alt.Chart(pool_df).mark_point(
-            shape="diamond", size=150, color="#F59E0B",
-            filled=True).encode(
-            x="px:Q", y="py:Q",
-            tooltip=[alt.Tooltip("px:Q", title="pooled pred"),
-                    alt.Tooltip("py:Q", title="pooled observed")])
-        scatter = scatter + pooled_marker
-    # Total (summary) row appended to the bin table: count = sum of bucket
-    # counts (empty buckets contribute 0), mean_pred / observed = the pooled
-    # count-weighted values, share_pct = 100.00. It reads as a summary, not a
-    # bucket — never plotted (the chart uses only the per-bucket rows).
-    total_row = pd.DataFrame([{
-        "bin": "Total",
-        "bin_center": None,
-        "count": int(tdf["count"].sum()),
-        "mean_pred": pooled_pred,
-        "observed": pooled_obs,
-        "win_rate": table.get("pooled_winrate"),
-        "ece": table.get("pooled_ece"),
-        "brier": table.get("pooled_brier"),
-        "low_n": False,
-        "share_pct": 100.0,
-    }])
-    table_df = pd.concat([tdf, total_row], ignore_index=True)
-    return {"chart": chart, "scatter": scatter, "table": table_df}
+
 
 
 ACC_Y_AXIS_FLOOR = 75.0   # accuracy axis is in PERCENT units; floor in %
@@ -1802,3 +1828,5 @@ def fit_panel_rows(fit: Optional[dict]) -> dict:
         "tails": tails,
         "mc_caption": mc_caption(fit.get("mc_meta")),
     }
+
+

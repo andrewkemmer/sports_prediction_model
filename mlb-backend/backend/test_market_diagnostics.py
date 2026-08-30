@@ -9,6 +9,7 @@ Read-only over artifacts; no model/config/metric changes.
 from __future__ import annotations
 
 import math
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -283,6 +284,120 @@ class TestRoundedTotalPairs(unittest.TestCase):
         self.assertEqual(len(pairs), 0)
 
 
+class TestGameTotalCurveMoneylineGrammar(unittest.TestCase):
+    """The Game Total Lines tab is now a single moneyline-style chart
+    (``chart_game_total_curve``): continuous probability x, left 'Games' count
+    bars, right '%' observed + win-rate curves, dashed perfect-calibration
+    diagonal and amber pooled marker rolled into ONE chart (no separate
+    scatter), and each axis title on exactly one layer — the same grammar as
+    the moneyline Calibration Curve page."""
+
+    @staticmethod
+    def _decided():
+        rows = []
+        for k in range(10):            # bin 40-45 (n=10 < LOW_N=30)
+            over = k < 4
+            rows.append({"game_pk": k, "total_runs": 9 if over else 8,
+                         "p_over_8_5": 0.42, "p_under_8_5": 0.58})
+        for k in range(50):            # bin 55-60 (n=50 >= LOW_N)
+            over = k < 29
+            rows.append({"game_pk": 100 + k, "total_runs": 10 if over else 8,
+                         "p_over_8_5": 0.57, "p_under_8_5": 0.43})
+        return pd.DataFrame(rows)
+
+    def _built(self, line=8.5, title="Calibration Curve — Over 8.5"):
+        out = diag.game_total_calibration(self._decided(), line)
+        return out, diag.chart_game_total_curve(out, title)
+
+    def test_returns_chart_and_table_no_scatter(self):
+        out, built = self._built()
+        self.assertIsNone(out["warning"])
+        self.assertEqual(sorted(built.keys()), ["chart", "table"])
+        self.assertNotIn("scatter", built,
+                         "no separate observed-vs-predicted scatter")
+        self.assertFalse(built["table"].empty)
+        self.assertEqual(built["table"].iloc[-1]["bin"], "Total")
+        self.assertEqual(built["table"].iloc[-1]["share_pct"], 100.0)
+
+    def test_continuous_probability_x_not_categorical(self):
+        _, built = self._built()
+        d = _spec_dump(built["chart"])
+        # Continuous bin-center x (0-1 probability scale), not categorical bins.
+        self.assertIn('"bin_center"', d)
+        self.assertIn('[0.0, 1.0]', d)
+        # bin_center is the x field used on the continuous probability scale
+        # (never a categorical bin axis).
+        self.assertIn('"field": "bin_center"', d)
+        # Both axes: left count ('Games') + right pct (%).
+        self.assertIn('"field": "count"', d)
+        self.assertIn('"field": "pct"', d)
+        # Diagonal + amber pooled marker + series legend.
+        self.assertIn("#64748B", d)
+        self.assertIn("#F59E0B", d)
+        self.assertIn('"shape": "diamond"', d)
+        self.assertIn("#8B5CF6", d)
+
+    def test_each_axis_title_exactly_once(self):
+        _, built = self._built()
+        titles = []
+
+        def _walk(node):
+            if isinstance(node, dict):
+                # Collect y-axis title if this is an encoding-bearing layer.
+                y = node.get("encoding", {}).get("y")
+                if isinstance(y, dict):
+                    ax = y.get("axis")
+                    t = ax.get("title") if isinstance(ax, dict) else None
+                    if isinstance(t, str):
+                        titles.append(t)
+                for v in node.values():
+                    _walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    _walk(v)
+
+        _walk(built["chart"].to_dict())
+        self.assertEqual(titles.count("Observed % (2-way, no push)"), 1,
+                         "right '%' axis title must appear exactly once")
+        self.assertEqual(titles.count("Games"), 1,
+                         "left 'Games' axis title must appear exactly once")
+
+    def test_title_is_dynamic(self):
+        _, built = self._built(
+            title="Calibration Curve — Over (All = own fair line)")
+        # The spec dump JSON-escapes the em-dash (\u2014); match ASCII-safe
+        # substrings so we never depend on the dump's escaping.
+        self.assertIn("Calibration Curve \\u2014 Over (All = own fair line)",
+                      _spec_dump(built["chart"]))
+        _, built8 = self._built(line=8.5, title="Calibration Curve — Over 8.5")
+        self.assertIn("Over 8.5", _spec_dump(built8["chart"]))
+
+    def test_hover_metadata_and_low_n_suppression(self):
+        _, built = self._built()
+        d = _spec_dump(built["chart"])
+        # Hover carries games / mean predicted / observed / win rate.
+        self.assertIn('"Games"', d)
+        self.assertIn("Mean predicted", d)
+        self.assertIn("Win rate", d)
+        # low-n bin (40-45, n=10) rendered as a gray bar; its curve point
+        # dropped; non-low-n (55-60) point kept.
+        self.assertIn("#94A3B8", d)
+        pts = diag._gtl_line_points(diag.game_total_calibration(
+            self._decided(), 8.5))
+        self.assertIn(0.575, list(pts["bin_center"]))
+        self.assertNotIn(0.425, list(pts["bin_center"]))
+
+    def test_all_branch_uses_own_line_and_renders(self):
+        decided = add_outcomes(make_grid_df(n=200, seed=11))
+        out = diag.game_total_calibration(decided, None)
+        self.assertIsNone(out["warning"])
+        built = diag.chart_game_total_curve(
+            out, "Calibration Curve — Over (All = own fair line)")
+        self.assertIn("chart", built)
+        self.assertNotIn("scatter", built)
+        self.assertGreater(len(built["chart"].to_dict()), 1)
+
+
 class TestFixedLineCalibration(unittest.TestCase):
     """The Diagnostics fixed-line tab: ALL decided games priced at ONE line
     (default 8.5), predicted = re-scaled 2-way P(over), observed = over
@@ -421,7 +536,7 @@ class TestFixedLineCalibration(unittest.TestCase):
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
         self.assertIsNone(out["warning"])
         self.assertEqual(out["n_pushes"], 1)
-        built = diag.chart_game_total_lines(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         self.assertEqual(tab.iloc[-1]["bin"], "Total")
         self.assertEqual(len(tab), len(out["bins"]) + 1)  # bins + Total
@@ -443,7 +558,7 @@ class TestFixedLineCalibration(unittest.TestCase):
                  "p_over_9_0": 0.52, "p_under_9_0": 0.47}
                 for i in range(60)]
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
-        built = diag.chart_game_total_lines(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         self.assertEqual(tab.iloc[-1]["bin"], "Total")
         self.assertEqual(tab.iloc[-1]["count"],
@@ -466,12 +581,12 @@ class TestFixedLineCalibration(unittest.TestCase):
             self.assertIsNone(b["observed"])
             self.assertIsNone(b["mean_pred"])
             self.assertEqual(b["share_pct"], 0.0)
-        built = diag.chart_game_total_lines(out, "t")
-        for k in ("chart", "scatter", "table"):
+        built = diag.chart_game_total_curve(out, "t")
+        for k in ("chart", "table"):
             self.assertIn(k, built)
+        self.assertNotIn("scatter", built, "no separate scatter chart")
         self.assertFalse(built["table"].empty)
         self.assertGreater(len(built["chart"].to_dict()), 1)
-        self.assertGreater(len(built["scatter"].to_dict()), 1)
 
     def test_missing_columns_warn_not_crash(self):
         out = diag.game_total_calibration(pd.DataFrame(), 8.5)
@@ -963,9 +1078,8 @@ class TestRenderSmoke(unittest.TestCase):
         for line in (None, 8.5):
             out = diag.game_total_calibration(self.decided, line)
             self.assertIsNone(out["warning"])
-            built = diag.chart_game_total_lines(out, "t")
+            built = diag.chart_game_total_curve(out, "t")
             self._assert_chart_has_data(built["chart"])
-            self._assert_chart_has_data(built["scatter"])
             self.assertFalse(built["table"].empty)
             # New table contract: share_pct replaces the redundant observed_pct
             self.assertIn("share_pct", built["table"].columns)
@@ -1106,16 +1220,16 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
 
     def test_low_n_bins_flagged_and_points_suppressed(self):
         out = diag.game_total_calibration(self._metrics_decided(), 8.5)
-        built = diag.chart_game_total_lines(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         tab = built["table"]
         row40 = tab[tab["bin"] == "40-45"].iloc[0]
         row55 = tab[tab["bin"] == "55-60"].iloc[0]
         self.assertTrue(bool(row40["low_n"]))    # n=10 < 30
         self.assertFalse(bool(row55["low_n"]))   # n=50 >= 30
-        # Scatter keeps ONLY non-low-n populated bins (55-60); 40-45 dropped.
-        dump = _spec_dump(built["scatter"])
-        self.assertIn("0.57", dump)        # kept bin present
-        self.assertNotIn("0.42", dump)     # low-n bin's value suppressed
+        # Line/point spec keeps ONLY non-low-n populated bins (55-60); the
+        # low-n bin (0.42) is dropped from the win-rate/observed points.
+        dump = _spec_dump(built["chart"])
+        self.assertIn("Observed", dump)    # curves present
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_all_branch_flat_own_line_win_rate_renders(self):
@@ -1131,7 +1245,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
         # Flat own-line win rate (the documented finding, not a bug)
         self.assertGreaterEqual(out["pooled_winrate"], 0.35)
         self.assertLessEqual(out["pooled_winrate"], 0.65)
-        built = diag.chart_game_total_lines(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         self.assertGreater(len(built["chart"].to_dict()), 1)
 
     def test_empty_bins_render_zero_none_no_error(self):
@@ -1140,7 +1254,7 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
                  "p_over_9_0": 0.52, "p_under_9_0": 0.47}
                 for i in range(60)]
         out = diag.game_total_calibration(pd.DataFrame(rows), 9.0)
-        built = diag.chart_game_total_lines(out, "t")
+        built = diag.chart_game_total_curve(out, "t")
         empty = [b for b in out["bins"] if b["count"] == 0]
         self.assertTrue(empty)
         for b in empty:
@@ -1151,12 +1265,46 @@ class TestTotalsCalibrationMetrics(unittest.TestCase):
             self.assertIsNone(b["brier"])
             self.assertFalse(b["low_n"])
             self.assertEqual(b["share_pct"], 0.0)
-        for k in ("chart", "scatter", "table"):
+        for k in ("chart", "table"):
             self.assertIn(k, built)
+        self.assertNotIn("scatter", built, "no separate scatter view")
         self.assertFalse(built["table"].empty)
         # table carries the new columns
         for col in ("win_rate", "ece", "brier", "low_n"):
             self.assertIn(col, built["table"].columns)
+
+
+
+
+class TestGameTotalLinesDiagnosticsAppTest(unittest.TestCase):
+    """End-to-end through frontend/markets.py (the Diagnostics page): the
+    'Game Total Lines' tab (All own-line / fixed line) renders the merged
+    moneyline-style calibration chart + pooled table with 0 exceptions, on
+    the current committed artifact. Runs in a SUBPROCESS so the canonical
+    suite's streamlit stubs (swapped by test_frontend_markets) cannot poison
+    the real Streamlit run."""
+
+    def test_diagnostics_game_total_lines_tab_renders(self):
+        script = (
+            "import sys; sys.path.insert(0, %r);\n"
+            "from streamlit.testing.v1 import AppTest;\n"
+            "at = AppTest.from_file(%r, default_timeout=60);\n"
+            "at.run();\n"
+            "labels = [t.proto.label for t in at.tabs];\n"
+            "assert 'Game Total Lines' in labels, labels;\n"
+            "idx = labels.index('Game Total Lines');\n"
+            "at.tabs[idx].run();\n"
+            "assert not at.exception, at.exception;\n"
+            "assert len(at.caption) > 0, 'no captions rendered';\n"
+            "print('DIAG_GT_OK')\n"
+        ) % (str(FRONTEND), str(FRONTEND / "markets.py"))
+        res = subprocess.run([sys.executable, "-c", script],
+                             capture_output=True, text=True, timeout=180)
+        self.assertEqual(
+            res.returncode, 0,
+            f"AppTest subprocess failed:\nSTDOUT:\n{res.stdout}\n"
+            f"STDERR:\n{res.stderr[-2000:]}")
+        self.assertIn("DIAG_GT_OK", res.stdout)
 
 
 if __name__ == "__main__":

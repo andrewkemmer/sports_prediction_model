@@ -194,24 +194,27 @@ else:
             st.warning(glc["warning"])
         else:
             if _gl_line is None:
-                _gl_title = "All games at each own fair line"
+                _gl_title = "Calibration Curve — Over (All = own fair line)"
             else:
-                _gl_title = f"Fixed line {_gl_line:g} — every game at one line"
-            built = diag.chart_game_total_lines(glc, _gl_title)
+                _gl_title = f"Calibration Curve — Over {_gl_line:g}"
+            built = diag.chart_game_total_curve(glc, _gl_title)
             utils.show_chart(built["chart"])
-            utils.show_chart(built["scatter"])
             st.table(built["table"])
+            priced_txt = ("decided games priced at their own fair lines"
+                          if _gl_line is None else
+                          f"decided games priced at line {_gl_line:g}")
             st.caption(
-                f"{glc['n_games']:,} decided games · predicted = re-scaled "
-                f"2-way P (p_over / (p_over + p_under)) · "
+                f"{glc['n_games']:,} {priced_txt} · bar heights = games "
+                f"priced in that predicted-P(over) band (LEFT 'Games' axis) "
+                f"· observed and win-rate curves (RIGHT '%' axis) = how often "
+                f"those games hit, on the 2-way no-push basis · "
                 f"{glc['n_pushes']:,} pushes excluded ({glc['push_rate']:.1%}, "
-                f"whole lines only, neither wins nor losses) · observed on "
-                f"the same no-push basis · share % = count_bin / count_total × "
-                f"100 · pooled predicted {glc['pooled_pred']:.2f} vs pooled "
-                f"observed {glc['pooled_observed']:.2f} · pooled win "
-                f"rate {glc['pooled_winrate']:.1%} (picked side) · "
-                f"pooled ECE {glc['pooled_ece']:.3f} · pooled Brier "
-                f"{glc['pooled_brier']:.3f}. "
+                f"whole lines only, neither wins nor losses) · share % = "
+                f"count_bin / count_total × 100 · pooled predicted "
+                f"{glc['pooled_pred']:.2f} vs pooled observed "
+                f"{glc['pooled_observed']:.2f} · pooled win "
+                f"rate {glc['pooled_winrate']:.1%} · pooled ECE "
+                f"{glc['pooled_ece']:.3f} · pooled Brier {glc['pooled_brier']:.3f}. "
                 + ("ALL: each game priced at ITS OWN fair line (the 50/50 "
                    "grid search) — predicted = the same re-scaled 2-way "
                    "P(over) the Today's Games card shows at its default "
@@ -219,16 +222,16 @@ else:
                    "in 1-pt buckets 40–41…60+; observed = over rate."
                    if _gl_line is None else
                    f"FIXED LINE {_gl_line:g}: all games at one line — the "
-                   "predicted spread IS the calibration surface (the per-game "
-                   "own-line view compressed it to 0.44–0.51); observed = "
-                   "over frequency; 5-pt bins over [0, 1].") + " The last "
-                "table row is the pooled Total (win rate / ECE / Brier on "
-                "it; share 100%, the amber diamond on the scatter); the "
-                "dashed diagonal is perfect calibration. The win-rate line "
-                "is the picked-side W/(W+L) (over if P(over) > 50%; below "
-                "50% the under pick flips it — a 'V' around 50%). Gray "
-                "bars + dropped points mark buckets with n < 30 (low "
-                "sample — not reliable calibration evidence)."
+                   "predicted spread IS the calibration surface; observed = "
+                   "over frequency; 5-pt bins line the 0–1 axis (0.025…0.975).")
+                + " The dashed diagonal is perfect calibration: points on it "
+                "mean the model's probabilities are honest at every level, "
+                "not just near 50%. The win-rate line is the picked-side "
+                "W/(W+L) (over if P(over) > 50%; below 50% the under pick "
+                "flips it — a 'V' around 50%). The last table row is the "
+                "pooled Total (share 100%, the amber diamond on the chart). "
+                "Gray bars + dropped curve points mark buckets with n < 30 "
+                "(low sample — not reliable calibration evidence)."
             )
 
     with _tabs[4]:   # 5 — run-line pick accuracy buckets

@@ -338,8 +338,16 @@ class TestRunEngineModelMonitorRender(TestCase):
                       "selector must offer All first, then the grid")
         self.assertIn("diag.game_total_calibration", src,
                       "tab must pool via the shared game-total helper")
-        self.assertIn("diag.chart_game_total_lines", src,
-                      "tab must render the bars + observed-vs-predicted view")
+        self.assertIn("diag.chart_game_total_curve", src,
+                      "tab must render the bars + curves + diagonal view")
+        self.assertIn("Calibration Curve — Over", src,
+                      "dynamic title: 'Calibration Curve — Over <line>'")
+        self.assertNotIn('built["scatter"]', src,
+                         "the bottom observed-vs-predicted scatter must be gone "
+                         "from the render path")
+        self.assertNotIn("Observed vs predicted per bucket", src,
+                         "the deleted scatter's heading/renderer must be gone "
+                         "from the tab")
         self.assertIn("diag_game_total_line", src,
                       "line selector key present")
         self.assertNotIn("diag.rounded_total_pairs", src,
