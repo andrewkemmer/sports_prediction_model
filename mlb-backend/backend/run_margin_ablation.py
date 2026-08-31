@@ -49,6 +49,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -265,7 +266,8 @@ def prepare_data(holdout_days: int, limit_folds: int = 0):
     h = hashlib.sha256()
     h.update(sha256_file(data_path).encode())
     h.update(json.dumps([str(s["val_start"]) for s in folds]).encode())
-    cache = Path("/tmp") / f"margin_oof_cache_{h.hexdigest()[:16]}.parquet"
+    cache = (Path(tempfile.gettempdir())
+             / f"margin_oof_cache_{h.hexdigest()[:16]}.parquet")
 
     if cache.exists():
         margins = pd.read_parquet(cache)

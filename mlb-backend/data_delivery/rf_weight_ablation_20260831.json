@@ -1,0 +1,421 @@
+{
+  "schema": "rf-weight-ablation/v1",
+  "commit_sha": "ed8136388e79b1f3ee48913ff7c33046abf8844e",
+  "date": "20260831",
+  "data": "data_delivery/game_level_features.csv",
+  "seed": 42,
+  "members": [
+    "lightgbm",
+    "logistic",
+    "mlp",
+    "randomforest",
+    "xgboost"
+  ],
+  "folds_executed": 71,
+  "member_pooled_oof": {
+    "lightgbm": {
+      "logloss": 0.6898,
+      "auc": 0.55,
+      "ece": 0.0347
+    },
+    "logistic": {
+      "logloss": 0.6988,
+      "auc": 0.5519,
+      "ece": 0.0396
+    },
+    "mlp": {
+      "logloss": 0.7033,
+      "auc": 0.5303,
+      "ece": 0.0586
+    },
+    "randomforest": {
+      "logloss": 0.6876,
+      "auc": 0.5528,
+      "ece": 0.0192
+    },
+    "xgboost": {
+      "logloss": 0.6788,
+      "auc": 0.5875,
+      "ece": 0.0099
+    }
+  },
+  "adaptive_weights": {
+    "lightgbm": 0.1332,
+    "logistic": 0.1512,
+    "mlp": 0.1052,
+    "randomforest": 0.1605,
+    "xgboost": 0.4499
+  },
+  "raw_softmax_preference": {
+    "lightgbm": 0.0633,
+    "logistic": 0.0719,
+    "mlp": 0.017,
+    "randomforest": 0.0763,
+    "xgboost": 0.7715
+  },
+  "arms": {
+    "adaptive": {
+      "weights": {
+        "lightgbm": 0.1332,
+        "logistic": 0.1512,
+        "mlp": 0.1052,
+        "randomforest": 0.1605,
+        "xgboost": 0.4499
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.574,
+          "brier": 0.2444,
+          "logloss": 0.6816,
+          "ece": 0.0058
+        },
+        "blend_calibrated": {
+          "auc": 0.5749,
+          "brier": 0.2443,
+          "logloss": 0.6815,
+          "ece": 0.0148
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5838,
+          "brier": 0.2418,
+          "logloss": 0.6765,
+          "ece": 0.051
+        },
+        "blend_calibrated": {
+          "auc": 0.5838,
+          "brier": 0.2415,
+          "logloss": 0.6759,
+          "ece": 0.0486
+        }
+      }
+    },
+    "prior": {
+      "weights": {
+        "lightgbm": 0.25,
+        "logistic": 0.3,
+        "mlp": 0.1,
+        "randomforest": 0.1,
+        "xgboost": 0.25
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.5658,
+          "brier": 0.2455,
+          "logloss": 0.684,
+          "ece": 0.0134
+        },
+        "blend_calibrated": {
+          "auc": 0.564,
+          "brier": 0.2459,
+          "logloss": 0.6849,
+          "ece": 0.0146
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5913,
+          "brier": 0.2412,
+          "logloss": 0.6754,
+          "ece": 0.0299
+        },
+        "blend_calibrated": {
+          "auc": 0.5913,
+          "brier": 0.2416,
+          "logloss": 0.6761,
+          "ece": 0.0212
+        }
+      }
+    },
+    "rf_zero": {
+      "weights": {
+        "xgboost": 0.2778,
+        "lightgbm": 0.2778,
+        "logistic": 0.3333,
+        "mlp": 0.1111,
+        "randomforest": 0.0
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.5659,
+          "brier": 0.2455,
+          "logloss": 0.684,
+          "ece": 0.0136
+        },
+        "blend_calibrated": {
+          "auc": 0.5639,
+          "brier": 0.246,
+          "logloss": 0.685,
+          "ece": 0.0139
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5898,
+          "brier": 0.2411,
+          "logloss": 0.6751,
+          "ece": 0.0312
+        },
+        "blend_calibrated": {
+          "auc": 0.5898,
+          "brier": 0.2415,
+          "logloss": 0.676,
+          "ece": 0.0238
+        }
+      }
+    },
+    "rf_05": {
+      "weights": {
+        "xgboost": 0.2639,
+        "lightgbm": 0.2639,
+        "logistic": 0.3166,
+        "mlp": 0.1056,
+        "randomforest": 0.05
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.5658,
+          "brier": 0.2455,
+          "logloss": 0.6839,
+          "ece": 0.016
+        },
+        "blend_calibrated": {
+          "auc": 0.564,
+          "brier": 0.2459,
+          "logloss": 0.6849,
+          "ece": 0.0142
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5908,
+          "brier": 0.2412,
+          "logloss": 0.6752,
+          "ece": 0.0298
+        },
+        "blend_calibrated": {
+          "auc": 0.5908,
+          "brier": 0.2415,
+          "logloss": 0.676,
+          "ece": 0.0211
+        }
+      }
+    },
+    "rf_20": {
+      "weights": {
+        "xgboost": 0.2222,
+        "lightgbm": 0.2222,
+        "logistic": 0.2667,
+        "mlp": 0.0889,
+        "randomforest": 0.2
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.5654,
+          "brier": 0.2455,
+          "logloss": 0.684,
+          "ece": 0.0119
+        },
+        "blend_calibrated": {
+          "auc": 0.5638,
+          "brier": 0.2459,
+          "logloss": 0.6849,
+          "ece": 0.013
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5915,
+          "brier": 0.2413,
+          "logloss": 0.6756,
+          "ece": 0.0311
+        },
+        "blend_calibrated": {
+          "auc": 0.5915,
+          "brier": 0.2417,
+          "logloss": 0.6764,
+          "ece": 0.0215
+        }
+      }
+    },
+    "rf_35": {
+      "weights": {
+        "xgboost": 0.1806,
+        "lightgbm": 0.1806,
+        "logistic": 0.2167,
+        "mlp": 0.0722,
+        "randomforest": 0.3499
+      },
+      "pooled": {
+        "blend": {
+          "auc": 0.5643,
+          "brier": 0.2457,
+          "logloss": 0.6843,
+          "ece": 0.0087
+        },
+        "blend_calibrated": {
+          "auc": 0.5628,
+          "brier": 0.246,
+          "logloss": 0.685,
+          "ece": 0.0114
+        }
+      },
+      "holdout": {
+        "blend": {
+          "auc": 0.5913,
+          "brier": 0.2416,
+          "logloss": 0.6762,
+          "ece": 0.0346
+        },
+        "blend_calibrated": {
+          "auc": 0.5913,
+          "brier": 0.2419,
+          "logloss": 0.6769,
+          "ece": 0.0256
+        }
+      }
+    }
+  },
+  "windows": {
+    "w0": {
+      "n_hold": 281,
+      "hold_start": "2026-08-09",
+      "hold_end": "2026-08-30",
+      "adaptive": {
+        "auc": 0.5875,
+        "brier": 0.2419,
+        "logloss": 0.6769,
+        "ece": 0.0463
+      },
+      "prior": {
+        "auc": 0.5911,
+        "brier": 0.2416,
+        "logloss": 0.6761,
+        "ece": 0.0385
+      },
+      "rf_zero": {
+        "auc": 0.5927,
+        "brier": 0.2413,
+        "logloss": 0.6756,
+        "ece": 0.0387
+      },
+      "rf_05": {
+        "auc": 0.5908,
+        "brier": 0.2414,
+        "logloss": 0.6758,
+        "ece": 0.0388
+      },
+      "rf_20": {
+        "auc": 0.5904,
+        "brier": 0.2419,
+        "logloss": 0.6767,
+        "ece": 0.0323
+      },
+      "rf_35": {
+        "auc": 0.5875,
+        "brier": 0.2424,
+        "logloss": 0.6778,
+        "ece": 0.0373
+      }
+    },
+    "w1": {
+      "n_hold": 286,
+      "hold_start": "2026-07-19",
+      "hold_end": "2026-08-09",
+      "adaptive": {
+        "auc": 0.534,
+        "brier": 0.2484,
+        "logloss": 0.69,
+        "ece": 0.0417
+      },
+      "prior": {
+        "auc": 0.5266,
+        "brier": 0.2489,
+        "logloss": 0.691,
+        "ece": 0.0336
+      },
+      "rf_zero": {
+        "auc": 0.5274,
+        "brier": 0.249,
+        "logloss": 0.6912,
+        "ece": 0.0388
+      },
+      "rf_05": {
+        "auc": 0.5272,
+        "brier": 0.249,
+        "logloss": 0.6911,
+        "ece": 0.0344
+      },
+      "rf_20": {
+        "auc": 0.5255,
+        "brier": 0.2488,
+        "logloss": 0.6908,
+        "ece": 0.0446
+      },
+      "rf_35": {
+        "auc": 0.5242,
+        "brier": 0.2488,
+        "logloss": 0.6907,
+        "ece": 0.0461
+      }
+    },
+    "w2": {
+      "n_hold": 237,
+      "hold_start": "2026-06-28",
+      "hold_end": "2026-07-19",
+      "adaptive": {
+        "auc": 0.6397,
+        "brier": 0.2404,
+        "logloss": 0.6738,
+        "ece": 0.0579
+      },
+      "prior": {
+        "auc": 0.6435,
+        "brier": 0.2406,
+        "logloss": 0.6743,
+        "ece": 0.057
+      },
+      "rf_zero": {
+        "auc": 0.6402,
+        "brier": 0.2405,
+        "logloss": 0.6741,
+        "ece": 0.0659
+      },
+      "rf_05": {
+        "auc": 0.6424,
+        "brier": 0.2405,
+        "logloss": 0.6742,
+        "ece": 0.0584
+      },
+      "rf_20": {
+        "auc": 0.6462,
+        "brier": 0.2407,
+        "logloss": 0.6745,
+        "ece": 0.0671
+      },
+      "rf_35": {
+        "auc": 0.6498,
+        "brier": 0.241,
+        "logloss": 0.6751,
+        "ece": 0.0653
+      }
+    }
+  },
+  "gate": {
+    "verdict": "KEEP PRODUCTION ADAPTIVE WEIGHTS",
+    "rule": "fixed-weight arm must beat adaptive on main sealed logloss AND AUC without ECE degradation and without losing pooled OOF logloss (>+0.0005)",
+    "adaptive_holdout": {
+      "auc": 0.5838,
+      "brier": 0.2418,
+      "logloss": 0.6765,
+      "ece": 0.051
+    },
+    "adaptive_pooled": {
+      "auc": 0.574,
+      "brier": 0.2444,
+      "logloss": 0.6816,
+      "ece": 0.0058
+    }
+  }
+}
