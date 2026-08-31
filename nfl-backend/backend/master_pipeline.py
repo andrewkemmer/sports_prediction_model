@@ -370,8 +370,7 @@ def phase4(args) -> None:
                   f"{CONFIG['github_repo']}@{CONFIG['github_branch']}")
         else:
             print("  [skip] Nothing new to push")
-        # stash the snapshot + sync clone for phase 5 cleanup
-        phase4._preexisting = preexisting  # type: ignore[attr-defined]
+        # stash the sync clone state for phase 5 cleanup
         phase4._delivery_dir = delivery_dir  # type: ignore[attr-defined]
         phase4._staged = set(seen)  # type: ignore[attr-defined]
         phase4._sync_dir = sync_dir  # type: ignore[attr-defined]
