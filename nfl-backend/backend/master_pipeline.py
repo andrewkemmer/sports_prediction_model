@@ -143,31 +143,22 @@ def _try_load_schedule(slate_season: int):
         print(f"  [slate] schedule load failed (slate skipped): {e}")
         return None, None
 
-    # 2026 scheduled rows come from the committed ESPN schedule artifact
-    # (ESPN blocks the Kaggle/Google-Cloud egress, so a LIVE fetch returns 0
-    # scheduled games from Kaggle; the CSV is refreshed locally where ESPN is
-    # reachable). Live ESPN is only a fallback when the artifact is absent.
+    # The target-season (e.g. 2026) scheduled rows are read live from the
+    # native nflverse ``games.csv`` release (GitHub, reachable from Kaggle).
+    # nflreadpy can't serve 2026 (its installed validator caps at 2025), so we
+    # fetch the same underlying artifact directly. Scheduled rows carry NaN
+    # scores, so build_slate_features treats them as the pre-game slate.
     try:
         import pandas as pd
-        sched_csv = Path("data_delivery") / f"nfl_espn_schedule_{ss}.csv"
-        if sched_csv.exists():
-            from nfl_espn_schedule import read_schedule_csv
-            espn = read_schedule_csv(sched_csv)
-            if not espn.empty:
-                sched = pd.concat([sched, espn], ignore_index=True, sort=False)
-                print(f"  [slate] ESPN schedule CSV: {len(espn)} scheduled {ss} games")
-            else:
-                print(f"  [slate] ESPN schedule CSV empty for {ss}")
+        from nfl_nflverse_schedule import load_nflverse_games
+        rows = load_nflverse_games(ss)
+        if not rows.empty:
+            sched = pd.concat([sched, rows], ignore_index=True, sort=False)
+            print(f"  [slate] nflverse games.csv: {len(rows)} scheduled {ss} games appended")
         else:
-            from nfl_espn_schedule import load_espn_schedule_rows
-            espn = load_espn_schedule_rows(season=ss)
-            if not espn.empty:
-                sched = pd.concat([sched, espn], ignore_index=True, sort=False)
-                print(f"  [slate] ESPN live appended {len(espn)} scheduled {ss} games")
-            else:
-                print(f"  [slate] ESPN returned 0 scheduled {ss} games")
+            print(f"  [slate] nflverse has no scheduled {ss} games yet")
     except Exception as e:  # noqa: BLE001
-        print(f"  [slate] ESPN {ss} schedule load failed: {e}")
+        print(f"  [slate] nflverse {ss} games.csv load failed: {e}")
     return sched, pbp
 
 
@@ -386,13 +377,9 @@ def phase4(args) -> None:
 # hangs off (the same reason MLB protects model_history.json /
 # statsapi_roof_cache.json) — never delete it.
 _PROTECTED_DELIVERY_NAMES = {
-    "nfl_game_level_features.csv",       # canonical decided frame (regenerated +
-                                         # staged every run; a dateless name the
-                                         # date-gate can never save)
-    "nfl_espn_schedule_2026.csv",        # 2026 ESPN schedule artifact (written
-                                         # locally; dateless to the date-gate —
-                                         # ESPN is IP-blocked on Kaggle, and the
-                                         # slate needs it every run)
+    "nfl_game_level_features.csv",   # canonical decided frame (regenerated +
+                                     # staged every run; a dateless name the
+                                     # date-gate can never save)
 }
 _PROTECTED_DELIVERY_PREFIXES = (
     "models/",          # deployed ensemble bundles
