@@ -96,16 +96,19 @@ def load_features(features_csv: str | None) -> pd.DataFrame:
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
     """Column lists per arm, kept only where the frame carries them.
 
-    Four arms: WITHOUT (deployed 10), WITH (10 + all 9 Tier-1),
-    WITH_ADMITTED (10 + the gate-admitted 7 Tier-1), and WITH_SUBSET
-    (10 + the three strongest discriminators)."""
+    Five arms: WITHOUT (deployed 10), WITH (10 + all 9 Tier-1),
+    WITH_ADMITTED (10 + the gate-admitted 7 Tier-1), WITH_SUBSET
+    (10 + the three strongest discriminators), and TIER1_ONLY (the 7
+    admitted Tier-1 features ALONE — tests whether the new family can
+    REPLACE the original 10 on its own, not just augment them)."""
     without = [c for c in WITHOUT_FEATURES if c in feats.columns]
     tier1 = [c for c in TIER1_FEATURES if c in feats.columns]
     admitted = [c for c in TIER1_ADMITTED if c in feats.columns]
     subset = [c for c in TIER1_SUBSET if c in feats.columns]
     return {"WITHOUT": without, "WITH": without + tier1,
             "WITH_ADMITTED": without + admitted,
-            "WITH_SUBSET": without + subset}
+            "WITH_SUBSET": without + subset,
+            "TIER1_ONLY": admitted}
 
 
 def _platt_metrics(rec: dict, key: str) -> dict:
@@ -188,8 +191,10 @@ def main(argv: list[str] | None = None) -> int:
                                      pooled["WITHOUT"], pooled["WITH_ADMITTED"])
     verdict_subset = adopt_verdict(sealed["WITHOUT"], sealed["WITH_SUBSET"],
                                    pooled["WITHOUT"], pooled["WITH_SUBSET"])
+    verdict_tier1_only = adopt_verdict(sealed["WITHOUT"], sealed["TIER1_ONLY"],
+                                       pooled["WITHOUT"], pooled["TIER1_ONLY"])
 
-    print("\n=== Tier-1 ablation (WITH / WITH_ADMITTED / WITH_SUBSET vs WITHOUT) ===")
+    print("\n=== Tier-1 ablation (WITH / WITH_ADMITTED / WITH_SUBSET / TIER1_ONLY vs WITHOUT) ===")
     print("arm           sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]
@@ -203,6 +208,9 @@ def main(argv: list[str] | None = None) -> int:
     print("VERDICT (WITH_SUBSET-3 vs WITHOUT):",
           "ADOPT" if verdict_subset["adopt"] else "DON'T ADOPT",
           "|", " | ".join(verdict_subset["reason"]))
+    print("VERDICT (TIER1_ONLY-7 vs WITHOUT):",
+          "ADOPT" if verdict_tier1_only["adopt"] else "DON'T ADOPT",
+          "|", " | ".join(verdict_tier1_only["reason"]))
 
     if args.no_record:
         return 0
@@ -217,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         "verdict_with": verdict,
         "verdict_with_admitted": verdict_admitted,
         "verdict_with_subset": verdict_subset,
+        "verdict_tier1_only": verdict_tier1_only,
     }
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"nfl_tier1_ablation_{record['frame_sha256']}.json"
