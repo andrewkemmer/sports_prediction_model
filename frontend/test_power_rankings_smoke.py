@@ -21,6 +21,7 @@ Run from the frontend/ directory:
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 
@@ -36,6 +37,9 @@ ARTIFACT_NAME = f"nfl_power_rankings_{ARTIFACT_DATE}.csv"
 ARTIFACT_PATH = NFL_DD / ARTIFACT_NAME
 
 WRITTEN: list[Path] = []
+# Path -> original bytes of a PRE-EXISTING (committed) artifact this test
+# overwrites with a fixture; restored on cleanup, never deleted.
+_BACKUPS: dict[Path, bytes] = {}
 
 # 17 teams with descending Elo: rank 1 = KC ... rank 17 = MIA. Top 15 should
 # render; the 16th/17th (SEA, MIA) must be absent from the top-15 table.
@@ -68,16 +72,31 @@ def _rankings_frame() -> pd.DataFrame:
     return df
 
 
+def _stage(path: Path, data: bytes) -> None:
+    """Write a fixture over ``path``, preserving any pre-existing (committed)
+    artifact's bytes so cleanup can restore it rather than delete it."""
+    if path.exists():
+        _BACKUPS[path] = path.read_bytes()
+    path.write_bytes(data)
+    WRITTEN.append(path)
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    _rankings_frame().to_csv(ARTIFACT_PATH)
-    WRITTEN.append(ARTIFACT_PATH)
+    # ``rank`` is the frame's NAMED index, so write it to the CSV (index=True),
+    # byte-for-byte the same as the original ``to_csv(ARTIFACT_PATH)``.
+    buf = io.BytesIO()
+    _rankings_frame().to_csv(buf)
+    _stage(ARTIFACT_PATH, buf.getvalue())
 
 
 def _remove_artifacts() -> None:
     for p in WRITTEN:
         try:
-            p.unlink()
+            if p in _BACKUPS:
+                p.write_bytes(_BACKUPS.pop(p))  # restore committed artifact
+            else:
+                p.unlink()                       # fixture we created fresh
         except FileNotFoundError:
             pass
     WRITTEN.clear()

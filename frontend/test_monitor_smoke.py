@@ -37,6 +37,9 @@ MONITOR_NAME = f"nfl_model_monitor_{ARTIFACT_DATE}.json"
 MONITOR_PATH = NFL_DD / MONITOR_NAME
 
 WRITTEN: list[Path] = []
+# Path -> original bytes of a PRE-EXISTING (committed) artifact this test
+# overwrites with a fixture; restored on cleanup, never deleted.
+_BACKUPS: dict[Path, bytes] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -102,17 +105,27 @@ def _monitor_record() -> dict:
     }
 
 
+def _stage(path: Path, data: bytes) -> None:
+    """Write a fixture over ``path``, preserving any pre-existing (committed)
+    artifact's bytes so cleanup can restore it rather than delete it."""
+    if path.exists():
+        _BACKUPS[path] = path.read_bytes()
+    path.write_bytes(data)
+    WRITTEN.append(path)
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    MONITOR_PATH.write_text(json.dumps(_monitor_record(), indent=2),
-                            encoding="utf-8")
-    WRITTEN.append(MONITOR_PATH)
+    _stage(MONITOR_PATH, json.dumps(_monitor_record(), indent=2).encode("utf-8"))
 
 
 def _remove_artifacts() -> None:
     for p in WRITTEN:
         try:
-            p.unlink()
+            if p in _BACKUPS:
+                p.write_bytes(_BACKUPS.pop(p))  # restore committed artifact
+            else:
+                p.unlink()                       # fixture we created fresh
         except FileNotFoundError:
             pass
     WRITTEN.clear()

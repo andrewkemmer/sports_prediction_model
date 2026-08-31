@@ -42,6 +42,11 @@ CALIBRATION_PATH = NFL_DD / CALIBRATION_NAME
 HISTORY_PATH = NFL_DD / HISTORY_NAME
 
 WRITTEN: list[Path] = []
+# Path -> original bytes of a PRE-EXISTING artifact this test overwrites with a
+# fixture (e.g. a committed nfl_calibration_*.json). They are restored on
+# cleanup — never deleted — so running the smoke test can't remove real
+# committed artifacts from the tree.
+_BACKUPS: dict[Path, bytes] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -122,19 +127,33 @@ def _history_frame(n: int = 320) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _stage(path: Path, data: bytes) -> None:
+    """Write a fixture over ``path``, preserving any pre-existing (committed)
+    artifact's bytes so cleanup can restore it rather than delete it."""
+    if path.exists():
+        _BACKUPS[path] = path.read_bytes()
+    path.write_bytes(data)
+    WRITTEN.append(path)
+
+
 def _write_artifacts() -> None:
     NFL_DD.mkdir(parents=True, exist_ok=True)
-    CALIBRATION_PATH.write_text(
-        json.dumps(_calibration_record(), indent=2), encoding="utf-8")
-    _history_frame().to_csv(HISTORY_PATH, index=False)
-    WRITTEN.append(CALIBRATION_PATH)
-    WRITTEN.append(HISTORY_PATH)
+    cal = json.dumps(_calibration_record(), indent=2).encode("utf-8")
+    hist = _history_frame().to_csv(index=False).encode("utf-8")
+    _stage(CALIBRATION_PATH, cal)
+    _stage(HISTORY_PATH, hist)
 
 
 def _remove_artifacts() -> None:
     for p in WRITTEN:
         try:
-            p.unlink()
+            if p in _BACKUPS:
+                # A committed artifact existed here — restore it byte-for-byte;
+                # never delete real data.
+                p.write_bytes(_BACKUPS.pop(p))
+            else:
+                # This was a fixture this test created fresh -> safe to remove.
+                p.unlink()
         except FileNotFoundError:
             pass
     WRITTEN.clear()
