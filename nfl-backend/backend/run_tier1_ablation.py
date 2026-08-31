@@ -171,9 +171,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name}: {len(cols)} cols -> {cols}")
 
     # Admission-gate report for the Tier-1 candidates (informational: the
-    # walk-forward is the arbiter; the gate documents coverage/redundancy).
+    # walk-forward is the arbiter). The Tier-1 candidates are NOT in the
+    # deployed FEATURE_COLUMNS pool (reverted 2026-08-31 after the sealed
+    # ablation), so the gate no longer scores them — label as such.
     gate = run_feature_gate(feats)
-    tier1_gate = {c: gate["reasons"].get(c) or "admitted" for c in TIER1_FEATURES}
+    tier1_gate = {c: gate["reasons"].get(c)
+                  or "reverted: not in production candidate pool (FEATURE_COLUMNS)"
+                  for c in TIER1_FEATURES}
 
     results = {}
     for name, cols in arms.items():
