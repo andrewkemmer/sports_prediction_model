@@ -48,8 +48,12 @@ WRITTEN: list[Path] = []
 # Representative artifact construction (matches the emitted Part-A schema)
 # ---------------------------------------------------------------------------
 def _calibration_record() -> dict:
-    """A realistic nfl_calibration_*.json mirroring build_calibration."""
-    seq = [0.42, 0.52, 0.60, 0.68, 0.76, 0.86]
+    """A realistic nfl_calibration_*.json mirroring build_calibration.
+
+    Buckets run the FAVORED view only (>= 50%), matching the backend
+    reliability_buckets fix — the raw calibration_buckets / calibrated set
+    never carry a sub-50% bucket."""
+    seq = [0.52, 0.60, 0.68, 0.76, 0.84, 0.92]   # favored-only: 50%..100%
     counts = [130, 210, 260, 230, 170, 107]
     buckets, cal_buckets = [], []
     for i, mp in enumerate(seq):
@@ -206,6 +210,13 @@ def run() -> int:
             problems.append("reliability table missing TOTAL row")
         if "BUCKET" not in text:
             problems.append("reliability table missing BUCKET header/rows")
+
+        # (5b) reliability table runs favored-only (>= 50%): the corrected
+        #     backend never emits a sub-50% bucket, and the page must not show one.
+        if "42%-50%" in text:
+            problems.append("reliability table still shows a sub-50% bucket")
+        if "52%-60%" not in text:
+            problems.append("reliability table missing a >=50% favored bucket")
 
         # (6) prediction-history table populated (with real rows, not the empty info)
         if "Prediction History" not in text:

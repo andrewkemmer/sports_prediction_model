@@ -49,24 +49,73 @@ def _oof_meta(seasons=(2021, 2022), n=6):
 
 
 class TestReliabilityBuckets(unittest.TestCase):
-    def test_bucket_math_on_tiny_fold(self):
-        """Known p assignment -> exact count / means / gap per bin."""
-        y = np.array([1, 0, 1, 0, 1, 0, 1, 0, 0, 0])
-        p = np.array([0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.9, 0.1, 0.1, 0.1])
+    def test_bucket_math_favored_view(self):
+        """Every game is binned from the favored side (>= 50%) with the
+        outcome flipped on away-favored rows; exact count/means/gap per bin."""
+        # p: [home-fav, home-fav, away-fav -> fav=0.4?s no: 0.4 -> fav 0.6, away-fav]
+        # p_fav = max(p, 1-p): [0.6, 0.9, 0.6, 0.9]; y_fav = y when home-fav,
+        # else 1-y: [1, 0, 0, 1]
+        y = np.array([1, 0, 1, 0])
+        p = np.array([0.6, 0.9, 0.4, 0.1])
         b = reliability_buckets(y, p, bins=2)
-        self.assertEqual(len(b), 2)
-        low = next(x for x in b if x["bucket"] == "0%-50%")
-        high = next(x for x in b if x["bucket"] == "50%-100%")
-        self.assertEqual(low["count"], 6)
-        self.assertAlmostEqual(low["mean_predicted"], 0.1, places=4)
-        self.assertAlmostEqual(low["mean_actual"], float(np.mean(y[p < 0.5])),
-                               places=4)
-        self.assertAlmostEqual(low["gap"], low["mean_predicted"]
-                               - low["mean_actual"], places=4)
-        self.assertEqual(high["count"], 4)
+        for x in b:  # no sub-50% bucket
+            lo = int(x["bucket"].split("-")[0].rstrip("%"))
+            self.assertGreaterEqual(lo, 50)
+        low = next(x for x in b if x["bucket"].startswith("50%"))
+        high = next(x for x in b if x["bucket"].startswith("75%"))
+        self.assertEqual(low["count"], 2)
+        self.assertAlmostEqual(low["mean_predicted"], 0.6, places=4)
+        self.assertAlmostEqual(low["mean_actual"], 0.5, places=4)
+        self.assertAlmostEqual(low["gap"], 0.6 - 0.5, places=4)
+        self.assertEqual(high["count"], 2)
         self.assertAlmostEqual(high["mean_predicted"], 0.9, places=4)
-        self.assertAlmostEqual(high["mean_actual"],
-                               float(np.mean(y[p >= 0.5])), places=4)
+        self.assertAlmostEqual(high["mean_actual"], 0.5, places=4)
+
+    def test_favored_flip_parity_with_frontend_curve(self):
+        """Parity with the frontend flip np.maximum(p, 1-p): bins run >= 50%
+        (no sub-50%) and mean_predicted/mean_actual/gap match the expected
+        favored-side grouping exactly."""
+        y = np.array([1, 0, 1, 1, 0])
+        p = np.array([0.2, 0.5, 0.7, 0.9, 0.3])
+        bins = 10
+        b = reliability_buckets(y, p, bins=bins)
+        for x in b:
+            lo = int(x["bucket"].split("-")[0].rstrip("%"))
+            self.assertGreaterEqual(lo, 50)
+        # the frontend curve's flip: favored pred + flipped favored outcome
+        p_fav = np.maximum(p, 1.0 - p)
+        y_fav = np.where(p >= 0.5, y, 1.0 - y)
+        edges = np.linspace(0.5, 1.0, bins + 1)
+        idx = np.clip(np.digitize(p_fav, edges[1:-1]), 0, bins - 1)
+        got = {x["bucket"]: x for x in b}
+        for i in range(bins):
+            m = idx == i
+            if not m.any():
+                continue
+            label = f"{edges[i]:.0%}-{edges[i + 1]:.0%}"
+            g = got[label]
+            self.assertEqual(g["count"], int(m.sum()))
+            self.assertAlmostEqual(g["mean_predicted"],
+                                   float(np.mean(p_fav[m])), places=3)
+            self.assertAlmostEqual(g["mean_actual"],
+                                   float(np.mean(y_fav[m])), places=3)
+            self.assertAlmostEqual(g["gap"],
+                                   g["mean_predicted"] - g["mean_actual"],
+                                   places=4)
+
+    def test_shared_mask_parameter_from_raw(self):
+        """When home_fav is passed (the calibrated set), the FAVORED side is the
+        same one the raw blend defined — never re-derived per-line."""
+        raw = np.array([0.6, 0.6, 0.4, 0.4])        # home-fav for 0,1; away 2,3
+        raw_fav = raw >= 0.5
+        # calibrated values stay on the raw side (Platt monotone in practice)
+        cal = np.array([0.58, 0.62, 0.42, 0.38])
+        b = reliability_buckets(np.array([1, 0, 1, 1]), cal, bins=2,
+                                home_fav=raw_fav)
+        p_fav = np.where(raw_fav, cal, 1.0 - cal)   # [0.58,0.62,0.58,0.62]
+        self.assertEqual([x["count"] for x in b], [4])
+        self.assertAlmostEqual(b[0]["mean_predicted"],
+                               float(np.mean(p_fav)), places=4)
 
     def test_empty_bin_omitted(self):
         """No fabricated points: a bin with zero observations is absent."""
@@ -141,6 +190,26 @@ class TestBuildCalibration(unittest.TestCase):
         cal = np.full(8, 0.5)
         c = build_calibration(y, raw, cal, None, bins=2)
         self.assertNotEqual(c["metrics"]["ece"], c["metrics"]["ece_calibrated"])
+
+    def test_raw_and_calibrated_share_favored_mask(self):
+        """Both bucket sets run >= 50% and bin the SAME favored side (mask from
+        the raw blend), so their per-bin counts/labels line up."""
+        y = np.array([1, 0, 1, 0, 1, 0])
+        raw = np.array([0.6, 0.6, 0.7, 0.4, 0.4, 0.9])
+        # calibrated values stay on the raw side (Platt monotone in practice)
+        cal = np.array([0.58, 0.62, 0.72, 0.42, 0.38, 0.88])
+        c = build_calibration(y, raw, cal, None, bins=2)
+        raw_b = c["calibration_buckets"]
+        cal_b = c["calibration"]["calibration_buckets_calibrated"]
+        for x in raw_b + cal_b:
+            lo = int(x["bucket"].split("-")[0].rstrip("%"))
+            self.assertGreaterEqual(lo, 50)
+        # same mask (from raw) -> identical bucket grouping/counts
+        self.assertEqual([x["bucket"] for x in raw_b],
+                         [x["bucket"] for x in cal_b])
+        self.assertEqual([x["count"] for x in raw_b],
+                         [x["count"] for x in cal_b])
+        self.assertTrue(raw_b)  # non-empty favored curve
 
 
 class TestBuildHistoryFrame(unittest.TestCase):

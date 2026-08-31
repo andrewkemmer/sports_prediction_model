@@ -507,21 +507,46 @@ HISTORY_COLUMNS = [
 ]
 
 
-def reliability_buckets(y, p, bins: int = ECE_BINS) -> list[dict]:
-    """Per-bin [{bucket, mean_predicted, mean_actual, count, gap}] over
-    equal-width probability bins — MLB's ``calibration_buckets`` shape.
-    Empty bins are omitted (never fabricated points)."""
+def reliability_buckets(y, p, bins: int = ECE_BINS,
+                        home_fav: np.ndarray | None = None) -> list[dict]:
+    """Per-bin favored-side [{bucket, mean_predicted, mean_actual, count, gap}]
+    over equal-width probability bins running 50%-100% only — MLB's
+    ``calibration_buckets`` shape; empty bins omitted (never fabricated).
+
+    Exactly like the frontend curve (``moneyline_calibration.py
+    ``favored_calibration_pts`` takes ``max(p, 1-p)``), every game is counted
+    ONCE from the favored side: ``p_fav = max(p, 1-p)`` and ``y_fav = y`` if
+    ``p >= 0.5`` else ``1 - y`` ("did the favored side win"). Bin ``p_fav``
+    into equal-width buckets so no sub-50% bucket can exist and the table
+    agrees with the curve (which today bins the raw home-win prob, disagreeing
+    with the curve).
+
+    ``home_fav`` pins WHICH side is favorite when supplied (``True`` = the
+    prediction favors the home team, i.e. ``p >= 0.5``) — build_calibration
+    passes the SAME mask derived from the raw blend to both the raw and
+    calibrated bucket sets, so the favored side is consistent and never
+    re-derived per-line.
+
+    Pure per-game relabeling: each game counted once, favored side from this
+    run's own prediction, metrics/maps untouched — no leakage introduced.
+    """
     y = np.asarray(y, dtype=float)
     p = np.asarray(p, dtype=float)
-    edges = np.linspace(0.0, 1.0, bins + 1)
-    idx = np.clip(np.digitize(p, edges[1:-1]), 0, bins - 1)
+    if home_fav is None:
+        home_fav = p >= 0.5
+    else:
+        home_fav = np.asarray(home_fav, dtype=bool)
+    p_fav = np.where(home_fav, p, 1.0 - p)         # always >= 0.5
+    y_fav = np.where(home_fav, y, 1.0 - y)         # did the favored side win
+    edges = np.linspace(0.5, 1.0, bins + 1)
+    idx = np.clip(np.digitize(p_fav, edges[1:-1]), 0, bins - 1)
     out = []
     for b in range(bins):
         m = idx == b
         if m.sum() == 0:
             continue
-        mp = float(np.mean(p[m]))
-        ma = float(np.mean(y[m]))
+        mp = float(np.mean(p_fav[m]))
+        ma = float(np.mean(y_fav[m]))
         out.append({
             "bucket": f"{edges[b]:.0%}-{edges[b + 1]:.0%}",
             "mean_predicted": round(mp, 4),
@@ -617,7 +642,10 @@ def build_calibration(y, raw, cal, platt, bins: int = ECE_BINS) -> dict:
             "params": {"a": a, "b": b, "n": int(len(y))},
             "metrics_raw": mr,
             "metrics_calibrated": mc,
-            "calibration_buckets_calibrated": reliability_buckets(y, cal, bins),
+            # The favored side is defined ONCE from the raw blend; the
+            # calibrated set reuses that same mask (never re-derived per-line).
+            "calibration_buckets_calibrated": reliability_buckets(
+                y, cal, bins, home_fav=raw >= 0.5),
         },
         "daily": [],
     }
