@@ -411,7 +411,7 @@ _PROTECTED_DELIVERY_PREFIXES = (
 # (monitor/calibration-like files) stays on the plain retention window.
 _BOARD_BACKED_RECORD_PREFIXES = (
     "nfl_moneyline_v1_", "nfl_feature_v1_", "nfl_calibration_",
-    "nfl_predictions_history_",
+    "nfl_predictions_history_", "nfl_model_monitor_",
 )
 
 

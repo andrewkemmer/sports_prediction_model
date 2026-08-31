@@ -84,6 +84,7 @@ DATE_FMT = "%Y%m%d"
 RECORD_TEMPLATE = f"nfl_moneyline_v1_{{date}}.json"
 CALIBRATION_TEMPLATE = f"nfl_calibration_{{date}}.json"
 HISTORY_TEMPLATE = f"nfl_predictions_history_{{date}}.csv"
+MONITOR_TEMPLATE = f"nfl_model_monitor_{{date}}.json"
 
 # LightGBM hyperparams (modest regularization, deterministic)
 LGB_PARAMS = {
@@ -1314,11 +1315,60 @@ def pull_and_run(out_dir: Path | None = None,
             json.dump(result["_calibration"], fh, indent=2)
         hist_path = out_dir / HISTORY_TEMPLATE.format(date=_date)
         result["_history_df"].to_csv(hist_path, index=False)
+
+        # MLB-shaped model-monitor record (true PSI drift + rolling Brier),
+        # composed purely from objects already in memory this run.
+        try:
+            _write_monitor(out_dir, feats=feats, result=result,
+                           history_df=result["_history_df"],
+                           calibration=result["_calibration"],
+                           current_date=_date)
+        except Exception as exc:  # noqa: BLE001 — a monitor failure must never
+            logger.warning("Model-monitor emission failed (continuing): %s", exc)
+
         result["record"] = str(rec_path)
         result["games_written"] = bool(slate_info and (slate_info.get("n_games") or 0) > 0)
 
     _print_report(result)
     return result
+
+
+def _write_monitor(out_dir: Path, *, feats: pd.DataFrame, result: dict,
+                   history_df: pd.DataFrame, calibration: dict,
+                   current_date: str) -> None:
+    """Write the MLB-shaped ``nfl_model_monitor_<date>.json`` from this run's
+    objects. PSI 'current' window = the last 30 days of decided games;
+    'baseline' = every decided game before it. Version history is gathered
+    from prior dated moneyline v1 records in ``out_dir``."""
+    from nfl_monitor import build_model_monitor
+
+    gd = pd.to_datetime(feats["gameday"], errors="coerce")
+    latest = gd.max() if hasattr(gd, "max") else None
+    baseline_cut = (latest - pd.Timedelta(days=30)).strftime("%Y-%m-%d") \
+        if latest is not None and not pd.isna(latest) \
+        else datetime.now().date().isoformat()
+
+    records = []
+    try:
+        for p in sorted(out_dir.glob(RECORD_TEMPLATE.format(date="*") or "nfl_moneyline_v1_*.json")):
+            if p.name.endswith(f"{current_date}.json"):
+                continue
+            try:
+                d = json.loads(p.read_text())
+            except Exception:
+                continue
+            d["_date"] = p.name.replace("nfl_moneyline_v1_", "").replace(".json", "")
+            records.append(d)
+    except Exception:
+        records = []
+
+    mon = build_model_monitor(
+        feats=feats, result=result, history_df=history_df, calibration=calibration,
+        moneyline_records=records, current_date=current_date,
+        baseline_cut_date=baseline_cut)
+    mon_path = out_dir / MONITOR_TEMPLATE.format(date=current_date)
+    with open(mon_path, "w") as fh:
+        json.dump(mon, fh, indent=2)
 
 
 def _print_report(result: dict) -> None:

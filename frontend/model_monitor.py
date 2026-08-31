@@ -19,12 +19,9 @@ import utils
 
 utils.inject_css()
 
-if utils.get_sport() == "nfl":
-    st.info("🏈 NFL Model & Data Drift Monitor arrives with step 3 — the "
-            "FEATURE v1 admission/coverage record is a candidate for a "
-            "sport-specific monitor, shipping with the full conditional UI.")
-    st.stop()
-
+# Sport-dispatched: MLB reads ``model_monitor_*.json``; NFL reads
+# ``nfl_model_monitor_*.json`` — both MLB-shaped, so this one page renders
+# each sport unchanged (the NFL backend emits the same contract).
 dates = utils.available_dates(**utils.get_source_config())
 date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
 mon = utils.load_model_monitor(date_str)

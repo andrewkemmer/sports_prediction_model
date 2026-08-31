@@ -569,9 +569,9 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                 pass
         return sorted(dates, reverse=True)
 
-    # NFL: the named dated families the calibration/history page depends on.
+    # NFL: the named dated families the calibration/history/monitor pages use.
     prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
-                ("nfl_predictions_history_", ".csv")]
+                ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json")]
     if owner and repo:
         try:
             api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
@@ -1319,11 +1319,15 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
 
 def load_model_monitor(date_str: str,
                         sport: str | None = None) -> dict:
-    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
-        return {}
+    """Sport-dispatched model-monitor record. MLB ``model_monitor_*.json``;
+    NFL ``nfl_model_monitor_*.json`` (the same MLB-shaped schema emitted by
+    nfl_monitor.build_model_monitor), so the shared Model Monitor page runs
+    both sports unchanged."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix = "model_monitor" if s == "mlb" else "nfl_model_monitor"
     cfg = get_source_config()
-    picked = _pick_artifact_date(date_str, "model_monitor")
-    data, src = _fetch_bytes(f"model_monitor_{picked}.json", **cfg)
+    picked = _pick_artifact_date(date_str, prefix)
+    data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
     st.session_state["data_source"] = src
     if data is None:
         return {}
