@@ -57,6 +57,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import functools
+from zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
 
@@ -167,10 +170,199 @@ CANONICAL_SOURCE = {
     "is_home": "constant anchor for the home edge",
 }
 
+# ---------------------------------------------------------------------------
+# Tier-2 (v4) venue / travel / schedule candidates — STATIC facts only.
+#
+# Composed by build_features/build_slate_features but deliberately NOT
+# registered in FEATURE_COLUMNS / CANONICAL_SOURCE / FEATURE_PRIORITY: the
+# deployed pool stays the 10-feature baseline until a sealed-2025 ablation
+# admits them (the Tier-1 lesson: every additive arm that lost the sealed gate
+# was reverted). Same hardcoded-composition pattern as the Tier-1 candidates.
+#
+# Source data:
+#   - ``nfl_stadiums.csv`` (committed): real coordinates (Wikipedia geodata,
+#     Nominatim fallback for coordinate-less articles), SRTM elevation via the
+#     Open-Elevation API, and the IANA timezone of the venue's metro. Keyed on
+#     the exact nflverse games.csv ``stadium`` strings (verified 2026-08-31:
+#     45 distinct names across 2018-2025; nflreadpy 0.1.5 ships NO load_stadiums
+#     and nflverse publishes no stadiums asset, so the table is curated once,
+#     committed, and keyed on the real schedule column).
+#   - per-game ``surface`` / ``gametime`` / ``location`` fields from the same
+#     nflverse schedule rows the existing roof/temp/wind merge uses.
+# Unknown stadiums / missing source fields resolve to NaN — never fabricated.
+# ---------------------------------------------------------------------------
+VENUE_FILE = BACKEND_DIR / "nfl_stadiums.csv"
+
+# Tier-2 candidates (order mirrors the run_tier2_ablation.py arm lists)
+VENUE_FEATURES = [
+    "travel_miles_diff", "timezone_diff", "altitude_home",
+    "turf_home", "prime_time", "neutral_site",
+]
+
+# "evening kickoff" threshold: nflverse gametime is ET; hours >= this are
+# national-window evening games (SNF/MNF/TNF/international night games).
+PRIME_TIME_HOUR = 17
+
+# Real nflverse ``surface`` values observed 2018-2025: grass / grass(space) /
+# '' / fieldturf / a_turf / sportturf / matrixturf / astroturf. Anything named
+# grass -> 0, anything synthetic (turf/astro) -> 1, empty/unknown -> NaN.
+_TURF_MARKERS = ("turf", "astro")
+_GRASS_MARKERS = ("grass",)
+
+EARTH_RADIUS_MILES = 3958.8
+
 
 # ---------------------------------------------------------------------------
 # Core primitives (pure; testable without network)
 # ---------------------------------------------------------------------------
+def _haversine_miles(lat1, lon1, lat2, lon2) -> np.ndarray:
+    """Great-circle distance in miles (earth radius 3958.8 mi). Vectorized;
+    any NaN coordinate -> NaN distance (an unknown venue never fabricates)."""
+    lat1, lon1, lat2, lon2 = (np.asarray(a, dtype=float)
+                              for a in (lat1, lon1, lat2, lon2))
+    r = np.pi / 180.0
+    dlat = (lat2 - lat1) * r
+    dlon = (lon2 - lon1) * r
+    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1 * r) * np.cos(lat2 * r) * np.sin(dlon / 2.0) ** 2
+    d = 2.0 * EARTH_RADIUS_MILES * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+    return np.where(np.isfinite(d), d, np.nan)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_venue_table() -> pd.DataFrame:
+    """The committed, curated stadium table (real coords / elevation / tz),
+    keyed on the exact nflverse games.csv ``stadium`` strings. Read-only;
+    missing file -> empty frame (candidates degrade to NaN, never crash)."""
+    if not VENUE_FILE.exists():
+        return pd.DataFrame(columns=["stadium", "facility", "teams",
+                                     "lat", "lon", "altitude_ft", "tz", "source"])
+    return pd.read_csv(VENUE_FILE)
+
+
+def _venue_facts() -> dict[str, dict]:
+    """stadium name -> {lat, lon, altitude_ft, tz} for every real name."""
+    t = _load_venue_table()
+    out = {}
+    for r in t.itertuples(index=False):
+        lat = getattr(r, "lat", None)
+        out[getattr(r, "stadium")] = {
+            "lat": lat if pd.notna(lat) else np.nan,
+            "lon": getattr(r, "lon", np.nan) if pd.notna(getattr(r, "lon", np.nan)) else np.nan,
+            "altitude_ft": getattr(r, "altitude_ft", np.nan)
+            if pd.notna(getattr(r, "altitude_ft", np.nan)) else np.nan,
+            "tz": getattr(r, "tz", "") if pd.notna(getattr(r, "tz", "")) else "",
+        }
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def _team_home_stadium_map() -> dict[str, str]:
+    """team abbr -> canonical home stadium name, from the real schedule modal
+    (see the ``teams`` column of nfl_stadiums.csv). Relocation-era games (e.g.
+    LAC 2018-19 at StubHub/Coliseum, LV 2018-19 at Oakland) use the canonical
+    venue as a documented approximation."""
+    t = _load_venue_table()
+    out = {}
+    for r in t.itertuples(index=False):
+        teams = getattr(r, "teams", "")
+        if isinstance(teams, str) and teams.strip():
+            for team in teams.split(","):
+                out.setdefault(team.strip(), getattr(r, "stadium"))
+    return out
+
+
+def _utc_offset_hours(tz_name: str, gameday) -> float:
+    """The venue timezone's UTC offset in hours on the game's local date
+    (DST-aware). Unknown tz / bad date -> NaN."""
+    if not tz_name:
+        return float("nan")
+    try:
+        gd = pd.Timestamp(gameday)
+        dt = gd.replace(hour=12, minute=0)      # midday local avoids DST edges
+        off = dt.tz_localize(ZoneInfo(tz_name)).utcoffset()
+        return float(off.total_seconds()) / 3600.0 if off is not None else float("nan")
+    except Exception:
+        return float("nan")
+
+
+def _compose_venue_candidates(df: pd.DataFrame,
+                             schedule: pd.DataFrame | None) -> pd.DataFrame:
+    """Attach the six Tier-2 venue/travel candidates to a game frame.
+
+    Static pre-game facts only (leak-safe by construction): per-game venue
+    (stadium/surface/gametime/location) merged from the nflverse schedule the
+    same way roof/temp/wind/div_game are merged above; travel/timezone/altitude
+    resolved through ``nfl_stadiums.csv`` keyed on the real stadium name.
+    Missing source fields or unknown stadiums -> NaN, never fabricated.
+    """
+    sched = schedule if schedule is not None else pd.DataFrame()
+    for col in ("surface", "gametime", "stadium", "location"):
+        if col not in df.columns and col in sched.columns:
+            sub = sched[["game_id", col]].drop_duplicates("game_id")
+            df = df.merge(sub, on="game_id", how="left")
+        if col not in df.columns:
+            df[col] = np.nan
+
+    facts = _venue_facts()
+    team_home = _team_home_stadium_map()
+
+    def _game_fact(name: str) -> np.ndarray:
+        return df["stadium"].map(lambda s: facts.get(s, {}).get(name, np.nan)).to_numpy()
+
+    def _team_fact(team_col: str, name: str) -> np.ndarray:
+        return df[team_col].map(lambda t: facts.get(team_home.get(t, ""), {}).get(name, np.nan)).to_numpy()
+
+    game_lat, game_lon = _game_fact("lat"), _game_fact("lon")
+    home_lat = _team_fact("home_team", "lat")
+    home_lon = _team_fact("home_team", "lon")
+    away_lat = _team_fact("away_team", "lat")
+    away_lon = _team_fact("away_team", "lon")
+
+    gd = pd.to_datetime(df["gameday"], errors="coerce")
+    game_tz = df["stadium"].map(lambda s: facts.get(s, {}).get("tz", "")).to_numpy()
+    home_tz = df["home_team"].map(lambda t: facts.get(team_home.get(t, ""), {}).get("tz", "")).to_numpy()
+    away_tz = df["away_team"].map(lambda t: facts.get(team_home.get(t, ""), {}).get("tz", "")).to_numpy()
+
+    crossed = np.empty(len(df), dtype=float)
+    for i in range(len(df)):
+        day = gd.iloc[i]
+        crossed[i] = (abs(_utc_offset_hours(game_tz[i], day) - _utc_offset_hours(home_tz[i], day))
+                      if game_tz[i] and home_tz[i] else np.nan)
+    crossed_away = np.empty(len(df), dtype=float)
+    for i in range(len(df)):
+        day = gd.iloc[i]
+        crossed_away[i] = (abs(_utc_offset_hours(game_tz[i], day) - _utc_offset_hours(away_tz[i], day))
+                           if game_tz[i] and away_tz[i] else np.nan)
+
+    df["travel_miles_diff"] = (
+        _haversine_miles(home_lat, home_lon, game_lat, game_lon)
+        - _haversine_miles(away_lat, away_lon, game_lat, game_lon))
+    df["timezone_diff"] = crossed - crossed_away
+    df["altitude_home"] = _game_fact("altitude_ft")
+
+    def _as_str(col: pd.Series) -> pd.Series:
+        # explicit NaN -> "" coercion (the .str accessor rejects astype(str)
+        # on None-carrying columns under pandas 3.x)
+        return pd.Series(["" if pd.isna(v) else str(v) for v in col],
+                         index=col.index)
+
+    surf = _as_str(df["surface"]).str.strip().str.lower()
+    grass = surf.str.contains("|".join(_GRASS_MARKERS), regex=True)
+    turf = surf.str.contains("|".join(_TURF_MARKERS), regex=True)
+    df["turf_home"] = pd.to_numeric(
+        np.where(grass, 0.0, np.where(turf, 1.0, np.nan)), errors="coerce")
+
+    hour = _as_str(df["gametime"]).str.split(":").str[0]
+    hour_num = pd.to_numeric(hour, errors="coerce")
+    df["prime_time"] = np.where(hour_num >= PRIME_TIME_HOUR, 1.0,
+                                 np.where(hour_num.isna(), np.nan, 0.0))
+
+    loc = _as_str(df["location"]).str.strip()
+    df["neutral_site"] = np.where(loc == "Neutral", 1.0,
+                                   np.where(loc == "Home", 0.0, np.nan))
+    return df
+
+
 def team_events(game: pd.DataFrame) -> pd.DataFrame:
     """Long-form one-row-per-(team,game) view used by all trailing features.
 
@@ -648,6 +840,8 @@ def build_features(decided: pd.DataFrame,
     df["third_down_rate_diff"] = _home_minus_away(ladder, gids, "ewm_third_down_rate")
     df["redzone_td_rate_diff"] = _home_minus_away(ladder, gids, "ewm_redzone_td_rate")
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
+    # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
+    df = _compose_venue_candidates(df, schedule)
     return df
 
 
@@ -728,6 +922,8 @@ def build_slate_features(schedule: pd.DataFrame,
     df["third_down_rate_diff"] = _home_minus_away(ladder, gids, "ewm_third_down_rate")
     df["redzone_td_rate_diff"] = _home_minus_away(ladder, gids, "ewm_redzone_td_rate")
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
+    # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
+    df = _compose_venue_candidates(df, sched)
 
     # --- cumulative records entering the slate (from the decided timeline) ---
     rec = ev.groupby("team").agg(
