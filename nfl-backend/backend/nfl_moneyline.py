@@ -31,10 +31,11 @@ Discipline (MLB retrospective):
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
-adaptive weights, baselines, verdict+reason, and — ONLY when adopted — the
-per-game ``games[]`` slate for the current schedule (2026 week 1). When the
-sealed window does not earn adoption the record carries
-``predictions: {status: "blocked (not adopted)"}`` and the run continues
+adaptive weights, baselines, verdict+reason, and the per-game ``games[]`` slate
+for the current schedule (2026 week 1) — ALWAYS written from the fresh
+ensemble when a schedule loads. The ``verdict``/seal gate is a TESTING +
+monitoring signal (ensemble vs elo/constant baselines + sanity ECE) that is
+recorded but never blocks the board (mirroring MLB); the run always continues
 normally (never errors).
 """
 from __future__ import annotations
@@ -1119,7 +1120,9 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Slate stage (Part 3) — reproducible per-game games[], gated on adoption
+# Slate stage (Part 3) — reproducible per-game games[], always served by
+# the fresh ensemble (the seal gate is a testing/monitoring signal, never a
+# board block).
 # ---------------------------------------------------------------------------
 def _start_utc(gameday, gametime):
     """nflverse gametime is ET; combine with gameday and convert to UTC
@@ -1137,7 +1140,7 @@ def _start_utc(gameday, gametime):
 
 def build_games_list(slate_feats: pd.DataFrame,
                      models: dict, platt: object, features: list[str]) -> list[dict]:
-    """Predict the adopted calibrated ensemble on scheduled games and emit the
+    """Predict the calibrated ensemble on scheduled games and emit the
     per-game games[] entries (the 20260830 shape: home_win_prob/away_win_prob,
     model_pick, game_date, game_status 'pre', start_time_utc, venue,
     home/away_record, spread_line, total_line)."""
@@ -1235,8 +1238,13 @@ def pull_and_run(out_dir: Path | None = None,
     result = run_walk_forward(feats)
     model_features = list(result.get("_deployed", {}).get("features", V1_FEATURES))
 
-    # ---- slate stage: current schedule, gated on adoption ----------------
+    # ---- slate stage: current schedule ------------------------------------
+    # The seal gate is a TESTING/MONITORING signal (ensemble vs elo/constant +
+    # sanity ECE), mirroring MLB — it never blocks the board. The fresh
+    # ensemble always serves games[] when a schedule loads; the adopt verdict
+    # is recorded for model-change testing but does not (and cannot) gate it.
     slate_info = None
+    games = []
     if schedule is not None and "gameday" in schedule.columns:
         # Slate target = the CURRENT schedule year (e.g. 2026 week 1), NOT the
         # max season in the feed (all-decided 2025 would yield an empty slate).
@@ -1246,7 +1254,7 @@ def pull_and_run(out_dir: Path | None = None,
             decided = (pd.read_csv(_DDF) if _DDF.exists() else feats)
             slate_feats = build_slate_features(schedule, pbp, decided, ss)
             bundle = _DEPLOYED_BUNDLE or {}
-            if result["verdict"]["adopt"] and bundle.get("models"):
+            if bundle.get("models"):
                 games = build_games_list(slate_feats, bundle["models"],
                                          bundle.get("platt"), model_features)
                 slate_info = {
@@ -1285,15 +1293,14 @@ def pull_and_run(out_dir: Path | None = None,
             },
             **{k: v for k, v in result.items()
                if k not in ("_deployed", "_history_df", "_calibration")},
-        }
-        if result["verdict"]["adopt"]:
-            if slate_info is not None:
-                record["slate"] = slate_info
-                record["games"] = games if slate_info.get("n_games") else []
-            else:
-                record["predictions"] = {"status": "blocked (no schedule loaded)"}
+        }        # The seal gate is reported (testing/model-change comparison) but never
+        # blocks the board, mirroring MLB's daily pipeline. games[] is always
+        # written from the fresh ensemble when a schedule is present.
+        if slate_info is not None:
+            record["slate"] = slate_info
+            record["games"] = games if slate_info.get("n_games") else []
         else:
-            record["predictions"] = {"status": "blocked (not adopted)"}
+            record["predictions"] = {"status": "blocked (no schedule loaded)"}
         out_dir.mkdir(parents=True, exist_ok=True)
         _date = datetime.now().strftime(DATE_FMT)
         rec_path = out_dir / RECORD_TEMPLATE.format(date=_date)
@@ -1308,8 +1315,7 @@ def pull_and_run(out_dir: Path | None = None,
         hist_path = out_dir / HISTORY_TEMPLATE.format(date=_date)
         result["_history_df"].to_csv(hist_path, index=False)
         result["record"] = str(rec_path)
-        result["games_written"] = bool(result["verdict"]["adopt"] and slate_info
-                                        and slate_info.get("n_games"))
+        result["games_written"] = bool(slate_info and (slate_info.get("n_games") or 0) > 0)
 
     _print_report(result)
     return result
@@ -1322,13 +1328,14 @@ def _print_report(result: dict) -> None:
     print("adaptive blend weights:",
           {k: f"{v:.1%}" for k, v in sorted(result.get("adaptive_weights", {}).items())})
     print(format_table("sealed_2025", result["sealed_2025"]))
-    print("VERDICT:", "ADOPT" if result["verdict"]["adopt"] else "DO NOT ADOPT")
+    print("VERDICT:", "ADOPT" if result["verdict"]["adopt"]
+          else "DO NOT ADOPT (reporting only — board still served)")
     for r in result["verdict"]["reasons"]:
         print("  -", r)
     if result.get("games_written"):
-        print("  [OK] games[] written (adopted)")
+        print("  [OK] games[] written (fresh ensemble served the board)")
     else:
-        print("  [BLOCKED] no games[] (not adopted - predictions blocked)")
+        print("  [BLOCKED] no games[] (no schedule loaded)")
 
 
 def format_table(window: str, arms: dict) -> str:
@@ -1347,8 +1354,9 @@ def format_table(window: str, arms: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(
-        description="Run the NFL moneyline 5-member ensemble walk-forward + sealed "
-                    "gate (no adopt unless the sealed window earns it).")
+        description="Run the NFL moneyline 5-member ensemble walk-forward + "
+                    "sealed gate; the gate is a testing/monitoring signal (never "
+                    "blocks the board — always serves the fresh ensemble).")
     ap.add_argument("--no-record", action="store_true",
                     help="compute/report only; skip writing the JSON record")
     ap.add_argument("--features-csv", type=Path, default=None,
