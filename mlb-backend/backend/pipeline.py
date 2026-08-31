@@ -461,10 +461,15 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
 
     Projected fallback for games not yet posted (per the 2026-08-25 posting-
     curve probe, away sides generally post ~2-3h before first pitch; a morning
-    slate is mostly projected): woba deltas = 0 (a projected lineup equal to
-    the team season mean makes the delta 0 by construction) and rest_count =
-    NaN (unknown → existing median imputation). Never fabricated; the actual-
-    vs-projected split is logged loudly so a projected-only morning is visible.
+    slate is mostly projected): ALL SIX columns emit NULL. A lineup not yet
+    posted before first pitch is genuinely UNKNOWN at bet time — it must never
+    be fabricated as 0 (a fake "projected lineup equals season mean" leaks a
+    value the model can't actually have). NULLs route through the existing NaN
+    imputation path, so the tree learns "not yet posted" as its own missing
+    state — the same strict point-in-time discipline the market-line as-of
+    join (data_ingestion._attach_market_lines rejects lines posted at/after
+    start) and weather/roof NULLs use. The actual-vs-projected split is logged
+    loudly so a projected-only morning is visible.
     """
     if slate is None or slate.empty:
         return slate
@@ -553,15 +558,17 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
     n_actual = int(posted.sum())
     for idx, r in slate.iterrows():
         if not posted.iloc[idx]:
-            for c in ("lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
-                      "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away"):
-                slate.at[idx, c] = 0.0
-            # rest count is UNKNOWN pre-posting (median-imputed downstream)
-            slate.at[idx, "lineup_rest_count_home"] = pd.NA
-            slate.at[idx, "lineup_rest_count_away"] = pd.NA
+            # STRICT POINT-IN-TIME: a lineup not posted before first pitch is
+            # UNKNOWN at bet time. Emit NULL for ALL SIX columns — never a
+            # fabricated 0 ("projected lineup equals season mean" would inject
+            # a value that cannot exist at bet time). NULLs route through the
+            # existing imputation path, matching the market-line as-of join
+            # and weather/roof missing-observation semantics.
+            for c in LINEUP_DELTA_COLS:
+                slate.at[idx, c] = pd.NA
     logger.info(
         "slate lineups: %d/%d ACTUAL (both sides posted), %d/%d projected "
-        "(not yet posted → deltas=0, rest_count imputed)",
+        "(not yet posted → all 6 lineup-delta cols NULL, PIT-safe)",
         n_actual, len(slate), len(slate) - n_actual, len(slate))
     return slate
 
