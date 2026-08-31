@@ -97,6 +97,26 @@ class TestSeasonWeeks(unittest.TestCase):
         self.assertEqual(season_weeks(2026), list(range(1, 19)))
 
 
+class TestReadScheduleCsv(unittest.TestCase):
+    def test_round_trips_csv(self):
+        import tempfile
+        rows = [
+            {"game_id": "2026_espn_a", "season": 2026, "week": 1,
+             "gameday": "2026-09-10", "gametime": "2026-09-11T00:00Z",
+             "stadium": "S", "home_team": "KC", "away_team": "NE",
+             "home_score": None, "away_score": None, "roof": "outdoors",
+             "temp": None, "wind": None, "div_game": 0},
+        ]
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as fh:
+            pd.DataFrame(rows).to_csv(fh.name, index=False)
+            path = fh.name
+        df = nfl_espn_schedule.read_schedule_csv(path)
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["game_id"], "2026_espn_a")
+        self.assertTrue(pd.isna(df.iloc[0]["home_score"]))   # scheduled -> NaN
+        self.assertFalse(pd.isna(df.iloc[0]["week"]))
+
+
 class TestLoadPatchedWeek(unittest.TestCase):
     def test_empty_when_all_weeks_return_none(self):
         with mock.patch.object(nfl_espn_schedule, "_fetch_week", return_value=[]):

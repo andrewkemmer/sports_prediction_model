@@ -177,10 +177,26 @@ def _fetch_week(season: int, week: int, timeout: int = 25,
     return []
 
 
+def read_schedule_csv(path) -> pd.DataFrame:
+    """Read a previously-built ESPN schedule CSV (the committed season artifact)
+    back into an nflreadpy-shaped frame. The CSV is written LOCALLY where ESPN
+    is reachable, because ESPN blocks the Kaggle/Google-Cloud egress (live
+    fetch returns 0 scheduled games from Kaggle). Scores are NaN for scheduled
+    rows; ``gameday`` is parsed to a datetime for downstream consumption."""
+    df = pd.read_csv(path)
+    for c in ("home_score", "away_score"):
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    if "gameday" in df.columns:
+        df["gameday"] = pd.to_datetime(df["gameday"], errors="coerce")
+    return df
+
+
 def load_espn_schedule_rows(season: int, max_workers: int = 4) -> pd.DataFrame:
     """Fetch every scheduled game in ``season`` from ESPN (one request per
     regular-season week) and return an nflreadpy-shaped pandas frame (empty if
-    the feed has none)."""
+    the feed has none). Live path — only used where ESPN is reachable; the
+    pipeline normally reads the committed CSV via ``read_schedule_csv``."""
     weeks = season_weeks(season)
     if not weeks:
         return pd.DataFrame()
