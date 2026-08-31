@@ -62,6 +62,12 @@ TIER1_ADMITTED = [
     "redzone_td_rate_diff",
 ]
 
+# Smallest high-signal slice — the gate's three best univariate discriminators
+# (by <2025 AUC): success rate 0.647, third-down 0.591, turnover 0.578. Tests
+# whether a minimal, non-redundant Tier-1 addition keeps the pooled gain
+# without the sealed regression the 7/9-feature blocks showed.
+TIER1_SUBSET = ["success_rate_diff", "third_down_rate_diff", "turnover_diff"]
+
 
 def _frame_sha256(df: pd.DataFrame) -> str:
     """Content hash of the feature frame (row/col-sorted) for reproducibility."""
@@ -90,13 +96,16 @@ def load_features(features_csv: str | None) -> pd.DataFrame:
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
     """Column lists per arm, kept only where the frame carries them.
 
-    Three arms: WITHOUT (deployed 10), WITH (10 + all 9 Tier-1), and
-    WITH_ADMITTED (10 + the gate-admitted 7 Tier-1)."""
+    Four arms: WITHOUT (deployed 10), WITH (10 + all 9 Tier-1),
+    WITH_ADMITTED (10 + the gate-admitted 7 Tier-1), and WITH_SUBSET
+    (10 + the three strongest discriminators)."""
     without = [c for c in WITHOUT_FEATURES if c in feats.columns]
     tier1 = [c for c in TIER1_FEATURES if c in feats.columns]
     admitted = [c for c in TIER1_ADMITTED if c in feats.columns]
+    subset = [c for c in TIER1_SUBSET if c in feats.columns]
     return {"WITHOUT": without, "WITH": without + tier1,
-            "WITH_ADMITTED": without + admitted}
+            "WITH_ADMITTED": without + admitted,
+            "WITH_SUBSET": without + subset}
 
 
 def _platt_metrics(rec: dict, key: str) -> dict:
@@ -177,8 +186,10 @@ def main(argv: list[str] | None = None) -> int:
                             pooled["WITHOUT"], pooled["WITH"])
     verdict_admitted = adopt_verdict(sealed["WITHOUT"], sealed["WITH_ADMITTED"],
                                      pooled["WITHOUT"], pooled["WITH_ADMITTED"])
+    verdict_subset = adopt_verdict(sealed["WITHOUT"], sealed["WITH_SUBSET"],
+                                   pooled["WITHOUT"], pooled["WITH_SUBSET"])
 
-    print("\n=== Tier-1 ablation (WITH / WITH_ADMITTED vs WITHOUT) ===")
+    print("\n=== Tier-1 ablation (WITH / WITH_ADMITTED / WITH_SUBSET vs WITHOUT) ===")
     print("arm           sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]
@@ -189,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     print("VERDICT (WITH_ADMITTED-7 vs WITHOUT):",
           "ADOPT" if verdict_admitted["adopt"] else "DON'T ADOPT",
           "|", " | ".join(verdict_admitted["reason"]))
+    print("VERDICT (WITH_SUBSET-3 vs WITHOUT):",
+          "ADOPT" if verdict_subset["adopt"] else "DON'T ADOPT",
+          "|", " | ".join(verdict_subset["reason"]))
 
     if args.no_record:
         return 0
@@ -202,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         "tier1_gate": tier1_gate,
         "verdict_with": verdict,
         "verdict_with_admitted": verdict_admitted,
+        "verdict_with_subset": verdict_subset,
     }
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"nfl_tier1_ablation_{record['frame_sha256']}.json"
