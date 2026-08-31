@@ -1,6 +1,6 @@
 {
   "last_retrained": "",
-  "last_retrained_note": "Fresh model trained this run (sealed gate: DO NOT ADOPT (reporting only))",
+  "last_retrained_note": "Fresh model trained this run (sealed gate: ADOPT)",
   "next_retrain": "2026-09-07",
   "next_retrain_note": "retrain scheduled 7 days out",
   "upset_note": "Model upset rate over the decided pool \u2014 1,392 games scored; see Calibration for the upset strip.",
@@ -77,9 +77,9 @@
     },
     {
       "feature": "pace_plays_min_diff",
-      "current_mean": 0.0001,
-      "baseline_mean": -0.0017,
-      "psi": 1.9578,
+      "current_mean": -0.0,
+      "baseline_mean": -0.0018,
+      "psi": 2.0385,
       "status": "ALERT",
       "weight_pct": null,
       "n_baseline": 1913,
@@ -116,6 +116,16 @@
       "n_current": 30
     },
     {
+      "feature": "sack_rate_diff",
+      "current_mean": -0.0068,
+      "baseline_mean": 0.0002,
+      "psi": 0.4982,
+      "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
       "feature": "success_rate_diff",
       "current_mean": 0.006,
       "baseline_mean": -0.0006,
@@ -141,6 +151,16 @@
       "baseline_mean": 0.5201,
       "psi": 1.6895,
       "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "third_down_rate_diff",
+      "current_mean": 0.0084,
+      "baseline_mean": -0.0014,
+      "psi": 0.1636,
+      "status": "WARN",
       "weight_pct": null,
       "n_baseline": 1913,
       "n_current": 30
@@ -190,6 +210,9 @@
     "turnover_diff": {
       "tooltip": "turnover_diff \u2014 defined/covered via the v1 feature admission gate."
     },
+    "sack_rate_diff": {
+      "tooltip": "sack_rate_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
     "success_rate_diff": {
       "tooltip": "success_rate_diff \u2014 defined/covered via the v1 feature admission gate."
     },
@@ -198,6 +221,9 @@
     },
     "penalty_diff": {
       "tooltip": "penalty_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "third_down_rate_diff": {
+      "tooltip": "third_down_rate_diff \u2014 defined/covered via the v1 feature admission gate."
     },
     "redzone_td_rate_diff": {
       "tooltip": "redzone_td_rate_diff \u2014 defined/covered via the v1 feature admission gate."
@@ -304,6 +330,15 @@
       "status": "OK"
     },
     {
+      "feature": "sack_rate_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
       "feature": "success_rate_diff",
       "window": "decided pool",
       "n_games": 1960,
@@ -331,6 +366,15 @@
       "status": "OK"
     },
     {
+      "feature": "third_down_rate_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
       "feature": "redzone_td_rate_diff",
       "window": "decided pool",
       "n_games": 1960,
@@ -344,64 +388,64 @@
     {
       "name": "xgboost",
       "weight": 0.45,
-      "auc": 0.7358,
+      "auc": 0.7374,
       "brier": 0.2115,
-      "logloss": 0.6115,
+      "logloss": 0.6116,
       "n_eval": 1392
     },
     {
       "name": "lightgbm",
       "weight": 0.1375,
-      "auc": 0.649,
-      "brier": 0.2405,
-      "logloss": 0.6826,
+      "auc": 0.6467,
+      "brier": 0.2419,
+      "logloss": 0.6864,
       "n_eval": 1392
     },
     {
       "name": "logistic",
       "weight": 0.1375,
-      "auc": 0.6759,
-      "brier": 0.2275,
-      "logloss": 0.6486,
+      "auc": 0.676,
+      "brier": 0.2278,
+      "logloss": 0.6495,
       "n_eval": 1392
     },
     {
       "name": "randomforest",
       "weight": 0.1375,
-      "auc": 0.6749,
-      "brier": 0.2273,
-      "logloss": 0.6484,
+      "auc": 0.6759,
+      "brier": 0.2269,
+      "logloss": 0.6472,
       "n_eval": 1392
     },
     {
       "name": "mlp",
       "weight": 0.1375,
-      "auc": 0.6545,
-      "brier": 0.2321,
-      "logloss": 0.6578,
+      "auc": 0.6572,
+      "brier": 0.2316,
+      "logloss": 0.6576,
       "n_eval": 1392
     }
   ],
   "rolling_brier": [
     {
       "date": "2026-01-10",
-      "brier": 0.3464
+      "brier": 0.2497
     },
     {
       "date": "2026-01-11",
-      "brier": 0.2726
+      "brier": 0.2874
     },
     {
       "date": "2026-01-17",
-      "brier": 0.4337
+      "brier": 0.4116
     },
     {
       "date": "2026-01-18",
-      "brier": 0.4093
+      "brier": 0.3484
     },
     {
       "date": "2026-01-25",
-      "brier": 0.5
+      "brier": 0.5196
     }
   ],
   "rolling_brier_meta": {
