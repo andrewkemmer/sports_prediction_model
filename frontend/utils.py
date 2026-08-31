@@ -864,6 +864,85 @@ def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
     return nfl_moneyline_to_frame(data)
 
 
+def load_nfl_moneyline_record(sport: str | None = "nfl") -> dict:
+    """Load the newest NFL moneyline v1 JSON as its RAW dict record.
+
+    The Calibration page reads the aggregate sections (pooled/sealed metrics,
+    verdict, slate, members, adaptive weights) directly off this dict; the
+    card adapter (``load_nfl_moneyline``) stays the games[] → DataFrame path.
+    Missing / invalid / non-dict → {} (never raises).
+    """
+    path = resolve_sport_artifact(sport or "nfl", "moneyline_json")
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_nfl_prediction_history(sport: str | None = "nfl") -> pd.DataFrame:
+    """Per-game (predicted, outcome) frame for the NFL Calibration page.
+
+    Mirrors ``load_prediction_history``'s column contract so the per-1%
+    favored-team curve (``mlc.favored_calibration_pts``) and the history
+    table can be reused verbatim. Derives one row per moneyline record game
+    that carries a DETERMINABLE outcome (both scores present or an explicit
+    ``home_win``); only those decide per-game calibration points — scheduled
+    'pre' games are skipped. The shipped v1 record is a 2026 scheduled slate
+    with no outcomes, so this returns an empty frame WITH the full schema;
+    the page then gates the curve / reliability / history sections behind a
+    presence check (honest info lines when absent)."""
+    cols = ["game_date", "home_team", "away_team", "home_win_prob_model",
+            "away_win_prob_model", "model_pick", "home_score", "away_score",
+            "actual_winner", "correct"]
+    rec = load_nfl_moneyline_record(sport)
+    if not rec:
+        return pd.DataFrame(columns=cols)
+    rows = (rec.get("games") or rec.get("predictions")
+            or rec.get("oof_games") or [])
+    out = []
+    for g in rows:
+        if not isinstance(g, dict):
+            continue
+        home = str(g.get("home_team", "") or "").strip()
+        away = str(g.get("away_team", "") or "").strip()
+        hs = _nl(g.get("home_score"))
+        as_ = _nl(g.get("away_score"))
+        hw = g.get("home_win")
+        if hw is None:
+            if hs is None or as_ is None:
+                continue  # scheduled/pre — no outcome yet
+            hw = 1.0 if hs > as_ else 0.0
+        else:
+            try:
+                hw = 1.0 if float(hw) == 1.0 else 0.0
+            except (TypeError, ValueError):
+                continue
+        ph = _nl(g.get("home_win_prob"))
+        if ph is None:
+            ph = _nl(g.get("home_win_prob_model"))
+        pa = None if ph is None else 1.0 - ph
+        pick = str(g.get("model_pick") or "").strip()
+        if not pick and ph is not None:
+            pick = home if ph >= 0.5 else away
+        winner = home if hw == 1.0 else away
+        out.append({
+            "game_date": g.get("game_date", ""),
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob_model": ph,
+            "away_win_prob_model": pa,
+            "model_pick": pick,
+            "home_score": hs,
+            "away_score": as_,
+            "actual_winner": winner,
+            "correct": bool(pick and pick == winner),
+        })
+    return pd.DataFrame(out, columns=cols)
+
+
 def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     """Game board for a date, dispatched on the active sport (default).
 
