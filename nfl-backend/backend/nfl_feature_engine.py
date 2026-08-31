@@ -46,10 +46,28 @@ DUCKDB_TEMP_DIR = "/tmp/duckdb_temp"
 DUCKDB_MAX_TEMP = "50GB"
 
 # Output columns of the rollup — matches ``nfl_features._pbp_team_agg`` exactly.
+# Tier-1 (v3) columns are per-(game_id, team) scalar aggregates that the
+# strictly-trailing ladder shifts; every one is a function of that GAME's
+# plays only (see the leak-safety contract in the module docstring).
 TEAM_AGG_COLUMNS = [
     "game_id", "team", "total_yards", "n_plays",
     "epa_sum", "epa_n", "qb_epa_sum", "qb_epa_n", "elapsed_min",
+    # ---- Tier-1: turnovers / passing efficiency / success / discipline ----
+    "giveaways", "takeaways", "net_any_a", "sack_rate", "success_rate",
+    "explosive_rate", "penalty_yds", "penalty_yds_drawn",
+    "third_down_rate", "redzone_td_rate", "pts_per_drive",
 ]
+
+# Extra PBP source columns the Tier-1 aggregates read (beyond the base
+# yardage/EPA/QB-EPA/clock set). ``register_pbp`` narrows the DuckDB table to
+# these + the base set, and ``nfl_features._load_raw`` keeps the same list when
+# narrowing the raw ~370-column nflverse frame.
+TIER1_NEEDS = (
+    "defteam", "interception", "fumble_lost", "passing_yards", "sack_yds",
+    "pass_attempt", "sack", "penalty", "penalty_yards", "penalty_team",
+    "third_down_converted", "third_down_att", "yardline_100", "touchdown",
+    "field_goal_result", "drive",
+)
 
 # PBP columns the rollup understands (the ones _pbp_team_agg reads).
 _PBP_GROUP = ("game_id", "posteam")
@@ -151,7 +169,7 @@ def register_pbp(con, pbp: pd.DataFrame, table: str = "nfl_pbp") -> set[str]:
     sees the ~370-col raw PBP. Returns the set of columns present.
     """
     keep = list(dict.fromkeys(list(_PBP_GROUP) + list(_PBP_SUM_COLS)
-                              + ["game_seconds_remaining"]))
+                              + ["game_seconds_remaining"] + list(TIER1_NEEDS)))
     for agg in _PBP_AGGREGATES.values():
         for c in agg.needs:
             if c not in keep:
@@ -171,6 +189,78 @@ def _elapsed_expr(table: str, has_clock: bool) -> str:
     return (f"(SELECT (3600.0 - MIN(t.game_seconds_remaining)) / 60.0 "
             f"FROM {table} t WHERE t.game_id = g.game_id "
             f"AND t.game_seconds_remaining IS NOT NULL)")
+
+
+def _tier1_result_col(part: str) -> str:
+    """Name of the column a ``... AS col`` SELECT part emits."""
+    return part.rsplit(" AS ", 1)[-1].strip()
+
+
+def _tier1_posteam_parts(present: set[str]) -> list[str]:
+    """Tier-1 per-(game_id, posteam) SQL aggregates (leak-safe: sums/rates over
+    that game's own offensive plays). An absent source column degrades to
+    ``NULL`` (pandas NaN) so the rollup never fabricates a value.
+
+    Every expression must match ``nfl_features._pbp_team_agg``'s pandas math
+    exactly (the parity test pins this); ``NULLIF(denom, 0)`` mirrors pandas'
+    ``np.where(denom > 0, ...)`` zero-denominator guard.
+    """
+    def has(c: str) -> bool:
+        return c in present
+
+    parts: list[str] = []
+    if has("interception") and has("fumble_lost"):
+        parts.append("COALESCE(SUM(interception), 0) + COALESCE(SUM(fumble_lost), 0) "
+                     "AS giveaways")
+    else:
+        parts.append("NULL::DOUBLE AS giveaways")
+    if has("passing_yards") and has("sack_yds") and has("pass_attempt") and has("sack"):
+        parts.append("(COALESCE(SUM(passing_yards), 0) - COALESCE(SUM(sack_yds), 0)) "
+                     "/ NULLIF(COALESCE(SUM(pass_attempt), 0) + COALESCE(SUM(sack), 0), 0) "
+                     "AS net_any_a")
+        parts.append("COALESCE(SUM(sack), 0) "
+                     "/ NULLIF(COALESCE(SUM(pass_attempt), 0) + COALESCE(SUM(sack), 0), 0) "
+                     "AS sack_rate")
+    else:
+        parts.append("NULL::DOUBLE AS net_any_a")
+        parts.append("NULL::DOUBLE AS sack_rate")
+    if has("epa"):
+        parts.append("SUM(CASE WHEN epa > 0 THEN 1.0 ELSE 0.0 END) / NULLIF(COUNT(epa), 0) "
+                     "AS success_rate")
+    else:
+        parts.append("NULL::DOUBLE AS success_rate")
+    # yards_gained is guaranteed present (the rollup bails without it).
+    parts.append("SUM(CASE WHEN yards_gained >= 20 THEN 1.0 ELSE 0.0 END) "
+                 "/ NULLIF(COUNT(yards_gained), 0) AS explosive_rate")
+    if has("penalty") and has("penalty_yards") and has("penalty_team"):
+        parts.append("SUM(CASE WHEN penalty = 1 AND penalty_team = posteam "
+                     "THEN penalty_yards ELSE 0.0 END) AS penalty_yds")
+    else:
+        parts.append("NULL::DOUBLE AS penalty_yds")
+    if has("penalty") and has("penalty_yards") and has("penalty_team") and has("defteam"):
+        parts.append("SUM(CASE WHEN penalty = 1 AND penalty_team = defteam "
+                     "THEN penalty_yards ELSE 0.0 END) AS penalty_yds_drawn")
+    else:
+        parts.append("NULL::DOUBLE AS penalty_yds_drawn")
+    if has("third_down_converted") and has("third_down_att"):
+        parts.append("SUM(CASE WHEN third_down_converted = 1 THEN 1.0 ELSE 0.0 END) "
+                     "/ NULLIF(SUM(CASE WHEN third_down_att = 1 THEN 1.0 ELSE 0.0 END), 0) "
+                     "AS third_down_rate")
+    else:
+        parts.append("NULL::DOUBLE AS third_down_rate")
+    if has("touchdown") and has("yardline_100"):
+        parts.append("SUM(CASE WHEN touchdown = 1 AND yardline_100 <= 20 THEN 1.0 ELSE 0.0 END) "
+                     "/ NULLIF(SUM(CASE WHEN yardline_100 <= 20 THEN 1.0 ELSE 0.0 END), 0) "
+                     "AS redzone_td_rate")
+    else:
+        parts.append("NULL::DOUBLE AS redzone_td_rate")
+    if has("touchdown") and has("field_goal_result") and has("drive"):
+        parts.append("(SUM(CASE WHEN touchdown = 1 THEN 7.0 ELSE 0.0 END) "
+                     "+ SUM(CASE WHEN field_goal_result = 'made' THEN 3.0 ELSE 0.0 END)) "
+                     "/ NULLIF(COUNT(DISTINCT drive), 0) AS pts_per_drive")
+    else:
+        parts.append("NULL::DOUBLE AS pts_per_drive")
+    return parts
 
 
 def pbp_team_agg(con, pbp: pd.DataFrame,
@@ -212,6 +302,10 @@ def pbp_team_agg(con, pbp: pd.DataFrame,
             refs.append(f"g.{s_col}")
             parts.append(f"NULL::BIGINT AS {n_col}")
             refs.append(f"g.{n_col}")
+    # ---- Tier-1 posteam-side aggregates (v3) -----------------------------
+    t1 = _tier1_posteam_parts(present)
+    parts.extend(t1)
+    refs.extend(f"g.{_tier1_result_col(p)}" for p in t1)
     sel_extras = []
     for n in extra_names:
         agg = _PBP_AGGREGATES.get(n)
@@ -237,6 +331,24 @@ def pbp_team_agg(con, pbp: pd.DataFrame,
     out = con.execute(sql).df()
     if out.empty:
         return pd.DataFrame(columns=cols)
+    # defteam-side takeaways: giveaways FORCED, grouped by the DEFENDING team
+    # (the team that gains possession on an interception / lost fumble). Same
+    # per-game leak-safe contract as the posteam side.
+    if "interception" in present and "fumble_lost" in present:
+        def_sql = (
+            "SELECT game_id, defteam AS team, "
+            "COALESCE(SUM(interception), 0) + COALESCE(SUM(fumble_lost), 0) AS takeaways "
+            f"FROM {table} WHERE defteam IS NOT NULL "
+            "GROUP BY game_id, defteam ORDER BY game_id, defteam"
+        )
+        def_out = con.execute(def_sql).df()
+        if not def_out.empty:
+            def_out = def_out[["game_id", "team", "takeaways"]]
+            out = pd.merge(out, def_out, on=["game_id", "team"], how="outer")
+        else:
+            out["takeaways"] = None
+    else:
+        out["takeaways"] = None
     res = out[cols].copy()
     # Absent-column branches carry SQL NULL -> pandas nullable Int64 <NA>; the
     # pandas rollup sets those columns to float NaN. Normalize so parity holds.

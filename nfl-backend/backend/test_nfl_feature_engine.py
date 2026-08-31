@@ -189,5 +189,107 @@ class TestAggregateRegistry(unittest.TestCase):
         self.assertTrue(pd.isna(a.loc["G1", "pace_plays_min"]))
 
 
+class TestTier1Aggregates(unittest.TestCase):
+    """Tier-1 (v3) aggregates: turnover attribution (defteam side), passing
+    efficiency / success / discipline / drive rates — DuckDB == pandas on a
+    rich fixture, plus semantic asserts on the values themselves."""
+
+    def setUp(self):
+        if not _has_duckdb():
+            self.skipTest("duckdb not installed — pandas fallback is covered elsewhere")
+
+    def _pbp(self):
+        base = dict(game_id="G1", posteam=None, defteam=None, yards_gained=0,
+                    epa=0.0, interception=0, fumble_lost=0, pass_attempt=0,
+                    passing_yards=0, sack=0, sack_yds=0, penalty=0,
+                    penalty_yards=None, penalty_team=None, third_down_att=0,
+                    third_down_converted=0, yardline_100=50, touchdown=0,
+                    field_goal_result=None, drive=1)
+        rows = []
+        for r in [
+            # ---- Team A on offense (A home, B away) ----
+            dict(posteam="A", defteam="B", yards_gained=15, epa=0.5,
+                 pass_attempt=1, passing_yards=15, yardline_100=30, drive=1),
+            dict(posteam="A", defteam="B", yards_gained=0, epa=-0.8,
+                 interception=1, pass_attempt=1, third_down_att=1,
+                 yardline_100=45, drive=2),
+            dict(posteam="A", defteam="B", yards_gained=8, epa=0.1,
+                 yardline_100=60, drive=3),
+            dict(posteam="A", defteam="B", yards_gained=-5, epa=-0.6,
+                 sack=1, sack_yds=5, yardline_100=70, drive=4),
+            dict(posteam="A", defteam="B", yards_gained=0, epa=0.3,
+                 penalty=1, penalty_yards=10, penalty_team="B", yardline_100=50, drive=5),
+            dict(posteam="A", defteam="B", yards_gained=0, epa=-0.4,
+                 penalty=1, penalty_yards=15, penalty_team="A", yardline_100=50, drive=5),
+            dict(posteam="A", defteam="B", yards_gained=0, epa=0.0,
+                 field_goal_result="made", yardline_100=25, drive=5),
+            dict(posteam="A", defteam="B", yards_gained=3, epa=0.6,
+                 touchdown=1, yardline_100=5, drive=5),
+            # ---- Team B on offense ----
+            dict(posteam="B", defteam="A", yards_gained=25, epa=0.7,
+                 pass_attempt=1, passing_yards=25, yardline_100=40, drive=1),
+            dict(posteam="B", defteam="A", yards_gained=-2, epa=-0.9,
+                 fumble_lost=1, yardline_100=20, drive=2),
+        ]:
+            rows.append({**base, **r})
+        return pd.DataFrame(rows)
+
+    def test_tier1_rollup_values_and_attribution(self):
+        got = _pbp_team_agg(self._pbp()).sort_values(
+            ["game_id", "team"]).reset_index(drop=True)
+        a = got[got["team"] == "A"].iloc[0]
+        b = got[got["team"] == "B"].iloc[0]
+        # Turnover attribution: A committed an INT, B committed a lost fumble;
+        # each defense forced the OTHER team's giveaway.
+        self.assertEqual(float(a["giveaways"]), 1.0)
+        self.assertEqual(float(b["giveaways"]), 1.0)
+        self.assertEqual(float(a["takeaways"]), 1.0)   # B's fumble
+        self.assertEqual(float(b["takeaways"]), 1.0)   # A's INT
+        # ANY/A + sack rate per dropback: A = 2 attempts + 1 sack, 15 pass yds.
+        self.assertAlmostEqual(float(a["net_any_a"]), (15.0 - 5.0) / 3.0, places=6)
+        self.assertAlmostEqual(float(a["sack_rate"]), 1.0 / 3.0, places=6)
+        # EPA success rate: 4 of 8 plays positive.
+        self.assertAlmostEqual(float(a["success_rate"]), 0.5, places=6)
+        # Explosive: only B's 25-yd play is 20+ (B ran 2 plays).
+        self.assertAlmostEqual(float(b["explosive_rate"]), 0.5, places=6)
+        # Penalty split: A committed 15, drew 10 (B's penalty against A).
+        self.assertEqual(float(a["penalty_yds"]), 15.0)
+        self.assertEqual(float(a["penalty_yds_drawn"]), 10.0)
+        # Third down: 1 attempt, 0 conversions.
+        self.assertEqual(float(a["third_down_rate"]), 0.0)
+        # Red zone: 1 play inside the 20, TD -> 1.0.
+        self.assertEqual(float(a["redzone_td_rate"]), 1.0)
+        # Points per drive: TD (7) + FG (3) over A's 5 drives.
+        self.assertAlmostEqual(float(a["pts_per_drive"]), 10.0 / 5.0, places=6)
+
+    def test_tier1_parity_duckdb_vs_pandas(self):
+        pbp = self._pbp()
+        want = _pbp_team_agg(pbp).sort_values(
+            ["game_id", "team"]).reset_index(drop=True)
+        with duckdb_engine() as con:
+            got = pbp_team_agg(con, pbp).sort_values(
+                ["game_id", "team"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(got, want, check_dtype=False,
+                                      check_exact=False, rtol=1e-9, atol=1e-12)
+
+    def test_tier1_degrades_to_nan_when_source_columns_absent(self):
+        pbp = self._pbp().drop(
+            columns=["interception", "fumble_lost", "passing_yards", "sack_yds",
+                     "pass_attempt", "sack", "penalty", "penalty_yards",
+                     "penalty_team", "third_down_att", "third_down_converted",
+                     "field_goal_result", "drive"])
+        got = _pbp_team_agg(pbp)
+        with duckdb_engine() as con:
+            ddb = pbp_team_agg(con, pbp)
+        for c in ("giveaways", "takeaways", "net_any_a", "sack_rate",
+                  "penalty_yds", "penalty_yds_drawn", "third_down_rate",
+                  "pts_per_drive"):
+            self.assertTrue(pd.isna(got[c]).all(), c)
+            self.assertTrue(pd.isna(ddb[c]).all(), c)
+        # success/explosive still computable from yards_gained + epa.
+        self.assertTrue(got["success_rate"].notna().any())
+        self.assertTrue(got["explosive_rate"].notna().any())
+
+
 if __name__ == "__main__":
     unittest.main()

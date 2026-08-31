@@ -60,6 +60,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from nfl_feature_engine import TEAM_AGG_COLUMNS, TIER1_NEEDS
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -92,6 +94,14 @@ EWM_HALFLIFE = 2      # decaying-window halflife (games) — ewm net pts/EPA/sco
 OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing-margin window (games)
 PACE_WINDOW = 4       # trailing plays/min window (games)
 
+# Tier-1 (v3) per-game PBP aggregates the ladder turns into strictly-prior
+# decaying-window team features (ewm halflife=2, same as the v2 strength set).
+TIER1_AGG_COLUMNS = [
+    "giveaways", "takeaways", "net_any_a", "sack_rate", "success_rate",
+    "explosive_rate", "penalty_yds", "penalty_yds_drawn",
+    "third_down_rate", "redzone_td_rate", "pts_per_drive",
+]
+
 # admission gate
 COVERAGE_FLOOR = 0.95
 # The redundancy bar is the reporting bar the user specified ("|r| > 0.8"):
@@ -111,6 +121,10 @@ FEATURE_PRIORITY = {
     "ewm_scoring_diff": 9, "ewm_ypp_diff": 10, "opp_adj_net_pts_diff": 11,
     "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
     "wind_mph": 15, "div_game": 16,
+    "turnover_diff": 17, "any_a_diff": 18, "sack_rate_diff": 19,
+    "success_rate_diff": 20, "explosive_rate_diff": 21, "penalty_diff": 22,
+    "third_down_rate_diff": 23, "redzone_td_rate_diff": 24,
+    "pts_per_drive_diff": 25,
 }
 
 # v1 base + v2 candidates (the admission gate scores every column; the
@@ -126,6 +140,10 @@ FEATURE_COLUMNS = [
     # ---- v2: opponent-adjusted / pace / rest / weather / division -----
     "opp_adj_net_pts_diff", "pace_plays_min_diff", "rest_short_diff",
     "temp_f", "wind_mph", "div_game",
+    # ---- v3 (Tier-1): turnovers / passing efficiency / success / drive --
+    "turnover_diff", "any_a_diff", "sack_rate_diff", "success_rate_diff",
+    "explosive_rate_diff", "penalty_diff", "third_down_rate_diff",
+    "redzone_td_rate_diff", "pts_per_drive_diff",
     # ---- constant anchor ----------------------------------------------
     "is_home",
 ]
@@ -148,6 +166,15 @@ CANONICAL_SOURCE = {
     "temp_f": "home-venue game temperature F (nflverse schedule field)",
     "wind_mph": "home-venue game wind mph (nflverse schedule field)",
     "div_game": "division game flag (nflverse schedule field)",
+    "turnover_diff": "trailing net turnovers (takeaways − giveaways), ewm halflife=2 (from pbp)",
+    "any_a_diff": "trailing net yards per dropback (ANY/A), ewm halflife=2 (from pbp)",
+    "sack_rate_diff": "trailing sack rate per dropback, ewm halflife=2 (from pbp)",
+    "success_rate_diff": "trailing EPA success rate (EPA>0 share), ewm halflife=2 (from pbp)",
+    "explosive_rate_diff": "trailing 20+ yd play rate, ewm halflife=2 (from pbp)",
+    "penalty_diff": "trailing net penalty yards (committed − drawn), ewm halflife=2 (from pbp)",
+    "third_down_rate_diff": "trailing 3rd-down conversion rate, ewm halflife=2 (from pbp)",
+    "redzone_td_rate_diff": "trailing red-zone TD rate (inside opp 20), ewm halflife=2 (from pbp)",
+    "pts_per_drive_diff": "trailing points per drive, ewm halflife=2 (from pbp)",
     "is_home": "constant anchor for the home edge",
 }
 
@@ -319,6 +346,16 @@ def team_stats_ladder(events: pd.DataFrame,
     else:
         srt["pace_plays_min"] = np.nan
 
+    # ---- Tier-1 (v3) decaying-window aggregates (strictly-prior, per team) --
+    for c in TIER1_AGG_COLUMNS:
+        if c in srt.columns:
+            srt[f"ewm_{c}"] = _trailing_ewm(srt, c, EWM_HALFLIFE)
+        else:
+            srt[f"ewm_{c}"] = np.nan
+    # net per-team values: takeaways − giveaways, committed − drawn penalties
+    srt["ewm_net_turnovers"] = srt["ewm_takeaways"] - srt["ewm_giveaways"]
+    srt["ewm_net_penalty"] = srt["ewm_penalty_yds"] - srt["ewm_penalty_yds_drawn"]
+
     # ---- opponent-adjusted trailing margin -------------------------------
     # opp_form = the opponent's OWN trailing form entering the same game
     # (strictly-prior for the opponent too). The trailing mean over THIS
@@ -343,17 +380,20 @@ def _home_minus_away(ladder: pd.DataFrame, game_ids: pd.Index,
 
 
 def _pbp_team_agg(pbp: pd.DataFrame) -> pd.DataFrame:
-    """Per (game_id, team) play-level aggregates for the v2 candidates.
+    """Per (game_id, team) play-level aggregates for the v2/v3 candidates.
 
-    Columns: total_yards, n_plays, epa_sum/epa_n, qb_epa_sum/qb_epa_n (NaN
-    when the pbp lacks the source column), elapsed_min (game length from the
-    final play's clock; NaN when ``game_seconds_remaining`` is absent). The
-    epa/qb_epa columns are kept as sums+counts so the ladder computes the
-    per-game rates itself (and the sums are never leaked by the trailing
-    shift).
+    Base columns (total_yards, n_plays, epa/qb_epa sums+counts, elapsed_min)
+    plus the Tier-1 columns: giveaways (interceptions + lost fumbles committed
+    on offense), takeaways (same, FORCED — grouped by the defending team),
+    net yards per dropback (ANY/A), sack rate, EPA success rate, explosive
+    (20+ yd) play rate, penalty yards committed / drawn, third-down conversion
+    rate, red-zone TD rate, and points per drive. Every column is a function
+    of that game's plays only (sums/rates) — the trailing shift in
+    ``team_stats_ladder`` keeps them strictly-prior. Absent source columns
+    degrade to NaN (never fabricated), matching the DuckDB engine byte-for-byte
+    (the parity test pins this).
     """
-    cols = ["game_id", "team", "total_yards", "n_plays",
-            "epa_sum", "epa_n", "qb_epa_sum", "qb_epa_n", "elapsed_min"]
+    cols = list(TEAM_AGG_COLUMNS)
     if pbp is None or "posteam" not in pbp.columns:
         return pd.DataFrame(columns=cols)
     p = pbp.copy()
@@ -380,7 +420,140 @@ def _pbp_team_agg(pbp: pd.DataFrame) -> pd.DataFrame:
         g = g.merge(last[["game_id", "elapsed_min"]], on="game_id", how="left")
     else:
         g["elapsed_min"] = np.nan
-    return g.rename(columns={"posteam": "team"})[cols]
+    g = g.rename(columns={"posteam": "team"})
+
+    has = set(pbp.columns)
+
+    def ok(*names: str) -> bool:
+        return all(n in has for n in names)
+
+    def _merge(sub: pd.DataFrame) -> None:
+        nonlocal g
+        g = g.merge(sub, on=["game_id", "team"], how="outer")
+
+    # giveaways — turnovers the offense committed (INT + lost fumbles).
+    if ok("interception", "fumble_lost"):
+        p2 = p.copy()
+        p2["_giveaways"] = p2["interception"].fillna(0.0) + p2["fumble_lost"].fillna(0.0)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            giveaways=("_giveaways", "sum")).rename(columns={"posteam": "team"})
+        _merge(sub)
+    else:
+        g["giveaways"] = np.nan
+    # takeaways — giveaways the defense forced (opponent's INT + lost fumbles).
+    if ok("interception", "fumble_lost") and ok("defteam"):
+        d = p.dropna(subset=["defteam"]).copy()
+        if not d.empty:
+            d["_takeaways"] = d["interception"].fillna(0.0) + d["fumble_lost"].fillna(0.0)
+            sub = d.groupby(["game_id", "defteam"], as_index=False).agg(
+                takeaways=("_takeaways", "sum")).rename(columns={"defteam": "team"})
+            _merge(sub)
+        else:
+            g["takeaways"] = np.nan
+    else:
+        g["takeaways"] = np.nan
+    # net ANY/A + sack rate (per dropback).
+    if ok("passing_yards", "sack_yds", "pass_attempt", "sack"):
+        p2 = p.copy()
+        p2["_any_num"] = p2["passing_yards"].fillna(0.0) - p2["sack_yds"].fillna(0.0)
+        p2["_any_den"] = p2["pass_attempt"].fillna(0.0) + p2["sack"].fillna(0.0)
+        p2["_sack"] = p2["sack"].fillna(0.0)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            _any_num=("_any_num", "sum"), _any_den=("_any_den", "sum"),
+            _sack=("_sack", "sum")).rename(columns={"posteam": "team"})
+        sub["net_any_a"] = np.where(sub["_any_den"] > 0,
+                                     sub["_any_num"] / sub["_any_den"], np.nan)
+        sub["sack_rate"] = np.where(sub["_any_den"] > 0,
+                                     sub["_sack"] / sub["_any_den"], np.nan)
+        _merge(sub.drop(columns=["_any_num", "_any_den", "_sack"]))
+    else:
+        g["net_any_a"] = np.nan
+        g["sack_rate"] = np.nan
+    # EPA success rate — share of plays with positive EPA.
+    if ok("epa"):
+        p2 = p.copy()
+        p2["_pos"] = (p2["epa"] > 0).astype(float)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            _pos=("_pos", "sum"), _n=("epa", "count")).rename(
+            columns={"posteam": "team"})
+        sub["success_rate"] = np.where(sub["_n"] > 0, sub["_pos"] / sub["_n"], np.nan)
+        _merge(sub.drop(columns=["_pos", "_n"]))
+    else:
+        g["success_rate"] = np.nan
+    # Explosive (20+ yd) play rate.
+    p2 = p.copy()
+    p2["_expl"] = (p2["yards_gained"] >= 20).astype(float)
+    sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+        _expl=("_expl", "sum"), _n=("yards_gained", "count")).rename(
+        columns={"posteam": "team"})
+    sub["explosive_rate"] = np.where(sub["_n"] > 0,
+                                      sub["_expl"] / sub["_n"], np.nan)
+    _merge(sub.drop(columns=["_expl", "_n"]))
+    # Penalty yards committed (enforced yards only).
+    if ok("penalty", "penalty_yards", "penalty_team"):
+        p2 = p.copy()
+        p2["_comm"] = np.where(
+            (p2["penalty"] == 1) & (p2["penalty_team"] == p2["posteam"]),
+            p2["penalty_yards"], 0.0)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            penalty_yds=("_comm", "sum")).rename(columns={"posteam": "team"})
+        _merge(sub)
+    else:
+        g["penalty_yds"] = np.nan
+    # Penalty yards drawn (opponent's enforced yards against this team).
+    if ok("penalty", "penalty_yards", "penalty_team", "defteam"):
+        p2 = p.copy()
+        p2["_drawn"] = np.where(
+            (p2["penalty"] == 1) & (p2["penalty_team"] == p2["defteam"]),
+            p2["penalty_yards"], 0.0)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            penalty_yds_drawn=("_drawn", "sum")).rename(columns={"posteam": "team"})
+        _merge(sub)
+    else:
+        g["penalty_yds_drawn"] = np.nan
+    # Third-down conversion rate.
+    if ok("third_down_converted", "third_down_att"):
+        p2 = p.copy()
+        p2["_c"] = (p2["third_down_converted"] == 1).astype(float)
+        p2["_a"] = (p2["third_down_att"] == 1).astype(float)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            _c=("_c", "sum"), _a=("_a", "sum")).rename(
+            columns={"posteam": "team"})
+        sub["third_down_rate"] = np.where(sub["_a"] > 0,
+                                           sub["_c"] / sub["_a"], np.nan)
+        _merge(sub.drop(columns=["_c", "_a"]))
+    else:
+        g["third_down_rate"] = np.nan
+    # Red-zone TD rate — TD on plays inside the opponent's 20.
+    if ok("touchdown", "yardline_100"):
+        p2 = p.copy()
+        p2["_rz"] = (p2["yardline_100"] <= 20).astype(float)
+        p2["_rz_td"] = ((p2["touchdown"] == 1) & (p2["yardline_100"] <= 20)).astype(float)
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            _rz_td=("_rz_td", "sum"), _rz=("_rz", "sum")).rename(
+            columns={"posteam": "team"})
+        sub["redzone_td_rate"] = np.where(sub["_rz"] > 0,
+                                           sub["_rz_td"] / sub["_rz"], np.nan)
+        _merge(sub.drop(columns=["_rz_td", "_rz"]))
+    else:
+        g["redzone_td_rate"] = np.nan
+    # Points per drive (7/TD + 3/FG over distinct drives).
+    if ok("touchdown", "field_goal_result", "drive"):
+        p2 = p.copy()
+        p2["_pts"] = (p2["touchdown"] == 1).astype(float) * 7.0 \
+            + (p2["field_goal_result"] == "made").astype(float) * 3.0
+        sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
+            _pts=("_pts", "sum"), _drives=("drive", "nunique")).rename(
+            columns={"posteam": "team"})
+        sub["pts_per_drive"] = np.where(sub["_drives"] > 0,
+                                         sub["_pts"] / sub["_drives"], np.nan)
+        _merge(sub.drop(columns=["_pts", "_drives"]))
+    else:
+        g["pts_per_drive"] = np.nan
+    for c in cols:
+        if c not in g.columns:
+            g[c] = np.nan
+    return g[cols]
 
 
 def _decided_rows(sched: pd.DataFrame) -> pd.DataFrame:
@@ -471,6 +644,16 @@ def build_features(decided: pd.DataFrame,
     df["opp_adj_net_pts_diff"] = _home_minus_away(ladder, gids, "opp_adj_form")
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
+    # --- v3 (Tier-1) diff candidates: turnovers / efficiency / discipline ---
+    df["turnover_diff"] = _home_minus_away(ladder, gids, "ewm_net_turnovers")
+    df["any_a_diff"] = _home_minus_away(ladder, gids, "ewm_net_any_a")
+    df["sack_rate_diff"] = _home_minus_away(ladder, gids, "ewm_sack_rate")
+    df["success_rate_diff"] = _home_minus_away(ladder, gids, "ewm_success_rate")
+    df["explosive_rate_diff"] = _home_minus_away(ladder, gids, "ewm_explosive_rate")
+    df["penalty_diff"] = _home_minus_away(ladder, gids, "ewm_net_penalty")
+    df["third_down_rate_diff"] = _home_minus_away(ladder, gids, "ewm_third_down_rate")
+    df["redzone_td_rate_diff"] = _home_minus_away(ladder, gids, "ewm_redzone_td_rate")
+    df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
     return df
 
 
@@ -541,6 +724,16 @@ def build_slate_features(schedule: pd.DataFrame,
     df["opp_adj_net_pts_diff"] = _home_minus_away(ladder, gids, "opp_adj_form")
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
+    # --- v3 (Tier-1) diff candidates (same strictly-prior ladder) ----------
+    df["turnover_diff"] = _home_minus_away(ladder, gids, "ewm_net_turnovers")
+    df["any_a_diff"] = _home_minus_away(ladder, gids, "ewm_net_any_a")
+    df["sack_rate_diff"] = _home_minus_away(ladder, gids, "ewm_sack_rate")
+    df["success_rate_diff"] = _home_minus_away(ladder, gids, "ewm_success_rate")
+    df["explosive_rate_diff"] = _home_minus_away(ladder, gids, "ewm_explosive_rate")
+    df["penalty_diff"] = _home_minus_away(ladder, gids, "ewm_net_penalty")
+    df["third_down_rate_diff"] = _home_minus_away(ladder, gids, "ewm_third_down_rate")
+    df["redzone_td_rate_diff"] = _home_minus_away(ladder, gids, "ewm_redzone_td_rate")
+    df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
 
     # --- cumulative records entering the slate (from the decided timeline) ---
     rec = ev.groupby("team").agg(
@@ -723,8 +916,9 @@ def _load_raw(seasons: list[int]):
     pbp = nflreadpy.load_pbp(seasons)
     # v2 candidates need EPA / QB-EPA / the game clock (pace); select only the
     # needed columns in polars before converting (pbp is ~370 columns wide).
-    keep = [c for c in ("game_id", "posteam", "yards_gained", "epa",
-                        "qb_epa", "game_seconds_remaining") if c in pbp.columns]
+    keep = [c for c in (("game_id", "posteam", "yards_gained", "epa",
+                         "qb_epa", "game_seconds_remaining") + TIER1_NEEDS)
+            if c in pbp.columns]
     pbp = pbp.select(keep).to_pandas()
     return sched, pbp
 

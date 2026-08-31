@@ -399,5 +399,99 @@ class TestBuildFeatures(unittest.TestCase):
             self.assertIn(col, feats.columns)
 
 
+class TestTier1Trailing(unittest.TestCase):
+    """Tier-1 (v3) PBP aggregates: strictly-prior decaying windows, turnover
+    net, and the 9 diff candidates composed end-to-end."""
+
+    def _pbp(self):
+        return pd.DataFrame([
+            dict(game_id="G1", posteam="A", defteam="B", yards_gained=5,
+                 epa=0.2, interception=0, fumble_lost=0),
+            dict(game_id="G1", posteam="A", defteam="B", yards_gained=0,
+                 epa=-0.5, interception=1, fumble_lost=0),
+            dict(game_id="G1", posteam="B", defteam="A", yards_gained=-1,
+                 epa=-0.3, interception=0, fumble_lost=1),
+            dict(game_id="G2", posteam="A", defteam="C", yards_gained=3,
+                 epa=0.1, interception=0, fumble_lost=0),
+        ])
+
+    def test_tier1_prior_only_and_net_turnovers(self):
+        g = synth_games([
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=20, away_score=10),
+            dict(game_id="G2", gameday="2019-09-08", home_team="A", away_team="C",
+                 home_score=14, away_score=7),
+        ])
+        from nfl_features import _pbp_team_agg
+        base = team_stats_ladder(team_events(g), team_game_agg=_pbp_team_agg(self._pbp()))
+        # A future G3 with a turnover explosion must not change G1/G2 rows.
+        g3 = synth_games([
+            dict(game_id="G3", gameday="2019-09-15", home_team="A", away_team="D",
+                 home_score=35, away_score=0),
+        ])
+        pbp3 = pd.DataFrame([
+            dict(game_id="G3", posteam="A", defteam="D", yards_gained=0,
+                 epa=-0.9, interception=2, fumble_lost=1),
+            dict(game_id="G3", posteam="D", defteam="A", yards_gained=0,
+                 epa=0.0, interception=0, fumble_lost=0),
+        ])
+        alt = team_stats_ladder(
+            team_events(pd.concat([g, g3], ignore_index=True)),
+            team_game_agg=_pbp_team_agg(
+                pd.concat([self._pbp(), pbp3], ignore_index=True)))
+        a_base = base[base["team"] == "A"].set_index("game_id")
+        a_alt = alt[alt["team"] == "A"].set_index("game_id")
+        for stat in ("ewm_giveaways", "ewm_takeaways", "ewm_net_turnovers"):
+            for gid in ("G1", "G2"):
+                v_base, v_alt = a_base.loc[gid, stat], a_alt.loc[gid, stat]
+                if pd.isna(v_base) and pd.isna(v_alt):
+                    continue
+                self.assertEqual(v_base, v_alt,
+                                 f"{stat} of {gid} changed by a future game")
+        # G1: A committed an INT (giveaways=1); B lost a fumble (A takeaways=1),
+        # so G2's trailing net turnovers = 0. G1 itself has no prior -> NaN.
+        self.assertTrue(pd.isna(a_base.loc["G1", "ewm_giveaways"]))
+        self.assertEqual(a_base.loc["G2", "ewm_giveaways"], 1.0)
+        self.assertEqual(a_base.loc["G2", "ewm_takeaways"], 1.0)
+        self.assertEqual(a_base.loc["G2", "ewm_net_turnovers"], 0.0)
+
+    def test_tier1_diff_columns_end_to_end(self):
+        g = synth_games([
+            dict(game_id="G1", gameday="2019-09-01", home_team="A", away_team="B",
+                 home_score=20, away_score=10),
+            dict(game_id="G2", gameday="2019-09-08", home_team="C", away_team="D",
+                 home_score=7, away_score=14),
+            dict(game_id="G3", gameday="2019-09-15", home_team="A", away_team="C",
+                 home_score=24, away_score=21),
+        ])
+        pbp = pd.DataFrame([
+            dict(game_id="G1", posteam="A", defteam="B", yards_gained=5, epa=0.2,
+                 interception=0, fumble_lost=0),
+            dict(game_id="G1", posteam="A", defteam="B", yards_gained=0, epa=-0.5,
+                 interception=1, fumble_lost=0),
+            dict(game_id="G1", posteam="B", defteam="A", yards_gained=-1, epa=-0.3,
+                 interception=0, fumble_lost=0),
+            dict(game_id="G2", posteam="C", defteam="D", yards_gained=2, epa=0.1,
+                 interception=0, fumble_lost=0),
+            dict(game_id="G2", posteam="D", defteam="C", yards_gained=0, epa=-0.2,
+                 interception=0, fumble_lost=1),
+            dict(game_id="G3", posteam="A", defteam="C", yards_gained=1, epa=0.0,
+                 interception=0, fumble_lost=0),
+            dict(game_id="G3", posteam="C", defteam="A", yards_gained=1, epa=0.0,
+                 interception=0, fumble_lost=0),
+        ])
+        feats = build_features(g, g, pbp)
+        for col in ("turnover_diff", "any_a_diff", "sack_rate_diff",
+                    "success_rate_diff", "explosive_rate_diff", "penalty_diff",
+                    "third_down_rate_diff", "redzone_td_rate_diff",
+                    "pts_per_drive_diff"):
+            self.assertIn(col, feats.columns)
+        g3 = feats[feats["game_id"] == "G3"].iloc[0]
+        # A (home) prior: net turnovers -1 (threw an INT), success 0.5;
+        # C (away) prior: net +1 (forced a fumble), success 1.0.
+        self.assertAlmostEqual(g3["turnover_diff"], -2.0, places=6)
+        self.assertAlmostEqual(g3["success_rate_diff"], -0.5, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
