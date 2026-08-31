@@ -1,0 +1,82 @@
+{
+  "schema": "tuning-gate-evidence/v1",
+  "date": "2026-08-31",
+  "policy": "docs/model_tuning_policy.md",
+  "candidate": {
+    "member": "randomforest",
+    "label": "Optuna winner (tune_rf_optuna.py, study 'rf_moneyline', 75 trials, pooled-OOF-logloss objective, margin-attached folds)",
+    "params": {
+      "n_estimators": 800,
+      "max_depth": 6,
+      "min_samples_leaf": 17,
+      "min_samples_split": 6,
+      "max_features": "log2",
+      "bootstrap": true
+    },
+    "vs": "prior inline defaults (n_estimators 300, min_samples_leaf 20)"
+  },
+  "thresholds": {
+    "blend_auc_tol": 0.001,
+    "blend_logloss_tol": 0.001,
+    "member_ece_strict": true,
+    "sealed_windows": "context only; pooled OOF is the arbiter"
+  },
+  "member_gate": {
+    "verdict": "PASS",
+    "pooled_oof": {
+      "current": {"logloss": 0.6877, "auc": 0.5518, "ece": 0.0208},
+      "candidate": {"logloss": 0.6863, "auc": 0.5539, "ece": 0.0122},
+      "note": "production-correct pooled member metrics from rf_blend_ablation_5a0173c6fc28.json (same folds as the blend gate)"
+    },
+    "sealed_21d": {
+      "current": {"logloss": 0.6815, "auc": 0.5770, "ece": 0.0593},
+      "candidate": {"logloss": 0.6805, "auc": 0.5783, "ece": 0.0357},
+      "n_hold": 282,
+      "window": "2026-08-09..2026-08-29",
+      "note": "from tune_rf_optuna.py sealed verification; tuner pooled-OOF logloss current 0.68783 -> candidate 0.68655"
+    },
+    "six_conditions": {
+      "pooled_logloss": "PASS (-0.0014)",
+      "pooled_auc": "PASS (+0.0021)",
+      "pooled_ece": "PASS (-0.0086)",
+      "sealed_logloss": "PASS (-0.0010)",
+      "sealed_auc": "PASS (+0.0013)",
+      "sealed_ece": "PASS (-0.0236)"
+    }
+  },
+  "blend_gate": {
+    "verdict": "PASS",
+    "pooled_blend": {
+      "current": {"logloss": 0.6837, "auc": 0.5656, "ece": 0.0065},
+      "candidate": {"logloss": 0.6836, "auc": 0.5657, "ece": 0.0042}
+    },
+    "deltas": {
+      "auc": 0.0001,
+      "logloss": -0.0001,
+      "ece": -0.0023
+    },
+    "criteria": {
+      "pooled_auc_not_worse_than_-0.001": "PASS (+0.0001)",
+      "pooled_logloss_not_worse_than_+0.001": "PASS (-0.0001)",
+      "pooled_ece_not_worse": "PASS (-0.0023)",
+      "member_ece_improves": "PASS (0.0208 -> 0.0122)"
+    },
+    "sealed_windows": {
+      "wins": 0,
+      "total": 3,
+      "note": "counter-evidence only: windows ~281-286 games (noise band), refits ran without run_margin_diff attached (NULL-filled, less production-faithful); pooled is the arbiter per repo convention"
+    }
+  },
+  "gate_verdict": "ADOPT",
+  "rationale": "Member gate passed on all six conditions; blend gate passed on all four criteria (pooled marginally better on logloss/AUC/ECE, member ECE improves). 0/3 sealed-window wins recorded as weak counter-evidence per policy section 4.3. Adopted into config.RF_PARAMS (member-strength policy: each member as strong as possible as long as the blend is not measurably impacted).",
+  "corroboration": {
+    "weight_ablation": "data_delivery/rf_weight_ablation_20260831.json",
+    "weight_ablation_finding": "RF adaptive weight ~0.16 is earned; dropping RF costs -0.008 pooled AUC (0.5740 -> 0.5659)"
+  },
+  "source_files": [
+    "mlb-backend/data_delivery/rf_blend_ablation_5a0173c6fc28.json",
+    "mlb-backend/data_delivery/rf_weight_ablation_20260831.json",
+    "mlb-backend/backend/rf_study.db (study rf_moneyline)"
+  ],
+  "tradeoff": "800 trees makes the RF fold fit ~2.7x slower than 300 (training-time cost only)"
+}

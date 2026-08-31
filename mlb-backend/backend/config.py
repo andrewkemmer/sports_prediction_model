@@ -205,13 +205,33 @@ MLP_PARAMS = {
 # ~20% of the blend weight before adaptive re-weighting. sklearn trees
 # cannot consume NaN: train-fold-median imputation (the same imputed
 # matrix logistic/MLP use), plus integer team-ID categoricals when
-# RF_WITH_TEAM_IDS is on (the production default). Values below are
-# byte-identical to the inline config the fold trainer used before the
-# 2026-08 extraction — the Optuna study (tune_rf_optuna.py) may replace
-# them with provenance after its sealed-holdout gate.
+# RF_WITH_TEAM_IDS is on (the production default).
+#
+# PROVENANCE (2026-08-31): tuned by backend/tune_rf_optuna.py — 75 Optuna
+# trials, pooled OOF logloss objective over 71 walk-forward folds with OOF
+# run_margin_diff attached (production-correct), study 'rf_moneyline'
+# (sqlite:///rf_study.db).
+#   MEMBER GATE (PASSED): winner vs the prior inline defaults (300 trees /
+# min_samples_leaf 20): pooled OOF logloss 0.68655 vs 0.68783; sealed
+# 21-day holdout (2026-08-09..08-29, n=282) logloss 0.68050 vs 0.68150,
+# AUC 0.5783 vs 0.5770, ECE 0.0357 vs 0.0593 — all three improve on both
+# views, so the tuner's harness gate printed ADOPT.
+#   BLEND GATE (NEUTRAL, adopted per policy): run_rf_tuned_blend_ablation.py
+# (production-correct, 3 sealed windows) shows the member gain does NOT move
+# the blend — pooled blend ll 0.6836 vs 0.6837 / AUC 0.5657 vs 0.5656
+# (slightly better), sealed deltas all within ±0.001 AUC / ±0.0006 ll
+# (mixed-sign noise), strict multi-window verdict DON'T SHIP (0/3).
+# Policy (user, 2026-08-31): each member as strong as possible as long as
+# the blend is not measurably impacted — the tuned RF qualifies, so these
+# params are ADOPTED. Trade-off: 800 trees makes the RF fold fit ~2.7x
+# slower than 300.
 RF_PARAMS = {
-    "n_estimators": 300,
-    "min_samples_leaf": 20,
+    "n_estimators": 800,
+    "max_depth": 6,
+    "min_samples_leaf": 17,
+    "min_samples_split": 6,
+    "max_features": "log2",
+    "bootstrap": True,
     "random_state": RANDOM_SEED,
     "n_jobs": -1,
 }

@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import tempfile
 import json
 import subprocess
 import sys
@@ -343,7 +344,7 @@ def main() -> None:
     if args.smoke:
         args.trials = 4
 
-    cache_dir = Path("/tmp") if args.max_folds == 0 else None
+    cache_dir = Path(tempfile.gettempdir()) if args.max_folds == 0 else None
     data = prepare_data(args.holdout_days, args.data,
                         max_folds=args.max_folds, cache_dir=cache_dir)
     tune_df, hold_df = data["tune"], data["hold"]

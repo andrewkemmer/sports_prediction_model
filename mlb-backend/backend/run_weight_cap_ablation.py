@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -140,11 +141,11 @@ def project_weights(raw: dict[str, float], cap: float) -> dict[str, float]:
 # ── Fold-loop cache (per-fold checkpoints; interrupted runs resume) ─────────
 
 def _fold_cache_path(sha: str, n_folds: int) -> Path:
-    return Path("/tmp") / f"wcap_folds_{sha[:12]}_{n_folds}.parquet"
+    return Path(tempfile.gettempdir()) / f"wcap_folds_{sha[:12]}_{n_folds}.parquet"
 
 
 def _hold_cache_path(sha: str) -> Path:
-    return Path("/tmp") / f"wcap_hold_{sha[:12]}.parquet"
+    return Path(tempfile.gettempdir()) / f"wcap_hold_{sha[:12]}.parquet"
 
 
 def _fold_recs_from_df(df: pd.DataFrame) -> list[dict]:

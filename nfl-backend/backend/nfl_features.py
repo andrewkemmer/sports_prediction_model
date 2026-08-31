@@ -121,10 +121,6 @@ FEATURE_PRIORITY = {
     "ewm_scoring_diff": 9, "ewm_ypp_diff": 10, "opp_adj_net_pts_diff": 11,
     "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
     "wind_mph": 15, "div_game": 16,
-    "turnover_diff": 17, "any_a_diff": 18, "sack_rate_diff": 19,
-    "success_rate_diff": 20, "explosive_rate_diff": 21, "penalty_diff": 22,
-    "third_down_rate_diff": 23, "redzone_td_rate_diff": 24,
-    "pts_per_drive_diff": 25,
 }
 
 # v1 base + v2 candidates (the admission gate scores every column; the
@@ -140,10 +136,12 @@ FEATURE_COLUMNS = [
     # ---- v2: opponent-adjusted / pace / rest / weather / division -----
     "opp_adj_net_pts_diff", "pace_plays_min_diff", "rest_short_diff",
     "temp_f", "wind_mph", "div_game",
-    # ---- v3 (Tier-1): turnovers / passing efficiency / success / drive --
-    "turnover_diff", "any_a_diff", "sack_rate_diff", "success_rate_diff",
-    "explosive_rate_diff", "penalty_diff", "third_down_rate_diff",
-    "redzone_td_rate_diff", "pts_per_drive_diff",
+    # Note: the v3 (Tier-1) candidates are still composed by
+    # build_features/build_slate_features and exercised by
+    # run_tier1_ablation.py, but they are deliberately NOT in the deployed
+    # candidate pool: the 2026-08-31 five-arm ablation showed every Tier-1
+    # addition loses to the v1+v2 baseline on the sealed 2025 holdout
+    # (WITH/WITH_ADMITTED/WITH_SUBSET/TIER1_ONLY all DON'T ADOPT).
     # ---- constant anchor ----------------------------------------------
     "is_home",
 ]
@@ -166,15 +164,6 @@ CANONICAL_SOURCE = {
     "temp_f": "home-venue game temperature F (nflverse schedule field)",
     "wind_mph": "home-venue game wind mph (nflverse schedule field)",
     "div_game": "division game flag (nflverse schedule field)",
-    "turnover_diff": "trailing net turnovers (takeaways − giveaways), ewm halflife=2 (from pbp)",
-    "any_a_diff": "trailing net yards per dropback (ANY/A), ewm halflife=2 (from pbp)",
-    "sack_rate_diff": "trailing sack rate per dropback, ewm halflife=2 (from pbp)",
-    "success_rate_diff": "trailing EPA success rate (EPA>0 share), ewm halflife=2 (from pbp)",
-    "explosive_rate_diff": "trailing 20+ yd play rate, ewm halflife=2 (from pbp)",
-    "penalty_diff": "trailing net penalty yards (committed − drawn), ewm halflife=2 (from pbp)",
-    "third_down_rate_diff": "trailing 3rd-down conversion rate, ewm halflife=2 (from pbp)",
-    "redzone_td_rate_diff": "trailing red-zone TD rate (inside opp 20), ewm halflife=2 (from pbp)",
-    "pts_per_drive_diff": "trailing points per drive, ewm halflife=2 (from pbp)",
     "is_home": "constant anchor for the home edge",
 }
 
