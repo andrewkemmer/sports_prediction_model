@@ -1,67 +1,111 @@
-"""Defensive-feature EXPANSION ablation for the MLB moneyline (v3).
+"""Defensive feature expansion ablation — raw outcomes + leading indicators on
+the MLB moneyline ensemble (gated measurement; NOT a feature ship).
 
-Question: do point-in-time DEFENSIVE features (raw outcomes + leading
-indicators, built strictly from prior games) improve the 5-member
-ensemble? EXPERIMENT ONLY — production FEATURE_COLS, training, and
-artifacts are untouched; this script writes only its own report.
+Question: the current model has ZERO defensive features (team/pitcher signal is
+offensive/woba/ERA-side only; sp_fip is absent from FEATURE_COLS). Does adding
+point-in-time defensive metrics — raw run-prevention outcomes and their leading
+trends — improve the 5-model ensemble out of sample?
 
-Families (each = per-side home/away columns + home-minus-away diffs;
-raw and its diff are ONE block — trees derive diffs implicitly, linear
-gets explicit diffs, both z-scored on the training window only):
-  F1 TEAM FORM DEFENSE  — runs allowed / ERA-style rolling defense
-                          (team_runs_allowed_10g/30g per side + diff)
-  F2 BATTED-BALL ALLOWED— opponent exit velo / barrel% / GB% / hard-hit%
-                          / line-drive% allowed per team (balls in play
-                          AGAINST the team), rolling 15g/30g (min 8/10)
-  F3 DEFENSE TREND      — F1/F2 short-vs-long deltas (leading form)
-  F4 POSITION-SPLIT     — IF / OF / catcher decomposition via hit_location
-                          + fielder IDs + catcher events, rolling 30g
-  F5 STARTER-CONDITIONED— defense behind the starter (team defense in the
-                          starter's recent starts), rolling 15g
+Honest-on-artifact constraint (repo precedent, see run_opponent_adjusted_ablation):
+a candidate column is measured ONLY if it is genuinely and leak-safely
+computable on the COMMITTED artifacts in this repo. This script therefore:
+- builds the defensive family from the committed pbp_chunks/ play-by-play cache
+  (the only committed artifact carrying defensive outcomes) + the committed
+  game_level_features.csv;
+- reports coverage per column and drops nothing silently — a column that is
+  not computable (e.g. OAA/DRS/framing: no batted-ball location, no fielder or
+  catcher identity anywhere in the committed cache) is reported with the reason
+  and excluded from the WITH arms;
+- enforces point-in-time discipline: every ladder uses ONLY rows with
+  game_date STRICTLY before the game's own date (same-day doubleheader legs
+  are excluded by construction; verified by unit test).
 
-Conditions: C0 baseline; C1 +F1; C2 +F2; C3 +F1+F2; C4 +F3; C5 +F4;
-C6 +F5; C7 all. Nested contrasts: C5 vs C3 (position-split vs aggregate),
-C6 vs C3 (starter-conditioning), C4 vs C3 (trends vs levels), C7 vs each.
+Why the pbp cache can only produce three raw metrics. The committed cache has
+one row per plate appearance with exactly: game_pk, game_date, home_team,
+away_team, inning_topbot, batter, events, game_type. There is no batted-ball
+location/launch data, no fielder identity, no catcher identity, no
+stolen-base/caught-stealing/passed-ball/wild-pitch events, and no pitch-level
+data — so Statcast OAA, DRS, framing runs / CSAA, pop-time and outfield sprint
+speed are ALL uncomputable here (each would require data this repo does not
+commit). What IS computable per side from PAB-level events:
+  * defensive efficiency = outs recorded on balls in play / balls in play
+    (the team's BABIP-adjacent run-prevention, standard DEF_EFF);
+  * errors per game (field_error + catcher_interf);
+  * double plays turned per game (dp + gidp + strikeout_dp + sac_fly_dp + tp).
+All three validate against the artifact (corr(home_def_eff, away_score) ≈ −0.57).
 
-Protocol (two-family):
-  1. PIT: every feature for game G uses only pbp rows with
-     game_date < G.date (same-day doubleheader legs excluded).
-  2. PRE-SCREEN on baseline OOF residuals: LightGBM AND standardized
-     logistic, each fit on the defensive features alone to predict the
-     baseline's residual sign/size. A family survives if >=1 proxy shows
-     signal (logloss reduction vs constant or AUC > 0.5 with n>=500).
-     Families both proxies reject are NOT walked forward.
-  3. WALK-FORWARD: identical folds/seeds as baseline (shared geometry),
-     TWO proxies (LightGBM + standardized logistic) per condition —
-     per-game logloss delta vs baseline PER FAMILY.
-  4. SIGNIFICANCE: paired Diebold-Mariano + paired t-test on per-game
-     logloss (baseline vs condition), per family.
-  5. WINNER: single condition by ensemble-weighted validation metric
-     (tree family weight 0.5, linear family 0.5 — proxies stand in for
-     the production heads). Tree-vs-linear disagreement -> top-2.
-  6. GATE: winner(s) evaluated once on the sealed holdout. Nothing
-     adopted here — adoption is a separate decision.
+Families (mirroring the task's C0–C3):
+  C0 baseline = exact production training.FEATURE_COLS (59, asserted).
+  C1 = + RAW outcome defense: per side + home−away diff, trailing 30-team-game
+       means (min 10 prior games), strictly before game date — 9 columns.
+  C2 = + LEADING indicators: for each raw metric, the recent-vs-season trend
+       (trailing 15g mean − trailing 60g mean, min 8/30 prior) per side + diff
+       — 9 columns. Rationale: defensive outcomes are noisy; a team's recent
+       deviation from its season baseline (hot/cold defensive stretch) leads
+       run-prevention because it times mean-reversion before it fully regresses
+       — the same representational language as the model's existing *_delta_*
+       momentum features.
+  C3 = C1 + C2 (18 columns).
+Raw + its diff travel as ONE block (trees derive diffs; linear gets explicit
+diffs + z-scored versions via the fold scaler) — no raw-only/diff-only arms.
 
-Point-in-time publication lag: day T results are assumed available for
-T+1 (Statcast finalizes overnight); every ladder uses rows with
-game_date < target date, so the 1-day lag is respected by construction.
+Two-family protocol (the rigor that matters):
+  1. PIT check — ladders are as-of windows over strictly-prior rows only,
+     verified programmatically + by unit test.
+  2. CHEAP PRE-SCREEN on baseline OOF residuals — the C0 walk-forward OOF
+     residual frame (r = y − blend_p); per family, LightGBM and standardized
+     logistic are fit on the family's columns ALONE to predict r. A family
+     survives only if at least one proxy shows residual-MSE reduction >= 0.5%
+     OR residual sign-AUC >= 0.515 (above constant). Families both proxies
+     reject are dropped and never refit.
+  3. PER-FAMILY REPRESENTATION — LightGBM (tree proxy) consumes the raw
+     columns on the NaN-native imputed matrix; logistic (linear proxy) gets
+     train-window median-imputed, train-window-standardized versions (scaler
+     and medians fit on the fold's training rows only — never val, never the
+     sealed window). The full-ensemble winner arm gets the same routing for
+     free from the production trainer (logistic/MLP are standardized by its
+     fold scaler; trees consume the imputed matrix).
+  4. FAST WALK-FORWARD — expanding-window, IDENTICAL folds/seeds for every
+     condition, two proxies (LightGBM = LIGHTGBM_PARAMS verbatim; standardized
+     logistic). Per-game log-loss deltas vs baseline per model family.
+  5. SIGNIFICANCE — paired Diebold–Mariano (HAC lag-1) and paired t-test on
+     the per-game log-loss difference series, baseline vs each condition, per
+     model family, on the treatment-on-treated subset (games where the
+     condition's defensive columns are all real).
+  6. SINGLE WINNER -> FULL ENSEMBLE — one condition selected by the
+     ensemble-weighted validation metric (tree share 0.74 / linear share 0.26,
+     from the v2026.08.30 blend weights; computed from config if present). If
+     the tree and linear families strongly disagree, the top-2 conditions are
+     promoted. Winner(s) are evaluated on the FULL 5-model ensemble
+     (train_moneyline_ensemble, adaptive weights cleared) and ONCE on the
+     sealed 21-day holdout. The sealed window is NEVER touched during
+     selection.
+  7. NO PRODUCTION CHANGE — training.py / features.py / pipeline.py /
+     config.py untouched; the harness swaps training.FEATURE_COLS at run time
+     exactly like the prior ablations.
 
-Data source: data_delivery/pbp_chunks/*.parquet (8-col committed cache)
-for F1/F3/F5; the wide defense cache (pbp_defense_*.parquet, built by
-build_pbp_defense.py on Kaggle where the 88-col frame exists) for
-F2/F4. Missing wide cache -> F2/F4 marked UNBUILDABLE and skipped.
+Gate (task rule, identical to the repo's prior gates): a condition is adopted
+ONLY if it beats C0 on the sealed 21-day holdout on logloss AND AUC without
+degrading ECE-cal, and the pooled-OOF direction does not invert. A pooled win
+with a sealed loss -> DON'T ADOPT (this repo has hit that inversion repeatedly
+— margin, form-delta, home-edge, opponent-adjusted records). A clean negative
+is a valid, reportable outcome.
 
-Record: data_delivery/ablation_defense_v3_<sha>.json. COMMITS NOTHING.
+Also emits a collinearity check: max |pearson r| of each new column against the
+baseline FEATURE_COLS (esp. the bullpen / team-woba / sp_fip proxies) — "no
+added value because it is a proxy" is a real finding, not a failure.
+
+Emits data_delivery/ablation_defense_<sha>.json (incremental). COMMITS NOTHING.
 
 Usage:
-    python ablation_defense.py                 # full run
-    python ablation_defense.py --smoke         # 3 folds -> /tmp
-    python ablation_defense.py --prescreen-only
+    python ablation_defense.py
+    python ablation_defense.py --skip-ensemble      # proxy protocol only
 """
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -76,664 +120,824 @@ if str(_BACKEND_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR.parent))
 
 import training  # noqa: E402
-import run_margin_ablation as rma  # noqa: E402
+from config import (  # noqa: E402
+    DATA_DELIVERY_DIR,
+    MIN_VAL_FOLD_GAMES,
+    RANDOM_SEED,
+    RETRAIN_CADENCE_DAYS,
+    LIGHTGBM_PARAMS,
+)
 from calibration import apply_platt, fit_platt, MIN_OOF_FOR_FIT  # noqa: E402
-from config import DATA_DELIVERY_DIR, RANDOM_SEED  # noqa: E402
+from sklearn.linear_model import LinearRegression, LogisticRegression  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
+from sklearn.metrics import log_loss, roc_auc_score  # noqa: E402
+from scipy.stats import norm, ttest_rel  # noqa: E402
+
+try:
+    from lightgbm import LGBMClassifier, LGBMRegressor  # noqa: E402
+except ImportError:  # pragma: no cover
+    LGBMClassifier = LGBMRegressor = None
 
 EPS = 1e-7
-SEED = int(RANDOM_SEED)
 
-# ── Family definitions ──────────────────────────────────────────────────────
-# Every family is a list of (home_col, away_col) pairs; diffs are derived.
+# ── PAB event taxonomy (from the committed pbp cache's 22 event strings) ────
+_BIP_EVENTS = {
+    "single", "double", "triple", "field_out", "force_out", "field_error",
+    "fielders_choice", "fielders_choice_out", "double_play",
+    "grounded_into_double_play", "sac_fly", "sac_bunt", "sac_fly_double_play",
+    "triple_play",
+}
+_OUTS_ON_BIP = {
+    "field_out", "force_out", "fielders_choice_out", "double_play",
+    "grounded_into_double_play", "sac_fly", "sac_bunt", "sac_fly_double_play",
+    "triple_play",
+}
+_ERROR_EVENTS = {"field_error", "catcher_interf"}
+_DP_EVENTS = {
+    "double_play", "grounded_into_double_play", "strikeout_double_play",
+    "sac_fly_double_play", "triple_play",
+}
+_TOP_BOT = {"Top": "away", "Bot": "home"}
 
-F1_PAIRS = [
-    ("team_runs_allowed_10g", "team_runs_allowed_10g"),
-    ("team_runs_allowed_30g", "team_runs_allowed_30g"),
-    ("team_era_proxy_30g", "team_era_proxy_30g"),
+# Ladder windows / min-gates (never imputed below the gate — NaN is honest).
+RAW_WINDOW = 30       # trailing team games for raw outcome means
+RAW_MIN = 10          # min prior games with pbp before a raw ladder is real
+TREND_FAST = (15, 8)  # (window, min_games) for the recent leg of the trend
+TREND_SLOW = (60, 30)  # (window, min_games) for the season leg of the trend
+
+RAW_COLS = [
+    "home_defeff_30", "away_defeff_30", "defeff_30_diff",
+    "home_err_30", "away_err_30", "err_30_diff",
+    "home_dp_30", "away_dp_30", "dp_30_diff",
 ]
-
-F2_PAIRS = [
-    ("opp_exitvelo_15g", "opp_exitvelo_15g"),
-    ("opp_barrel_pct_15g", "opp_barrel_pct_15g"),
-    ("opp_gb_pct_15g", "opp_gb_pct_15g"),
-    ("opp_hardhit_pct_15g", "opp_hardhit_pct_15g"),
-    ("opp_ld_pct_15g", "opp_ld_pct_15g"),
-    ("opp_exitvelo_30g", "opp_exitvelo_30g"),
-    ("opp_barrel_pct_30g", "opp_barrel_pct_30g"),
+# Defense-behind-the-starter (v2 F5): the F1 per-side metrics recomputed over
+# only the games the CURRENT starter started (strictly before, per-starter
+# trailing ladder). Windows in STARTS, not team games.
+SP_WINDOW = 10   # trailing starts used for the behind-starter ladder
+SP_MIN = 5       # min prior starts before a behind-starter value is real
+STARTER_COLS = [
+    "home_defeff_sp", "away_defeff_sp", "defeff_sp_diff",
+    "home_err_sp", "away_err_sp", "err_sp_diff",
+    "home_dp_sp", "away_dp_sp", "dp_sp_diff",
 ]
-
-F3_PAIRS = [  # leading: short-window minus long-window of F1/F2 cores
-    ("team_runs_allowed_10g", "team_runs_allowed_30g"),
-    ("opp_exitvelo_15g", "opp_exitvelo_30g"),
-    ("opp_barrel_pct_15g", "opp_barrel_pct_30g"),
+TREND_COLS = [
+    "home_defeff_tr", "away_defeff_tr", "defeff_tr_diff",
+    "home_err_tr", "away_err_tr", "err_tr_diff",
+    "home_dp_tr", "away_dp_tr", "dp_tr_diff",
 ]
-
-F4_PAIRS = [
-    ("def_if_30g", "def_if_30g"),      # IF: hit_location 1-4,6 outs quality
-    ("def_of_30g", "def_of_30g"),      # OF: hit_location 7-9
-    ("def_catcher_30g", "def_catcher_30g"),  # PB/WP allowed rate
-]
-
-F5_PAIRS = [
-    ("starter_def_runs_15g", "starter_def_runs_15g"),
-    ("starter_def_era_15g", "starter_def_era_15g"),
-]
-
-FAMILIES = {"F1": F1_PAIRS, "F2": F2_PAIRS, "F3": F3_PAIRS,
-            "F4": F4_PAIRS, "F5": F5_PAIRS}
-
-CONDITIONS = {
-    "C0": [],
-    "C1": ["F1"],
-    "C2": ["F2"],
-    "C3": ["F1", "F2"],
-    "C4": ["F1", "F2", "F3"],
-    "C5": ["F1", "F2", "F4"],
-    "C6": ["F1", "F2", "F5"],
-    "C7": ["F1", "F2", "F3", "F4", "F5"],
+CONDITIONS: dict[str, list[str]] = {
+    "C1": RAW_COLS,
+    "C2": TREND_COLS,
+    "C3": RAW_COLS + TREND_COLS,
 }
 
+# Proxy blend shares from the v2026.08.30 ensemble weights (tree 74% / linear
+# 26%): XGB 0.45 + LGB 0.153 + RF 0.137 ; logistic 0.183 + MLP 0.077.
+_TREE_KEYS = ("xgboost", "lightgbm", "randomforest")
+_LINEAR_KEYS = ("logistic", "mlp")
 
-# ── Point-in-time ladders from the committed 8-col pbp cache ───────────────
-
-def _load_pbp_lean() -> pd.DataFrame:
-    """Concatenate the committed lean pbp chunks (8 cols, 2025-03-18+)."""
-    frames = []
-    for p in sorted((DATA_DELIVERY_DIR / "pbp_chunks").glob("pbp_*.parquet")):
-        try:
-            frames.append(pd.read_parquet(p))
-        except Exception:
-            continue
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    df["game_date"] = pd.to_datetime(df["game_date"]).dt.normalize()
-    return df
+# Pre-screen survival thresholds (above constant-model noise).
+SCREEN_MSE_RED = 0.005   # >= 0.5% relative residual-MSE reduction
+SCREEN_AUC = 0.515       # residual sign-AUC clearly above 0.5
 
 
-def build_f1_f3_f5(pbp: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
-    """Team runs-allowed ladders (F1), trend deltas (F3), and
-    starter-conditioned defense (F5) from the LEAN cache (events only).
+def sha256_file(path: Path) -> str:
+    import hashlib
+    h = hashlib.new("sha256")
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    PIT: for each game, only pbp rows with game_date < game date count.
+
+def head_sha() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            check=True, cwd=_BACKEND_DIR.parent,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+# ── Raw defensive aggregates from the committed pbp cache ──────────────────
+
+def pbp_defensive_aggregates(pbp: pd.DataFrame) -> pd.DataFrame:
+    """Per game_pk, per side: defensive efficiency, errors, double plays.
+
+    The pbp frame must carry game_pk / inning_topbot / events (game_type R
+    rows are used; everything else is ignored). Each plate appearance belongs
+    to the AWAY batting side in "Top" innings and the HOME side in "Bot"
+    innings, so the defense facing that side is the OPPOSITE team: home
+    defense is measured on the away-batting plate appearances and vice versa.
+
+    Returns one row per game_pk with:
+      home_def_eff / away_def_eff  (outs-on-BIP / balls-in-play, NaN if 0 BIP)
+      home_err / away_err          (field_error + catcher_interf)
+      home_dp / away_dp            (DP events turned)
     """
-    out = games[["game_pk", "game_date", "home_team", "away_team"]].copy()
-    for c in ("team_runs_allowed_10g_home", "team_runs_allowed_10g_away",
-              "team_runs_allowed_30g_home", "team_runs_allowed_30g_away",
-              "team_era_proxy_30g_home", "team_era_proxy_30g_away",
-              "starter_def_runs_15g_home", "starter_def_runs_15g_away",
-              "starter_def_era_15g_home", "starter_def_era_15g_away"):
-        out[c] = np.nan
-    if pbp.empty or "events" not in pbp.columns:
-        return out
+    pbp = pbp[pbp["game_type"] == "R"].copy()
+    pbp["bats"] = pbp["inning_topbot"].map(_TOP_BOT)
+    pbp = pbp.dropna(subset=["bats", "events"])
+    agg = pbp.groupby(["game_pk", "bats"]).agg(
+        bip=("events", lambda s: s.isin(_BIP_EVENTS).sum()),
+        oobip=("events", lambda s: s.isin(_OUTS_ON_BIP).sum()),
+        err=("events", lambda s: s.isin(_ERROR_EVENTS).sum()),
+        dp=("events", lambda s: s.isin(_DP_EVENTS).sum()),
+    ).reset_index()
+    agg["def_eff"] = (agg["oobip"] / agg["bip"]).where(agg["bip"] > 0)
+    # batting side "away" -> HOME defense; "home" -> AWAY defense
+    def_eff = agg.pivot(index="game_pk", columns="bats",
+                        values="def_eff").rename(
+        columns={"away": "home_def_eff", "home": "away_def_eff"})
+    err = agg.pivot(index="game_pk", columns="bats", values="err").rename(
+        columns={"away": "home_err", "home": "away_err"})
+    dp = agg.pivot(index="game_pk", columns="bats", values="dp").rename(
+        columns={"away": "home_dp", "home": "away_dp"})
+    return def_eff.join(err).join(dp).reset_index()
 
-    # Runs allowed per team-day: count scoring events against the fielding
-    # side. In the lean cache we only know inning_topbot + events; a run-
-    # scoring event for the batting side = runs allowed by the fielding side.
-    scoring = {"single", "double", "triple", "home_run"}  # proxy: reached-base
-    # Build per-(team,date) batting-event counts from the batting side only.
-    top = pbp[pbp["inning_topbot"] == "Top"]   # away bats, home fields
-    bot = pbp[pbp["inning_topbot"] == "Bottom"]
 
-    def _team_day(df: pd.DataFrame, bat_col: str, fld_col: str) -> pd.DataFrame:
-        g = (df.assign(is_score=df["events"].isin(scoring))
-               .groupby([fld_col, "game_date"])["is_score"].sum()
-               .rename("allowed").reset_index()
-               .rename(columns={fld_col: "team"}))
-        return g
+# ── Leak-safe trailing ladders (pure, testable in isolation) ───────────────
 
-    allowed = pd.concat([
-        _team_day(top, "batter", "home_team"),
-        _team_day(bot, "batter", "away_team"),
-    ]).groupby(["team", "game_date"])["allowed"].sum().reset_index()
-    allowed = allowed.sort_values("game_date")
+def trailing_team_metric(side: pd.DataFrame,
+                         window: int,
+                         min_games: int) -> dict[tuple, float]:
+    """Pure: per (team, gidx) trailing mean of ``value`` over prior games.
 
-    def _rolling(team: str, gdate, windows) -> dict:
-        h = allowed[(allowed["team"] == team) & (allowed["game_date"] < gdate)]
-        res = {}
-        for w in windows:
-            res[w] = float(h["allowed"].tail(w).mean()) if len(h) else np.nan
-        return res
-
-    for i, row in out.iterrows():
-        gd = row["game_date"]
-        for side, team in (("home", row["home_team"]), ("away", row["away_team"])):
-            r = _rolling(team, gd, (10, 30))
-            out.at[i, f"team_runs_allowed_10g_{side}"] = r[10]
-            out.at[i, f"team_runs_allowed_30g_{side}"] = r[30]
-            ip = max(r[30], 1.0)
-            out.at[i, f"team_era_proxy_30g_{side}"] = r[30] * 9.0 / ip
-    # F3 trend = 10g minus 30g (computed at feature-matrix build time)
-    # F5 starter-conditioned: needs starter ids — approximate with team
-    # defense in games started by the SAME starter, requiring game_level
-    # starter ids; lean cache lacks them -> NaN (documented limitation).
+    ``side`` must carry gidx / date (datetime64) / team / value. ONLY rows
+    with date STRICTLY before the current row's date contribute (same-day
+    doubleheader legs are excluded, so nothing after first pitch leaks). A row
+    with fewer than ``min_games`` of prior history gets NaN (never imputed).
+    """
+    side = side.sort_values(["date", "gidx"]).reset_index(drop=True)
+    hist: dict[str, list] = {}
+    out: dict[tuple, float] = {}
+    for r in side.to_dict("records"):
+        t, d, gi = r["team"], r["date"], r["gidx"]
+        prior = [h for h in hist.get(t, []) if h[0] < d]
+        win = prior[-window:]
+        out[(t, gi)] = (float(np.mean([h[1] for h in win]))
+                        if len(win) >= min_games else np.nan)
+        hist.setdefault(t, []).append((d, r["value"]))
     return out
 
 
-# ── Wide-cache ladders (F2/F4) — require pbp_defense_*.parquet ──────────────
+def trailing_starter_metric(side: pd.DataFrame,
+                            window: int = SP_WINDOW,
+                            min_starts: int = SP_MIN) -> dict[tuple, float]:
+    """Pure: per (starter, gidx) trailing mean of ``value`` over prior starts.
 
-def _load_pbp_wide() -> pd.DataFrame | None:
-    for p in sorted(DATA_DELIVERY_DIR.glob("pbp_defense_*.parquet")):
-        try:
-            df = pd.read_parquet(p)
-            df["game_date"] = pd.to_datetime(df["game_date"]).dt.normalize()
-            return df
-        except Exception:
+    ``side`` must carry gidx / date (datetime64) / starter / value. ONLY rows
+    with the SAME starter and date STRICTLY before the current row's date
+    contribute (the starter's prior starts with pbp). A starter with fewer
+    than ``min_starts`` of prior starts gets NaN (never imputed). This is the
+    "defense behind the starter" signal: the team's defensive outcome in games
+    THIS pitcher started, trailing, point-in-time.
+    """
+    side = side.sort_values(["date", "gidx"]).reset_index(drop=True)
+    hist: dict[str, list] = {}
+    out: dict[tuple, float] = {}
+    for r in side.to_dict("records"):
+        s = r["starter"]
+        if pd.isna(s):
             continue
-    return None
-
-
-BIP_EVENTS = {"single", "double", "triple", "field_out", "force_out",
-              "fielders_choice", "fielders_choice_out", "grounded_into_double_play",
-              "field_error", "sac_bunt", "sac_fly"}
-
-
-def build_f2_f4(wide: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
-    """Batted-ball-allowed (F2) and position-split (F4) ladders from the
-    WIDE defense cache. PIT: rows with game_date < target date only."""
-    out = games[["game_pk"]].copy()
-    f2_cols = [f"{c}_{s}" for c, _ in F2_PAIRS for s in ("home", "away")]
-    f4_cols = [f"{c}_{s}" for c, _ in F4_PAIRS for s in ("home", "away")]
-    for c in f2_cols + f4_cols:
-        out[c] = np.nan
-    if wide is None:
-        return out
-
-    bip = wide[wide["events"].isin(BIP_EVENTS) & wide["launch_speed"].notna()].copy()
-    bip["is_barrel"] = ((bip["launch_speed"] >= 98) &
-                        (bip["launch_angle"].between(26, 30))).astype(float)
-    bip["is_gb"] = (bip["launch_angle"] < 10).astype(float)
-    bip["is_ld"] = (bip["launch_angle"].between(10, 25)).astype(float)
-    bip["is_hh"] = (bip["launch_speed"] >= 95).astype(float)
-    # Fielding side: Top = home fields, Bottom = away fields
-    bip["field_team"] = np.where(bip["inning_topbot"] == "Top",
-                                 bip["home_team"], bip["away_team"])
-
-    def _loc_bucket(loc) -> str:
-        try:
-            v = float(loc)
-        except (TypeError, ValueError):
-            return "none"
-        if v in (1, 2, 3, 4, 6):
-            return "if"
-        if v in (7, 8, 9):
-            return "of"
-        return "none"
-
-    bip["loc_bucket"] = bip["hit_location"].map(_loc_bucket)
-
-    agg_cache: dict[tuple, dict] = {}
-
-    def _stats(team: str, gdate, window: int) -> dict:
-        key = (team, gdate, window)
-        if key in agg_cache:
-            return agg_cache[key]
-        h = bip[(bip["field_team"] == team) & (bip["game_date"] < gdate)]
-        tail = h.tail(window * 130)  # ~130 BIP/team-game cap
-        n = len(tail)
-        s = {
-            "exitvelo": float(tail["launch_speed"].tail(window * 40).mean()) if n else np.nan,
-            "barrel": float(tail["is_barrel"].mean()) if n else np.nan,
-            "gb": float(tail["is_gb"].mean()) if n else np.nan,
-            "hh": float(tail["is_hh"].mean()) if n else np.nan,
-            "ld": float(tail["is_ld"].mean()) if n else np.nan,
-            "if": float(tail[tail["loc_bucket"] == "if"]["is_barrel"].mean()) if n else np.nan,
-            "of": float(tail[tail["loc_bucket"] == "of"]["is_barrel"].mean()) if n else np.nan,
-        }
-        # catcher: PB/WP allowed per game (from wide events, all rows)
-        cw = wide[(wide["events"].isin(["wild_pitch", "passed_ball"])) &
-                  (wide["game_date"] < gdate)]
-        cteam = cw[cw["field_team"] == team] if "field_team" in cw.columns else cw.iloc[0:0]
-        # wild_pitch/passed_ball rows carry the FIELDING team in home/away via topbot
-        if cteam.empty and not cw.empty:
-            cw2 = wide[wide["events"].isin(["wild_pitch", "passed_ball"])].copy()
-            cw2["field_team"] = np.where(cw2["inning_topbot"] == "Top",
-                                         cw2["home_team"], cw2["away_team"])
-            cteam = cw2[(cw2["field_team"] == team) & (cw2["game_date"] < gdate)]
-        n_games = h["game_pk"].nunique() if n else 0
-        s["catcher"] = float(len(cteam) / max(n_games, 1)) if n_games else np.nan
-        agg_cache[key] = s
-        return s
-
-    for i, row in out.iterrows():
-        g = games.iloc[i]
-        gd, ht, at = g["game_date"], g["home_team"], g["away_team"]
-        for side, team in (("home", ht), ("away", at)):
-            s15 = _stats(team, gd, 15)
-            s30 = _stats(team, gd, 30)
-            out.at[i, f"opp_exitvelo_15g_{side}"] = s15["exitvelo"]
-            out.at[i, f"opp_barrel_pct_15g_{side}"] = s15["barrel"]
-            out.at[i, f"opp_gb_pct_15g_{side}"] = s15["gb"]
-            out.at[i, f"opp_hardhit_pct_15g_{side}"] = s15["hh"]
-            out.at[i, f"opp_ld_pct_15g_{side}"] = s15["ld"]
-            out.at[i, f"opp_exitvelo_30g_{side}"] = s30["exitvelo"]
-            out.at[i, f"opp_barrel_pct_30g_{side}"] = s30["barrel"]
-            out.at[i, f"def_if_30g_{side}"] = s30["if"]
-            out.at[i, f"def_of_30g_{side}"] = s30["of"]
-            out.at[i, f"def_catcher_30g_{side}"] = s30["catcher"]
+        d, gi = r["date"], r["gidx"]
+        prior = [h for h in hist.get(s, []) if h[0] < d]
+        win = prior[-window:]
+        out[(s, gi)] = (float(np.mean([h[1] for h in win]))
+                        if len(win) >= min_starts else np.nan)
+        hist.setdefault(s, []).append((d, r["value"]))
     return out
 
 
-# ── Feature-matrix assembly per condition ───────────────────────────────────
+def _merge_per_game(df: pd.DataFrame, per_game: pd.DataFrame) -> pd.DataFrame:
+    """Merge only the per-game defensive columns that are not already present.
 
-def family_columns(family: str) -> list[str]:
-    cols = []
-    for h, a in FAMILIES[family]:
-        for base in ({h, a}):
-            for side in ("home", "away"):
-                cols.append(f"{base}_{side}")
-    return sorted(set(cols))
-
-
-def diff_columns(family: str) -> list[str]:
-    cols = []
-    for h, a in FAMILIES[family]:
-        base = h if h == a else None
-        if base:
-            cols.append(f"{base}_diff")
-    return cols
+    Guards against merge-suffix collisions when callers apply the F1 and F5
+    builders to the same frame in sequence (re-joining shared columns would
+    turn ``home_def_eff`` into ``home_def_eff_x``/``home_def_eff_y``)."""
+    need = [c for c in per_game.columns if c != "game_pk"
+            and c not in df.columns]
+    if not need:
+        return df
+    return df.merge(per_game[["game_pk"] + need], on="game_pk", how="left")
 
 
-def add_defense_frame(games: pd.DataFrame, families: list[str],
-                      f135: pd.DataFrame, f24: pd.DataFrame | None) -> pd.DataFrame:
-    """Attach the requested families' side columns + diffs to a games copy."""
+def add_defensive_features(games: pd.DataFrame,
+                           per_game: pd.DataFrame,
+                           raw_window: int = RAW_WINDOW,
+                           raw_min: int = RAW_MIN,
+                           trend_fast: tuple = TREND_FAST,
+                           trend_slow: tuple = TREND_SLOW) -> pd.DataFrame:
+    """Merge pbp defensive aggregates and attach the 18 ladder columns.
+
+    Ladders are strictly point-in-time: each game's home/away values are the
+    trailing means over the team's prior games with pbp only. A game's own pbp
+    is not required for ITS ladder value (only its team's prior games are), but
+    games before enough prior pbp history (and the entire 2024 season — the
+    committed cache starts 2025-03-18) keep NaN. Windows are parameterized for
+    the unit tests; production defaults are the module constants.
+    """
     df = games.copy()
-    for fam in families:
-        src = f135 if fam in ("F1", "F3", "F5") else f24
-        if src is None:
-            continue
-        for col in family_columns(fam):
-            if col in src.columns and col not in df.columns:
-                df[col] = src[col].values
-        if fam == "F3":
-            # trend = short minus long (already distinct side cols)
-            for short, long in F3_PAIRS:
-                for side in ("home", "away"):
-                    sc, lc = f"{short}_{side}", f"{long}_{side}"
-                    if sc in df.columns and lc in df.columns:
-                        df[f"trend_{short}_{side}"] = df[sc] - df[lc]
-            continue
-        for dcol in diff_columns(fam):
-            base = dcol[:-5]
-            hc, ac = f"{base}_home", f"{base}_away"
-            if hc in df.columns and ac in df.columns:
-                df[dcol] = df[hc] - df[ac]
+    df = _merge_per_game(df, per_game)
+    n = len(df)
+    dates = pd.to_datetime(df["game_date"]).values
+    idx = np.arange(n)
+    for metric, home_col, away_col in (
+        ("def_eff", "home_def_eff", "away_def_eff"),
+        ("err", "home_err", "away_err"),
+        ("dp", "home_dp", "away_dp"),
+    ):
+        short = "defeff" if metric == "def_eff" else metric
+        home = pd.DataFrame({
+            "gidx": idx, "date": dates, "team": df["home_team"].values,
+            "value": df[home_col].values.astype(float),
+        })
+        away = pd.DataFrame({
+            "gidx": idx, "date": dates, "team": df["away_team"].values,
+            "value": df[away_col].values.astype(float),
+        })
+        side = pd.concat([home, away], ignore_index=True)
+        raw = trailing_team_metric(side, raw_window, raw_min)
+        fast = trailing_team_metric(side, *trend_fast)
+        slow = trailing_team_metric(side, *trend_slow)
+        home_teams = df["home_team"].tolist()
+        away_teams = df["away_team"].tolist()
+        h_raw = [raw.get((t, i), np.nan) for i, t in zip(idx, home_teams)]
+        a_raw = [raw.get((t, i), np.nan) for i, t in zip(idx, away_teams)]
+        h_tr = [fast.get((t, i), np.nan) - slow.get((t, i), np.nan)
+                for i, t in zip(idx, home_teams)]
+        a_tr = [fast.get((t, i), np.nan) - slow.get((t, i), np.nan)
+                for i, t in zip(idx, away_teams)]
+        df[f"home_{short}_30"] = h_raw
+        df[f"away_{short}_30"] = a_raw
+        df[f"{short}_30_diff"] = np.asarray(h_raw) - np.asarray(a_raw)
+        df[f"home_{short}_tr"] = h_tr
+        df[f"away_{short}_tr"] = a_tr
+        df[f"{short}_tr_diff"] = np.asarray(h_tr) - np.asarray(a_tr)
     return df
 
 
-def condition_feature_cols(cond: list[str], f135: pd.DataFrame,
-                           f24: pd.DataFrame | None) -> list[str]:
-    cols = []
-    for fam in cond:
-        src = f135 if fam in ("F1", "F3", "F5") else f24
-        if src is None:
-            continue
-        cols.extend(family_columns(fam))
-        if fam == "F3":
-            cols.extend([f"trend_{s}_{side}" for s, _ in F3_PAIRS
-                         for side in ("home", "away")])
-        else:
-            cols.extend(diff_columns(fam))
-    return sorted(set(cols))
+def add_starter_defensive_features(
+        games: pd.DataFrame,
+        per_game: pd.DataFrame,
+        window: int = SP_WINDOW,
+        min_starts: int = SP_MIN) -> pd.DataFrame:
+    """Attach the 9 defense-behind-the-starter columns (v2 F5).
+
+    For each side, ``value`` is the team's defensive metric in that game and
+    ``starter`` is that side's starting pitcher (home/away_starter_id, 100%
+    present in the artifact). The ladder averages the metric over ONLY the
+    starter's prior starts (strictly earlier dates), so the signal is "how the
+    defense played behind THIS pitcher recently" — starter-conditioning of
+    the aggregate F1. A starter with < min_starts prior keeps NaN.
+    """
+    df = games.copy()
+    df = _merge_per_game(df, per_game)
+    n = len(df)
+    dates = pd.to_datetime(df["game_date"]).values
+    idx = np.arange(n)
+    for metric, home_col, away_col, h_starter, a_starter in (
+        ("def_eff", "home_def_eff", "away_def_eff",
+         "home_starter_id", "away_starter_id"),
+        ("err", "home_err", "away_err",
+         "home_starter_id", "away_starter_id"),
+        ("dp", "home_dp", "away_dp",
+         "home_starter_id", "away_starter_id"),
+    ):
+        short = "defeff" if metric == "def_eff" else metric
+        home = pd.DataFrame({
+            "gidx": idx, "date": dates,
+            "starter": df[h_starter].values,
+            "value": df[home_col].values.astype(float),
+        })
+        away = pd.DataFrame({
+            "gidx": idx, "date": dates,
+            "starter": df[a_starter].values,
+            "value": df[away_col].values.astype(float),
+        })
+        side = pd.concat([home, away], ignore_index=True)
+        ladder = trailing_starter_metric(side, window, min_starts)
+        h_sp = [ladder.get((s, i), np.nan)
+                for i, s in zip(idx, df[h_starter].tolist())]
+        a_sp = [ladder.get((s, i), np.nan)
+                for i, s in zip(idx, df[a_starter].tolist())]
+        df[f"home_{short}_sp"] = h_sp
+        df[f"away_{short}_sp"] = a_sp
+        df[f"{short}_sp_diff"] = np.asarray(h_sp) - np.asarray(a_sp)
+    return df
 
 
-# ── Per-family z-scoring (train-window only) ────────────────────────────────
-
-def zscore_train(train: pd.DataFrame, val: pd.DataFrame,
-                 cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    tr = train.copy()
-    va = val.copy()
+def coverage_report(games: pd.DataFrame,
+                    cols: list[str]) -> list[dict]:
+    out = []
     for c in cols:
-        if c not in tr.columns:
+        if c not in games.columns:
+            out.append({"column": c, "present": False, "coverage": 0.0})
             continue
-        mu = tr[c].mean()
-        sd = tr[c].std() or 1.0
-        tr[c] = (tr[c] - mu) / sd
-        va[c] = (va[c] - mu) / sd
-    return tr, va
+        out.append({"column": c, "present": True,
+                    "coverage": round(float(games[c].notna().mean()), 4)})
+    return out
 
 
-# ── Two-proxy condition trainer (mirrors production member wiring) ──────────
+# ── Proxies (tree = LightGBM verbatim LIGHTGBM_PARAMS; linear = std. logistic)
 
-def train_condition(train: pd.DataFrame, val: pd.DataFrame,
-                    def_cols: list[str]):
-    """LightGBM (raw+diffs) + standardized logistic (diffs only, z-scored)
-    on BASELINE features + defense columns. Mirrors production routing:
-    logistic mirrors LOGISTIC_USE_RAW_COLS=False (diff cols only)."""
-    from lightgbm import LGBMClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-
-    base_cols = [c for c in training.FEATURE_COLS if c in train.columns]
-    diff_cols = [c for c in def_cols if c.endswith("_diff") or c.startswith("trend_")]
-    raw_cols = [c for c in def_cols if c not in diff_cols]
-
-    y_tr = train["home_win"].values.astype(int)
-    y_va = val["home_win"].values.astype(int)
-
-    # Tree proxy: baseline numerics + ALL defense (raw + diffs)
-    Xtr_tree = train[base_cols + def_cols].fillna(train[base_cols + def_cols].median())
-    Xva_tree = val[base_cols + def_cols].fillna(train[base_cols + def_cols].median())
-    lgbm = LGBMClassifier(random_state=SEED, n_estimators=200, learning_rate=0.05,
-                          num_leaves=15, min_child_samples=30, verbose=-1)
-    lgbm.fit(Xtr_tree, y_tr)
-
-    # Linear proxy: baseline + defense DIFFS only, z-scored on train window
-    lin_cols = base_cols + diff_cols
-    tr_z, va_z = zscore_train(train, val, lin_cols)
-    Xtr_lin = tr_z[lin_cols].fillna(tr_z[lin_cols].median())
-    Xva_lin = va_z[lin_cols].fillna(tr_z[lin_cols].median())
-    lr = LogisticRegression(max_iter=1000, random_state=SEED)
-    lr.fit(Xtr_lin, y_tr)
-
-    return {
-        "lgbm": (lgbm, lambda v: v[base_cols + def_cols]
-                 .fillna(train[base_cols + def_cols].median())),
-        "logistic": (lr, lambda v: v[lin_cols].fillna(tr_z[lin_cols].median())),
-    }, y_va
+def _impute_scale(X_train: np.ndarray, X_val: np.ndarray
+                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Train-window median imputation + StandardScaler (fit on train ONLY)."""
+    med = np.nanmedian(X_train, axis=0)
+    med = np.where(np.isnan(med), 0.0, med)
+    Xtri = np.where(np.isnan(X_train), med, X_train)
+    Xvai = np.where(np.isnan(X_val), med, X_val)
+    sc = StandardScaler()
+    Xtrs = sc.fit_transform(Xtri)
+    Xvas = sc.transform(Xvai)
+    return Xtrs, Xvas, med
 
 
-def logloss(y: np.ndarray, p: np.ndarray) -> np.ndarray:
+def _per_game_logloss(y: np.ndarray, p: np.ndarray) -> np.ndarray:
     p = np.clip(np.asarray(p, dtype=float), EPS, 1 - EPS)
+    y = np.asarray(y, dtype=float)
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
-# ── Walk-forward for one condition (two proxies, shared folds) ──────────────
+def dm_pvalue(d: np.ndarray) -> float:
+    """Diebold–Mariano on the paired per-game logloss difference series.
 
-def walk_forward_condition(cond_families: list[str], folds, f135: pd.DataFrame,
-                           f24: pd.DataFrame | None) -> dict | None:
-    def_cols = condition_feature_cols(cond_families, f135, f24)
-    per_family_ll: dict[str, dict[str, list]] = {f: {"lgbm": [], "logistic": []}
-                                                 for f in cond_families}
-    y_all, base_ll_all = [], []
-    proxy_ll = {"lgbm": [], "logistic": []}
-
-    for split in folds:
-        train, val = split["train_games"], split["val_games"]
-        if len(val) < 40 or len(train) < 200:
-            continue
-        tr = add_defense_frame(train, cond_families, f135, f24)
-        va = add_defense_frame(val, cond_families, f135, f24)
-        if not def_cols or tr[def_cols].notna().sum().sum() == 0:
-            continue
-        try:
-            proxies, y_va = train_condition(tr, va, def_cols)
-        except Exception:
-            continue
-        y_all.extend(y_va.tolist())
-        # Baseline per-game logloss: constant 0.5 (no-retreat floor) is NOT
-        # the baseline — baseline = C0 trained with the same proxies. To keep
-        # the loop cheap we use the C0 fold cache computed once by the caller.
-        for name, (model, mat) in proxies.items():
-            p = model.predict_proba(mat(va))[:, 1]
-            proxy_ll[name].extend(p.tolist())
-
-    if not y_all:
-        return None
-    return {"y": np.asarray(y_all), "proxy_p": {k: np.asarray(v) for k, v in proxy_ll.items()},
-            "def_cols": def_cols}
-
-
-# ── Significance tests ──────────────────────────────────────────────────────
-
-def diebold_mariano(loss_a: np.ndarray, loss_b: np.ndarray) -> tuple[float, float]:
-    """DM statistic + two-sided p on paired per-game losses (H0: equal)."""
-    d = loss_a - loss_b
+    HAC variance with one lag of autocovariance (DM's standard small-sample
+    form). Returns NaN when the series is too short (< 30 games)."""
+    d = np.asarray(d, dtype=float)
+    d = d[np.isfinite(d)]
     n = len(d)
     if n < 30:
-        return float("nan"), float("nan")
-    dbar = d.mean()
-    # HAC variance with lag 1 (simple Newey-West)
-    g0 = ((d - dbar) ** 2).mean()
-    g1 = ((d[1:] - dbar) * (d[:-1] - dbar)).mean()
-    var = (g0 + 2 * g1) / n
-    if var <= 0:
-        # Zero variance: identical loss vectors -> no difference (null);
-        # degenerate variance otherwise -> untestable.
-        if abs(dbar) < 1e-12:
-            return 0.0, 1.0
-        return float("nan"), float("nan")
-    dm = dbar / np.sqrt(var)
-    # normal p
-    from math import erf, sqrt
-    p = 2 * (1 - 0.5 * (1 + erf(abs(dm) / sqrt(2))))
-    return float(dm), float(p)
+        return float("nan")
+    m = float(d.mean())
+    if abs(m) < 1e-12:
+        return 1.0
+    g0 = float(np.mean((d - m) ** 2))
+    g1 = float(np.mean((d[:-1] - m) * (d[1:] - m))) if n > 1 else 0.0
+    v = (g0 + 2 * g1) / n
+    if v <= 0:
+        v = g0 / n
+    stat = m / np.sqrt(v)
+    return float(2 * (1 - norm.cdf(abs(stat))))
 
 
-def paired_t(loss_a: np.ndarray, loss_b: np.ndarray) -> tuple[float, float]:
-    from scipy import stats as st
-    d = np.asarray(loss_a) - np.asarray(loss_b)
-    if len(d) < 30:
-        return float("nan"), float("nan")
-    t, p = st.ttest_1samp(d, 0)
-    return float(t), float(p)
+def walk_forward_proxies(folds: list[dict],
+                         games: pd.DataFrame,
+                         cols: list[str]) -> dict:
+    """Two-proxy expanding-window walk-forward on IDENTICAL folds.
 
-
-# ── Pre-screen on baseline OOF residuals ────────────────────────────────────
-
-def prescreen(folds, f135: pd.DataFrame, f24: pd.DataFrame | None,
-              families: list[str]) -> dict:
-    """Fit LightGBM + standardized logistic on the defensive features alone
-    to predict the baseline residual (|residual|>median -> hard games).
-    Signal = AUC vs 0.5 (n>=500) or logloss reduction vs constant prior."""
-    from lightgbm import LGBMClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import roc_auc_score
-
-    results = {}
-    for fam in families:
-        cols = condition_feature_cols([fam], f135, f24)
-        if not cols or (fam in ("F2", "F4") and f24 is None):
-            results[fam] = {"status": "UNBUILDABLE" if fam in ("F2", "F4") and f24 is None
-                            else "NO_COLS", "survived": False}
+    LightGBM gets the raw matrix (NaN-native); standardized logistic gets
+    train-window imputed+z-scored columns (medians/scaler fit on the fold's
+    train rows only). Returns per-game OOF arrays aligned by row_id:
+    y, p_lgb, p_lr (and the NaN-native per-proxy availability mask)."""
+    rows = []
+    for split in folds:
+        tr, va = split["train_games"], split["val_games"]
+        if len(tr) == 0 or len(va) == 0:
             continue
-        X_parts, y_parts = [], []
-        for split in folds:
-            train, val = split["train_games"], split["val_games"]
-            if len(val) < 40:
-                continue
-            tr = add_defense_frame(train, [fam], f135, f24)
-            va = add_defense_frame(val, [fam], f135, f24)
-            if va[cols].notna().sum().sum() == 0:
-                continue
-            # residual proxy: baseline predicts via elo/win_pct only (cheap);
-            # hard games = close games where baseline is least confident
-            base_score = (va["elo_diff"].fillna(0) * 0.01 + va["win_pct_diff"].fillna(0))
-            p_base = 1 / (1 + np.exp(-base_score.clip(-6, 6)))
-            y = va["home_win"].values.astype(int)
-            resid = np.abs(y - p_base)
-            hard = (resid > np.median(resid)).astype(int)
-            X_parts.append(va[cols].fillna(va[cols].median()).values)
-            y_parts.append(hard)
-        if not X_parts or sum(len(y) for y in y_parts) < 500:
-            results[fam] = {"status": "INSUFFICIENT_N", "survived": False}
+        Xtr = tr.reindex(columns=cols).to_numpy(dtype=float)
+        Xva = va.reindex(columns=cols).to_numpy(dtype=float)
+        ytr = tr["home_win"].values.astype(float)
+        yva = va["home_win"].values.astype(float)
+        p_lgb = np.full(len(va), np.nan)
+        p_lr = np.full(len(va), np.nan)
+        if LGBMClassifier is not None:
+            try:
+                m = LGBMClassifier(**LIGHTGBM_PARAMS)
+                m.fit(Xtr, ytr)
+                p_lgb = m.predict_proba(Xva)[:, 1]
+            except Exception:
+                pass
+        try:
+            Xtrs, Xvas, _ = _impute_scale(Xtr, Xva)
+            lr = LogisticRegression(max_iter=1000, random_state=RANDOM_SEED)
+            lr.fit(Xtrs, ytr)
+            p_lr = lr.predict_proba(Xvas)[:, 1]
+        except Exception:
+            pass
+        rows.append(pd.DataFrame({
+            "row_id": va["row_id"].values,
+            "y": yva,
+            "p_lgb": p_lgb,
+            "p_lr": p_lr,
+        }))
+    oof = pd.concat(rows, ignore_index=True).sort_values("row_id")
+    return oof
+
+
+def prescreen(family_cols: list[str], oof: pd.DataFrame,
+              games: pd.DataFrame) -> dict:
+    """Fit LightGBM + standardized logistic on the family's columns ALONE to
+    predict the baseline residual r = y − blend_p. Survives if at least one
+    proxy shows residual-MSE reduction >= SCREEN_MSE_RED or sign-AUC >=
+    SCREEN_AUC (vs the constant model)."""
+    r = oof["y"].values - (0.74 * oof["p_lgb"].values
+                           + 0.26 * oof["p_lr"].values)
+    g = games.loc[oof["row_id"].values]
+    X = g.reindex(columns=family_cols).to_numpy(dtype=float)
+    keep = np.isfinite(X).all(axis=1) & np.isfinite(r) & np.isfinite(oof["p_lgb"].values) & np.isfinite(oof["p_lr"].values)
+    Xk, rk = X[keep], r[keep]
+    res = {}
+    base_mse = float(np.mean(rk ** 2)) if len(rk) else np.nan
+    if LGBMRegressor is not None and len(rk) >= 60:
+        reg = LGBMRegressor(n_estimators=200, learning_rate=0.05,
+                            num_leaves=15, min_child_samples=20,
+                            random_state=RANDOM_SEED, verbose=-1)
+        reg.fit(Xk, rk)
+        rh = reg.predict(Xk)
+        mse = float(np.mean((rk - rh) ** 2))
+        auc = float(roc_auc_score((rk > 0).astype(int), rh))
+        res["lgbm"] = {"mse": mse, "mse_rel_reduction": 1 - mse / base_mse,
+                       "sign_auc": round(auc, 4), "n": int(len(rk))}
+    if len(rk) >= 60:
+        Xs, _, _ = _impute_scale(Xk, Xk)
+        lin = LinearRegression()
+        lin.fit(Xs, rk)  # regression on the residuals (linear-head proxy)
+        rh = lin.predict(Xs)
+        mse = float(np.mean((rk - rh) ** 2))
+        auc = float(roc_auc_score((rk > 0).astype(int), rh))
+        clf = LogisticRegression(max_iter=1000, random_state=RANDOM_SEED)
+        clf.fit(Xs, (rk > 0).astype(int))
+        auc_clf = float(roc_auc_score((rk > 0).astype(int),
+                                      clf.predict_proba(Xs)[:, 1]))
+        res["logistic"] = {"mse": mse,
+                           "mse_rel_reduction": 1 - mse / base_mse,
+                           "sign_auc": round(max(auc, auc_clf), 4),
+                           "n": int(len(rk))}
+    survive = any(
+        v["mse_rel_reduction"] >= SCREEN_MSE_RED or v["sign_auc"] >= SCREEN_AUC
+        for v in res.values())
+    return {"family": family_cols, "n_residuals": int(len(rk)),
+            "base_mse": round(base_mse, 6), "survived": survive,
+            "per_proxy": res}
+
+
+# ── Per-condition walk-forward + significance ─────────────────────────────
+
+def condition_walk_forward(folds, games: pd.DataFrame, cols: list[str],
+                           cond_name: str, base_oof: pd.DataFrame,
+                           base_cols: list[str],
+                           def_cols: list[str] | None = None) -> dict:
+    oof = walk_forward_proxies(folds, games, cols)
+    out = {"cols": cols}
+    for tag, pcol in (("lgb", "p_lgb"), ("lr", "p_lr")):
+        m = oof.dropna(subset=[pcol])
+        ll = _per_game_logloss(m["y"].values, m[pcol].values)
+        out[f"{tag}_n"] = int(len(m))
+        out[f"{tag}_logloss"] = round(float(np.mean(ll)), 4)
+        try:
+            out[f"{tag}_auc"] = round(float(roc_auc_score(m["y"].values,
+                                                          m[pcol].values)), 4)
+        except ValueError:
+            out[f"{tag}_auc"] = 0.5
+    # treatment-on-treated: games where THIS condition's DEFENSIVE columns are
+    # all real (base columns excluded — run_margin_diff is all-NaN in the raw
+    # artifact) -> paired per-game logloss delta + DM / paired-t vs baseline.
+    g = games.loc[oof["row_id"].values]
+    if def_cols:
+        present = g.reindex(columns=def_cols).notna().all(axis=1).values
+    else:
+        present = np.ones(len(oof), dtype=bool)  # C0 baseline: everything
+    for tag, pcol in (("lgb", "p_lgb"), ("lr", "p_lr")):
+        m = oof[present].dropna(subset=[pcol])
+        if len(m) < 60:
+            out[f"{tag}_tot_n"] = int(len(m))
+            out[f"{tag}_delta"] = None
+            out[f"{tag}_dm_p"] = None
+            out[f"{tag}_t_p"] = None
             continue
-        X = np.vstack(X_parts)
-        y = np.concatenate(y_parts)
-        # LightGBM proxy
-        lgbm = LGBMClassifier(random_state=SEED, n_estimators=100, num_leaves=7,
-                              verbose=-1)
-        lgbm.fit(X, y)
-        auc_l = roc_auc_score(y, lgbm.predict_proba(X)[:, 1])
-        # Logistic proxy (z-scored)
-        mu, sd = X.mean(0), X.std(0)
-        sd[sd == 0] = 1
-        lr = LogisticRegression(max_iter=500, random_state=SEED)
-        lr.fit((X - mu) / sd, y)
-        auc_l2 = roc_auc_score(y, lr.predict_proba((X - mu) / sd)[:, 1])
-        results[fam] = {
-            "status": "OK",
-            "auc_lgbm": round(float(auc_l), 4),
-            "auc_logistic": round(float(auc_l2), 4),
-            "n": int(len(y)),
-            "survived": bool(max(auc_l, auc_l2) > 0.52),
-        }
-    return results
+        b = base_oof.set_index("row_id").loc[m["row_id"].values]
+        ll_base = _per_game_logloss(m["y"].values, b[pcol].values)
+        ll_cond = _per_game_logloss(m["y"].values, m[pcol].values)
+        d = ll_base - ll_cond  # positive = condition helps
+        out[f"{tag}_tot_n"] = int(len(m))
+        out[f"{tag}_delta"] = round(float(d.mean()), 6)
+        out[f"{tag}_dm_p"] = round(dm_pvalue(d), 4)
+        tt = ttest_rel(ll_base, ll_cond)
+        out[f"{tag}_t_p"] = round(float(tt.pvalue), 4)
+    return out
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
+def proxy_blend_share() -> tuple[float, float]:
+    try:
+        from config import ENSEMBLE_WEIGHTS
+        w = dict(ENSEMBLE_WEIGHTS)
+        tree = sum(w[k] for k in _TREE_KEYS if k in w)
+        lin = sum(w[k] for k in _LINEAR_KEYS if k in w)
+        if tree > 0 and lin > 0:
+            return round(float(tree), 4), round(float(lin), 4)
+    except Exception:
+        pass
+    return 0.74, 0.26  # v2026.08.30 blend weights (documented above)
+
+
+# ── Full 5-member ensemble arm (winner) — mirrors the prior ablations ──────
+
+def run_ensemble_variant(cols: list[str], folds, tune_df, hold_df) -> dict:
+    training.FEATURE_COLS = list(cols)
+    training._LAST_ADAPTIVE_WEIGHTS.clear()  # both variants blend identically
+
+    oof_y: list[float] = []
+    oof_blend: list[float] = []
+    oof_blend_cal: list[float] = []
+    oof_members: dict[str, list[float]] = {}
+    oof_members_cal: dict[str, list[float]] = {}
+    executed = 0
+    for split in folds:
+        train, val = split["train_games"], split["val_games"]
+        try:
+            models, _ = training.train_moneyline_ensemble(train, val)
+        except Exception as e:
+            print(f"  fold {split['fold_idx']} failed: {e}")
+            continue
+        blend, member_probs, _wts = training.ensemble_predict(models, val)
+        y_val = val["home_win"].values.astype(float)
+        fold_cal = None
+        if len(oof_blend) >= MIN_OOF_FOR_FIT:
+            fold_cal = fit_platt(np.asarray(oof_y), np.asarray(oof_blend))
+        oof_y.extend(y_val.tolist())
+        oof_blend.extend(np.asarray(blend, dtype=float).tolist())
+        oof_blend_cal.extend(np.asarray(
+            apply_platt(np.asarray(blend), fold_cal), dtype=float).tolist())
+        for name, p in member_probs.items():
+            pa = np.asarray(p, dtype=float)
+            oof_members.setdefault(name, []).extend(pa.tolist())
+            oof_members_cal.setdefault(name, []).extend(
+                np.asarray(apply_platt(pa, fold_cal), dtype=float).tolist())
+        executed += 1
+
+    y_all = np.asarray(oof_y, dtype=float)
+    pooled: dict[str, dict] = {
+        "blend": training.compute_metrics(y_all, np.asarray(oof_blend)),
+        "blend_calibrated": training.compute_metrics(
+            y_all, np.asarray(oof_blend_cal)),
+    }
+    for name, plist in oof_members.items():
+        pooled[name] = training.compute_metrics(y_all, np.asarray(plist))
+        pooled[f"{name}_calibrated"] = training.compute_metrics(
+            y_all, np.asarray(oof_members_cal.get(name, [])))
+
+    models, _ = training.train_moneyline_ensemble(tune_df)
+    blend_hold, member_hold, _wts = training.ensemble_predict(models, hold_df)
+    y_hold = hold_df["home_win"].values.astype(float)
+    holdout: dict[str, dict] = {
+        "blend": training.compute_metrics(y_hold, np.asarray(blend_hold)),
+    }
+    for name, p in member_hold.items():
+        holdout[name] = training.compute_metrics(y_hold, np.asarray(p))
+    return {"n_cols": len(cols), "folds_executed": executed,
+            "pooled": pooled, "holdout": holdout}
+
+
+# ── Collinearity of new columns vs baseline proxies ────────────────────────
+
+def collinearity_report(games: pd.DataFrame, new_cols: list[str],
+                        base_cols: list[str]) -> list[dict]:
+    out = []
+    for c in new_cols:
+        s = games[c]
+        rows = s.notna()
+        if rows.sum() < 30:
+            out.append({"column": c, "n": int(rows.sum()), "max_abs_r": None,
+                        "top": []})
+            continue
+        corrs = []
+        for b in base_cols:
+            if b not in games.columns:
+                continue  # e.g. run_margin_diff (training-time only)
+            r = games.loc[rows, b].corr(s[rows])
+            if np.isfinite(r):
+                corrs.append((abs(float(r)), b, float(r)))
+        corrs.sort(reverse=True)
+        out.append({
+            "column": c, "n": int(rows.sum()),
+            "max_abs_r": round(corrs[0][0], 4) if corrs else None,
+            "top": [{"base_col": b, "abs_r": round(a, 4), "r": round(r, 4)}
+                    for a, b, r in corrs[:3]],
+        })
+    return out
+
+
+# ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--smoke", action="store_true")
-    ap.add_argument("--prescreen-only", action="store_true")
     ap.add_argument("--holdout-days", type=int, default=21)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--skip-ensemble", action="store_true",
+                    help="run the proxy protocol only (no full-ensemble gate)")
     args = ap.parse_args()
-    if args.smoke:
-        args.out = Path("/tmp/ablation_defense_v3_smoke.json")
 
-    sha = rma.head_sha()
-    (games, _tune_enriched, hold_df, folds, _m, _hm, _rounds, _u) = \
-        rma.prepare_data(args.holdout_days)
-    if args.smoke:
-        folds = folds[:3]
+    sha = head_sha()
+    data_path = DATA_DELIVERY_DIR / "game_level_features.csv"
+    data_hash = sha256_file(data_path)
+    pbp_files = sorted(DATA_DELIVERY_DIR.glob("pbp_chunks/pbp_*.parquet"))
 
-    print(f"commit={sha[:12]} games={len(games)} folds={len(folds)} seed={SEED}",
-          flush=True)
+    games = pd.read_csv(data_path)
+    games["game_date"] = pd.to_datetime(games["game_date"])
+    games = games.dropna(subset=["home_win"]).reset_index(drop=True)
 
-    pbp = _load_pbp_lean()
-    wide = _load_pbp_wide()
-    print(f"pbp lean rows={len(pbp)} | wide defense cache={'YES' if wide is not None else 'MISSING (F2/F4 unbuildable)'}",
-          flush=True)
+    pbp = pd.concat([pd.read_parquet(f) for f in pbp_files], ignore_index=True)
+    per_game = pbp_defensive_aggregates(pbp)
+    games = add_defensive_features(games, per_game)
+    games["row_id"] = np.arange(len(games))
 
-    f135 = build_f1_f3_f5(pbp, games)
-    f24 = build_f2_f4(wide, games) if wide is not None else None
+    base_cols = list(training.FEATURE_COLS)
+    assert len(base_cols) == 59, (
+        f"expected 59 production FEATURE_COLS, got {len(base_cols)} — sync "
+        f"this harness with training.py before measuring")
 
-    # Coverage per family
-    coverage = {}
-    for fam in FAMILIES:
-        cols = family_columns(fam)
-        src = f135 if fam in ("F1", "F3", "F5") else (f24 if f24 is not None else None)
-        if src is None:
-            coverage[fam] = 0.0
-            continue
-        present = [c for c in cols if c in src.columns]
-        if not present:
-            coverage[fam] = 0.0
-            continue
-        coverage[fam] = round(float(src[present].notna().all(axis=1).mean()), 4)
-    print("family coverage:", coverage, flush=True)
+    cutoff = games["game_date"].max() - pd.Timedelta(days=args.holdout_days - 1)
+    tune_df = games[games["game_date"] < cutoff].reset_index(drop=True)
+    hold_df = games[games["game_date"] >= cutoff].reset_index(drop=True)
+    all_splits = training.walk_forward_splits(
+        tune_df, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
+    folds = [s for s in all_splits
+             if len(s["val_games"]) >= MIN_VAL_FOLD_GAMES]
 
-    report = {
-        "version": "v3",
-        "commit": sha,
-        "seed": SEED,
-        "n_folds": len(folds),
-        "pbp_lean_rows": int(len(pbp)),
-        "wide_cache": wide is not None,
-        "family_coverage": coverage,
-        "pit_rule": "game_date < target game date (1-day publication lag)",
-    }
+    tree_share, lin_share = proxy_blend_share()
+    print(f"commit={sha[:12]} data_sha={data_hash[:12]} games={len(games)} "
+          f"tuning={len(tune_df)} holdout={len(hold_df)} "
+          f"folds={len(all_splits)}/{len(folds)} seed={RANDOM_SEED} "
+          f"proxy_blend={tree_share}/{lin_share}")
 
-    # 1. Pre-screen
-    print("\n[1] PRE-SCREEN on baseline OOF residuals ...", flush=True)
-    screen = prescreen(folds, f135, f24, list(FAMILIES))
-    report["prescreen"] = screen
-    for fam, r in screen.items():
-        print(f"  {fam}: {r}")
+    coverage = coverage_report(games, RAW_COLS + TREND_COLS)
+    print("defensive column coverage on committed artifacts (pbp cache "
+          f"starts 2025-03-18; 2024 season has no pbp):")
+    for c in coverage:
+        print(f"    {c['column']:18s} coverage={c['coverage']:.3f}")
 
-    if args.prescreen_only:
-        out = args.out or (DATA_DELIVERY_DIR / f"ablation_defense_v3_prescreen_{sha[:12]}.json")
-        out.write_text(json.dumps(report, indent=2))
-        print(f"\nsaved {out}")
-        return
-
-    # 2. Walk-forward surviving conditions (C0 baseline always for reference)
-    survivors = [f for f, r in screen.items() if r.get("survived")]
-    conds_to_run = ["C0"] + [c for c, fams in CONDITIONS.items()
-                             if c != "C0" and all(f in survivors for f in fams)]
-    print(f"\n[2] WALK-FORWARD conditions: {conds_to_run}", flush=True)
-
-    # Baseline per-game losses via the same two proxies WITHOUT defense cols
-    base_result = walk_forward_condition([], folds, f135, f24)
-    # C0 has no def cols -> walk_forward_condition returns None; compute
-    # baseline explicitly:
-    y_base, base_ll = [], {"lgbm": [], "logistic": []}
-    if base_result is None:
-        from lightgbm import LGBMClassifier
-        from sklearn.linear_model import LogisticRegression
-        base_cols = [c for c in training.FEATURE_COLS if c in games.columns]
-        for split in folds:
-            train, val = split["train_games"], split["val_games"]
-            if len(val) < 40 or len(train) < 200:
-                continue
-            y_tr = train["home_win"].values.astype(int)
-            y_va = val["home_win"].values.astype(int)
-            Xtr = train[base_cols].fillna(train[base_cols].median())
-            Xva = val[base_cols].fillna(train[base_cols].median())
-            lgbm = LGBMClassifier(random_state=SEED, n_estimators=200,
-                                  learning_rate=0.05, num_leaves=15,
-                                  min_child_samples=30, verbose=-1)
-            lgbm.fit(Xtr, y_tr)
-            mu, sd = Xtr.mean(), Xtr.std()
-            sd[sd == 0] = 1
-            lr = LogisticRegression(max_iter=1000, random_state=SEED)
-            lr.fit((Xtr - mu) / sd, y_tr)
-            y_base.extend(y_va.tolist())
-            base_ll["lgbm"].extend(lgbm.predict_proba(Xva)[:, 1].tolist())
-            base_ll["logistic"].extend(
-                lr.predict_proba((Xva - mu) / sd)[:, 1].tolist())
-    y_base = np.asarray(y_base)
-
-    cond_results = {}
-    for cond in conds_to_run:
-        if cond == "C0":
-            continue
-        fams = CONDITIONS[cond]
-        if any(f not in survivors for f in fams):
-            continue
-        print(f"  running {cond} (+{','.join(fams)}) ...", flush=True)
-        res = walk_forward_condition(fams, folds, f135, f24)
-        if res is None:
-            continue
-        y_c = res["y"]
-        n = min(len(y_base), len(y_c))
-        entry = {"n": int(n), "def_cols_n": len(res["def_cols"])}
-        for proxy in ("lgbm", "logistic"):
-            if len(res["proxy_p"][proxy]) == 0 or len(base_ll[proxy]) == 0:
-                continue
-            m = min(len(base_ll[proxy]), len(res["proxy_p"][proxy]))
-            la = logloss(np.asarray(y_base[:m]), np.asarray(base_ll[proxy][:m]))
-            lb = logloss(np.asarray(y_c[:m]), np.asarray(res["proxy_p"][proxy][:m]))
-            dm, dm_p = diebold_mariano(la, lb)
-            t, t_p = paired_t(la, lb)
-            entry[proxy] = {
-                "base_ll": round(float(la.mean()), 5),
-                "cond_ll": round(float(lb.mean()), 5),
-                "delta": round(float(lb.mean() - la.mean()), 5),
-                "dm": round(dm, 3) if np.isfinite(dm) else None,
-                "dm_p": round(dm_p, 4) if np.isfinite(dm_p) else None,
-                "t_p": round(t_p, 4) if np.isfinite(t_p) else None,
-            }
-        cond_results[cond] = entry
-        print(f"    {entry}", flush=True)
-    report["walk_forward"] = cond_results
-    report["surviving_families"] = survivors
-
-    # 3. Winner + gate (per protocol: ensemble-weighted validation; here the
-    # two proxies stand in for tree/linear families, equal weight).
-    scored = {}
-    for cond, e in cond_results.items():
-        vals = [v["delta"] for v in e.values() if isinstance(v, dict) and "delta" in v]
-        if vals:
-            scored[cond] = float(np.mean(vals))
-    report["winner_scores"] = scored
-    if scored:
-        best = min(scored, key=scored.get)
-        report["winner"] = best
-        print(f"\n[3] WINNER by mean per-family delta: {best} ({scored[best]:+.5f})",
-              flush=True)
-        print("    GATE NOT RUN: adoption is a separate decision; sealed-holdout "
-              "gate executes only when the winner is promoted for adoption.",
-              flush=True)
+    out = args.out or (DATA_DELIVERY_DIR / f"ablation_defense_{sha[:12]}.json")
+    if out.exists():
+        results = json.loads(out.read_text())
     else:
-        report["winner"] = None
-        print("\n[3] NO condition beat baseline — DON'T ADOPT", flush=True)
+        results = {
+            "schema": "defense-ablation/v1", "commit_sha": sha,
+            "data_sha256": data_hash, "holdout_days": args.holdout_days,
+            "pbp_chunks": len(pbp_files),
+            "pbp_rows": int(len(pbp)), "folds_declared": len(all_splits),
+            "folds_executed": len(folds), "clip_eps": EPS,
+            "seed": int(RANDOM_SEED),
+            "ladder_params": {"raw_window": RAW_WINDOW, "raw_min": RAW_MIN,
+                              "trend_fast": TREND_FAST,
+                              "trend_slow": TREND_SLOW},
+            "proxy_blend": {"tree": tree_share, "linear": lin_share},
+            "event_sets": {"bip": sorted(_BIP_EVENTS),
+                           "outs_on_bip": sorted(_OUTS_ON_BIP),
+                           "errors": sorted(_ERROR_EVENTS),
+                           "double_plays": sorted(_DP_EVENTS)},
+            "coverage": coverage, "conditions": CONDITIONS,
+            "prescreen": {}, "walkforward": {}, "ensemble": {},
+            "collinearity": collinearity_report(games, RAW_COLS + TREND_COLS,
+                                                base_cols),
+        }
+        out.write_text(json.dumps(results, indent=2) + "\n")
 
-    out = args.out or (DATA_DELIVERY_DIR / f"ablation_defense_v3_{sha[:12]}.json")
-    out.write_text(json.dumps(report, indent=2))
-    print(f"\nsaved {out}")
+    # ── 2) pre-screen on baseline OOF residuals ───────────────────────────
+    if not results["prescreen"]:
+        print("\n[C0 baseline] proxy walk-forward (residual frame) ...")
+        base_oof = walk_forward_proxies(folds, games, base_cols)
+        base_oof.to_parquet(DATA_DELIVERY_DIR / "ablation_defense_base_oof.parquet")
+        base_ll_lgb = float(np.mean(_per_game_logloss(
+            base_oof.dropna(subset=["p_lgb"])["y"].values,
+            base_oof.dropna(subset=["p_lgb"])["p_lgb"].values)))
+        base_ll_lr = float(np.mean(_per_game_logloss(
+            base_oof.dropna(subset=["p_lr"])["y"].values,
+            base_oof.dropna(subset=["p_lr"])["p_lr"].values)))
+        results["baseline"] = {
+            "n_oof": int(len(base_oof)),
+            "lgb_logloss": round(base_ll_lgb, 4),
+            "lr_logloss": round(base_ll_lr, 4),
+        }
+        for fam in ("C1", "C2"):
+            res = prescreen(CONDITIONS[fam], base_oof, games)
+            results["prescreen"][fam] = res
+            print(f"  pre-screen {fam}: "
+                  f"survived={res['survived']} "
+                  f"{ {k: v for k, v in res['per_proxy'].items()} }")
+        out.write_text(json.dumps(results, indent=2) + "\n")
+
+    survivors = [c for c in ("C1", "C2") if results["prescreen"][c]["survived"]]
+    run_conds = ["C0"] + survivors
+    if len(survivors) == 2:
+        run_conds.append("C3")
+    if not survivors:
+        print("\npre-screen: BOTH families rejected — no defensive condition "
+              "survives to the walk-forward. Verdict: keep baseline (evidence "
+              "below).")
+    print(f"conditions proceeding to walk-forward: {run_conds}")
+
+    # ── 4) per-condition two-proxy walk-forward + significance ────────────
+    for cond in run_conds:
+        if cond in results["walkforward"]:
+            continue
+        cols = base_cols if cond == "C0" else base_cols + CONDITIONS[cond]
+        print(f"\n[{cond}] two-proxy walk-forward ({len(cols)} cols) ...")
+        base_oof = pd.read_parquet(DATA_DELIVERY_DIR
+                                   / "ablation_defense_base_oof.parquet")
+        wf = condition_walk_forward(folds, games, cols, cond, base_oof,
+                                    base_cols,
+                                    def_cols=CONDITIONS.get(cond, []))
+        results["walkforward"][cond] = wf
+        print(f"    lgb ll={wf.get('lgb_logloss')} auc={wf.get('lgb_auc')} "
+              f"delta_tot={wf.get('lgb_delta')} dm_p={wf.get('lgb_dm_p')} "
+              f"t_p={wf.get('lgb_t_p')}")
+        print(f"    lr  ll={wf.get('lr_logloss')} auc={wf.get('lr_auc')} "
+              f"delta_tot={wf.get('lr_delta')} dm_p={wf.get('lr_dm_p')} "
+              f"t_p={wf.get('lr_t_p')}")
+        out.write_text(json.dumps(results, indent=2) + "\n")
+
+    # ── 6) winner selection on the proxy-blend validation metric ──────────
+    if survivors and not results.get("winner"):
+        scores = {}
+        for cond in run_conds:
+            w = results["walkforward"][cond]
+            ll = (tree_share * w.get("lgb_logloss", np.nan)
+                  + lin_share * w.get("lr_logloss", np.nan))
+            scores[cond] = round(float(ll), 6)
+        base_ll = scores["C0"]
+        cands = {c: scores[c] for c in run_conds if c != "C0"}
+        best = min(cands, key=cands.get)
+        tree_best = min(run_conds[1:],
+                        key=lambda c: results["walkforward"][c]["lgb_logloss"])
+        lin_best = min(run_conds[1:],
+                       key=lambda c: results["walkforward"][c]["lr_logloss"])
+        # A condition is a candidate only if it BEATS baseline on the
+        # ensemble-weighted validation metric (a worse blend is not a winner).
+        winners = []
+        if best in cands and cands[best] < base_ll:
+            winners.append(best)
+        if tree_best != lin_best and tree_best in cands and lin_best in cands:
+            for c in (tree_best, lin_best):
+                if c not in winners and cands[c] < base_ll:
+                    winners.append(c)
+        results["winner"] = {
+            "blend_scores": scores, "base_blend_ll": base_ll,
+            "selected": winners, "tree_family_best": tree_best,
+            "linear_family_best": lin_best,
+            "tree_vs_linear_agree": tree_best == lin_best,
+            "none_beat_baseline": not winners,
+        }
+        print(f"\nwinner selection (proxy-blend {tree_share}/{lin_share}): "
+              f"scores={scores} -> "
+              f"selected={winners or ['(none — keep baseline)']}")
+        out.write_text(json.dumps(results, indent=2) + "\n")
+
+    # ── 6b) full 5-member ensemble on baseline + winner(s), sealed gate ───
+    if (not args.skip_ensemble and survivors
+            and results.get("winner", {}).get("selected")
+            and not results["ensemble"]):
+        arms = {"C0": base_cols}
+        for w in results["winner"]["selected"]:
+            arms[w] = base_cols + CONDITIONS[w]
+        print(f"\nfull 5-member ensemble arms: {list(arms)}")
+        for name, cols in arms.items():
+            print(f"  [{name}] {len(cols)} cols, {len(folds)} folds ...")
+            r = run_ensemble_variant(cols, folds, tune_df, hold_df)
+            r["cols"] = cols
+            results["ensemble"][name] = r
+            b, h = r["pooled"]["blend"], r["holdout"]["blend"]
+            print(f"    pooled {b['logloss']:.4f}/{b['auc']:.4f} "
+                  f"ece_cal {r['pooled']['blend_calibrated']['ece']:.4f} | "
+                  f"holdout {h['logloss']:.4f}/{h['auc']:.4f}")
+            out.write_text(json.dumps(results, indent=2) + "\n")
+
+        # ── gate ─────────────────────────────────────────────────────────
+        c0 = results["ensemble"]["C0"]
+        gate = {}
+        for w in results["winner"]["selected"]:
+            if w not in results["ensemble"]:
+                continue
+            wv = results["ensemble"][w]
+            h0, hw = c0["holdout"]["blend"], wv["holdout"]["blend"]
+            p0, pw = c0["pooled"], wv["pooled"]
+            e0 = c0["pooled"]["blend_calibrated"]["ece"]
+            ew = wv["pooled"]["blend_calibrated"]["ece"]
+            win = (hw["logloss"] < h0["logloss"] and hw["auc"] > h0["auc"]
+                   and ew <= e0)
+            pooled_ok = pw["blend"]["logloss"] < p0["blend"]["logloss"]
+            gate[w] = {
+                "holdout": {"base": h0, "with": hw},
+                "pooled_invert": not pooled_ok,
+                "ece_cal": {"base": e0, "with": ew,
+                            "degraded": ew > e0},
+                "adopt": bool(win and pooled_ok),
+            }
+            print(f"\n=== sealed-holdout gate [{w}] vs C0 ===\n"
+                  f"  holdout blend: C0 {h0['logloss']:.4f}/{h0['auc']:.4f} "
+                  f"| {w} {hw['logloss']:.4f}/{hw['auc']:.4f}\n"
+                  f"  pooled blend: C0 {p0['blend']['logloss']:.4f} | "
+                  f"{w} {pw['blend']['logloss']:.4f} "
+                  f"(inverted={not pooled_ok})\n"
+                  f"  ECE-cal: C0 {e0:.4f} | {w} {ew:.4f} "
+                  f"(degraded={ew > e0})\n"
+                  f"  -> {('ADOPT' if gate[w]['adopt'] else "DON'T ADOPT")}")
+        results["gate"] = gate
+        out.write_text(json.dumps(results, indent=2) + "\n")
+
+    print(f"\nablation written: {out}")
 
 
 if __name__ == "__main__":
