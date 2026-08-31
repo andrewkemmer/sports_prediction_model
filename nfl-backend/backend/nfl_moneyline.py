@@ -840,6 +840,20 @@ def ensemble_predict(models: dict, games: pd.DataFrame,
     return blend, members, weights
 
 
+def _score_member_table(target: np.ndarray,
+                        members: dict[str, np.ndarray]) -> dict:
+    """Per-member metric table {member: {logloss, auc, ece, brier}} for one
+    target vector (used for the sealed-2025 per-member view; empty-safe)."""
+    out = {}
+    for name, p in members.items():
+        p = np.asarray(p, dtype=float)
+        if len(p) != len(target):
+            continue
+        m = compute_metrics(target, p)
+        out[name] = {k: m[k] for k in ("logloss", "auc", "ece", "brier")}
+    return out
+
+
 def _elo_logistic_p(tr: pd.DataFrame, va: pd.DataFrame,
                     features: list[str]) -> np.ndarray:
     """Cheap elo-only logistic reference arm (fit on ``tr``, predict ``va``)."""
@@ -1031,6 +1045,12 @@ def run_walk_forward(feats: pd.DataFrame,
     sealed_cal = platt_predict(sealed_raw, platt_sealed)
 
     const_sealed = preq[TARGET].mean()
+    # per-member SEALED 2025 metrics (raw member probs vs the 2025 target) —
+    # the per-member twin of ``members`` (pooled), surfaced for ablation
+    # member-level reads (e.g. "which models like a candidate family").
+    sealed_members_table = _score_member_table(sld[TARGET].to_numpy(),
+                                               sealed_members)
+
     sealed = {
         "n": int(len(sld)),
         "constant_home_edge": {
@@ -1094,6 +1114,7 @@ def run_walk_forward(feats: pd.DataFrame,
         "sealed_2025": sealed,
         "adaptive_weights": adaptive,
         "members": members_table,
+        "members_sealed": sealed_members_table,
         "verdict": verdict,
         "_deployed": {"features": Xcol},
         "_history_df": history_df,

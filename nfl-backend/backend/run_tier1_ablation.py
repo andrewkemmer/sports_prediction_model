@@ -116,6 +116,15 @@ def _platt_metrics(rec: dict, key: str) -> dict:
     return {k: m.get(k) for k in ("logloss", "auc", "ece")}
 
 
+MEMBER_NAMES = ("xgboost", "lightgbm", "logistic", "randomforest", "mlp")
+
+
+def _member_metrics(rec: dict, key: str) -> dict:
+    """{member: {logloss, auc, ece, brier}} from an arm's record ({} if
+    absent). ``members`` = pooled OOF, ``members_sealed`` = sealed 2025."""
+    return {str(m): dict(v) for m, v in (rec.get(key) or {}).items()}
+
+
 def adopt_verdict(sealed_without: dict, sealed_with: dict,
                   pooled_without: dict, pooled_with: dict) -> dict:
     """Gated rule (user-specified): WITH wins only on the SEALED hold-out in
@@ -203,6 +212,25 @@ def main(argv: list[str] | None = None) -> int:
     for n in arms:
         s, p = sealed[n], pooled[n]
         print(f"{n:14s} {s['logloss']}  {s['auc']}  {s['ece']}  {p['logloss']}")
+
+    member_pooled = {n: _member_metrics(results[n], "members") for n in arms}
+    member_sealed = {n: _member_metrics(results[n], "members_sealed")
+                     for n in arms}
+
+    def _member_rows(blk: dict[str, dict]) -> None:
+        print(f"{'member':12s}" + "".join(f"{n:>17s}" for n in arms))
+        for m in MEMBER_NAMES:
+            cells = []
+            for n in arms:
+                e = blk[n].get(m) or {}
+                cells.append(f"{e.get('logloss', '--')}/{e.get('auc', '--')}")
+            print(f"{m:12s}" + "".join(f"{c:>17s}" for c in cells))
+
+    print("\n=== per-member pooled OOF (logloss/auc) ===")
+    _member_rows(member_pooled)
+    print("\n=== per-member sealed 2025 (logloss/auc) ===")
+    _member_rows(member_sealed)
+
     print("\nVERDICT (WITH all-9 vs WITHOUT):",
           "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
           "|", " | ".join(verdict["reason"]))
@@ -223,7 +251,11 @@ def main(argv: list[str] | None = None) -> int:
         "frame_sha256": _frame_sha256(feats),
         "arms": {n: {"features": cols,
                      "sealed_model_platt": sealed[n],
-                     "pooled_model_platt": pooled[n]}
+                     "pooled_model_platt": pooled[n],
+                     "members": {m: dict(v) for m, v in
+                                 (results[n].get("members") or {}).items()},
+                     "members_sealed": {m: dict(v) for m, v in
+                                        (results[n].get("members_sealed") or {}).items()}}
                  for n, cols in arms.items()},
         "tier1_gate": tier1_gate,
         "verdict_with": verdict,

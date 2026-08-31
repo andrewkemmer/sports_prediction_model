@@ -332,6 +332,26 @@ class TestEnsembleConstruction(unittest.TestCase):
         self.assertEqual(mets, {})
         self.assertIn("xgboost", models)
 
+    def test_score_sealed_member_table(self):
+        """Per-member sealed scoring returns full metrics per member and is
+        empty-safe (the ablation harness's member-level read)."""
+        import numpy as np
+        from nfl_moneyline import _score_member_table
+        y = np.array([1, 0, 1, 0, 1, 0])
+        members = {
+            "xgboost": np.array([0.9, 0.1, 0.8, 0.2, 0.7, 0.3]),
+            "mlp": np.array([0.5] * 6),
+        }
+        t = _score_member_table(y, members)
+        self.assertEqual(set(t), {"xgboost", "mlp"})
+        for key in ("logloss", "auc", "ece", "brier"):
+            self.assertIn(key, t["xgboost"])
+        self.assertAlmostEqual(t["mlp"]["auc"], 0.5, places=6)
+        # wrong-length member skipped, empty members -> empty table
+        t2 = _score_member_table(y, {"xgboost": np.array([0.9, 0.1])})
+        self.assertEqual(t2, {})
+        self.assertEqual(_score_member_table(y, {}), {})
+
     def test_blend_probs_in_unit_interval_weights_sum_to_one(self):
         tr, va = self._split()
         models, _ = train_ensemble(tr, va, features=V1_FEATURES)
