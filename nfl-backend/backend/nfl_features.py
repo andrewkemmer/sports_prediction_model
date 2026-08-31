@@ -393,6 +393,32 @@ def _decided_rows(sched: pd.DataFrame) -> pd.DataFrame:
              pd.to_numeric(s["away_score"], errors="coerce").notna()].copy()
 
 
+def _pbp_team_agg_engine(pbp: pd.DataFrame | None,
+                         extra_names: tuple[str, ...] | None = None) -> pd.DataFrame:
+    """Play-by-play rollup preferring the DuckDB engine (MLB-mirrored spill
+    config) with a pandas fallback.
+
+    ``nfl_feature_engine`` owns the PBP aggregation in DuckDB the same way MLB
+    keeps its big Statcast table in DuckDB (memory_limit + disk spill), while
+    ``_pbp_team_agg`` (pandas) stays the source of truth / fallback. Output is
+    identical either way (answer-key test in test_nfl_feature_engine.py).
+    """
+    if pbp is None or "posteam" not in getattr(pbp, "columns", []):
+        return _pbp_team_agg(pbp)
+    try:
+        from nfl_feature_engine import duckdb_available, duckdb_engine, pbp_team_agg
+    except Exception:
+        return _pbp_team_agg(pbp)
+    if not duckdb_available():
+        return _pbp_team_agg(pbp)
+    try:
+        with duckdb_engine() as con:
+            return pbp_team_agg(con, pbp, extra_names=tuple(extra_names or ()))
+    except Exception as exc:  # noqa: BLE001 — fall back rather than fail the run
+        logger.warning("DuckDB pbp rollup failed (%s); using pandas", exc)
+        return _pbp_team_agg(pbp)
+
+
 def build_features(decided: pd.DataFrame,
                    schedule: pd.DataFrame | None = None,
                    pbp: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -411,7 +437,7 @@ def build_features(decided: pd.DataFrame,
     events = compute_elo(team_events(full))
     team_agg = None
     if pbp is not None and {"yards_gained", "posteam"}.issubset(pbp.columns):
-        team_agg = _pbp_team_agg(pbp)
+        team_agg = _pbp_team_agg_engine(pbp)
     ladder = team_stats_ladder(events, team_agg)
 
     df = decided.copy()
@@ -471,7 +497,7 @@ def build_slate_features(schedule: pd.DataFrame,
     ev, ratings = _elo_apply(team_events(full))
     team_agg = None
     if pbp is not None and {"yards_gained", "posteam"}.issubset(pbp.columns):
-        team_agg = _pbp_team_agg(pbp)
+        team_agg = _pbp_team_agg_engine(pbp)
 
     sched = schedule.copy()
     for c in ("home_score", "away_score"):
