@@ -1,15 +1,28 @@
 {
-  "created_utc": "2026-08-29T01:54:46.268566Z",
+  "created_utc": "2026-08-31T00:30:54.788858Z",
   "config": {
     "features": [
       "elo_diff",
-      "form_diff_pts",
+      "win_pct_diff",
       "rest_days_diff",
-      "ypp_diff",
-      "is_dome_home"
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_qb_epa_play_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game"
     ],
+    "feature_source": "latest nfl_feature_v1_*.json admission gate (v2)",
     "excluded_constant_anchor": "is_home",
-    "model": "LightGBM (single, modest reg) + Platt twin",
+    "model": "5-member ensemble (XGBoost/LightGBM/Logistic/RF/MLP) + adaptive AUC blend + Platt twin",
+    "ensemble_weights": {
+      "xgboost": 0.45,
+      "lightgbm": 0.1375,
+      "logistic": 0.1375,
+      "randomforest": 0.1375,
+      "mlp": 0.1375
+    },
     "reference_arm": "logistic (full-fitted, elo-only for cheap signal)",
     "baselines": [
       "constant home-edge",
@@ -31,10 +44,9 @@
       "boost_from_average": true,
       "n_jobs": 1
     },
-    "num_boost_round": 300,
     "ece_bins": 10,
     "ece_max": 0.08,
-    "leakage": "features strictly-trailing (v1 gate); folds assert train.gameday < week_start; 2025 never in any pre-sealed fit or calibration map"
+    "leakage": "features strictly-trailing (gate, windowed + ewm); folds assert train.gameday < week_start; 2025 never in any pre-sealed fit or calibration map; sealed Platt fit on pooled pre-holdout OOF only"
   },
   "fold_geometry": {
     "train_seasons": [
@@ -150,53 +162,117 @@
     "n": 1107,
     "fold_count": 88,
     "constant_home_edge": {
-      "proba": 0.5355,
+      "proba": 0.5361,
       "logloss": 0.6885,
       "auc": 0.5
     },
     "elo_logistic": {
-      "logloss": 0.6493,
-      "auc": 0.6766
+      "logloss": 0.6499,
+      "auc": 0.6777
     },
     "model_raw": {
-      "logloss": 0.7089,
-      "auc": 0.6446
+      "logloss": 0.6323,
+      "auc": 0.6922
     },
     "model_platt": {
-      "logloss": 0.6587,
-      "auc": 0.6435,
-      "ece": 0.0456
+      "logloss": 0.6324,
+      "auc": 0.6912,
+      "ece": 0.0262
     }
   },
   "sealed_2025": {
     "n": 285,
     "constant_home_edge": {
-      "proba": 0.5355,
+      "proba": 0.5361,
       "logloss": 0.6909,
       "auc": 0.5
     },
     "elo_logistic": {
-      "logloss": 0.6538,
-      "auc": 0.6687
+      "logloss": 0.6551,
+      "auc": 0.6686
     },
     "model_raw": {
-      "logloss": 0.7046,
-      "auc": 0.64
+      "logloss": 0.6358,
+      "auc": 0.6879
     },
     "model_platt": {
-      "logloss": 0.6617,
-      "auc": 0.64,
-      "ece": 0.0533
+      "logloss": 0.6453,
+      "auc": 0.6879,
+      "ece": 0.0728
+    }
+  },
+  "adaptive_weights": {
+    "xgboost": 0.45,
+    "lightgbm": 0.1375,
+    "logistic": 0.1375,
+    "randomforest": 0.1375,
+    "mlp": 0.1375
+  },
+  "members": {
+    "lightgbm": {
+      "weight": 0.1375,
+      "logloss": 0.68,
+      "auc": 0.6484,
+      "ece": 0.0744,
+      "brier": 0.24,
+      "logloss_calibrated": 0.6718,
+      "auc_calibrated": 0.6494,
+      "ece_calibrated": 0.0676
+    },
+    "logistic": {
+      "weight": 0.1375,
+      "logloss": 0.6434,
+      "auc": 0.6813,
+      "ece": 0.0524,
+      "brier": 0.2253,
+      "logloss_calibrated": 0.6415,
+      "auc_calibrated": 0.6818,
+      "ece_calibrated": 0.0434
+    },
+    "mlp": {
+      "weight": 0.1375,
+      "logloss": 0.6515,
+      "auc": 0.6693,
+      "ece": 0.0466,
+      "brier": 0.2292,
+      "logloss_calibrated": 0.6481,
+      "auc_calibrated": 0.6694,
+      "ece_calibrated": 0.0423
+    },
+    "randomforest": {
+      "weight": 0.1375,
+      "logloss": 0.6434,
+      "auc": 0.6825,
+      "ece": 0.0413,
+      "brier": 0.225,
+      "logloss_calibrated": 0.6426,
+      "auc_calibrated": 0.6809,
+      "ece_calibrated": 0.0339
+    },
+    "xgboost": {
+      "weight": 0.45,
+      "logloss": 0.6134,
+      "auc": 0.7356,
+      "ece": 0.0645,
+      "brier": 0.2122,
+      "logloss_calibrated": 0.6166,
+      "auc_calibrated": 0.7337,
+      "ece_calibrated": 0.0687
     }
   },
   "verdict": {
-    "adopt": false,
-    "sealed_beats_elo": false,
+    "adopt": true,
+    "sealed_beats_elo": true,
     "sealed_beats_constant": true,
     "sane_ece": true,
     "pooled_gain_sealed_loss_inversion": false,
-    "reasons": [
-      "sealed logloss 0.6617 / auc 0.64 not both better than elo-logistic (0.6538 / 0.6687)"
-    ]
-  }
+    "reasons": []
+  },
+  "slate": {
+    "season": 2026,
+    "week": null,
+    "n_games": 0,
+    "model": "sealed 2019-2024 fit + pre-holdout-OOF Platt map"
+  },
+  "games": []
 }
