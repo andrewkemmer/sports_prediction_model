@@ -1,0 +1,447 @@
+{
+  "schema": "untapped-cols-prod-ablation/v1",
+  "commit_sha": "56cb16098021d84ace5b15fdc09e365cbe78bc0c",
+  "data_sha256": "3fb39d14b601c6ce8e5a3c50f1d41fa59075db0f16fef7ed39d05e59bb96e604",
+  "add": [
+    "lineup_ops_vs_l_away",
+    "lineup_ops_vs_r_home",
+    "lineup_ops_vs_starter_hand_home",
+    "lineup_ops_vs_starter_hand_away",
+    "park_wind_factor"
+  ],
+  "windows": 3,
+  "holdout_days": 21,
+  "folds_executed": 74,
+  "margin_coverage": 0.976687643020595,
+  "clip_eps": 1e-07,
+  "seed": 42,
+  "variants": {
+    "WITHOUT": {
+      "n_cols": 59,
+      "cols": [
+        "is_home",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "lineup_handedness_matchup_advantage",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "run_margin_diff"
+      ],
+      "pooled": {
+        "blend": {
+          "auc": 0.5648,
+          "brier": 0.2456,
+          "logloss": 0.6842,
+          "ece": 0.0066
+        },
+        "blend_calibrated": {
+          "auc": 0.5605,
+          "brier": 0.2463,
+          "logloss": 0.6856,
+          "ece": 0.0111
+        },
+        "xgboost": {
+          "auc": 0.5797,
+          "brier": 0.2436,
+          "logloss": 0.6801,
+          "ece": 0.0124
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5754,
+          "brier": 0.2449,
+          "logloss": 0.6827,
+          "ece": 0.0151
+        },
+        "lightgbm": {
+          "auc": 0.5516,
+          "brier": 0.2479,
+          "logloss": 0.689,
+          "ece": 0.0284
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5479,
+          "brier": 0.2473,
+          "logloss": 0.6877,
+          "ece": 0.0129
+        },
+        "logistic": {
+          "auc": 0.5523,
+          "brier": 0.2513,
+          "logloss": 0.6986,
+          "ece": 0.0354
+        },
+        "logistic_calibrated": {
+          "auc": 0.549,
+          "brier": 0.2506,
+          "logloss": 0.6969,
+          "ece": 0.021
+        },
+        "randomforest": {
+          "auc": 0.5529,
+          "brier": 0.2471,
+          "logloss": 0.6872,
+          "ece": 0.0178
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5491,
+          "brier": 0.2472,
+          "logloss": 0.6875,
+          "ece": 0.0085
+        },
+        "mlp": {
+          "auc": 0.5232,
+          "brier": 0.2538,
+          "logloss": 0.7023,
+          "ece": 0.0525
+        },
+        "mlp_calibrated": {
+          "auc": 0.5215,
+          "brier": 0.2514,
+          "logloss": 0.6968,
+          "ece": 0.0323
+        }
+      },
+      "executed": 74,
+      "windows": {
+        "w0": {
+          "n_hold": 282,
+          "holdout": {
+            "auc": 0.6104,
+            "brier": 0.2391,
+            "logloss": 0.671,
+            "ece": 0.0289
+          },
+          "hold_start": "2026-08-08",
+          "hold_end": "2026-08-29"
+        },
+        "w1": {
+          "n_hold": 287,
+          "holdout": {
+            "auc": 0.5306,
+            "brier": 0.2498,
+            "logloss": 0.693,
+            "ece": 0.0248
+          },
+          "hold_start": "2026-07-18",
+          "hold_end": "2026-08-08"
+        },
+        "w2": {
+          "n_hold": 236,
+          "holdout": {
+            "auc": 0.6497,
+            "brier": 0.2398,
+            "logloss": 0.6727,
+            "ece": 0.0583
+          },
+          "hold_start": "2026-06-27",
+          "hold_end": "2026-07-18"
+        }
+      }
+    },
+    "WITH": {
+      "n_cols": 64,
+      "cols": [
+        "is_home",
+        "win_pct_diff",
+        "elo_diff",
+        "rest_days_diff",
+        "sp_era_diff",
+        "sp_era_5g_diff",
+        "sp_k9_diff",
+        "sp_k9_5g_diff",
+        "sp_fbvelo_diff",
+        "sp_fbpct_diff",
+        "sp_whiff_diff",
+        "sp_xwoba_diff",
+        "sp_xwoba_vs_l_diff",
+        "lineup_woba_mean_diff",
+        "lineup_woba_top3_diff",
+        "lineup_woba_std_diff",
+        "woba_30g_diff",
+        "bullpen_whip_diff",
+        "bullpen_whip_3g_diff",
+        "bullpen_pitches_diff",
+        "team_barrel_diff",
+        "team_hardhit_diff",
+        "team_exitvelo_diff",
+        "lineup_handedness_matchup_advantage",
+        "travel_fatigue_diff",
+        "closer_availability_diff",
+        "dome_is_neutral",
+        "park_factor_slug_diff",
+        "wind_advantage_flyball_factor",
+        "air_density_velocity_boost",
+        "bullpen_meltdown_risk",
+        "pitcher_regression_indicator",
+        "lineup_depth_multiplier",
+        "ace_efficiency_factor",
+        "home_elo",
+        "away_elo",
+        "home_win_pct",
+        "away_win_pct",
+        "sp_era_home",
+        "sp_era_away",
+        "sp_k9_home",
+        "sp_k9_away",
+        "sp_xwoba_home",
+        "sp_xwoba_away",
+        "lineup_woba_mean_home",
+        "lineup_woba_mean_away",
+        "lineup_woba_top3_home",
+        "lineup_woba_top3_away",
+        "woba_30g_home",
+        "woba_30g_away",
+        "bullpen_whip_10g_home",
+        "bullpen_whip_10g_away",
+        "bullpen_whip_3g_home",
+        "bullpen_whip_3g_away",
+        "team_barrel_15g_home",
+        "team_barrel_15g_away",
+        "team_exitvelo_15g_home",
+        "team_exitvelo_15g_away",
+        "run_margin_diff",
+        "lineup_ops_vs_l_away",
+        "lineup_ops_vs_r_home",
+        "lineup_ops_vs_starter_hand_home",
+        "lineup_ops_vs_starter_hand_away",
+        "park_wind_factor"
+      ],
+      "pooled": {
+        "blend": {
+          "auc": 0.5694,
+          "brier": 0.2452,
+          "logloss": 0.6833,
+          "ece": 0.0057
+        },
+        "blend_calibrated": {
+          "auc": 0.5633,
+          "brier": 0.246,
+          "logloss": 0.6851,
+          "ece": 0.0128
+        },
+        "xgboost": {
+          "auc": 0.5846,
+          "brier": 0.243,
+          "logloss": 0.6789,
+          "ece": 0.0096
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5799,
+          "brier": 0.2444,
+          "logloss": 0.6817,
+          "ece": 0.0167
+        },
+        "lightgbm": {
+          "auc": 0.5581,
+          "brier": 0.2471,
+          "logloss": 0.6872,
+          "ece": 0.0269
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5535,
+          "brier": 0.2469,
+          "logloss": 0.6868,
+          "ece": 0.0125
+        },
+        "logistic": {
+          "auc": 0.5555,
+          "brier": 0.2515,
+          "logloss": 0.7002,
+          "ece": 0.0373
+        },
+        "logistic_calibrated": {
+          "auc": 0.5515,
+          "brier": 0.2507,
+          "logloss": 0.6981,
+          "ece": 0.0217
+        },
+        "randomforest": {
+          "auc": 0.5524,
+          "brier": 0.247,
+          "logloss": 0.6871,
+          "ece": 0.0211
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5483,
+          "brier": 0.2472,
+          "logloss": 0.6874,
+          "ece": 0.0102
+        },
+        "mlp": {
+          "auc": 0.529,
+          "brier": 0.2549,
+          "logloss": 0.705,
+          "ece": 0.0622
+        },
+        "mlp_calibrated": {
+          "auc": 0.5262,
+          "brier": 0.2522,
+          "logloss": 0.6988,
+          "ece": 0.0423
+        }
+      },
+      "executed": 74,
+      "windows": {
+        "w0": {
+          "n_hold": 282,
+          "holdout": {
+            "auc": 0.6144,
+            "brier": 0.2384,
+            "logloss": 0.6695,
+            "ece": 0.0447
+          },
+          "hold_start": "2026-08-08",
+          "hold_end": "2026-08-29"
+        },
+        "w1": {
+          "n_hold": 287,
+          "holdout": {
+            "auc": 0.5289,
+            "brier": 0.2497,
+            "logloss": 0.6926,
+            "ece": 0.0335
+          },
+          "hold_start": "2026-07-18",
+          "hold_end": "2026-08-08"
+        },
+        "w2": {
+          "n_hold": 236,
+          "holdout": {
+            "auc": 0.6381,
+            "brier": 0.2402,
+            "logloss": 0.6735,
+            "ece": 0.0599
+          },
+          "hold_start": "2026-06-27",
+          "hold_end": "2026-07-18"
+        }
+      }
+    }
+  },
+  "gate": {
+    "verdict": "DON'T SHIP",
+    "pooled_without": {
+      "auc": 0.5648,
+      "brier": 0.2456,
+      "logloss": 0.6842,
+      "ece": 0.0066
+    },
+    "pooled_with": {
+      "auc": 0.5694,
+      "brier": 0.2452,
+      "logloss": 0.6833,
+      "ece": 0.0057
+    },
+    "wins": 1,
+    "total": 3,
+    "loss_windows": [
+      "w1",
+      "w2"
+    ],
+    "windows": {
+      "w0": {
+        "verdict": "SHIP",
+        "holdout_without": {
+          "auc": 0.6104,
+          "brier": 0.2391,
+          "logloss": 0.671,
+          "ece": 0.0289
+        },
+        "holdout_with": {
+          "auc": 0.6144,
+          "brier": 0.2384,
+          "logloss": 0.6695,
+          "ece": 0.0447
+        }
+      },
+      "w1": {
+        "verdict": "DON'T SHIP",
+        "holdout_without": {
+          "auc": 0.5306,
+          "brier": 0.2498,
+          "logloss": 0.693,
+          "ece": 0.0248
+        },
+        "holdout_with": {
+          "auc": 0.5289,
+          "brier": 0.2497,
+          "logloss": 0.6926,
+          "ece": 0.0335
+        }
+      },
+      "w2": {
+        "verdict": "DON'T SHIP",
+        "holdout_without": {
+          "auc": 0.6497,
+          "brier": 0.2398,
+          "logloss": 0.6727,
+          "ece": 0.0583
+        },
+        "holdout_with": {
+          "auc": 0.6381,
+          "brier": 0.2402,
+          "logloss": 0.6735,
+          "ece": 0.0599
+        }
+      }
+    },
+    "ece_excluded_from_verdict": true,
+    "caveats": [
+      "w0 holdout ece declined 0.0289->0.0447",
+      "w1 holdout ece declined 0.0248->0.0335",
+      "w2 holdout ece declined 0.0583->0.0599"
+    ]
+  }
+}
