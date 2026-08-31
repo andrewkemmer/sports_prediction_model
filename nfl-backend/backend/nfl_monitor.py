@@ -90,6 +90,37 @@ def drift_status(psi: float, n_current: int, min_samples: int = MIN_DRIFT_SAMPLE
     return "OK"
 
 
+def expand_drift_cut(gd: pd.Series, cut,
+                     min_samples: int = MIN_DRIFT_SAMPLES):
+    """Expand the 'current' window's lower bound ``cut`` backward so the
+    [cut, latest] decided-game window holds at least ``min_samples`` games.
+
+    The MLB drift window is a rolling 30 *calendar days*, which is always a
+    healthy sample in a daily sport. NFL games cluster inside the season and
+    the last-30-days can collapse to the few post-season games (~13), dropping
+    every row to INSUFFICIENT. This pulls in strictly-earlier gamedays (prior
+    season) until the floor is met, keeping the 30-day rolling anchor while
+    guaranteeing a judgeable window. Unchanged when the window already clears
+    the floor; passthrough when ``cut``/``gd`` cannot decide it."""
+    g = pd.to_datetime(gd, errors="coerce")
+    latest = g.max()
+    if pd.isna(cut) or pd.isna(latest):
+        return cut
+    cut = pd.to_datetime(cut)
+    n_cur = int(((g >= cut) & (g <= latest)).sum())
+    if n_cur >= min_samples:
+        return cut
+    # Strictly-earlier gamedays, newest first; step back one game at a time
+    # until the current window reaches the sample floor (or prior games run out).
+    earlier = sorted(g[g.notna() & (g < cut)].unique(), reverse=True)
+    if not earlier:
+        return cut
+    for cand in earlier:
+        if int((g >= cand).sum()) >= min_samples:
+            return cand
+    return min(earlier)
+
+
 def feature_drift_rows(feats: pd.DataFrame, columns: list[str],
                        baseline_mask: np.ndarray, current_mask: np.ndarray,
                        weight: dict[str, float] | None = None) -> list[dict]:
@@ -288,7 +319,10 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
     c_iso = f"{current_date[:4]}-{current_date[4:6]}-{current_date[6:8]}"
 
     gd = pd.to_datetime(feats["gameday"], errors="coerce")
-    cut = pd.to_datetime(baseline_cut_date)
+    # MLB-style 30-day rolling boundary, widened backward into the prior
+    # season when the last-30-days slice holds fewer than MIN_DRIFT_SAMPLES
+    # decided games (so a <30-game post-season tail never drops to INSUFFICIENT).
+    cut = expand_drift_cut(gd, baseline_cut_date)
     current_mask = gd.notna() & (gd >= cut)
     baseline_mask = gd.notna() & (gd < cut)
     if not current_mask.any():                       # fallback: newest games

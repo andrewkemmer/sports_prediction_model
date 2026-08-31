@@ -192,13 +192,41 @@ class EnsembleAndVersionTest(unittest.TestCase):
         self.assertTrue(rows[0]["adopt"])
 
 
+class ExpandDriftCutTest(unittest.TestCase):
+    def test_expands_backward_to_reach_floor(self):
+        # A seasonal snap: 120 prior-season games (daily, ending before the
+        # tail) + a 13-game post-season tail in the last 30 days. The 30-day
+        # cut leaves only ~12 current games (< MIN_DRIFT_SAMPLES), so the
+        # window must pull in prior games until the floor is met.
+        earlier = pd.date_range("2025-09-07", periods=120, freq="D")
+        tail = pd.date_range("2026-01-20", periods=13, freq="D")
+        gd = pd.Series(list(earlier) + list(tail))
+        cut = pd.to_datetime("2026-01-21")   # 'last 30 days' boundary
+        new_cut = mon.expand_drift_cut(gd, cut)
+        n_current = int((gd >= new_cut).sum())
+        self.assertGreaterEqual(n_current, mon.MIN_DRIFT_SAMPLES)
+        # Just-enough: it should not sweep in far more than the floor.
+        self.assertLessEqual(n_current, mon.MIN_DRIFT_SAMPLES + 1)
+
+    def test_window_already_over_floor_unchanged(self):
+        gd = pd.Series(pd.date_range("2026-01-01", periods=60, freq="D"))
+        cut = pd.to_datetime("2026-01-31")
+        self.assertEqual(mon.expand_drift_cut(gd, cut), cut)
+
+    def test_empty_or_nat_cut_passthrough(self):
+        gd = pd.Series(pd.to_datetime(["2025-09-07", "2026-09-10"]))
+        self.assertIsNone(mon.expand_drift_cut(gd, None))
+
+
 class BuildMonitorTest(unittest.TestCase):
     def _inputs(self):
+        # 300 baseline games + 120 current games (>= MIN_DRIFT_SAMPLES) so
+        # the 30-day split needs no expansion and current/baseline are both
+        # judgeable.
         feats = pd.DataFrame({
-            "gameday": ["2025-09-07"] * 6 + ["2026-09-10"] * 4,
-            "elo_diff": [10.0, 20.0, 15.0, 30.0, 25.0, 12.0,
-                         18.0, 22.0, 28.0, 24.0],
-            "div_game": [0, 1, 0, 0, 1, 0, 1, 0, 0, 1],
+            "gameday": ["2025-09-07"] * 300 + ["2026-09-10"] * 120,
+            "elo_diff": [10.0] * 150 + [20.0] * 150 + [18.0] * 60 + [22.0] * 60,
+            "div_game": [0] * 150 + [1] * 150 + [1] * 60 + [0] * 60,
         })
         result = {
             "trained_at": "2026-08-31T01:00:00.000000Z",
@@ -236,9 +264,11 @@ class BuildMonitorTest(unittest.TestCase):
 
         self.assertEqual(rec["last_retrained"], "2026-08-31")
         self.assertGreaterEqual(rec["next_retrain"], "2026-09-01")
-        # Drift current window = games >= baseline_cut (the 2026 games).
-        self.assertEqual(rec["feature_drift"][0]["n_current"], 4)
-        self.assertEqual(rec["feature_drift"][0]["n_baseline"], 6)
+        # Drift current window = the 120 games >= baseline_cut; both sides
+        # clear MIN_DRIFT_SAMPLES so statuses are judgeable (not INSUFFICIENT).
+        self.assertEqual(rec["feature_drift"][0]["n_current"], 120)
+        self.assertEqual(rec["feature_drift"][0]["n_baseline"], 300)
+        self.assertNotEqual(rec["feature_drift"][0]["status"], "INSUFFICIENT")
         # Coverage rows cover every deployed feature.
         self.assertEqual([r["feature"] for r in rec["feature_coverage"]],
                          ["elo_diff", "div_game"])
