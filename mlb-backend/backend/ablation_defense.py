@@ -89,7 +89,6 @@ SEED = int(RANDOM_SEED)
 F1_PAIRS = [
     ("team_runs_allowed_10g", "team_runs_allowed_10g"),
     ("team_runs_allowed_30g", "team_runs_allowed_30g"),
-    ("team_era_proxy_30g", "team_era_proxy_30g"),
 ]
 
 F2_PAIRS = [
@@ -153,16 +152,17 @@ def _load_pbp_lean() -> pd.DataFrame:
 
 def build_f1_f3_f5(pbp: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
     """Team runs-allowed ladders (F1), trend deltas (F3), and
-    starter-conditioned defense (F5) from the LEAN cache (events only).
+    starter-conditioned defense (F5) from the LEAN cache + games frame.
 
     PIT: for each game, only pbp rows with game_date < game date count.
+    F5 conditions on the games frame's home_starter_id/away_starter_id:
+    the fielding team's runs-allowed in PRIOR games started by THIS
+    starter (>=2 prior starts required, else NaN).
     """
     out = games[["game_pk", "game_date", "home_team", "away_team"]].copy()
     for c in ("team_runs_allowed_10g_home", "team_runs_allowed_10g_away",
               "team_runs_allowed_30g_home", "team_runs_allowed_30g_away",
-              "team_era_proxy_30g_home", "team_era_proxy_30g_away",
-              "starter_def_runs_15g_home", "starter_def_runs_15g_away",
-              "starter_def_era_15g_home", "starter_def_era_15g_away"):
+              "starter_def_runs_15g_home", "starter_def_runs_15g_away"):
         out[c] = np.nan
     if pbp.empty or "events" not in pbp.columns:
         return out
@@ -171,29 +171,29 @@ def build_f1_f3_f5(pbp: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
     # side. In the lean cache we only know inning_topbot + events; a run-
     # scoring event for the batting side = runs allowed by the fielding side.
     scoring = {"single", "double", "triple", "home_run"}  # proxy: reached-base
-    # Build per-(team,date) batting-event counts from the batting side only.
-    top = pbp[pbp["inning_topbot"] == "Top"]   # away bats, home fields
-    bot = pbp[pbp["inning_topbot"] == "Bottom"]
+    top = pbp[pbp["inning_topbot"] == "Top"]    # away bats, home fields
+    bot = pbp[pbp["inning_topbot"] == "Bottom"]  # home bats, away fields
 
-    def _team_day(df: pd.DataFrame, bat_col: str, fld_col: str) -> pd.DataFrame:
-        g = (df.assign(is_score=df["events"].isin(scoring))
-               .groupby([fld_col, "game_date"])["is_score"].sum()
-               .rename("allowed").reset_index()
-               .rename(columns={fld_col: "team"}))
-        return g
+    def _team_day(df: pd.DataFrame, fld_col: str) -> pd.DataFrame:
+        return (df.assign(is_score=df["events"].isin(scoring))
+                  .groupby([fld_col, "game_date"])["is_score"].sum()
+                  .rename("allowed").reset_index()
+                  .rename(columns={fld_col: "team"}))
 
     allowed = pd.concat([
-        _team_day(top, "batter", "home_team"),
-        _team_day(bot, "batter", "away_team"),
+        _team_day(top, "home_team"),
+        _team_day(bot, "away_team"),
     ]).groupby(["team", "game_date"])["allowed"].sum().reset_index()
     allowed = allowed.sort_values("game_date")
 
     def _rolling(team: str, gdate, windows) -> dict:
+        # MIN-PRIOR GUARD (spec: min 8/10 prior): a team with 1-2 prior games
+        # produces an extreme single-game mean -> extreme z-scores -> the
+        # linear proxy diverges (logloss 7.5 blowup in the first local run).
         h = allowed[(allowed["team"] == team) & (allowed["game_date"] < gdate)]
-        res = {}
-        for w in windows:
-            res[w] = float(h["allowed"].tail(w).mean()) if len(h) else np.nan
-        return res
+        n = len(h)
+        return {w: (float(h["allowed"].tail(w).mean()) if n >= 10 else np.nan)
+                for w in windows}
 
     for i, row in out.iterrows():
         gd = row["game_date"]
@@ -201,12 +201,41 @@ def build_f1_f3_f5(pbp: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
             r = _rolling(team, gd, (10, 30))
             out.at[i, f"team_runs_allowed_10g_{side}"] = r[10]
             out.at[i, f"team_runs_allowed_30g_{side}"] = r[30]
-            ip = max(r[30], 1.0)
-            out.at[i, f"team_era_proxy_30g_{side}"] = r[30] * 9.0 / ip
-    # F3 trend = 10g minus 30g (computed at feature-matrix build time)
-    # F5 starter-conditioned: needs starter ids — approximate with team
-    # defense in games started by the SAME starter, requiring game_level
-    # starter ids; lean cache lacks them -> NaN (documented limitation).
+
+    # F5 starter-conditioned: needs starter ids — without them the columns
+    # stay NaN (documented limitation of the lean cache alone).
+    if not {"home_starter_id", "away_starter_id"}.issubset(games.columns):
+        return out
+    gsub = games[["game_pk", "game_date", "home_team", "away_team",
+                  "home_starter_id", "away_starter_id"]]
+    home_side = allowed.merge(gsub, left_on=["game_date", "team"],
+                              right_on=["game_date", "home_team"], how="inner")
+    home_side["starter_id"] = home_side["home_starter_id"]
+    away_side = allowed.merge(gsub, left_on=["game_date", "team"],
+                              right_on=["game_date", "away_team"], how="inner")
+    away_side["starter_id"] = away_side["away_starter_id"]
+    per_game = pd.concat([
+        home_side[["team", "game_date", "allowed", "starter_id"]],
+        away_side[["team", "game_date", "allowed", "starter_id"]],
+    ]).dropna(subset=["starter_id"]).sort_values("game_date")
+
+    def _starter_def(team: str, starter, gdate) -> float:
+        h = per_game[(per_game["team"] == team)
+                     & (per_game["starter_id"] == starter)
+                     & (per_game["game_date"] < gdate)]
+        return float(h["allowed"].tail(15).mean()) if len(h) >= 3 else np.nan
+
+    gsrc = games.set_index("game_pk")
+    for i, row in out.iterrows():
+        g = gsrc.loc[row["game_pk"]]
+        gd = row["game_date"]
+        hs, as_ = g.get("home_starter_id"), g.get("away_starter_id")
+        if hs is not None and pd.notna(hs):
+            out.at[i, "starter_def_runs_15g_home"] = _starter_def(
+                row["home_team"], hs, gd)
+        if as_ is not None and pd.notna(as_):
+            out.at[i, "starter_def_runs_15g_away"] = _starter_def(
+                row["away_team"], as_, gd)
     return out
 
 
@@ -336,15 +365,23 @@ def diff_columns(family: str) -> list[str]:
 
 def add_defense_frame(games: pd.DataFrame, families: list[str],
                       f135: pd.DataFrame, f24: pd.DataFrame | None) -> pd.DataFrame:
-    """Attach the requested families' side columns + diffs to a games copy."""
+    """Attach the requested families' side columns + diffs to a games copy.
+
+    Join is by game_pk (NOT positional): fold subsets are slices of the
+    games frame, so a positional ``src[col].values`` assignment crashes on
+    any subset whose index/length differs from the full frame.
+    """
     df = games.copy()
+    if "game_pk" not in df.columns:
+        return df
     for fam in families:
         src = f135 if fam in ("F1", "F3", "F5") else f24
-        if src is None:
+        if src is None or "game_pk" not in src.columns:
             continue
-        for col in family_columns(fam):
-            if col in src.columns and col not in df.columns:
-                df[col] = src[col].values
+        cols = [c for c in family_columns(fam) if c in src.columns]
+        if cols:
+            df = df.merge(src[["game_pk"] + cols].drop_duplicates("game_pk"),
+                          on="game_pk", how="left")
         if fam == "F3":
             # trend = short minus long (already distinct side cols)
             for short, long in F3_PAIRS:
@@ -442,28 +479,50 @@ def logloss(y: np.ndarray, p: np.ndarray) -> np.ndarray:
 
 def walk_forward_condition(cond_families: list[str], folds, f135: pd.DataFrame,
                            f24: pd.DataFrame | None) -> dict | None:
+    """Walk-forward one condition with BOTH proxies.
+
+    SUBSET-CONSISTENCY (mandatory): every fold either trains/evaluates on
+    the FULL val split or is skipped entirely — a condition may never be
+    evaluated on a smaller covered subset than another condition. The
+    returned fold_counts make the caller able to assert C0 and C1..C7 saw
+    the identical game set; a mismatch aborts the comparison rather than
+    shipping an artifact comparison."""
     def_cols = condition_feature_cols(cond_families, f135, f24)
-    per_family_ll: dict[str, dict[str, list]] = {f: {"lgbm": [], "logistic": []}
-                                                 for f in cond_families}
-    y_all, base_ll_all = [], []
+    y_all = []
     proxy_ll = {"lgbm": [], "logistic": []}
+    fold_counts = []
 
     for split in folds:
         train, val = split["train_games"], split["val_games"]
         if len(val) < 40 or len(train) < 200:
+            fold_counts.append({"val_start": str(split.get("val_start", "")),
+                                "n_val": len(val), "used": False,
+                                "reason": "fold_too_small"})
             continue
         tr = add_defense_frame(train, cond_families, f135, f24)
         va = add_defense_frame(val, cond_families, f135, f24)
-        if not def_cols or tr[def_cols].notna().sum().sum() == 0:
+        # Wide-cache bases (opp_*) inside F3/F4 only exist when f24 does;
+        # keep only def columns that actually attached to the frame.
+        def_cols_present = [c for c in def_cols if c in tr.columns]
+        if not def_cols_present or tr[def_cols_present].notna().sum().sum() == 0:
+            fold_counts.append({"val_start": str(split.get("val_start", "")),
+                                "n_val": len(val), "used": False,
+                                "reason": "no_def_cols"})
             continue
         try:
-            proxies, y_va = train_condition(tr, va, def_cols)
+            proxies, y_va = train_condition(tr, va, def_cols_present)
         except Exception:
+            fold_counts.append({"val_start": str(split.get("val_start", "")),
+                                "n_val": len(val), "used": False,
+                                "reason": "train_error"})
             continue
+        # SUBSET-CONSISTENCY ASSERT: the evaluated games must be the FULL
+        # val split, in fold order — never a covered subset.
+        assert len(y_va) == len(val), (
+            f"subset violation: evaluated {len(y_va)} of {len(val)} val games")
+        fold_counts.append({"val_start": str(split.get("val_start", "")),
+                            "n_val": len(val), "used": True})
         y_all.extend(y_va.tolist())
-        # Baseline per-game logloss: constant 0.5 (no-retreat floor) is NOT
-        # the baseline — baseline = C0 trained with the same proxies. To keep
-        # the loop cheap we use the C0 fold cache computed once by the caller.
         for name, (model, mat) in proxies.items():
             p = model.predict_proba(mat(va))[:, 1]
             proxy_ll[name].extend(p.tolist())
@@ -471,7 +530,7 @@ def walk_forward_condition(cond_families: list[str], folds, f135: pd.DataFrame,
     if not y_all:
         return None
     return {"y": np.asarray(y_all), "proxy_p": {k: np.asarray(v) for k, v in proxy_ll.items()},
-            "def_cols": def_cols}
+            "def_cols": def_cols_present, "fold_counts": fold_counts}
 
 
 # ── Significance tests ──────────────────────────────────────────────────────
@@ -534,7 +593,10 @@ def prescreen(folds, f135: pd.DataFrame, f24: pd.DataFrame | None,
                 continue
             tr = add_defense_frame(train, [fam], f135, f24)
             va = add_defense_frame(val, [fam], f135, f24)
-            if va[cols].notna().sum().sum() == 0:
+            # Wide-cache bases (opp_*) inside F3 only exist when f24 does;
+            # measure F3 on whichever of its columns actually attached.
+            present = [c for c in cols if c in va.columns]
+            if not present or va[present].notna().sum().sum() == 0:
                 continue
             # residual proxy: baseline predicts via elo/win_pct only (cheap);
             # hard games = close games where baseline is least confident
@@ -543,7 +605,7 @@ def prescreen(folds, f135: pd.DataFrame, f24: pd.DataFrame | None,
             y = va["home_win"].values.astype(int)
             resid = np.abs(y - p_base)
             hard = (resid > np.median(resid)).astype(int)
-            X_parts.append(va[cols].fillna(va[cols].median()).values)
+            X_parts.append(va[present].fillna(va[present].median()).values)
             y_parts.append(hard)
         if not X_parts or sum(len(y) for y in y_parts) < 500:
             results[fam] = {"status": "INSUFFICIENT_N", "survived": False}
@@ -592,6 +654,15 @@ def main() -> None:
     print(f"commit={sha[:12]} games={len(games)} folds={len(folds)} seed={SEED}",
           flush=True)
 
+    # FOLD GEOMETRY: recorded so baselines are never miscompared across
+    # ablation versions. Folds come from training.walk_forward_splits with
+    # RETRAIN_CADENCE_DAYS=7 and MIN_VAL_FOLD_GAMES=40, applied to the
+    # tuning frame (games minus the holdout). The count therefore depends on
+    # the committed snapshot's date range, not on the ablation version:
+    # v2 ran 78 folds on an earlier snapshot, v3 runs 71 on the current one
+    # because later games moved into the holdout. Comparisons are only valid
+    # within a single result JSON.
+
     pbp = _load_pbp_lean()
     wide = _load_pbp_wide()
     print(f"pbp lean rows={len(pbp)} | wide defense cache={'YES' if wide is not None else 'MISSING (F2/F4 unbuildable)'}",
@@ -620,6 +691,13 @@ def main() -> None:
         "commit": sha,
         "seed": SEED,
         "n_folds": len(folds),
+        "fold_geometry": {
+            "retrain_cadence_days": 7,
+            "min_val_fold_games": 40,
+            "note": ("Fold count varies with the committed snapshot's date "
+                     "range (v2: 78 folds on an earlier snapshot; v3: 71 on "
+                     "the current one). Only compare within one result JSON."),
+        },
         "pbp_lean_rows": int(len(pbp)),
         "wide_cache": wide is not None,
         "family_coverage": coverage,
@@ -650,6 +728,7 @@ def main() -> None:
     # C0 has no def cols -> walk_forward_condition returns None; compute
     # baseline explicitly:
     y_base, base_ll = [], {"lgbm": [], "logistic": []}
+    base_fold_counts = []
     if base_result is None:
         from lightgbm import LGBMClassifier
         from sklearn.linear_model import LogisticRegression
@@ -657,6 +736,9 @@ def main() -> None:
         for split in folds:
             train, val = split["train_games"], split["val_games"]
             if len(val) < 40 or len(train) < 200:
+                base_fold_counts.append({"val_start": str(split.get("val_start", "")),
+                                         "n_val": len(val), "used": False,
+                                         "reason": "fold_too_small"})
                 continue
             y_tr = train["home_win"].values.astype(int)
             y_va = val["home_win"].values.astype(int)
@@ -670,6 +752,9 @@ def main() -> None:
             sd[sd == 0] = 1
             lr = LogisticRegression(max_iter=1000, random_state=SEED)
             lr.fit((Xtr - mu) / sd, y_tr)
+            assert len(y_va) == len(val), "subset violation in baseline fold"
+            base_fold_counts.append({"val_start": str(split.get("val_start", "")),
+                                     "n_val": len(val), "used": True})
             y_base.extend(y_va.tolist())
             base_ll["lgbm"].extend(lgbm.predict_proba(Xva)[:, 1].tolist())
             base_ll["logistic"].extend(
@@ -677,6 +762,7 @@ def main() -> None:
     y_base = np.asarray(y_base)
 
     cond_results = {}
+    wf_results = {}
     for cond in conds_to_run:
         if cond == "C0":
             continue
@@ -687,6 +773,7 @@ def main() -> None:
         res = walk_forward_condition(fams, folds, f135, f24)
         if res is None:
             continue
+        wf_results[cond] = res
         y_c = res["y"]
         n = min(len(y_base), len(y_c))
         entry = {"n": int(n), "def_cols_n": len(res["def_cols"])}
@@ -708,6 +795,36 @@ def main() -> None:
             }
         cond_results[cond] = entry
         print(f"    {entry}", flush=True)
+
+    # SUBSET-CONSISTENCY CHECK (mandatory): C0 and every condition must have
+    # been evaluated on the IDENTICAL game subset — same folds used/skipped,
+    # same per-fold val counts. If not, abort rather than ship an artifact.
+    if base_result is None:
+        base_used = base_fold_counts
+    else:
+        base_used = base_result.get("fold_counts", [])
+    for cond, res in wf_results.items():
+        c_used = res.get("fold_counts", [])
+        if len(c_used) != len(base_used):
+            raise RuntimeError(
+                f"{cond}: fold count {len(c_used)} != baseline {len(base_used)} "
+                "— subset inconsistency, comparison invalid")
+        for b, c in zip(base_used, c_used):
+            if b["used"] != c["used"] or b["n_val"] != c["n_val"]:
+                raise RuntimeError(
+                    f"{cond}: fold {b.get('val_start')} (used={b['used']}, n={b['n_val']}) "
+                    f"!= {c.get('val_start')} (used={c['used']}, n={c['n_val']}) — "
+                    "subset inconsistency, comparison invalid")
+        n_cond = sum(f["n_val"] for f in c_used if f["used"])
+        n_base = sum(f["n_val"] for f in base_used if f["used"])
+        assert n_cond == n_base, f"{cond}: total eval games differ from baseline"
+        print(f"  subset check {cond}: identical folds to C0, "
+              f"{n_cond} games evaluated", flush=True)
+
+    report["fold_counts"] = {
+        "C0": base_used,
+        **{c: res.get("fold_counts", []) for c, res in wf_results.items()},
+    }
     report["walk_forward"] = cond_results
     report["surviving_families"] = survivors
 
@@ -719,6 +836,18 @@ def main() -> None:
         if vals:
             scored[cond] = float(np.mean(vals))
     report["winner_scores"] = scored
+
+    # MAGNITUDE SANITY (mandatory): per-family |delta| > 0.01 is implausibly
+    # large for a small defensive block and usually means a subset or
+    # covariate mismatch between baseline and condition. Flag loudly.
+    for cond, e in cond_results.items():
+        for proxy in ("lgbm", "logistic"):
+            v = e.get(proxy)
+            if isinstance(v, dict) and abs(v["delta"]) > 0.01:
+                v["magnitude_flag"] = (
+                    "LARGE — verify subset/covariate consistency before trusting")
+                print(f"  ⚠ {cond}/{proxy} delta {v['delta']:+.4f} — LARGE; "
+                      "verify subset/covariate consistency", flush=True)
     if scored:
         best = min(scored, key=scored.get)
         report["winner"] = best

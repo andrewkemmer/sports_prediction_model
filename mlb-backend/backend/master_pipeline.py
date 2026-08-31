@@ -187,6 +187,22 @@ pbp_df.to_parquet(parquet_path, index=False, compression="snappy")
 print(f"  📄 CSV: {csv_path.stat().st_size/1e6:.1f} MB")
 print(f"  📄 Parquet: {parquet_path.stat().st_size/1e6:.1f} MB")
 
+# ── Phase 3.6: Defense projection (curated Statcast subset) ─────────────────
+# Project the defense-relevant Statcast subset (identity, batted-ball,
+# fielders, alignment, WIP outcomes) into data_delivery as
+# pbp_defense_<date>.parquet + self-documenting metadata; 2024 backfill
+# included. F2/F4 of the defense ablation need this wide cache; the lean
+# 8-col pbp cache stays untouched so no current consumer breaks.
+from build_pbp_defense import main as _build_pbp_defense
+sys.argv = ["build_pbp_defense.py",
+            "--source", str(pitches_path),
+            "--end", CONFIG["end_date"],
+            "--backfill-2024"]
+try:
+    _build_pbp_defense()
+except Exception as e:
+    print(f"  ⚠️  Defense projection failed (non-fatal): {e}")
+
 # ── Phase 4: Training + Prediction ──────────────────────────────────────────
 _banner("PHASE 4", "Training + Prediction")
 try:
@@ -386,7 +402,7 @@ _PROTECTED_DELIVERY_NAMES = {
 # the moneyline monitor's history leg) so every dated monitor survives and
 # the next day folds today's stats into the cumulative-by-date series.
 _PROTECTED_DELIVERY_PREFIXES = (
-    "models/", "pbp_chunks/", "run_engine_monitor_",
+    "models/", "pbp_chunks/", "run_engine_monitor_", "pbp_defense_",
 )
 
 # Current run date in YYYYMMDD for date-gating.

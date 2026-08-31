@@ -38,7 +38,7 @@ PBP_DEFENSE_COLS = [
     # identity
     "game_pk", "game_date", "home_team", "away_team",
     "inning", "inning_topbot", "batter", "pitcher",
-    "events", "game_type", "des", "type",
+    "events", "game_type", "type",
     # batted ball
     "launch_speed", "launch_angle", "bb_type", "hit_distance_sc",
     "hc_x", "hc_y", "hit_location", "launch_speed_angle",
@@ -85,7 +85,10 @@ def main() -> None:
 
     end = date.fromisoformat(args.end)
     out = args.out or (DATA_DELIVERY_DIR / f"pbp_defense_{end:%Y%m%d}.parquet")
-    proj.to_parquet(out, index=False)
+    # zstd: ~2M rows x ~45 numeric/string cols lands around 15-25 MB (snappy
+    # would be ~45-60 MB — over GitHub's 50 MB warning). zstd is pyarrow's
+    # built-in; no extra dependency.
+    proj.to_parquet(out, index=False, compression="zstd", compression_level=7)
 
     n_rows = len(proj)
     size_mb = out.stat().st_size / 1e6

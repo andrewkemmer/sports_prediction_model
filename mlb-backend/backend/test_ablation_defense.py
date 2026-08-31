@@ -77,15 +77,17 @@ class TestPITDiscipline(unittest.TestCase):
 
     def test_same_day_excluded(self):
         """Same-day doubleheader legs must not feed each other's features."""
-        games = _toy_games(5)
+        games = _toy_games(40)
         pbp = _toy_pbp(games)
-        # Make day-2's own events different from prior days' (6 HRs/game):
+        # Pick a date with >=10 prior games (min-prior guard) and make that
+        # day's own events different from prior days' (6 HRs/game):
         # prior-only 10g mean for the home team = 6.0; including same-day
-        # would drag it to (12+2)/3 = 4.67.
-        mask = pbp["game_date"] == games["game_date"].iloc[2]
+        # would change it to 6.0 * 10/11.
+        target = games["game_date"].iloc[20]
+        mask = pbp["game_date"] == target
         pbp.loc[mask & (pbp["events"] == "home_run"), "events"] = "strikeout"
         out = ad.build_f1_f3_f5(pbp, games)
-        d2 = out[out["game_date"] == games["game_date"].iloc[2]]
+        d2 = out[out["game_date"] == target]
         self.assertAlmostEqual(
             float(d2["team_runs_allowed_10g_home"].iloc[0]), 6.0, places=6)
 
