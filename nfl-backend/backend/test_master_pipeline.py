@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from master_pipeline import (  # noqa: E402
     _artifact_date,
     _board_backed_keep,
+    _file_sha256,
     _is_protected_name,
+    _snapshot_delivery,
     board_dates_from_records,
     classify_stale,
     parse_args,
@@ -195,6 +197,35 @@ class TestSeasonWindow(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_args(["--start-season", "2024", "--end-season", "2022"])
 
+
+class TestContentDiffStaging(unittest.TestCase):
+    """Phase 4 decides stale-vs-changed by CONTENT hash, not mtime (a fresh
+    clone stamps files with the clone time, so mtime would silently skip
+    re-generated artifacts on same-date re-runs)."""
+
+    def test_changed_content_differs_from_committed(self):
+        with tempfile.TemporaryDirectory() as td:
+            committed = Path(td) / "nfl_moneyline_v1_20260831.json"
+            committed.write_text('{"games":[],"verdict":{"adopt":true}}')
+            regenerated = Path(td) / "nfl_moneyline_v1_20260831_REGENERATED.json"
+            regenerated.write_text('{"games":["272 games"],"verdict":{"adopt":true}}')
+            self.assertNotEqual(_file_sha256(committed), _file_sha256(regenerated))
+
+    def test_snapshot_maps_rel_to_sha(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / "a.json").write_text('{"x":1}')
+            (d / "b.csv").write_text("a,b\n1,2")
+            snap = _snapshot_delivery(d)
+            self.assertEqual(set(snap), {"a.json", "b.csv"})
+            self.assertNotEqual(snap["a.json"], snap["b.csv"])
+
+    def test_unchanged_matches_committed(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "f.json"
+            p.write_text('{"games":[]}')
+            snap = _snapshot_delivery(Path(td))
+            self.assertEqual(_file_sha256(p), snap["f.json"])  # identical -> stale
 
 if __name__ == "__main__":
     unittest.main()

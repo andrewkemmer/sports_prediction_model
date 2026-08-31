@@ -32,6 +32,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -285,12 +286,27 @@ def _open_sync_repo(token: str, sync_dir: Path):
     return repo
 
 
-def _snapshot_delivery(delivery_dir: Path) -> dict[str, int]:
-    snap: dict[str, int] = {}
+def _file_sha256(path: Path) -> str:
+    """Content sha256 of a small artifact (data_delivery files are tiny CSVs/
+    JSONs). Used instead of mtime to decide stale-vs-changed, because a fresh
+    ``git clone`` stamps every checked-out file with the clone time (~now),
+    which is LATER than this run's writes — so mtime baselines silently drop
+    re-generated artifacts on same-date re-runs."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _snapshot_delivery(delivery_dir: Path) -> dict[str, str]:
+    """Map repo-relative data_delivery path -> committed content sha256, for the
+    sync clone's pre-existing files. Absent from the map = new to the repo."""
+    snap: dict[str, str] = {}
     if delivery_dir.exists():
         for p in delivery_dir.rglob("*"):
             if p.is_file():
-                snap[p.relative_to(delivery_dir).as_posix()] = p.stat().st_mtime_ns
+                snap[p.relative_to(delivery_dir).as_posix()] = _file_sha256(p)
     return snap
 
 
@@ -315,9 +331,12 @@ def phase4(args) -> None:
         delivery_dir.mkdir(parents=True, exist_ok=True)
         local_delivery = Path.cwd() / "data_delivery"
 
-        # Snapshot the sync clone's pre-existing files (mtime) so Phase 5 can
-        # distinguish this run's files from stale repo files.
-        preexisting = _snapshot_delivery(delivery_dir)
+        # Snapshot the sync clone's committed files by CONTENT hash. A fresh
+        # clone stamps every file with the clone time (~now) which is later than
+        # this run's writes, so an mtime comparison would silently skip every
+        # re-generated artifact on a same-date re-run. Content comparison stages
+        # a file when it differs from the committed copy (or is new to the repo).
+        committed = _snapshot_delivery(delivery_dir)
 
         def _stage(src: Path, rel: str) -> None:
             if rel in seen:
@@ -334,9 +353,9 @@ def phase4(args) -> None:
             rel_local = artifact.relative_to(local_delivery).as_posix()
             if artifact.suffix == ".pyc":
                 continue  # never stage bytecode
-            pre_mtime = preexisting.get(rel_local)
-            if pre_mtime is not None and artifact.stat().st_mtime_ns <= pre_mtime:
-                continue  # repo file untouched by this run -> stale
+            committed_sha = committed.get(rel_local)
+            if committed_sha is not None and _file_sha256(artifact) == committed_sha:
+                continue  # byte-identical to the committed copy -> stale/unchanged
             _stage(artifact, f"{SPORT_DIR_NAME}/data_delivery/{rel_local}")
 
         print(f"  [stage] {len(staged)} files:")
