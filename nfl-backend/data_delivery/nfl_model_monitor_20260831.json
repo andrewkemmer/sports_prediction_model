@@ -1,0 +1,322 @@
+{
+  "last_retrained": "",
+  "last_retrained_note": "Fresh model trained this run (sealed gate: DO NOT ADOPT (reporting only))",
+  "next_retrain": "2026-09-07",
+  "next_retrain_note": "retrain scheduled 7 days out",
+  "upset_note": "Model upset rate over the decided pool \u2014 1,392 games scored; see Calibration for the upset strip.",
+  "feature_drift": [
+    {
+      "feature": "elo_diff",
+      "current_mean": -37.1431,
+      "baseline_mean": 1.5416,
+      "psi": 1.9929,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1947,
+      "n_current": 13
+    },
+    {
+      "feature": "win_pct_diff",
+      "current_mean": 0.0192,
+      "baseline_mean": 0.0026,
+      "psi": 1.8893,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1946,
+      "n_current": 13
+    },
+    {
+      "feature": "rest_days_diff",
+      "current_mean": 1.3846,
+      "baseline_mean": -0.037,
+      "psi": 0.3965,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1946,
+      "n_current": 13
+    },
+    {
+      "feature": "is_dome_home",
+      "current_mean": 0.0,
+      "baseline_mean": 0.3136,
+      "psi": 4.0871,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1910,
+      "n_current": 13
+    },
+    {
+      "feature": "ewm_net_pts_diff",
+      "current_mean": 1.6315,
+      "baseline_mean": -0.2099,
+      "psi": 1.051,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1946,
+      "n_current": 13
+    },
+    {
+      "feature": "ewm_qb_epa_play_diff",
+      "current_mean": -0.0033,
+      "baseline_mean": 0.0008,
+      "psi": 2.1501,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1930,
+      "n_current": 13
+    },
+    {
+      "feature": "ewm_ypp_diff",
+      "current_mean": -0.0244,
+      "baseline_mean": -0.0051,
+      "psi": 1.1423,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1930,
+      "n_current": 13
+    },
+    {
+      "feature": "pace_plays_min_diff",
+      "current_mean": -0.0458,
+      "baseline_mean": -0.0014,
+      "psi": 3.3713,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1930,
+      "n_current": 13
+    },
+    {
+      "feature": "rest_short_diff",
+      "current_mean": -0.3077,
+      "baseline_mean": 0.0087,
+      "psi": 1.2269,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1946,
+      "n_current": 13
+    },
+    {
+      "feature": "div_game",
+      "current_mean": 0.2308,
+      "baseline_mean": 0.3513,
+      "psi": 0.0712,
+      "status": "INSUFFICIENT",
+      "weight_pct": null,
+      "n_baseline": 1947,
+      "n_current": 13
+    }
+  ],
+  "features_metadata": {
+    "elo_diff": {
+      "tooltip": "elo_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "win_pct_diff": {
+      "tooltip": "win_pct_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "rest_days_diff": {
+      "tooltip": "rest_days_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "is_dome_home": {
+      "tooltip": "is_dome_home \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "ewm_net_pts_diff": {
+      "tooltip": "ewm_net_pts_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "ewm_qb_epa_play_diff": {
+      "tooltip": "ewm_qb_epa_play_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "ewm_ypp_diff": {
+      "tooltip": "ewm_ypp_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "pace_plays_min_diff": {
+      "tooltip": "pace_plays_min_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "rest_short_diff": {
+      "tooltip": "rest_short_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "div_game": {
+      "tooltip": "div_game \u2014 defined/covered via the v1 feature admission gate."
+    }
+  },
+  "feature_coverage": [
+    {
+      "feature": "elo_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "win_pct_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_days_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "is_dome_home",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 98.1,
+      "pct_nonnull": 98.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ewm_net_pts_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ewm_qb_epa_play_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ewm_ypp_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "pace_plays_min_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_short_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "div_game",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    }
+  ],
+  "ensemble": [
+    {
+      "name": "xgboost",
+      "weight": 0.45,
+      "auc": 0.7371,
+      "brier": 0.2112,
+      "logloss": 0.6108,
+      "n_eval": 1392
+    },
+    {
+      "name": "lightgbm",
+      "weight": 0.1375,
+      "auc": 0.6508,
+      "brier": 0.2399,
+      "logloss": 0.6804,
+      "n_eval": 1392
+    },
+    {
+      "name": "logistic",
+      "weight": 0.1375,
+      "auc": 0.6793,
+      "brier": 0.2263,
+      "logloss": 0.646,
+      "n_eval": 1392
+    },
+    {
+      "name": "randomforest",
+      "weight": 0.1375,
+      "auc": 0.6828,
+      "brier": 0.2248,
+      "logloss": 0.6428,
+      "n_eval": 1392
+    },
+    {
+      "name": "mlp",
+      "weight": 0.1375,
+      "auc": 0.6592,
+      "brier": 0.2328,
+      "logloss": 0.6597,
+      "n_eval": 1392
+    }
+  ],
+  "rolling_brier": [
+    {
+      "date": "2026-01-10",
+      "brier": 0.3832
+    },
+    {
+      "date": "2026-01-11",
+      "brier": 0.2744
+    },
+    {
+      "date": "2026-01-17",
+      "brier": 0.4172
+    },
+    {
+      "date": "2026-01-18",
+      "brier": 0.3304
+    },
+    {
+      "date": "2026-01-25",
+      "brier": 0.5981
+    }
+  ],
+  "rolling_brier_meta": {
+    "window_days": 30,
+    "min_games_per_day": 2,
+    "excluded_sparse_days": 2,
+    "calibrator_is_identity": false,
+    "map_scope_note": "post-calibration probabilities are the deployed Platt map \u03c3(a\u00b7logit(p)+b)"
+  },
+  "brier_baseline": 0.495639078808297,
+  "brier_baseline_label": "Constant home-edge",
+  "version_history": [
+    {
+      "version": "20260830",
+      "date": "20260830",
+      "weights": {},
+      "auc": 0.6435,
+      "logloss": 0.6587,
+      "ecer_calibrated": 0.0456,
+      "ece_calibrated": 0.0456,
+      "calibration": {
+        "a": null,
+        "b": null
+      },
+      "adopt": false
+    }
+  ]
+}
