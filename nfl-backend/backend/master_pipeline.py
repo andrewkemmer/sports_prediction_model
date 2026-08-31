@@ -125,23 +125,39 @@ def _run(cmd, check=True, cwd=None):
 
 def _try_load_schedule(slate_season: int):
     """Load the schedule + pbp (nflreadpy) for the moneyline phase's slate
-    stage. Returns (schedule, pbp) or (None, None) when nflreadpy is missing
-    (the --features-csv local dry path) — the slate stage then reports
+    stage, then append the target-season's scheduled games from ESPN (nflreadpy
+    caps its feed at the latest nflverse season it knows, so 2026 pre-game rows
+    come from ESPN). Returns (schedule, pbp) or (None, None) when nflreadpy is
+    missing (the --features-csv local dry path) — the slate stage then reports
     'blocked (no schedule loaded)' instead of erroring."""
     try:
         from nfl_features import DEFAULT_SEASONS, _load_raw
         ss = slate_season or datetime.now().year
         seasons = list(DEFAULT_SEASONS)
-        if ss not in seasons:
-            seasons = seasons + [ss]
         print(f"  [slate] loading nflreadpy schedule+pbp for {seasons}")
-        return _load_raw(seasons)
+        sched, pbp = _load_raw(seasons)
     except ImportError:
         print("  [slate] nflreadpy not installed - slate skipped (dry path)")
         return None, None
     except Exception as e:  # noqa: BLE001
         print(f"  [slate] schedule load failed (slate skipped): {e}")
         return None, None
+
+    # 2026 scheduled rows come from ESPN (nflreadpy cannot load them yet). This
+    # is best-effort: a healthy ESPN hand-off just means the slate stays on
+    # whatever nflreadpy already provided (all-decided -> empty slate).
+    try:
+        import pandas as pd
+        from nfl_espn_schedule import load_espn_schedule_rows
+        espn = load_espn_schedule_rows(season=ss)
+        if not espn.empty:
+            sched = pd.concat([sched, espn], ignore_index=True, sort=False)
+            print(f"  [slate] ESPN appended {len(espn)} scheduled {ss} games")
+        else:
+            print(f"  [slate] ESPN returned 0 scheduled {ss} games")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [slate] ESPN {ss} schedule load failed: {e}")
+    return sched, pbp
 
 
 # ---------------------------------------------------------------------------
