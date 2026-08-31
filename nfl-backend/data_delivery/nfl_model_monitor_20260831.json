@@ -104,6 +104,56 @@
       "weight_pct": null,
       "n_baseline": 1930,
       "n_current": 30
+    },
+    {
+      "feature": "turnover_diff",
+      "current_mean": 0.3865,
+      "baseline_mean": 0.0186,
+      "psi": 0.9225,
+      "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "success_rate_diff",
+      "current_mean": 0.006,
+      "baseline_mean": -0.0006,
+      "psi": 0.506,
+      "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "explosive_rate_diff",
+      "current_mean": 0.0018,
+      "baseline_mean": -0.0001,
+      "psi": 0.2186,
+      "status": "WARN",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "penalty_diff",
+      "current_mean": -0.096,
+      "baseline_mean": 0.5201,
+      "psi": 1.6895,
+      "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "redzone_td_rate_diff",
+      "current_mean": 0.0057,
+      "baseline_mean": -0.0003,
+      "psi": 0.3423,
+      "status": "ALERT",
+      "weight_pct": null,
+      "n_baseline": 1913,
+      "n_current": 30
     }
   ],
   "features_metadata": {
@@ -136,6 +186,21 @@
     },
     "div_game": {
       "tooltip": "div_game \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "turnover_diff": {
+      "tooltip": "turnover_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "success_rate_diff": {
+      "tooltip": "success_rate_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "explosive_rate_diff": {
+      "tooltip": "explosive_rate_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "penalty_diff": {
+      "tooltip": "penalty_diff \u2014 defined/covered via the v1 feature admission gate."
+    },
+    "redzone_td_rate_diff": {
+      "tooltip": "redzone_td_rate_diff \u2014 defined/covered via the v1 feature admission gate."
     }
   },
   "feature_coverage": [
@@ -228,70 +293,115 @@
       "pct_nonnull": 100.0,
       "n_default_zero": 0,
       "status": "OK"
+    },
+    {
+      "feature": "turnover_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "success_rate_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "explosive_rate_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "penalty_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "redzone_td_rate_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
     }
   ],
   "ensemble": [
     {
       "name": "xgboost",
       "weight": 0.45,
-      "auc": 0.7371,
-      "brier": 0.2112,
-      "logloss": 0.6108,
+      "auc": 0.7358,
+      "brier": 0.2115,
+      "logloss": 0.6115,
       "n_eval": 1392
     },
     {
       "name": "lightgbm",
       "weight": 0.1375,
-      "auc": 0.6508,
-      "brier": 0.2399,
-      "logloss": 0.6804,
+      "auc": 0.649,
+      "brier": 0.2405,
+      "logloss": 0.6826,
       "n_eval": 1392
     },
     {
       "name": "logistic",
       "weight": 0.1375,
-      "auc": 0.6793,
-      "brier": 0.2263,
-      "logloss": 0.646,
+      "auc": 0.6759,
+      "brier": 0.2275,
+      "logloss": 0.6486,
       "n_eval": 1392
     },
     {
       "name": "randomforest",
       "weight": 0.1375,
-      "auc": 0.6828,
-      "brier": 0.2248,
-      "logloss": 0.6428,
+      "auc": 0.6749,
+      "brier": 0.2273,
+      "logloss": 0.6484,
       "n_eval": 1392
     },
     {
       "name": "mlp",
       "weight": 0.1375,
-      "auc": 0.6592,
-      "brier": 0.2328,
-      "logloss": 0.6597,
+      "auc": 0.6545,
+      "brier": 0.2321,
+      "logloss": 0.6578,
       "n_eval": 1392
     }
   ],
   "rolling_brier": [
     {
       "date": "2026-01-10",
-      "brier": 0.3832
+      "brier": 0.3464
     },
     {
       "date": "2026-01-11",
-      "brier": 0.2744
+      "brier": 0.2726
     },
     {
       "date": "2026-01-17",
-      "brier": 0.4172
+      "brier": 0.4337
     },
     {
       "date": "2026-01-18",
-      "brier": 0.3304
+      "brier": 0.4093
     },
     {
       "date": "2026-01-25",
-      "brier": 0.5981
+      "brier": 0.5
     }
   ],
   "rolling_brier_meta": {

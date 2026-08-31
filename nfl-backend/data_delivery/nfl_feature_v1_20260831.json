@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-08-31T16:53:36.959862Z",
+  "created_utc": "2026-08-31T17:03:10.049729Z",
   "version": "v2",
   "build": {
     "core_seasons": [
@@ -47,6 +47,12 @@
       "pace_plays_min_diff",
       "rest_short_diff",
       "div_game",
+      "turnover_diff",
+      "success_rate_diff",
+      "explosive_rate_diff",
+      "penalty_diff",
+      "redzone_td_rate_diff",
+      "pts_per_drive_diff",
       "is_home"
     ],
     "v1_features": [
@@ -60,6 +66,11 @@
       "pace_plays_min_diff",
       "rest_short_diff",
       "div_game",
+      "turnover_diff",
+      "success_rate_diff",
+      "explosive_rate_diff",
+      "penalty_diff",
+      "redzone_td_rate_diff",
       "is_home"
     ],
     "kept_home_anchor": true,
@@ -149,6 +160,51 @@
         "available_12h_pct": 100.0,
         "source": "division game flag (nflverse schedule field)"
       },
+      "turnover_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing net turnovers (takeaways \u2212 giveaways), ewm halflife=2 (from pbp)"
+      },
+      "any_a_diff": {
+        "coverage_pct": 0.0,
+        "available_12h_pct": 0.0,
+        "source": "trailing net yards per dropback (ANY/A), ewm halflife=2 (from pbp)"
+      },
+      "sack_rate_diff": {
+        "coverage_pct": 0.0,
+        "available_12h_pct": 0.0,
+        "source": "trailing sack rate per dropback, ewm halflife=2 (from pbp)"
+      },
+      "success_rate_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing EPA success rate (EPA>0 share), ewm halflife=2 (from pbp)"
+      },
+      "explosive_rate_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing 20+ yd play rate, ewm halflife=2 (from pbp)"
+      },
+      "penalty_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing net penalty yards (committed \u2212 drawn), ewm halflife=2 (from pbp)"
+      },
+      "third_down_rate_diff": {
+        "coverage_pct": 0.0,
+        "available_12h_pct": 0.0,
+        "source": "trailing 3rd-down conversion rate, ewm halflife=2 (from pbp)"
+      },
+      "redzone_td_rate_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing red-zone TD rate (inside opp 20), ewm halflife=2 (from pbp)"
+      },
+      "pts_per_drive_diff": {
+        "coverage_pct": 98.37,
+        "available_12h_pct": 98.37,
+        "source": "trailing points per drive, ewm halflife=2 (from pbp)"
+      },
       "is_home": {
         "coverage_pct": 100.0,
         "available_12h_pct": 100.0,
@@ -173,6 +229,15 @@
       "temp_f": null,
       "wind_mph": null,
       "div_game": 0.5001,
+      "turnover_diff": 0.5778,
+      "any_a_diff": null,
+      "sack_rate_diff": null,
+      "success_rate_diff": 0.6473,
+      "explosive_rate_diff": 0.5801,
+      "penalty_diff": 0.5025,
+      "third_down_rate_diff": null,
+      "redzone_td_rate_diff": 0.5425,
+      "pts_per_drive_diff": 0.6382,
       "is_home": null
     },
     "correlation_pairs_over_0_8": [
@@ -207,6 +272,16 @@
         "corr": 0.801
       },
       {
+        "feat_a": "ewm_epa_play_diff",
+        "feat_b": "success_rate_diff",
+        "corr": 0.8535
+      },
+      {
+        "feat_a": "ewm_epa_play_diff",
+        "feat_b": "pts_per_drive_diff",
+        "corr": 0.8904
+      },
+      {
         "feat_a": "ewm_qb_epa_play_diff",
         "feat_b": "ewm_scoring_diff",
         "corr": 0.8491
@@ -217,19 +292,43 @@
         "corr": 0.8055
       },
       {
+        "feat_a": "ewm_qb_epa_play_diff",
+        "feat_b": "success_rate_diff",
+        "corr": 0.8564
+      },
+      {
+        "feat_a": "ewm_qb_epa_play_diff",
+        "feat_b": "pts_per_drive_diff",
+        "corr": 0.8881
+      },
+      {
+        "feat_a": "ewm_scoring_diff",
+        "feat_b": "pts_per_drive_diff",
+        "corr": 0.9114
+      },
+      {
         "feat_a": "ewm_ypp_diff",
         "feat_b": "ypp_diff",
         "corr": 0.9428
+      },
+      {
+        "feat_a": "pts_per_drive_diff",
+        "feat_b": "success_rate_diff",
+        "corr": 0.8048
       }
     ],
     "reasons": {
       "temp_f": "coverage 0.0% below 95% floor",
       "wind_mph": "coverage 0.0% below 95% floor",
+      "any_a_diff": "coverage 0.0% below 95% floor",
+      "sack_rate_diff": "coverage 0.0% below 95% floor",
+      "third_down_rate_diff": "coverage 0.0% below 95% floor",
       "form_diff_pts": "redundant with ewm_net_pts_diff (|r| 0.94, similar discrimination); keep one",
       "opp_adj_net_pts_diff": "redundant with form_diff_pts (|r| 0.91, similar discrimination); keep one",
       "ypp_diff": "redundant with ewm_ypp_diff (|r| 0.94, similar discrimination); keep one",
       "ewm_epa_play_diff": "redundant with ewm_qb_epa_play_diff (|r| 0.99, similar discrimination); keep one",
-      "ewm_scoring_diff": "redundant with ewm_epa_play_diff (|r| 0.85, similar discrimination); keep one"
+      "ewm_scoring_diff": "redundant with ewm_epa_play_diff (|r| 0.85, similar discrimination); keep one",
+      "pts_per_drive_diff": "redundant with ewm_epa_play_diff (|r| 0.89, similar discrimination); keep one"
     },
     "dropped": [
       "form_diff_pts",
@@ -238,7 +337,11 @@
       "ewm_scoring_diff",
       "opp_adj_net_pts_diff",
       "temp_f",
-      "wind_mph"
+      "wind_mph",
+      "any_a_diff",
+      "sack_rate_diff",
+      "third_down_rate_diff",
+      "pts_per_drive_diff"
     ]
   }
 }
