@@ -63,9 +63,9 @@ TEAM_AGG_COLUMNS = [
 # these + the base set, and ``nfl_features._load_raw`` keeps the same list when
 # narrowing the raw ~370-column nflverse frame.
 TIER1_NEEDS = (
-    "defteam", "interception", "fumble_lost", "passing_yards", "sack_yds",
+    "defteam", "interception", "fumble_lost", "passing_yards",
     "pass_attempt", "sack", "penalty", "penalty_yards", "penalty_team",
-    "third_down_converted", "third_down_att", "yardline_100", "touchdown",
+    "third_down_converted", "third_down_failed", "yardline_100", "touchdown",
     "field_goal_result", "drive",
 )
 
@@ -186,9 +186,13 @@ def _elapsed_expr(table: str, has_clock: bool) -> str:
         return "NULL::DOUBLE"
     # Per game, elapsed minutes from the final play — mirrors pandas
     # (3600 - min(game_seconds_remaining)) / 60, attached to every team row.
+    # The posteam filter matches the pandas rollup, which drops posteam-NULL
+    # rows BEFORE picking the min clock (a clock=0 end-of-game row with NULL
+    # posteam must not set the game length).
     return (f"(SELECT (3600.0 - MIN(t.game_seconds_remaining)) / 60.0 "
             f"FROM {table} t WHERE t.game_id = g.game_id "
-            f"AND t.game_seconds_remaining IS NOT NULL)")
+            f"AND t.game_seconds_remaining IS NOT NULL "
+            f"AND t.posteam IS NOT NULL)")
 
 
 def _tier1_result_col(part: str) -> str:
@@ -214,8 +218,11 @@ def _tier1_posteam_parts(present: set[str]) -> list[str]:
                      "AS giveaways")
     else:
         parts.append("NULL::DOUBLE AS giveaways")
-    if has("passing_yards") and has("sack_yds") and has("pass_attempt") and has("sack"):
-        parts.append("(COALESCE(SUM(passing_yards), 0) - COALESCE(SUM(sack_yds), 0)) "
+    # nflverse pbp has NO sack-yards column: on sack plays ``yards_gained`` is
+    # negative (or 0), so sack yards lost = -yards_gained (SUM skips NULL).
+    if has("passing_yards") and has("pass_attempt") and has("sack"):
+        parts.append("(COALESCE(SUM(passing_yards), 0) "
+                     "- COALESCE(SUM(CASE WHEN sack = 1 THEN -yards_gained ELSE 0.0 END), 0)) "
                      "/ NULLIF(COALESCE(SUM(pass_attempt), 0) + COALESCE(SUM(sack), 0), 0) "
                      "AS net_any_a")
         parts.append("COALESCE(SUM(sack), 0) "
@@ -242,9 +249,11 @@ def _tier1_posteam_parts(present: set[str]) -> list[str]:
                      "THEN penalty_yards ELSE 0.0 END) AS penalty_yds_drawn")
     else:
         parts.append("NULL::DOUBLE AS penalty_yds_drawn")
-    if has("third_down_converted") and has("third_down_att"):
+    # nflverse pbp has no third_down_att column: attempts = converted + failed.
+    if has("third_down_converted") and has("third_down_failed"):
         parts.append("SUM(CASE WHEN third_down_converted = 1 THEN 1.0 ELSE 0.0 END) "
-                     "/ NULLIF(SUM(CASE WHEN third_down_att = 1 THEN 1.0 ELSE 0.0 END), 0) "
+                     "/ NULLIF(SUM(CASE WHEN third_down_converted = 1 THEN 1.0 ELSE 0.0 END) "
+                     "+ SUM(CASE WHEN third_down_failed = 1 THEN 1.0 ELSE 0.0 END), 0) "
                      "AS third_down_rate")
     else:
         parts.append("NULL::DOUBLE AS third_down_rate")

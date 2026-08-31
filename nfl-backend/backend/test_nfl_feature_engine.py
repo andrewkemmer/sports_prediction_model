@@ -87,6 +87,29 @@ class TestPBPAggParity(unittest.TestCase):
         self.assertTrue(pd.isna(got["epa_sum"]).all())
         self.assertTrue(pd.isna(got["elapsed_min"]).all())
 
+    def test_elapsed_min_ignores_null_posteam_clock_rows(self):
+        """A row holding the game's MINIMUM clock but NULL posteam must not
+        set the game length — pandas drops posteam-NaN rows before picking the
+        min, and the DuckDB engine must match (real-data parity gap fixed)."""
+        pbp = pd.DataFrame([
+            dict(game_id="G1", posteam="A", yards_gained=5, epa=0.1, qb_epa=0.0,
+                 game_seconds_remaining=600.0),
+            dict(game_id="G1", posteam="A", yards_gained=2, epa=0.1, qb_epa=0.0,
+                 game_seconds_remaining=300.0),
+            dict(game_id="G1", posteam=None, yards_gained=0, epa=None, qb_epa=None,
+                 game_seconds_remaining=0.0),   # min clock, NULL posteam
+        ])
+        want = _pbp_team_agg(pbp).sort_values(
+            ["game_id", "team"]).reset_index(drop=True)
+        with duckdb_engine() as con:
+            got = pbp_team_agg(con, pbp).sort_values(
+                ["game_id", "team"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(got, want, check_dtype=False,
+                                      check_exact=False, rtol=1e-9, atol=1e-12)
+        # Length comes from the 300s row, NOT the 0s NULL-posteam row.
+        self.assertAlmostEqual(float(want["elapsed_min"].iloc[0]),
+                               (3600 - 300) / 60.0, places=6)
+
     def test_empty_and_malformed_return_full_empty_schema(self):
         empty = pd.DataFrame(columns=["game_id", "posteam", "yards_gained"])
         with duckdb_engine() as con:
@@ -201,8 +224,8 @@ class TestTier1Aggregates(unittest.TestCase):
     def _pbp(self):
         base = dict(game_id="G1", posteam=None, defteam=None, yards_gained=0,
                     epa=0.0, interception=0, fumble_lost=0, pass_attempt=0,
-                    passing_yards=0, sack=0, sack_yds=0, penalty=0,
-                    penalty_yards=None, penalty_team=None, third_down_att=0,
+                    passing_yards=0, sack=0, penalty=0,
+                    penalty_yards=None, penalty_team=None, third_down_failed=0,
                     third_down_converted=0, yardline_100=50, touchdown=0,
                     field_goal_result=None, drive=1)
         rows = []
@@ -211,12 +234,12 @@ class TestTier1Aggregates(unittest.TestCase):
             dict(posteam="A", defteam="B", yards_gained=15, epa=0.5,
                  pass_attempt=1, passing_yards=15, yardline_100=30, drive=1),
             dict(posteam="A", defteam="B", yards_gained=0, epa=-0.8,
-                 interception=1, pass_attempt=1, third_down_att=1,
+                 interception=1, pass_attempt=1, third_down_failed=1,
                  yardline_100=45, drive=2),
             dict(posteam="A", defteam="B", yards_gained=8, epa=0.1,
                  yardline_100=60, drive=3),
             dict(posteam="A", defteam="B", yards_gained=-5, epa=-0.6,
-                 sack=1, sack_yds=5, yardline_100=70, drive=4),
+                 sack=1, yardline_100=70, drive=4),
             dict(posteam="A", defteam="B", yards_gained=0, epa=0.3,
                  penalty=1, penalty_yards=10, penalty_team="B", yardline_100=50, drive=5),
             dict(posteam="A", defteam="B", yards_gained=0, epa=-0.4,
@@ -274,9 +297,9 @@ class TestTier1Aggregates(unittest.TestCase):
 
     def test_tier1_degrades_to_nan_when_source_columns_absent(self):
         pbp = self._pbp().drop(
-            columns=["interception", "fumble_lost", "passing_yards", "sack_yds",
+            columns=["interception", "fumble_lost", "passing_yards",
                      "pass_attempt", "sack", "penalty", "penalty_yards",
-                     "penalty_team", "third_down_att", "third_down_converted",
+                     "penalty_team", "third_down_failed", "third_down_converted",
                      "field_goal_result", "drive"])
         got = _pbp_team_agg(pbp)
         with duckdb_engine() as con:

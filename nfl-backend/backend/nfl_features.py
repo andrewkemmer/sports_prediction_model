@@ -452,10 +452,14 @@ def _pbp_team_agg(pbp: pd.DataFrame) -> pd.DataFrame:
             g["takeaways"] = np.nan
     else:
         g["takeaways"] = np.nan
-    # net ANY/A + sack rate (per dropback).
-    if ok("passing_yards", "sack_yds", "pass_attempt", "sack"):
+    # net ANY/A + sack rate (per dropback). nflverse pbp has no sack-yards
+    # column; on sack plays ``yards_gained`` is negative (or 0), so sack yards
+    # lost = -yards_gained (NaN rows contribute 0, matching the SQL SUM skip).
+    if ok("passing_yards", "pass_attempt", "sack"):
         p2 = p.copy()
-        p2["_any_num"] = p2["passing_yards"].fillna(0.0) - p2["sack_yds"].fillna(0.0)
+        p2["_any_num"] = (p2["passing_yards"].fillna(0.0)
+                           + np.where(p2["sack"] == 1,
+                                      p2["yards_gained"].fillna(0.0), 0.0))
         p2["_any_den"] = p2["pass_attempt"].fillna(0.0) + p2["sack"].fillna(0.0)
         p2["_sack"] = p2["sack"].fillna(0.0)
         sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
@@ -511,17 +515,18 @@ def _pbp_team_agg(pbp: pd.DataFrame) -> pd.DataFrame:
         _merge(sub)
     else:
         g["penalty_yds_drawn"] = np.nan
-    # Third-down conversion rate.
-    if ok("third_down_converted", "third_down_att"):
+    # Third-down conversion rate. nflverse pbp has no third_down_att column:
+    # attempts = converted + failed (verified: no row carries both flags).
+    if ok("third_down_converted", "third_down_failed"):
         p2 = p.copy()
         p2["_c"] = (p2["third_down_converted"] == 1).astype(float)
-        p2["_a"] = (p2["third_down_att"] == 1).astype(float)
+        p2["_f"] = (p2["third_down_failed"] == 1).astype(float)
         sub = p2.groupby(["game_id", "posteam"], as_index=False).agg(
-            _c=("_c", "sum"), _a=("_a", "sum")).rename(
+            _c=("_c", "sum"), _f=("_f", "sum")).rename(
             columns={"posteam": "team"})
-        sub["third_down_rate"] = np.where(sub["_a"] > 0,
-                                           sub["_c"] / sub["_a"], np.nan)
-        _merge(sub.drop(columns=["_c", "_a"]))
+        sub["third_down_rate"] = np.where((sub["_c"] + sub["_f"]) > 0,
+                                           sub["_c"] / (sub["_c"] + sub["_f"]), np.nan)
+        _merge(sub.drop(columns=["_c", "_f"]))
     else:
         g["third_down_rate"] = np.nan
     # Red-zone TD rate — TD on plays inside the opponent's 20.
