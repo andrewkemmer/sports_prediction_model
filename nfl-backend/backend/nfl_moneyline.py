@@ -85,6 +85,7 @@ RECORD_TEMPLATE = f"nfl_moneyline_v1_{{date}}.json"
 CALIBRATION_TEMPLATE = f"nfl_calibration_{{date}}.json"
 HISTORY_TEMPLATE = f"nfl_predictions_history_{{date}}.csv"
 MONITOR_TEMPLATE = f"nfl_model_monitor_{{date}}.json"
+POWER_RANKINGS_TEMPLATE = f"nfl_power_rankings_{{date}}.csv"
 
 # LightGBM hyperparams (modest regularization, deterministic)
 LGB_PARAMS = {
@@ -1326,6 +1327,14 @@ def pull_and_run(out_dir: Path | None = None,
         except Exception as exc:  # noqa: BLE001 — a monitor failure must never
             logger.warning("Model-monitor emission failed (continuing): %s", exc)
 
+        # Power-rankings artifact (MLB-identical CSV shape) — wrapped so a
+        # failure never blocks the run or the board.
+        try:
+            result["power_rankings_path"] = str(
+                _power_rankings_csv(feats, _date, out_dir))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Power-rankings emission failed (continuing): %s", exc)
+
         result["record"] = str(rec_path)
         result["games_written"] = bool(slate_info and (slate_info.get("n_games") or 0) > 0)
 
@@ -1369,6 +1378,126 @@ def _write_monitor(out_dir: Path, *, feats: pd.DataFrame, result: dict,
     mon_path = out_dir / MONITOR_TEMPLATE.format(date=current_date)
     with open(mon_path, "w") as fh:
         json.dump(mon, fh, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Power rankings (MLB-identical artifact shape)
+# ---------------------------------------------------------------------------
+def _power_rankings_rows(feats: pd.DataFrame) -> pd.DataFrame:
+    """Pure per-team power-rankings rows from the decided feature frame.
+
+    Mirrors mlb-backend backend/pipeline.py::_power_rankings_csv:
+    wins/losses/pct/home_pct/away_pct come from the decided (home_win not-null)
+    games only; ``l10`` is the team's last 10 DECIDED games as ``"W-L"``;
+    ``run_diff`` is the team's signed point differential (home_score/away_score
+    on the decided frame) so the page's +/− coloring works; Elo is the team's
+    MEAN entering rating from ``compute_elo()``'s per-(team,event)
+    ``elo_entering`` (a rating computed from ONLY strictly-prior games), falling
+    back to 1500.0 for a team with no games — the same way MLB takes a team's
+    mean ``home_elo``. ABsence of decided games must yield a valid ``0-0`` row,
+    never a crash.
+    """
+    from nfl_features import compute_elo, team_events
+
+    if feats is None or feats.empty:
+        return pd.DataFrame()
+    rows = feats.copy()
+    # Explicit chrono sort so "last 10" = most recent decided games (MLB relies
+    # on frame order; the feature frame is not guaranteed chronological).
+    if "gameday" in rows.columns and rows["gameday"].notna().any():
+        rows = rows.sort_values("gameday", kind="mergesort").reset_index(drop=True)
+
+    decided = (rows[rows[TARGET].notna()]
+               if TARGET in rows.columns else rows.copy())
+    # Absolute Elo per team: mean of its entering rating, from strictly-prior
+    # games only (compute_elo is point-in-time safe by construction).
+    try:
+        ladd = compute_elo(team_events(rows)) if not rows.empty else rows
+        elo_mean = ladd.groupby("team")["elo_entering"].mean()
+    except Exception:
+        elo_mean = pd.Series(dtype=float)
+
+    # team list from the FULL frame's home teams (matches MLB) so an undecided
+    # home team still yields a neutral row.
+    teams = list(pd.unique(rows["home_team"].dropna().astype(str)))
+    ranking = []
+    for team in teams:
+        hg = decided[decided["home_team"] == team]
+        ag = decided[decided["away_team"] == team]
+        tg = decided[(decided["home_team"] == team)
+                     | (decided["away_team"] == team)]
+
+        wins = (int(hg["home_win"].sum())
+                + (int((1 - ag["home_win"]).sum()) if not ag.empty else 0))
+        losses = (int((1 - hg["home_win"]).sum())
+                  + (int(ag["home_win"].sum()) if not ag.empty else 0))
+        total = wins + losses
+        pct = round(wins / max(total, 1), 3)
+
+        home_count = len(hg)
+        home_wins = int(hg["home_win"].sum()) if not hg.empty else 0
+        home_pct = round(home_wins / max(home_count, 1), 3)
+
+        away_count = len(ag)
+        away_wins = int(ag["home_win"].sum()) if not ag.empty else 0
+        away_pct = round(1 - away_wins / max(away_count, 1), 3) if away_count > 0 else 0.5
+
+        # L10 -- last 10 DECIDED games
+        recent = tg.tail(10)
+        l10_wins = 0
+        for _, g in recent.iterrows():
+            if g["home_team"] == team:
+                l10_wins += int(g["home_win"])
+            else:
+                l10_wins += int(1 - g["home_win"])
+        l10 = f"{l10_wins}-{len(recent) - l10_wins}"
+
+        # signed point differential (for the page's +/− RUN DIFF column)
+        marg = 0
+        if not tg.empty:
+            hs = pd.to_numeric(tg["home_score"], errors="coerce")
+            as_ = pd.to_numeric(tg["away_score"], errors="coerce")
+            is_home_team = (tg["home_team"] == team).to_numpy()
+            m = (hs - as_).to_numpy()
+            team_m = np.where(is_home_team, m, -m)
+            marg = int(round(float(np.nansum(team_m))))
+
+        ranking.append({
+            "team": team,
+            "team_name": team,
+            "elo": round(float(elo_mean.get(team, 1500.0)), 1),
+            "wins": wins,
+            "losses": losses,
+            "record": f"{wins}-{losses}",
+            "pct": pct,
+            "run_diff": marg,
+            "l10": l10,
+            "home_pct": home_pct,
+            "away_pct": away_pct,
+        })
+
+    df = pd.DataFrame(ranking)
+    if df.empty:
+        return df
+    return df.sort_values("elo", ascending=False).reset_index(drop=True)
+
+
+def _power_rankings_csv(feats: pd.DataFrame, target_date_str: str,
+                        out_dir: Path | None = None) -> Path:
+    """Write nfl_power_rankings_YYYYMMDD.csv (MLB-identical column set, 1-based
+    rank index named ``rank``). Never raises on input shape; an empty frame is
+    still written so the loader returns empty cleanly."""
+    out = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / POWER_RANKINGS_TEMPLATE.format(date=target_date_str)
+    df = _power_rankings_rows(feats)
+    if df.empty:
+        df.to_csv(path, index=False)
+        return path
+    df.index += 1
+    df.index.name = "rank"
+    df.to_csv(path)
+    return path
 
 
 def _print_report(result: dict) -> None:

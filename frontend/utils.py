@@ -571,7 +571,8 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
 
     # NFL: the named dated families the calibration/history/monitor pages use.
     prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
-                ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json")]
+                ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json"),
+                ("nfl_power_rankings_", ".csv")]
     if owner and repo:
         try:
             api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
@@ -1133,11 +1134,13 @@ def load_history_games(date_str: str) -> pd.DataFrame:
 
 def load_power_rankings(date_str: str,
                          sport: str | None = None) -> pd.DataFrame:
-    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
-        return pd.DataFrame()
+    s = normalize_sport_key(sport if sport is not None else get_sport())
     cfg = get_source_config()
-    picked = _pick_artifact_date(date_str, "power_rankings")
-    data, src = _fetch_bytes(f"power_rankings_{picked}.csv", **cfg)
+    # Sport-specific prefix: MLB ``power_rankings_*.csv``, NFL
+    # ``nfl_power_rankings_*.csv`` (same shared page, same 1-based rank shape).
+    prefix = "power_rankings" if s == "mlb" else "nfl_power_rankings"
+    picked = _pick_artifact_date(date_str, prefix)
+    data, src = _fetch_bytes(f"{prefix}_{picked}.csv", **cfg, sport=s)
     st.session_state["data_source"] = src
     st.session_state["power_rankings_date"] = picked
     if data is None:

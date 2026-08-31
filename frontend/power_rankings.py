@@ -14,13 +14,6 @@ import utils
 
 utils.inject_css()
 
-if utils.get_sport() == "nfl":
-    st.info("🏈 NFL Power Rankings arrive with step 3 — moneyline cards and "
-            "shared-contract dashboards are next. (NFL pipeline publishes "
-            "features/moneyline records; the rankings table ships with the "
-            "full conditional UI.)")
-    st.stop()
-
 dates = utils.available_dates(**utils.get_source_config())
 date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
 

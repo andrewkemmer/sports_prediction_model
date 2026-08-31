@@ -77,6 +77,7 @@ SPORTS = {
             "feature_json": "nfl_feature_v1_*.json",
             "calibration_json": "nfl_calibration_*.json",
             "predictions_history_csv": "nfl_predictions_history_*.csv",
+            "power_rankings_csv": "nfl_power_rankings_*.csv",
         },
     },
 }
