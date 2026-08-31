@@ -53,6 +53,15 @@ TIER1_FEATURES = [
     "redzone_td_rate_diff", "pts_per_drive_diff",
 ]
 
+# Gate-admitted Tier-1 subset — the 7 that cleared coverage + redundancy on
+# the 2026-08-31 run: excludes any_a_diff (redundant with ypp_diff, r=0.84)
+# and pts_per_drive_diff (redundant with ewm_epa_play_diff, r=0.89).
+TIER1_ADMITTED = [
+    "turnover_diff", "sack_rate_diff", "success_rate_diff",
+    "explosive_rate_diff", "penalty_diff", "third_down_rate_diff",
+    "redzone_td_rate_diff",
+]
+
 
 def _frame_sha256(df: pd.DataFrame) -> str:
     """Content hash of the feature frame (row/col-sorted) for reproducibility."""
@@ -79,10 +88,15 @@ def load_features(features_csv: str | None) -> pd.DataFrame:
 
 
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
-    """Column lists per arm, kept only where the frame carries them."""
+    """Column lists per arm, kept only where the frame carries them.
+
+    Three arms: WITHOUT (deployed 10), WITH (10 + all 9 Tier-1), and
+    WITH_ADMITTED (10 + the gate-admitted 7 Tier-1)."""
     without = [c for c in WITHOUT_FEATURES if c in feats.columns]
     tier1 = [c for c in TIER1_FEATURES if c in feats.columns]
-    return {"WITHOUT": without, "WITH": without + tier1}
+    admitted = [c for c in TIER1_ADMITTED if c in feats.columns]
+    return {"WITHOUT": without, "WITH": without + tier1,
+            "WITH_ADMITTED": without + admitted}
 
 
 def _platt_metrics(rec: dict, key: str) -> dict:
@@ -106,7 +120,7 @@ def adopt_verdict(sealed_without: dict, sealed_with: dict,
     adopt = bool(sealed_win and ece_ok)
     reason = []
     if not sealed_win:
-        reason.append("WITH does not beat WITHOUT on sealed logloss AND AUC")
+        reason.append("arm does not beat WITHOUT on sealed logloss AND AUC")
     if not ece_ok:
         reason.append("sealed ECE-cal degraded")
     if not pooled_win:
@@ -156,16 +170,25 @@ def main(argv: list[str] | None = None) -> int:
 
     sealed = {n: _platt_metrics(results[n], "sealed_2025") for n in arms}
     pooled = {n: _platt_metrics(results[n], "pooled_preq_2021_2024") for n in arms}
+    # Primary gate: WITHOUT vs WITH (all 9). Informational: WITHOUT vs
+    # WITH_ADMITTED (the gate-pruned 7) — did dropping the 2 redundant
+    # features keep the pooled gain without the sealed regression?
     verdict = adopt_verdict(sealed["WITHOUT"], sealed["WITH"],
                             pooled["WITHOUT"], pooled["WITH"])
+    verdict_admitted = adopt_verdict(sealed["WITHOUT"], sealed["WITH_ADMITTED"],
+                                     pooled["WITHOUT"], pooled["WITH_ADMITTED"])
 
-    print("\n=== Tier-1 ablation (WITH vs WITHOUT) ===")
-    print("arm       sealed_ll  sealed_auc  sealed_ece  pooled_ll")
+    print("\n=== Tier-1 ablation (WITH / WITH_ADMITTED vs WITHOUT) ===")
+    print("arm           sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]
-        print(f"{n:9s} {s['logloss']}  {s['auc']}  {s['ece']}  {p['logloss']}")
-    print("VERDICT:", "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
+        print(f"{n:14s} {s['logloss']}  {s['auc']}  {s['ece']}  {p['logloss']}")
+    print("\nVERDICT (WITH all-9 vs WITHOUT):",
+          "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
           "|", " | ".join(verdict["reason"]))
+    print("VERDICT (WITH_ADMITTED-7 vs WITHOUT):",
+          "ADOPT" if verdict_admitted["adopt"] else "DON'T ADOPT",
+          "|", " | ".join(verdict_admitted["reason"]))
 
     if args.no_record:
         return 0
@@ -177,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
                      "pooled_model_platt": pooled[n]}
                  for n, cols in arms.items()},
         "tier1_gate": tier1_gate,
-        "verdict": verdict,
+        "verdict_with": verdict,
+        "verdict_with_admitted": verdict_admitted,
     }
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"nfl_tier1_ablation_{record['frame_sha256']}.json"
