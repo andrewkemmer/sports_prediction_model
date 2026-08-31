@@ -174,6 +174,13 @@ def run() -> int:
             if needle not in text:
                 problems.append(f"missing [{key}] = {needle!r}")
 
+        # (1b) NFL upset strip is capped to the most-surprising few (not all 50
+        #     upsets from the lifetime pool) with a collapsed remainder tail.
+        if " more upsets" not in text:  # tail renders as '· +40 more upsets'
+            problems.append("NFL upset strip not collapsed to top-N + remainder")
+        if text.count(" upset ") > 20:  # capped ~10 pills — not the ~50 full flood
+            problems.append("NFL upset strip still floods (too many upset pills)")
+
         # (2) four KPI cards
         for key, needle in {"auc": "AUC-ROC", "brier": "BRIER SCORE",
                             "logloss": "LOG-LOSS", "ece": "CAL. ERROR"}.items():

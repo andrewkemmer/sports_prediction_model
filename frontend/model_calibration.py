@@ -11,6 +11,12 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+# On the NFL page, the summary card is fed the LIFETIME OOF/sealed pool
+# (1,000+ decided games), so the upset list can number in the hundreds. Show
+# only the most-surprising few and collapse the rest into a ``+N more`` tail;
+# the MLB page (a handful of upsets among one day's games) is untouched.
+NFL_UPSET_CAP = 10
+
 import inspect
 import numpy as np
 import pandas as pd
@@ -79,7 +85,14 @@ st.markdown(
 wins, losses = record.get("wins", 0), record.get("losses", 0)
 completed = record.get("completed", wins + losses)
 acc = (wins / completed * 100) if completed else 0.0
-upset_text = " · ".join(f"{u['team']} {u['prob']:.0%} upset" for u in upsets) or "No upsets today"
+if utils.get_sport() == "nfl" and len(upsets) > NFL_UPSET_CAP:
+    # Biggest upsets first = the winner with the LOWEST model probability.
+    top = sorted(upsets, key=lambda u: float(u.get("prob", 1.0) or 1.0))[:NFL_UPSET_CAP]
+    upset_text = " · ".join(f"{u['team']} {u['prob']:.0%} upset" for u in top)
+    upset_text += f" · +{len(upsets) - NFL_UPSET_CAP} more upsets"
+else:
+    upset_text = (" · ".join(f"{u['team']} {u['prob']:.0%} upset" for u in upsets)
+                  or "No upsets today")
 st.markdown(
     f"""
     <div class="fb-box" style="margin:14px 0;padding:14px 18px;">
