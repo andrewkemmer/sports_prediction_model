@@ -704,15 +704,25 @@ def _load_raw(seasons: list[int]):
 
 
 def pull_and_build(out_dir: Path | None = None,
-                   write_record: bool = True) -> dict:
+                   write_record: bool = True,
+                   seasons: list[int] | None = None) -> dict:
+    """Build + gate feature candidates over an optional season window.
+
+    ``seasons`` limits both the decided frame and the schedule+pbp pull to the
+    given seasons (e.g. ``[2021, 2022, 2023]``). None (default) keeps the full
+    warmup+core range, so behavior is unchanged for normal runs.
+    """
+    seasons = seasons or DEFAULT_SEASONS
     out_dir = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
     if not DECIDED_FRAME.exists():
         raise FileNotFoundError(
             f"{DECIDED_FRAME} absent — run `python3 nfl_game_frame.py` first")
     decided = pd.read_csv(DECIDED_FRAME)
+    if "season" in decided.columns:
+        decided = decided[decided["season"].isin(seasons)]
 
-    logger.info("Loading nflreadpy schedule+pbp (warmup+core): %s", DEFAULT_SEASONS)
-    schedule, pbp = _load_raw(DEFAULT_SEASONS)
+    logger.info("Loading nflreadpy schedule+pbp (window): %s", seasons)
+    schedule, pbp = _load_raw(seasons)
     feats = build_features(decided, schedule, pbp)
 
     result = run_feature_gate(feats)

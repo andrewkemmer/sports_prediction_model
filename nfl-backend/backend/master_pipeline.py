@@ -80,6 +80,19 @@ CONFIG = {
 # (mirrored in backend/config.py and frontend/sports_config.py).
 SPORT_DIR_NAME = "nfl-backend"
 
+# Default open-ended season bounds, used ONLY to fall back when the user
+# supplies exactly one of --start-season / --end-season (see parse_args).
+_DEFAULT_FIRST_SEASON = 2019
+_DEFAULT_LAST_SEASON = 2025
+
+
+def _window_label(seasons: list[int] | None) -> str:
+    """Human label for the data/feature season window in banners; the
+    default full range is printed as the conventional 2019-2025 span."""
+    if seasons:
+        return f"({seasons[0]}-{seasons[-1]})"
+    return "(2019-2025)"
+
 
 def _active_work_dir() -> Path:
     """The pipeline's working dir: Kaggle → /kaggle/working, Colab → /content,
@@ -136,19 +149,35 @@ def _try_load_schedule(slate_season: int):
 # ---------------------------------------------------------------------------
 def phase0(args) -> None:
     _banner("PHASE 0", "Environment Setup")
-    if not IS_LOCAL:
+    if IS_LOCAL:
+        print(f"  Local checkout detected: {REPO_DIR} (no clone)")
+    else:
         print(f"  pip install NFL dependencies...")
         _run('pip install -q nflreadpy scikit-learn lightgbm xgboost '
              'pandas polars numpy joblib gitpython requests', check=False)
         repo_dir = REPO_DIR
-        if repo_dir.exists():
-            print("  Removing old clone...")
-            shutil.rmtree(repo_dir, ignore_errors=True)
-        print(f"  Cloning {CONFIG['github_repo']}...")
-        _run(f"git clone -q https://github.com/{CONFIG['github_username']}/"
-             f"{CONFIG['github_repo']}.git {repo_dir}")
-    else:
-        print(f"  Local checkout detected: {REPO_DIR} (no clone)")
+        # CRITICAL: never rmtree the checkout we are currently running FROM.
+        # The Kaggle notebook clones the repo then launches this script with
+        # cwd inside the clone. Deleting that directory deletes the process's
+        # own working dir: git clone then fails with "getcwd() failed" and the
+        # subsequent os.chdir(NFL_DIR) dies. If cwd already resolves inside
+        # REPO_DIR, reuse the existing checkout instead of re-cloning.
+        cwd = Path.cwd().resolve()
+        inside_checkout = False
+        try:
+            cwd.relative_to(repo_dir.resolve())
+            inside_checkout = True
+        except ValueError:
+            inside_checkout = False
+        if repo_dir.exists() and inside_checkout:
+            print(f"  Already running inside repo checkout: {repo_dir} (no re-clone)")
+        else:
+            if repo_dir.exists():
+                print("  Removing old clone...")
+                shutil.rmtree(repo_dir, ignore_errors=True)
+            print(f"  Cloning {CONFIG['github_repo']}...")
+            _run(f"git clone -q https://github.com/{CONFIG['github_username']}/"
+                 f"{CONFIG['github_repo']}.git {repo_dir}")
 
     backend_dir = NFL_DIR / "backend"
     sys.path.insert(0, str(backend_dir))
@@ -165,12 +194,13 @@ def phase0(args) -> None:
 # Phase 1 — ingest
 # ---------------------------------------------------------------------------
 def phase1(args) -> None:
-    _banner("PHASE 1", "NFL decided game frame (2019-2025)")
+    seasons = args.window
+    _banner("PHASE 1", f"NFL decided game frame {_window_label(seasons)}")
     if args.features_csv is not None:
         print("  --features-csv set: skipping ingest (using pre-computed frame)")
         return
-    from nfl_game_frame import pull_and_build, DEFAULT_SEASONS
-    summary = pull_and_build(DEFAULT_SEASONS)
+    from nfl_game_frame import pull_and_build
+    summary = pull_and_build(seasons)
     print(f"  [ok] decided games: {summary['games']}, line coverage "
           f"{summary['line_coverage_pct']}%, sha256 {summary['sha256']}")
 
@@ -184,7 +214,7 @@ def phase2(args) -> None:
         print("  --features-csv set: skipping feature build")
         return
     from nfl_features import pull_and_build
-    pull_and_build()
+    pull_and_build(seasons=args.window)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +236,8 @@ def phase3(args) -> None:
                  features_csv=args.features_csv,
                  schedule=schedule,
                  pbp=pbp,
-                 slate_season=args.slate_season)
+                 slate_season=args.slate_season,
+                 seasons=args.window)
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +538,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--features-csv", type=Path, default=None,
                     help="pre-computed features CSV (skips ingest/features; "
                          "the moneyline dry path)")
+    env_start = os.environ.get("NFL_START_SEASON", "").strip()
+    env_end = os.environ.get("NFL_END_SEASON", "").strip()
+    ap.add_argument("--start-season", type=int,
+                    default=(int(env_start) if env_start.isdigit() else None),
+                    help="first season in the data/feature window (default: "
+                         "each module's full range, e.g. 2019); env "
+                         "NFL_START_SEASON also works")
+    ap.add_argument("--end-season", type=int,
+                    default=(int(env_end) if env_end.isdigit() else None),
+                    help="last season in the data/feature window (default: "
+                         "each module's full range, e.g. 2025); env "
+                         "NFL_END_SEASON also works")
     ap.add_argument("--slate-season", type=int,
                     default=(int(env_slate) if env_slate.isdigit() else None),
                     help="override the slate target season (default: the "
@@ -515,7 +558,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--out-dir", type=str, default=None,
                     help="write records to a custom dir (default: "
                          "nfl-backend/data_delivery)")
-    return ap.parse_args(argv if argv is not None else sys.argv[1:])
+    ns = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    # Resolve the requested data/feature window to a contiguous season list.
+    # None for both = each module keeps its own full range (default behavior).
+    if ns.start_season is not None or ns.end_season is not None:
+        start = ns.start_season if ns.start_season is not None else _DEFAULT_FIRST_SEASON
+        end = ns.end_season if ns.end_season is not None else _DEFAULT_LAST_SEASON
+        if end < start:
+            raise ValueError(f"--end-season {end} < --start-season {start}")
+        ns.window = list(range(start, end + 1))
+    else:
+        ns.window = None
+    return ns
 
 
 def main(argv: list[str] | None = None) -> int:

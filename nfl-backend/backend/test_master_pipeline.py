@@ -32,6 +32,7 @@ from master_pipeline import (  # noqa: E402
     _is_protected_name,
     board_dates_from_records,
     classify_stale,
+    parse_args,
 )
 
 DD = "nfl-backend/data_delivery"
@@ -141,6 +142,58 @@ class TestArtifactDate(unittest.TestCase):
                          "20260909")
         self.assertIsNone(_artifact_date(f"{DD}/nfl_game_level_features.csv"))
         self.assertIsNone(_artifact_date(f"{DD}/models/bundle.joblib"))
+
+
+class TestSeasonWindow(unittest.TestCase):
+    """parse_args -> .window: the data/feature season window from
+    --start-season / --end-season or NFL_START_SEASON / NFL_END_SEASON.
+    Default (no overrides) is None -> each module keeps its full range."""
+
+    def _window(self, argv, env=None):
+        import os
+        saved = os.environ.copy()
+        env = env or {}
+        for k, v in env.items():
+            os.environ[k] = v
+        try:
+            return parse_args(argv).window
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_default_is_none(self):
+        """No --start/--end-season -> window is None (unchanged default)."""
+        self.assertIsNone(self._window([]))
+        self.assertIsNone(self._window(["--slate-season", "2026"]))
+
+    def test_both_cli(self):
+        self.assertEqual(self._window(["--start-season", "2021",
+                                       "--end-season", "2023"]),
+                         [2021, 2022, 2023])
+
+    def test_only_start_closes_to_last(self):
+        self.assertEqual(self._window(["--start-season", "2022"]),
+                         [2022, 2023, 2024, 2025])
+
+    def test_only_end_closes_to_first(self):
+        self.assertEqual(self._window(["--end-season", "2022"]),
+                         [2019, 2020, 2021, 2022])
+
+    def test_env_vars(self):
+        self.assertEqual(self._window([], {"NFL_START_SEASON": "2019",
+                                           "NFL_END_SEASON": "2020"}),
+                         [2019, 2020])
+
+    def test_env_takes_back_seat_to_cli(self):
+        self.assertEqual(self._window(["--start-season", "2022",
+                                       "--end-season", "2023"],
+                                      {"NFL_START_SEASON": "2019",
+                                       "NFL_END_SEASON": "2020"}),
+                         [2022, 2023])
+
+    def test_invalid_order_raises(self):
+        with self.assertRaises(ValueError):
+            parse_args(["--start-season", "2024", "--end-season", "2022"])
 
 
 if __name__ == "__main__":

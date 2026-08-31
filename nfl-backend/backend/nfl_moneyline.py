@@ -1030,7 +1030,16 @@ def pull_and_run(out_dir: Path | None = None,
                  features_csv: Path | None = None,
                  schedule: pd.DataFrame | None = None,
                  pbp: pd.DataFrame | None = None,
-                 slate_season: int | None = None) -> dict:
+                 slate_season: int | None = None,
+                 seasons: list[int] | None = None) -> dict:
+    """Run the moneyline ensemble + sealed gate over ``seasons`` when given.
+
+    ``seasons`` (e.g. ``[2021, 2022, 2023]``) limits the decided frame and the
+    schedule+pbp pull to that window. None (default) uses the full range, so a
+    normal run is unchanged. The sealed-2025 gate still applies within whatever
+    window is selected.
+    """
+    feed_seasons = seasons or DEFAULT_SEASONS
     from nfl_features import (_load_raw, build_features, build_slate_features,
                               DEFAULT_SEASONS)
     out_dir = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
@@ -1046,8 +1055,10 @@ def pull_and_run(out_dir: Path | None = None,
             raise FileNotFoundError(
                 f"{DECIDED_FRAME} absent — run `python3 nfl_game_frame.py` first")
         decided = pd.read_csv(DECIDED_FRAME)
-        logger.info("Computing features over %s seasons", DEFAULT_SEASONS)
-        sched, pbp_raw = _load_raw(DEFAULT_SEASONS)
+        if "season" in decided.columns:
+            decided = decided[decided["season"].isin(feed_seasons)]
+        logger.info("Computing features over %s seasons", feed_seasons)
+        sched, pbp_raw = _load_raw(feed_seasons)
         schedule = sched if schedule is None else schedule
         pbp = pbp_raw if pbp is None else pbp
         feats = build_features(decided, schedule, pbp)
