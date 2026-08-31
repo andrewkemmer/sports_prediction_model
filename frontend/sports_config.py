@@ -75,6 +75,8 @@ SPORTS = {
         "artifacts": {
             "moneyline_json": "nfl_moneyline_v1_*.json",
             "feature_json": "nfl_feature_v1_*.json",
+            "calibration_json": "nfl_calibration_*.json",
+            "predictions_history_csv": "nfl_predictions_history_*.csv",
         },
     },
 }

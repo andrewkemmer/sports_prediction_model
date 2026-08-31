@@ -1,12 +1,21 @@
-"""Smoke test — NFL Calibration page (step 3).
+"""Smoke test — Calibration page, SPORT-DISPATCHED (steps 3 + Part B).
 
-Runs the real ``model_calibration.py`` page under ``sport=nfl`` through
-Streamlit's official ``AppTest`` harness against the CURRENT committed
-``nfl-backend/data_delivery/nfl_moneyline_v1_*.json`` artifacts. Confirms no
-exceptions and that the aggregate sections render (header, ADOPT verdict,
-KPIs, baselines, members, recalibration note) while the three per-game-OOF
-conditional sections degrade to honest info lines (the v1 record carries no
-per-game OOF history yet).
+The NFL Calibration page now runs the SAME code as MLB (no sport-special
+path). This test:
+
+1. Writes REPRESENTATIVE ``nfl_calibration_*.json`` + ``nfl_predictions_\
+   history_*.csv`` artifacts (matching the exact shape ``nfl_moneyline.py``
+   Part-A emits) into the real ``nfl-backend/data_delivery`` dir, so the
+   page renders with real data (they are removed after the run).
+2. Runs the ACTUAL ``model_calibration.py`` under ``sport=nfl`` and asserts
+   the MLB-identical seven sections: header pill, today's-record summary
+   card, the four KPI cards (AUC/Brier/Log-Loss/Cal. Error raw→calibrated),
+   the Platt recalibration banner, the per-1% calibration CURVE as a real
+   Altair chart, the reliability table WITH rows + a TOTAL row, and the
+   populated prediction-history table — with no exceptions.
+3. Runs the same page under ``sport=mlb`` and asserts it also runs clean
+   (the shared path; locally it halts/warns on missing MLB artifacts rather
+   than crashing).
 
 Run from the frontend/ directory:
     python -m test_calibration_smoke
@@ -14,19 +23,126 @@ Run from the frontend/ directory:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 FRONTEND_DIR = Path(__file__).resolve().parent
+REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
+NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
+
+ARTIFACT_DATE = "20260831"
+CALIBRATION_NAME = f"nfl_calibration_{ARTIFACT_DATE}.json"
+HISTORY_NAME = f"nfl_predictions_history_{ARTIFACT_DATE}.csv"
+CALIBRATION_PATH = NFL_DD / CALIBRATION_NAME
+HISTORY_PATH = NFL_DD / HISTORY_NAME
+
+WRITTEN: list[Path] = []
 
 
+# ---------------------------------------------------------------------------
+# Representative artifact construction (matches the emitted Part-A schema)
+# ---------------------------------------------------------------------------
+def _calibration_record() -> dict:
+    """A realistic nfl_calibration_*.json mirroring build_calibration."""
+    seq = [0.42, 0.52, 0.60, 0.68, 0.76, 0.86]
+    counts = [130, 210, 260, 230, 170, 107]
+    buckets, cal_buckets = [], []
+    for i, mp in enumerate(seq):
+        ma = min(0.99, mp + 0.02)
+        cal_mp = min(0.99, mp + 0.035)
+        buckets.append({"bucket": f"{int(mp * 100)}%-{int(mp * 100) + 8}%",
+                        "mean_predicted": round(mp, 3),
+                        "mean_actual": round(ma, 3),
+                        "count": counts[i],
+                        "gap": round(mp - ma, 3)})
+        cal_buckets.append({"bucket": f"{int(mp * 100)}%-{int(mp * 100) + 8}%",
+                            "mean_predicted": round(cal_mp, 3),
+                            "mean_actual": round(ma, 3),
+                            "count": counts[i],
+                            "gap": round(cal_mp - ma, 3)})
+    return {
+        "date": ARTIFACT_DATE,
+        "n_games": int(sum(counts)),
+        "trained_at": "2026-08-31T01:00:00.000000Z",
+        "metrics": {"auc": 0.6911, "brier": 0.2113, "logloss": 0.6329,
+                    "ece": 0.0349, "brier_calibrated": 0.2040,
+                    "logloss_calibrated": 0.6333, "ece_calibrated": 0.0290},
+        "calibration_buckets": buckets,
+        "calibration": {
+            "method": "platt",
+            "params": {"a": 2.5, "b": 0.1, "n": int(sum(counts))},
+            "metrics_raw": {"brier": 0.2113, "logloss": 0.6329, "ece": 0.0349},
+            "metrics_calibrated": {"brier": 0.2040, "logloss": 0.6333,
+                                   "ece": 0.0290},
+            "calibration_buckets_calibrated": cal_buckets,
+        },
+        "daily": [],
+    }
+
+
+def _history_frame(n: int = 320) -> pd.DataFrame:
+    """A per-game decided prediction history (same column set the backend
+    emits) spanning favored probs 0.51..0.95 so the 1% curve has points, and
+    including some upsets (underdog winners) for the summary card."""
+    rng = np.random.default_rng(7)
+    ps = rng.uniform(0.51, 0.95, n)
+    home = [f"H{i % 32:02d}" for i in range(n)]
+    away = [f"A{(i + 9) % 32:02d}" for i in range(n)]
+    correct = rng.random(n) < ps            # higher prob -> more correct
+    pick = home                             # favored side for moneyline
+    winner = [home[i] if correct[i] else away[i] for i in range(n)]
+    rows = []
+    for i in range(n):
+        hs = 30 if winner[i] == home[i] else 13
+        as_ = 13 if winner[i] == home[i] else 30
+        rows.append({
+            "game_date": f"2026-09-{i % 20 + 1:02d}",
+            "home_team": home[i], "away_team": away[i],
+            "home_win_prob_model": round(float(ps[i]), 4),
+            "home_win_prob_model_calibrated": round(
+                float(1.0 / (1.0 + np.exp(-(2.5 * np.log(ps[i] / (1 - ps[i])) + 0.1)))), 4),
+            "away_win_prob_model": round(1.0 - float(ps[i]), 4),
+            "correct": bool(correct[i]),
+            "model_pick": pick[i],
+            "home_score": hs, "away_score": as_,
+            "actual_winner": winner[i],
+            "game_status": "Final",
+            "game_id": f"2026_W1_G{i:03d}",
+            "season": 2026, "week": 1,
+        })
+    return pd.DataFrame(rows)
+
+
+def _write_artifacts() -> None:
+    NFL_DD.mkdir(parents=True, exist_ok=True)
+    CALIBRATION_PATH.write_text(
+        json.dumps(_calibration_record(), indent=2), encoding="utf-8")
+    _history_frame().to_csv(HISTORY_PATH, index=False)
+    WRITTEN.append(CALIBRATION_PATH)
+    WRITTEN.append(HISTORY_PATH)
+
+
+def _remove_artifacts() -> None:
+    for p in WRITTEN:
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+    WRITTEN.clear()
+
+
+# ---------------------------------------------------------------------------
+# Test
+# ---------------------------------------------------------------------------
 def _all_text(at: AppTest) -> str:
-    """Concatenate every text-bearing element for cheap substring checks."""
     chunks = []
-    for attr in ("markdown", "info", "warning", "caption", "success",
-                 "error", "title", "header", "subheader"):
+    for attr in ("markdown", "info", "warning", "caption", "success", "error",
+                 "title", "header", "subheader"):
         for el in getattr(at, attr, []):
             try:
                 chunks.append(str(el.value))
@@ -36,67 +152,86 @@ def _all_text(at: AppTest) -> str:
 
 
 def run() -> int:
-    # The page reads artifacts from the local repo (no GitHub configured),
-    # so the newest nfl_moneyline_v1_*.json under nfl-backend/data_delivery
-    # is what renders. Run the ACTUAL page file (not a mock).
-    at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
-                           default_timeout=30)
-    at.session_state["sport"] = "nfl"
-    at.run()
-
+    _write_artifacts()
     problems: list[str] = []
+    try:
+        at = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                               default_timeout=60)
+        at.session_state["sport"] = "nfl"
+        at.run()
 
-    # 1) No exceptions in the entire run.
-    if at.exception:
-        problems.append("PAGE RAISED EXCEPTIONS:\n  "
-                        + "\n  ".join(str(e.value) for e in at.exception))
+        if at.exception:
+            problems.append("NFL PAGE RAISED EXCEPTIONS:\n  "
+                            + "\n  ".join(str(e.value) for e in at.exception))
 
-    text = _all_text(at)
+        text = _all_text(at)
+        vcl = at.get("vega_lite_chart")
 
-    # 2) Aggregate sections must render.
-    required = {
-        "header": "Model Calibration Dashboard",
-        "artif-date": "NFL",
-        "adopt-banner": "ADOPT",
-        "kpi-logloss": "LOG-LOSS",
-        "kpi-auc": "AUC-ROC",
-        "kpi-ece": "CAL. ERROR (ECE)",
-        "baselines": "SEALED 2025",
-        "members": "Ensemble Members",
-        "recalib": "Post-Hoc Recalibration",
-        "platt": "Platt",
-    }
-    for key, needle in required.items():
-        if needle not in text:
-            problems.append(f"missing aggregate marker [{key}] = {needle!r}")
+        # (1) header pill, record summary card
+        for key, needle in [("header", "Model Calibration Dashboard"),
+                            ("record", "Today's Record:"),
+                            ("rec-completed", " completed games")]:
+            if needle not in text:
+                problems.append(f"missing [{key}] = {needle!r}")
 
-    # 3) The conditional (per-game OOF) sections must DEGRADE to info lines —
-    #    the v1 record is a schedule-only slate, so no curve/buckets/history.
-    degrade = {
-        "curve": "Per-1% favored-team calibration curve ships when the backend",
-        "reliability": "Reliability diagram ships when the record emits binned",
-        "history": "No per-game prediction history yet",
-    }
-    for key, needle in degrade.items():
-        if needle not in text:
-            problems.append(f"conditional section [{key}] did NOT degrade to an info line")
+        # (2) four KPI cards
+        for key, needle in {"auc": "AUC-ROC", "brier": "BRIER SCORE",
+                            "logloss": "LOG-LOSS", "ece": "CAL. ERROR"}.items():
+            if needle not in text:
+                problems.append(f"missing KPI [{key}] = {needle!r}")
 
-    # 4) The per-1% chart must NOT be rendered (no per-game OOF data).
-    n_chart = len(at.get("altair_chart")) if hasattr(at, "get") else 0
-    if n_chart:
-        problems.append(f"expected NO altair chart under current v1 record, found {n_chart}")
+        # (3) post-hoc Platt recalibration banner
+        if "Post-Hoc Recalibration" not in text:
+            problems.append("missing Platt recalibration banner")
 
-    if problems:
-        print("CALIBRATION SMOKE TEST — FAIL")
-        for p in problems:
-            print("  -", p)
-        return 1
+        # (4) the per-1% curve must be a REAL Altair chart (not an info line)
+        if len(vcl) == 0:
+            problems.append("curve did NOT render an Altair chart (vega_lite_chart=0)")
+        if "Calibration Curve" not in text:
+            problems.append("missing calibration-curve section")
+        if "Per-1% favored-team calibration curve ships when" in text:
+            problems.append("curve section degraded (info line) instead of rendering")
 
-    print("CALIBRATION SMOKE TEST — PASS")
-    print("  - no exceptions")
-    print("  - aggregate sections rendered (header, ADOPT, KPIs, baselines, members, recalib note)")
-    print("  - per-1% curve / reliability / history degraded to info lines (no per-game OOF in v1 record)")
-    return 0
+        # (5) reliability table with rows + a TOTAL row
+        if "Reliability Diagram" not in text:
+            problems.append("missing reliability-diagram section")
+        if "TOTAL" not in text:
+            problems.append("reliability table missing TOTAL row")
+        if "BUCKET" not in text:
+            problems.append("reliability table missing BUCKET header/rows")
+
+        # (6) prediction-history table populated (with real rows, not the empty info)
+        if "Prediction History" not in text:
+            problems.append("missing prediction-history section")
+        if "No per-game prediction history" in text:
+            problems.append("history table empty/info line instead of populated rows")
+
+        if problems:
+            print("CALIBRATION SMOKE TEST — FAIL (sport=nfl)")
+            for p in problems:
+                print("  -", p)
+            return 1
+
+        print("CALIBRATION SMOKE TEST — PASS (sport=nfl)")
+        n_curves = len(vcl)
+        print(f"  - no exceptions; {n_curves} Altair curve chart(s) rendered")
+        print("  - record summary + 4 KPIs + Platt banner + reliability table"
+              " (w/ TOTAL) + populated history table")
+
+        # sport=mlb must still run the SAME shared path, no exception.
+        mlb = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),
+                                default_timeout=60)
+        mlb.session_state["sport"] = "mlb"
+        mlb.run()
+        if mlb.exception:
+            prob = "\n  ".join(str(e.value) for e in mlb.exception)
+            print("CALIBRATION SMOKE TEST — FAIL (sport=mlb)")
+            print("  - mlb path raised:\n    " + prob)
+            return 1
+        print("  - sport=mlb path clean (no exception)")
+        return 0
+    finally:
+        _remove_artifacts()
 
 
 if __name__ == "__main__":

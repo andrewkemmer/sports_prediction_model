@@ -81,6 +81,8 @@ SEALED_SEASON = 2025
 
 DATE_FMT = "%Y%m%d"
 RECORD_TEMPLATE = f"nfl_moneyline_v1_{{date}}.json"
+CALIBRATION_TEMPLATE = f"nfl_calibration_{{date}}.json"
+HISTORY_TEMPLATE = f"nfl_predictions_history_{{date}}.csv"
 
 # LightGBM hyperparams (modest regularization, deterministic)
 LGB_PARAMS = {
@@ -483,6 +485,142 @@ def _platt_on(ppool: list[np.ndarray], ypool: list[np.ndarray]) -> object:
 
 
 # ---------------------------------------------------------------------------
+# Calibration + per-game history artifacts (Part-A: MLB-equivalent)
+# ---------------------------------------------------------------------------
+# Per-fold games carry the metadata the prediction-history CSV needs. The
+# decided frame's columns (game_id / season / week / gameday / teams / scores)
+# are preserved through the fold loop so a history row can be reconstructed.
+META_COLS = ["game_id", "season", "week", "gameday", "home_team",
+             "away_team", "home_score", "away_score"]
+# MLB predictions_history column contract + the calibrated twin + reference
+# columns. The frontend/mlc.favored_calibration_pts read home_win_prob_model/
+# correct (raw); the page re-applies the Platt map from the calibration
+# record's a/b for the deployed green curve.
+HISTORY_COLUMNS = [
+    "game_date", "home_team", "away_team", "home_win_prob_model",
+    "home_win_prob_model_calibrated", "away_win_prob_model", "correct",
+    "model_pick", "home_score", "away_score", "actual_winner",
+    "game_status", "game_id", "season", "week",
+]
+
+
+def reliability_buckets(y, p, bins: int = ECE_BINS) -> list[dict]:
+    """Per-bin [{bucket, mean_predicted, mean_actual, count, gap}] over
+    equal-width probability bins — MLB's ``calibration_buckets`` shape.
+    Empty bins are omitted (never fabricated points)."""
+    y = np.asarray(y, dtype=float)
+    p = np.asarray(p, dtype=float)
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    idx = np.clip(np.digitize(p, edges[1:-1]), 0, bins - 1)
+    out = []
+    for b in range(bins):
+        m = idx == b
+        if m.sum() == 0:
+            continue
+        mp = float(np.mean(p[m]))
+        ma = float(np.mean(y[m]))
+        out.append({
+            "bucket": f"{edges[b]:.0%}-{edges[b + 1]:.0%}",
+            "mean_predicted": round(mp, 4),
+            "mean_actual": round(ma, 4),
+            "count": int(m.sum()),
+            "gap": round(mp - ma, 4),
+        })
+    return out
+
+
+def _history_rows(meta: pd.DataFrame, raw, cal) -> list[dict]:
+    """One history-dict per (decided-game, prob/cal) aligned row."""
+    raw = np.asarray(raw, dtype=float)
+    cal = np.asarray(cal, dtype=float)
+    rows = []
+    for i in range(len(meta)):
+        r = meta.iloc[i]
+        home = str(r.get("home_team") or "").strip()
+        away = str(r.get("away_team") or "").strip()
+        hs = float(r["home_score"])
+        as_ = float(r["away_score"])
+        p_raw = float(raw[i])
+        p_cal = float(cal[i]) if len(cal) else p_raw
+        pick = home if p_raw >= 0.5 else away
+        winner = home if hs > as_ else away
+        gd = pd.to_datetime(r.get("gameday"), errors="coerce")
+        gd_str = gd.strftime("%Y-%m-%d") if not pd.isna(gd) else ""
+        rows.append({
+            "game_date": gd_str,
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob_model": round(p_raw, 4),
+            "home_win_prob_model_calibrated": round(p_cal, 4),
+            "away_win_prob_model": round(1.0 - p_raw, 4),
+            "correct": bool(pick == winner),
+            "model_pick": pick,
+            "home_score": hs,
+            "away_score": as_,
+            "actual_winner": winner,
+            "game_status": "Final",
+            "game_id": str(r.get("game_id") or ""),
+            "season": r.get("season"),
+            "week": r.get("week"),
+        })
+    return rows
+
+
+def build_history_frame(*, oof_meta, oof_raw, oof_cal,
+                        sealed_meta, sealed_raw, sealed_cal) -> pd.DataFrame:
+    """Per-game OOF (2021-2024) + sealed-2025 prediction history in the MLB
+    predictions_history column contract. ``raw`` = the deployed-style raw
+    blend; ``cal`` = the Platt-calibrated value the page would compute
+    (consistent with the calibration record's a/b). Sealed rows are appended
+    AFTER the OOF rows and carry their own season, so OOF rows can never be
+    influenced by sealed outcomes."""
+    rows = _history_rows(oof_meta, oof_raw, oof_cal)
+    rows += _history_rows(sealed_meta, sealed_raw, sealed_cal)
+    return pd.DataFrame(rows, columns=HISTORY_COLUMNS)
+
+
+def build_calibration(y, raw, cal, platt, bins: int = ECE_BINS) -> dict:
+    """The ``nfl_calibration_*.json`` shape — mirrors MLB ``calibration_*.json``
+    so the frontend ``_normalize_calibration``/``load_calibration`` work
+    unchanged. ``raw`` = pooled-OOF raw blend; ``cal`` = pooled-OOF
+    PREQUENTIAL per-fold calibrated values (drive metrics_calibrated +
+    calibration_buckets_calibrated); ``platt`` = the SEALED Platt map fitted
+    only on pooled pre-holdout OOF (its a/b drive the frontend's deployed
+    green curve). Every leakage guarantee is honored: 2025 appears in no
+    pre-sealed fit/calibration map."""
+    y = np.asarray(y, dtype=float)
+    raw = np.asarray(raw, dtype=float)
+    cal = np.asarray(cal, dtype=float)
+    mr = compute_metrics(y, raw)
+    mc = compute_metrics(y, cal)
+    a = b = None
+    if platt is not None:
+        a = round(float(platt.coef_[0][0]), 6)
+        b = round(float(platt.intercept_[0]), 6)
+    return {
+        "date": datetime.now().strftime(DATE_FMT),
+        "n_games": int(len(y)),
+        "trained_at": datetime.utcnow().isoformat() + "Z",
+        "metrics": {
+            "auc": mr["auc"], "brier": mr["brier"],
+            "logloss": mr["logloss"], "ece": mr["ece"],
+            "brier_calibrated": mc["brier"],
+            "logloss_calibrated": mc["logloss"],
+            "ece_calibrated": mc["ece"],
+        },
+        "calibration_buckets": reliability_buckets(y, raw, bins),
+        "calibration": {
+            "method": "platt",
+            "params": {"a": a, "b": b, "n": int(len(y))},
+            "metrics_raw": mr,
+            "metrics_calibrated": mc,
+            "calibration_buckets_calibrated": reliability_buckets(y, cal, bins),
+        },
+        "daily": [],
+    }
+
+
+# ---------------------------------------------------------------------------
 # 5-member ensemble (mirrors mlb-backend training.py::train_moneyline_ensemble)
 # ---------------------------------------------------------------------------
 def train_ensemble(train: pd.DataFrame, val: pd.DataFrame | None = None,
@@ -755,6 +893,7 @@ def run_walk_forward(feats: pd.DataFrame,
     oof_members: dict[str, list[float]] = {}
     oof_members_cal: dict[str, list[float]] = {}
     cal_pool, raw_pool, elo_pool, y_pool = [], [], [], []
+    fold_meta: list[pd.DataFrame] = []
 
     for f in folds:
         tr, va = f["train"], f["val"]
@@ -789,6 +928,8 @@ def run_walk_forward(feats: pd.DataFrame,
         raw_pool.append(blend)
         elo_pool.append(elo_p)
         y_pool.append(yva)
+        _meta = [c for c in META_COLS if c in va.columns]
+        fold_meta.append(va[_meta].reset_index(drop=True))
 
     if not y_pool:
         raise RuntimeError("no folds produced ensemble predictions")
@@ -881,6 +1022,26 @@ def run_walk_forward(feats: pd.DataFrame,
         },
     }
 
+    # ---- Part-A artifacts: per-game history + nfl_calibration record ----
+    # The OOF rows use the ADAPTIVE re-blend (deployed-style raw) aligned to
+    # y_po/cal_po order; their calibrated twin is the SEALED Platt map applied
+    # to that raw (consistent with the emitted a/b the frontend replots), and
+    # the calibration record's metrics/buckets_calibrated use the PREQUENTIAL
+    # per-fold values (cal_po) — the documented preq-vs-deployed distinction.
+    oof_meta = (pd.concat(fold_meta, ignore_index=True) if fold_meta
+                else pd.DataFrame())
+    oof_cal_deployed = (platt_predict(oof_adaptive_blend, platt_sealed)
+                        if platt_sealed is not None else oof_adaptive_blend.copy())
+    cal_history = (platt_predict(sealed_raw, platt_sealed)
+                   if platt_sealed is not None else sealed_raw.copy())
+    _sm = [c for c in META_COLS if c in sld.columns]
+    history_df = build_history_frame(
+        oof_meta=oof_meta, oof_raw=oof_adaptive_blend, oof_cal=oof_cal_deployed,
+        sealed_meta=sld[_sm].reset_index(drop=True),
+        sealed_raw=sealed_raw, sealed_cal=cal_history)
+    calibration_rec = build_calibration(y_po, oof_adaptive_blend, cal_po,
+                                        platt_sealed)
+
     verdict = adopt_decision(pooled, sealed)
     global _DEPLOYED_BUNDLE, _SEALED_PLATT
     _DEPLOYED_BUNDLE = {"models": models_sealed, "platt": platt_sealed,
@@ -904,6 +1065,8 @@ def run_walk_forward(feats: pd.DataFrame,
         "members": members_table,
         "verdict": verdict,
         "_deployed": {"features": Xcol},
+        "_history_df": history_df,
+        "_calibration": calibration_rec,
     }
 
 
@@ -1120,7 +1283,8 @@ def pull_and_run(out_dir: Path | None = None,
                             "in any pre-sealed fit or calibration map; sealed Platt "
                             "fit on pooled pre-holdout OOF only"),
             },
-            **{k: v for k, v in result.items() if k != "_deployed"},
+            **{k: v for k, v in result.items()
+               if k not in ("_deployed", "_history_df", "_calibration")},
         }
         if result["verdict"]["adopt"]:
             if slate_info is not None:
@@ -1131,9 +1295,18 @@ def pull_and_run(out_dir: Path | None = None,
         else:
             record["predictions"] = {"status": "blocked (not adopted)"}
         out_dir.mkdir(parents=True, exist_ok=True)
-        rec_path = out_dir / RECORD_TEMPLATE.format(date=datetime.now().strftime(DATE_FMT))
+        _date = datetime.now().strftime(DATE_FMT)
+        rec_path = out_dir / RECORD_TEMPLATE.format(date=_date)
         with open(rec_path, "w") as fh:
             json.dump(record, fh, indent=2)
+        # Part-A siblings: the MLB-shaped calibration record + per-game
+        # prediction history (written only when write_record is true, so a
+        # --no-record dry run touches nothing).
+        cal_path = out_dir / CALIBRATION_TEMPLATE.format(date=_date)
+        with open(cal_path, "w") as fh:
+            json.dump(result["_calibration"], fh, indent=2)
+        hist_path = out_dir / HISTORY_TEMPLATE.format(date=_date)
+        result["_history_df"].to_csv(hist_path, index=False)
         result["record"] = str(rec_path)
         result["games_written"] = bool(result["verdict"]["adopt"] and slate_info
                                         and slate_info.get("n_games"))

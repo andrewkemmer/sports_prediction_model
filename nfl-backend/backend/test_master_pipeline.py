@@ -69,6 +69,22 @@ class TestBoardBackedRecords(unittest.TestCase):
                              name)
             self.assertTrue(_board_backed_keep(rel, board))
 
+    def test_calibration_and_history_families_board_backed(self):
+        """The MLB-equivalent Part-A siblings (nfl_calibration_* /
+        nfl_predictions_history_*) are board-backed exactly like the moneyline
+        / feature records — a board date never loses the curve/history that
+        renders it."""
+        board = {"20260909"}
+        for name in ("nfl_calibration_20260909.json",
+                     "nfl_predictions_history_20260909.csv"):
+            rel = f"{DD}/{name}"
+            self.assertEqual(classify_stale(rel, EMPTY, board, EMPTY), "keep")
+            self.assertTrue(_board_backed_keep(rel, board))
+        # ... and pruned when their date has no board
+        rel = f"{DD}/nfl_calibration_20260830.json"
+        self.assertEqual(classify_stale(rel, EMPTY, board, EMPTY), "stale")
+        self.assertFalse(_board_backed_keep(rel, board))
+
     def test_record_pruned_when_date_has_no_board(self):
         """A record whose filename date has no board is stale (the reverse
         direction is explicitly allowed), unless the retention window keeps it."""

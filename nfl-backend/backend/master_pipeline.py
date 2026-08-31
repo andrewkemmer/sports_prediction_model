@@ -404,9 +404,15 @@ _PROTECTED_DELIVERY_PREFIXES = (
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their
-# filename date still renders a board (see classify_stale). Everything else
-# dated (monitor/calibration-like files) stays on the plain retention window.
-_BOARD_BACKED_RECORD_PREFIXES = ("nfl_moneyline_v1_", "nfl_feature_v1_")
+# filename date still renders a board (see classify_stale). The moneyline /
+# feature records AND the MLB-equivalent calibration + per-game history
+# artifacts (Part-A siblings) are treated identically — a board date never
+# loses the calibration/metrics/curve that renders it. Everything else dated
+# (monitor/calibration-like files) stays on the plain retention window.
+_BOARD_BACKED_RECORD_PREFIXES = (
+    "nfl_moneyline_v1_", "nfl_feature_v1_", "nfl_calibration_",
+    "nfl_predictions_history_",
+)
 
 
 # ---------------------------------------------------------------------------

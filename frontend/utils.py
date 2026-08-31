@@ -451,84 +451,146 @@ def _reconcile_board_finals(df: pd.DataFrame,
 # Artifact loading (GitHub raw -> local committed-artifact fallback)
 # ---------------------------------------------------------------------------
 
-def _raw_url(relpath: str, owner: str, repo: str, branch: str) -> str:
-    """Return the raw.githubusercontent.com URL that _fetch_bytes would try."""
+def _data_dir(sport=None) -> Path:
+    """The active sport's ``data_delivery`` dir (resolved via the registry),
+    so loaders read the RIGHT sport's artifacts regardless of sport."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    return REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery"
+
+
+def _raw_url(relpath: str, owner: str, repo: str, branch: str, sport=None) -> str:
+    """Return the raw.githubusercontent.com URL that _fetch_bytes would try,
+    using the active sport's repo subdir."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    subdir = resolve_sport(s)["repo_subdir"]
     if owner and repo:
         return (f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
-                f"/{REPO_SUBDIR}/data_delivery/{relpath}")
-    return f"<local:{LOCAL_DATA_DIR / relpath}>"
+                f"/{subdir}/data_delivery/{relpath}")
+    return f"<local:{_data_dir(s) / relpath}>"
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str):
-    """Fetch one artifact. Returns (bytes | None, source)."""
+def _fetch_bytes_cached(relpath: str, sport: str, owner: str, repo: str,
+                        branch: str):
+    """Fetch one artifact for a SPECIFIED sport (sport is in the cache key)."""
+    s = normalize_sport_key(sport)
+    subdir = resolve_sport(s)["repo_subdir"]
+    dd = REPO_ROOT / subdir / "data_delivery"
     if owner and repo:
-        url = _raw_url(relpath, owner, repo, branch)
+        url = (f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
+               f"/{subdir}/data_delivery/{relpath}")
         try:
             resp = requests.get(url, timeout=15)
             if resp.ok:
                 return resp.content, "github"
         except requests.RequestException:
             pass
-    local = LOCAL_DATA_DIR / relpath
+    local = dd / relpath
     if local.exists():
         return local.read_bytes(), "local"
     return None, "missing"
 
 
+def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str,
+                 sport=None):
+    """Fetch one artifact for the active sport (or ``sport`` when given).
+    Returns (bytes | None, source); the sport is resolved here and forwarded
+    to the cached impl so the cache key is sport-specific."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    return _fetch_bytes_cached(relpath, s, owner, repo, branch)
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def available_dates(owner: str, repo: str, branch: str) -> list[str]:
-    """All artifact dates (YYYYMMDD), newest first, from GitHub API or local dir."""
+def available_dates(owner: str, repo: str, branch: str,
+                    sport=None) -> list[str]:
+    """All artifact dates (YYYYMMDD), newest first, for the ACTIVE sport.
+    Resolves the sport here and delegates to the sport-keyed cached impl so
+    MLB and NFL date sets never collide in the cache."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    return _available_dates_cached(s, owner, repo, branch)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _available_dates_cached(sport: str, owner: str, repo: str,
+                            branch: str) -> list[str]:
+    """Per-sport artifact dates (cache key includes ``sport``):
+    MLB enumerates todays_games_*.csv + merges calibration ``daily`` and
+    prediction-history game dates; NFL enumerates the dated moneyline /
+    calibration / prediction-history families."""
+    s = normalize_sport_key(sport)
+    subdir = resolve_sport(s)["repo_subdir"]
+    dd_dir = REPO_ROOT / subdir / "data_delivery"
     dates: set[str] = set()
+
+    if s == "mlb":
+        if owner and repo:
+            try:
+                api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
+                       f"/{subdir}/data_delivery")
+                resp = requests.get(api, timeout=15)
+                if resp.ok:
+                    for item in resp.json():
+                        name = item.get("name", "")
+                        if name.startswith("todays_games_") and name.endswith(".csv"):
+                            dates.add(name[len("todays_games_"):-len(".csv")])
+            except requests.RequestException:
+                pass
+        for p in dd_dir.glob("todays_games_*.csv"):
+            dates.add(p.name[len("todays_games_"):-len(".csv")])
+
+        # Merge walk-forward calibration days so history stays selectable even
+        # when only one todays_games snapshot exists in the repo.
+        if dates:
+            try:
+                cal_bytes, _ = _fetch_bytes(
+                    f"calibration_{max(dates)}.json",
+                    owner=owner, repo=repo, branch=branch, sport="mlb")
+                if cal_bytes:
+                    for entry in json.loads(cal_bytes).get("daily", []):
+                        d = str(entry.get("date", ""))
+                        if len(d) == 8 and d.isdigit():
+                            dates.add(d)
+            except (ValueError, TypeError, KeyError):
+                pass
+        # Merge per-game prediction-history dates so ANY past date that has
+        # predictions is navigable on Today's Games.
+        if dates:
+            try:
+                hist_bytes, _ = _fetch_bytes(
+                    f"predictions_history_{max(dates)}.csv",
+                    owner=owner, repo=repo, branch=branch, sport="mlb")
+                if hist_bytes:
+                    hist = pd.read_csv(io.BytesIO(hist_bytes), usecols=["game_date"])
+                    for d in hist["game_date"].dropna().astype(str):
+                        d = d.replace("-", "")
+                        if len(d) == 8 and d.isdigit():
+                            dates.add(d)
+            except (ValueError, TypeError, KeyError, pd.errors.EmptyDataError):
+                pass
+        return sorted(dates, reverse=True)
+
+    # NFL: the named dated families the calibration/history page depends on.
+    prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
+                ("nfl_predictions_history_", ".csv")]
     if owner and repo:
         try:
             api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
-                   f"/{REPO_SUBDIR}/data_delivery")
+                   f"/{subdir}/data_delivery")
             resp = requests.get(api, timeout=15)
             if resp.ok:
                 for item in resp.json():
                     name = item.get("name", "")
-                    if name.startswith("todays_games_") and name.endswith(".csv"):
-                        dates.add(name[len("todays_games_"):-len(".csv")])
+                    for pfx, ext in prefixes:
+                        if name.startswith(pfx) and name.endswith(ext):
+                            core = name[len(pfx):-len(ext)]
+                            if len(core) == 8 and core.isdigit():
+                                dates.add(core)
+                            break
         except requests.RequestException:
             pass
-    for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
-        dates.add(p.name[len("todays_games_"):-len(".csv")])
-
-    # Merge walk-forward calibration days so history stays selectable even
-    # when only one todays_games snapshot exists in the repo.
-    if dates:
-        try:
-            cal_bytes, _ = _fetch_bytes(
-                f"calibration_{max(dates)}.json",
-                owner=owner, repo=repo, branch=branch,
-            )
-            if cal_bytes:
-                for entry in json.loads(cal_bytes).get("daily", []):
-                    d = str(entry.get("date", ""))
-                    if len(d) == 8 and d.isdigit():
-                        dates.add(d)
-        except (ValueError, TypeError, KeyError):
-            pass
-
-    # Merge per-game prediction-history dates so ANY past date that has
-    # predictions is navigable on Today's Games — even when its full card
-    # artifact was never pushed or has been pruned.
-    if dates:
-        try:
-            hist_bytes, _ = _fetch_bytes(
-                f"predictions_history_{max(dates)}.csv",
-                owner=owner, repo=repo, branch=branch,
-            )
-            if hist_bytes:
-                hist = pd.read_csv(io.BytesIO(hist_bytes), usecols=["game_date"])
-                for d in hist["game_date"].dropna().astype(str):
-                    d = d.replace("-", "")
-                    if len(d) == 8 and d.isdigit():
-                        dates.add(d)
-        except (ValueError, TypeError, KeyError, pd.errors.EmptyDataError):
-            pass
-
+    for pfx, ext in prefixes:
+        for p in dd_dir.glob(f"{pfx}*{ext}"):
+            dates.update(_stamp_suffixes(p))
     return sorted(dates, reverse=True)
 
 
@@ -1005,11 +1067,14 @@ def load_prediction_history(date_str: str,
                             sport: str | None = None) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table).
 
-    MLB artifact family; other sports return an empty frame."""
-    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
-        return pd.DataFrame()
+    Sport-dispatched: MLB reads ``predictions_history_*.csv``; NFL reads
+    ``nfl_predictions_history_*.csv``. Both carry the same per-game contract
+    (home_win_prob_model / correct / actual_winner / game_status ...)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix = "predictions_history" if s == "mlb" else "nfl_predictions_history"
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"predictions_history_{_pick_date(date_str)}.csv", **cfg)
+    data, src = _fetch_bytes(f"{prefix}_{_pick_date(date_str)}.csv",
+                             **cfg, sport=s)
     st.session_state["data_source"] = src
     if data is None:
         return pd.DataFrame()
@@ -1107,18 +1172,57 @@ def load_rl_calibration() -> dict:
 
 def load_calibration(date_str: str, use_daily: bool = True,
                       sport: str | None = None) -> dict:
-    if normalize_sport_key(sport if sport is not None else get_sport()) != "mlb":
-        return {}
+    """The latest Calibration record for the active sport.
+
+    Sport-dispatched: MLB ``calibration_*.json``; NFL ``nfl_calibration_*.json``
+    (identical shape, so the shared page renders both with one code path)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix = "calibration" if s == "mlb" else "nfl_calibration"
     cfg = get_source_config()
-    picked = _pick_artifact_date(date_str, "calibration")
-    data, src = _fetch_bytes(f"calibration_{picked}.json", **cfg)
+    picked = _pick_artifact_date(date_str, prefix)
+    data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
     st.session_state["data_source"] = src
     if data is None:
         return {}
-    return _normalize_calibration(json.loads(data), picked, use_daily=use_daily)
+    return _normalize_calibration(json.loads(data), picked,
+                                  use_daily=use_daily, sport=s)
 
 
-def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True) -> dict:
+def _correct_bool(v) -> bool:
+    """Coerce a history ``correct`` cell (True/False/1/0 strings) to bool."""
+    return str(v).strip().lower() in ("true", "1", "1.0", "yes")
+
+
+def _record_from_history(hist: pd.DataFrame) -> dict | None:
+    """Today's-record from a decided per-game prediction history: every row
+    is a real predicted-vs-actual game that counts toward the summary card.
+    None when there is no usable history (page then keeps its defaults)."""
+    if hist is None or hist.empty or "correct" not in hist.columns:
+        return None
+    ok = hist["correct"].map(_correct_bool)
+    completed = int(len(ok))
+    wins = int(ok.sum())
+    return {"wins": wins, "losses": completed - wins, "completed": completed}
+
+
+def _upsets_from_history(hist: pd.DataFrame) -> list[dict]:
+    """Upsets from a decided history: a game where the winner's model
+    probability <= UPSET_PROB_THRESHOLD (the same rule the board path uses)."""
+    if hist is None or hist.empty:
+        return []
+    ph = pd.to_numeric(hist.get("home_win_prob_model"), errors="coerce")
+    winner, home = hist.get("actual_winner"), hist.get("home_team")
+    if ph is None or winner is None or home is None:
+        return []
+    is_home_w = (winner.astype(str) == home.astype(str))
+    prob = ph.where(is_home_w, 1.0 - ph)
+    up = hist[prob.notna() & (prob <= UPSET_PROB_THRESHOLD)]
+    return [{"team": str(r["actual_winner"]), "prob": float(prob.loc[i])}
+            for i, r in up.iterrows()]
+
+
+def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
+                           sport: str | None = None) -> dict:
     """Map the pipeline's calibration JSON onto the Calibration page's schema.
 
     Pipeline emits:  metrics{auc,brier,logloss,ece}, calibration_buckets[],
@@ -1173,7 +1277,20 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True) -> 
             for b in curve
         ]
 
-    # Today's Record + upsets derive from the games CSV (has real outcomes).
+    # Today's Record + upsets. MLB derives them from the day's board CSV
+    # (real outcomes). NFL's 2026 season is scheduled ahead (no decided board),
+    # so the summary card instead derives a real predicted-vs-actual record
+    # from the DECIDED OOF/sealed prediction history — never empty.
+    if normalize_sport_key(sport if sport is not None else get_sport()) == "nfl":
+        hist = load_prediction_history(date_str, sport="nfl")
+        rec = _record_from_history(hist)
+        if rec:
+            cal["today_record"] = rec
+        ups = _upsets_from_history(hist)
+        if ups:
+            cal["upsets"] = ups
+        return cal
+
     try:
         games = load_todays_games(date_str)
     except Exception:
