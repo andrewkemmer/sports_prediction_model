@@ -26,8 +26,12 @@ Discipline (MLB retrospective):
   a Platt map fitted only on pre-holdout OOF (2021-2024 pooled).
 - Baselines to beat (sealed): (a) constant home-edge (NFL home win rate),
   (b) elo-only logistic (cheapest signal). ADOPT requires the model to beat
-  BOTH on the SEALED window in logloss AND AUC with a sane ECE. A pooled-gain
-  / sealed-loss inversion means DON'T ADOPT.
+  BOTH on the SEALED window in logloss AND AUC. Expected calibration error
+  (ECE) is TRACKED as a secondary metric — reported in the tables and record,
+  with an ADVISORY alert when it crosses ECE_MAX — but it is deliberately NOT
+  an adoption blocker (policy 2026-09-01: discrimination is the adoption
+  criterion; ECE is measured, reported, and monitored, never gating). A
+  pooled-gain / sealed-loss inversion means DON'T ADOPT.
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
@@ -114,7 +118,12 @@ NUM_BOOST_ROUND = 300
 EARLY_STOPPING = 30
 
 ECE_BINS = 10
-ECE_MAX = 0.08          # "sane" calibration bar for adoption
+# Advisory calibration alert threshold — NOT an adoption blocker (policy
+# 2026-09-01). A breach is reported (ece_advisory=True + advisory reason) and
+# monitored; adoption is decided on sealed discrimination (logloss + AUC)
+# only. The 0.08 value is the original (2026-08-29) "sane" bar, kept as the
+# alert level.
+ECE_MAX = 0.08
 PROB_EPS = 1e-6
 
 # ---------------------------------------------------------------------------
@@ -1142,8 +1151,11 @@ def run_walk_forward(feats: pd.DataFrame,
 
 def adopt_decision(pooled: dict, sealed: dict) -> dict:
     """ADOPT only if the calibrated model beats BOTH baselines on the SEALED
-    window in both logloss and AUC, with sane ECE. A pooled-gain/sealed-loss
-    inversion -> DON'T ADOPT (the pattern every MLB gate hit)."""
+    window in both logloss and AUC. ECE is a SECONDARY metric: reported here
+    (sane_ece) and flagged ece_advisory when above ECE_MAX, but it never
+    blocks adoption (policy 2026-09-01 — discrimination is the criterion;
+    ECE is monitored, not gating). A pooled-gain/sealed-loss inversion ->
+    DON'T ADOPT."""
     m_ll = sealed["model_platt"]["logloss"]
     m_auc = sealed["model_platt"]["auc"]
     m_ece = sealed["model_platt"]["ece"]
@@ -1155,6 +1167,7 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
     beats_elo = (m_ll < elo_ll) and (m_auc > elo_auc)
     beats_const = (m_ll < c_ll) and (m_auc > c_auc)
     sane_ece = m_ece <= ECE_MAX
+    ece_advisory = not sane_ece
 
     # pooled-vs-sealed inversion warning (informational unless sealed fails)
     pm_ll = pooled["model_platt"]["logloss"]
@@ -1163,7 +1176,8 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
     pooled_wing = pm_ll < min(pe_ll, pc_ll)
     sealed_wing = m_ll < min(elo_ll, c_ll)
 
-    adopt = bool(beats_elo and beats_const and sane_ece)
+    # ECE is deliberately NOT part of the adopt chain — discrimination only.
+    adopt = bool(beats_elo and beats_const)
     reasons = []
     if not beats_elo:
         reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
@@ -1171,8 +1185,9 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
     if not beats_const:
         reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
                        f"than constant home-edge ({c_ll} / {c_auc})")
-    if not sane_ece:
-        reasons.append(f"sealed ECE {m_ece} > {ECE_MAX} (not sane)")
+    if ece_advisory:
+        reasons.append(f"sealed ECE {m_ece} above {ECE_MAX} "
+                       f"(advisory — monitored, not blocking)")
     if not adopt and (pooled_wing and not sealed_wing):
         reasons.append("pooled-gain / sealed-loss inversion -> DON'T ADOPT")
     elif adopt and (sealed_wing and not pooled_wing):
@@ -1183,6 +1198,7 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
         "sealed_beats_elo": bool(beats_elo),
         "sealed_beats_constant": bool(beats_const),
         "sane_ece": bool(sane_ece),
+        "ece_advisory": bool(ece_advisory),
         "pooled_gain_sealed_loss_inversion": bool(pooled_wing and not sealed_wing),
         "reasons": reasons,
     }

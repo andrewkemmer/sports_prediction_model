@@ -267,7 +267,53 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertFalse(v["adopt"])
         self.assertFalse(v["sealed_beats_elo"])
 
-    def test_no_adopt_when_ece_too_high(self):
+    def test_adopt_with_ece_advisory_when_ece_above_threshold(self):
+        """ECE is no longer an adoption blocker: better sealed ll/AUC with ECE
+        above ECE_MAX (0.081 > 0.08) still ADOPTS, with the advisory flag set
+        and an advisory (non-blocking) reason — ECE stays reported/metrics."""
+        pooled = {
+            "model_platt": {"logloss": 0.55, "auc": 0.62},
+            "elo_logistic": {"logloss": 0.60},
+            "constant_home_edge": {"logloss": 0.65},
+        }
+        sealed = {
+            "model_platt": {"logloss": 0.54, "auc": 0.63, "ece": 0.081},
+            "elo_logistic": {"logloss": 0.61, "auc": 0.58},
+            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
+        }
+        v = adopt_decision(pooled, sealed)
+        self.assertTrue(v["adopt"])
+        self.assertTrue(v["sealed_beats_elo"])
+        self.assertTrue(v["sealed_beats_constant"])
+        self.assertFalse(v["sane_ece"])           # ECE still reported/crosses
+        self.assertTrue(v["ece_advisory"])         # ...but only flagged, not blocking
+        advisory = [r for r in v["reasons"] if "advisory" in r]
+        self.assertEqual(len(advisory), 1)
+        self.assertIn("0.081 above 0.08", advisory[0])
+        self.assertFalse(any("not both better" in r for r in v["reasons"]))
+
+    def test_no_adopt_when_discrimination_fails_despite_sane_ece(self):
+        """Discrimination failures STILL block exactly as before — a sane ECE
+        never rescues a model that loses sealed logloss/AUC to a baseline."""
+        pooled = {
+            "model_platt": {"logloss": 0.55, "auc": 0.62},
+            "elo_logistic": {"logloss": 0.58},
+            "constant_home_edge": {"logloss": 0.65},
+        }
+        sealed = {
+            "model_platt": {"logloss": 0.62, "auc": 0.56, "ece": 0.04},
+            "elo_logistic": {"logloss": 0.60, "auc": 0.58},
+            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
+        }
+        v = adopt_decision(pooled, sealed)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["sealed_beats_elo"])
+        self.assertTrue(v["sane_ece"])
+        self.assertFalse(v["ece_advisory"])
+
+    def test_ece_tracked_but_not_blocking_at_high_ece(self):
+        """Even a far-over-threshold ECE (0.15) never blocks adoption when
+        discrimination wins; the advisory reason still names the breach."""
         pooled = {
             "model_platt": {"logloss": 0.55, "auc": 0.62},
             "elo_logistic": {"logloss": 0.60},
@@ -279,8 +325,18 @@ class TestAdoptDecision(unittest.TestCase):
             "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
         }
         v = adopt_decision(pooled, sealed)
-        self.assertFalse(v["adopt"])
+        self.assertTrue(v["adopt"])
+        self.assertTrue(v["ece_advisory"])
         self.assertFalse(v["sane_ece"])
+        blocking = [r for r in v["reasons"]
+                    if "not both better" in r or "inversion" in r]
+        self.assertEqual(blocking, [])
+
+    def test_ece_constants_remain_defined(self):
+        """ECE_BINS/ECE_MAX survive as the monitoring/alert configuration."""
+        from nfl_moneyline import ECE_BINS, ECE_MAX
+        self.assertEqual(ECE_BINS, 10)
+        self.assertEqual(ECE_MAX, 0.08)
 
     def test_inversion_flag_when_pooled_wins_sealed_loses(self):
         """Pooled-gain / sealed-loss inversion should set the flag."""
