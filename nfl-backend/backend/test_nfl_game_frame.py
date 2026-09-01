@@ -9,10 +9,10 @@ Artifact tests read the real ``data_delivery/nfl_game_level_features.csv``
 (like mlb-backend's test_frames_canonical reads game_level_features.csv):
 per-season decided counts must match the spike (267/269/285/284/285/285 for
 2019-2024) PLUS 2025 = 285 (the model's sealed hold-out; 1,960 decided games
-2019-2025), 0 duplicate game_ids, 0 missing scores, and a spot-check of a
-known game's score + spread-line sign (2019 W1 KC@JAX: 40-26 per ESPN;
-spread -3.5 = away favorite per the nflverse schedules dictionary — positive
-= home favored, negative = away favored).
+2019-2025), 0 duplicate game_ids, 0 missing scores, a spot-check of a
+known game's score (2019 W1 KC@JAX: 40-26 per ESPN), and — per the
+market-independence policy — the frame carries ZERO market/odds columns
+(no spread_line / total_line / moneylines, dropped at load).
 
 The CSV is a generated artifact (not committed per project guardrails), so
 the artifact tests skip gracefully when it is absent (fresh clone); they run
@@ -153,22 +153,24 @@ class TestRealArtifact(unittest.TestCase):
         self.assertEqual(int(self.df["game_id"].duplicated().sum()), 0)
         self.assertEqual(int(self.df[["away_score", "home_score"]].isna().any(axis=1).sum()), 0)
 
-    def test_spot_check_known_game_score_and_spread_sign(self):
-        """2019 W1 KC@JAX: 40-26 (ESPN-verified) with spread -3.5 — per the
-        nflverse schedules dictionary a NEGATIVE spread means the AWAY team
-        was favored (KC). GB@CHI +3.5 is the mirror case: POSITIVE = HOME
-        team favored (CHI)."""
+    def test_spot_check_known_game_scores(self):
+        """2019 W1 KC@JAX: 40-26 and GB@CHI: 10-3 (ESPN-verified)."""
         g = self.df[self.df["game_id"] == "2019_01_KC_JAX"]
         self.assertEqual(len(g), 1)
         self.assertEqual(int(g["away_score"].iloc[0]), 40)
         self.assertEqual(int(g["home_score"].iloc[0]), 26)
-        self.assertEqual(float(g["spread_line"].iloc[0]), -3.5)
 
         c = self.df[self.df["game_id"] == "2019_01_GB_CHI"]
         self.assertEqual(len(c), 1)
         self.assertEqual(int(c["away_score"].iloc[0]), 10)
         self.assertEqual(int(c["home_score"].iloc[0]), 3)
-        self.assertEqual(float(c["spread_line"].iloc[0]), 3.5)
+
+    def test_frame_contains_zero_market_columns(self):
+        """Market-independence policy: the decided frame carries NO market/
+        odds columns — not even the nflverse closing lines."""
+        for col in ("spread_line", "total_line", "home_moneyline",
+                    "away_moneyline"):
+            self.assertNotIn(col, self.df.columns)
 
     def test_season_range_covers_defaults(self):
         self.assertEqual(sorted(self.df["season"].unique()), DEFAULT_SEASONS)

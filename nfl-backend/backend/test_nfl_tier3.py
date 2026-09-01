@@ -1,10 +1,11 @@
-"""Tier-3 (market de-vig / officials / roster) candidate + harness tests.
+"""Tier-3 (officials / roster) candidate + harness tests.
 
-Covers the five v5 candidates composed by ``nfl_features``:
-market_home_implied (no-vig closing-moneyline de-vig), ref_pen_tend and
+Covers the v5 candidates composed by ``nfl_features``: ref_pen_tend and
 ref_pace (strictly-prior head-referee crew tendencies), and roster_age_diff /
 roster_exp_diff (pre-season team means from the committed snapshot CSV), plus
-the run_tier3_ablation.py arm composition.
+the run_tier3_ablation.py arm composition. MARKET-INDEPENDENCE: the former
+market de-vig candidate was deleted, and every test asserts it stays absent
+from composed frames, slate frames, FEATURE_COLUMNS, and harness arms.
 
 Run: python -m unittest test_nfl_tier3 -v   (no network needed)
 """
@@ -16,8 +17,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from nfl_features import (_american_implied, _compose_market_candidates,
-                          _compose_officials_candidates,
+from nfl_features import (_compose_officials_candidates,
                           _compose_roster_candidates, build_features,
                           build_slate_features)
 from run_tier1_ablation import WITHOUT_FEATURES
@@ -32,49 +32,6 @@ def _synth(rows: list[dict]) -> pd.DataFrame:
                    home_team=None, away_team=None, home_score=None,
                    away_score=None, roof="outdoors")
     return pd.DataFrame([{**default, **r} for r in rows])
-
-
-class TestMarket(unittest.TestCase):
-    def test_american_implied_arithmetic(self):
-        s = _american_implied(pd.Series([-180.0, 150.0, -110.0, 100.0]))
-        self.assertAlmostEqual(s.iloc[0], 180 / 280, places=6)
-        self.assertAlmostEqual(s.iloc[1], 100 / 250, places=6)
-        self.assertAlmostEqual(s.iloc[2], 110 / 210, places=6)
-        self.assertAlmostEqual(s.iloc[3], 100 / 200, places=6)
-
-    def test_no_vig_normalization(self):
-        df = pd.DataFrame({"game_id": ["g1", "g2", "g3"],
-                           "home_moneyline": [-180.0, -110.0, 250.0],
-                           "away_moneyline": [150.0, -110.0, -400.0]})
-        out = _compose_market_candidates(df.copy(), None)
-        ph, pa = 180 / 280, 100 / 250
-        self.assertAlmostEqual(out["market_home_implied"].iloc[0],
-                               ph / (ph + pa), places=6)
-        # Vig-free pair -> exactly the fair-odds implied prob (0.5).
-        self.assertAlmostEqual(out["market_home_implied"].iloc[1], 0.5, places=9)
-
-    def test_both_odds_positive_symmetric(self):
-        df = pd.DataFrame({"game_id": ["g1", "g2"],
-                           "home_moneyline": [150.0, 300.0],
-                           "away_moneyline": [150.0, 120.0]})
-        out = _compose_market_candidates(df.copy(), None)
-        self.assertAlmostEqual(out["market_home_implied"].iloc[0], 0.5, places=9)
-        ph, pa = 100 / 400, 100 / 220
-        self.assertAlmostEqual(out["market_home_implied"].iloc[1],
-                               ph / (ph + pa), places=6)
-
-    def test_missing_side_is_nan(self):
-        df = pd.DataFrame({"game_id": ["g1"], "home_moneyline": [-180.0],
-                           "away_moneyline": [np.nan]})
-        out = _compose_market_candidates(df.copy(), None)
-        self.assertTrue(pd.isna(out["market_home_implied"].iloc[0]))
-
-    def test_merge_from_schedule(self):
-        sched = pd.DataFrame({"game_id": ["g1"], "home_moneyline": [-180.0],
-                              "away_moneyline": [150.0]})
-        out = _compose_market_candidates(
-            pd.DataFrame({"game_id": ["g1"]}), sched)
-        self.assertFalse(pd.isna(out["market_home_implied"].iloc[0]))
 
 
 class TestOfficials(unittest.TestCase):
@@ -189,10 +146,12 @@ class TestEndToEnd(unittest.TestCase):
             "penalty": [1, 0], "penalty_yards": [10, 0],
             "penalty_team": ["JAX", "KC"]})
         feats = build_features(decided, schedule, pbp)
-        for col in ("market_home_implied", "ref_pen_tend", "ref_pace",
+        # market-independence: market_home_implied must NEVER be composed,
+        # even when the schedule carries closing moneylines.
+        self.assertNotIn("market_home_implied", feats.columns)
+        for col in ("ref_pen_tend", "ref_pace",
                     "roster_age_diff", "roster_exp_diff"):
             self.assertIn(col, feats.columns)
-        self.assertFalse(pd.isna(feats["market_home_implied"].iloc[0]))
         # JAX/KC both have no prior (team, crew) history -> honest NaN.
         self.assertTrue(pd.isna(feats["ref_pen_tend"].iloc[0]))
         self.assertFalse(pd.isna(feats["roster_exp_diff"].iloc[0]))
@@ -213,37 +172,42 @@ class TestEndToEnd(unittest.TestCase):
             schedule, None, _synth([]), slate_season=2026)
         self.assertEqual(len(slate), 1)
         row = slate.iloc[0]
-        for col in ("market_home_implied", "ref_pen_tend", "ref_pace",
+        # market-independence: the slate frame must carry ZERO market/odds
+        # columns, even when the schedule provides moneylines.
+        for col in ("market_home_implied", "home_moneyline", "away_moneyline",
+                    "spread_line", "total_line"):
+            self.assertNotIn(col, slate.columns)
+        for col in ("ref_pen_tend", "ref_pace",
                     "roster_age_diff", "roster_exp_diff"):
             self.assertIn(col, slate.columns)
         # 2026 roster snapshot present -> roster facts fill; no referee yet
-        # -> OFF facts are NaN; moneyline known -> market fills.
+        # -> OFF facts are NaN.
         self.assertFalse(pd.isna(row["roster_exp_diff"]))
         self.assertTrue(pd.isna(row["ref_pen_tend"]))
-        ph, pa = 185 / 285, 100 / 260
-        self.assertAlmostEqual(row["market_home_implied"], ph / (ph + pa),
-                               places=6)
 
 
 class TestHarnessArms(unittest.TestCase):
     def _feats(self):
         cols = (WITHOUT_FEATURES + VENUE_3_FEATURES
-                + ["market_home_implied", "ref_pen_tend", "ref_pace",
+                + ["ref_pen_tend", "ref_pace",
                    "roster_age_diff", "roster_exp_diff", "home_win"])
         return pd.DataFrame({c: [1.0] * 3 for c in cols})
 
-    def test_arms_compose_as_13_14_15_15_18(self):
+    def test_arms_compose_as_13_15_15_17(self):
         feats = self._feats()
         arms = build_arms(feats)
         self.assertEqual(len(arms["WITHOUT"]), 13)
-        self.assertEqual(len(arms["MARK"]), 14)
         self.assertEqual(len(arms["OFF"]), 15)
         self.assertEqual(len(arms["ROSTER"]), 15)
-        self.assertEqual(len(arms["ALL"]), 18)
-        self.assertEqual(set(arms["MARK"]) - set(arms["WITHOUT"]),
-                         {"market_home_implied"})
+        self.assertEqual(len(arms["ALL"]), 17)
         self.assertEqual(set(arms["ROSTER"]) - set(arms["WITHOUT"]),
                          {"roster_age_diff", "roster_exp_diff"})
+
+    def test_no_market_arm(self):
+        feats = self._feats()
+        arms = build_arms(feats)
+        for cols in arms.values():
+            self.assertNotIn("market_home_implied", cols)
 
     def test_arms_keep_only_present_columns(self):
         feats = self._feats().drop(columns=["ref_pen_tend", "ref_pace"])

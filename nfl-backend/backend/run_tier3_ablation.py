@@ -1,15 +1,16 @@
-"""Tier-3 (market de-vig / officials / roster) feature-family ablation.
+"""Tier-3 (officials / roster) feature-family ablation.
 
 Runs the SAME walk-forward + sealed-2025 machinery as the production gate
-(``nfl_moneyline.run_walk_forward``) on five arms:
+(``nfl_moneyline.run_walk_forward``) on four arms. (The former market de-vig
+family is gone — market-independence policy: no market data anywhere in the
+NFL pipeline, so no ablation arm either.)
 
   WITHOUT — the deployed 13-feature baseline (the 10 v1/v2 features admitted
             2026-08-28 plus the Tier-2 VENUE_3 slices travel_miles_diff,
             altitude_home, prime_time admitted 2026-09-01).
-  MARK    — WITHOUT + market_home_implied (no-vig closing-moneyline prob).
   OFF     — WITHOUT + ref_pen_tend, ref_pace (head-referee crew tendencies).
   ROSTER  — WITHOUT + roster_age_diff, roster_exp_diff (pre-season team means).
-  ALL     — WITHOUT + all five Tier-3 candidates.
+  ALL     — WITHOUT + all four Tier-3 candidates.
 
 The Tier-3 candidates are composed by nfl_features.build_features /
 build_slate_features but are NOT in FEATURE_COLUMNS (the deployed pool
@@ -37,8 +38,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from nfl_features import (TIER3_MARK_FEATURES, TIER3_OFF_FEATURES,
-                          TIER3_ROSTER_FEATURES)
+from nfl_features import TIER3_OFF_FEATURES, TIER3_ROSTER_FEATURES
 from run_tier1_ablation import (MEMBER_NAMES, WITHOUT_FEATURES, _frame_sha256,
                                 _member_metrics, adopt_verdict)
 from run_tier2_ablation import VENUE_3_FEATURES
@@ -69,11 +69,10 @@ def load_features(features_csv: str | None) -> pd.DataFrame:
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
     """Column lists per arm, kept only where the frame carries them."""
     without = [c for c in BASELINE_13 if c in feats.columns]
-    mark = [c for c in TIER3_MARK_FEATURES if c in feats.columns]
     off = [c for c in TIER3_OFF_FEATURES if c in feats.columns]
     roster = [c for c in TIER3_ROSTER_FEATURES if c in feats.columns]
-    return {"WITHOUT": without, "MARK": without + mark, "OFF": without + off,
-            "ROSTER": without + roster, "ALL": without + mark + off + roster}
+    return {"WITHOUT": without, "OFF": without + off,
+            "ROSTER": without + roster, "ALL": without + off + roster}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,8 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     arms = build_arms(feats)
     print(f"decided games: {len(feats)} | frame sha256: {_frame_sha256(feats)}")
     print("candidate coverage (decided frame):")
-    for name in (TIER3_MARK_FEATURES + TIER3_OFF_FEATURES
-                 + TIER3_ROSTER_FEATURES):
+    for name in (TIER3_OFF_FEATURES + TIER3_ROSTER_FEATURES):
         print(f"  {name:22s} "
               f"{100 * float(feats[name].notna().mean()):6.1f}%")
     for name, cols in arms.items():
@@ -109,15 +107,14 @@ def main(argv: list[str] | None = None) -> int:
     pooled = {n: _m(results[n]["pooled_preq_2021_2024"]["model_platt"])
               for n in arms}
 
-    pairs = [("MARK", "market de-vig alone"),
-             ("OFF", "officials slice"),
+    pairs = [("OFF", "officials slice"),
              ("ROSTER", "roster slice"),
-             ("ALL", "all 5 Tier-3 candidates")]
+             ("ALL", "all 4 Tier-3 candidates")]
     verdicts = {n: adopt_verdict(sealed["WITHOUT"], sealed[n],
                                  pooled["WITHOUT"], pooled[n])
                 for n, _ in pairs}
 
-    print("\n=== Tier-3 ablation (MARK / OFF / ROSTER / ALL vs WITHOUT) ===")
+    print("\n=== Tier-3 ablation (OFF / ROSTER / ALL vs WITHOUT) ===")
     print("arm           sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]

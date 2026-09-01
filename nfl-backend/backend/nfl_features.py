@@ -28,17 +28,17 @@ coverage rule, gated entry, no model-output-as-input"):
   ``gameday`` STRICTLY BEFORE the target game. Enforced by chronological sort
   + per-team window shift + an explicit per-team strict-monotonicity assertion
   in :func:`team_stats_ladder`.
-- No feature uses market lines, model probabilities, or later results. No
-  hand-multiplied "risk" interactions, no injury reports (not reliably final
-  12h pre-kickoff), no weather.
-
-  v5 (Tier-3): the market de-vig, referee-crew, and roster age/exp
-  candidates ARE composed by build_features/build_slate_features and,
-  apart from market_home_implied — which was admitted by the 2026-09-01
-  MARK verdict and then DELIBERATELY REVERSED BY POLICY so the model stays
-  an independent fundamentals predictor (the market is compared, not
-  consumed) — stay OUT of FEATURE_COLUMNS unless the sealed-2025 ablation
-  admits them (Tier-1/Tier-2 rule).
+- No feature uses model probabilities or later results. No hand-multiplied
+  "risk" interactions, no injury reports (not reliably final 12h
+  pre-kickoff), no weather.
+- MARKET-INDEPENDENCE POLICY (2026-09-01): no market/odds data anywhere in
+  the NFL pipeline — not in the source frame, not as a feature, not as a
+  gate arm, not on the board. The former market de-vig candidate
+  (market_home_implied) and its helpers were DELETED, not merely
+  unregistered. The v5 (Tier-3) referee-crew and roster age/exp candidates
+  ARE composed by build_features/build_slate_features but stay OUT of
+  FEATURE_COLUMNS unless a sealed-2025 ablation admits them (the
+  Tier-1/Tier-2 rule).
 
 12h-pre-kickoff availability assumption (stated): a feature counts as
 "available 12h pre-kickoff" iff it is non-null and depends only on completed
@@ -190,16 +190,13 @@ FEATURE_COLUMNS = [
 #   ewm_scoring_diff           — redundant twin of ewm_epa_play_diff
 #       (|r| 0.85).
 #   opp_adj_net_pts_diff       — redundant twin of form_diff_pts (|r| 0.91).
-#   market_home_implied        — no-vig closing-moneyline home win prob.
-#       ADMITTED by the Tier-3 MARK verdict (76002fb: sealed 0.6339/0.7121/
-#       ECE 0.0759 vs WITHOUT 0.6507/0.6817/0.0937; all five members improve
-#       sealed both axes), then DELIBERATELY REVERSED BY POLICY — the model
-#       is to remain an independent fundamentals predictor: the market line
-#       is COMPARED (the moneyline gate's market_line reference arm), never
-#       CONSUMED as a model input. Composition stays so the reference arm
-#       and run_tier3_ablation.py keep working.
-# None of these was ever removed by a SEALED-ABLATION verdict (market_home_
-# implied was admitted by one and then reversed by policy; qb_epa was
+#   market_home_implied        — NO LONGER EXISTS (DELETED 2026-09-01 under
+#       the market-independence policy: zero market data anywhere in the
+#       NFL pipeline — frame, features, gate arms, board). The de-vig
+#       candidate admitted by the Tier-3 MARK verdict (76002fb) and then
+#       policy-reverted was removed from the codebase entirely, along with
+#       its _american_implied / _compose_market_candidates helpers.
+# None of these was ever removed by a SEALED-ABLATION verdict (qb_epa was
 #   removed by the corr-pair twin verdict above): the rest were pruned at
 #   admission time by the LEGACY coverage/redundancy gate (now the opt-in
 #   GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
@@ -432,18 +429,15 @@ def _compose_venue_candidates(df: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
-# Tier-3 (v5) candidates — market de-vig / officials / roster age+experience.
+# Tier-3 (v5) candidates — officials / roster age+experience. (The former
+# market de-vig family was DELETED under the market-independence policy —
+# no market data anywhere in the NFL pipeline, so no ablation arm either.)
 #
 # Composed by build_features/build_slate_features but deliberately NOT
 # registered in FEATURE_COLUMNS / CANONICAL_SOURCE / FEATURE_PRIORITY: the
 # deployed pool changes only when a sealed-2025 ablation admits a feature
 # (Tier-1/Tier-2 rule), so run_tier3_ablation.py is the only admission path.
 #
-#   market_home_implied — no-vig home win prob from the closing home/away
-#       moneyline (100% coverage on decided seasons 2018-2025, same schedule
-#       frame). Calendar-gated on the slate: lines post ~2 weeks out, so
-#       far-future scheduled rows are NaN (default-filled) — the board
-#       sharpens near-term and degrades gracefully far-term.
 #   ref_pen_tend        — EWM (halflife=2) of penalty yards called AGAINST a
 #       team in games worked by the assigned head referee crew, strictly
 #       prior for that (team, crew) pair; home − away. Unknown referee or no
@@ -458,7 +452,6 @@ def _compose_venue_candidates(df: pd.DataFrame,
 #       season) pairs absent from the table (2018/2019 partial releases)
 #       fall back to that team's nearest available season (documented).
 # ---------------------------------------------------------------------------
-TIER3_MARK_FEATURES = ["market_home_implied"]
 TIER3_OFF_FEATURES = ["ref_pen_tend", "ref_pace"]
 TIER3_ROSTER_FEATURES = ["roster_age_diff", "roster_exp_diff"]
 
@@ -467,10 +460,11 @@ TIER3_ROSTER_FEATURES = ["roster_age_diff", "roster_exp_diff"]
 #                       0.6507/0.6817/0.0937; pooled 0.6026 corroborates; all
 #                       five members improve sealed both axes) — admitted
 #                       into FEATURE_COLUMNS (76002fb), then DELIBERATELY
-#                       REVERSED BY POLICY 2026-09-01: the model must stay
-#                       market-independent; market_home_implied is composed
-#                       only, consumed by the gate's market_line reference
-#                       arm (external benchmark), never as a model input.
+#                       REVERSED BY POLICY and DELETED 2026-09-01: the
+#                       market-independence policy forbids market data
+#                       anywhere in the pipeline, so the de-vig candidate
+#                       and helpers were removed from the codebase, not
+#                       just the pool.
 #   OFF    DON'T ADOPT (sealed 0.6578/0.6815 misses on both axes) AND
 #                       ref_pen_tend decided coverage is 84.6% — below the
 #                       95% floor (team x crew meetings are ~1/yr), so it
@@ -517,32 +511,6 @@ def _roster_fact(facts: dict, by_team: dict, team: str, season: int,
         pick = prior[-1] if prior else seasons[0]
         val = facts[(team, pick)]
     return val[0] if what == "age" else val[1]
-
-
-def _american_implied(odds: pd.Series) -> pd.Series:
-    """American odds -> implied win probability (0-1); NaN -> NaN."""
-    odds = pd.to_numeric(odds, errors="coerce").astype(float)
-    pos = odds > 0
-    prob = np.where(pos, 100.0 / (100.0 + odds), -odds / (100.0 - odds))
-    return pd.Series(np.where(odds.isna(), np.nan, prob),
-                     index=odds.index, dtype=float)
-
-
-def _compose_market_candidates(df: pd.DataFrame,
-                               schedule: pd.DataFrame | None) -> pd.DataFrame:
-    """market_home_implied — no-vig home win prob from the closing moneylines.
-    Missing side or degenerate total -> NaN (never fabricated)."""
-    for col in ("home_moneyline", "away_moneyline"):
-        if col not in df.columns and schedule is not None and col in schedule.columns:
-            sub = schedule[["game_id", col]].drop_duplicates("game_id")
-            df = df.merge(sub, on="game_id", how="left")
-        if col not in df.columns:
-            df[col] = np.nan
-    ph = _american_implied(df["home_moneyline"])
-    pa = _american_implied(df["away_moneyline"])
-    total = ph + pa
-    df["market_home_implied"] = (ph / total).where(total > 0)
-    return df
 
 
 def _compose_officials_candidates(df: pd.DataFrame,
@@ -1134,8 +1102,7 @@ def build_features(decided: pd.DataFrame,
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
     # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
     df = _compose_venue_candidates(df, schedule)
-    # --- v5 (Tier-3) candidates: market de-vig / officials / roster ---------
-    df = _compose_market_candidates(df, schedule)
+    # --- v5 (Tier-3) candidates: officials / roster (the market de-vig family was deleted — market-independence policy) ---------
     df = _compose_officials_candidates(df, schedule, team_agg)
     df = _compose_roster_candidates(df)
     return df
@@ -1157,8 +1124,9 @@ def build_slate_features(schedule: pd.DataFrame,
 
     Returns a frame with one row per scheduled game carrying every
     FEATURE_COLUMNS candidate plus the games[]-shaped fields: season, week,
-    gameday, gametime, stadium, spread_line, total_line, home_record,
-    away_record.
+    gameday, gametime, stadium, home_record, away_record. Market/odds
+    columns (spread_line, total_line, moneylines) are dropped — the slate
+    frame is market-free by policy.
     """
     full = _decided_rows(schedule)
     ev, ratings = _elo_apply(team_events(full))
@@ -1182,6 +1150,12 @@ def build_slate_features(schedule: pd.DataFrame,
     ladder = team_stats_ladder(combined, team_agg)
 
     df = sched_rows.copy()
+    # market-independence policy: the slate frame carries ZERO market/odds
+    # columns (spread_line, total_line, moneylines never leave ingestion).
+    for _mcol in ("spread_line", "total_line", "home_moneyline",
+                  "away_moneyline"):
+        if _mcol in df.columns:
+            df = df.drop(columns=_mcol)
     for col, out in (("roof", "roof"), ("temp", "temp_f"),
                      ("wind", "wind_mph"), ("div_game", "div_game")):
         if col not in df.columns and col in sched.columns:
@@ -1220,8 +1194,7 @@ def build_slate_features(schedule: pd.DataFrame,
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
     # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
     df = _compose_venue_candidates(df, sched)
-    # --- v5 (Tier-3) candidates: market de-vig / officials / roster ---------
-    df = _compose_market_candidates(df, sched)
+    # --- v5 (Tier-3) candidates: officials / roster (the market de-vig family was deleted — market-independence policy) ---------
     df = _compose_officials_candidates(df, sched, team_agg)
     df = _compose_roster_candidates(df)
 

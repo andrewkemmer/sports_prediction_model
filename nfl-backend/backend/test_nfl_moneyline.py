@@ -43,6 +43,7 @@ from nfl_moneyline import (  # noqa: E402
     compute_adaptive_weights,
     ece,
     ensemble_predict,
+    format_table,
     generate_weekly_folds,
     logloss,
     platt_fit,
@@ -81,8 +82,6 @@ def _synth_fold_frame(seasons=None, n_games_per_week=8):
                     "away_score": 17 + ((gid + 7) % 14),
                     "result": 3.0,
                     "total": 37.0,
-                    "spread_line": float((gid % 7) - 3),
-                    "total_line": 45.0,
                     "n_plays": 130,
                     "elo_diff": float((gid % 11) - 5),
                     "form_diff_pts": float((gid % 9) - 4),
@@ -301,6 +300,23 @@ class TestAdoptDecision(unittest.TestCase):
         inv_reasons = [r for r in v["reasons"] if "inversion" in r]
         self.assertTrue(len(inv_reasons) > 0)
 
+    def test_gate_tables_contain_no_market_arm(self):
+        """Market-independence policy: the gate's comparison table carries
+        exactly the four model/baseline arms and NO market-derived arm."""
+        arms = {
+            "constant_home_edge": {"logloss": 0.6909, "auc": 0.5000},
+            "elo_logistic": {"logloss": 0.6538, "auc": 0.6687},
+            "model_raw": {"logloss": 0.6142, "auc": 0.7214},
+            "model_platt": {"logloss": 0.6246, "auc": 0.7214, "ece": 0.0766},
+        }
+        self.assertNotIn("market_line", arms)
+        out = format_table("sealed_2025", arms)
+        self.assertIn("constant_home_edge", out)
+        self.assertIn("elo_logistic", out)
+        self.assertIn("model_raw", out)
+        self.assertIn("model_platt", out)
+        self.assertNotIn("market", out.lower())
+
 
 # ---------------------------------------------------------------------------
 # Ensemble construction (Part 1)
@@ -438,7 +454,6 @@ class TestGamesAdapterMapping(unittest.TestCase):
                 "game_status": "pre", "start_time_utc": "2026-09-10T00:20:00Z",
                 "venue": "Lumen Field", "model_pick": "SEA",
                 "home_record": "86-55", "away_record": "76-66",
-                "spread_line": 3.5, "total_line": 44.5,
             }]
         else:
             rec["predictions"] = {"status": "blocked (not adopted)"}
@@ -482,8 +497,6 @@ class TestGamesAdapterMapping(unittest.TestCase):
         sf = va.copy()
         sf["stadium"] = "Lumen Field"
         sf["gametime"] = "20:20"
-        sf["spread_line"] = 3.5
-        sf["total_line"] = 44.5
         sf["home_record"] = "86-55"
         sf["away_record"] = "76-66"
         lr = platt_fit(np.linspace(0.3, 0.7, 40), np.tile([1, 0], 20))
@@ -492,12 +505,15 @@ class TestGamesAdapterMapping(unittest.TestCase):
         keys = {"game_id", "game_date", "home_team", "away_team",
                 "home_win_prob", "away_win_prob", "home_score", "away_score",
                 "game_status", "start_time_utc", "venue", "model_pick",
-                "home_record", "away_record", "spread_line", "total_line"}
+                "home_record", "away_record"}
         self.assertEqual(set(games[0].keys()), keys)
         self.assertEqual(games[0]["game_status"], "pre")
         self.assertAlmostEqual(games[0]["home_win_prob"] +
                                games[0]["away_win_prob"], 1.0, places=4)
-        self.assertEqual(games[0]["spread_line"], 3.5)
+        # market-independence: games[] carries NO line/market fields.
+        for key in ("spread_line", "total_line", "home_moneyline",
+                    "away_moneyline", "market_home_implied"):
+            self.assertNotIn(key, games[0])
 
 
 # ---------------------------------------------------------------------------

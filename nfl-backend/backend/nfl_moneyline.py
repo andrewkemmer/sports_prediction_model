@@ -873,9 +873,8 @@ def _elo_logistic_p(tr: pd.DataFrame, va: pd.DataFrame,
 
 
 def _prob_metrics(y: np.ndarray, p: np.ndarray) -> dict:
-    """logloss/auc of a probability vector vs target over its NON-NULL rows
-    (the market reference arm has no training and may be NaN on rows without
-    a line). NaN when nothing to score."""
+    """logloss/auc of a probability vector vs target over its NON-NULL rows.
+    NaN when nothing to score."""
     mask = ~np.isnan(p)
     yv = np.asarray(y, dtype=float)[mask]
     pv = p[mask]
@@ -956,7 +955,7 @@ def run_walk_forward(feats: pd.DataFrame,
     order_actual, order_raw, order_elo, ws_list = [], [], [], []
     oof_members: dict[str, list[float]] = {}
     oof_members_cal: dict[str, list[float]] = {}
-    cal_pool, raw_pool, elo_pool, market_pool, y_pool = [], [], [], [], []
+    cal_pool, raw_pool, elo_pool, y_pool = [], [], [], []
     fold_meta: list[pd.DataFrame] = []
 
     for f in folds:
@@ -969,11 +968,6 @@ def run_walk_forward(feats: pd.DataFrame,
             continue
         blend, member_probs, _wts = ensemble_predict(models, va, features=Xcol)
         elo_p = _elo_logistic_p(tr, va, Xcol)
-        # market reference arm: the no-vig closing-moneyline prob, NO fitting
-        # (a pre-game fact) — reported for model-vs-market edge only.
-        market_p = (va["market_home_implied"].to_numpy(dtype=float)
-                    if "market_home_implied" in va.columns
-                    else np.full(len(va), np.nan))
 
         # nested Platt twin: fit on all STRICTLY-EARLIER folds' OOF pairs
         lr = None
@@ -996,7 +990,6 @@ def run_walk_forward(feats: pd.DataFrame,
         cal_pool.append(cal_p)
         raw_pool.append(blend)
         elo_pool.append(elo_p)
-        market_pool.append(market_p)
         y_pool.append(yva)
         _meta = [c for c in META_COLS if c in va.columns]
         fold_meta.append(va[_meta].reset_index(drop=True))
@@ -1008,13 +1001,11 @@ def run_walk_forward(feats: pd.DataFrame,
     raw_po = np.concatenate(raw_pool)
     cal_po = np.concatenate(cal_pool)
     elo_po = np.concatenate(elo_pool)
-    market_po = np.concatenate(market_pool)
 
     # constant home-edge baseline fit on pre-holdout (2019-2024) only
     const_p = preq[TARGET].mean()
 
     pooled = {
-        "market_line": _prob_metrics(y_po, market_po),
         "n": int(len(y_po)),
         "fold_count": len(folds),
         "constant_home_edge": {
@@ -1063,9 +1054,6 @@ def run_walk_forward(feats: pd.DataFrame,
     models_sealed, _ = train_ensemble(preq, None, features=Xcol)
     sealed_raw, sealed_members, _w = ensemble_predict(models_sealed, sld, features=Xcol)
     sealed_elo = _elo_logistic_p(preq, sld, Xcol)
-    sealed_market = (sld["market_home_implied"].to_numpy(dtype=float)
-                     if "market_home_implied" in sld.columns
-                     else np.full(len(sld), np.nan))
 
     # Platt twin for the sealed window: fit on the pooled pre-holdout OOF
     # re-blended with the SAME adaptive weights the deployed blend uses
@@ -1083,7 +1071,6 @@ def run_walk_forward(feats: pd.DataFrame,
 
     sealed = {
         "n": int(len(sld)),
-        "market_line": _prob_metrics(sld[TARGET].to_numpy(), sealed_market),
         "constant_home_edge": {
             "proba": round(float(const_sealed), 4),
             "logloss": round(logloss(sld[TARGET], np.full(len(sld), const_sealed)), 4),
@@ -1223,9 +1210,9 @@ def _start_utc(gameday, gametime):
 def build_games_list(slate_feats: pd.DataFrame,
                      models: dict, platt: object, features: list[str]) -> list[dict]:
     """Predict the calibrated ensemble on scheduled games and emit the
-    per-game games[] entries (the 20260830 shape: home_win_prob/away_win_prob,
-    model_pick, game_date, game_status 'pre', start_time_utc, venue,
-    home/away_record, spread_line, total_line)."""
+    per-game games[] entries (home_win_prob/away_win_prob, model_pick,
+    game_date, game_status 'pre', start_time_utc, venue, home/away_record).
+    No market fields: the board shows the model's own predictions only."""
     if slate_feats is None or slate_feats.empty:
         return []
     sf = slate_feats.copy()
@@ -1255,19 +1242,8 @@ def build_games_list(slate_feats: pd.DataFrame,
             "model_pick": home if ph >= 0.5 else away,
             "home_record": r.get("home_record") or "",
             "away_record": r.get("away_record") or "",
-            "spread_line": _nl(r.get("spread_line")),
-            "total_line": _nl(r.get("total_line")),
         })
     return games
-
-
-def _nl(v):
-    try:
-        if v is None or (isinstance(v, float) and np.isnan(v)):
-            return None
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1603,7 +1579,7 @@ def _print_report(result: dict) -> None:
 def format_table(window: str, arms: dict) -> str:
     lines = [f"\n{window}:"]
     lines.append(f"  {'arm':20s} {'logloss':>9s} {'auc':>7s} {'ece':>6s}")
-    for name in ("constant_home_edge", "elo_logistic", "market_line",
+    for name in ("constant_home_edge", "elo_logistic",
                  "model_raw", "model_platt"):
         a = arms[name]
         lines.append(f"  {name:20s} {a['logloss']:9.4f} {a['auc']:7.4f} "

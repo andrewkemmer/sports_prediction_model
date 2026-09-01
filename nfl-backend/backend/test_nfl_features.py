@@ -319,8 +319,9 @@ class TestV2TrailingLeakage(unittest.TestCase):
 class TestSlateFeatures(unittest.TestCase):
     def test_scheduled_game_uses_only_prior_decided(self):
         """A 2026 scheduled game's trailing features must come from strictly
-        prior decided games, and the games[] fields (records, venue, lines)
-        must be present."""
+        prior decided games, the games[] fields (records, venue) must be
+        present, and market/odds columns from the schedule must be DROPPED
+        (market-independence policy)."""
         rows = [
             dict(game_id="2019_01_A_B", season=2019, week=1, gameday="2019-09-08",
                  home_team="A", away_team="B", home_score=24, away_score=10,
@@ -345,8 +346,11 @@ class TestSlateFeatures(unittest.TestCase):
         self.assertEqual(row["home_record"], "2-0")
         self.assertEqual(row["away_record"], "")
         self.assertEqual(row["stadium"], "Dome")
-        self.assertEqual(row["spread_line"], 3.5)
-        self.assertEqual(row["total_line"], 45.5)
+        # market-independence: even though the schedule carried closing
+        # lines, the slate frame must NOT expose them.
+        for col in ("spread_line", "total_line", "home_moneyline",
+                    "away_moneyline"):
+            self.assertNotIn(col, slate.columns)
         # elo_diff strictly from the two prior decided games (A's rating - 1500)
         self.assertTrue(pd.notna(row["elo_diff"]))
         self.assertTrue(pd.isna(row["form_diff_pts"]))  # C never played
@@ -379,10 +383,11 @@ class TestV2Gate(unittest.TestCase):
     def test_v2_admitted_features_and_sync(self):
         """FEATURE_COLUMNS is the SERVED pool: the gated 12 + the is_home
         anchor. The legacy v2 twins pruned at admission time (never by an
-        ablation), ewm_qb_epa_play_diff (removed by the corr-pair twin
-        verdict cd3c26b), and market_home_implied (admitted by Tier-3 MARK,
-        then deliberately policy-reversed) are composed-but-unregistered —
-        they are no longer FEATURE_COLUMNS members."""
+        ablation) and ewm_qb_epa_play_diff (removed by the corr-pair twin
+        verdict cd3c26b) are composed-but-unregistered — they are no longer
+        FEATURE_COLUMNS members. market_home_implied was DELETED outright
+        (market-independence policy): it is not composed anywhere and must
+        never appear in the served pool."""
         kept = ("ewm_net_pts_diff", "ewm_ypp_diff",
                 "pace_plays_min_diff", "rest_short_diff", "div_game")
         for f in kept:

@@ -6,9 +6,15 @@ Data source
 ``nflreadpy`` v0.1+ (the official Python port of the nflverse project; the
 current standard — ``nfl_data_py`` was archived in late 2025 and is NOT used).
 ``load_schedules`` + ``load_pbp`` for a configurable season range. The nflverse
-schedule feed already carries final scores and closing betting lines per game,
-so the game-level aggregation is one clean transform; play-by-play is joined
-only for per-game play counts (``n_plays``) and game_id cross-validation.
+schedule feed already carries final scores per game, so the game-level
+aggregation is one clean transform; play-by-play is joined only for per-game
+play counts (``n_plays``) and game_id cross-validation.
+
+MARKET-INDEPENDENCE POLICY: market/odds columns from the nflverse feed
+(``spread_line``, ``total_line``, ``home_moneyline``, ``away_moneyline``) are
+DROPPED AT LOAD — they never enter the decided-game frame (nor the slate
+frame), are never model features, never gate benchmarks, and never reach the
+board. The pipeline is end-to-end market-independent by policy.
 
 Schema (one row per DECIDED game)
 ---------------------------------
@@ -23,12 +29,10 @@ Schema (one row per DECIDED game)
 ``home_score``  final home points (int, non-null = decided)
 ``result``      home margin = home_score - away_score (float; positive = home win)
 ``total``       combined final points (float)
-``spread_line`` closing spread, nflverse schedules-dictionary convention:
-                POSITIVE = home team favored, NEGATIVE = away team favored
-                (e.g. 2019_01_KC_JAX -3.5 = away KC favored; 2019_01_GB_CHI
-                +3.5 = home CHI favored)
-``total_line``  closing over/under total
 ``n_plays``     play count from play-by-play for the game (int; NaN if pbp missing)
+
+Note: the frame carries NO market/odds columns (no spread_line / total_line /
+moneylines) — market-independence policy (see module docstring).
 
 Decided-frame rules (encoded ONCE here, mirroring mlb-backend ``frames.py``):
 1. **Post-game only**: ``away_score``, ``home_score`` AND ``result`` all
@@ -81,7 +85,7 @@ DEFAULT_SEASONS = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
 GAME_LEVEL_COLUMNS = [
     "game_id", "season", "week", "game_type", "gameday",
     "away_team", "home_team", "away_score", "home_score",
-    "result", "total", "spread_line", "total_line", "n_plays",
+    "result", "total", "n_plays",
 ]
 
 DATE_FMT = "%Y%m%d"
@@ -180,11 +184,12 @@ def pull_and_build(seasons: list[int] | None = None,
                    write_artifacts: bool = True) -> dict:
     """Pull schedule + pbp for the season range, build the decided game frame,
     write ``nfl_game_level_features.csv`` (+ dated snapshot), and return a
-    validation summary dict (counts, line coverage, sha256).
+    validation summary dict (counts, sha256). Market/odds columns never enter
+    the frame (dropped at load — market-independence policy).
 
     Validation mirrors the spike's go/no-go checks: per-season decided counts,
-    missing-score rows, duplicate game_ids, betting-line coverage %, home win
-    rate, and combined points per game.
+    missing-score rows, duplicate game_ids, home win rate, and combined
+    points per game.
     """
     seasons = seasons or DEFAULT_SEASONS
     out_dir = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
@@ -204,8 +209,6 @@ def pull_and_build(seasons: list[int] | None = None,
     missing_score = int(decided[["away_score", "home_score"]].isna().any(axis=1).sum())
     raw_dup_ids = int(game["game_id"].duplicated().sum())
     dup_ids = int(decided["game_id"].duplicated().sum())
-    n_line = int(decided[["spread_line", "total_line"]].notna().all(axis=1).sum())
-    line_coverage = 100.0 * n_line / n_game if n_game else 0.0
     home_win = int((decided["home_score"] > decided["away_score"]).sum())
     home_win_rate = home_win / n_game if n_game else 0.0
     combined_ppg = (decided["home_score"].sum() + decided["away_score"].sum()) / n_game \
@@ -225,7 +228,6 @@ def pull_and_build(seasons: list[int] | None = None,
         "missing_scores": missing_score,
         "duplicate_game_ids_raw_schedule": raw_dup_ids,
         "duplicate_game_ids_decided": dup_ids,
-        "line_coverage_pct": round(line_coverage, 1),
         "home_win_rate": round(home_win_rate, 4),
         "combined_ppg": round(combined_ppg, 1),
         "per_season": per_season.to_dict("records"),
@@ -247,7 +249,6 @@ def pull_and_build(seasons: list[int] | None = None,
     print(per_season.to_string(index=False))
     print(f"missing-score rows: {missing_score}")
     print(f"duplicate game_ids (raw schedule): {raw_dup_ids} | (decided): {dup_ids}")
-    print(f"betting-line coverage: {n_line}/{n_game} = {line_coverage:.1f}%")
     print(f"home win rate: {home_win_rate:.3f} ({home_win}/{n_game})")
     print(f"combined points per game: {combined_ppg:.1f}")
     print(f"sha256: {summary['sha256']}")
