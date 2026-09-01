@@ -1,0 +1,339 @@
+{
+  "schema": "lgb-blend-ablation/v1",
+  "commit_sha": "dc56bf864747fe585446819fe7ea9566bee7fe1e",
+  "data_sha256": "b84ef340fe66b365e48fdd1a01eb29e1487f16f0d8dea5e2ec794d4a7f5c5fae",
+  "windows": 3,
+  "holdout_days": 21,
+  "folds_executed": 74,
+  "margin_coverage": 0.9767342278047388,
+  "clip_eps": 1e-07,
+  "seed": 42,
+  "lgb_current": {
+    "n_estimators": 50,
+    "max_depth": 5,
+    "num_leaves": 6,
+    "min_child_samples": 59,
+    "min_gain_to_split": 1.745,
+    "bagging_fraction": 0.556,
+    "bagging_freq": 1,
+    "feature_fraction": 0.749,
+    "learning_rate": 0.053,
+    "random_state": 42,
+    "verbose": -1
+  },
+  "lgb_tuned": {
+    "n_estimators": 50,
+    "max_depth": 8,
+    "num_leaves": 37,
+    "min_child_samples": 83,
+    "min_gain_to_split": 1.5790962151980537,
+    "bagging_fraction": 0.5153966126860083,
+    "bagging_freq": 2,
+    "feature_fraction": 0.5054180971108294,
+    "learning_rate": 0.09481182230869382,
+    "lambda_l1": 0.022357477299229024,
+    "lambda_l2": 0.0019816106771877785,
+    "random_state": 42,
+    "verbose": -1
+  },
+  "variants": {
+    "CURRENT": {
+      "pooled": {
+        "blend": {
+          "auc": 0.5657,
+          "brier": 0.2453,
+          "logloss": 0.6836,
+          "ece": 0.0042
+        },
+        "blend_calibrated": {
+          "auc": 0.5594,
+          "brier": 0.2461,
+          "logloss": 0.6854,
+          "ece": 0.0064
+        },
+        "xgboost": {
+          "auc": 0.5826,
+          "brier": 0.2433,
+          "logloss": 0.6795,
+          "ece": 0.019
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5768,
+          "brier": 0.2447,
+          "logloss": 0.6824,
+          "ece": 0.0145
+        },
+        "lightgbm": {
+          "auc": 0.554,
+          "brier": 0.248,
+          "logloss": 0.6891,
+          "ece": 0.0275
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5491,
+          "brier": 0.2475,
+          "logloss": 0.688,
+          "ece": 0.0147
+        },
+        "logistic": {
+          "auc": 0.5525,
+          "brier": 0.2513,
+          "logloss": 0.6985,
+          "ece": 0.0353
+        },
+        "logistic_calibrated": {
+          "auc": 0.5479,
+          "brier": 0.2506,
+          "logloss": 0.6969,
+          "ece": 0.0238
+        },
+        "randomforest": {
+          "auc": 0.5539,
+          "brier": 0.2466,
+          "logloss": 0.6863,
+          "ece": 0.0122
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5477,
+          "brier": 0.2472,
+          "logloss": 0.6876,
+          "ece": 0.0064
+        },
+        "mlp": {
+          "auc": 0.5342,
+          "brier": 0.2538,
+          "logloss": 0.7027,
+          "ece": 0.0526
+        },
+        "mlp_calibrated": {
+          "auc": 0.5337,
+          "brier": 0.2511,
+          "logloss": 0.6965,
+          "ece": 0.0331
+        }
+      },
+      "executed": 74,
+      "windows": {
+        "w0": {
+          "n_hold": 281,
+          "holdout": {
+            "auc": 0.6118,
+            "brier": 0.2393,
+            "logloss": 0.6715,
+            "ece": 0.0395
+          },
+          "hold_start": "2026-08-09",
+          "hold_end": "2026-08-30"
+        },
+        "w1": {
+          "n_hold": 286,
+          "holdout": {
+            "auc": 0.52,
+            "brier": 0.2496,
+            "logloss": 0.6924,
+            "ece": 0.04
+          },
+          "hold_start": "2026-07-19",
+          "hold_end": "2026-08-09"
+        },
+        "w2": {
+          "n_hold": 237,
+          "holdout": {
+            "auc": 0.6474,
+            "brier": 0.2405,
+            "logloss": 0.674,
+            "ece": 0.0844
+          },
+          "hold_start": "2026-06-28",
+          "hold_end": "2026-07-19"
+        }
+      }
+    },
+    "TUNED": {
+      "pooled": {
+        "blend": {
+          "auc": 0.5627,
+          "brier": 0.2458,
+          "logloss": 0.6846,
+          "ece": 0.0133
+        },
+        "blend_calibrated": {
+          "auc": 0.5566,
+          "brier": 0.2465,
+          "logloss": 0.686,
+          "ece": 0.0088
+        },
+        "xgboost": {
+          "auc": 0.5826,
+          "brier": 0.2433,
+          "logloss": 0.6795,
+          "ece": 0.019
+        },
+        "xgboost_calibrated": {
+          "auc": 0.5772,
+          "brier": 0.2448,
+          "logloss": 0.6826,
+          "ece": 0.0149
+        },
+        "lightgbm": {
+          "auc": 0.5422,
+          "brier": 0.2536,
+          "logloss": 0.7013,
+          "ece": 0.0668
+        },
+        "lightgbm_calibrated": {
+          "auc": 0.5389,
+          "brier": 0.2503,
+          "logloss": 0.694,
+          "ece": 0.0381
+        },
+        "logistic": {
+          "auc": 0.5525,
+          "brier": 0.2513,
+          "logloss": 0.6985,
+          "ece": 0.0353
+        },
+        "logistic_calibrated": {
+          "auc": 0.5481,
+          "brier": 0.2506,
+          "logloss": 0.6968,
+          "ece": 0.0229
+        },
+        "randomforest": {
+          "auc": 0.5539,
+          "brier": 0.2466,
+          "logloss": 0.6863,
+          "ece": 0.0122
+        },
+        "randomforest_calibrated": {
+          "auc": 0.5481,
+          "brier": 0.2472,
+          "logloss": 0.6876,
+          "ece": 0.0052
+        },
+        "mlp": {
+          "auc": 0.5342,
+          "brier": 0.2538,
+          "logloss": 0.7027,
+          "ece": 0.0526
+        },
+        "mlp_calibrated": {
+          "auc": 0.5336,
+          "brier": 0.2508,
+          "logloss": 0.6956,
+          "ece": 0.0296
+        }
+      },
+      "executed": 74,
+      "windows": {
+        "w0": {
+          "n_hold": 281,
+          "holdout": {
+            "auc": 0.6041,
+            "brier": 0.24,
+            "logloss": 0.6729,
+            "ece": 0.044
+          },
+          "hold_start": "2026-08-09",
+          "hold_end": "2026-08-30"
+        },
+        "w1": {
+          "n_hold": 286,
+          "holdout": {
+            "auc": 0.5205,
+            "brier": 0.25,
+            "logloss": 0.6933,
+            "ece": 0.0543
+          },
+          "hold_start": "2026-07-19",
+          "hold_end": "2026-08-09"
+        },
+        "w2": {
+          "n_hold": 237,
+          "holdout": {
+            "auc": 0.6421,
+            "brier": 0.2395,
+            "logloss": 0.672,
+            "ece": 0.0616
+          },
+          "hold_start": "2026-06-28",
+          "hold_end": "2026-07-19"
+        }
+      }
+    }
+  },
+  "gate": {
+    "verdict": "DON'T SHIP",
+    "pooled_current": {
+      "auc": 0.5657,
+      "brier": 0.2453,
+      "logloss": 0.6836,
+      "ece": 0.0042
+    },
+    "pooled_tuned": {
+      "auc": 0.5627,
+      "brier": 0.2458,
+      "logloss": 0.6846,
+      "ece": 0.0133
+    },
+    "wins": 0,
+    "total": 3,
+    "loss_windows": [
+      "w0",
+      "w1",
+      "w2"
+    ],
+    "windows": {
+      "w0": {
+        "verdict": "DON'T SHIP",
+        "holdout_current": {
+          "auc": 0.6118,
+          "brier": 0.2393,
+          "logloss": 0.6715,
+          "ece": 0.0395
+        },
+        "holdout_tuned": {
+          "auc": 0.6041,
+          "brier": 0.24,
+          "logloss": 0.6729,
+          "ece": 0.044
+        }
+      },
+      "w1": {
+        "verdict": "DON'T SHIP",
+        "holdout_current": {
+          "auc": 0.52,
+          "brier": 0.2496,
+          "logloss": 0.6924,
+          "ece": 0.04
+        },
+        "holdout_tuned": {
+          "auc": 0.5205,
+          "brier": 0.25,
+          "logloss": 0.6933,
+          "ece": 0.0543
+        }
+      },
+      "w2": {
+        "verdict": "DON'T SHIP",
+        "holdout_current": {
+          "auc": 0.6474,
+          "brier": 0.2405,
+          "logloss": 0.674,
+          "ece": 0.0844
+        },
+        "holdout_tuned": {
+          "auc": 0.6421,
+          "brier": 0.2395,
+          "logloss": 0.672,
+          "ece": 0.0616
+        }
+      }
+    },
+    "ece_excluded_from_verdict": true,
+    "caveats": [
+      "w0 holdout ece declined 0.0395->0.0440",
+      "w1 holdout ece declined 0.0400->0.0543"
+    ]
+  }
+}

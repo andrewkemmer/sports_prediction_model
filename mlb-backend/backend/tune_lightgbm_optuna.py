@@ -85,6 +85,7 @@ import argparse
 import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -164,9 +165,13 @@ def _sha256_file(path: Path) -> str:
 
 
 def _regen_folds(enriched: pd.DataFrame, min_val_games: int) -> list[dict]:
+    # Mirror production walk_forward_evaluate: keep folds below min_val_games
+    # ONLY when they are the partial tail (is_partial_tail) — dropping them
+    # desyncs the tuner's geometry from _attach_oof_run_margins (which
+    # regenerates with the tail included) and trips its misaligned-split guard.
     return [s for s in walk_forward_splits(
         enriched, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
-        if len(s["val_games"]) >= min_val_games]
+        if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
 
 
 def prepare_data(holdout_days: int, data_path: Path,
@@ -419,7 +424,7 @@ def main() -> None:
     if args.smoke:
         args.trials = 4
 
-    cache_dir = Path("/tmp") if args.max_folds == 0 else None
+    cache_dir = Path(tempfile.gettempdir()) if args.max_folds == 0 else None
     data = prepare_data(args.holdout_days, args.data,
                         max_folds=args.max_folds, cache_dir=cache_dir)
     tune_df, hold_df = data["tune"], data["hold"]

@@ -137,9 +137,13 @@ def _sha256_file(path: Path) -> str:
 
 
 def _regen_folds(enriched: pd.DataFrame, min_val_games: int) -> list[dict]:
+    # Mirror production walk_forward_evaluate: keep folds below min_val_games
+    # ONLY when they are the partial tail (is_partial_tail) — dropping them
+    # desyncs the tuner's geometry from _attach_oof_run_margins (which
+    # regenerates with the tail included) and trips its misaligned-split guard.
     return [s for s in walk_forward_splits(
         enriched, retrain_cadence_days=RETRAIN_CADENCE_DAYS)
-        if len(s["val_games"]) >= min_val_games]
+        if len(s["val_games"]) >= min_val_games or s.get("is_partial_tail")]
 
 
 def prepare_data(holdout_days: int, data_path: Path,
