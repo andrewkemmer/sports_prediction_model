@@ -119,10 +119,26 @@ def _val(row: pd.Series, *keys: str, default: str = "—") -> str:
     return default
 
 
+def _fmt_stat(v: str) -> str:
+    """Round a numeric stat string to 2 decimals at RENDER time only.
+
+    The raw CSV values are full-precision floats (e.g. '6.2427745') and the
+    card would otherwise print every digit; K/9 values carry 1-2 decimals of
+    their own. Non-numeric values ('—', 'TBD', '', 'nan') pass through
+    untouched. The artifact is never rewritten, so nothing downstream that
+    parses the CSV is affected.
+    """
+    s = str(v).strip()
+    try:
+        return f"{float(s):.2f}"
+    except (TypeError, ValueError):
+        return s
+
+
 def _pitcher_box(name: str, era: str, k9: str) -> str:
     name_html = f'<div class="pname">{name}</div>' if name else ""
     return (f'<div class="fb-pitcher">{name_html}'
-            f'<div class="pstats">ERA {era} · K/9 {k9}</div></div>')
+            f'<div class="pstats">ERA {_fmt_stat(era)} · K/9 {_fmt_stat(k9)}</div></div>')
 
 
 def _runengine_html(bits, home_team: str, away_team: str) -> str:
