@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-01T04:37:11.906626Z",
+  "created_utc": "2026-09-01T16:09:07.976628Z",
   "version": "v2",
   "build": {
     "core_seasons": [
@@ -37,7 +37,6 @@
       "rest_days_diff",
       "is_dome_home",
       "ewm_net_pts_diff",
-      "ewm_qb_epa_play_diff",
       "ewm_ypp_diff",
       "pace_plays_min_diff",
       "rest_short_diff",
@@ -54,7 +53,6 @@
       "rest_days_diff",
       "is_dome_home",
       "ewm_net_pts_diff",
-      "ewm_qb_epa_play_diff",
       "ewm_ypp_diff",
       "pace_plays_min_diff",
       "rest_short_diff",
@@ -90,11 +88,6 @@
         "coverage_pct": 99.13,
         "available_12h_pct": 99.13,
         "source": "trailing net pts/game, ewm halflife=2 (decaying)"
-      },
-      "ewm_qb_epa_play_diff": {
-        "coverage_pct": 98.37,
-        "available_12h_pct": 98.37,
-        "source": "trailing QB EPA/play, ewm halflife=2 (from pbp qb_epa)"
       },
       "ewm_ypp_diff": {
         "coverage_pct": 98.37,
@@ -143,7 +136,6 @@
       "rest_days_diff": 0.5008,
       "is_dome_home": 0.4815,
       "ewm_net_pts_diff": 0.6544,
-      "ewm_qb_epa_play_diff": 0.6464,
       "ewm_ypp_diff": 0.6338,
       "pace_plays_min_diff": 0.5263,
       "rest_short_diff": 0.5086,
@@ -153,13 +145,7 @@
       "prime_time": 0.5124,
       "is_home": null
     },
-    "correlation_pairs_over_0_8": [
-      {
-        "feat_a": "ewm_qb_epa_play_diff",
-        "feat_b": "ewm_ypp_diff",
-        "corr": 0.8055
-      }
-    ],
+    "correlation_pairs_over_0_8": [],
     "reasons": {},
     "dropped": []
   }

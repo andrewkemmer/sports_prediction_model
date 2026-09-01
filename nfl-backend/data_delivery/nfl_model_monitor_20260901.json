@@ -56,16 +56,6 @@
       "n_current": 30
     },
     {
-      "feature": "ewm_qb_epa_play_diff",
-      "current_mean": 0.027,
-      "baseline_mean": 0.0003,
-      "psi": 0.9781,
-      "status": "ALERT",
-      "weight_pct": null,
-      "n_baseline": 1913,
-      "n_current": 30
-    },
-    {
       "feature": "ewm_ypp_diff",
       "current_mean": 0.0712,
       "baseline_mean": -0.0064,
@@ -152,9 +142,6 @@
     "ewm_net_pts_diff": {
       "tooltip": "ewm_net_pts_diff \u2014 defined/covered via the v1 feature admission gate."
     },
-    "ewm_qb_epa_play_diff": {
-      "tooltip": "ewm_qb_epa_play_diff \u2014 defined/covered via the v1 feature admission gate."
-    },
     "ewm_ypp_diff": {
       "tooltip": "ewm_ypp_diff \u2014 defined/covered via the v1 feature admission gate."
     },
@@ -220,15 +207,6 @@
       "n_games": 1960,
       "pct_measured": 99.9,
       "pct_nonnull": 99.9,
-      "n_default_zero": 0,
-      "status": "OK"
-    },
-    {
-      "feature": "ewm_qb_epa_play_diff",
-      "window": "decided pool",
-      "n_games": 1960,
-      "pct_measured": 99.1,
-      "pct_nonnull": 99.1,
       "n_default_zero": 0,
       "status": "OK"
     },
@@ -300,64 +278,64 @@
     {
       "name": "xgboost",
       "weight": 0.45,
-      "auc": 0.7326,
-      "brier": 0.2132,
-      "logloss": 0.6154,
+      "auc": 0.7321,
+      "brier": 0.2121,
+      "logloss": 0.6126,
       "n_eval": 1392
     },
     {
       "name": "lightgbm",
       "weight": 0.1375,
-      "auc": 0.6545,
-      "brier": 0.2388,
-      "logloss": 0.6768,
+      "auc": 0.6555,
+      "brier": 0.2375,
+      "logloss": 0.673,
       "n_eval": 1392
     },
     {
       "name": "logistic",
       "weight": 0.1375,
-      "auc": 0.6805,
-      "brier": 0.2261,
-      "logloss": 0.6459,
+      "auc": 0.6826,
+      "brier": 0.2253,
+      "logloss": 0.6438,
       "n_eval": 1392
     },
     {
       "name": "randomforest",
       "weight": 0.1375,
-      "auc": 0.6833,
-      "brier": 0.2241,
-      "logloss": 0.64,
+      "auc": 0.6818,
+      "brier": 0.2247,
+      "logloss": 0.6414,
       "n_eval": 1392
     },
     {
       "name": "mlp",
       "weight": 0.1375,
-      "auc": 0.6521,
-      "brier": 0.2347,
-      "logloss": 0.6635,
+      "auc": 0.6805,
+      "brier": 0.225,
+      "logloss": 0.6415,
       "n_eval": 1392
     }
   ],
   "rolling_brier": [
     {
       "date": "2026-01-10",
-      "brier": 0.3122
+      "brier": 0.3229
     },
     {
       "date": "2026-01-11",
-      "brier": 0.2167
+      "brier": 0.2496
     },
     {
       "date": "2026-01-17",
-      "brier": 0.3921
+      "brier": 0.4072
     },
     {
       "date": "2026-01-18",
-      "brier": 0.346
+      "brier": 0.3001
     },
     {
       "date": "2026-01-25",
-      "brier": 0.4956
+      "brier": 0.605
     }
   ],
   "rolling_brier_meta": {
