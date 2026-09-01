@@ -238,95 +238,165 @@ class TestSealedIsolation(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestAdoptDecision(unittest.TestCase):
     @staticmethod
-    def _fixtures(cand_pooled_ece=0.055, cand_sealed_ece=0.06,
-                  inc_pooled_ece=None, inc_sealed_ece=None):
-        """Candidate beats both baselines on sealed ll/auc (defaults).
+    def _fixtures(cand=None, inc=None):
+        """Candidate within TOL of the incumbent on all six (defaults).
 
-        Incumbent ECE defaults to the candidate's own values -> identity
-        incumbent that can never block."""
-        if inc_pooled_ece is None:
-            inc_pooled_ece = cand_pooled_ece
-        if inc_sealed_ece is None:
-            inc_sealed_ece = cand_sealed_ece
+        cand: {"pooled": {logloss, auc, ece}, "sealed": {...}} — the
+        candidate's numbers; inc: the same shape for the within-run
+        incumbent arms. Defaults = same-config incumbent the candidate
+        slightly beats on ll/auc and ties on ECE (never blocks)."""
+        cand = cand if cand is not None else {
+            "pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.055},
+            "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.060}}
+        inc = inc if inc is not None else {
+            "pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+            "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.060}}
         pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62,
-                            "ece": cand_pooled_ece},
+            "model_platt": dict(cand["pooled"]),
             "elo_logistic": {"logloss": 0.60},
             "constant_home_edge": {"logloss": 0.65},
         }
         sealed = {
-            "model_platt": {"logloss": 0.54, "auc": 0.63,
-                            "ece": cand_sealed_ece},
+            "model_platt": dict(cand["sealed"]),
             "elo_logistic": {"logloss": 0.61, "auc": 0.58},
             "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
         }
         incumbent = {
-            "pooled_model_platt": {"logloss": 0.57, "auc": 0.60,
-                                   "ece": inc_pooled_ece},
-            "sealed_model_platt": {"logloss": 0.56, "auc": 0.61,
-                                   "ece": inc_sealed_ece},
+            "pooled_model_platt": dict(inc["pooled"]),
+            "sealed_model_platt": dict(inc["sealed"]),
         }
         return pooled, sealed, incumbent
 
-    def test_adopt_when_discrimination_and_relative_ece_win(self):
-        """Candidate beats both baselines AND ECE ties the incumbent on both
-        windows -> ADOPT (within-run incumbent mode, no reasons)."""
+    def test_all_six_within_tol_adopts(self):
+        """(a) Candidate within tolerance of the incumbent on all six
+        (pooled + sealed x ll/auc/ece) -> ADOPT, no reasons."""
         pooled, sealed, incumbent = self._fixtures()
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
-        self.assertTrue(v["sealed_beats_elo"])
-        self.assertTrue(v["sealed_beats_constant"])
         self.assertEqual(v["ece_mode"], "within-run incumbent")
-        self.assertTrue(v["ece_ok_pooled"])
-        self.assertTrue(v["ece_ok_sealed"])
+        for key in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
+                    "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed"):
+            self.assertTrue(v[key], key)
         self.assertEqual(v["reasons"], [])
 
-    def test_no_adopt_when_model_loses_to_elo(self):
-        pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62},
-            "elo_logistic": {"logloss": 0.58},
-            "constant_home_edge": {"logloss": 0.65},
-        }
-        sealed = {
-            "model_platt": {"logloss": 0.62, "auc": 0.56, "ece": 0.04},
-            "elo_logistic": {"logloss": 0.60, "auc": 0.58},
-            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
-        }
-        v = adopt_decision(pooled, sealed)
-        self.assertFalse(v["adopt"])
+    def test_elo_constant_arms_informational_not_gating(self):
+        """'nothing else': a candidate within TOL of the incumbent on all six
+        ADOPTS even when it does NOT beat elo-logistic / constant home-edge on
+        sealed — those arms are informational table rows, NOT the verdict."""
+        from nfl_moneyline import TOL_AUC, TOL_LL
+        # A WEAK incumbent on sealed (0.70 / 0.46); the candidate (0.65 /
+        # 0.50) is within TOL of it but beats NEITHER elo-logistic (0.61 /
+        # 0.58) NOR the constant arm (0.66 / 0.50 — auc 0.50 is not > 0.50).
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.055},
+                "sealed": {"logloss": 0.65, "auc": 0.50, "ece": 0.059}}
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.70, "auc": 0.46, "ece": 0.060}}
+        # prove the setup: within TOL on sealed ll/auc vs the incumbent ...
+        self.assertLessEqual(cand["sealed"]["logloss"],
+                             inc["sealed"]["logloss"] + TOL_LL)
+        self.assertGreaterEqual(cand["sealed"]["auc"],
+                                inc["sealed"]["auc"] - TOL_AUC)
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertTrue(v["adopt"])
         self.assertFalse(v["sealed_beats_elo"])
+        self.assertFalse(v["sealed_beats_constant"])
+        self.assertEqual(v["reasons"], [])
+
+    def test_pooled_logloss_beyond_tol_blocks(self):
+        """(b) pooled logloss degrades beyond TOL_LL while the other five
+        conditions are fine -> DON'T ADOPT (pooled blocks); the reason names
+        the metric + view and is marked relative degradation."""
+        from nfl_moneyline import TOL_LL
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.060}}
+        cand = {"pooled": {"logloss": 0.57 + TOL_LL + 0.0005,
+                            "auc": 0.62, "ece": 0.055},
+                "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.060}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["ll_ok_pooled"])
+        self.assertTrue(v["auc_ok_pooled"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ll_ok_sealed"])
+        reasons = [r for r in v["reasons"] if "pooled logloss" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
+
+    def test_sealed_auc_beyond_tol_blocks(self):
+        """(c) sealed AUC degrades beyond TOL_AUC while the other five are
+        fine -> DON'T ADOPT (sealed blocks); the reason names the metric."""
+        from nfl_moneyline import TOL_AUC
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.060}}
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.055},
+                "sealed": {"logloss": 0.54,
+                            "auc": 0.61 - TOL_AUC - 0.0005,
+                            "ece": 0.060}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["auc_ok_sealed"])
+        self.assertTrue(v["ll_ok_sealed"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertTrue(v["auc_ok_pooled"])
+        reasons = [r for r in v["reasons"] if "sealed AUC" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
 
     def test_absolute_ece_over_0_08_within_tol_adopts(self):
-        """(c) No absolute calibration bar: candidate ECE 0.095 / 0.085 are
+        """(d) No absolute calibration bar: candidate ECE 0.095 / 0.085 are
         both above the retired 0.08 reference, but within ECE_TOL (0.01) of
         the incumbent's same-run values -> ADOPT, nothing mentions 0.08."""
-        pooled, sealed, incumbent = self._fixtures(
-            cand_pooled_ece=0.085, cand_sealed_ece=0.095,
-            inc_pooled_ece=0.080, inc_sealed_ece=0.090)
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.085},
+                "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.095}}
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.080},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.090}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
         self.assertTrue(v["ece_ok_pooled"])
         self.assertTrue(v["ece_ok_sealed"])
         self.assertFalse(any("0.08" in r for r in v["reasons"]))
 
-    def test_discrimination_failure_blocks_despite_ece_ok(self):
-        """Discrimination stays primary and blocking: sealed ll/auc lose to
-        elo-logistic while relative ECE is fine -> DON'T ADOPT (inherits the
-        old 52a095d semantics — ECE-ok never rescues discrimination)."""
-        pooled, sealed, incumbent = self._fixtures()
-        sealed["model_platt"] = {"logloss": 0.62, "auc": 0.56, "ece": 0.06}
-        sealed["elo_logistic"] = {"logloss": 0.60, "auc": 0.58}
-        v = adopt_decision(pooled, sealed, incumbent)
-        self.assertFalse(v["adopt"])
-        self.assertFalse(v["sealed_beats_elo"])
-        self.assertTrue(v["ece_ok_pooled"])
-        self.assertTrue(v["ece_ok_sealed"])
+    def test_incumbent_predictions_isolated_from_outcomes(self):
+        """(g) within-run isolation: the incumbent's predictions are a pure
+        function of (features, bundle) — corrupting the sealed OUTCOMES
+        leaves them byte-identical (only the scored metrics change)."""
+        feats = _synth_fold_frame(seasons=TRAIN_SEASONS + [SEALED_SEASON])
+        feats = feats[_valid_cols(feats)].copy()
+        half = len(feats) // 2
+        models, _ = train_ensemble(feats.iloc[:half], feats.iloc[half:],
+                                   features=V1_FEATURES)
+        sld = feats[feats["season"] == SEALED_SEASON].iloc[:40].copy()
+
+        def _blend(frame):
+            _, members, _ = ensemble_predict(models, frame,
+                                             features=V1_FEATURES)
+            w = _member_weights(list(members))
+            out = np.zeros(len(frame))
+            for name, p in members.items():
+                out += w[name] * np.asarray(p, dtype=float)
+            return out
+
+        clean = _blend(sld)
+        corrupted = sld.copy()
+        corrupted["home_win"] = 1 - corrupted["home_win"]   # flip outcomes
+        corrupt = _blend(corrupted)
+        # member predict float noise is ~1e-16 (measured); the corruption
+        # must stay inside a tight tolerance, never move the predictions
+        self.assertTrue(np.allclose(clean, corrupt, atol=1e-12))
 
     def test_sealed_ece_degradation_beyond_tol_blocks(self):
-        """(a) candidate wins discrimination but sealed ECE degrades beyond
-        TOL vs the incumbent -> DON'T ADOPT (sealed blocks); pooled OK."""
-        pooled, sealed, incumbent = self._fixtures(
-            cand_sealed_ece=0.075, inc_sealed_ece=0.06)   # +0.015 > +0.01
+        """Sealed ECE degrades by +0.015 > ECE_TOL vs the incumbent while
+        pooled ECE is fine -> DON'T ADOPT (sealed ECE blocks); the reason
+        names the view + metric and is marked relative degradation."""
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.055},
+                "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.075}}
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.060}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertFalse(v["adopt"])
         self.assertTrue(v["ece_ok_pooled"])
@@ -336,10 +406,13 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertIn("(relative degradation)", reasons[0])
 
     def test_pooled_ece_degradation_beyond_tol_blocks(self):
-        """(b) pooled ECE degrades beyond TOL while sealed is fine -> DON'T
-        ADOPT (pooled blocks) — either window can reject, MLB-style."""
-        pooled, sealed, incumbent = self._fixtures(
-            cand_pooled_ece=0.07, inc_pooled_ece=0.055)   # +0.015 > +0.01
+        """Pooled ECE degrades by +0.015 > ECE_TOL while sealed is fine ->
+        DON'T ADOPT (pooled blocks) — either window can reject, MLB-style."""
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.070},
+                "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.060}}
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.060}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertFalse(v["adopt"])
         self.assertFalse(v["ece_ok_pooled"])
@@ -349,44 +422,51 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertIn("(relative degradation)", reasons[0])
 
     def test_ece_improvement_adopts(self):
-        """(d) candidate ECE improves on BOTH windows vs the incumbent ->
-        ADOPT (the W2016 story: 0.0576 vs an incumbent ~0.067)."""
-        pooled, sealed, incumbent = self._fixtures(
-            cand_pooled_ece=0.050, cand_sealed_ece=0.0576,
-            inc_pooled_ece=0.055, inc_sealed_ece=0.0673)
+        """Candidate ECE improves on BOTH windows vs the incumbent -> ADOPT
+        (the W2016 story: 0.0576 vs an incumbent ~0.067)."""
+        cand = {"pooled": {"logloss": 0.55, "auc": 0.62, "ece": 0.050},
+                "sealed": {"logloss": 0.54, "auc": 0.63, "ece": 0.0576}}
+        inc = {"pooled": {"logloss": 0.57, "auc": 0.60, "ece": 0.055},
+               "sealed": {"logloss": 0.56, "auc": 0.61, "ece": 0.0673}}
+        pooled, sealed, incumbent = self._fixtures(cand=cand, inc=inc)
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
         self.assertTrue(v["ece_ok_pooled"])
         self.assertTrue(v["ece_ok_sealed"])
 
-    def test_no_incumbent_is_advisory_only(self):
-        """(e) no incumbent bundle -> ECE advisory-only: discrimination
-        decides (ADOPT on a discrimination win, with the documented note);
-        advisory mode never rescues a discrimination failure."""
+    def test_no_incumbent_is_advisory_only_no_verdict(self):
+        """(e) no incumbent bundle -> advisory-only, NO verdict: without a
+        baseline there is nothing to compare the candidate against, so adopt
+        is False and no gating condition is evaluated — never a fabricated
+        comparison."""
         pooled, sealed, _ = self._fixtures()
         v = adopt_decision(pooled, sealed)          # incumbent omitted
-        self.assertTrue(v["adopt"])
+        self.assertFalse(v["adopt"])
         self.assertEqual(v["ece_mode"], "advisory")
-        self.assertTrue(v["ece_ok_pooled"])
-        self.assertTrue(v["ece_ok_sealed"])
-        self.assertTrue(any("advisory-only" in r for r in v["reasons"]))
-        losing_sealed = {
-            "model_platt": {"logloss": 0.62, "auc": 0.56, "ece": 0.04},
-            "elo_logistic": {"logloss": 0.60, "auc": 0.58},
-            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
-        }
-        v2 = adopt_decision(pooled, losing_sealed)
-        self.assertFalse(v2["adopt"])
-        self.assertFalse(v2["sealed_beats_elo"])
+        for key in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
+                    "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed"):
+            self.assertTrue(v[key])     # informational only — not gating
+        joined = "\n".join(v["reasons"])
+        self.assertIn("no verdict", joined)
+        self.assertIn("advisory", joined)
 
-    def test_ece_constants_and_shared_harness_tolerance(self):
-        """(g) ECE_BINS/ECE_MAX survive as configuration (ECE_MAX = historical
-        reference only); the harness tolerance IS the gate tolerance — one
-        shared constant, never duplicated."""
-        from nfl_moneyline import ECE_BINS, ECE_MAX, ECE_TOL
+    def test_tolerances_defined_shared_and_positive(self):
+        """(f) TOL_LL/TOL_AUC/ECE_TOL are the gate's shared constants, all
+        positive (each derived just above a measured same-config run-to-run
+        |d| floor); the harness ECE tolerance IS the gate's — one constant,
+        never duplicated. ECE_MAX survives as historical reference only."""
+        from nfl_moneyline import (ECE_BINS, ECE_MAX, ECE_TOL,
+                                   TOL_AUC, TOL_LL)
         self.assertEqual(ECE_BINS, 10)
         self.assertEqual(ECE_TOL, 0.01)
-        self.assertEqual(ECE_MAX, 0.08)
+        self.assertEqual(ECE_MAX, 0.08)     # historical reference only
+        self.assertGreater(TOL_LL, 0.0)
+        self.assertGreater(TOL_AUC, 0.0)
+        # both sit above the measured same-config pooled floor (ece |dE|
+        # <= ~0.005 measured; pooled ll moved up to ~0.0105, auc up to
+        # ~0.0137) — so they are necessarily above ECE_TOL's own basis
+        self.assertGreater(TOL_LL, ECE_TOL)
+        self.assertGreater(TOL_AUC, ECE_TOL)
         from run_tier1_ablation import ECE_TOL as HARNESS_TOL
         self.assertEqual(HARNESS_TOL, ECE_TOL)
 

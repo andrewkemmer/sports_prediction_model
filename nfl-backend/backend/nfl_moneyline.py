@@ -24,25 +24,26 @@ Discipline (MLB retrospective):
   an honestly-nested Platt twin.
 - SEALED hold-out: ALL of 2025, model fitted on 2019-2024 only, calibrated by
   a Platt map fitted only on pre-holdout OOF (2021-2024 pooled).
-- Baselines to beat (sealed): (a) constant home-edge (NFL home win rate),
-  (b) elo-only logistic (cheapest signal). ADOPT requires the model to beat
-  BOTH on the SEALED window in logloss AND AUC, plus a WITHIN-RUN RELATIVE
-  ECE check vs the INCUMBENT (the previously-persisted served ensemble) on
-  BOTH pooled and sealed, with one shared tolerance ECE_TOL (MLB-aligned
-  methodology, policy 2026-09-01 — no absolute calibration bar: ECE_MAX=0.08
-  is retired to a historical reference constant). Either window's ECE
-  degrading beyond TOL blocks; when no incumbent bundle exists (fresh
-  checkout / first run) the ECE condition is advisory-only and discrimination
-  decides. A pooled-gain / sealed-loss inversion means DON'T ADOPT.
+- Candidate-vs-incumbent gate (MLB methodology, policy 2026-09-01 — second
+  revision): ADOPT requires the candidate to be WITHIN TOLERANCE of the
+  INCUMBENT — the previously-persisted served ensemble, re-predicted on the
+  SAME folds + sealed window of the current run (never a cross-run value) —
+  on BOTH pooled and sealed for ALL THREE metrics: logloss (TOL_LL), AUC
+  (TOL_AUC), ECE (ECE_TOL). Each metric x view pair is BLOCKING; there is no
+  other condition. The constant home-edge and elo-only-logistic arms are
+  informational table rows only, NOT part of the verdict. No absolute
+  calibration bar exists (ECE_MAX=0.08 is a historical reference constant).
+  When no incumbent bundle exists (fresh checkout / first run / schema
+  change) the verdict is advisory-only — no gating, no fabricated baseline.
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
 adaptive weights, baselines, verdict+reason, and the per-game ``games[]`` slate
 for the current schedule (2026 week 1) — ALWAYS written from the fresh
 ensemble when a schedule loads. The ``verdict``/seal gate is a TESTING +
-monitoring signal (ensemble vs elo/constant baselines + sanity ECE) that is
-recorded but never blocks the board (mirroring MLB); the run always continues
-normally (never errors).
+monitoring signal (candidate vs within-run incumbent, tolerance on
+logloss/AUC/ECE) that is recorded but never blocks the board (mirroring
+MLB); the run always continues normally (never errors).
 """
 from __future__ import annotations
 
@@ -133,6 +134,24 @@ ECE_BINS = 10
 # real degradation early. Same-run comparison, so cross-pull drift never
 # enters. Reviewable constant.
 ECE_TOL = 0.01
+# Relative-LOGLOSS tolerance for the within-run candidate-vs-incumbent
+# comparison (policy 2026-09-01, second revision — the gate is tolerance-
+# based on logloss / AUC / ECE and NOTHING else; see adopt_decision). Basis:
+# measured same-config run-to-run |d| on the current frame (3 in-process
+# re-runs on the identical 2018-2025 decided frame, 2,227 rows, reproduced
+# across two independent processes — 6 walks total): pooled logloss moved
+# at most 0.0105 across runs (first-vs-later in-process walk state shift,
+# deterministically A->B); the sealed view is bit-stable (0.0). TOL_LL =
+# 0.012 sits just above the measured pooled floor.
+TOL_LL = 0.012
+# Relative-AUC tolerance — same measurement basis (6 same-config walks):
+# pooled AUC moved at most 0.0137 (sealed bit-stable); TOL_AUC = 0.016 sits
+# just above that floor. Both are deliberately larger than the bit-stable
+# sealed view because the pooled fold-train path carries the small per-fold
+# jitter — and both are comfortably above the A->B spread, so the verdict
+# is identical whether the candidate walk is the process's first or a later
+# one. Same-run comparison means cross-pull drift never enters.
+TOL_AUC = 0.016
 # HISTORICAL REFERENCE ONLY — retired from gate logic 2026-09-01 (replaced by
 # the within-run relative ECE_TOL check per MLB methodology). The 0.08 value
 # was the original (2026-08-29, 8a1c417) absolute "sane" calibration bar,
@@ -1308,80 +1327,119 @@ def run_walk_forward(feats: pd.DataFrame,
 
 def adopt_decision(pooled: dict, sealed: dict,
                    incumbent: dict | None = None) -> dict:
-    """ADOPT only if the calibrated model beats BOTH baselines on the SEALED
-    window in both logloss and AUC, AND its ECE does not degrade RELATIVE to
-    the within-run INCUMBENT on EITHER window (MLB methodology, policy
-    2026-09-01):
-      ece_ok_pooled = cand_pooled_ece <= inc_pooled_ece + ECE_TOL
-      ece_ok_sealed = cand_sealed_ece <= inc_sealed_ece + ECE_TOL
-    Either ECE window failing is BLOCKING; reasons accumulate. With
-    ``incumbent=None`` (fresh checkout / first run / no persisted bundle) the
-    ECE condition is ADVISORY-ONLY and discrimination decides. No absolute
-    calibration constant is enforced (ECE_MAX is historical reference only).
-    A pooled-gain/sealed-loss inversion -> DON'T ADOPT."""
-    m_ll = sealed["model_platt"]["logloss"]
-    m_auc = sealed["model_platt"]["auc"]
-    elo_ll = sealed["elo_logistic"]["logloss"]
-    elo_auc = sealed["elo_logistic"]["auc"]
-    c_ll = sealed["constant_home_edge"]["logloss"]
-    c_auc = sealed["constant_home_edge"]["auc"]
+    """MLB-aligned candidate-vs-incumbent gate (policy 2026-09-01, second
+    revision): ADOPT only if the candidate is WITHIN TOLERANCE of the
+    within-run INCUMBENT on BOTH views (pooled + sealed) for ALL THREE
+    metrics — nothing else:
 
-    beats_elo = (m_ll < elo_ll) and (m_auc > elo_auc)
-    beats_const = (m_ll < c_ll) and (m_auc > c_auc)
+      ll_ok  = cand <= base + TOL_LL
+      auc_ok = cand >= base - TOL_AUC
+      ece_ok = cand <= base + ECE_TOL
 
-    if incumbent is None:
-        ece_mode = "advisory"
-        ece_ok_pooled = True
-        ece_ok_sealed = True
-    else:
+    Each of the six (metric x view) conditions is BLOCKING and reasons
+    accumulate. The baseline is the incumbent — the previously-persisted
+    served ensemble re-predicted on the SAME folds + sealed window of the
+    current run (never a cross-run number). ``sealed_beats_elo`` /
+    ``sealed_beats_constant`` are INFORMATIONAL table rows only (dashboards);
+    they are NOT part of the verdict. ``ECE_MAX`` (0.08) is historical
+    reference only. With ``incumbent=None`` (fresh checkout / first run /
+    schema change) there is NO baseline: the verdict is advisory-only
+    (adopt=False, no gating condition evaluated) — never a fabricated
+    comparison."""
+    if incumbent is not None:
         ece_mode = "within-run incumbent"
-        m_pe = pooled["model_platt"]["ece"]
-        m_se = sealed["model_platt"]["ece"]
-        i_pe = incumbent["pooled_model_platt"]["ece"]
-        i_se = incumbent["sealed_model_platt"]["ece"]
-        ece_ok_pooled = m_pe <= i_pe + ECE_TOL
-        ece_ok_sealed = m_se <= i_se + ECE_TOL
+        m_p = pooled["model_platt"]
+        m_s = sealed["model_platt"]
+        i_p = incumbent["pooled_model_platt"]
+        i_s = incumbent["sealed_model_platt"]
 
-    adopt = bool(beats_elo and beats_const and ece_ok_pooled and ece_ok_sealed)
-    reasons = []
-    if not beats_elo:
-        reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
-                       f"than elo-logistic ({elo_ll} / {elo_auc})")
-    if not beats_const:
-        reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
-                       f"than constant home-edge ({c_ll} / {c_auc})")
-    if ece_mode == "within-run incumbent":
+        ll_ok_pooled = m_p["logloss"] <= i_p["logloss"] + TOL_LL
+        auc_ok_pooled = m_p["auc"] >= i_p["auc"] - TOL_AUC
+        ece_ok_pooled = m_p["ece"] <= i_p["ece"] + ECE_TOL
+        ll_ok_sealed = m_s["logloss"] <= i_s["logloss"] + TOL_LL
+        auc_ok_sealed = m_s["auc"] >= i_s["auc"] - TOL_AUC
+        ece_ok_sealed = m_s["ece"] <= i_s["ece"] + ECE_TOL
+
+        adopt = bool(ll_ok_pooled and auc_ok_pooled and ece_ok_pooled
+                     and ll_ok_sealed and auc_ok_sealed and ece_ok_sealed)
+
+        reasons = []
+        if not ll_ok_pooled:
+            reasons.append(f"pooled logloss {m_p['logloss']} > incumbent "
+                           f"{i_p['logloss']} + TOL_LL {TOL_LL} "
+                           f"(relative degradation)")
+        if not auc_ok_pooled:
+            reasons.append(f"pooled AUC {m_p['auc']} < incumbent "
+                           f"{i_p['auc']} - TOL_AUC {TOL_AUC} "
+                           f"(relative degradation)")
         if not ece_ok_pooled:
-            reasons.append(f"pooled ECE {pooled['model_platt']['ece']} > "
-                           f"incumbent {incumbent['pooled_model_platt']['ece']} "
-                           f"+ TOL {ECE_TOL} (relative degradation)")
+            reasons.append(f"pooled ECE {m_p['ece']} > incumbent "
+                           f"{i_p['ece']} + ECE_TOL {ECE_TOL} "
+                           f"(relative degradation)")
+        if not ll_ok_sealed:
+            reasons.append(f"sealed logloss {m_s['logloss']} > incumbent "
+                           f"{i_s['logloss']} + TOL_LL {TOL_LL} "
+                           f"(relative degradation)")
+        if not auc_ok_sealed:
+            reasons.append(f"sealed AUC {m_s['auc']} < incumbent "
+                           f"{i_s['auc']} - TOL_AUC {TOL_AUC} "
+                           f"(relative degradation)")
         if not ece_ok_sealed:
-            reasons.append(f"sealed ECE {sealed['model_platt']['ece']} > "
-                           f"incumbent {incumbent['sealed_model_platt']['ece']} "
-                           f"+ TOL {ECE_TOL} (relative degradation)")
+            reasons.append(f"sealed ECE {m_s['ece']} > incumbent "
+                           f"{i_s['ece']} + ECE_TOL {ECE_TOL} "
+                           f"(relative degradation)")
     else:
-        reasons.append("ECE advisory-only (no within-run incumbent bundle on "
-                       "this checkout) — monitored, not gating")
+        ece_mode = "advisory"
+        ll_ok_pooled = auc_ok_pooled = ece_ok_pooled = True
+        ll_ok_sealed = auc_ok_sealed = ece_ok_sealed = True
+        adopt = False
+        reasons = [
+            "no within-run incumbent bundle on this checkout — advisory "
+            "only, no verdict (candidate-vs-incumbent comparison impossible)"]
 
-    # pooled-vs-sealed inversion warning (informational unless sealed fails)
-    pm_ll = pooled["model_platt"]["logloss"]
-    pe_ll = pooled["elo_logistic"]["logloss"]
-    pc_ll = pooled["constant_home_edge"]["logloss"]
-    pooled_wing = pm_ll < min(pe_ll, pc_ll)
-    sealed_wing = m_ll < min(elo_ll, c_ll)
-    if not adopt and (pooled_wing and not sealed_wing):
+    # ---- informational table rows (dashboards only, NEVER gating) ----
+    m_s = sealed.get("model_platt") or {}
+
+    def _beats(arm):
+        base = sealed.get(arm) or {}
+        try:
+            return bool(m_s["logloss"] < base["logloss"]
+                        and m_s["auc"] > base["auc"])
+        except (KeyError, TypeError):
+            return None
+
+    sealed_beats_elo = _beats("elo_logistic")
+    sealed_beats_constant = _beats("constant_home_edge")
+
+    pm_ll = (pooled.get("model_platt") or {}).get("logloss")
+    pe_ll = (pooled.get("elo_logistic") or {}).get("logloss")
+    pc_ll = (pooled.get("constant_home_edge") or {}).get("logloss")
+    se_ll = (sealed.get("elo_logistic") or {}).get("logloss")
+    sc_ll = (sealed.get("constant_home_edge") or {}).get("logloss")
+    pooled_wing = bool(pm_ll is not None and pe_ll is not None
+                       and pc_ll is not None and pm_ll < min(pe_ll, pc_ll))
+    sealed_wing = bool(se_ll is not None and sc_ll is not None
+                       and m_s.get("logloss") is not None
+                       and m_s["logloss"] < min(se_ll, sc_ll))
+    inversion = bool(pooled_wing and not sealed_wing)
+    if not adopt and inversion:
         reasons.append("pooled-gain / sealed-loss inversion -> DON'T ADOPT")
     elif adopt and (sealed_wing and not pooled_wing):
         reasons.append("note: model wins sealed but slightly worse pooled (watch)")
 
     return {
         "adopt": adopt,
-        "sealed_beats_elo": bool(beats_elo),
-        "sealed_beats_constant": bool(beats_const),
         "ece_mode": ece_mode,
+        "ll_ok_pooled": bool(ll_ok_pooled),
+        "auc_ok_pooled": bool(auc_ok_pooled),
         "ece_ok_pooled": bool(ece_ok_pooled),
+        "ll_ok_sealed": bool(ll_ok_sealed),
+        "auc_ok_sealed": bool(auc_ok_sealed),
         "ece_ok_sealed": bool(ece_ok_sealed),
-        "pooled_gain_sealed_loss_inversion": bool(pooled_wing and not sealed_wing),
+        "sealed_beats_elo": sealed_beats_elo,
+        "sealed_beats_constant": sealed_beats_constant,
+        "pooled_gain_sealed_loss_inversion": inversion,
+        "tol": {"ll": TOL_LL, "auc": TOL_AUC, "ece": ECE_TOL},
         "reasons": reasons,
     }
 
