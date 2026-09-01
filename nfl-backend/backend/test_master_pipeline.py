@@ -386,5 +386,36 @@ class TestPostPushSummaryState(unittest.TestCase):
                 repo.close()  # release file locks so the temp dir can go
 
 
+class TestIncumbentBundleAvailability(unittest.TestCase):
+    """The within-run incumbent gate (nfl_moneyline.adopt_decision) loads
+    data_delivery/models/ensemble_latest.joblib as its baseline. For that to
+    work on a fresh Kaggle clone — where the gate must run in within-run
+    incumbent mode immediately, not advisory-once — the bundle must be (b)
+    committed/pushed like MLB's, i.e. NOT gitignored, and (c) protected from
+    Phase-5 stale cleanup."""
+
+    def test_bundle_not_gitignored(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[2]   # repo root
+        rel = "nfl-backend/data_delivery/models/ensemble_latest.joblib"
+        r = subprocess.run(["git", "check-ignore", "-q", rel],
+                           cwd=root, capture_output=True)
+        self.assertNotEqual(
+            r.returncode, 0,
+            f"{rel} must NOT be gitignored — the within-run incumbent gate "
+            f"needs it on the remote (MLB mechanism: tracked beats gitignore)")
+
+    def test_bundle_protected_from_stale_cleanup(self):
+        from master_pipeline import _PROTECTED_DELIVERY_PREFIXES
+        self.assertIn("models/", _PROTECTED_DELIVERY_PREFIXES)
+        self.assertTrue(
+            _is_protected_name(
+                "nfl-backend/data_delivery/models/ensemble_latest.joblib"))
+        # unrelated dated artifacts stay unprotected (plain retention)
+        self.assertFalse(
+            _is_protected_name(
+                "nfl-backend/data_delivery/nfl_moneyline_v1_20260830.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

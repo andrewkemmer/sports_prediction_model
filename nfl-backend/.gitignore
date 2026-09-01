@@ -3,6 +3,12 @@ __pycache__/
 *.pyo
 .env
 *.joblib
+# The deployed ensemble bundle IS committed and pushed (MLB mechanism — the
+# within-run incumbent gate needs it on the remote so a fresh Kaggle clone
+# gates immediately, no advisory-once warm-up run). Negate ONLY this exact
+# file/dir; the global *.joblib rule still covers every other binary.
+!data_delivery/models/
+!data_delivery/models/*.joblib
 
 # Generated artifacts — produced by backend/nfl_game_frame.py; the module
 # re-creates them on every run, so they are never committed (see README).
