@@ -136,11 +136,11 @@ RECORD_TEMPLATE = f"nfl_feature_v1_{{date}}.json"
 FEATURE_PRIORITY = {
     "elo_diff": 0, "ypp_diff": 1, "form_diff_pts": 2, "win_pct_diff": 3,
     "rest_days_diff": 4, "is_dome_home": 5,
-    "ewm_net_pts_diff": 6, "ewm_epa_play_diff": 7, "ewm_qb_epa_play_diff": 8,
-    "ewm_scoring_diff": 9, "ewm_ypp_diff": 10, "opp_adj_net_pts_diff": 11,
-    "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
-    "wind_mph": 15, "div_game": 16,
-    "travel_miles_diff": 17, "altitude_home": 18, "prime_time": 19,
+    "ewm_net_pts_diff": 6, "ewm_epa_play_diff": 7,
+    "ewm_scoring_diff": 8, "ewm_ypp_diff": 9, "opp_adj_net_pts_diff": 10,
+    "pace_plays_min_diff": 11, "rest_short_diff": 12, "temp_f": 13,
+    "wind_mph": 14, "div_game": 15,
+    "travel_miles_diff": 16, "altitude_home": 17, "prime_time": 18,
 }
 
 # The SERVED pool, in gating order: what survives is EXACTLY this list
@@ -150,8 +150,10 @@ FEATURE_PRIORITY = {
 FEATURE_COLUMNS = [
     # ---- v1 base (admitted 2026-08-28) --------------------------------
     "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
-    # ---- v2 decaying-window strength aggregates (admitted 2026-08-28) --
-    "ewm_net_pts_diff", "ewm_qb_epa_play_diff", "ewm_ypp_diff",
+    # ---- v2 decaying-window strength aggregates (admitted 2026-08-28;
+    # ewm_qb_epa_play_diff removed 2026-09-01 by the corr-pair twin verdict
+    # — see the composed-but-unregistered block below) --------------------
+    "ewm_net_pts_diff", "ewm_ypp_diff",
     # ---- v2 schedule facts (admitted 2026-08-28) ----------------------
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     # ---- v4 Tier-2 venue slices, admitted 2026-09-01 (b2205f2) --------
@@ -173,6 +175,18 @@ FEATURE_COLUMNS = [
 #   ypp_diff                   — redundant twin of ewm_ypp_diff (|r| 0.94).
 #   ewm_epa_play_diff          — redundant twin of ewm_qb_epa_play_diff
 #       (|r| 0.99).
+#   ewm_qb_epa_play_diff       — trailing QB EPA/play, ewm halflife=2.
+#       ADMITTED with the v1/v2 base (2026-08-28), then REMOVED BY VERDICT:
+#       the twin-removal ablation (run_feature_corr_ablation.py, record
+#       nfl_feature_corr_ablation_e4aee120a4b8.json, commit cd3c26b) found
+#       WITHOUT_QBEPA beats the 13-pool on SEALED 2025 logloss (−0.0124) AND
+#       AUC (+0.0129) with ECE-cal improving 0.0937 → 0.0656 (under 0.08),
+#       pooled OOF corroborating (−0.0116). Note: the market revert
+#       (2f79669) changed which twin is droppable — with the market out,
+#       yards-per-play (ewm_ypp_diff) carries the retained signal, so
+#       QB-EPA/play does not. ewm_ypp_diff STAYS (the WITHOUT_YPP arm lost
+#       sealed AUC −0.0019 — it is the keeper). Composition stays so the
+#       harness and re-runs keep working.
 #   ewm_scoring_diff           — redundant twin of ewm_epa_play_diff
 #       (|r| 0.85).
 #   opp_adj_net_pts_diff       — redundant twin of form_diff_pts (|r| 0.91).
@@ -185,16 +199,18 @@ FEATURE_COLUMNS = [
 #       CONSUMED as a model input. Composition stays so the reference arm
 #       and run_tier3_ablation.py keep working.
 # None of these was ever removed by a SEALED-ABLATION verdict (market_home_
-# implied was admitted by one and then reversed by policy): the rest were
-# pruned at admission time by the LEGACY coverage/redundancy gate (now the
-# opt-in GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
-# WITHOUT baselines because build_features/build_slate_features still compose
-# them. Unregistering them here is the deliberate policy decision that the
-# served pool is exactly the 13 features above and that the gate no longer
-# removes anything from it automatically. (The v3 Tier-1 candidates, the v4
-# venue remainder — timezone_diff/turf_home/neutral_site — and the v5
-# officials/roster families are also composed-but-unregistered, each with a
-# real ablation verdict recorded in its comment block.)
+# implied was admitted by one and then reversed by policy; qb_epa was
+#   removed by the corr-pair twin verdict above): the rest were pruned at
+#   admission time by the LEGACY coverage/redundancy gate (now the opt-in
+#   GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
+#   WITHOUT baselines because build_features/build_slate_features still
+#   compose them. Unregistering them here is the deliberate policy decision
+#   that the served pool is exactly the 12 features above and that the gate
+#   no longer removes anything from it automatically. (The v3 Tier-1
+#   candidates, the v4 venue remainder — timezone_diff/turf_home/
+#   neutral_site — and the v5
+#   officials/roster families are also composed-but-unregistered, each with
+#   a real ablation verdict recorded in its comment block.)
 # ---------------------------------------------------------------------------
 
 CANONICAL_SOURCE = {
@@ -206,7 +222,6 @@ CANONICAL_SOURCE = {
     "is_dome_home": "home venue roof (nflverse schedule field)",
     "ewm_net_pts_diff": "trailing net pts/game, ewm halflife=2 (decaying)",
     "ewm_epa_play_diff": "trailing EPA/play, ewm halflife=2 (from pbp epa)",
-    "ewm_qb_epa_play_diff": "trailing QB EPA/play, ewm halflife=2 (from pbp qb_epa)",
     "ewm_scoring_diff": "trailing points-for/game, ewm halflife=2 (scoring output)",
     "ewm_ypp_diff": "trailing yards/play, ewm halflife=2 (from pbp)",
     "opp_adj_net_pts_diff": "trailing net pts minus avg trailing form of opponents faced (last 6)",

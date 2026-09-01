@@ -189,7 +189,7 @@ class TestGate(unittest.TestCase):
             self.assertIn(f, res["below_coverage_floor"])
             self.assertIn(f, res["v1_features"])     # still served
         self.assertNotIn("is_home", res["v1_features"])
-        self.assertEqual(len(res["v1_features"]), 13)  # 13 served + anchor
+        self.assertEqual(len(res["v1_features"]), 12)  # 12 served + anchor
         self.assertFalse(res["auto_prune"])
 
     def test_legacy_prune_is_explicit_opt_in(self):
@@ -365,33 +365,35 @@ class TestV2Gate(unittest.TestCase):
         for f in FEATURE_COLUMNS:
             frame[f] = 0.0
         frame["elo_diff"] = np.linspace(-2, 2, len(frame))
-        frame["ewm_qb_epa_play_diff"] = frame["ewm_qb_epa_play_diff"].mask(
+        frame["ewm_ypp_diff"] = frame["ewm_ypp_diff"].mask(
             np.array([i % 2 == 0 for i in range(len(frame))]))
         res = run_feature_gate(frame)
         self.assertEqual(res["dropped"], [])
-        self.assertIn("ewm_qb_epa_play_diff", res["below_coverage_floor"])
-        self.assertIn("ewm_qb_epa_play_diff", res["v1_features"])
+        self.assertIn("ewm_ypp_diff", res["below_coverage_floor"])
+        self.assertIn("ewm_ypp_diff", res["v1_features"])
         res_legacy = run_feature_gate(frame, auto_prune=True)
-        self.assertIn("ewm_qb_epa_play_diff", res_legacy["dropped"])
-        self.assertIn("coverage", res_legacy["reasons"]["ewm_qb_epa_play_diff"])
+        self.assertIn("ewm_ypp_diff", res_legacy["dropped"])
+        self.assertIn("coverage", res_legacy["reasons"]["ewm_ypp_diff"])
         self.assertIn("elo_diff", res["v1_features"])
 
     def test_v2_admitted_features_and_sync(self):
-        """FEATURE_COLUMNS is the SERVED pool: the gated 13 + the is_home
+        """FEATURE_COLUMNS is the SERVED pool: the gated 12 + the is_home
         anchor. The legacy v2 twins pruned at admission time (never by an
-        ablation) and market_home_implied (admitted by Tier-3 MARK, then
-        deliberately policy-reversed) are composed-but-unregistered — they
-        are no longer FEATURE_COLUMNS members."""
-        kept = ("ewm_net_pts_diff", "ewm_qb_epa_play_diff", "ewm_ypp_diff",
+        ablation), ewm_qb_epa_play_diff (removed by the corr-pair twin
+        verdict cd3c26b), and market_home_implied (admitted by Tier-3 MARK,
+        then deliberately policy-reversed) are composed-but-unregistered —
+        they are no longer FEATURE_COLUMNS members."""
+        kept = ("ewm_net_pts_diff", "ewm_ypp_diff",
                 "pace_plays_min_diff", "rest_short_diff", "div_game")
         for f in kept:
             self.assertIn(f, FEATURE_COLUMNS)
         unregistered = ("form_diff_pts", "ypp_diff", "ewm_epa_play_diff",
-                        "ewm_scoring_diff", "opp_adj_net_pts_diff",
+                        "ewm_qb_epa_play_diff", "ewm_scoring_diff",
+                        "opp_adj_net_pts_diff",
                         "temp_f", "wind_mph", "market_home_implied")
         for f in unregistered:
             self.assertNotIn(f, FEATURE_COLUMNS)
-        self.assertEqual(len(FEATURE_COLUMNS), 14)   # 13 served + is_home anchor
+        self.assertEqual(len(FEATURE_COLUMNS), 13)   # 12 served + is_home anchor
         self.assertEqual(FEATURE_COLUMNS[-1], "is_home")
 
 

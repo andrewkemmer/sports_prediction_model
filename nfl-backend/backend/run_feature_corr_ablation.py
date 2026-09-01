@@ -1,25 +1,29 @@
 """ewm_qb_epa_play_diff / ewm_ypp_diff 0.81-correlation removal arms.
 
-The 2026-09-01 Phase-2 gate flagged (report-only, no-auto-remove policy):
-    |r| 0.8055 between ewm_qb_epa_play_diff and ewm_ypp_diff  (> 0.80 bar).
-Both stayed in the served pool (13 — the 2026-09-01 market revert removed
-market_home_implied from the pool, so this baseline is the CURRENT deployed
-pool). This harness gives the pair a deliberate, evidence-backed decision
-with the SAME sealed gate as every prior arm
-(run_tier1_ablation.adopt_verdict):
+VERDICT EXECUTED — record nfl_feature_corr_ablation_e4aee120a4b8.json
+(commit cd3c26b): WITHOUT_QBEPA ADOPT-REMOVE. Dropping
+ewm_qb_epa_play_diff beat the 13-pool on SEALED 2025 logloss (−0.0124) AND
+AUC (+0.0129) with ECE-cal improving 0.0937 → 0.0656 (under 0.08), pooled
+OOF corroborating (−0.0116), so ewm_qb_epa_play_diff was dropped from the
+served pool. Note: the market revert (2f79669) changed which twin is
+droppable — with the market out, yards-per-play (ewm_ypp_diff) carries the
+retained signal, and the WITHOUT_YPP arm (sealed AUC −0.0019) confirmed
+ewm_ypp_diff is the keeper and STAYS.
 
-    WITH_13         baseline — the deployed 13-feature pool (both twins).
-    WITHOUT_QBEPA   12 — drop ewm_qb_epa_play_diff.
-    WITHOUT_YPP     12 — drop ewm_ypp_diff.
-    WITHOUT_BOTH    11 — drop both (bounds check).
+The harness is re-locked to the CURRENT deployed pool (12 features) so a
+re-run re-measures the still-live question with the SAME sealed gate as
+every prior arm (run_tier1_ablation.adopt_verdict):
 
-REMOVAL of a twin is justified only if the removal arm beats WITH_13 on
-SEALED 2025 logloss AND AUC without degrading ECE-cal, corroborated by
-pooled OOF. If neither single removal wins on both sealed axes, the 0.81
-redundancy is accepted deliberately and both twins stay (KEEP BOTH).
+    WITH_12         baseline — the deployed 12-feature pool.
+    WITHOUT_YPP     11 — drop ewm_ypp_diff (the remaining twin).
 
-Univariate prior from the run log: ewm_qb_epa_play_diff AUC 0.6464 vs
-ewm_ypp_diff 0.6338 — if exactly one must go, QB EPA is the stronger.
+The historical WITHOUT_BOTH bounds arm is gone: ewm_qb_epa_play_diff is
+already unserved, so it would degenerate to WITHOUT_YPP (the original 4-arm
+run is preserved in the committed record). REMOVAL is justified only if the
+removal arm beats WITH_12 on SEALED 2025 logloss AND AUC without degrading
+ECE-cal, corroborated by pooled OOF. The |r| 0.8055 pair itself is now
+unserved — only ewm_ypp_diff remains in the pool — so the report-only gate
+can no longer surface it.
 
 Usage (network + nflreadpy needed for the pull):
     python3 run_feature_corr_ablation.py
@@ -38,7 +42,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from run_feature_winpct_ablation import DEPLOYED_13, load_features
+from run_feature_winpct_ablation import DEPLOYED_12, load_features
 from run_tier1_ablation import (MEMBER_NAMES, _frame_sha256, _member_metrics,
                                 adopt_verdict)
 
@@ -51,15 +55,14 @@ CORRELATION = 0.8055  # reported by the 2026-09-01 report-only gate
 
 
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
-    """WITH_13 (deployed pool), each 12-col twin removal, and the 11-col
-    both-removed bounds check. Columns absent from the frame are dropped."""
-    base = [c for c in DEPLOYED_13 if c in feats.columns]
-    drop = lambda *cs: [c for c in base if c not in cs]  # noqa: E731
+    """WITH_12 (deployed pool) and the remaining YPP twin removal (the
+    historical WITHOUT_QBEPA / WITHOUT_BOTH arms were executed or
+    degenerate — see the module docstring). Columns absent from the frame
+    are dropped."""
+    base = [c for c in DEPLOYED_12 if c in feats.columns]
     return {
-        "WITH_13": base,
-        "WITHOUT_QBEPA": drop(QBEPA),
-        "WITHOUT_YPP": drop(YPP),
-        "WITHOUT_BOTH": drop(QBEPA, YPP),
+        "WITH_12": base,
+        "WITHOUT_YPP": [c for c in base if c != YPP],
     }
 
 
@@ -99,12 +102,12 @@ def main(argv: list[str] | None = None) -> int:
     # adopt=True means the removal beats WITH_13 on both sealed axes.
     verdicts = {}
     for n in arms:
-        if n == "WITH_13":
+        if n == "WITH_12":
             continue
-        verdicts[n] = adopt_verdict(sealed["WITH_13"], sealed[n],
-                                    pooled["WITH_13"], pooled[n])
+        verdicts[n] = adopt_verdict(sealed["WITH_12"], sealed[n],
+                                    pooled["WITH_12"], pooled[n])
 
-    print("\n=== corr-pair removal arms (WITH_13 baseline) ===")
+    print("\n=== corr-pair removal arms (WITH_12 baseline) ===")
     print("arm             sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]
@@ -129,19 +132,16 @@ def main(argv: list[str] | None = None) -> int:
 
     for n, v in verdicts.items():
         tag = "ADOPT-REMOVE" if v["adopt"] else "KEEP"
-        print(f"\nVERDICT {n}: {tag} (removal vs WITH_13)")
+        print(f"\nVERDICT {n}: {tag} (removal vs WITH_12)")
         for r in v["reason"]:
             print("  -", r)
 
     drops = [n for n, v in verdicts.items() if v["adopt"]]
     if not drops:
-        print("\nFINAL: KEEP BOTH — no removal beats WITH_13 on both sealed "
-              "axes; the 0.81 twin redundancy is accepted deliberately.")
-    elif drops == ["WITHOUT_QBEPA", "WITHOUT_YPP"]:
-        print("\nFINAL: both single-removal arms win — strongest evidence for "
-              "dropping one twin (the pair is mutually redundant).")
+        print("\nFINAL: KEEP — no removal beats WITH_12 on both sealed axes; "
+              "ewm_ypp_diff stays served on measurement.")
     else:
-        print(f"\nFINAL: DROP {drops} — removal(s) beat WITH_13 on sealed "
+        print(f"\nFINAL: DROP {drops} — removal(s) beat WITH_12 on sealed "
               "logloss AND AUC (see per-arm verdicts).")
 
     if args.no_record:
