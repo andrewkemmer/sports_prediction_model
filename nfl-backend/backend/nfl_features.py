@@ -32,11 +32,13 @@ coverage rule, gated entry, no model-output-as-input"):
   hand-multiplied "risk" interactions, no injury reports (not reliably final
   12h pre-kickoff), no weather.
 
-  v5 (Tier-3) exception, same rule the other families follow: the market
-  de-vig, referee-crew, and roster age/exp candidates ARE composed by
-  build_features/build_slate_features but stay OUT of FEATURE_COLUMNS until
-  the sealed-2025 ablation admits them; nothing enters the deployed pool
-  without a winning verdict (Tier-1/Tier-2 rule).
+  v5 (Tier-3): the market de-vig, referee-crew, and roster age/exp
+  candidates ARE composed by build_features/build_slate_features and,
+  apart from market_home_implied — which was admitted by the 2026-09-01
+  MARK verdict and then DELIBERATELY REVERSED BY POLICY so the model stays
+  an independent fundamentals predictor (the market is compared, not
+  consumed) — stay OUT of FEATURE_COLUMNS unless the sealed-2025 ablation
+  admits them (Tier-1/Tier-2 rule).
 
 12h-pre-kickoff availability assumption (stated): a feature counts as
 "available 12h pre-kickoff" iff it is non-null and depends only on completed
@@ -139,7 +141,6 @@ FEATURE_PRIORITY = {
     "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
     "wind_mph": 15, "div_game": 16,
     "travel_miles_diff": 17, "altitude_home": 18, "prime_time": 19,
-    "market_home_implied": 20,
 }
 
 # The SERVED pool, in gating order: what survives is EXACTLY this list
@@ -157,19 +158,13 @@ FEATURE_COLUMNS = [
     # VENUE_3 won the sealed-2025 holdout (logloss 0.6382 vs 0.6401, AUC
     # 0.6933 vs 0.6913); the full 6-feature VENUE block DON'T ADOPT.
     "travel_miles_diff", "altitude_home", "prime_time",
-    # ---- v5 Tier-3 market slice, admitted 2026-09-01 (76002fb) --------
-    # MARK won the sealed-2025 holdout (logloss 0.6339 vs 0.6507, AUC
-    # 0.7121 vs 0.6817, ECE-cal 0.0759 vs 0.0937); all five members improve
-    # sealed both axes. Officials/roster families DON'T ADOPT (see the
-    # Tier-3 comment block).
-    "market_home_implied",
     # ---- constant anchor (reported, never a model column) --------------
     "is_home",
 ]
 
 # ---------------------------------------------------------------------------
-# Composed-but-unregistered legacy candidates — DELIBERATELY not in the
-# served pool. TRUE HISTORY (no ablation invented for them):
+# Composed-but-unregistered candidates — DELIBERATELY not in the served
+# pool. TRUE HISTORY (no ablation invented for any of them):
 #   temp_f / wind_mph          — 0.0% coverage in every nflreadpy pull (the
 #       schedule's temp/wind columns are empty in this feed) — unservable.
 #   form_diff_pts              — redundant twin of ewm_net_pts_diff
@@ -181,12 +176,21 @@ FEATURE_COLUMNS = [
 #   ewm_scoring_diff           — redundant twin of ewm_epa_play_diff
 #       (|r| 0.85).
 #   opp_adj_net_pts_diff       — redundant twin of form_diff_pts (|r| 0.91).
-# None of these was ever removed by a SEALED-ABLATION verdict: they were
+#   market_home_implied        — no-vig closing-moneyline home win prob.
+#       ADMITTED by the Tier-3 MARK verdict (76002fb: sealed 0.6339/0.7121/
+#       ECE 0.0759 vs WITHOUT 0.6507/0.6817/0.0937; all five members improve
+#       sealed both axes), then DELIBERATELY REVERSED BY POLICY — the model
+#       is to remain an independent fundamentals predictor: the market line
+#       is COMPARED (the moneyline gate's market_line reference arm), never
+#       CONSUMED as a model input. Composition stays so the reference arm
+#       and run_tier3_ablation.py keep working.
+# None of these was ever removed by a SEALED-ABLATION verdict (market_home_
+# implied was admitted by one and then reversed by policy): the rest were
 # pruned at admission time by the LEGACY coverage/redundancy gate (now the
 # opt-in GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
 # WITHOUT baselines because build_features/build_slate_features still compose
 # them. Unregistering them here is the deliberate policy decision that the
-# served pool is exactly the 14 features above and that the gate no longer
+# served pool is exactly the 13 features above and that the gate no longer
 # removes anything from it automatically. (The v3 Tier-1 candidates, the v4
 # venue remainder — timezone_diff/turf_home/neutral_site — and the v5
 # officials/roster families are also composed-but-unregistered, each with a
@@ -214,7 +218,6 @@ CANONICAL_SOURCE = {
     "travel_miles_diff": "home−away stadium distance, haversine (nfl_stadiums.csv)",
     "altitude_home": "home venue elevation, meters SRTM (nfl_stadiums.csv)",
     "prime_time": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)",
-    "market_home_implied": "no-vig home win prob from closing moneyline (schedule)",
     "is_home": "constant anchor for the home edge",
 }
 
@@ -448,7 +451,11 @@ TIER3_ROSTER_FEATURES = ["roster_age_diff", "roster_exp_diff"]
 #   MARK   ADOPT       (sealed 0.6339/0.7121/ECE 0.0759 vs WITHOUT
 #                       0.6507/0.6817/0.0937; pooled 0.6026 corroborates; all
 #                       five members improve sealed both axes) — admitted
-#                       into FEATURE_COLUMNS above.
+#                       into FEATURE_COLUMNS (76002fb), then DELIBERATELY
+#                       REVERSED BY POLICY 2026-09-01: the model must stay
+#                       market-independent; market_home_implied is composed
+#                       only, consumed by the gate's market_line reference
+#                       arm (external benchmark), never as a model input.
 #   OFF    DON'T ADOPT (sealed 0.6578/0.6815 misses on both axes) AND
 #                       ref_pen_tend decided coverage is 84.6% — below the
 #                       95% floor (team x crew meetings are ~1/yr), so it

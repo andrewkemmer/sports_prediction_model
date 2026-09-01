@@ -1,10 +1,11 @@
 """win_pct_diff removal arm — evidence test for the only served feature whose
 inclusion rests on RESTORATION rather than an ablation-gate verdict.
 
-Baseline (WITH_14):  the deployed 14-feature pool, synced with
-FEATURE_COLUMNS on 2026-09-01 (10 v1/v2 + travel_miles_diff, altitude_home,
-prime_time + market_home_implied).
-Test arm (WITHOUT_13): the same 14 MINUS win_pct_diff.
+Baseline (WITH_13):  the deployed 13-feature pool, synced with
+FEATURE_COLUMNS (10 v1/v2 + travel_miles_diff, altitude_home, prime_time;
+market_home_implied was admitted 2026-09-01 then policy-reverted out — the
+model stays market-independent, the market is a benchmark, not an input).
+Test arm (WITHOUT_12): the same 13 MINUS win_pct_diff.
 
 The sealed-2025 gate is the SAME rule as the Tier-1/2/3 harnesses
 (run_tier1_ablation.adopt_verdict): the test arm must beat the baseline on
@@ -36,13 +37,14 @@ from run_tier1_ablation import (MEMBER_NAMES, _frame_sha256, _member_metrics,
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 
-# The deployed 14 (FEATURE_COLUMNS minus the is_home anchor).
-DEPLOYED_14 = [
+# The deployed pool (FEATURE_COLUMNS minus the is_home anchor) as of the
+# 2026-09-01 market revert: 13 features — 10 v1/v2 + the VENUE_3 Tier-2
+# admission. market_home_implied is deliberately NOT here (policy reversal).
+DEPLOYED_13 = [
     "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
     "ewm_net_pts_diff", "ewm_qb_epa_play_diff", "ewm_ypp_diff",
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
-    "market_home_implied",
 ]
 REMOVED = "win_pct_diff"
 
@@ -64,10 +66,10 @@ def load_features(features_csv: str | None) -> pd.DataFrame:
 
 
 def build_arms(feats: pd.DataFrame) -> dict[str, list[str]]:
-    """WITH_14 (deployed pool incl. win_pct_diff) / WITHOUT_13 (removal)."""
-    with_f = [c for c in DEPLOYED_14 if c in feats.columns]
-    without_f = [c for c in DEPLOYED_14 if c != REMOVED and c in feats.columns]
-    return {"WITH_14": with_f, "WITHOUT_13": without_f}
+    """WITH_13 (deployed pool incl. win_pct_diff) / WITHOUT_12 (removal)."""
+    with_f = [c for c in DEPLOYED_13 if c in feats.columns]
+    without_f = [c for c in DEPLOYED_13 if c != REMOVED and c in feats.columns]
+    return {"WITH_13": with_f, "WITHOUT_12": without_f}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,11 +102,11 @@ def main(argv: list[str] | None = None) -> int:
     pooled = {n: _m(results[n]["pooled_preq_2021_2024"]["model_platt"])
               for n in arms}
 
-    # adopt_verdict(baseline, candidate): candidate = WITHOUT_13 (the removal)
-    verdict = adopt_verdict(sealed["WITH_14"], sealed["WITHOUT_13"],
-                            pooled["WITH_14"], pooled["WITHOUT_13"])
+    # adopt_verdict(baseline, candidate): candidate = WITHOUT_12 (the removal)
+    verdict = adopt_verdict(sealed["WITH_13"], sealed["WITHOUT_12"],
+                            pooled["WITH_13"], pooled["WITHOUT_12"])
 
-    print("\n=== win_pct_diff removal arm (WITH_14 vs WITHOUT_13) ===")
+    print("\n=== win_pct_diff removal arm (WITH_13 vs WITHOUT_12) ===")
     print("arm           sealed_ll  sealed_auc  sealed_ece  pooled_ll")
     for n in arms:
         s, p = sealed[n], pooled[n]
@@ -129,11 +131,11 @@ def main(argv: list[str] | None = None) -> int:
     _member_rows(member_sealed)
 
     if verdict["adopt"]:
-        print("\nVERDICT (REMOVAL vs WITH_14): ADOPT — win_pct_diff removal "
-              "beats the 14 on sealed logloss AND AUC; a real evidence basis "
+        print("\nVERDICT (REMOVAL vs WITH_13): ADOPT — win_pct_diff removal "
+              "beats the 13 on sealed logloss AND AUC; a real evidence basis "
               "exists to drop it.")
     else:
-        print("\nVERDICT (REMOVAL vs WITH_14): KEEP — the removal wins neither "
+        print("\nVERDICT (REMOVAL vs WITH_13): KEEP — the removal wins neither "
               "sealed axis; win_pct_diff stays served on measurement, not "
               "assumption.")
     for r in verdict["reason"]:
