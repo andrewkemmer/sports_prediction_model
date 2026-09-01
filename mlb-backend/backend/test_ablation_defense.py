@@ -152,6 +152,77 @@ class TestPrescreen(unittest.TestCase):
         self.assertGreater(auc, 0.52)
 
 
+class TestImputeSeam(unittest.TestCase):
+    """The logistic imputation seam: a split whose column is ALL-NaN
+    (sparse family coverage, e.g. F5 early-season) must never crash
+    LogisticRegression — median-of-NaN is NaN, so the zero-fill pass
+    must convert it to a constant column."""
+
+    def test_median_fill_handles_partial_nan(self):
+        df = pd.DataFrame({"a": [1.0, np.nan, 3.0, np.nan],
+                           "b": [2.0, 4.0, np.nan, 8.0]})
+        out = ad._median_zero_impute(df)
+        self.assertFalse(out.isna().any().any())
+        self.assertEqual(out["a"].tolist()[0], 1.0)
+        self.assertAlmostEqual(out["a"].median(), df["a"].median())
+
+    def test_all_nan_column_becomes_constant_zero(self):
+        """The v3 crash: an all-NaN column survives the median fill
+        (median of NaN is NaN) and must be zero-filled, not passed on."""
+        df = pd.DataFrame({"live": [1.0, 2.0, 3.0],
+                           "dead": [np.nan, np.nan, np.nan]})
+        out = ad._median_zero_impute(df)
+        self.assertFalse(out.isna().any().any())
+        self.assertEqual(out["dead"].tolist(), [0.0, 0.0, 0.0])
+        self.assertEqual(out["live"].std() > 0, True)  # live column untouched
+
+    def test_all_nan_frame_does_not_raise(self):
+        df = pd.DataFrame({"a": [np.nan, np.nan], "b": [np.nan, np.nan]})
+        out = ad._median_zero_impute(df)
+        self.assertFalse(out.isna().any().any())
+        self.assertTrue(np.isfinite(out.values).all())
+
+
+class TestScaleConsistentPredict(unittest.TestCase):
+    """The logistic proxy must predict on Z-SCORED val (same train mu/sd
+    the fit used). Feeding raw val (elo_diff ~30, exit velo ~88) through
+    z-fit weights saturates sigmoid — logloss blew to ~7.5 in the first
+    v3 run; the walk-forward would then masquerade as a huge regression."""
+
+    def _noise_frame(self, rng, n: int) -> pd.DataFrame:
+        return pd.DataFrame({"elo_diff": rng.normal(0, 30, n),
+                             "win_pct_diff": rng.normal(0, 0.08, n),
+                             "home_win": rng.binomial(1, 0.5, n)})
+
+    def test_logistic_predict_is_scale_consistent(self):
+        rng = np.random.default_rng(21)
+        tr, va = self._noise_frame(rng, 2000), self._noise_frame(rng, 500)
+        proxies, y_va = ad.train_condition(tr, va, [])
+        p = proxies["logistic"][0].predict_proba(
+            proxies["logistic"][1](va))[:, 1]
+        ll = ad.logloss(y_va, p)
+        # Sane ≈ entropy of a fair coin (~0.693); a scale-mismatched
+        # raw-vs-z predict saturates and scores ~7.5.
+        self.assertGreater(ll.mean(), 0.66)
+        self.assertLess(ll.mean(), 0.75)
+
+    def test_wide_scale_def_col_with_nan_does_not_blow_up(self):
+        """F2/F5 columns (exit velo ~88 mph, sparse NaN in val) must not
+        saturate the logistic head when fitted z-scored."""
+        rng = np.random.default_rng(22)
+        tr, va = self._noise_frame(rng, 2000), self._noise_frame(rng, 500)
+        for c in ("opp_exitvelo_15g_home", "opp_exitvelo_15g_diff"):
+            tr[c] = rng.normal(88, 3, len(tr))
+            va[c] = rng.normal(88, 3, len(va))
+            va.loc[0:80, c] = np.nan
+        proxies, y_va = ad.train_condition(
+            tr, va, ["opp_exitvelo_15g_home", "opp_exitvelo_15g_diff"])
+        p = proxies["logistic"][0].predict_proba(
+            proxies["logistic"][1](va))[:, 1]
+        ll = ad.logloss(y_va, p)
+        self.assertLess(ll.mean(), 1.0)
+
+
 class TestSignificanceHelpers(unittest.TestCase):
     def test_dm_detects_shift(self):
         rng = np.random.default_rng(11)

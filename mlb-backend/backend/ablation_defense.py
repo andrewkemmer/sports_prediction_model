@@ -416,6 +416,19 @@ def condition_feature_cols(cond: list[str], f135: pd.DataFrame,
 
 # ── Per-family z-scoring (train-window only) ────────────────────────────────
 
+def _median_zero_impute(df: pd.DataFrame) -> pd.DataFrame:
+    """Median-fill, then zero-fill.
+
+    A column that is ALL-NaN in a split (sparse family coverage, e.g. an
+    F5 behind-starter ladder early in the frame) keeps NaN after a median
+    fill (median of NaN is NaN), which LogisticRegression rejects. The
+    zero-fill pass turns it into a constant column — no signal after
+    z-scoring, so it cannot bias the measurement. Guarded by unit test
+    (TestImputeSeam).
+    """
+    return df.fillna(df.median()).fillna(0.0)
+
+
 def zscore_train(train: pd.DataFrame, val: pd.DataFrame,
                  cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     tr = train.copy()
@@ -457,16 +470,29 @@ def train_condition(train: pd.DataFrame, val: pd.DataFrame,
 
     # Linear proxy: baseline + defense DIFFS only, z-scored on train window
     lin_cols = base_cols + diff_cols
+    # Raw train mu/sd captured BEFORE z-scoring so the predict lambda can
+    # z-score val with the SAME transform the fit used. NaN fill uses the
+    # Z-SCORED median (~0), matching Xtr_lin's imputation.
+    lin_mu = train[lin_cols].mean()
+    lin_sd = train[lin_cols].std().replace(0, 1.0)
     tr_z, va_z = zscore_train(train, val, lin_cols)
-    Xtr_lin = tr_z[lin_cols].fillna(tr_z[lin_cols].median())
-    Xva_lin = va_z[lin_cols].fillna(tr_z[lin_cols].median())
+    z_med = tr_z[lin_cols].median()
+    # An all-NaN column (sparse family coverage, e.g. F5 early-season
+    # split) has NaN median; the zero-fill pass makes it a constant column
+    # rather than crashing LogisticRegression. Tested in TestImputeSeam.
+    Xtr_lin = _median_zero_impute(tr_z[lin_cols])
+    Xva_lin = _median_zero_impute(va_z[lin_cols])
     lr = LogisticRegression(max_iter=1000, random_state=SEED)
     lr.fit(Xtr_lin, y_tr)
+
+    def _logistic_predict(v: pd.DataFrame) -> pd.DataFrame:
+        Xz = (v[lin_cols] - lin_mu) / lin_sd
+        return _median_zero_impute(Xz.fillna(z_med))
 
     return {
         "lgbm": (lgbm, lambda v: v[base_cols + def_cols]
                  .fillna(train[base_cols + def_cols].median())),
-        "logistic": (lr, lambda v: v[lin_cols].fillna(tr_z[lin_cols].median())),
+        "logistic": (lr, _logistic_predict),
     }, y_va
 
 
@@ -605,7 +631,11 @@ def prescreen(folds, f135: pd.DataFrame, f24: pd.DataFrame | None,
             y = va["home_win"].values.astype(int)
             resid = np.abs(y - p_base)
             hard = (resid > np.median(resid)).astype(int)
-            X_parts.append(va[present].fillna(va[present].median()).values)
+            # Median-fill, then zero-fill: a column that is ALL-NaN in this
+            # split keeps NaN after median (median of NaN is NaN), which
+            # LogisticRegression rejects. Zero-fill leaves it a constant
+            # column (no signal after z-scoring) — harmless for screening.
+            X_parts.append(_median_zero_impute(va[present]).values)
             y_parts.append(hard)
         if not X_parts or sum(len(y) for y in y_parts) < 500:
             results[fam] = {"status": "INSUFFICIENT_N", "survived": False}
@@ -663,9 +693,17 @@ def main() -> None:
     # because later games moved into the holdout. Comparisons are only valid
     # within a single result JSON.
 
-    pbp = _load_pbp_lean()
+    pbp_lean = _load_pbp_lean()
     wide = _load_pbp_wide()
-    print(f"pbp lean rows={len(pbp)} | wide defense cache={'YES' if wide is not None else 'MISSING (F2/F4 unbuildable)'}",
+    # F1/F3/F5 build from the WIDE cache when present: it starts 2024-03-20
+    # (the lean chunks start 2025-03-18), so early folds are comparable to
+    # F2/F4 and the baseline — the subset-consistency check requires a
+    # condition's folds to match C0's, and lean-sourced F1 skipped the
+    # 2024 folds (all-NaN) while the baseline used them. Lean is the
+    # fallback when no wide cache is committed.
+    pbp = wide if wide is not None else pbp_lean
+    print(f"pbp lean rows={len(pbp_lean)} | wide defense cache={'YES' if wide is not None else 'MISSING (F2/F4 unbuildable)'} "
+          f"| F1/F3/F5 source = {'wide' if wide is not None else 'lean'}",
           flush=True)
 
     f135 = build_f1_f3_f5(pbp, games)
