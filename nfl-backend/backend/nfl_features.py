@@ -32,6 +32,12 @@ coverage rule, gated entry, no model-output-as-input"):
   hand-multiplied "risk" interactions, no injury reports (not reliably final
   12h pre-kickoff), no weather.
 
+  v5 (Tier-3) exception, same rule the other families follow: the market
+  de-vig, referee-crew, and roster age/exp candidates ARE composed by
+  build_features/build_slate_features but stay OUT of FEATURE_COLUMNS until
+  the sealed-2025 ablation admits them; nothing enters the deployed pool
+  without a winning verdict (Tier-1/Tier-2 rule).
+
 12h-pre-kickoff availability assumption (stated): a feature counts as
 "available 12h pre-kickoff" iff it is non-null and depends only on completed
 prior games or a static venue/prior fact. Nothing here depends on live
@@ -372,6 +378,208 @@ def _compose_venue_candidates(df: pd.DataFrame,
     loc = _as_str(df["location"]).str.strip()
     df["neutral_site"] = np.where(loc == "Neutral", 1.0,
                                    np.where(loc == "Home", 0.0, np.nan))
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Tier-3 (v5) candidates — market de-vig / officials / roster age+experience.
+#
+# Composed by build_features/build_slate_features but deliberately NOT
+# registered in FEATURE_COLUMNS / CANONICAL_SOURCE / FEATURE_PRIORITY: the
+# deployed pool changes only when a sealed-2025 ablation admits a feature
+# (Tier-1/Tier-2 rule), so run_tier3_ablation.py is the only admission path.
+#
+#   market_home_implied — no-vig home win prob from the closing home/away
+#       moneyline (100% coverage on decided seasons 2018-2025, same schedule
+#       frame). Calendar-gated on the slate: lines post ~2 weeks out, so
+#       far-future scheduled rows are NaN (default-filled) — the board
+#       sharpens near-term and degrades gracefully far-term.
+#   ref_pen_tend        — EWM (halflife=2) of penalty yards called AGAINST a
+#       team in games worked by the assigned head referee crew, strictly
+#       prior for that (team, crew) pair; home − away. Unknown referee or no
+#       prior meeting -> NaN (never fabricated).
+#   ref_pace            — crew game-pace proxy: EWM of total plays/game in
+#       games the assigned crew worked, strictly prior league-wide.
+#   roster_age_diff / roster_exp_diff — team-level mean age / years-exp from
+#       the committed nfl_roster_age_exp.csv snapshot (verified live
+#       2026-09-01: load_rosters schema, weekly snapshots, and a 2026
+#       pre-season week-1 REG snapshot for all 32 teams). Pre-season-known
+#       for every game of the season, so horizon-safe on the slate. (team,
+#       season) pairs absent from the table (2018/2019 partial releases)
+#       fall back to that team's nearest available season (documented).
+# ---------------------------------------------------------------------------
+TIER3_MARK_FEATURES = ["market_home_implied"]
+TIER3_OFF_FEATURES = ["ref_pen_tend", "ref_pace"]
+TIER3_ROSTER_FEATURES = ["roster_age_diff", "roster_exp_diff"]
+
+ROSTER_FILE = BACKEND_DIR / "nfl_roster_age_exp.csv"
+
+
+@functools.lru_cache(maxsize=1)
+def _roster_table() -> tuple[dict, dict]:
+    """{(team, season): (mean_age, mean_exp)} + per-team sorted seasons.
+    Reads the committed snapshot CSV (produced by _curate_roster_age_exp.py)."""
+    tab = pd.read_csv(ROSTER_FILE).dropna(subset=["mean_age", "mean_exp"])
+    facts: dict = {}
+    by_team: dict[str, list[int]] = {}
+    for _, r in tab.iterrows():
+        t, s = str(r["team"]), int(r["season"])
+        facts[(t, s)] = (float(r["mean_age"]), float(r["mean_exp"]))
+        by_team.setdefault(t, []).append(s)
+    for t in by_team:
+        by_team[t].sort()
+    return facts, by_team
+
+
+def _roster_fact(facts: dict, by_team: dict, team: str, season: int,
+                 what: str) -> float:
+    """(team, season) mean, falling back to the team's nearest available
+    season (prefer the closest prior season; else the earliest). Unknown
+    team -> NaN."""
+    val = facts.get((team, season))
+    if val is None:
+        seasons = by_team.get(team)
+        if not seasons:
+            return float("nan")
+        prior = [s for s in seasons if s <= season]
+        pick = prior[-1] if prior else seasons[0]
+        val = facts[(team, pick)]
+    return val[0] if what == "age" else val[1]
+
+
+def _american_implied(odds: pd.Series) -> pd.Series:
+    """American odds -> implied win probability (0-1); NaN -> NaN."""
+    odds = pd.to_numeric(odds, errors="coerce").astype(float)
+    pos = odds > 0
+    prob = np.where(pos, 100.0 / (100.0 + odds), -odds / (100.0 - odds))
+    return pd.Series(np.where(odds.isna(), np.nan, prob),
+                     index=odds.index, dtype=float)
+
+
+def _compose_market_candidates(df: pd.DataFrame,
+                               schedule: pd.DataFrame | None) -> pd.DataFrame:
+    """market_home_implied — no-vig home win prob from the closing moneylines.
+    Missing side or degenerate total -> NaN (never fabricated)."""
+    for col in ("home_moneyline", "away_moneyline"):
+        if col not in df.columns and schedule is not None and col in schedule.columns:
+            sub = schedule[["game_id", col]].drop_duplicates("game_id")
+            df = df.merge(sub, on="game_id", how="left")
+        if col not in df.columns:
+            df[col] = np.nan
+    ph = _american_implied(df["home_moneyline"])
+    pa = _american_implied(df["away_moneyline"])
+    total = ph + pa
+    df["market_home_implied"] = (ph / total).where(total > 0)
+    return df
+
+
+def _compose_officials_candidates(df: pd.DataFrame,
+                                  schedule: pd.DataFrame | None,
+                                  team_agg: pd.DataFrame | None) -> pd.DataFrame:
+    """ref_pen_tend / ref_pace — strictly-prior crew-conditioned facts.
+
+    ref_pen_tend: for each team, the EWM (halflife=2) of penalty yards called
+    against that team in games the assigned head referee crew worked, using
+    only those (team, crew) games STRICTLY prior (per-group shift). Unknown
+    referee, no prior (team, crew) meeting, or either side missing -> NaN.
+    For scheduled slate rows with a known crew, the value is the crew's most
+    recent strictly-prior (team, crew) EWM.
+
+    ref_pace: crew game-pace proxy — EWM of total plays/game over games the
+    crew worked, strictly prior league-wide (a level feature, not a diff).
+    """
+    if "referee" not in df.columns:
+        if schedule is not None and "referee" in schedule.columns:
+            sub = schedule[["game_id", "referee"]].drop_duplicates("game_id")
+            df = df.merge(sub, on="game_id", how="left")
+        else:
+            df["referee"] = np.nan
+    df["ref_pen_tend"] = np.nan
+    df["ref_pace"] = np.nan
+    if team_agg is None or "n_plays" not in team_agg.columns:
+        return df
+
+    if schedule is not None and {"game_id", "referee", "gameday"}.issubset(
+            schedule.columns):
+        ref_join = schedule[["game_id", "referee", "gameday"]].drop_duplicates("game_id")
+    else:
+        ref_join = df[["game_id", "referee", "gameday"]].drop_duplicates("game_id")
+    ref_join = ref_join.dropna(subset=["referee"])
+    if ref_join.empty:
+        return df
+
+    agg = team_agg[["game_id", "team", "n_plays"]].copy()
+    agg["pen_against"] = (pd.to_numeric(team_agg["penalty_yds"], errors="coerce")
+                           if "penalty_yds" in team_agg.columns else np.nan)
+
+    long = agg.merge(ref_join, on="game_id", how="left").dropna(subset=["referee"])
+    if long.empty:
+        return df
+    long["gameday"] = pd.to_datetime(long["gameday"], errors="coerce")
+    long = long.sort_values(["team", "referee", "gameday", "game_id"])
+    prior = long.groupby(["team", "referee"], sort=False)["pen_against"].transform(
+        lambda s: s.ewm(halflife=EWM_HALFLIFE, adjust=False).mean().shift(1))
+    long["_prior"] = prior
+    lut = long.set_index(["game_id", "team"])["_prior"]
+    by_pair = (long.sort_values("gameday")
+               .drop_duplicates(["team", "referee"], keep="last")
+               .set_index(["team", "referee"])["_prior"])
+
+    home = lut.reindex(pd.MultiIndex.from_arrays([df["game_id"], df["home_team"]]))
+    home_pair = by_pair.reindex(
+        pd.MultiIndex.from_arrays([df["home_team"], df["referee"]]))
+    away = lut.reindex(pd.MultiIndex.from_arrays([df["game_id"], df["away_team"]]))
+    away_pair = by_pair.reindex(
+        pd.MultiIndex.from_arrays([df["away_team"], df["referee"]]))
+    # by_game is the strictly-prior (team, crew) EWM for DECIDED games; the
+    # (team, crew) by_pair fallback applies only to undecided slate rows (a
+    # decided game with no (team, crew) history must stay NaN — a first
+    # encounter is exactly where we have no information).
+    decided = df["game_id"].isin(set(long["game_id"])).to_numpy()
+    home_v = np.where(home.notna().to_numpy(), home.to_numpy(),
+                      np.where(decided, np.nan, home_pair.to_numpy()))
+    away_v = np.where(away.notna().to_numpy(), away.to_numpy(),
+                      np.where(decided, np.nan, away_pair.to_numpy()))
+    df["ref_pen_tend"] = home_v - away_v
+
+    plays = long.groupby("game_id")["n_plays"].sum().rename("plays").reset_index()
+    pace = plays.merge(ref_join[["game_id", "referee", "gameday"]], on="game_id",
+                       how="left").dropna(subset=["referee"])
+    pace["gameday"] = pd.to_datetime(pace["gameday"], errors="coerce")
+    pace = pace.sort_values(["referee", "gameday", "game_id"])
+    pv = pace.groupby("referee", sort=False)["plays"].transform(
+        lambda s: s.ewm(halflife=EWM_HALFLIFE, adjust=False).mean().shift(1))
+    pace["_v"] = pv
+    pace_lut = pace.drop_duplicates("game_id").set_index("game_id")["_v"]
+    by_ref = (pace.sort_values("gameday")
+              .drop_duplicates("referee", keep="last")
+              .set_index("referee")["_v"])
+    pace_v = df["game_id"].map(pace_lut)
+    df["ref_pace"] = np.where(
+        pace_v.notna().to_numpy(), pace_v.to_numpy(),
+        df["referee"].map(by_ref).to_numpy())
+    return df
+
+
+def _compose_roster_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """roster_age_diff / roster_exp_diff — pre-season-known team means.
+    A team absent from the snapshot CSV degrades to NaN; an absent (team,
+    season) pair falls back to the team's nearest available season."""
+    facts, by_team = _roster_table()
+    age_home = np.array([_roster_fact(facts, by_team, str(t), int(s), "age")
+                         for t, s in zip(df["home_team"], df["season"])],
+                        dtype=float)
+    age_away = np.array([_roster_fact(facts, by_team, str(t), int(s), "age")
+                         for t, s in zip(df["away_team"], df["season"])],
+                        dtype=float)
+    exp_home = np.array([_roster_fact(facts, by_team, str(t), int(s), "exp")
+                         for t, s in zip(df["home_team"], df["season"])],
+                        dtype=float)
+    exp_away = np.array([_roster_fact(facts, by_team, str(t), int(s), "exp")
+                         for t, s in zip(df["away_team"], df["season"])],
+                        dtype=float)
+    df["roster_age_diff"] = age_home - age_away
+    df["roster_exp_diff"] = exp_home - exp_away
     return df
 
 
@@ -854,6 +1062,10 @@ def build_features(decided: pd.DataFrame,
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
     # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
     df = _compose_venue_candidates(df, schedule)
+    # --- v5 (Tier-3) candidates: market de-vig / officials / roster ---------
+    df = _compose_market_candidates(df, schedule)
+    df = _compose_officials_candidates(df, schedule, team_agg)
+    df = _compose_roster_candidates(df)
     return df
 
 
@@ -936,6 +1148,10 @@ def build_slate_features(schedule: pd.DataFrame,
     df["pts_per_drive_diff"] = _home_minus_away(ladder, gids, "ewm_pts_per_drive")
     # --- v4 (Tier-2) static venue/travel/schedule candidates ----------------
     df = _compose_venue_candidates(df, sched)
+    # --- v5 (Tier-3) candidates: market de-vig / officials / roster ---------
+    df = _compose_market_candidates(df, sched)
+    df = _compose_officials_candidates(df, sched, team_agg)
+    df = _compose_roster_candidates(df)
 
     # --- cumulative records entering the slate (from the decided timeline) ---
     rec = ev.groupby("team").agg(
