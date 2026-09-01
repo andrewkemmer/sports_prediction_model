@@ -41,7 +41,8 @@ from pathlib import Path
 import pandas as pd
 
 from nfl_features import VENUE_FEATURES
-from run_tier1_ablation import WITHOUT_FEATURES, _frame_sha256, adopt_verdict
+from run_tier1_ablation import (MEMBER_NAMES, WITHOUT_FEATURES, _frame_sha256,
+                                _member_metrics, adopt_verdict)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
@@ -115,6 +116,25 @@ def main(argv: list[str] | None = None) -> int:
     for n in arms:
         s, p = sealed[n], pooled[n]
         print(f"{n:14s} {s['logloss']}  {s['auc']}  {s['ece']}  {p['logloss']}")
+
+    member_pooled = {n: _member_metrics(results[n], "members") for n in arms}
+    member_sealed = {n: _member_metrics(results[n], "members_sealed")
+                     for n in arms}
+
+    def _member_rows(blk: dict[str, dict]) -> None:
+        print(f"{'member':12s}" + "".join(f"{n:>17s}" for n in arms))
+        for m in MEMBER_NAMES:
+            cells = []
+            for n in arms:
+                e = blk[n].get(m) or {}
+                cells.append(f"{e.get('logloss', '--')}/{e.get('auc', '--')}")
+            print(f"{m:12s}" + "".join(f"{c:>17s}" for c in cells))
+
+    print("\n=== per-member pooled OOF (logloss/auc) ===")
+    _member_rows(member_pooled)
+    print("\n=== per-member sealed 2025 (logloss/auc) ===")
+    _member_rows(member_sealed)
+
     print("\nVERDICT (VENUE-6 vs WITHOUT):",
           "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
           "|", " | ".join(verdict["reason"]))
@@ -129,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         "frame_sha256": _frame_sha256(feats),
         "arms": {n: {"features": cols,
                      "sealed_model_platt": sealed[n],
-                     "pooled_model_platt": pooled[n]}
+                     "pooled_model_platt": pooled[n],
+                     "members": {m: dict(v) for m, v in
+                                 (results[n].get("members") or {}).items()},
+                     "members_sealed": {m: dict(v) for m, v in
+                                 (results[n].get("members_sealed") or {}).items()}}
                  for n, cols in arms.items()},
         "verdict_venue": verdict,
         "verdict_venue_3": verdict_3,
