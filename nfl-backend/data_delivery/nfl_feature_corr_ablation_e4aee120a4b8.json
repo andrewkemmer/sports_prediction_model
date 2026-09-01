@@ -1,0 +1,493 @@
+{
+  "created_utc": "2026-09-01T04:30:06.430057Z",
+  "frame_sha256": "e4aee120a4b8",
+  "correlation": 0.8055,
+  "arms": {
+    "WITH_13": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6507,
+        "auc": 0.6817,
+        "ece": 0.0937
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6338,
+        "auc": 0.6895,
+        "ece": 0.0245
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1018,
+          "logloss": 0.6768,
+          "auc": 0.6545,
+          "ece": 0.0783,
+          "brier": 0.2388,
+          "logloss_calibrated": 0.6638,
+          "auc_calibrated": 0.656,
+          "ece_calibrated": 0.0583
+        },
+        "logistic": {
+          "weight": 0.157,
+          "logloss": 0.6459,
+          "auc": 0.6805,
+          "ece": 0.049,
+          "brier": 0.2261,
+          "logloss_calibrated": 0.6431,
+          "auc_calibrated": 0.6813,
+          "ece_calibrated": 0.0366
+        },
+        "mlp": {
+          "weight": 0.1018,
+          "logloss": 0.6635,
+          "auc": 0.6521,
+          "ece": 0.0488,
+          "brier": 0.2347,
+          "logloss_calibrated": 0.6607,
+          "auc_calibrated": 0.6492,
+          "ece_calibrated": 0.0574
+        },
+        "randomforest": {
+          "weight": 0.1895,
+          "logloss": 0.64,
+          "auc": 0.6833,
+          "ece": 0.0359,
+          "brier": 0.2241,
+          "logloss_calibrated": 0.639,
+          "auc_calibrated": 0.6835,
+          "ece_calibrated": 0.0456
+        },
+        "xgboost": {
+          "weight": 0.4499,
+          "logloss": 0.6171,
+          "auc": 0.7157,
+          "ece": 0.0516,
+          "brier": 0.2145,
+          "logloss_calibrated": 0.6215,
+          "auc_calibrated": 0.7133,
+          "ece_calibrated": 0.0511
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6928,
+          "auc": 0.6396,
+          "ece": 0.0874,
+          "brier": 0.2443
+        },
+        "lightgbm": {
+          "logloss": 0.6529,
+          "auc": 0.6741,
+          "ece": 0.0717,
+          "brier": 0.2298
+        },
+        "logistic": {
+          "logloss": 0.6294,
+          "auc": 0.6918,
+          "ece": 0.0539,
+          "brier": 0.2204
+        },
+        "randomforest": {
+          "logloss": 0.6239,
+          "auc": 0.7051,
+          "ece": 0.0485,
+          "brier": 0.2178
+        },
+        "mlp": {
+          "logloss": 0.6214,
+          "auc": 0.7051,
+          "ece": 0.0555,
+          "brier": 0.2171
+        }
+      }
+    },
+    "WITHOUT_QBEPA": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6383,
+        "auc": 0.6946,
+        "ece": 0.0656
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6222,
+        "auc": 0.7043,
+        "ece": 0.0259
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.0823,
+          "logloss": 0.673,
+          "auc": 0.6555,
+          "ece": 0.0825,
+          "brier": 0.2375,
+          "logloss_calibrated": 0.6823,
+          "auc_calibrated": 0.6568,
+          "ece_calibrated": 0.0871
+        },
+        "logistic": {
+          "weight": 0.1655,
+          "logloss": 0.6438,
+          "auc": 0.6826,
+          "ece": 0.0395,
+          "brier": 0.2253,
+          "logloss_calibrated": 0.6469,
+          "auc_calibrated": 0.6836,
+          "ece_calibrated": 0.046
+        },
+        "mlp": {
+          "weight": 0.1447,
+          "logloss": 0.6415,
+          "auc": 0.6805,
+          "ece": 0.0363,
+          "brier": 0.225,
+          "logloss_calibrated": 0.6412,
+          "auc_calibrated": 0.6797,
+          "ece_calibrated": 0.0323
+        },
+        "randomforest": {
+          "weight": 0.1575,
+          "logloss": 0.6414,
+          "auc": 0.6818,
+          "ece": 0.0386,
+          "brier": 0.2247,
+          "logloss_calibrated": 0.6434,
+          "auc_calibrated": 0.6826,
+          "ece_calibrated": 0.0473
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6195,
+          "auc": 0.7116,
+          "ece": 0.0447,
+          "brier": 0.2155,
+          "logloss_calibrated": 0.6156,
+          "auc_calibrated": 0.7113,
+          "ece_calibrated": 0.0255
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6726,
+          "auc": 0.6623,
+          "ece": 0.0681,
+          "brier": 0.2362
+        },
+        "lightgbm": {
+          "logloss": 0.6487,
+          "auc": 0.674,
+          "ece": 0.0549,
+          "brier": 0.2287
+        },
+        "logistic": {
+          "logloss": 0.6237,
+          "auc": 0.7016,
+          "ece": 0.0565,
+          "brier": 0.2179
+        },
+        "randomforest": {
+          "logloss": 0.6197,
+          "auc": 0.7124,
+          "ece": 0.0467,
+          "brier": 0.2157
+        },
+        "mlp": {
+          "logloss": 0.6376,
+          "auc": 0.6836,
+          "ece": 0.0479,
+          "brier": 0.2236
+        }
+      }
+    },
+    "WITHOUT_YPP": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6501,
+        "auc": 0.6798,
+        "ece": 0.0775
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6227,
+        "auc": 0.7034,
+        "ece": 0.0262
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.0969,
+          "logloss": 0.679,
+          "auc": 0.6496,
+          "ece": 0.0824,
+          "brier": 0.2398,
+          "logloss_calibrated": 0.6865,
+          "auc_calibrated": 0.6516,
+          "ece_calibrated": 0.0912
+        },
+        "logistic": {
+          "weight": 0.1507,
+          "logloss": 0.6461,
+          "auc": 0.6797,
+          "ece": 0.0413,
+          "brier": 0.2263,
+          "logloss_calibrated": 0.6487,
+          "auc_calibrated": 0.6806,
+          "ece_calibrated": 0.0523
+        },
+        "mlp": {
+          "weight": 0.1368,
+          "logloss": 0.6437,
+          "auc": 0.6783,
+          "ece": 0.0377,
+          "brier": 0.2258,
+          "logloss_calibrated": 0.6449,
+          "auc_calibrated": 0.6775,
+          "ece_calibrated": 0.0488
+        },
+        "randomforest": {
+          "weight": 0.1656,
+          "logloss": 0.6416,
+          "auc": 0.6811,
+          "ece": 0.056,
+          "brier": 0.2248,
+          "logloss_calibrated": 0.6428,
+          "auc_calibrated": 0.6822,
+          "ece_calibrated": 0.0357
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6194,
+          "auc": 0.7138,
+          "ece": 0.0485,
+          "brier": 0.2153,
+          "logloss_calibrated": 0.6155,
+          "auc_calibrated": 0.7138,
+          "ece_calibrated": 0.0363
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.684,
+          "auc": 0.6449,
+          "ece": 0.0917,
+          "brier": 0.2417
+        },
+        "lightgbm": {
+          "logloss": 0.6563,
+          "auc": 0.669,
+          "ece": 0.0485,
+          "brier": 0.2308
+        },
+        "logistic": {
+          "logloss": 0.6336,
+          "auc": 0.6906,
+          "ece": 0.0881,
+          "brier": 0.222
+        },
+        "randomforest": {
+          "logloss": 0.6368,
+          "auc": 0.6891,
+          "ece": 0.0709,
+          "brier": 0.2227
+        },
+        "mlp": {
+          "logloss": 0.6353,
+          "auc": 0.6851,
+          "ece": 0.0558,
+          "brier": 0.2228
+        }
+      }
+    },
+    "WITHOUT_BOTH": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6515,
+        "auc": 0.6825,
+        "ece": 0.0897
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6242,
+        "auc": 0.7015,
+        "ece": 0.0154
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6761,
+          "auc": 0.6508,
+          "ece": 0.0745,
+          "brier": 0.2387,
+          "logloss_calibrated": 0.6807,
+          "auc_calibrated": 0.653,
+          "ece_calibrated": 0.0822
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.6481,
+          "auc": 0.6762,
+          "ece": 0.0361,
+          "brier": 0.2272,
+          "logloss_calibrated": 0.6495,
+          "auc_calibrated": 0.6768,
+          "ece_calibrated": 0.0394
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6602,
+          "auc": 0.6509,
+          "ece": 0.0393,
+          "brier": 0.2334,
+          "logloss_calibrated": 0.6619,
+          "auc_calibrated": 0.6514,
+          "ece_calibrated": 0.0535
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6433,
+          "auc": 0.6779,
+          "ece": 0.0331,
+          "brier": 0.2258,
+          "logloss_calibrated": 0.6438,
+          "auc_calibrated": 0.6787,
+          "ece_calibrated": 0.0489
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6158,
+          "auc": 0.7222,
+          "ece": 0.047,
+          "brier": 0.2136,
+          "logloss_calibrated": 0.6118,
+          "auc_calibrated": 0.7206,
+          "ece_calibrated": 0.0369
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6828,
+          "auc": 0.6479,
+          "ece": 0.0796,
+          "brier": 0.2402
+        },
+        "lightgbm": {
+          "logloss": 0.6577,
+          "auc": 0.6704,
+          "ece": 0.0728,
+          "brier": 0.2312
+        },
+        "logistic": {
+          "logloss": 0.6224,
+          "auc": 0.7118,
+          "ece": 0.0514,
+          "brier": 0.2164
+        },
+        "randomforest": {
+          "logloss": 0.6356,
+          "auc": 0.692,
+          "ece": 0.0389,
+          "brier": 0.2221
+        },
+        "mlp": {
+          "logloss": 0.6353,
+          "auc": 0.6938,
+          "ece": 0.0545,
+          "brier": 0.2229
+        }
+      }
+    }
+  },
+  "verdicts": {
+    "WITHOUT_QBEPA": {
+      "adopt": true,
+      "sealed_win": true,
+      "ece_ok": true,
+      "pooled_win": true,
+      "delta": {
+        "sealed_logloss": -0.0124,
+        "sealed_auc": 0.0129,
+        "sealed_ece_cal": -0.0281,
+        "pooled_logloss": -0.0116
+      },
+      "reason": []
+    },
+    "WITHOUT_YPP": {
+      "adopt": false,
+      "sealed_win": false,
+      "ece_ok": true,
+      "pooled_win": true,
+      "delta": {
+        "sealed_logloss": -0.0006,
+        "sealed_auc": -0.0019,
+        "sealed_ece_cal": -0.0162,
+        "pooled_logloss": -0.0111
+      },
+      "reason": [
+        "arm does not beat WITHOUT on sealed logloss AND AUC"
+      ]
+    },
+    "WITHOUT_BOTH": {
+      "adopt": false,
+      "sealed_win": false,
+      "ece_ok": true,
+      "pooled_win": true,
+      "delta": {
+        "sealed_logloss": 0.0008,
+        "sealed_auc": 0.0008,
+        "sealed_ece_cal": -0.004,
+        "pooled_logloss": -0.0096
+      },
+      "reason": [
+        "arm does not beat WITHOUT on sealed logloss AND AUC"
+      ]
+    }
+  },
+  "final": "DROP ['WITHOUT_QBEPA']"
+}
