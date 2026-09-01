@@ -131,6 +131,7 @@ FEATURE_PRIORITY = {
     "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
     "wind_mph": 15, "div_game": 16,
     "travel_miles_diff": 17, "altitude_home": 18, "prime_time": 19,
+    "market_home_implied": 20,
 }
 
 # v1 base + v2 candidates (the admission gate scores every column; the
@@ -152,6 +153,14 @@ FEATURE_COLUMNS = [
     # 0.0776) while the full 6-feature VENUE block did NOT (0.6438/0.6913
     # DON'T ADOPT). travel_miles_diff, altitude_home, prime_time only.
     "travel_miles_diff", "altitude_home", "prime_time",
+    # ---- v5: Tier-3 market slice admitted 2026-09-01 (run_tier3_ablation,
+    # frame e4aee120a4b8) — MARK beat WITHOUT on the sealed 2025 holdout
+    # (logloss 0.6339 vs 0.6507, AUC 0.7121 vs 0.6817, ECE-cal 0.0759 vs
+    # 0.0937; all five members improve sealed both axes). The officials and
+    # roster families were composed-but-unregistered: OFF (0.6578/0.6815)
+    # and ROSTER (0.6523/0.6763) DON'T ADOPT, and ALL (0.6590/0.7046,
+    # ECE 0.1134) degrades — see the Tier-3 comment block below.
+    "market_home_implied",
     # Note: the v3 (Tier-1) candidates are still composed by
     # build_features/build_slate_features and exercised by
     # run_tier1_ablation.py, but they are deliberately NOT in the deployed
@@ -183,6 +192,7 @@ CANONICAL_SOURCE = {
     "travel_miles_diff": "home−away stadium distance, haversine (nfl_stadiums.csv)",
     "altitude_home": "home venue elevation, meters SRTM (nfl_stadiums.csv)",
     "prime_time": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)",
+    "market_home_implied": "no-vig home win prob from closing moneyline (schedule)",
     "is_home": "constant anchor for the home edge",
 }
 
@@ -411,6 +421,24 @@ def _compose_venue_candidates(df: pd.DataFrame,
 TIER3_MARK_FEATURES = ["market_home_implied"]
 TIER3_OFF_FEATURES = ["ref_pen_tend", "ref_pace"]
 TIER3_ROSTER_FEATURES = ["roster_age_diff", "roster_exp_diff"]
+
+# Ablation verdict (run_tier3_ablation.py, frame e4aee120a4b8, 2026-09-01):
+#   MARK   ADOPT       (sealed 0.6339/0.7121/ECE 0.0759 vs WITHOUT
+#                       0.6507/0.6817/0.0937; pooled 0.6026 corroborates; all
+#                       five members improve sealed both axes) — admitted
+#                       into FEATURE_COLUMNS above.
+#   OFF    DON'T ADOPT (sealed 0.6578/0.6815 misses on both axes) AND
+#                       ref_pen_tend decided coverage is 84.6% — below the
+#                       95% floor (team x crew meetings are ~1/yr), so it
+#                       would fail admission regardless. Composed only.
+#   ROSTER DON'T ADOPT (sealed 0.6523/0.6763 misses on both axes).
+#   ALL    DON'T ADOPT (sealed 0.6590/0.7046 wins neither axis; ECE 0.1134
+#                       degraded; mlp pooled collapses to near-random) —
+#                       the small-slice lesson again.
+# Note: this run's WITHOUT baseline (0.6507/0.6817) equals the Tier-2 local
+# pull's numbers (frames e4aee120a4b8 / 49d58bfac1fb), a different nflreadpy
+# cache than the 0.6401/0.6913 of the 5aa6121b2849 record — cross-pull
+# absolute values drift; the verdict compares arms within the same pull.
 
 ROSTER_FILE = BACKEND_DIR / "nfl_roster_age_exp.csv"
 
