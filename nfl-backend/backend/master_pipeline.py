@@ -16,10 +16,13 @@ Mirrors ``mlb-backend/backend/master_pipeline.py`` for the NFL backend:
            earns adoption; otherwise ``predictions: {status: blocked}``.
   Phase 4  GitHub sync: stage ONLY this run's ``nfl-backend/data_delivery``
            files (never ``.pyc``, never other sport dirs) and push.
-  Phase 5  stale-artifact cleanup: everything in ``nfl-backend/data_delivery``
-           this run did NOT regenerate is pruned (protected names/prefixes
-           and a 48h retention window honored) — strictly after a confirmed
-           push, so a failed push can never empty the folder.
+  Phase 5  stale-artifact cleanup: runs strictly after a confirmed push (a
+           failed push can never empty the folder). The sweep may ONLY remove
+           stale UNTRACKED artifacts (protected names/prefixes, the
+           board-backed record rule and a 48h retention window honored).
+           Anything TRACKED (committed to git) is never deleted — it is the
+           permanent record; a would-be-stale committed file is reported with
+           a loud warning and skipped.
 
 CLI:
     python master_pipeline.py                       # full Kaggle run (sync + cleanup)
@@ -310,6 +313,35 @@ def _snapshot_delivery(delivery_dir: Path) -> dict[str, str]:
     return snap
 
 
+def _latest_dated_artifacts(tree_lines: list[str], prefix: str,
+                            n: int = 3) -> list[str]:
+    """The newest ``n`` dated artifacts from a git tree listing, ascending.
+
+    Filters to ``prefix`` lines with a real YYYYMMDD in the name (via
+    _artifact_date); undated or wrong-prefix lines are ignored. Returns []
+    when nothing dated matches."""
+    dated = sorted(ln for ln in tree_lines
+                   if ln.startswith(prefix) and _artifact_date(ln) is not None)
+    return dated[-n:] if dated else []
+
+
+def _post_push_summary(repo, prefix: str) -> dict:
+    """HEAD + newest dated artifacts read from the PUSHED clone — the state
+    the remote actually has after Phase 4's confirmed push.
+
+    Never read from the working checkout: the pipeline commits/pushes in a
+    /tmp sync clone, so the checkout's HEAD and origin/main ref stay at the
+    PRE-push commit and report a stale summary (2026-09-01 regression:
+    "Repo HEAD after run: 81aea53" while origin had already advanced)."""
+    head = repo.head.commit
+    return {
+        "head": f"{head.hexsha[:7]} {head.summary.strip()}",
+        "latest_dated": _latest_dated_artifacts(
+            repo.git.ls_tree("-r", "--name-only", "HEAD").splitlines(),
+            prefix),
+    }
+
+
 def phase4(args) -> None:
     _banner("PHASE 4", "GitHub sync - push this run's new artifacts")
     if args.no_push:
@@ -368,6 +400,14 @@ def phase4(args) -> None:
             _git_push_confirmed(repo, CONFIG["github_branch"])
             print(f"  [ok] Pushed {len(staged)} files - confirmed on "
                   f"{CONFIG['github_repo']}@{CONFIG['github_branch']}")
+            # Post-push summary from the PUSHED clone (its HEAD is what the
+            # remote now has) — NOT from the stale working checkout's
+            # origin/main ref (2026-09-01 regression).
+            summ = _post_push_summary(repo, f"{SPORT_DIR_NAME}/data_delivery/")
+            print(f"  [summary] Repo HEAD after push: {summ['head']}")
+            if summ["latest_dated"]:
+                print("  [summary] Latest dated artifacts (post-push): "
+                      f"{summ['latest_dated']}")
         else:
             print("  [skip] Nothing new to push")
         # stash the sync clone state for phase 5 cleanup
@@ -503,6 +543,64 @@ def classify_stale(rel: str, staged: set[str], board_dates: set[str],
     return "stale"
 
 
+def _prune_stale(delivery_dir: Path, staged: set[str], board_dates: set[str],
+                 retention: set[str], tracked: set[str],
+                 sport_prefix: str = SPORT_DIR_NAME) -> dict:
+    """Stale-artifact sweep with the committed-file guarantee.
+
+    NEVER deletes a file listed in ``tracked`` (committed to git): those are
+    the permanent record. A tracked file whose classification would be
+    ``stale`` lands in ``stale_tracked`` (the caller must print the LOUD
+    warning) and is skipped; tracked protected/keep files are counted as
+    kept, unchanged. ONLY stale UNTRACKED files are unlinked (plain removal —
+    nothing to commit/push, since git never saw them).
+
+    Returns ``{"deleted": [...], "stale_tracked": [...], "kept_protected": n,
+    "kept_board": n, "kept_retention": n}`` — repo-relative paths for
+    ``deleted`` / ``stale_tracked`` (the deleted list is the record of what
+    actually got cleaned). Also honors the existing protections: staged files
+    never lose, and every non-stale verdict is kept."""
+    deleted: list[str] = []
+    stale_tracked: list[str] = []
+    kept_protected = kept_board = kept_retention = 0
+    if not delivery_dir.exists():
+        return {"deleted": deleted, "stale_tracked": stale_tracked,
+                "kept_protected": 0, "kept_board": 0, "kept_retention": 0}
+    for p in sorted(delivery_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(delivery_dir).as_posix()
+        full = f"{sport_prefix}/data_delivery/{rel}"
+        if full in staged:
+            continue  # this run staged it -> never stale
+        verdict = classify_stale(full, staged, board_dates, retention)
+        if full in tracked:
+            # Committed file: NEVER deleted, whatever the verdict.
+            if verdict == "stale":
+                stale_tracked.append(full)
+            elif verdict == "protected":
+                kept_protected += 1
+            elif verdict == "keep":
+                if _board_backed_keep(full, board_dates):
+                    kept_board += 1
+                else:
+                    kept_retention += 1
+            continue
+        if verdict == "stale":
+            p.unlink()
+            deleted.append(full)
+        elif verdict == "protected":
+            kept_protected += 1
+        elif verdict == "keep":
+            if _board_backed_keep(full, board_dates):
+                kept_board += 1
+            else:
+                kept_retention += 1
+    return {"deleted": deleted, "stale_tracked": stale_tracked,
+            "kept_protected": kept_protected, "kept_board": kept_board,
+            "kept_retention": kept_retention}
+
+
 def phase5(args) -> None:
     _banner("PHASE 5", "Stale artifact cleanup (final step)")
     if args.no_push:
@@ -527,40 +625,36 @@ def phase5(args) -> None:
         # Board dates from the SYNC CLONE's moneyline records (the pushed
         # state — this run's just-pushed record included).
         board_dates = board_dates_from_records(delivery_dir)
-        tracked = repo.git.ls_files(f"{SPORT_DIR_NAME}/data_delivery").splitlines()
-        stale, kept_protected, kept_board, kept_retention = [], 0, 0, 0
-        for p in tracked:
-            verdict = classify_stale(p, staged, board_dates, retention)
-            if verdict == "staged":
-                continue  # this run staged it
-            if verdict == "protected":
-                kept_protected += 1
-                continue
-            if verdict == "keep":
-                if _board_backed_keep(p, board_dates):
-                    kept_board += 1
-                else:
-                    kept_retention += 1
-                continue
-            stale.append(p)
-        if kept_protected:
-            print(f"  [protected] kept {kept_protected} protected file(s)")
-        if kept_board:
-            print(f"  [board] kept {kept_board} record(s) for still-live board dates")
-        if kept_retention:
-            print(f"  [retention] kept {kept_retention} same-day artifact(s)")
-        if not stale:
-            print("  [ok] No stale files - data_delivery holds exactly this run's artifacts")
-        else:
-            print(f"  [clean] removing {len(stale)} stale files:")
-            for s in stale:
+        # COMMITTED-FILE GUARD (2026-09-01 regression): the sweep once gc'd
+        # COMMITTED evidence records via git rm + push (the win_pct_diff KEEP
+        # verdict, 88d6c8f). ``tracked`` = every committed data_delivery
+        # path; _prune_stale skips (loud warning) anything in it and deletes
+        # only stale UNTRACKED files — no git rm, no deletion commits.
+        tracked = set(repo.git.ls_files(
+            f"{SPORT_DIR_NAME}/data_delivery").splitlines())
+        out = _prune_stale(delivery_dir, set(staged), board_dates, retention,
+                           tracked)
+        if out["stale_tracked"]:
+            print(f"  [WARN] {len(out['stale_tracked'])} would-be-stale file(s) "
+                  "are TRACKED (committed) — kept, NEVER deleted:")
+            for s in out["stale_tracked"]:
                 print(f"    {s}")
-            repo.git.rm(stale)
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            repo.index.commit(f"Remove stale NFL data_delivery artifacts: {ts}")
-            _git_push_confirmed(repo, CONFIG["github_branch"])
-            print(f"  [ok] Removed {len(stale)} stale files - confirmed on "
-                  f"{CONFIG['github_repo']}@{CONFIG['github_branch']}")
+        if out["kept_protected"]:
+            print(f"  [protected] kept {out['kept_protected']} protected file(s)")
+        if out["kept_board"]:
+            print(f"  [board] kept {out['kept_board']} record(s) for "
+                  "still-live board dates")
+        if out["kept_retention"]:
+            print(f"  [retention] kept {out['kept_retention']} same-day "
+                  "artifact(s)")
+        if not out["deleted"]:
+            print("  [ok] No stale untracked files - committed artifacts are "
+                  "never auto-deleted")
+        else:
+            print(f"  [clean] removed {len(out['deleted'])} stale UNTRACKED "
+                  "file(s) (not in git - no push needed):")
+            for s in out["deleted"]:
+                print(f"    {s}")
     except Exception as e:  # noqa: BLE001
         print(f"  [error] Cleanup failed: {e}")
 

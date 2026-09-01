@@ -15,7 +15,8 @@ Covered:
   (a blocked run's record has no games[] and must not drop protection).
 - Staged files always win (this run's regenerated artifacts are never stale).
 
-No network, no git — pure classification + a temp-dir JSON read.
+No network — pure classification, temp-dir JSON reads, and one real LOCAL
+temp git repo for the post-push summary regression.
 """
 import json
 import sys
@@ -31,6 +32,9 @@ from master_pipeline import (  # noqa: E402
     _board_backed_keep,
     _file_sha256,
     _is_protected_name,
+    _latest_dated_artifacts,
+    _post_push_summary,
+    _prune_stale,
     _snapshot_delivery,
     board_dates_from_records,
     classify_stale,
@@ -242,6 +246,145 @@ class TestContentDiffStaging(unittest.TestCase):
             p.write_text('{"games":[]}')
             snap = _snapshot_delivery(Path(td))
             self.assertEqual(_file_sha256(p), snap["f.json"])  # identical -> stale
+
+class TestPruneNeverDeletesTracked(unittest.TestCase):
+    """2026-09-01 regression: Phase 5 gc'd the COMMITTED win_pct_diff evidence
+    record (git rm + commit + push, 88d6c8f). _prune_stale must skip ANY
+    tracked file with a loud-warning hit and delete only stale UNTRACKED
+    files, returning the list of actually-deleted paths for the record."""
+
+    def _mkfile(self, d: Path, name: str, content: str = "{}") -> Path:
+        p = d / name
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_tracked_stale_skipped_untracked_stale_removed(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            # Committed files: the evidence record (dateless -> would be
+            # stale) and the canonical frame (protected).
+            evidence = self._mkfile(
+                d, "nfl_feature_winpct_ablation_e4aee120a4b8.json",
+                '{"verdict": "KEEP"}')
+            frame = self._mkfile(d, "nfl_game_level_features.csv", "a,b\n1,2")
+            # Untracked strays: a convention-uncommitted ablation record and
+            # an old pbp chunk outside the retention window.
+            stray = self._mkfile(d, "nfl_tier3_ablation_e4aee120a4b8.json",
+                                 '{"x": 1}')
+            old = self._mkfile(d, "nfl_pbp_chunks_20260830.parquet", "pq")
+            tracked = {f"{DD}/nfl_feature_winpct_ablation_e4aee120a4b8.json",
+                       f"{DD}/nfl_game_level_features.csv"}
+            out = _prune_stale(d, EMPTY, EMPTY, {"20260901"}, tracked)
+            # committed files untouched ...
+            self.assertTrue(evidence.exists(), "committed record was deleted!")
+            self.assertTrue(frame.exists())
+            # ... untracked stale files removed and reported
+            self.assertFalse(stray.exists())
+            self.assertFalse(old.exists())
+            self.assertEqual(
+                out["deleted"],
+                [f"{DD}/nfl_pbp_chunks_20260830.parquet",
+                 f"{DD}/nfl_tier3_ablation_e4aee120a4b8.json"])
+            # the guard hit is surfaced for the LOUD warning
+            self.assertEqual(
+                out["stale_tracked"],
+                [f"{DD}/nfl_feature_winpct_ablation_e4aee120a4b8.json"])
+            self.assertEqual(out["kept_protected"], 1)  # canonical frame
+
+    def test_staged_never_deleted_even_if_untracked(self):
+        """This run's staged files always win (classify_stale ordering)."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            staged_file = self._mkfile(d, "nfl_moneyline_v1_20260901.json",
+                                       '{"games": []}')
+            self._mkfile(d, "nfl_model_monitor_20260801.json", "{}")
+            staged = {f"{DD}/nfl_moneyline_v1_20260901.json"}
+            out = _prune_stale(d, staged, EMPTY, {"20260901"}, set())
+            self.assertTrue(staged_file.exists())
+            self.assertEqual(out["deleted"],
+                             [f"{DD}/nfl_model_monitor_20260801.json"])
+
+    def test_untracked_within_retention_kept(self):
+        """Untracked but within the retention window: kept, not deleted."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            self._mkfile(d, "nfl_model_monitor_20260831.json", "{}")
+            self._mkfile(d, "nfl_moneyline_v1_20260909.json", "{}")
+            board = {"20260909"}   # moneyline record date still renders a board
+            out = _prune_stale(d, EMPTY, board, {"20260831"}, set())
+            self.assertTrue((d / "nfl_model_monitor_20260831.json").exists())
+            self.assertTrue((d / "nfl_moneyline_v1_20260909.json").exists())
+            self.assertEqual(out["deleted"], [])
+
+
+class TestLatestDatedArtifacts(unittest.TestCase):
+    def test_newest_three_with_prefix_and_date_filter(self):
+        prefix = f"{DD}/"
+        lines = [
+            f"{prefix}nfl_game_level_features.csv",      # undated -> filtered
+            f"{prefix}nfl_moneyline_v1_20260830.json",
+            f"{prefix}nfl_moneyline_v1_20260831.json",
+            f"{prefix}nfl_moneyline_v1_20260901.json",
+            f"{prefix}nfl_power_rankings_20260901.csv",
+            "mlb-backend/data_delivery/x_20260901.json",  # wrong prefix
+        ]
+        self.assertEqual(
+            _latest_dated_artifacts(lines, prefix),
+            [f"{prefix}nfl_moneyline_v1_20260831.json",
+             f"{prefix}nfl_moneyline_v1_20260901.json",
+             f"{prefix}nfl_power_rankings_20260901.csv"])
+
+    def test_no_date_matches_returns_empty(self):
+        self.assertEqual(
+            _latest_dated_artifacts([f"{DD}/nfl_game_level_features.csv"],
+                                    f"{DD}/"),
+            [])
+
+
+class TestPostPushSummaryState(unittest.TestCase):
+    """The post-run summary must reflect the PUSHED state. Phase 4 pushes
+    from a /tmp sync clone, so the working checkout's HEAD / origin ref stay
+    pre-push (2026-09-01 regression: "Repo HEAD after run: 81aea53" while
+    origin had advanced). _post_push_summary reads the passed repo's HEAD —
+    here a real local git repo, where a second "push" commit must be what
+    the summary reports."""
+
+    def _init_repo(self, td: Path):
+        import git
+        repo = git.Repo.init(str(td / "repo"))
+        with repo.config_writer() as cw:
+            cw.set_value("user", "name", "Test")
+            cw.set_value("user", "email", "test@example.com")
+        return repo
+
+    def _commit_artifact(self, repo, name: str, msg: str) -> None:
+        d = Path(repo.working_tree_dir) / "nfl-backend" / "data_delivery"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text('{"games": []}', encoding="utf-8")
+        repo.git.add(f"nfl-backend/data_delivery/{name}")
+        repo.index.commit(msg)
+
+    def test_summary_reflects_latest_pushed_commit(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._init_repo(Path(td))
+            try:
+                self._commit_artifact(repo, "nfl_moneyline_v1_20260831.json",
+                                      "run A")
+                s1 = _post_push_summary(repo, f"{DD}/")
+                self.assertIn("run A", s1["head"])
+                # next push: a new commit lands -> summary must follow it
+                self._commit_artifact(repo, "nfl_moneyline_v1_20260901.json",
+                                      "run B")
+                s2 = _post_push_summary(repo, f"{DD}/")
+                self.assertIn("run B", s2["head"])
+                self.assertNotIn("run B", s1["head"])
+                self.assertIn(f"{DD}/nfl_moneyline_v1_20260901.json",
+                              s2["latest_dated"])
+                self.assertNotIn(f"{DD}/nfl_moneyline_v1_20260901.json",
+                                 s1["latest_dated"])
+            finally:
+                repo.close()  # release file locks so the temp dir can go
+
 
 if __name__ == "__main__":
     unittest.main()
