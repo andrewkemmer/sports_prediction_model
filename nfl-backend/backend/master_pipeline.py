@@ -223,8 +223,10 @@ def phase1(args) -> None:
         return
     from nfl_game_frame import pull_and_build
     summary = pull_and_build(seasons)
-    print(f"  [ok] decided games: {summary['games']}, line coverage "
-          f"{summary['line_coverage_pct']}%, sha256 {summary['sha256']}")
+    # Market-independence policy: betting-line coverage was removed with the
+    # market columns (49b1297), so the summary no longer emits
+    # ``line_coverage_pct``. Report only the market-free counts + frame sha.
+    print(f"  [ok] decided games: {summary['games']}, sha256 {summary['sha256']}")
 
 
 # ---------------------------------------------------------------------------
