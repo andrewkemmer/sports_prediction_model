@@ -58,6 +58,14 @@ from explainability import (
     compute_shap_per_game,
 )
 from feature_metadata import generate_features_metadata
+
+# C2 edge expansion (challenger 4feff51) — run_engine_k_edge imports run_engine
+# and monkey-patches derive_markets_v3 / predict_slate_runs / run_engine_daily
+# at import time: the daily engine refits the edge multiplier k on this run's
+# pre-holdout OOF, expands both the OOF markets and the slate board (level-
+# preserved), and ALWAYS logs k + the drift band into the markets meta.
+# k_edge=1.0 disables; without this import the engine prices the raw λ pair.
+import run_engine_k_edge  # noqa: F401
 from calibration import is_identity
 from features import (
     add_diff_features,

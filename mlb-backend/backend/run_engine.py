@@ -117,6 +117,18 @@ RUN_LGBM_PARAMS = {
 
 
 # ---------------------------------------------------------------------------
+# C2 edge expansion (challenger 4feff51) — the k machinery lives in
+# run_engine_k_edge.py (monkey-patch module): fit_k_edge / apply_k_edge /
+# K_EDGE_REF / K_EDGE_BAND / the derive_markets_v3 + predict_slate_runs
+# wrappers / the k-edge aware run_engine_daily. Import it (or call its
+# patch()) to activate the expansion; without it the engine prices the raw
+# λ pair exactly as before. Production: run_engine_k_edge.patch() after
+# importing run_engine (the originals below must load first — this module
+# is the k-edge module's only dependency). See run_engine_k_edge.py.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
 # Feature-view derivation
 # ---------------------------------------------------------------------------
 def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
