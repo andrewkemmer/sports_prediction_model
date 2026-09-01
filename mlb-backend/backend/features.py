@@ -18,7 +18,9 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import os
 import resource
+import tempfile
 from pathlib import Path
 
 import duckdb
@@ -54,6 +56,29 @@ PA_END_EVENTS = (
     "'force_out', 'sacrifice_bunt_double_play'"
 )
 
+# Experiment-only superset (audit_pitcher_era_k9.py): keeps intent_walk /
+# truncated_pa PAs as pa_boundary rows so they stop vanishing from
+# pitcher_game_stats (their runs no longer leak into the NEXT PA's score
+# delta). Used ONLY when build_features(corrected_outs=True) is requested
+# by the pitcher-stats ablation; the production path uses PA_END_EVENTS.
+#
+# GATE VERDICT 2026-08-31: REJECT (DON'T ADOPT). Full-ensemble walk-forward
+# on production-exact frames (data_delivery/pitcher_ensemble_gate_81aea53.json)
+# showed pooled-neutral blend with degraded member ECE (LGB 0.0295->0.0329,
+# XGB 0.0085->0.0125) and a sealed raw-ECE spike (+0.0075); the sealed AUC
+# gain (+0.0058) did not survive pooled. The flag stays OFF by default.
+PA_END_EVENTS_CORRECTED = (
+    "'single', 'double', 'triple', 'home_run',"
+    "'strikeout', 'strikeout_double_play',"
+    "'walk', 'hit_by_pitch',"
+    "'field_out', 'field_error', 'fielders_choice', 'fielders_choice_out',"
+    "'grounded_into_double_play', 'double_play', 'triple_play',"
+    "'sac_fly', 'sac_bunt', 'sac_fly_double_play',"
+    "'catcher_interf', 'batter_interference',"
+    "'force_out', 'sacrifice_bunt_double_play',"
+    "'intent_walk', 'truncated_pa'"
+)
+
 
 def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     """Open DuckDB in-memory, load pitches from Parquet, tune for low RAM."""
@@ -61,8 +86,11 @@ def _connect(pitches_path: Path) -> duckdb.DuckDBPyConnection:
     con.execute("SET threads = 1")
     con.execute("SET preserve_insertion_order = false")
     con.execute("SET memory_limit = '4GB'")
-    # Allow generous temp space for spilling to disk (critical for large queries)
-    con.execute("SET temp_directory = '/tmp/duckdb_temp'")
+    # Allow generous temp space for spilling to disk (critical for large
+    # queries). The temp dir must be portable: a hardcoded POSIX '/tmp' path
+    # fails to create on Windows (verified live), so use the system temp dir.
+    _duckdb_tmp = os.path.join(tempfile.gettempdir(), "duckdb_temp").replace("\\", "/")
+    con.execute(f"SET temp_directory = '{_duckdb_tmp}'")
     con.execute("SET max_temp_directory_size = '50GB'")
 
     con.execute(f"CREATE TABLE pitches AS SELECT * FROM '{pitches_path}'")
@@ -395,11 +423,24 @@ def _build_pitcher_stuff(con: duckdb.DuckDBPyConnection) -> None:
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
     """)
 
-def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
+def _build_game_level(con: duckdb.DuckDBPyConnection,
+                       corrected_outs: bool = False) -> None:
     """Build game_level table via pure DuckDB SQL.  All intermediate tables
-    are dropped after assembly to free RAM."""
+    are dropped after assembly to free RAM.
 
-    logger.info("Building game-level features...")
+    corrected_outs: EXPERIMENTAL pitcher-stat semantics behind a flag
+    (measured by run_pitcher_stats_ablation.py, NEVER shipped silently).
+    Fixes the outs_on_pa map (force_out and fielders_choice credit their
+    outs; batter_interference too) and keeps intent_walk / truncated_pa
+    PAs as boundaries in pa_boundary so they stop vanishing from
+    pitcher_game_stats. Everything downstream (sp_era, sp_k9, bb9, whip,
+    bullpen family) re-derives from the corrected pitcher_game_stats.
+    When False, the SQL produced is byte-identical to the pre-flag
+    production path.
+    """
+
+    logger.info("Building game-level features (corrected_outs=%s)...",
+                corrected_outs)
 
     # 1. Game winners (last pitch of each game)
     con.execute("""
@@ -472,6 +513,12 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
     # the final pitch of the scoring PA). The previous proxy (PA count / 3 as
     # "IP" and hits+BB+HBP-HR as "runs") produced ERA ~7.5 and K/9 ~6.0 —
     # numbers that don't exist in Major League Baseball.
+    _pa_events = PA_END_EVENTS_CORRECTED if corrected_outs else PA_END_EVENTS
+    _outs_fix_whens = (
+        "WHEN 'force_out' THEN 1\n"
+        "                    WHEN 'fielders_choice' THEN 1\n"
+        "                    WHEN 'batter_interference' THEN 1\n"
+        "                    " if corrected_outs else "")
     con.execute(f"""
         CREATE TABLE pa_boundary AS
         WITH lastp AS (
@@ -486,7 +533,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                        ORDER BY pitch_number DESC
                    ) AS rn
             FROM pitches
-            WHERE events IN ({PA_END_EVENTS})
+            WHERE events IN ({_pa_events})
         ),
         lp AS (SELECT * FROM lastp WHERE rn = 1),
         seq AS (
@@ -520,6 +567,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection) -> None:
                     WHEN 'fielders_choice_out' THEN 1
                     WHEN 'sac_fly_double_play' THEN 2
                     WHEN 'sacrifice_bunt_double_play' THEN 2
+                    {_outs_fix_whens}
                     ELSE 0 END AS outs_on_pa,
                xwoba_val,
                -- Barrel proxy: EV>=98 with LA in [22,36]. Calibrated on live
@@ -2397,6 +2445,7 @@ def build_features(
     pitches_path: str | Path,
     output_dir: str | Path = ".",
     validate: bool = True,
+    corrected_outs: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run pure-DuckDB feature engineering on a pitches Parquet file.
 
@@ -2407,6 +2456,11 @@ def build_features(
         pitches_path: Path to pitches.parquet (from ingestion.py).
         output_dir:   Where to write output Parquet files.
         validate:     Reserved for future validation checks.
+        corrected_outs: EXPERIMENTAL (pitcher-stats ablation only). When
+            True, pa_boundary credits force_out / fielders_choice /
+            batter_interference outs and keeps intent_walk / truncated_pa
+            PAs as boundaries (see _build_game_level). Default False = the
+            byte-identical production path.
 
     Returns:
         (game_df, pbp_df) as pandas DataFrames.
@@ -2425,7 +2479,7 @@ def build_features(
     logger.info("[MEM] After DuckDB load: %.0f MB", _mem_mb())
 
     try:
-        _build_game_level(con)
+        _build_game_level(con, corrected_outs=corrected_outs)
         logger.info("[MEM] After game_level: %.0f MB", _mem_mb())
 
         # Export game_level BEFORE pbp_level (pbp_level drops game_level)
