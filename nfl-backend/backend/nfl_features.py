@@ -124,6 +124,7 @@ FEATURE_PRIORITY = {
     "ewm_scoring_diff": 9, "ewm_ypp_diff": 10, "opp_adj_net_pts_diff": 11,
     "pace_plays_min_diff": 12, "rest_short_diff": 13, "temp_f": 14,
     "wind_mph": 15, "div_game": 16,
+    "travel_miles_diff": 17, "altitude_home": 18, "prime_time": 19,
 }
 
 # v1 base + v2 candidates (the admission gate scores every column; the
@@ -139,6 +140,12 @@ FEATURE_COLUMNS = [
     # ---- v2: opponent-adjusted / pace / rest / weather / division -----
     "opp_adj_net_pts_diff", "pace_plays_min_diff", "rest_short_diff",
     "temp_f", "wind_mph", "div_game",
+    # ---- v4: Tier-2 venue slices admitted 2026-09-01 (run_tier2_ablation,
+    # frame 5aa6121b2849) — VENUE_3 beat WITHOUT on the sealed 2025 holdout
+    # (logloss 0.6382 vs 0.6401, AUC 0.6933 vs 0.6913, ECE-cal 0.0571 vs
+    # 0.0776) while the full 6-feature VENUE block did NOT (0.6438/0.6913
+    # DON'T ADOPT). travel_miles_diff, altitude_home, prime_time only.
+    "travel_miles_diff", "altitude_home", "prime_time",
     # Note: the v3 (Tier-1) candidates are still composed by
     # build_features/build_slate_features and exercised by
     # run_tier1_ablation.py, but they are deliberately NOT in the deployed
@@ -167,17 +174,22 @@ CANONICAL_SOURCE = {
     "temp_f": "home-venue game temperature F (nflverse schedule field)",
     "wind_mph": "home-venue game wind mph (nflverse schedule field)",
     "div_game": "division game flag (nflverse schedule field)",
+    "travel_miles_diff": "home−away stadium distance, haversine (nfl_stadiums.csv)",
+    "altitude_home": "home venue elevation, meters SRTM (nfl_stadiums.csv)",
+    "prime_time": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)",
     "is_home": "constant anchor for the home edge",
 }
 
 # ---------------------------------------------------------------------------
 # Tier-2 (v4) venue / travel / schedule candidates — STATIC facts only.
 #
-# Composed by build_features/build_slate_features but deliberately NOT
-# registered in FEATURE_COLUMNS / CANONICAL_SOURCE / FEATURE_PRIORITY: the
-# deployed pool stays the 10-feature baseline until a sealed-2025 ablation
-# admits them (the Tier-1 lesson: every additive arm that lost the sealed gate
-# was reverted). Same hardcoded-composition pattern as the Tier-1 candidates.
+# Ablation verdict (run_tier2_ablation.py, frame 5aa6121b2849, 2026-09-01):
+# VENUE_3 (travel_miles_diff, altitude_home, prime_time) ADOPTED into the
+# deployed pool (sealed logloss 0.6382 vs 0.6401, AUC 0.6933 vs 0.6913,
+# ECE-cal 0.0571 vs 0.0776); the full 6-feature VENUE block DON'T ADOPT
+# (sealed logloss 0.6438, AUC tie). travel_miles_diff/altitude_home/
+# prime_time are registered below; timezone_diff/turf_home/neutral_site
+# remain composed but unregistered (Tier-1 pattern).
 #
 # Source data:
 #   - ``nfl_stadiums.csv`` (committed): real coordinates (Wikipedia geodata,
