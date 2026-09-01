@@ -1,5 +1,9 @@
 """NFL feature engineering — leakage-safe raw candidates + admission gate.
 
+TIER-4 NOTE: v6 game-script / opponent-adjusted / drive-level / QB-conditional
+PBP candidates are composed by this module + ``nfl_tier4.py`` and stay OUT of
+FEATURE_COLUMNS until the Tier-4 sealed ablation admits them.
+
 Builds on the committed game-level frame produced by ``nfl_game_frame.py``
 (``nfl-backend/data_delivery/nfl_game_level_features.csv``). This module is
 the feature-ADMISSION stage only: it proposes raw candidates, audits coverage
@@ -72,6 +76,7 @@ import numpy as np
 import pandas as pd
 
 from nfl_feature_engine import TEAM_AGG_COLUMNS, TIER1_NEEDS
+from nfl_tier4 import (TIER4_PBP_NEEDS, qb_map_from_schedule, tier4_team_agg)
 
 logger = logging.getLogger(__name__)
 
@@ -797,6 +802,51 @@ def team_stats_ladder(events: pd.DataFrame,
     srt["ewm_net_turnovers"] = srt["ewm_takeaways"] - srt["ewm_giveaways"]
     srt["ewm_net_penalty"] = srt["ewm_penalty_yds"] - srt["ewm_penalty_yds_drawn"]
 
+    # ---- Tier-4 (v6) per-game rates + ewm (conditional; absent -> NaN) ----
+    # GS (non-garbage-time) rates — net points from non-garbage scoring (own
+    # minus allowed), yards/play and QB-EPA/play over non-garbage plays.
+    if "n_plays_gs" in srt.columns and "total_yards_gs" in srt.columns:
+        srt["ypp_gs_game"] = (srt["total_yards_gs"]
+                               / srt["n_plays_gs"].replace(0, np.nan))
+        srt["ewm_ypp_gs"] = _trailing_ewm(srt, "ypp_gs_game", EWM_HALFLIFE)
+    else:
+        srt["ewm_ypp_gs"] = np.nan
+    if "qb_epa_n_gs" in srt.columns and "qb_epa_sum_gs" in srt.columns:
+        srt["qb_epa_gs"] = (srt["qb_epa_sum_gs"]
+                             / srt["qb_epa_n_gs"].replace(0, np.nan))
+        srt["ewm_qb_epa_gs"] = _trailing_ewm(srt, "qb_epa_gs", EWM_HALFLIFE)
+    else:
+        srt["ewm_qb_epa_gs"] = np.nan
+    if "pts_scored_gs" in srt.columns and "pts_allowed_gs" in srt.columns:
+        srt["net_pts_gs_game"] = srt["pts_scored_gs"] - srt["pts_allowed_gs"]
+        srt["ewm_net_pts_gs"] = _trailing_ewm(srt, "net_pts_gs_game", EWM_HALFLIFE)
+    else:
+        srt["ewm_net_pts_gs"] = np.nan
+    # drive-level rates (value / distinct drives)
+    if "yds_per_drive" in srt.columns:
+        srt["ewm_yds_per_drive"] = _trailing_ewm(srt, "yds_per_drive", EWM_HALFLIFE)
+    else:
+        srt["ewm_yds_per_drive"] = np.nan
+    if "epa_per_drive" in srt.columns:
+        srt["ewm_epa_per_drive"] = _trailing_ewm(srt, "epa_per_drive", EWM_HALFLIFE)
+    else:
+        srt["ewm_epa_per_drive"] = np.nan
+    if "qb_epa_per_drive" in srt.columns:
+        srt["ewm_qb_epa_per_drive"] = _trailing_ewm(srt, "qb_epa_per_drive", EWM_HALFLIFE)
+    else:
+        srt["ewm_qb_epa_per_drive"] = np.nan
+    # QB-conditional: the ANNOUNCED/RECORDED starter's plays only (schedule
+    # qb_id). A pending game's OWN starter is unknown (nflverse posts no
+    # expected starter pre-kickoff), but the trailing shift needs only PAST
+    # games' recorded starters — so the slate rows are populated honestly
+    # (never faked with an invented starter).
+    if "qb_epa_n_start" in srt.columns and "qb_epa_sum_start" in srt.columns:
+        srt["qb_epa_start"] = (srt["qb_epa_sum_start"]
+                                / srt["qb_epa_n_start"].replace(0, np.nan))
+        srt["ewm_qb_epa_starter"] = _trailing_ewm(srt, "qb_epa_start", EWM_HALFLIFE)
+    else:
+        srt["ewm_qb_epa_starter"] = np.nan
+
     # ---- opponent-adjusted trailing margin -------------------------------
     # opp_form = the opponent's OWN trailing form entering the same game
     # (strictly-prior for the opponent too). The trailing mean over THIS
@@ -807,6 +857,22 @@ def team_stats_ladder(events: pd.DataFrame,
     srt = srt.merge(opp, on=["game_id", "opponent"], how="left")
     srt["opp_adj_form"] = srt["form_pts"] - _trailing_per_team(
         srt, "opp_form", OPP_ADJ_WINDOW)
+
+    # ---- Tier-4 opponent-adjusted axes (same schedule-strength pattern) ---
+    # trailing value minus the trailing mean of the OPPONENT's same-axis value
+    # entering each prior game.
+    for base, out in (("ewm_qb_epa", "ewm_qb_epa_oppadj"),
+                      ("ewm_net_pts", "ewm_net_pts_oppadj"),
+                      ("ewm_ypp", "ewm_ypp_oppadj")):
+        if base not in srt.columns:
+            srt[out] = np.nan
+            continue
+        opp_col = f"opp_{base}"
+        opp_v = srt[["game_id", "team", base]].rename(
+            columns={"team": "opponent", base: opp_col})
+        srt = srt.merge(opp_v, on=["game_id", "opponent"], how="left")
+        srt[out] = srt[base] - _trailing_per_team(srt, opp_col, OPP_ADJ_WINDOW)
+        srt = srt.drop(columns=[opp_col])
     return srt
 
 
