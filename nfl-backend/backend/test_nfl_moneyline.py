@@ -21,8 +21,10 @@ when present and confirm the frame covers the train + sealed seasons.
 """
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -235,22 +237,49 @@ class TestSealedIsolation(unittest.TestCase):
 # Gate / adopt-decision logic tests
 # ---------------------------------------------------------------------------
 class TestAdoptDecision(unittest.TestCase):
-    def test_adopt_when_model_beats_both(self):
+    @staticmethod
+    def _fixtures(cand_pooled_ece=0.055, cand_sealed_ece=0.06,
+                  inc_pooled_ece=None, inc_sealed_ece=None):
+        """Candidate beats both baselines on sealed ll/auc (defaults).
+
+        Incumbent ECE defaults to the candidate's own values -> identity
+        incumbent that can never block."""
+        if inc_pooled_ece is None:
+            inc_pooled_ece = cand_pooled_ece
+        if inc_sealed_ece is None:
+            inc_sealed_ece = cand_sealed_ece
         pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62},
+            "model_platt": {"logloss": 0.55, "auc": 0.62,
+                            "ece": cand_pooled_ece},
             "elo_logistic": {"logloss": 0.60},
             "constant_home_edge": {"logloss": 0.65},
         }
         sealed = {
-            "model_platt": {"logloss": 0.54, "auc": 0.63, "ece": 0.04},
+            "model_platt": {"logloss": 0.54, "auc": 0.63,
+                            "ece": cand_sealed_ece},
             "elo_logistic": {"logloss": 0.61, "auc": 0.58},
             "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
         }
-        v = adopt_decision(pooled, sealed)
+        incumbent = {
+            "pooled_model_platt": {"logloss": 0.57, "auc": 0.60,
+                                   "ece": inc_pooled_ece},
+            "sealed_model_platt": {"logloss": 0.56, "auc": 0.61,
+                                   "ece": inc_sealed_ece},
+        }
+        return pooled, sealed, incumbent
+
+    def test_adopt_when_discrimination_and_relative_ece_win(self):
+        """Candidate beats both baselines AND ECE ties the incumbent on both
+        windows -> ADOPT (within-run incumbent mode, no reasons)."""
+        pooled, sealed, incumbent = self._fixtures()
+        v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
         self.assertTrue(v["sealed_beats_elo"])
         self.assertTrue(v["sealed_beats_constant"])
-        self.assertTrue(v["sane_ece"])
+        self.assertEqual(v["ece_mode"], "within-run incumbent")
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertEqual(v["reasons"], [])
 
     def test_no_adopt_when_model_loses_to_elo(self):
         pooled = {
@@ -267,76 +296,99 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertFalse(v["adopt"])
         self.assertFalse(v["sealed_beats_elo"])
 
-    def test_adopt_with_ece_advisory_when_ece_above_threshold(self):
-        """ECE is no longer an adoption blocker: better sealed ll/AUC with ECE
-        above ECE_MAX (0.081 > 0.08) still ADOPTS, with the advisory flag set
-        and an advisory (non-blocking) reason — ECE stays reported/metrics."""
-        pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62},
-            "elo_logistic": {"logloss": 0.60},
-            "constant_home_edge": {"logloss": 0.65},
-        }
-        sealed = {
-            "model_platt": {"logloss": 0.54, "auc": 0.63, "ece": 0.081},
-            "elo_logistic": {"logloss": 0.61, "auc": 0.58},
-            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
-        }
-        v = adopt_decision(pooled, sealed)
+    def test_absolute_ece_over_0_08_within_tol_adopts(self):
+        """(c) No absolute calibration bar: candidate ECE 0.095 / 0.085 are
+        both above the retired 0.08 reference, but within ECE_TOL (0.01) of
+        the incumbent's same-run values -> ADOPT, nothing mentions 0.08."""
+        pooled, sealed, incumbent = self._fixtures(
+            cand_pooled_ece=0.085, cand_sealed_ece=0.095,
+            inc_pooled_ece=0.080, inc_sealed_ece=0.090)
+        v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
-        self.assertTrue(v["sealed_beats_elo"])
-        self.assertTrue(v["sealed_beats_constant"])
-        self.assertFalse(v["sane_ece"])           # ECE still reported/crosses
-        self.assertTrue(v["ece_advisory"])         # ...but only flagged, not blocking
-        advisory = [r for r in v["reasons"] if "advisory" in r]
-        self.assertEqual(len(advisory), 1)
-        self.assertIn("0.081 above 0.08", advisory[0])
-        self.assertFalse(any("not both better" in r for r in v["reasons"]))
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertFalse(any("0.08" in r for r in v["reasons"]))
 
-    def test_no_adopt_when_discrimination_fails_despite_sane_ece(self):
-        """Discrimination failures STILL block exactly as before — a sane ECE
-        never rescues a model that loses sealed logloss/AUC to a baseline."""
-        pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62},
-            "elo_logistic": {"logloss": 0.58},
-            "constant_home_edge": {"logloss": 0.65},
-        }
-        sealed = {
+    def test_discrimination_failure_blocks_despite_ece_ok(self):
+        """Discrimination stays primary and blocking: sealed ll/auc lose to
+        elo-logistic while relative ECE is fine -> DON'T ADOPT (inherits the
+        old 52a095d semantics — ECE-ok never rescues discrimination)."""
+        pooled, sealed, incumbent = self._fixtures()
+        sealed["model_platt"] = {"logloss": 0.62, "auc": 0.56, "ece": 0.06}
+        sealed["elo_logistic"] = {"logloss": 0.60, "auc": 0.58}
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["sealed_beats_elo"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+
+    def test_sealed_ece_degradation_beyond_tol_blocks(self):
+        """(a) candidate wins discrimination but sealed ECE degrades beyond
+        TOL vs the incumbent -> DON'T ADOPT (sealed blocks); pooled OK."""
+        pooled, sealed, incumbent = self._fixtures(
+            cand_sealed_ece=0.075, inc_sealed_ece=0.06)   # +0.015 > +0.01
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertFalse(v["adopt"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertFalse(v["ece_ok_sealed"])
+        reasons = [r for r in v["reasons"] if "sealed ECE" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
+
+    def test_pooled_ece_degradation_beyond_tol_blocks(self):
+        """(b) pooled ECE degrades beyond TOL while sealed is fine -> DON'T
+        ADOPT (pooled blocks) — either window can reject, MLB-style."""
+        pooled, sealed, incumbent = self._fixtures(
+            cand_pooled_ece=0.07, inc_pooled_ece=0.055)   # +0.015 > +0.01
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+        reasons = [r for r in v["reasons"] if "pooled ECE" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
+
+    def test_ece_improvement_adopts(self):
+        """(d) candidate ECE improves on BOTH windows vs the incumbent ->
+        ADOPT (the W2016 story: 0.0576 vs an incumbent ~0.067)."""
+        pooled, sealed, incumbent = self._fixtures(
+            cand_pooled_ece=0.050, cand_sealed_ece=0.0576,
+            inc_pooled_ece=0.055, inc_sealed_ece=0.0673)
+        v = adopt_decision(pooled, sealed, incumbent)
+        self.assertTrue(v["adopt"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+
+    def test_no_incumbent_is_advisory_only(self):
+        """(e) no incumbent bundle -> ECE advisory-only: discrimination
+        decides (ADOPT on a discrimination win, with the documented note);
+        advisory mode never rescues a discrimination failure."""
+        pooled, sealed, _ = self._fixtures()
+        v = adopt_decision(pooled, sealed)          # incumbent omitted
+        self.assertTrue(v["adopt"])
+        self.assertEqual(v["ece_mode"], "advisory")
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertTrue(any("advisory-only" in r for r in v["reasons"]))
+        losing_sealed = {
             "model_platt": {"logloss": 0.62, "auc": 0.56, "ece": 0.04},
             "elo_logistic": {"logloss": 0.60, "auc": 0.58},
             "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
         }
-        v = adopt_decision(pooled, sealed)
-        self.assertFalse(v["adopt"])
-        self.assertFalse(v["sealed_beats_elo"])
-        self.assertTrue(v["sane_ece"])
-        self.assertFalse(v["ece_advisory"])
+        v2 = adopt_decision(pooled, losing_sealed)
+        self.assertFalse(v2["adopt"])
+        self.assertFalse(v2["sealed_beats_elo"])
 
-    def test_ece_tracked_but_not_blocking_at_high_ece(self):
-        """Even a far-over-threshold ECE (0.15) never blocks adoption when
-        discrimination wins; the advisory reason still names the breach."""
-        pooled = {
-            "model_platt": {"logloss": 0.55, "auc": 0.62},
-            "elo_logistic": {"logloss": 0.60},
-            "constant_home_edge": {"logloss": 0.65},
-        }
-        sealed = {
-            "model_platt": {"logloss": 0.54, "auc": 0.63, "ece": 0.15},
-            "elo_logistic": {"logloss": 0.61, "auc": 0.58},
-            "constant_home_edge": {"logloss": 0.66, "auc": 0.50},
-        }
-        v = adopt_decision(pooled, sealed)
-        self.assertTrue(v["adopt"])
-        self.assertTrue(v["ece_advisory"])
-        self.assertFalse(v["sane_ece"])
-        blocking = [r for r in v["reasons"]
-                    if "not both better" in r or "inversion" in r]
-        self.assertEqual(blocking, [])
-
-    def test_ece_constants_remain_defined(self):
-        """ECE_BINS/ECE_MAX survive as the monitoring/alert configuration."""
-        from nfl_moneyline import ECE_BINS, ECE_MAX
+    def test_ece_constants_and_shared_harness_tolerance(self):
+        """(g) ECE_BINS/ECE_MAX survive as configuration (ECE_MAX = historical
+        reference only); the harness tolerance IS the gate tolerance — one
+        shared constant, never duplicated."""
+        from nfl_moneyline import ECE_BINS, ECE_MAX, ECE_TOL
         self.assertEqual(ECE_BINS, 10)
+        self.assertEqual(ECE_TOL, 0.01)
         self.assertEqual(ECE_MAX, 0.08)
+        from run_tier1_ablation import ECE_TOL as HARNESS_TOL
+        self.assertEqual(HARNESS_TOL, ECE_TOL)
 
     def test_inversion_flag_when_pooled_wins_sealed_loses(self):
         """Pooled-gain / sealed-loss inversion should set the flag."""
@@ -372,6 +424,62 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertIn("model_raw", out)
         self.assertIn("model_platt", out)
         self.assertNotIn("market", out.lower())
+
+
+# ---------------------------------------------------------------------------
+# Incumbent bundle + within-run ECE gate (MLB-aligned, 2026-09-01)
+# ---------------------------------------------------------------------------
+class TestIncumbentGate(unittest.TestCase):
+    def _synth_v1(self):
+        from nfl_moneyline import SEALED_SEASON, TRAIN_SEASONS
+        feats = _synth_fold_frame(seasons=TRAIN_SEASONS + [SEALED_SEASON])
+        return feats[_valid_cols(feats)].copy()
+
+    def test_persist_load_roundtrip(self):
+        import nfl_moneyline as nm
+        with tempfile.TemporaryDirectory() as td:
+            path = nm.persist_ensemble(
+                {"dummy": object}, {"xgboost": 0.25}, None,
+                ["elo_diff"], out_dir=Path(td))
+            self.assertTrue(path.exists())
+            with mock.patch.object(nm, "MODELS_DIR", Path(td)):
+                bundle = nm.load_ensemble()
+            self.assertIsNotNone(bundle)
+            self.assertEqual(bundle["features"], ["elo_diff"])
+            self.assertEqual(bundle["adaptive_weights"], {"xgboost": 0.25})
+            self.assertIsNone(bundle["platt"])
+            self.assertEqual(bundle["metadata"]["ece_tol"], nm.ECE_TOL)
+
+    def test_load_ensemble_absent_returns_none(self):
+        import nfl_moneyline as nm
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(nm, "MODELS_DIR", Path(td)):
+                self.assertIsNone(nm.load_ensemble())
+
+    def test_walk_forward_emits_incumbent_arm_when_bundle_present(self):
+        """With a persisted bundle on disk, run_walk_forward produces the
+        incumbent pooled + sealed arms and the verdict runs in within-run
+        incumbent ECE mode (integration — trains two ensembles, ~1 min)."""
+        import nfl_moneyline as nm
+        import tempfile
+        feats = self._synth_v1()
+        half = len(feats) // 2
+        models, _ = nm.train_ensemble(feats.iloc[:half], feats.iloc[half:],
+                                      features=nm.V1_FEATURES)
+        with tempfile.TemporaryDirectory() as td:
+            nm.persist_ensemble(models, {"xgboost": 0.5, "logistic": 0.5},
+                                None, nm.V1_FEATURES, out_dir=Path(td))
+            with mock.patch.object(nm, "MODELS_DIR", Path(td)):
+                res = nm.run_walk_forward(feats,
+                                          model_features=nm.V1_FEATURES)
+        self.assertIn("incumbent", res["pooled_preq_2021_2024"])
+        self.assertIn("incumbent", res["sealed_2025"])
+        for key in ("logloss", "auc", "ece"):
+            self.assertIn(key, res["sealed_2025"]["incumbent"])
+            self.assertIn(key, res["pooled_preq_2021_2024"]["incumbent"])
+        self.assertEqual(res["verdict"]["ece_mode"], "within-run incumbent")
+        self.assertIn("ece_ok_pooled", res["verdict"])
+        self.assertIn("ece_ok_sealed", res["verdict"])
 
 
 # ---------------------------------------------------------------------------

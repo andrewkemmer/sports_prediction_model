@@ -26,12 +26,14 @@ Discipline (MLB retrospective):
   a Platt map fitted only on pre-holdout OOF (2021-2024 pooled).
 - Baselines to beat (sealed): (a) constant home-edge (NFL home win rate),
   (b) elo-only logistic (cheapest signal). ADOPT requires the model to beat
-  BOTH on the SEALED window in logloss AND AUC. Expected calibration error
-  (ECE) is TRACKED as a secondary metric — reported in the tables and record,
-  with an ADVISORY alert when it crosses ECE_MAX — but it is deliberately NOT
-  an adoption blocker (policy 2026-09-01: discrimination is the adoption
-  criterion; ECE is measured, reported, and monitored, never gating). A
-  pooled-gain / sealed-loss inversion means DON'T ADOPT.
+  BOTH on the SEALED window in logloss AND AUC, plus a WITHIN-RUN RELATIVE
+  ECE check vs the INCUMBENT (the previously-persisted served ensemble) on
+  BOTH pooled and sealed, with one shared tolerance ECE_TOL (MLB-aligned
+  methodology, policy 2026-09-01 — no absolute calibration bar: ECE_MAX=0.08
+  is retired to a historical reference constant). Either window's ECE
+  degrading beyond TOL blocks; when no incumbent bundle exists (fresh
+  checkout / first run) the ECE condition is advisory-only and discrimination
+  decides. A pooled-gain / sealed-loss inversion means DON'T ADOPT.
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
@@ -118,13 +120,84 @@ NUM_BOOST_ROUND = 300
 EARLY_STOPPING = 30
 
 ECE_BINS = 10
-# Advisory calibration alert threshold — NOT an adoption blocker (policy
-# 2026-09-01). A breach is reported (ece_advisory=True + advisory reason) and
-# monitored; adoption is decided on sealed discrimination (logloss + AUC)
-# only. The 0.08 value is the original (2026-08-29) "sane" bar, kept as the
-# alert level.
+# Relative-ECE tolerance for the WITHIN-RUN incumbent comparison (MLB-aligned
+# gate, policy 2026-09-01). The gate no longer uses any absolute calibration
+# bar. Basis: candidate and incumbent ECE are computed on the SAME games, so
+# under the null the difference is binned binomial noise at the sealed n
+# (~285 games, 10 equal-width bins) — at most ~0.02-0.05 for fully
+# independent estimates, materially less when they share the outcome vector —
+# while every behaviorally-meaningful ECE move in the program's history sat
+# at or beyond ~0.01 (W2014-vs-W2019: +0.0137 rejects; W2016-vs-W2019:
+# -0.0097 passes; same-config re-runs: |dE| <= ~0.005). ECE_TOL = 0.01 sits
+# between noise and signal; deliberately below the 2*SE worst case to catch
+# real degradation early. Same-run comparison, so cross-pull drift never
+# enters. Reviewable constant.
+ECE_TOL = 0.01
+# HISTORICAL REFERENCE ONLY — retired from gate logic 2026-09-01 (replaced by
+# the within-run relative ECE_TOL check per MLB methodology). The 0.08 value
+# was the original (2026-08-29, 8a1c417) absolute "sane" calibration bar,
+# chosen ad hoc with no documented rationale; record JSONs keep writing
+# "ece_max" so the history stays readable.
 ECE_MAX = 0.08
 PROB_EPS = 1e-6
+
+# ── Ensemble persistence — the WITHIN-RUN INCUMBENT for the gate ──────────
+# Mirrors mlb-backend training.py (MODELS_DIR/ENSEMBLE_FILE + persist/load):
+# the deployed bundle is written after every production run so the NEXT run
+# can compare the candidate against the thing it would replace on the SAME
+# folds + sealed window (same pull, no cross-run record values). Gitignored
+# (*.joblib): an untracked, same-checkout artifact — a fresh clone has no
+# incumbent and the gate degrades to advisory-only ECE (documented, never
+# fabricated).
+MODELS_DIR = DATA_DELIVERY_DIR / "models"
+ENSEMBLE_FILE = "ensemble_latest.joblib"
+
+
+def persist_ensemble(models: dict, adaptive_weights: dict,
+                     platt, features: list[str],
+                     out_dir: Path | None = None) -> Path:
+    """Persist the deployed ensemble bundle for the next run's incumbent arm.
+
+    Mirror of mlb-backend ``training.persist_ensemble``: models + the earned
+    adaptive blend weights + the sealed Platt map + the feature list ride
+    together so the incumbent predicts exactly as the board served it. Never
+    raises — persistence failure must not block the run.
+    """
+    out_dir = Path(out_dir) if out_dir is not None else MODELS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bundle = {
+        "models": models,
+        "adaptive_weights": dict(adaptive_weights or {}),
+        "platt": platt,
+        "features": list(features),
+        "metadata": {
+            "created_utc": datetime.utcnow().isoformat() + "Z",
+            "train_seasons": TRAIN_SEASONS, "sealed_season": SEALED_SEASON,
+            "ece_bins": ECE_BINS, "ece_tol": ECE_TOL,
+        },
+    }
+    path = out_dir / ENSEMBLE_FILE
+    try:
+        import joblib
+        joblib.dump(bundle, path)
+        logger.info("deployed ensemble persisted to %s", path)
+    except Exception as e:  # noqa: BLE001 — never blocks the run
+        logger.warning("ensemble persistence failed (continuing): %s", e)
+    return path
+
+
+def load_ensemble(path: Path | None = None) -> dict | None:
+    """Load the persisted incumbent bundle, or None when absent/unreadable."""
+    path = Path(path) if path is not None else MODELS_DIR / ENSEMBLE_FILE
+    if not path.exists():
+        return None
+    try:
+        import joblib
+        return joblib.load(path)
+    except Exception as e:  # noqa: BLE001 — advisory-only ECE on any failure
+        logger.warning("incumbent ensemble load failed (ECE advisory-only): %s", e)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # 5-member ensemble config (mirrors mlb-backend/backend/training.py)
@@ -960,6 +1033,27 @@ def run_walk_forward(feats: pd.DataFrame,
 
     folds = generate_weekly_folds(preq)          # asserts no future-week leak
 
+    # ---- WITHIN-RUN INCUMBENT (MLB baseline-arm structure) ----------------
+    # The previously-persisted deployed ensemble is re-predicted on the SAME
+    # folds + sealed window so the candidate's ECE compares RELATIVE to the
+    # thing it would replace — same pull, same games, never a cross-run value.
+    # None (fresh checkout / first run / schema change) -> ECE advisory-only.
+    inc_bundle = load_ensemble()
+    incumbent = None
+    inc_features: list[str] = []
+    if inc_bundle is not None:
+        inc_features = [f for f in (inc_bundle.get("features") or [])
+                        if f in feats.columns]
+        inc_models = inc_bundle.get("models") or {}
+        need = len(inc_bundle.get("features") or [])
+        if inc_models and need and len(inc_features) == need:
+            incumbent = inc_bundle
+        else:
+            logger.warning(
+                "incumbent bundle unusable (%d/%d features present) — ECE "
+                "advisory-only", len(inc_features), need)
+    inc_pool: list[np.ndarray] = []
+
     # ---- per-fold store for nested (honest) preq Platt twin ----
     order_actual, order_raw, order_elo, ws_list = [], [], [], []
     oof_members: dict[str, list[float]] = {}
@@ -1003,6 +1097,26 @@ def run_walk_forward(feats: pd.DataFrame,
         _meta = [c for c in META_COLS if c in va.columns]
         fold_meta.append(va[_meta].reset_index(drop=True))
 
+        # Incumbent on the SAME val rows, calibrated by its OWN stored Platt
+        # map (as the board would serve it) — collected per successful fold so
+        # pooled alignment with y_po is exact.
+        if incumbent is not None:
+            try:
+                _, inc_members, _ = ensemble_predict(
+                    incumbent["models"], va, features=inc_features)
+                iw = _member_weights(list(inc_members),
+                                     adaptive=incumbent.get("adaptive_weights"))
+                ib = np.zeros(len(yva))
+                for n, p in inc_members.items():
+                    ib += iw[n] * np.asarray(p, dtype=float)
+                ic = (platt_predict(ib, incumbent.get("platt"))
+                      if incumbent.get("platt") is not None else ib.copy())
+                inc_pool.append(ic)
+            except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
+                logger.warning("incumbent fold %s predict failed (%s) — ECE "
+                               "advisory-only", f["week_start"], e)
+                incumbent = None
+
     if not y_pool:
         raise RuntimeError("no folds produced ensemble predictions")
 
@@ -1010,6 +1124,17 @@ def run_walk_forward(feats: pd.DataFrame,
     raw_po = np.concatenate(raw_pool)
     cal_po = np.concatenate(cal_pool)
     elo_po = np.concatenate(elo_pool)
+
+    # Incumbent pooled arm (same OOF games as the candidate)
+    incumbent_pooled = None
+    if incumbent is not None and inc_pool \
+            and len(np.concatenate(inc_pool)) == len(y_po):
+        inc_po = np.concatenate(inc_pool)
+        incumbent_pooled = {
+            "logloss": round(logloss(y_po, inc_po), 4),
+            "auc": round(auc(y_po, inc_po), 4),
+            "ece": round(ece(y_po, inc_po), 4),
+        }
 
     # constant home-edge baseline fit on pre-holdout (2019-2024) only
     const_p = preq[TARGET].mean()
@@ -1100,6 +1225,33 @@ def run_walk_forward(feats: pd.DataFrame,
         },
     }
 
+    # Incumbent sealed arm (same 2025 rows as the candidate)
+    incumbent_sealed = None
+    if incumbent is not None and inc_features:
+        try:
+            _, inc_s_members, _ = ensemble_predict(incumbent["models"], sld,
+                                                   features=inc_features)
+            iw = _member_weights(list(inc_s_members),
+                                 adaptive=incumbent.get("adaptive_weights"))
+            ibs = np.zeros(len(sld))
+            for n, p in inc_s_members.items():
+                ibs += iw[n] * np.asarray(p, dtype=float)
+            ics = (platt_predict(ibs, incumbent.get("platt"))
+                   if incumbent.get("platt") is not None else ibs.copy())
+            incumbent_sealed = {
+                "logloss": round(logloss(sld[TARGET], ics), 4),
+                "auc": round(auc(sld[TARGET], ics), 4),
+                "ece": round(ece(sld[TARGET], ics), 4),
+            }
+        except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
+            logger.warning("incumbent sealed predict failed (%s) — ECE "
+                           "advisory-only", e)
+
+    if incumbent_pooled is not None:
+        pooled["incumbent"] = incumbent_pooled
+    if incumbent_sealed is not None:
+        sealed["incumbent"] = incumbent_sealed
+
     # ---- Part-A artifacts: per-game history + nfl_calibration record ----
     # The OOF rows use the ADAPTIVE re-blend (deployed-style raw) aligned to
     # y_po/cal_po order; their calibrated twin is the SEALED Platt map applied
@@ -1120,7 +1272,12 @@ def run_walk_forward(feats: pd.DataFrame,
     calibration_rec = build_calibration(y_po, oof_adaptive_blend, cal_po,
                                         platt_sealed)
 
-    verdict = adopt_decision(pooled, sealed)
+    if (incumbent_pooled is not None and incumbent_sealed is not None):
+        verdict = adopt_decision(pooled, sealed, incumbent={
+            "pooled_model_platt": incumbent_pooled,
+            "sealed_model_platt": incumbent_sealed})
+    else:
+        verdict = adopt_decision(pooled, sealed)
     global _DEPLOYED_BUNDLE, _SEALED_PLATT
     _DEPLOYED_BUNDLE = {"models": models_sealed, "platt": platt_sealed,
                         "adaptive_weights": dict(adaptive),
@@ -1149,16 +1306,21 @@ def run_walk_forward(feats: pd.DataFrame,
     }
 
 
-def adopt_decision(pooled: dict, sealed: dict) -> dict:
+def adopt_decision(pooled: dict, sealed: dict,
+                   incumbent: dict | None = None) -> dict:
     """ADOPT only if the calibrated model beats BOTH baselines on the SEALED
-    window in both logloss and AUC. ECE is a SECONDARY metric: reported here
-    (sane_ece) and flagged ece_advisory when above ECE_MAX, but it never
-    blocks adoption (policy 2026-09-01 — discrimination is the criterion;
-    ECE is monitored, not gating). A pooled-gain/sealed-loss inversion ->
-    DON'T ADOPT."""
+    window in both logloss and AUC, AND its ECE does not degrade RELATIVE to
+    the within-run INCUMBENT on EITHER window (MLB methodology, policy
+    2026-09-01):
+      ece_ok_pooled = cand_pooled_ece <= inc_pooled_ece + ECE_TOL
+      ece_ok_sealed = cand_sealed_ece <= inc_sealed_ece + ECE_TOL
+    Either ECE window failing is BLOCKING; reasons accumulate. With
+    ``incumbent=None`` (fresh checkout / first run / no persisted bundle) the
+    ECE condition is ADVISORY-ONLY and discrimination decides. No absolute
+    calibration constant is enforced (ECE_MAX is historical reference only).
+    A pooled-gain/sealed-loss inversion -> DON'T ADOPT."""
     m_ll = sealed["model_platt"]["logloss"]
     m_auc = sealed["model_platt"]["auc"]
-    m_ece = sealed["model_platt"]["ece"]
     elo_ll = sealed["elo_logistic"]["logloss"]
     elo_auc = sealed["elo_logistic"]["auc"]
     c_ll = sealed["constant_home_edge"]["logloss"]
@@ -1166,18 +1328,21 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
 
     beats_elo = (m_ll < elo_ll) and (m_auc > elo_auc)
     beats_const = (m_ll < c_ll) and (m_auc > c_auc)
-    sane_ece = m_ece <= ECE_MAX
-    ece_advisory = not sane_ece
 
-    # pooled-vs-sealed inversion warning (informational unless sealed fails)
-    pm_ll = pooled["model_platt"]["logloss"]
-    pe_ll = pooled["elo_logistic"]["logloss"]
-    pc_ll = pooled["constant_home_edge"]["logloss"]
-    pooled_wing = pm_ll < min(pe_ll, pc_ll)
-    sealed_wing = m_ll < min(elo_ll, c_ll)
+    if incumbent is None:
+        ece_mode = "advisory"
+        ece_ok_pooled = True
+        ece_ok_sealed = True
+    else:
+        ece_mode = "within-run incumbent"
+        m_pe = pooled["model_platt"]["ece"]
+        m_se = sealed["model_platt"]["ece"]
+        i_pe = incumbent["pooled_model_platt"]["ece"]
+        i_se = incumbent["sealed_model_platt"]["ece"]
+        ece_ok_pooled = m_pe <= i_pe + ECE_TOL
+        ece_ok_sealed = m_se <= i_se + ECE_TOL
 
-    # ECE is deliberately NOT part of the adopt chain — discrimination only.
-    adopt = bool(beats_elo and beats_const)
+    adopt = bool(beats_elo and beats_const and ece_ok_pooled and ece_ok_sealed)
     reasons = []
     if not beats_elo:
         reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
@@ -1185,9 +1350,25 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
     if not beats_const:
         reasons.append(f"sealed logloss {m_ll} / auc {m_auc} not both better "
                        f"than constant home-edge ({c_ll} / {c_auc})")
-    if ece_advisory:
-        reasons.append(f"sealed ECE {m_ece} above {ECE_MAX} "
-                       f"(advisory — monitored, not blocking)")
+    if ece_mode == "within-run incumbent":
+        if not ece_ok_pooled:
+            reasons.append(f"pooled ECE {pooled['model_platt']['ece']} > "
+                           f"incumbent {incumbent['pooled_model_platt']['ece']} "
+                           f"+ TOL {ECE_TOL} (relative degradation)")
+        if not ece_ok_sealed:
+            reasons.append(f"sealed ECE {sealed['model_platt']['ece']} > "
+                           f"incumbent {incumbent['sealed_model_platt']['ece']} "
+                           f"+ TOL {ECE_TOL} (relative degradation)")
+    else:
+        reasons.append("ECE advisory-only (no within-run incumbent bundle on "
+                       "this checkout) — monitored, not gating")
+
+    # pooled-vs-sealed inversion warning (informational unless sealed fails)
+    pm_ll = pooled["model_platt"]["logloss"]
+    pe_ll = pooled["elo_logistic"]["logloss"]
+    pc_ll = pooled["constant_home_edge"]["logloss"]
+    pooled_wing = pm_ll < min(pe_ll, pc_ll)
+    sealed_wing = m_ll < min(elo_ll, c_ll)
     if not adopt and (pooled_wing and not sealed_wing):
         reasons.append("pooled-gain / sealed-loss inversion -> DON'T ADOPT")
     elif adopt and (sealed_wing and not pooled_wing):
@@ -1197,8 +1378,9 @@ def adopt_decision(pooled: dict, sealed: dict) -> dict:
         "adopt": adopt,
         "sealed_beats_elo": bool(beats_elo),
         "sealed_beats_constant": bool(beats_const),
-        "sane_ece": bool(sane_ece),
-        "ece_advisory": bool(ece_advisory),
+        "ece_mode": ece_mode,
+        "ece_ok_pooled": bool(ece_ok_pooled),
+        "ece_ok_sealed": bool(ece_ok_sealed),
         "pooled_gain_sealed_loss_inversion": bool(pooled_wing and not sealed_wing),
         "reasons": reasons,
     }
@@ -1315,6 +1497,17 @@ def pull_and_run(out_dir: Path | None = None,
     result = run_walk_forward(feats)
     model_features = list(result.get("_deployed", {}).get("features", V1_FEATURES))
 
+    # Persist the deployed bundle so the NEXT run's gate has a within-run
+    # incumbent for the relative ECE comparison (MLB-aligned). Never blocks
+    # the run; the file is gitignored (*.joblib).
+    try:
+        persist_ensemble(_DEPLOYED_BUNDLE.get("models") or {},
+                         _DEPLOYED_BUNDLE.get("adaptive_weights") or {},
+                         _DEPLOYED_BUNDLE.get("platt"),
+                         model_features)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ensemble persistence skipped: %s", e)
+
     # ---- slate stage: current schedule ------------------------------------
     # The seal gate is a TESTING/MONITORING signal (ensemble vs elo/constant +
     # sanity ECE), mirroring MLB — it never blocks the board. The fresh
@@ -1362,7 +1555,8 @@ def pull_and_run(out_dir: Path | None = None,
                 "reference_arm": "logistic (full-fitted, elo-only for cheap signal)",
                 "baselines": ["constant home-edge", "elo-only logistic"],
                 "lgb_params": {k: v for k, v in LGB_PARAMS.items()},
-                "ece_bins": ECE_BINS, "ece_max": ECE_MAX,
+                "ece_bins": ECE_BINS, "ece_tol": ECE_TOL, "ece_max": ECE_MAX,
+                "ece_mode": "within-run incumbent, relative (MLB-aligned)",
                 "leakage": ("features strictly-trailing (gate, windowed + ewm); "
                             "folds assert train.gameday < week_start; 2025 never "
                             "in any pre-sealed fit or calibration map; sealed Platt "
@@ -1595,8 +1789,10 @@ def _print_report(result: dict) -> None:
 def format_table(window: str, arms: dict) -> str:
     lines = [f"\n{window}:"]
     lines.append(f"  {'arm':20s} {'logloss':>9s} {'auc':>7s} {'ece':>6s}")
-    for name in ("constant_home_edge", "elo_logistic",
+    for name in ("constant_home_edge", "elo_logistic", "incumbent",
                  "model_raw", "model_platt"):
+        if name not in arms:
+            continue
         a = arms[name]
         lines.append(f"  {name:20s} {a['logloss']:9.4f} {a['auc']:7.4f} "
                      f"{a.get('ece', float('nan')):6.4f}")

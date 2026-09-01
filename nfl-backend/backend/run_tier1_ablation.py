@@ -14,8 +14,11 @@ Runs the SAME walk-forward + sealed-2025 machinery as the production gate
 The sealed-2025 hold-out is never touched during fitting (guaranteed by the
 shared machinery), and the adoption gate mirrors MLB's
 ``run_opponent_adjusted_ablation.py`` rule: WITH must beat WITHOUT on the
-SEALED hold-out in logloss AND AUC without degrading ECE-cal. A pooled-gain /
-sealed-loss inversion means DON'T ADOPT, exactly as the user-specified gate.
+SEALED hold-out in logloss AND AUC without degrading ECE-cal beyond the
+shared tolerance ``ECE_TOL`` (imported from nfl_moneyline — the same
+constant the production gate uses for its within-run incumbent comparison;
+MLB-aligned policy 2026-09-01). A pooled-gain / sealed-loss inversion means
+DON'T ADOPT, exactly as the user-specified gate.
 
 Usage (Kaggle — network + nflreadpy needed for the raw pull):
     python3 run_tier1_ablation.py                  # full 2019-2025 window
@@ -34,6 +37,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# The ONE shared relative-ECE tolerance used by BOTH the production gate
+# (nfl_moneyline.adopt_decision) and every ablation harness. Imported, never
+# duplicated — see the ECE_TOL comment in nfl_moneyline for the derivation
+# (binned-ECE noise at the sealed n vs the program's meaningful-degradation
+# floor). MLB-aligned policy 2026-09-01: relative, tolerance-based,
+# no absolute calibration constant.
+from nfl_moneyline import ECE_TOL
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
@@ -134,7 +145,10 @@ def adopt_verdict(sealed_without: dict, sealed_with: dict,
     ece_w = sealed_with["ece"];     ece_o = sealed_without["ece"]
     sealed_win = (ll_w is not None and ll_o is not None and auc_w is not None
                   and auc_o is not None and ll_w < ll_o and auc_w > auc_o)
-    ece_ok = ece_w is None or ece_o is None or ece_w <= ece_o + 1e-9
+    # Shared tolerance with the production gate (ECE_TOL from nfl_moneyline).
+    # The harness's baseline is its own WITHOUT arm (correct for research);
+    # the TOL is what is now uniform across gate and harness.
+    ece_ok = ece_w is None or ece_o is None or ece_w <= ece_o + ECE_TOL
     pooled_win = (pooled_with["logloss"] is not None
                   and pooled_without["logloss"] is not None
                   and pooled_with["logloss"] < pooled_without["logloss"])
