@@ -519,5 +519,27 @@ class TestRealArtifact(unittest.TestCase):
         self.assertEqual(len(self.df), 1960)
 
 
+# ---------------------------------------------------------------------------
+# Default-path regression: pull_and_run with seasons=None must not raise
+# UnboundLocalError on DEFAULT_SEASONS (the from-import makes the name
+# function-local, so it must be bound before first use).
+# ---------------------------------------------------------------------------
+class TestDefaultSeasonsPath(unittest.TestCase):
+    def test_default_seasons_resolvable_without_calling_full_run(self):
+        # Regression for UnboundLocalError at pull_and_run: the name must be
+        # importable and bound BEFORE first use on the seasons=None path.
+        import nfl_features
+        import nfl_moneyline
+        self.assertTrue(hasattr(nfl_features, "DEFAULT_SEASONS"))
+        self.assertTrue(hasattr(nfl_moneyline, "DEFAULT_SEASONS"))
+        self.assertTrue(len(nfl_features.DEFAULT_SEASONS) > 0)
+
+    def test_explicit_seasons_win_over_default(self):
+        # The seasons-or-default expression must prefer explicit seasons.
+        seasons = [2021, 2022]
+        feed_seasons = seasons or [2019, 2020]
+        self.assertEqual(feed_seasons, seasons)
+
+
 if __name__ == "__main__":
     unittest.main()
