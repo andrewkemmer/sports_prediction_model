@@ -1,163 +1,142 @@
 {
   "date": "20260901",
   "n_games": 1107,
-  "trained_at": "2026-09-01T03:49:07.915930Z",
+  "trained_at": "2026-09-01T04:38:36.687420Z",
   "metrics": {
-    "auc": 0.7296,
-    "brier": 0.2094,
-    "logloss": 0.6054,
-    "ece": 0.0383,
-    "brier_calibrated": 0.2124,
-    "logloss_calibrated": 0.6132,
-    "ece_calibrated": 0.0324
+    "auc": 0.7041,
+    "brier": 0.2182,
+    "logloss": 0.6261,
+    "ece": 0.0435,
+    "brier_calibrated": 0.2215,
+    "logloss_calibrated": 0.6334,
+    "ece_calibrated": 0.0348
   },
   "calibration_buckets": [
     {
       "bucket": "50%-55%",
-      "mean_predicted": 0.5245,
-      "mean_actual": 0.5657,
-      "count": 251,
-      "gap": -0.0412
+      "mean_predicted": 0.5236,
+      "mean_actual": 0.515,
+      "count": 233,
+      "gap": 0.0086
     },
     {
       "bucket": "55%-60%",
       "mean_predicted": 0.5751,
-      "mean_actual": 0.613,
-      "count": 230,
-      "gap": -0.0379
+      "mean_actual": 0.5952,
+      "count": 252,
+      "gap": -0.0202
     },
     {
       "bucket": "60%-65%",
-      "mean_predicted": 0.6237,
-      "mean_actual": 0.6114,
-      "count": 175,
-      "gap": 0.0123
+      "mean_predicted": 0.6253,
+      "mean_actual": 0.6833,
+      "count": 221,
+      "gap": -0.058
     },
     {
       "bucket": "65%-70%",
-      "mean_predicted": 0.6736,
-      "mean_actual": 0.7054,
-      "count": 129,
-      "gap": -0.0318
+      "mean_predicted": 0.6721,
+      "mean_actual": 0.6833,
+      "count": 180,
+      "gap": -0.0112
     },
     {
       "bucket": "70%-75%",
-      "mean_predicted": 0.7258,
-      "mean_actual": 0.7155,
-      "count": 116,
-      "gap": 0.0102
+      "mean_predicted": 0.7246,
+      "mean_actual": 0.7463,
+      "count": 134,
+      "gap": -0.0216
     },
     {
       "bucket": "75%-80%",
-      "mean_predicted": 0.7758,
-      "mean_actual": 0.8257,
-      "count": 109,
-      "gap": -0.0499
+      "mean_predicted": 0.7718,
+      "mean_actual": 0.8413,
+      "count": 63,
+      "gap": -0.0695
     },
     {
       "bucket": "80%-85%",
-      "mean_predicted": 0.8204,
-      "mean_actual": 0.9104,
-      "count": 67,
-      "gap": -0.09
-    },
-    {
-      "bucket": "85%-90%",
-      "mean_predicted": 0.8665,
-      "mean_actual": 0.9643,
-      "count": 28,
-      "gap": -0.0978
-    },
-    {
-      "bucket": "90%-95%",
-      "mean_predicted": 0.9055,
-      "mean_actual": 1.0,
-      "count": 2,
-      "gap": -0.0945
+      "mean_predicted": 0.8213,
+      "mean_actual": 0.9583,
+      "count": 24,
+      "gap": -0.137
     }
   ],
   "calibration": {
     "method": "platt",
     "params": {
-      "a": 1.227014,
-      "b": 0.109093,
+      "a": 1.25979,
+      "b": 0.12964,
       "n": 1107
     },
     "metrics_raw": {
-      "logloss": 0.6054,
-      "auc": 0.7296,
-      "ece": 0.0383,
-      "brier": 0.2094
+      "logloss": 0.6261,
+      "auc": 0.7041,
+      "ece": 0.0435,
+      "brier": 0.2182
     },
     "metrics_calibrated": {
-      "logloss": 0.6132,
-      "auc": 0.72,
-      "ece": 0.0324,
-      "brier": 0.2124
+      "logloss": 0.6334,
+      "auc": 0.6914,
+      "ece": 0.0348,
+      "brier": 0.2215
     },
     "calibration_buckets_calibrated": [
       {
         "bucket": "50%-55%",
-        "mean_predicted": 0.5178,
-        "mean_actual": 0.5738,
-        "count": 244,
-        "gap": -0.0559
+        "mean_predicted": 0.5187,
+        "mean_actual": 0.5431,
+        "count": 267,
+        "gap": -0.0244
       },
       {
         "bucket": "55%-60%",
-        "mean_predicted": 0.5754,
-        "mean_actual": 0.5951,
-        "count": 205,
-        "gap": -0.0197
+        "mean_predicted": 0.5759,
+        "mean_actual": 0.5973,
+        "count": 226,
+        "gap": -0.0215
       },
       {
         "bucket": "60%-65%",
-        "mean_predicted": 0.6237,
-        "mean_actual": 0.6229,
-        "count": 175,
-        "gap": 0.0008
+        "mean_predicted": 0.6228,
+        "mean_actual": 0.7181,
+        "count": 227,
+        "gap": -0.0953
       },
       {
         "bucket": "65%-70%",
-        "mean_predicted": 0.6745,
-        "mean_actual": 0.7308,
-        "count": 156,
-        "gap": -0.0562
+        "mean_predicted": 0.6746,
+        "mean_actual": 0.678,
+        "count": 177,
+        "gap": -0.0034
       },
       {
         "bucket": "70%-75%",
-        "mean_predicted": 0.725,
-        "mean_actual": 0.7664,
-        "count": 137,
-        "gap": -0.0414
+        "mean_predicted": 0.7243,
+        "mean_actual": 0.6214,
+        "count": 103,
+        "gap": 0.1029
       },
       {
         "bucket": "75%-80%",
-        "mean_predicted": 0.7752,
-        "mean_actual": 0.7684,
-        "count": 95,
-        "gap": 0.0067
+        "mean_predicted": 0.7694,
+        "mean_actual": 0.8611,
+        "count": 72,
+        "gap": -0.0917
       },
       {
         "bucket": "80%-85%",
-        "mean_predicted": 0.8199,
-        "mean_actual": 0.8143,
-        "count": 70,
-        "gap": 0.0056
+        "mean_predicted": 0.8214,
+        "mean_actual": 0.875,
+        "count": 32,
+        "gap": -0.0536
       },
       {
         "bucket": "85%-90%",
-        "mean_predicted": 0.8693,
-        "mean_actual": 0.9565,
-        "count": 23,
-        "gap": -0.0872
-      },
-      {
-        "bucket": "90%-95%",
-        "mean_predicted": 0.9185,
+        "mean_predicted": 0.8662,
         "mean_actual": 1.0,
-        "count": 2,
-        "gap": -0.0815
+        "count": 3,
+        "gap": -0.1338
       }
     ]
   },
