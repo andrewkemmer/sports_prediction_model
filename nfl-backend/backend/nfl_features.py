@@ -112,6 +112,14 @@ TIER1_AGG_COLUMNS = [
 ]
 
 # admission gate
+# GATE_AUTO_PRUNE — user policy (2026-09-01): the gate NEVER automatically
+# removes features from the served pool. False (default) = REPORT-ONLY:
+# coverage / redundancy / univariate-AUC are computed and recorded, and any
+# registered feature below the coverage floor or above the correlation bar
+# triggers a LOUD warning (informational, never blocking). True re-enables
+# the LEGACY pruning (coverage floor, then redundant-pair / near-random-AUC
+# pruning) — a deliberate opt-in, never the default.
+GATE_AUTO_PRUNE = False
 COVERAGE_FLOOR = 0.95
 # The redundancy bar is the reporting bar the user specified ("|r| > 0.8"):
 # a feature ~83% correlated with a slightly-stronger one is redundant enough to
@@ -134,42 +142,56 @@ FEATURE_PRIORITY = {
     "market_home_implied": 20,
 }
 
-# v1 base + v2 candidates (the admission gate scores every column; the
-# admitted set is what ``nfl_moneyline`` consumes). ``is_home`` is the
-# constant home-edge anchor — it is reported but never fed as a model column.
+# The SERVED pool, in gating order: what survives is EXACTLY this list
+# (minus the ``is_home`` anchor at predict time). The gate (run_feature_gate)
+# no longer prunes by default (GATE_AUTO_PRUNE=False), so this list IS what
+# ``nfl_moneyline`` consumes.
 FEATURE_COLUMNS = [
-    # ---- v1 base ------------------------------------------------------
-    "elo_diff", "form_diff_pts", "win_pct_diff", "rest_days_diff",
-    "ypp_diff", "is_dome_home",
-    # ---- v2: decaying-window strength aggregates (home − away) --------
-    "ewm_net_pts_diff", "ewm_epa_play_diff", "ewm_qb_epa_play_diff",
-    "ewm_scoring_diff", "ewm_ypp_diff",
-    # ---- v2: opponent-adjusted / pace / rest / weather / division -----
-    "opp_adj_net_pts_diff", "pace_plays_min_diff", "rest_short_diff",
-    "temp_f", "wind_mph", "div_game",
-    # ---- v4: Tier-2 venue slices admitted 2026-09-01 (run_tier2_ablation,
-    # frame 5aa6121b2849) — VENUE_3 beat WITHOUT on the sealed 2025 holdout
-    # (logloss 0.6382 vs 0.6401, AUC 0.6933 vs 0.6913, ECE-cal 0.0571 vs
-    # 0.0776) while the full 6-feature VENUE block did NOT (0.6438/0.6913
-    # DON'T ADOPT). travel_miles_diff, altitude_home, prime_time only.
+    # ---- v1 base (admitted 2026-08-28) --------------------------------
+    "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+    # ---- v2 decaying-window strength aggregates (admitted 2026-08-28) --
+    "ewm_net_pts_diff", "ewm_qb_epa_play_diff", "ewm_ypp_diff",
+    # ---- v2 schedule facts (admitted 2026-08-28) ----------------------
+    "pace_plays_min_diff", "rest_short_diff", "div_game",
+    # ---- v4 Tier-2 venue slices, admitted 2026-09-01 (b2205f2) --------
+    # VENUE_3 won the sealed-2025 holdout (logloss 0.6382 vs 0.6401, AUC
+    # 0.6933 vs 0.6913); the full 6-feature VENUE block DON'T ADOPT.
     "travel_miles_diff", "altitude_home", "prime_time",
-    # ---- v5: Tier-3 market slice admitted 2026-09-01 (run_tier3_ablation,
-    # frame e4aee120a4b8) — MARK beat WITHOUT on the sealed 2025 holdout
-    # (logloss 0.6339 vs 0.6507, AUC 0.7121 vs 0.6817, ECE-cal 0.0759 vs
-    # 0.0937; all five members improve sealed both axes). The officials and
-    # roster families were composed-but-unregistered: OFF (0.6578/0.6815)
-    # and ROSTER (0.6523/0.6763) DON'T ADOPT, and ALL (0.6590/0.7046,
-    # ECE 0.1134) degrades — see the Tier-3 comment block below.
+    # ---- v5 Tier-3 market slice, admitted 2026-09-01 (76002fb) --------
+    # MARK won the sealed-2025 holdout (logloss 0.6339 vs 0.6507, AUC
+    # 0.7121 vs 0.6817, ECE-cal 0.0759 vs 0.0937); all five members improve
+    # sealed both axes. Officials/roster families DON'T ADOPT (see the
+    # Tier-3 comment block).
     "market_home_implied",
-    # Note: the v3 (Tier-1) candidates are still composed by
-    # build_features/build_slate_features and exercised by
-    # run_tier1_ablation.py, but they are deliberately NOT in the deployed
-    # candidate pool: the 2026-08-31 five-arm ablation showed every Tier-1
-    # addition loses to the v1+v2 baseline on the sealed 2025 holdout
-    # (WITH/WITH_ADMITTED/WITH_SUBSET/TIER1_ONLY all DON'T ADOPT).
-    # ---- constant anchor ----------------------------------------------
+    # ---- constant anchor (reported, never a model column) --------------
     "is_home",
 ]
+
+# ---------------------------------------------------------------------------
+# Composed-but-unregistered legacy candidates — DELIBERATELY not in the
+# served pool. TRUE HISTORY (no ablation invented for them):
+#   temp_f / wind_mph          — 0.0% coverage in every nflreadpy pull (the
+#       schedule's temp/wind columns are empty in this feed) — unservable.
+#   form_diff_pts              — redundant twin of ewm_net_pts_diff
+#       (|r| 0.94, similar discrimination); kept composed so the Tier-1/2/3
+#       WITHOUT baselines and reuse stay intact.
+#   ypp_diff                   — redundant twin of ewm_ypp_diff (|r| 0.94).
+#   ewm_epa_play_diff          — redundant twin of ewm_qb_epa_play_diff
+#       (|r| 0.99).
+#   ewm_scoring_diff           — redundant twin of ewm_epa_play_diff
+#       (|r| 0.85).
+#   opp_adj_net_pts_diff       — redundant twin of form_diff_pts (|r| 0.91).
+# None of these was ever removed by a SEALED-ABLATION verdict: they were
+# pruned at admission time by the LEGACY coverage/redundancy gate (now the
+# opt-in GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
+# WITHOUT baselines because build_features/build_slate_features still compose
+# them. Unregistering them here is the deliberate policy decision that the
+# served pool is exactly the 14 features above and that the gate no longer
+# removes anything from it automatically. (The v3 Tier-1 candidates, the v4
+# venue remainder — timezone_diff/turf_home/neutral_site — and the v5
+# officials/roster families are also composed-but-unregistered, each with a
+# real ablation verdict recorded in its comment block.)
+# ---------------------------------------------------------------------------
 
 CANONICAL_SOURCE = {
     "elo_diff": "ELO prior 1500, K=32, strictly-prior games",
@@ -1272,10 +1294,25 @@ def _strong_pairs(corr: pd.DataFrame) -> list[dict]:
     return out
 
 
-def run_feature_gate(df: pd.DataFrame) -> dict:
-    """Coverage floor, then redundant-pair / near-random-AUC pruning (no model)."""
+def run_feature_gate(df: pd.DataFrame,
+                     auto_prune: bool = GATE_AUTO_PRUNE) -> dict:
+    """Audit + admission report over FEATURE_COLUMNS (the served pool).
+
+    DEFAULT POLICY (auto_prune=False — GATE_AUTO_PRUNE): the gate NEVER
+    removes features from the served pool. Coverage / redundancy /
+    near-random-AUC are computed and RECORDED for monitoring, and any
+    registered feature below the coverage floor or in a strong-correlation
+    pair (|r| > {CORR_REDUNDANCY}) logs a LOUD warning — informational,
+    never blocking. The returned pool is exactly FEATURE_COLUMNS minus the
+    ``is_home`` anchor, unchanged.
+
+    auto_prune=True re-enables the LEGACY pruning (coverage floor, then
+    redundant-pair / near-random-AUC pruning) — a deliberate opt-in, never
+    the default.
+    """
     covered = [f for f in FEATURE_COLUMNS
                if float(df[f].notna().mean()) >= COVERAGE_FLOOR]
+    below = [f for f in FEATURE_COLUMNS if f not in covered]
 
     pre = df[df["season"] < HOLD_SEASON]        # 2025 sealed holdout stays out
     y = (pre["home_score"] > pre["away_score"]).astype(int).to_numpy()
@@ -1287,7 +1324,35 @@ def run_feature_gate(df: pd.DataFrame) -> dict:
         else:
             auc[f] = univariate_auc(y, x)
     corr = audit_correlation(df)
+    strong = _strong_pairs(corr)
 
+    if not auto_prune:
+        for f in below:
+            logger.warning("GATE [no-prune]: %s coverage %.1f%% is below the "
+                           "%.0f%% floor (report-only — the served pool is "
+                           "unchanged)", f, 100 * float(df[f].notna().mean()),
+                           COVERAGE_FLOOR * 100)
+        for p in strong:
+            logger.warning("GATE [no-prune]: |r| %.2f between %s and %s "
+                           "exceeds %.2f (report-only — the served pool is "
+                           "unchanged)", p["corr"], p["feat_a"],
+                           p["feat_b"], CORR_REDUNDANCY)
+        v1 = [f for f in FEATURE_COLUMNS if f != "is_home"]
+        return {
+            "covered_features": covered,
+            "below_coverage_floor": below,
+            "v1_features": v1,
+            "kept_home_anchor": "is_home" in FEATURE_COLUMNS,
+            "auto_prune": False,
+            "audit_coverage": audit_coverage(df).to_dict(orient="index"),
+            "univariate_auc": {k: (None if pd.isna(v) else round(float(v), 4))
+                               for k, v in auc.items()},
+            "correlation_pairs_over_0_8": strong,
+            "reasons": {},
+            "dropped": [],
+        }
+
+    # ---- LEGACY pruning (opt-in via GATE_AUTO_PRUNE=True) -------------
     v1 = list(FEATURE_COLUMNS)
     reasons = {}
     # R0 coverage floor
@@ -1342,12 +1407,14 @@ def run_feature_gate(df: pd.DataFrame) -> dict:
     is_home_in = "is_home" in v1          # constant anchor stays in v1 set
     return {
         "covered_features": covered,
+        "below_coverage_floor": below,
         "v1_features": v1,
         "kept_home_anchor": is_home_in,
+        "auto_prune": True,
         "audit_coverage": audit_coverage(df).to_dict(orient="index"),
         "univariate_auc": {k: (None if pd.isna(v) else round(float(v), 4))
                            for k, v in auc.items()},
-        "correlation_pairs_over_0_8": _strong_pairs(corr),
+        "correlation_pairs_over_0_8": strong,
         "reasons": reasons,
         "dropped": [f for f in FEATURE_COLUMNS if f not in v1],
     }

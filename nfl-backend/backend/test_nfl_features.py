@@ -161,9 +161,7 @@ class TestAuc(unittest.TestCase):
 
 
 class TestGate(unittest.TestCase):
-    def test_coverage_floor_drops_bad_feature(self):
-        """A candidate below the coverage floor is dropped from the v1 set with
-        a recorded reason; a fully-covered informative feature is not."""
+    def _frame(self):
         frame = synth_games([dict(game_id=f"G{i}", gameday=f"2019-09-{1+2*i:02d}",
                                   home_team="H", away_team="A",
                                   home_score=24, away_score=10) for i in range(20)])
@@ -171,21 +169,39 @@ class TestGate(unittest.TestCase):
         for f in FEATURE_COLUMNS:
             frame[f] = 0.0                            # fully covered, but constant
         frame["elo_diff"] = np.linspace(-2, 2, len(frame))
-        frame["spread_line"] = 0.0
-        frame["total_line"] = 0.0
-        frame["result"] = 14.0
-        # make every trailing feature 50%-covered -> should all be dropped
-        for f in ("form_diff_pts", "win_pct_diff", "rest_days_diff",
-                  "ypp_diff", "is_dome_home"):
-            frame[f] = frame[f].mask(dummy := np.array([i % 2 == 0 for i in range(len(frame))]))
+        # make three REGISTERED features 50%-covered (feature names must be
+        # in the served FEATURE_COLUMNS pool — the legacy twins are no longer
+        # registered)
+        half = np.array([i % 2 == 0 for i in range(len(frame))])
+        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
+            frame[f] = frame[f].mask(half)
+        return frame
 
+    def test_no_prune_keeps_pool_and_warns_below_floor(self):
+        """Default policy (GATE_AUTO_PRUNE=False): the served pool is exactly
+        FEATURE_COLUMNS minus the anchor — features below the coverage floor
+        are REPORTED (below_coverage_floor) but never removed."""
+        from nfl_features import GATE_AUTO_PRUNE, run_feature_gate
+        self.assertFalse(GATE_AUTO_PRUNE)             # the user policy default
+        res = run_feature_gate(self._frame())
+        self.assertEqual(res["dropped"], [])
+        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
+            self.assertIn(f, res["below_coverage_floor"])
+            self.assertIn(f, res["v1_features"])     # still served
+        self.assertNotIn("is_home", res["v1_features"])
+        self.assertEqual(len(res["v1_features"]), 14)
+        self.assertFalse(res["auto_prune"])
+
+    def test_legacy_prune_is_explicit_opt_in(self):
+        """auto_prune=True preserves the LEGACY pruning behavior — bare
+        coverage drops + redundant-pair pruning with recorded reasons."""
         from nfl_features import run_feature_gate
-        res = run_feature_gate(frame)
-        for f in ("form_diff_pts", "win_pct_diff", "rest_days_diff",
-                  "ypp_diff", "is_dome_home"):
+        res = run_feature_gate(self._frame(), auto_prune=True)
+        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
             self.assertIn(f, res["dropped"], f"{f} should be dropped for coverage")
             self.assertIn("coverage", res["reasons"][f])
         self.assertIn("elo_diff", res["v1_features"])
+        self.assertTrue(res["auto_prune"])
 
 
 class TestV2TrailingLeakage(unittest.TestCase):
@@ -338,9 +354,10 @@ class TestSlateFeatures(unittest.TestCase):
 
 
 class TestV2Gate(unittest.TestCase):
-    def test_v2_candidate_dropped_for_coverage(self):
-        """A v2 candidate below the coverage floor is dropped with a reason;
-        the base features survive."""
+    def test_v2_candidate_below_floor_reported_not_dropped(self):
+        """Default policy: a below-floor candidate is reported
+        (below_coverage_floor) and stays in the served pool; the legacy
+        opt-in prune still drops it with a reason."""
         frame = synth_games([dict(game_id=f"G{i}", gameday=f"2019-09-{1+2*i:02d}",
                                   home_team="H", away_team="A",
                                   home_score=24, away_score=10) for i in range(20)])
@@ -348,21 +365,33 @@ class TestV2Gate(unittest.TestCase):
         for f in FEATURE_COLUMNS:
             frame[f] = 0.0
         frame["elo_diff"] = np.linspace(-2, 2, len(frame))
-        frame["ewm_epa_play_diff"] = frame["ewm_epa_play_diff"].mask(
+        frame["ewm_qb_epa_play_diff"] = frame["ewm_qb_epa_play_diff"].mask(
             np.array([i % 2 == 0 for i in range(len(frame))]))
         res = run_feature_gate(frame)
-        self.assertIn("ewm_epa_play_diff", res["dropped"])
-        self.assertIn("coverage", res["reasons"]["ewm_epa_play_diff"])
+        self.assertEqual(res["dropped"], [])
+        self.assertIn("ewm_qb_epa_play_diff", res["below_coverage_floor"])
+        self.assertIn("ewm_qb_epa_play_diff", res["v1_features"])
+        res_legacy = run_feature_gate(frame, auto_prune=True)
+        self.assertIn("ewm_qb_epa_play_diff", res_legacy["dropped"])
+        self.assertIn("coverage", res_legacy["reasons"]["ewm_qb_epa_play_diff"])
         self.assertIn("elo_diff", res["v1_features"])
 
-    def test_v2_columns_scored_in_audit(self):
-        """Every v2 candidate is audited (coverage + univariate AUC on
-        seasons < 2025)."""
-        for f in ("ewm_net_pts_diff", "ewm_epa_play_diff", "ewm_qb_epa_play_diff",
-                  "ewm_scoring_diff", "ewm_ypp_diff", "opp_adj_net_pts_diff",
-                  "pace_plays_min_diff", "rest_short_diff", "temp_f",
-                  "wind_mph", "div_game"):
+    def test_v2_admitted_features_and_sync(self):
+        """FEATURE_COLUMNS is the SERVED pool: the gated 14 + the is_home
+        anchor. The legacy v2 twins that were pruned at admission time
+        (never by an ablation) are composed-but-unregistered — they are no
+        longer FEATURE_COLUMNS members."""
+        kept = ("ewm_net_pts_diff", "ewm_qb_epa_play_diff", "ewm_ypp_diff",
+                "pace_plays_min_diff", "rest_short_diff", "div_game")
+        for f in kept:
             self.assertIn(f, FEATURE_COLUMNS)
+        unregistered = ("form_diff_pts", "ypp_diff", "ewm_epa_play_diff",
+                        "ewm_scoring_diff", "opp_adj_net_pts_diff",
+                        "temp_f", "wind_mph")
+        for f in unregistered:
+            self.assertNotIn(f, FEATURE_COLUMNS)
+        self.assertEqual(len(FEATURE_COLUMNS), 15)   # 14 served + is_home anchor
+        self.assertEqual(FEATURE_COLUMNS[-1], "is_home")
 
 
 class TestBuildFeatures(unittest.TestCase):
