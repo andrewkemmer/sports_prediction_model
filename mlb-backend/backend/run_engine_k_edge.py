@@ -9,13 +9,18 @@ ablation picked the C2 linear edge expansion:
 The LEVEL (λ_H + λ_A) is preserved exactly; the EDGE is scaled by k.
 k = 1.0 is the identity (current engine).
 
-Stability analysis (2a/2b/2c of the rollout):
-  - per-fold k is noisy (small windows) but season-sliced k is STABLE:
-    fit-through-2024 → k=1.31 (2025: −0.004 CRPS, 2026: −0.003),
-    fit-through-2025 → k=1.48 (2026: −0.005) — holds per season.
-  - sensitivity: k ∈ {1.3, 1.5, 1.53, 1.7} is flat (INSENSITIVE):
-    sealed CRPS 2.4059–2.4108 vs C0 2.4167, totals unchanged (sum
-    preserved). Design: per-run refit on that run's OOF + drift band
+Stability analysis (2a/2b/2c of the rollout), verified on the production
+OOF (run_engine_oof_20260901.csv, 6,829 games 2024-04..2026-08):
+  - per-window k (monthly folds) is NOISY: min −0.28, max 2.96, mean
+    1.53, sd 0.71 — small windows cannot anchor k.
+  - season-sliced k is STABLE and holds per season (production α curves,
+    full-season eval): fit-through-2024 → k=1.21 (2025 margin CRPS
+    −0.003), fit-through-2025 → k=1.42 (2026 −0.004); totals delta
+    ≈ 0.0000 (level preserved).
+  - sensitivity: k ∈ {1.3, 1.5, 1.5306, 1.7} is flat (INSENSITIVE):
+    sealed margin CRPS 2.3807–2.3870 vs C0 2.3948 (α fit on each arm's
+    λ, the production path) — every in-band k beats C0 by 0.008–0.014,
+    spread ≤ 0.006. Design: per-run refit on that run's OOF + drift band
     (fitted k ± 0.2 vs reference 1.53) as the alert signal.
 
 This module monkey-patches run_engine at import (call patch()):

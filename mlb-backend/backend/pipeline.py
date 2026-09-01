@@ -1023,6 +1023,10 @@ def _run_engine_fit_block(block: Optional[dict]) -> dict:
     return {
         "alpha_home": block.get("alpha_home"),
         "alpha_away": block.get("alpha_away"),
+        # C2 edge expansion: fitted k + drift band [ref±0.2] + drift_alert
+        # flag, emitted by run_engine_daily's k-edge wrapper (block["k_edge"])
+        # so the served monitor carries the k-drift alert signal.
+        "k_edge": (block.get("k_edge") or {}),
         "dispersion_chi2_per_df": {
             "home": dispersion.get("home"),
             "away": dispersion.get("away"),
