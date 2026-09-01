@@ -534,11 +534,78 @@ class TestDefaultSeasonsPath(unittest.TestCase):
         self.assertTrue(hasattr(nfl_moneyline, "DEFAULT_SEASONS"))
         self.assertTrue(len(nfl_features.DEFAULT_SEASONS) > 0)
 
+    def test_default_window_matches_nfl_features(self):
+        # The module-level export must match the real feed window (warmup
+        # 2018 + core 2019-2025 incl. the sealed 2025), or the default path
+        # would silently break the sealed gate.
+        import nfl_features
+        import nfl_moneyline
+        self.assertEqual(nfl_moneyline.DEFAULT_SEASONS,
+                         nfl_features.DEFAULT_SEASONS)
+
     def test_explicit_seasons_win_over_default(self):
         # The seasons-or-default expression must prefer explicit seasons.
         seasons = [2021, 2022]
         feed_seasons = seasons or [2019, 2020]
         self.assertEqual(feed_seasons, seasons)
+
+
+class TestPullAndRunSeasons(unittest.TestCase):
+    """Regression: pull_and_run's ``feed_seasons`` binding. The default path
+    (seasons=None) previously raised UnboundLocalError because the
+    ``from nfl_features import DEFAULT_SEASONS`` below the use made the name
+    function-local for the whole body (2026-09-01 fix: import moved above
+    the use)."""
+
+    def _csv(self) -> str:
+        import os
+        import tempfile
+        feats = _synth_fold_frame([2024, 2025], n_games_per_week=2)
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        feats.to_csv(path, index=False)
+        return path
+
+    def _call(self, seasons=None):
+        from unittest import mock
+
+        import nfl_moneyline as nm
+        path = self._csv()
+        try:
+            stub = {"_deployed": {"features": ["elo_diff"]}}
+            with mock.patch.object(nm, "run_walk_forward",
+                                   return_value=stub) as rwf, \
+                    mock.patch.object(nm, "_print_report", lambda r: None):
+                out = nm.pull_and_run(features_csv=Path(path),
+                                      write_record=False,
+                                      seasons=seasons)
+            self.assertEqual(out, stub)
+            rwf.assert_called_once()
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_default_seasons_does_not_raise(self):
+        self._call(seasons=None)          # the UnboundLocalError path
+
+    def test_explicit_seasons_wins(self):
+        self._call(seasons=[2022])        # explicit must stay honored, no crash
+
+    def test_default_seasons_bound_before_use(self):
+        """Structural guard for the UnboundLocalError shape: pull_and_run must
+        NOT from-import DEFAULT_SEASONS inside its body (module-level binding
+        only, matching nfl_features), so the default seasons=None path can
+        never shadow-unbind the name."""
+        import inspect
+
+        import nfl_features
+        import nfl_moneyline as nm
+        self.assertEqual(nm.DEFAULT_SEASONS, nfl_features.DEFAULT_SEASONS)
+        src = inspect.getsource(nm.pull_and_run)
+        shadowing = [ln for ln in src.splitlines()
+                     if "from nfl_features import" in ln
+                     and "DEFAULT_SEASONS" in ln]
+        self.assertEqual(shadowing, [])
+        self.assertIn("seasons or DEFAULT_SEASONS", src)
 
 
 if __name__ == "__main__":

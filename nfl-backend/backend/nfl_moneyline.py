@@ -69,9 +69,11 @@ BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 DECIDED_FRAME = DATA_DELIVERY_DIR / "nfl_game_level_features.csv"
 
-# Seasons covered by the default (no --seasons / --seasons flag) run —
-# kept at module level so tests can import it.
-DEFAULT_SEASONS = [2019, 2020, 2021, 2022, 2023, 2024]
+# Seasons covered by the default (no seasons / --window flag) run — kept at
+# module level so tests can import it. MUST match nfl_features.DEFAULT_SEASONS:
+# warmup 2018 (trailing priors) + core 2019-2025 (2025 is the SEALED hold-out
+# and must stay in the default feed, or the sealed gate has no rows).
+DEFAULT_SEASONS = [2018] + list(range(2019, 2026))
 
 # model inputs = the v1 numeric feature set (is_home is a constant anchor ->
 # absorbed by intercept/baseline, not fed as a column)
@@ -1285,11 +1287,11 @@ def pull_and_run(out_dir: Path | None = None,
     normal run is unchanged. The sealed-2025 gate still applies within whatever
     window is selected.
     """
-    # Import DEFAULT_SEASONS before first use — the from-import below makes
-    # the name function-local, so referencing it earlier must happen after a
-    # local binding exists (regression: UnboundLocalError on the default path).
-    from nfl_features import DEFAULT_SEASONS as _NF_DEFAULT_SEASONS
-    feed_seasons = seasons or _NF_DEFAULT_SEASONS
+    # DEFAULT_SEASONS is MODULE-LEVEL (top of this file), so the default
+    # (seasons=None) path binds cleanly — regression for the UnboundLocalError
+    # caused by a from-import below this use shadowing the name as
+    # function-local. The remaining from-imports stay below their uses.
+    feed_seasons = seasons or DEFAULT_SEASONS
     from nfl_features import _load_raw, build_features, build_slate_features
     out_dir = Path(out_dir) if out_dir is not None else DATA_DELIVERY_DIR
 
