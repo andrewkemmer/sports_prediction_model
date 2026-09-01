@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from backend.data_ingestion import (
+    _latest_pitcher_state,
     _norm_player_name,
     build_upcoming_slate,
 )
@@ -224,6 +225,114 @@ class TestBuildUpcomingSlate(unittest.TestCase):
     def test_empty_schedule_returns_empty_frame(self):
         out = build_upcoming_slate(_history(), TARGET, schedule_df=pd.DataFrame())
         self.assertTrue(out.empty)
+
+
+class TestLatestPitcherStateChronological(unittest.TestCase):
+    """Regression for the _latest_pitcher_state overwrite bug.
+
+    The OLD implementation walked home starts then away starts with
+    last-write-wins ACROSS passes, so an OLDER away start always overwrote a
+    NEWER home start. On the 2026-08-31 slate Elmer Rodríguez's May 17 AWAY
+    line (3.24 ERA / 5.4 K/9) clobbered his Aug 26 HOME line
+    (3.9375 / 5.625) on the NYY@LAA card. The fix resolves the
+    chronologically LATEST non-null value per pitcher per feature base across
+    BOTH columns (lag semantics unchanged — each value is still the stat
+    through the pitcher's previous start).
+    """
+
+    @staticmethod
+    def _hist(rows) -> pd.DataFrame:
+        return pd.DataFrame(rows)
+
+    def test_fresh_home_start_beats_older_away_start(self):
+        # Elmer Rodríguez (id 695684): May 17 AWAY start (stale) vs Aug 26
+        # HOME start (fresh) — the fresh HOME line must win.
+        hist = self._hist([
+            {"game_id": "20260517_NYM@NYY", "game_date": "2026-05-17",
+             "start_time_utc": datetime(2026, 5, 17, 23, 5),
+             "home_team": "NYM", "away_team": "NYY", "home_win": 0.0,
+             "away_starter_id": 695684.0,
+             "sp_era_away": 3.24, "sp_k9_away": 5.4},
+            {"game_id": "20260826_NYY@HOU", "game_date": "2026-08-26",
+             "start_time_utc": datetime(2026, 8, 26, 23, 5),
+             "home_team": "NYY", "away_team": "HOU", "home_win": 1.0,
+             "home_starter_id": 695684.0,
+             "sp_era_home": 3.9375, "sp_k9_home": 5.625},
+        ])
+        st = _latest_pitcher_state(hist)
+        self.assertAlmostEqual(st[695684]["sp_era"], 3.9375)
+        self.assertAlmostEqual(st[695684]["sp_k9"], 5.625)
+
+    def test_fresh_away_start_beats_older_home_start(self):
+        # Ureña-style mirror: the fresher AWAY start must beat an older HOME
+        # start — chronology rules, not side preference.
+        hist = self._hist([
+            {"game_id": "20260701_LAA@SEA", "game_date": "2026-07-01",
+             "start_time_utc": datetime(2026, 7, 1, 19, 5),
+             "home_team": "SEA", "away_team": "LAA", "home_win": 1.0,
+             "home_starter_id": 777.0,
+             "sp_era_home": 2.89, "sp_k9_home": 8.94},
+            {"game_id": "20260815_TEX@LAA", "game_date": "2026-08-15",
+             "start_time_utc": datetime(2026, 8, 15, 23, 5),
+             "home_team": "LAA", "away_team": "TEX", "home_win": 0.0,
+             "away_starter_id": 777.0,
+             "sp_era_away": 3.55, "sp_k9_away": 9.2},
+        ])
+        st = _latest_pitcher_state(hist)
+        self.assertAlmostEqual(st[777]["sp_era"], 3.55)
+        self.assertAlmostEqual(st[777]["sp_k9"], 9.2)
+
+    def test_doubleheader_later_start_wins_regardless_of_row_order(self):
+        """Same-day doubleheader legs: the LATER start must win, and the
+        result must not depend on the input row order."""
+        leg_early = {"game_id": "20260812_KC@CLE", "game_date": "2026-08-12",
+                     "start_time_utc": datetime(2026, 8, 12, 13, 5),
+                     "home_team": "CLE", "away_team": "KC", "home_win": 1.0,
+                     "home_starter_id": 888.0,
+                     "sp_era_home": 3.10, "sp_k9_home": 9.0}
+        leg_late = {"game_id": "20260812_KC@CLE_2", "game_date": "2026-08-12",
+                    "start_time_utc": datetime(2026, 8, 12, 19, 5),
+                    "home_team": "CLE", "away_team": "KC", "home_win": 0.0,
+                    "home_starter_id": 888.0,
+                    "sp_era_home": 3.40, "sp_k9_home": 9.5}
+        for rows in ([leg_early, leg_late], [leg_late, leg_early]):
+            st = _latest_pitcher_state(self._hist(rows))
+            self.assertAlmostEqual(
+                st[888]["sp_era"], 3.40,
+                msg="later-start leg must win regardless of row order")
+            self.assertAlmostEqual(st[888]["sp_k9"], 9.5)
+
+    def test_slate_uses_fresh_home_start_for_away_slot(self):
+        """End-to-end regression for the shipped bug: Elmer Rodríguez on the
+        2026-08-31 NYY@LAA slate (away slot) must carry his fresh Aug 26 HOME
+        line (3.9375 / 5.625), not his older May 17 AWAY line (3.24 / 5.4)."""
+        hist = self._hist([
+            {"game_id": "20260517_NYM@NYY", "game_date": "2026-05-17",
+             "start_time_utc": datetime(2026, 5, 17, 23, 5),
+             "home_team": "NYM", "away_team": "NYY", "home_win": 0.0,
+             "away_starter_id": 695684.0,
+             "sp_era_away": 3.24, "sp_k9_away": 5.4},
+            {"game_id": "20260826_NYY@HOU", "game_date": "2026-08-26",
+             "start_time_utc": datetime(2026, 8, 26, 23, 5),
+             "home_team": "NYY", "away_team": "HOU", "home_win": 1.0,
+             "home_starter_id": 695684.0,
+             "sp_era_home": 3.9375, "sp_k9_home": 5.625},
+        ])
+        sched = pd.DataFrame([{
+            "game_id": "20260831_NYY@LAA", "game_date": date(2026, 8, 31),
+            "start_time_utc": pd.Timestamp("2026-08-31 23:38:00"),
+            "home_team": "LAA", "away_team": "NYY",
+            "home_win": None, "home_score": None, "away_score": None,
+            "sp_name_home": "Walbert Ureña", "sp_name_away": "Elmer Rodríguez",
+            "sp_id_home": 999.0, "sp_id_away": 695684.0,
+            "venue": "Angel Stadium",
+        }])
+        slate = build_upcoming_slate(hist, date(2026, 8, 31), pbp_df=None,
+                                     schedule_df=sched)
+        self.assertEqual(len(slate), 1)
+        g = slate.iloc[0]
+        self.assertAlmostEqual(float(g["sp_era_away"]), 3.9375)
+        self.assertAlmostEqual(float(g["sp_k9_away"]), 5.625)
 
 
 if __name__ == "__main__":

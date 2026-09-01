@@ -1286,27 +1286,60 @@ def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
 
     A starter's road starts land in *_away columns and home starts in *_home
     columns, but the stat describes the pitcher — resolve per feature base in
-    date order and re-suffix by the slot he occupies in the new game.
+    (game_date, start_time) order and re-suffix by the slot he occupies in
+    the new game.
+
+    The OLD implementation walked home starts then away starts with
+    last-write-wins ACROSS passes, so an older away start always overwrote a
+    newer home start (Elmer Rodríguez: his May 17 away line 3.24/5.4
+    clobbered his Aug 26 home line 3.9375/5.625 on the 2026-08-31
+    NYY@LAA slate). This resolves the chronologically LATEST non-null value
+    per pitcher per feature base across BOTH columns — the same long-frame
+    + tail(1) pattern _latest_side_state uses for teams. Same-day
+    doubleheader legs break ties by start_time (later start wins), and an
+    exact tie falls through to a stable game_id sort, so the winner never
+    depends on the input row order.
+
+    The LAG semantics are unchanged: each historical row already ships the
+    PIT-computed rolling stat ("through the pitcher's previous start") —
+    this only selects WHICH row's value carries forward, never fabricates.
     """
     state: dict[Any, dict[str, float]] = {}
-    ordered = hist.sort_values("game_date")
+    ordered = hist.copy()
+    ordered["_gd"] = pd.to_datetime(ordered["game_date"], errors="coerce")
+    if "start_time_utc" in ordered.columns:
+        ordered["_st"] = pd.to_datetime(ordered["start_time_utc"], errors="coerce")
+    else:
+        ordered["_st"] = pd.NaT
+    if "game_id" in ordered.columns:
+        ordered["_gid"] = ordered["game_id"].astype(str)
+    else:
+        ordered["_gid"] = ""
+    pieces = []
     for side in ("home", "away"):
         id_col = f"{side}_starter_id"
         if id_col not in hist.columns:
             continue
         sp_cols = [c for c in hist.columns
                    if c.startswith("sp_") and c.endswith(f"_{side}")]
-        if not sp_cols:
-            continue
-        sub = ordered[ordered[id_col].notna()]
         for col in sp_cols:
             base = col[: -len(f"_{side}")]
-            s = sub.dropna(subset=[col])
-            if s.empty:
+            sub = ordered.loc[
+                ordered[id_col].notna() & ordered[col].notna(),
+                ["_gd", "_st", "_gid", id_col, col],
+            ]
+            if sub.empty:
                 continue
-            last_per_pid = s.groupby(id_col, sort=False).tail(1)
-            for _, r in last_per_pid.iterrows():
-                state.setdefault(r[id_col], {})[base] = float(r[col])
+            p = sub.copy()
+            p.columns = ["_gd", "_st", "_gid", "_pid", "_val"]
+            p["_base"] = base
+            pieces.append(p)
+    if not pieces:
+        return state
+    long = pd.concat(pieces).sort_values(["_gd", "_st", "_gid"], kind="stable")
+    latest = long.groupby(["_pid", "_base"], sort=False).tail(1)
+    for _, r in latest.iterrows():
+        state.setdefault(r["_pid"], {})[r["_base"]] = float(r["_val"])
     return state
 
 
