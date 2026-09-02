@@ -1,0 +1,64 @@
+{
+  "record": "nfl_adoption_decision_689c93da35b5",
+  "created_utc": "2026-09-02T11:42:04Z",
+  "scope": "Adoption decision over the unified-gate confirmation results (nfl_unified_confirm_689c93da35b5.json, committed in 112326e) for the arms that survived FRESH measurement. Served pool at decision time: the market-free 12 + is_home anchor (FEATURE_COLUMNS; admission gate retired 2026-09-02).",
+  "source_record": "nfl-backend/data_delivery/nfl_unified_confirm_689c93da35b5.json",
+  "frame_sha256": "689c93da35b5",
+  "rule": "tolerance_verdict six conditions (pooled AND sealed ll/auc/ece, each blocking; TOL ll 0.012 / auc 0.016 / ece 0.01) PLUS the adoption bar: deltas must be worth having, not merely 'not measurably worse'. Survivors whose margins sit within ~1/3 of tolerance are flagged as razor-thin noise and not adopted on that basis.",
+  "re_derived_arms_fresh_outcome": {
+    "corr_WITHOUT_YPP": {"fresh_verdict": "DON'T ADOPT (removal fails)", "fail": ["pooled_ll", "pooled_auc", "sealed_ll"]},
+    "corr_WITHOUT_BOTH": {"fresh_verdict": "DON'T ADOPT (removal fails)", "fail": ["pooled_ll", "pooled_auc"]},
+    "raw_RAW_ADDED": {"fresh_verdict": "DON'T ADOPT", "fail": ["pooled_ll", "pooled_auc"]},
+    "tier4_QB": {"fresh_verdict": "DON'T ADOPT", "fail": ["pooled_ll", "pooled_auc"]},
+    "tier3_ROSTER": {"fresh_verdict": "ADOPT on the six-condition gate", "six_of_six": true},
+    "xgb_reg_C1_OPPADJ": {"fresh_verdict": "ADOPT on the six-condition gate", "six_of_six": true}
+  },
+  "survivor_analysis": {
+    "tier3_ROSTER": {
+      "candidate": "served 12 + roster_age_diff + roster_exp_diff",
+      "baseline": "WITH_12 pool (served 12, current geometry, plain runner)",
+      "six_conditions": {"ll_ok_pooled": true, "auc_ok_pooled": true, "ece_ok_pooled": true, "ll_ok_sealed": true, "auc_ok_sealed": true, "ece_ok_sealed": true},
+      "fresh_table": {
+        "candidate": {"pooled": {"logloss": 0.6242, "auc": 0.7033, "ece": 0.0396}, "sealed": {"logloss": 0.6234, "auc": 0.7084, "ece": 0.0402}},
+        "baseline_with_12": {"pooled": {"logloss": 0.6201, "auc": 0.7069, "ece": 0.0341}, "sealed": {"logloss": 0.6233, "auc": 0.7095, "ece": 0.0751}}
+      },
+      "delta_candidate_minus_baseline": {
+        "pooled": {"logloss": 0.0041, "auc": -0.0036, "ece": 0.0055},
+        "sealed": {"logloss": 0.0001, "auc": -0.0011, "ece": -0.0349}
+      },
+      "worth_having_check": "FAIL - razor-thin noise. All six ll/auc legs are within ~1/3 of tolerance (sealed ll 0.8%, sealed auc 7%, pooled ll 34%, pooled auc 22% of TOL); the only substantive delta is the sealed-ECE improvement (-0.0349), a SINGLE-window (2025-only) leg that is contradicted by pooled ECE REGRESSION (+0.0055 = 55% of TOL, pooled ece 0.0396 vs 0.0341). Sealed ll/auc are exact ties (0.6234 vs 0.6233; 0.7084 vs 0.7095). Pattern matches the A5/AALL single-window-shimmer lesson: no pooled corroboration for the one big leg. Not worth having.",
+      "decision": "KEEP OUT of the served pool"
+    },
+    "xgb_reg_C1_OPPADJ": {
+      "candidate": "served 12 + ewm_qb_epa_play_diff_oppadj + ewm_net_pts_diff_oppadj + ewm_ypp_diff_oppadj under REGULARIZED xgb",
+      "baseline": "C0_REG (served 12 under the SAME regularized xgb, current geometry)",
+      "six_conditions": {"ll_ok_pooled": true, "auc_ok_pooled": true, "ece_ok_pooled": true, "ll_ok_sealed": true, "auc_ok_sealed": true, "ece_ok_sealed": true},
+      "fresh_table": {
+        "candidate": {"pooled": {"logloss": 0.6317, "auc": 0.6946, "ece": 0.0409}, "sealed": {"logloss": 0.6378, "auc": 0.6917, "ece": 0.0760}},
+        "baseline_c0_reg": {"pooled": {"logloss": 0.6314, "auc": 0.6925, "ece": 0.0321}, "sealed": {"logloss": 0.6350, "auc": 0.6914, "ece": 0.0680}}
+      },
+      "delta_candidate_minus_baseline": {
+        "pooled": {"logloss": 0.0003, "auc": 0.0021, "ece": 0.0088},
+        "sealed": {"logloss": 0.0028, "auc": 0.0003, "ece": 0.0080}
+      },
+      "worth_having_check": "FAIL - razor-thin AND parked on the tolerance edge. ll/auc legs are ties (all <= 23% of TOL; auc marginally better, ll marginally worse). BOTH ECE legs REGRESS to within ~0.002 of the tolerance ceiling: pooled ece +0.0088 = 88% of TOL (0.0409 vs 0.0321), sealed ece +0.0080 = 80% of TOL (0.0760 vs 0.0680). Second, the arm is inseparable from the REGULARIZED-xgb runner change: its measured gain exists only vs C0_REG, and C0_REG itself UNDERPERFORMS the production plain-runner 12 (pooled 0.6314/0.6925 vs C0 0.6201/0.7069; sealed 0.6350/0.6914 vs 0.6233/0.7095). Wiring C1 would wire a worse runner config plus three features that only marginally help that worse config. Not worth having.",
+      "decision": "KEEP OUT of the served pool"
+    }
+  },
+  "combined_arm_note": "ROSTER and C1 are different families, so a combined arm would be required BEFORE any independent wiring. No combined arm was run: neither survivor cleared the worth-having bar, there is nothing to wire, and the default is no-change. The combined check becomes moot and can be run only if a future measurement clears an arm.",
+  "decision": {
+    "verdict": "NO-CHANGE - the market-free served 12-pool stands (12 features + is_home anchor).",
+    "adopted_arms": [],
+    "rejected_reason_summary": "Both six-condition survivors fail the worth-having bar: ROSTER's only substantive leg is a single-window sealed-ECE improvement with no pooled corroboration (pooled ECE regresses); C1's ECE legs sit at 80-88% of tolerance and the arm requires switching to the regularized-xgb runner, which itself underperforms the production config on the identical 12-pool.",
+    "final_pool": [
+      "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+      "ewm_net_pts_diff", "ewm_ypp_diff", "pace_plays_min_diff", "rest_short_diff",
+      "div_game", "travel_miles_diff", "altitude_home", "prime_time"
+    ]
+  },
+  "do_not_change": [
+    "sealed-window definition (sealed 2025)", "tolerance VALUES (ll 0.012 / auc 0.016 / ece 0.01)",
+    "fold geometry (pooled 2021-2024 weekly, sealed 2025)", "production-gate incumbent semantics",
+    "served-pool manifest emission (static, from FEATURE_COLUMNS - admission gate retired)"
+  ]
+}
