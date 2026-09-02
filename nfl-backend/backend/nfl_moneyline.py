@@ -7,7 +7,8 @@ RandomForest, MLP — with train-fold-median imputation, StandardScaler,
 pd.Categorical, RF as integer features), per-member try/except degradation,
 and an ADAPTIVE blend (pooled OOF member AUC softmax, floor/cap projection)
 that replaces the static priors for the deployed bundle. Features come from
-the admission-gate record (``nfl_features.py``): the v1 base plus the gated
+the served-pool manifest (``nfl_features.py``, ``nfl_feature_v1_*.json`` —
+the admission gate was retired 2026-09-02): the v1 base plus the admitted
 v2 candidates (decaying-window strength aggregates, opponent-adjusted
 margin, pace, short-rest edge, QB EPA, weather, division). ``is_home`` stays
 a constant anchor — it is carried by the baselines/intercept and never fed
@@ -1076,8 +1077,9 @@ def _adaptive_blend(oof_members: dict[str, list[float]],
 
 
 def _latest_feature_record() -> dict | None:
-    """Newest nfl_feature_v1_*.json in data_delivery (the admission-gate
-    output), or None. Used to resolve the model feature set dynamically."""
+    """Newest nfl_feature_v1_*.json in data_delivery (the served-pool manifest
+    output; admission gate retired 2026-09-02), or None. Used to resolve the
+    model feature set dynamically."""
     recs = sorted(DATA_DELIVERY_DIR.glob("nfl_feature_v1_*.json")) if DATA_DELIVERY_DIR.exists() else []
     if not recs:
         return None
@@ -1787,7 +1789,7 @@ def pull_and_run(out_dir: Path | None = None,
             "created_utc": datetime.utcnow().isoformat() + "Z",
             "config": {
                 "features": model_features,
-                "feature_source": "latest nfl_feature_v1_*.json admission gate (v2)",
+                "feature_source": "latest nfl_feature_v1_*.json served-pool manifest (v2; admission gate retired)",
                 "excluded_constant_anchor": "is_home",
                 "model": ("5-member ensemble (XGBoost/LightGBM/Logistic/RF/MLP) "
                           "+ adaptive AUC blend + Platt twin"),

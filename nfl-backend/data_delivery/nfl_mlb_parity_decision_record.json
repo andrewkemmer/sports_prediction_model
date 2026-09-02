@@ -1,0 +1,142 @@
+{
+  "record": "nfl_mlb_parity_decision_record",
+  "written_utc": "2026-09-02T00:00:00Z",
+  "commit_uuid": null,
+  "scope": "NFL (nfl-backend) vs MLB (mlb-backend) moneyline methodology parity pass",
+  "summary": "Implementation-level audit found the two backends already mirror each other on blend weights, weight persistence, logistic/MLP member shapes, categorical handling, and the within-run tolerance-gate shape. Genuine differences fall into two buckets: (1) DELIBERATE sport-specific divergences documented below (sealed window, tolerance values, fold geometry, production-gate semantics, member tuning, feature pool); (2) ONE retired difference — the NFL Phase-2 feature-admission gate + corr-pair auto-prune, which had no MLB counterpart and is now removed; the served-pool manifest is preserved as a static emission of the 12-pool and the gate code remains importable for harness back-compat.",
+  "parity_table": [
+    {
+      "item": "A. Adaptive-blend weight computation",
+      "mlb": "training.compute_adaptive_weights: softmax over pooled OOF AUC (ADAPTIVE_WEIGHT_METRIC=auc, ADAPTIVE_WEIGHT_AUC_TEMPERATURE=0.015), floor 0.05, cap 0.45 (widened to 1.02/n), iterative floor/cap projection, round-4 with rounding remainder to largest weight",
+      "nfl": "nfl_moneyline.compute_adaptive_weights: byte-identical formula and constants (auc metric, T=0.015, floor 0.05, cap 0.45, same projection and rounding)",
+      "differ": false,
+      "action": "none — identical"
+    },
+    {
+      "item": "A2. Blend-weight persistence + inference source",
+      "mlb": "_LAST_ADAPTIVE_WEIGHTS module slot + ensemble_latest.joblib bundle (models + adaptive_weights + platt + features); _member_weights prefers adaptive, rescues zeroed members with static prior up to 2x floor",
+      "nfl": "_ADAPTIVE_WEIGHTS module slot + ensemble_latest.joblib bundle (identical shape); _member_weights identical including the zeroed-member rescue",
+      "differ": false,
+      "action": "none — identical"
+    },
+    {
+      "item": "B. XGBoost member",
+      "mlb": "Optuna-tuned (2026-08): max_depth 2, min_child_weight 8, gamma 2.13, subsample 0.60, colsample_bytree 0.56, lr 0.058, enable_categorical True, eval_metric logloss; fold fits n_estimators=2000 + early_stopping_rounds=20; fit-only refits params directly (no early stop)",
+      "nfl": "inline: max_depth 2, min_child_weight 8, gamma 1.0, subsample 0.6, colsample_bytree 0.6, lr 0.06, enable_categorical True, eval_metric logloss; fold fits n_estimators=600 + early_stopping_rounds=20; fit-only refits fixed 600",
+      "differ": true,
+      "action": "DEFER member tuning (numeric only) to a named follow-up tuning pass on NFL data gated by the unified tolerance rule; structure already mirrors MLB"
+    },
+    {
+      "item": "B2. LightGBM member",
+      "mlb": "Optuna-tuned: n_estimators 50 (fixed, no ES), max_depth 5, num_leaves 6, min_child_samples 59, min_gain_to_split 1.745, bagging_fraction 0.556/1, feature_fraction 0.749, lr 0.053, native NaN routing",
+      "nfl": "inline: n_estimators 300 (NUM_BOOST_ROUND; LGBMClassifier path trains full rounds, no early stop), lr 0.05, num_leaves 15, min_child_samples 40, reg_lambda 1.0, subsample 0.8, colsample_bytree 0.8, native NaN routing",
+      "differ": true,
+      "action": "DEFER member tuning (numeric only) to the same named follow-up"
+    },
+    {
+      "item": "B3. Logistic member",
+      "mlb": "imputed + StandardScaler, LogisticRegression(max_iter=1000, random_state) — default C",
+      "nfl": "identical (imputed + scaled, max_iter=1000, random_state)",
+      "differ": false,
+      "action": "none — identical"
+    },
+    {
+      "item": "B4. RandomForest member",
+      "mlb": "Optuna-tuned + adopted 2026-08-31: 800 trees, max_depth 6, min_samples_leaf 17, min_samples_split 6, max_features log2, bootstrap, integer team IDs when RF_WITH_TEAM_IDS",
+      "nfl": "inline: 200 trees, min_samples_leaf 10, integer team IDs",
+      "differ": true,
+      "action": "DEFER member tuning (numeric only) to the same named follow-up"
+    },
+    {
+      "item": "B5. MLP member",
+      "mlb": "hidden (32,16), alpha 0.01, early_stopping True, validation_fraction 0.15, max_iter 300, learning_rate constant 0.001, n_iter_no_change 10, relu",
+      "nfl": "identical",
+      "differ": false,
+      "action": "none — identical"
+    },
+    {
+      "item": "C. Tolerance constants (ll/auc/ece)",
+      "mlb": "NO module-level ll/auc/ece tolerance constants in config/training; harness-level only (e.g. run_engine_*_gate GATE_ECE_TOL 0.005; pool tolerances 0.0005)",
+      "nfl": "TOL_LL 0.012 / TOL_AUC 0.016 / ECE_TOL 0.01 — labeled 'MLB-aligned' but the VALUES are NFL-measured floors (documented same-config 6-walk basis on the NFL frame), not MLB constants",
+      "differ": true,
+      "action": "DELIBERATE — tolerance VALUES frozen per parity scope; NFL-derived tolerances documented in this record (the shared tolerance_verdict RULE shape is MLB-aligned: pooled AND sealed, each blocking)"
+    },
+    {
+      "item": "D. Production gate",
+      "mlb": "None in production: master_pipeline/pipeline emit artifacts without an automated gate; feature adoption is ablation-only against a sealed-21-day holdout (sealed-holdout gate)",
+      "nfl": "Production-gate semantics = run_nfl_window_gate.py window-expansion gate through production adopt_decision (within-run incumbent: pooled fold-local re-fit + within-run sealed re-fit; served bundle demoted to diagnostic cross-check)",
+      "differ": true,
+      "action": "DELIBERATE — production-gate incumbent semantics = window-expansion gate (NFL keeps a production-facing harness; the within-run incumbent baseline mirrors MLB's same-run control). Not changed by this pass."
+    },
+    {
+      "item": "E. Categorical handling",
+      "mlb": "XGB: pd.Categorical team IDs + enable_categorical=True, explicit vocab; LGB: int IDs + categorical_feature BY NAME; RF: integer IDs; logistic/MLP never see categories; unknown clamped to reserved UNK via fitted vocab",
+      "nfl": "identical pattern (TREE_CATEGORICAL_COLS home/away team IDs; _tree_dataframe + _lgbm_dataframe + categorical_vocab)",
+      "differ": false,
+      "action": "none — identical"
+    },
+    {
+      "item": "F. Feature-admission gate",
+      "mlb": "ABSENT — feature_audit.py is pure analysis (univariate AUC, coverage, correlations), gates nothing",
+      "nfl": "WAS a gating Phase-2 admission gate in nfl_features.py (coverage / available_12h / univariate AUC / corr-pair |r|>0.8 auto-prune) riding master_pipeline.pull_and_build",
+      "differ": true,
+      "action": "RETIRED THIS SESSION — production now emits a static served-pool manifest (nfl_feature_v1_*.json, 12-pool from config) with admission fields marked informational; in-model missingness handling kept (matches MLB lineup-actuals admit-on-merit strategy). Gate code kept importable for ablation-harness back-compat, marked RETIRED."
+    },
+    {
+      "item": "G. Monitoring / drift machinery",
+      "mlb": "per-run monitor JSON (model_monitor_<date>.json) with drift/coverage + run-engine per-line market blocks; artifact sync via github_sync.py",
+      "nfl": "nfl_monitor.py emits model_monitor_<date>.json mirroring the MLB shape (sealed/pooled legs, drift coverage); no github_sync equivalent (promotion is board-side)",
+      "differ": true,
+      "action": "documented only — board/artifact-delivery infra, not model methodology"
+    },
+    {
+      "item": "H. Early-stopping rules",
+      "mlb": "XGB walk-forward folds: 2000-round ceiling + early_stopping_rounds=20 on the val window; fit-only refits: no early stopping (params direct); LGB: fixed 50 rounds, no ES; MLP: internal ES (val 0.15, n_iter_no_change 10)",
+      "nfl": "XGB folds: 600-round ceiling + early_stopping_rounds=20; fit-only: fixed 600, no ES; LGB: fixed 300 rounds (fit_predict_lgbm ES path is test-only); MLP identical ES",
+      "differ": true,
+      "action": "rounds discipline rides the member-config differences — DEFER to the same tuning follow-up; the leak-avoidance principle (no early stop on a fold's own labels) is identical"
+    },
+    {
+      "item": "Sealed-window definition",
+      "mlb": "21-day rolling sealed holdout",
+      "nfl": "sealed-2025 full season",
+      "differ": true,
+      "action": "DELIBERATE — a 21-day NFL window is n~30 games (noise); season-sealed keeps the sealed gate meaningful"
+    },
+    {
+      "item": "Fold geometry",
+      "mlb": "day-cadence walk-forward, min-val-fold gate (recent frame: 71 folds)",
+      "nfl": "seasonal/weekly folds, pooled 2021-2024, sealed 2025",
+      "differ": true,
+      "action": "DELIBERATE — fold geometry driven by data availability per sport cadence"
+    },
+    {
+      "item": "Raw/diff feature split",
+      "mlb": "raw/feature set per FEATURE_COLS incl. run_margin_diff (model-generated, out-of-fold)",
+      "nfl": "market-free 12-pool, no model-generated features in the served pool (INCUMBENT_EXPECTED_FEATURES)",
+      "differ": true,
+      "action": "DELIBERATE — no model-generated feature in the NFL served pool; raw/diff split preserved"
+    }
+  ],
+  "deliberate_divergences": [
+    {"divergence": "21-day sealed -> season-sealed 2025 (NFL)", "rationale": "21-day NFL window is n~30 games — pure noise; season-sealed is the smallest NFL window with a usable gate n."},
+    {"divergence": "NFL-derived tolerance VALUES (TOL_LL 0.012 / TOL_AUC 0.016 / ECE_TOL 0.01)", "rationale": "measurement floors from 6 same-config walks on the NFL frame; MLB ships no module-level moneyline constants to copy. The within-run share is the aligned part; the values are sport-specific."},
+    {"divergence": "Fold geometry (day-cadence vs seasonal/weekly)", "rationale": "data availability per sport cadence; pooled/sealed discipline is aligned, spacing differs."},
+    {"divergence": "Production-gate incumbent semantics = window-expansion gate (NFL)", "rationale": "NFL keeps a production-facing window-expansion harness (run_nfl_window_gate.py) whose adopt_decision baseline is the within-run incumbent; served bundle demoted to diagnostic cross-check."},
+    {"divergence": "Member hyperparameters/rounds discipline (XGB/LGB/RF)", "rationale": "NFL members use inline pre-tuning configs; MLB's are Optuna-tuned on MLB data. Tuning is sport-specific — deferred to a named tuning pass on NFL data gated by the unified tolerance rule, NOT copied."},
+    {"divergence": "No model-generated feature in the NFL served pool (12-pool, market-free)", "rationale": "NFL feature program concluded the market-free 12-pool is the ceiling at the current frame; MLB ships a wider FEATURE_COLS set with OOF margins."}
+  ],
+  "retired_gate": {
+    "what": "NFL Phase-2 feature-admission gate + corr-pair auto-prune (coverage / available_12h / univariate AUC / |r|>0.8 drop)",
+    "why": "MLB has no admission gate (feature_audit.py is analysis-only); the NFL gate gated features BEFORE measurement, diverging from the MLB admit-on-merit + measure-then-adopt pattern",
+    "manifest": "nfl_feature_v1_*.json continues to be emitted as a STATIC manifest of the served 12-pool from config/FEATURE_COLUMNS; admission fields removed/marked informational; consumers (board artifact resolution, sidebar-freshness, tests) are filename/shape-based and unaffected",
+    "missingness": "in-model NaN handling retained as the strategy (matches MLB lineup-actuals approach: admit on merit, handle NaN at serve time)",
+    "harness_backcompat": "run_feature_gate retained (marked RETIRED) for run_tier1_ablation / run_nfl_unified_confirm_ablation imports"
+  },
+  "deferred_followups": [
+    {"name": "NFL member tuning pass", "work": "Optuna tuning of XGB/LGB/RF (and re-check MLP) on NFL data with the same within-run geometry, gated by the unified tolerance_verdict rule (pooled AND sealed, ll/auc/ece, all blocking)", "target": "match MLB's tuned-member level without copying MLB numeric params"}
+  ],
+  "deliberate_do_not_change": [
+    "sealed-window definition", "tolerance VALUES", "fold geometry", "production-gate incumbent semantics", "raw/diff split", "served feature pool"
+  ]
+}

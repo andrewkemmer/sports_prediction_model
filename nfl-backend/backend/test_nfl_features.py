@@ -1,13 +1,14 @@
 """NFL feature engineering v1 (``nfl_features.py``) — pure, no-network tests.
 
-Pins the admission gate's invariants so feature ADMISSION never leaks the
-future or admits a redundant candidate silently:
+Pins the served-pool manifest (the retired admission gate's replacement) and
+the leakage-safe feature builders:
 - ELO update rule + prior, and strict no-future use (a later game can never
   change an earlier game's entering rating / trailing stats).
 - Trailing windows use ONLY strictly-prior games (per-team shift), and the
   code-level strict-monotonicity assertion actually fires on bad input.
 - ``univariate_auc`` correctness (perfect separation = 1, inverse = 0, random ~0.5).
-- coverage floor drops <95%-coverage features.
+- the STATIC served-pool manifest: exactly the FEATURE_COLUMNS 12-pool, no
+  market features, no admission-audit fields (gate retired 2026-09-02).
 - ``build_features`` composes the dome flag, ELO/form/rest/ypp diffs end-to-end.
 """
 import unittest
@@ -17,9 +18,8 @@ import numpy as np
 import pandas as pd
 
 from nfl_features import (
-    COVERAGE_FLOOR, FEATURE_COLUMNS, build_features, build_slate_features,
-    compute_elo, run_feature_gate, team_events, team_stats_ladder,
-    univariate_auc,
+    FEATURE_COLUMNS, build_features, build_slate_features, compute_elo,
+    served_pool_manifest, team_events, team_stats_ladder, univariate_auc,
 )
 
 
@@ -160,48 +160,52 @@ class TestAuc(unittest.TestCase):
         self.assertTrue(np.isnan(univariate_auc(np.array([1, 1]), np.array([2.0, np.nan]))))
 
 
-class TestGate(unittest.TestCase):
-    def _frame(self):
-        frame = synth_games([dict(game_id=f"G{i}", gameday=f"2019-09-{1+2*i:02d}",
-                                  home_team="H", away_team="A",
-                                  home_score=24, away_score=10) for i in range(20)])
-        frame["season"] = 2019
-        for f in FEATURE_COLUMNS:
-            frame[f] = 0.0                            # fully covered, but constant
-        frame["elo_diff"] = np.linspace(-2, 2, len(frame))
-        # make three REGISTERED features 50%-covered (feature names must be
-        # in the served FEATURE_COLUMNS pool — the legacy twins are no longer
-        # registered)
-        half = np.array([i % 2 == 0 for i in range(len(frame))])
-        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
-            frame[f] = frame[f].mask(half)
-        return frame
+class TestServedPoolManifest(unittest.TestCase):
+    """The Phase-2 admission gate is RETIRED (2026-09-02, NFL↔MLB parity
+    pass): the served pool is a STATIC manifest from FEATURE_COLUMNS/config —
+    no data-dependent audit (coverage / available_12h / univariate AUC /
+    corr-pair |r|>0.8 / auto-prune) runs in production anymore."""
 
-    def test_no_prune_keeps_pool_and_warns_below_floor(self):
-        """Default policy (GATE_AUTO_PRUNE=False): the served pool is exactly
-        FEATURE_COLUMNS minus the anchor — features below the coverage floor
-        are REPORTED (below_coverage_floor) but never removed."""
-        from nfl_features import GATE_AUTO_PRUNE, run_feature_gate
-        self.assertFalse(GATE_AUTO_PRUNE)             # the user policy default
-        res = run_feature_gate(self._frame())
-        self.assertEqual(res["dropped"], [])
-        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
-            self.assertIn(f, res["below_coverage_floor"])
-            self.assertIn(f, res["v1_features"])     # still served
+    def test_manifest_is_static_12_pool(self):
+        res = served_pool_manifest()
+        self.assertEqual(len(res["v1_features"]), 12)   # 12 served + anchor
         self.assertNotIn("is_home", res["v1_features"])
-        self.assertEqual(len(res["v1_features"]), 12)  # 12 served + anchor
-        self.assertFalse(res["auto_prune"])
+        self.assertTrue(res["kept_home_anchor"])
+        self.assertEqual(res["v1_features"],
+                         [f for f in FEATURE_COLUMNS if f != "is_home"])
+        self.assertEqual(res["features"][-1]["name"], "is_home")
+        self.assertFalse(res["features"][-1]["served"])
+        self.assertIsNone(res["auto_prune"])            # gate retired
+        self.assertEqual(res["dropped"], [])
 
-    def test_legacy_prune_is_explicit_opt_in(self):
-        """auto_prune=True preserves the LEGACY pruning behavior — bare
-        coverage drops + redundant-pair pruning with recorded reasons."""
-        from nfl_features import run_feature_gate
-        res = run_feature_gate(self._frame(), auto_prune=True)
-        for f in ("win_pct_diff", "rest_days_diff", "is_dome_home"):
-            self.assertIn(f, res["dropped"], f"{f} should be dropped for coverage")
-            self.assertIn("coverage", res["reasons"][f])
-        self.assertIn("elo_diff", res["v1_features"])
-        self.assertTrue(res["auto_prune"])
+    def test_manifest_is_market_free(self):
+        res = served_pool_manifest()
+        for f in res["v1_features"]:
+            self.assertNotIn("market", f)
+            self.assertNotIn("implied", f)
+            self.assertNotIn("line", f)
+
+    def test_manifest_carries_no_admission_audit_fields(self):
+        """The data-dependent admission fields are GONE from the record; the
+        per-feature entries are informational (name/served/source) only."""
+        res = served_pool_manifest()
+        for field in ("audit_coverage", "univariate_auc",
+                      "correlation_pairs_over_0_8", "below_coverage_floor"):
+            self.assertNotIn(field, res)
+        names = {e["name"] for e in res["features"]}
+        self.assertEqual(names, set(FEATURE_COLUMNS))
+        self.assertTrue(all(e.get("source")
+                            for e in res["features"] if e["served"]))
+
+    def test_manifest_matches_legacy_consumer_shape(self):
+        """nfl_moneyline.admitted_model_features reads
+        feature_admission.v1_features — the manifest keeps that exact shape."""
+        res = served_pool_manifest()
+        rec = {"feature_admission": res}
+        admitted = [f for f in rec["feature_admission"]["v1_features"]
+                    if f != "is_home"]
+        self.assertEqual(admitted, res["v1_features"])
+        self.assertEqual(len(admitted), 12)
 
 
 class TestV2TrailingLeakage(unittest.TestCase):
@@ -357,29 +361,7 @@ class TestSlateFeatures(unittest.TestCase):
         self.assertEqual(row["is_dome_home"], 1.0)
 
 
-class TestV2Gate(unittest.TestCase):
-    def test_v2_candidate_below_floor_reported_not_dropped(self):
-        """Default policy: a below-floor candidate is reported
-        (below_coverage_floor) and stays in the served pool; the legacy
-        opt-in prune still drops it with a reason."""
-        frame = synth_games([dict(game_id=f"G{i}", gameday=f"2019-09-{1+2*i:02d}",
-                                  home_team="H", away_team="A",
-                                  home_score=24, away_score=10) for i in range(20)])
-        frame["season"] = 2019
-        for f in FEATURE_COLUMNS:
-            frame[f] = 0.0
-        frame["elo_diff"] = np.linspace(-2, 2, len(frame))
-        frame["ewm_ypp_diff"] = frame["ewm_ypp_diff"].mask(
-            np.array([i % 2 == 0 for i in range(len(frame))]))
-        res = run_feature_gate(frame)
-        self.assertEqual(res["dropped"], [])
-        self.assertIn("ewm_ypp_diff", res["below_coverage_floor"])
-        self.assertIn("ewm_ypp_diff", res["v1_features"])
-        res_legacy = run_feature_gate(frame, auto_prune=True)
-        self.assertIn("ewm_ypp_diff", res_legacy["dropped"])
-        self.assertIn("coverage", res_legacy["reasons"]["ewm_ypp_diff"])
-        self.assertIn("elo_diff", res["v1_features"])
-
+class TestV2ServedPool(unittest.TestCase):
     def test_v2_admitted_features_and_sync(self):
         """FEATURE_COLUMNS is the SERVED pool: the gated 12 + the is_home
         anchor. The legacy v2 twins pruned at admission time (never by an

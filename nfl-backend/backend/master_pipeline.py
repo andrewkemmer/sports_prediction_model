@@ -8,8 +8,9 @@ Mirrors ``mlb-backend/backend/master_pipeline.py`` for the NFL backend:
            /content dirs) skips the clone and runs against the current repo.
   Phase 1  ingest: ``nfl_game_frame`` decided frame (2019-2025) → the
            canonical CSV + dated snapshot.
-  Phase 2  features: ``nfl_features`` admission gate (v1 base + v2
-           candidates) → ``nfl_feature_v1_<date>.json``.
+  Phase 2  features: ``nfl_features`` build + STATIC served-pool manifest
+           (the feature-admission gate was retired 2026-09-02 by the
+           NFL↔MLB parity pass) → ``nfl_feature_v1_<date>.json``.
   Phase 3  moneyline: ``nfl_moneyline`` 5-member ensemble walk-forward +
            sealed-2025 gate → ``nfl_moneyline_v1_<date>.json`` with the
            per-game ``games[]`` slate — written ONLY when the sealed window
@@ -233,7 +234,7 @@ def phase1(args) -> None:
 # Phase 2 — features
 # ---------------------------------------------------------------------------
 def phase2(args) -> None:
-    _banner("PHASE 2", "Feature admission gate (v1 base + v2 candidates)")
+    _banner("PHASE 2", "Served-pool manifest (12-pool; admission gate retired)")
     if args.features_csv is not None:
         print("  --features-csv set: skipping feature build")
         return

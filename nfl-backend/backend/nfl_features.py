@@ -1,14 +1,16 @@
-"""NFL feature engineering — leakage-safe raw candidates + admission gate.
+"""NFL feature engineering — leakage-safe raw candidates + served-pool manifest.
 
 TIER-4 NOTE: v6 game-script / opponent-adjusted / drive-level / QB-conditional
 PBP candidates are composed by this module + ``nfl_tier4.py`` and stay OUT of
 FEATURE_COLUMNS until the Tier-4 sealed ablation admits them.
 
 Builds on the committed game-level frame produced by ``nfl_game_frame.py``
-(``nfl-backend/data_delivery/nfl_game_level_features.csv``). This module is
-the feature-ADMISSION stage only: it proposes raw candidates, audits coverage
-and (point-in-time) leakage, and gates them into an admitted set. It does NOT
-train any model — the walk-forward ensemble lives in ``nfl_moneyline.py``.
+(``nfl-backend/data_delivery/nfl_game_level_features.csv``). This module
+builds the served features and writes the STATIC served-pool manifest
+(``nfl_feature_v1_<date>.json``) — the Phase-2 feature-ADMISSION gate
+(coverage / available_12h / univariate-AUC / corr-pair |r|>0.8 / auto-prune)
+was RETIRED 2026-09-02 by the NFL↔MLB parity pass. It does NOT train any
+model — the walk-forward ensemble lives in ``nfl_moneyline.py``.
 
 v1 base (admitted 2026-08-28): elo_diff, form_diff_pts, rest_days_diff,
 ypp_diff, is_dome_home (+ is_home anchor). v2 candidates (this file):
@@ -18,8 +20,10 @@ output), opponent-adjusted variants (trailing margin minus the trailing form
 of the opponents faced), pace (plays/min), rest-days edge (short-rest flag),
 QB/offense-quality edge (decaying QB EPA/play), weather beyond the dome flag
 (game temp / wind at the home venue), and the division-game flag. All are
-leak-safe by construction and pass the SAME admission gate (coverage floor,
-redundancy pruning, near-random-AUC pruning) with 2025 kept sealed.
+leak-safe by construction; the former admission gate (coverage floor /
+redundancy pruning / near-random-AUC pruning) was RETIRED 2026-09-02 and the
+served pool is FEATURE_COLUMNS by declaration (2025 stays the sealed
+hold-out, untouched).
 
 Leakage discipline (MLB retrospective lessons — "raw-not-clever, pre-game
 coverage rule, gated entry, no model-output-as-input"):
@@ -44,10 +48,10 @@ coverage rule, gated entry, no model-output-as-input"):
   FEATURE_COLUMNS unless a sealed-2025 ablation admits them (the
   Tier-1/Tier-2 rule).
 
-12h-pre-kickoff availability assumption (stated): a feature counts as
-"available 12h pre-kickoff" iff it is non-null and depends only on completed
-prior games or a static venue/prior fact. Nothing here depends on live
-intraday state, so availability == non-null coverage for every candidate.
+Missingness policy (parity with MLB's lineup-actuals approach, 2026-09-02):
+features are admitted on merit by sealed ablation and missingness is handled
+IN-MODEL at serve time — no feature is ever excluded for sparse coverage, and
+no data-dependent admission audit runs in production anymore.
 
 Sources
 -------
@@ -92,8 +96,9 @@ WARMUP_SEASONS = [2018]                          # trailing priors only
 CORE_SEASONS = list(range(2019, 2026))           # 2019..2025 scored/reported
 DEFAULT_SEASONS = WARMUP_SEASONS + CORE_SEASONS
 # The SEALED HOLD-OUT for the moneyline model: 2025 is decided but is never
-# used for feature admission/fitting in this module's gate (AUC stays on
-# seasons < HOLD_SEASON so the hold-out row remains clean for nfl_moneyline).
+# used for feature admission/fitting (the retired gate's AUC window stayed on
+# seasons < HOLD_SEASON so the hold-out row remained clean for nfl_moneyline;
+# the hold-out itself is unchanged by the 2026-09-02 gate retirement).
 HOLD_SEASON = 2025
 
 # ELO (prior + update rule, fully specified / reproducible)
@@ -118,19 +123,20 @@ TIER1_AGG_COLUMNS = [
     "third_down_rate", "redzone_td_rate", "pts_per_drive",
 ]
 
-# admission gate
-# GATE_AUTO_PRUNE — user policy (2026-09-01): the gate NEVER automatically
-# removes features from the served pool. False (default) = REPORT-ONLY:
-# coverage / redundancy / univariate-AUC are computed and recorded, and any
-# registered feature below the coverage floor or above the correlation bar
-# triggers a LOUD warning (informational, never blocking). True re-enables
-# the LEGACY pruning (coverage floor, then redundant-pair / near-random-AUC
-# pruning) — a deliberate opt-in, never the default.
+# ---------------------------------------------------------------------------
+# RETIRED admission gate (2026-09-02, NFL↔MLB parity pass)
+# The Phase-2 feature-admission gate — coverage floor / available_12h /
+# univariate-AUC / corr-pair |r|>0.8 / auto-prune — no longer runs anywhere
+# in production. The served pool is FEATURE_COLUMNS BY DECLARATION (features
+# are admitted on merit by sealed ablation only; missingness is handled
+# IN-MODEL at serve time). ``GATE_AUTO_PRUNE`` / ``COVERAGE_FLOOR`` /
+# ``CORR_REDUNDANCY`` / ``DISC_BAND`` / ``FEATURE_PRIORITY`` and the gate
+# functions below are KEPT ONLY for ablation-harness back-compat
+# (``run_tier1_ablation`` / ``run_nfl_unified_confirm_ablation`` import
+# ``run_feature_gate``); the pipeline emits ``served_pool_manifest()``.
+# ---------------------------------------------------------------------------
 GATE_AUTO_PRUNE = False
 COVERAGE_FLOOR = 0.95
-# The redundancy bar is the reporting bar the user specified ("|r| > 0.8"):
-# a feature ~83% correlated with a slightly-stronger one is redundant enough to
-# prune (measured elo_diff ~ win_pct_diff r = 0.826 -> keep elo, drop win_pct).
 CORR_REDUNDANCY = 0.80
 DISC_BAND = 0.05                                  # |auc - 0.5| below = ~random
 
@@ -148,10 +154,10 @@ FEATURE_PRIORITY = {
     "travel_miles_diff": 16, "altitude_home": 17, "prime_time": 18,
 }
 
-# The SERVED pool, in gating order: what survives is EXACTLY this list
-# (minus the ``is_home`` anchor at predict time). The gate (run_feature_gate)
-# no longer prunes by default (GATE_AUTO_PRUNE=False), so this list IS what
-# ``nfl_moneyline`` consumes.
+# The SERVED pool, in manifest order: EXACTLY this list (minus the ``is_home``
+# anchor at predict time) is what ``nfl_moneyline`` consumes. The admission
+# gate was RETIRED 2026-09-02 — this list is the static manifest, not a gate
+# output, and it is identical on every fold/pull.
 FEATURE_COLUMNS = [
     # ---- v1 base (admitted 2026-08-28) --------------------------------
     "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
@@ -203,12 +209,13 @@ FEATURE_COLUMNS = [
 #       its _american_implied / _compose_market_candidates helpers.
 # None of these was ever removed by a SEALED-ABLATION verdict (qb_epa was
 #   removed by the corr-pair twin verdict above): the rest were pruned at
-#   admission time by the LEGACY coverage/redundancy gate (now the opt-in
-#   GATE_AUTO_PRUNE=True path), and they keep appearing in the ablation
+#   admission time by the LEGACY coverage/redundancy gate (retired 2026-09-02
+#   with the parity pass; the function is kept for ablation-harness
+#   back-compat), and they keep appearing in the ablation
 #   WITHOUT baselines because build_features/build_slate_features still
 #   compose them. Unregistering them here is the deliberate policy decision
-#   that the served pool is exactly the 12 features above and that the gate
-#   no longer removes anything from it automatically. (The v3 Tier-1
+#   that the served pool is exactly the 12 features above and that nothing
+#   is ever removed from it automatically. (The v3 Tier-1
 #   candidates, the v4 venue remainder — timezone_diff/turf_home/
 #   neutral_site — and the v5
 #   officials/roster families are also composed-but-unregistered, each with
@@ -1284,6 +1291,12 @@ def build_slate_features(schedule: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# RETIRED admission gate (2026-09-02, NFL↔MLB parity pass) — KEPT ONLY for
+# ablation-harness back-compat (run_tier1_ablation / run_nfl_unified_confirm
+# _ablation import run_feature_gate). Production (pull_and_build) emits the
+# static served_pool_manifest() below; NOTHING in this section runs in the
+# pipeline anymore.
+# ---------------------------------------------------------------------------
 # Audit + admission gate
 # ---------------------------------------------------------------------------
 def audit_coverage(df: pd.DataFrame) -> pd.DataFrame:
@@ -1358,6 +1371,11 @@ def _strong_pairs(corr: pd.DataFrame) -> list[dict]:
 def run_feature_gate(df: pd.DataFrame,
                      auto_prune: bool = GATE_AUTO_PRUNE) -> dict:
     """Audit + admission report over FEATURE_COLUMNS (the served pool).
+
+    RETIRED FROM PRODUCTION 2026-09-02 (NFL↔MLB parity pass) — kept only for
+    ablation-harness back-compat (run_tier1_ablation / run_nfl_unified_confirm
+    _ablation). The pipeline emits served_pool_manifest() instead; nothing
+    served is gated by this function anymore.
 
     DEFAULT POLICY (auto_prune=False — GATE_AUTO_PRUNE): the gate NEVER
     removes features from the served pool. Coverage / redundancy /
@@ -1484,6 +1502,39 @@ def run_feature_gate(df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Loaders + orchestration
 # ---------------------------------------------------------------------------
+def served_pool_manifest() -> dict:
+    """STATIC served-pool manifest (the retired admission gate's replacement).
+
+    The Phase-2 admission gate (coverage / available_12h / univariate-AUC /
+    corr-pair |r|>0.8 / auto-prune) was RETIRED 2026-09-02 by the NFL↔MLB
+    parity pass: the served pool is FEATURE_COLUMNS BY DECLARATION and
+    missingness is handled in-model at serve time (MLB lineup-actuals
+    approach). This manifest is data-independent — every fold/pull serves the
+    exact same 12-pool plus the ``is_home`` anchor.
+
+    Keeps the legacy ``feature_admission.v1_features`` shape so
+    ``nfl_moneyline.admitted_model_features`` (and every other consumer of
+    ``nfl_feature_v1_*.json``) resolves the same list as before.
+    """
+    v1 = [f for f in FEATURE_COLUMNS if f != "is_home"]
+    return {
+        "v1_features": v1,
+        "kept_home_anchor": "is_home" in FEATURE_COLUMNS,
+        "served_pool_size": len(v1),
+        "policy": ("STATIC MANIFEST — feature-admission gate retired 2026-09-02; "
+                   "served pool = FEATURE_COLUMNS by declaration; "
+                   "missingness handled in-model at serve time"),
+        "features": [
+            {"name": f, "served": f != "is_home",
+             "source": CANONICAL_SOURCE.get(f)}
+            for f in FEATURE_COLUMNS
+        ],
+        "auto_prune": None,
+        "dropped": [],
+        "reasons": {},
+    }
+
+
 def _load_raw(seasons: list[int]):
     import nflreadpy
     sched = nflreadpy.load_schedules(seasons).to_pandas()
@@ -1500,7 +1551,7 @@ def _load_raw(seasons: list[int]):
 def pull_and_build(out_dir: Path | None = None,
                    write_record: bool = True,
                    seasons: list[int] | None = None) -> dict:
-    """Build + gate feature candidates over an optional season window.
+    """Build features + write the STATIC served-pool manifest.
 
     ``seasons`` limits both the decided frame and the schedule+pbp pull to the
     given seasons (e.g. ``[2021, 2022, 2023]``). None (default) keeps the full
@@ -1519,7 +1570,12 @@ def pull_and_build(out_dir: Path | None = None,
     schedule, pbp = _load_raw(seasons)
     feats = build_features(decided, schedule, pbp)
 
-    result = run_feature_gate(feats)
+    # The Phase-2 feature-admission gate no longer runs in the pipeline
+    # (retired 2026-09-02, NFL↔MLB parity pass): the served pool is a STATIC
+    # manifest from FEATURE_COLUMNS — no data-dependent audit (coverage /
+    # available_12h / univariate-AUC / corr-pair / auto-prune). The gate
+    # function stays importable for the ablation harnesses only.
+    result = served_pool_manifest()
 
     if write_record:
         record = {
@@ -1542,8 +1598,9 @@ def pull_and_build(out_dir: Path | None = None,
                                  "uses only games with gameday strictly before the "
                                  "target (asserted in code: team_stats_ladder strict "
                                  "monotonicity)."),
-                "holdout": "2025 is not in the decided frame; all AUC computed on "
-                           "seasons < 2025.",
+                "holdout": "2025 is the moneyline model's sealed hold-out: it stays "
+                           "OUT of the decided frame (unchanged by the retired "
+                           "admission gate).",
             },
             "feature_admission": result,
         }
@@ -1558,21 +1615,15 @@ def pull_and_build(out_dir: Path | None = None,
 
 
 def _print_report(feats: pd.DataFrame, result: dict) -> None:
-    print("\n=== NFL feature admission (v1 base + v2 candidates, no model) ===")
+    print("\n=== NFL served-pool manifest (static; admission gate retired 2026-09-02) ===")
     print(f"decided games scored: {len(feats)}")
-    cov = pd.DataFrame(result["audit_coverage"]).T
-    print("\ncoverage / 12h availability:")
-    print(cov[["coverage_pct", "available_12h_pct", "source"]].to_string())
-    print("\nstrong correlation pairs (|r| > 0.8):")
-    for p in result.get("correlation_pairs_over_0_8", []):
-        print(f"  {p['feat_a']} ~ {p['feat_b']}: r={p['corr']}")
-    print("\nunivariate AUC (seasons < 2025):")
-    for f, v in result["univariate_auc"].items():
-        print(f"  {f:18s} {v if v is not None else 'n/a'}")
-    print("\nadmitted features:", result["v1_features"])
-    print("dropped:", result.get("dropped"))
-    for f, r in result.get("reasons", {}).items():
-        print(f"  drop {f}: {r}")
+    print("policy:", result.get("policy"))
+    print("admitted features (v1_features):", result["v1_features"])
+    print("kept home anchor:", result.get("kept_home_anchor"))
+    print("features:")
+    for e in result.get("features", []):
+        src = e.get("source") or ""
+        print(f"  {e['name']:24s} served={e['served']}  {src}")
 
 
 # ---------------------------------------------------------------------------
@@ -1581,7 +1632,8 @@ def _print_report(feats: pd.DataFrame, result: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(
-        description="Build + gate NFL feature candidates v1 (no model).")
+        description="Build NFL features + write the served-pool manifest "
+                    "(admission gate retired; no model).")
     ap.add_argument("--no-record", action="store_true",
                     help="compute/report only; skip writing the JSON record")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
