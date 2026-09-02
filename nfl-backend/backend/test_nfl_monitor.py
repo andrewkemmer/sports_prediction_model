@@ -44,13 +44,199 @@ class PsiTest(unittest.TestCase):
 
 
 class DriftStatusTest(unittest.TestCase):
-    def test_insufficient_below_sample_floor(self):
-        self.assertEqual(mon.drift_status(0.9, n_current=10), "INSUFFICIENT")
+    """MLB-identical status machinery: thresholds (0.10/0.25) apply to the
+    value handed in, and adjusted_status adds the sample floors + location
+    gate on top."""
 
-    def test_threshold_bands(self):
-        self.assertEqual(mon.drift_status(0.01, n_current=60), "OK")
-        self.assertEqual(mon.drift_status(0.15, n_current=60), "WARN")
-        self.assertEqual(mon.drift_status(0.40, n_current=60), "ALERT")
+    def test_psi_status_threshold_bands(self):
+        self.assertEqual(mon.psi_status(0.01), "OK")
+        self.assertEqual(mon.psi_status(0.10), "WARN")     # >= WARN threshold
+        self.assertEqual(mon.psi_status(0.15), "WARN")
+        self.assertEqual(mon.psi_status(0.25), "ALERT")    # >= ALERT threshold
+        self.assertEqual(mon.psi_status(0.40), "ALERT")
+
+    def test_adjusted_status_sample_floors(self):
+        # Either window below its floor -> INSUFFICIENT, never a page.
+        self.assertEqual(mon.adjusted_status(0.9, True, n_baseline=99,
+                                             n_current=120), "INSUFFICIENT")
+        self.assertEqual(mon.adjusted_status(0.9, True, n_baseline=1930,
+                                             n_current=29), "INSUFFICIENT")
+
+    def test_adjusted_status_location_gate(self):
+        # Big adjusted psi with NO mean location shift -> OK (the
+        # near-constant bin-boundary case must never page).
+        self.assertEqual(mon.adjusted_status(0.5, False, 1930, 120), "OK")
+        self.assertEqual(mon.adjusted_status(0.15, True, 1930, 120), "WARN")
+        self.assertEqual(mon.adjusted_status(0.9, True, 1930, 120), "ALERT")
+        self.assertEqual(mon.adjusted_status(0.05, True, 1930, 120), "OK")
+
+    def test_psi_noise_floor_formula(self):
+        # MLB: (k-1)/2 * (1/n_base + 1/n_cur).
+        self.assertAlmostEqual(mon.psi_noise_floor(1930, 30), 0.152332, places=5)
+        self.assertEqual(mon.psi_noise_floor(0, 30), 0.0)
+
+
+class DriftAlignmentTest(unittest.TestCase):
+    """NFL drift methodology == MLB's, replicated not approximated — plus the
+    regression case from the 09-02 artifact (pace_plays_min_diff: raw PSI
+    2.038 on IDENTICAL means = bin-boundary instability on a tiny-scale
+    near-constant feature, not drift)."""
+
+    @staticmethod
+    def _mlb_reference(base, cur):
+        """VERBATIM mlb-backend/backend/explainability.py (compute_psi +
+        psi_noise_floor + psi_status with compute_feature_drift's
+        noise-adjusted status + location gate)."""
+        import numpy as _np
+        b = _np.asarray(base, dtype=float)
+        c = _np.asarray(cur, dtype=float)
+        b = b[~_np.isnan(b)]
+        c = c[~_np.isnan(c)]
+        if len(b) == 0 or len(c) == 0:
+            psi = 0.0
+        else:
+            combined = _np.concatenate([b, c])
+            lo, hi = float(combined.min()), float(combined.max())
+            if lo == hi:
+                psi = 0.0
+            else:
+                edges = _np.unique(_np.quantile(combined,
+                                                _np.linspace(0.0, 1.0, 11)))
+                if len(edges) < 2:
+                    psi = 0.0
+                else:
+                    edges[-1] = hi + 1e-10
+                    bc = _np.histogram(b, bins=edges)[0].astype(float)
+                    cc = _np.histogram(c, bins=edges)[0].astype(float)
+                    k = len(edges) - 1
+                    e = (bc + 0.5) / (bc.sum() + 0.5 * k)
+                    a = (cc + 0.5) / (cc.sum() + 0.5 * k)
+                    psi = round(max(float(_np.sum((a - e) * _np.log(a / e))),
+                                    0.0), 6)
+        noise = 0.0 if (len(b) <= 0 or len(c) <= 0) else \
+            (9.0 / 2.0) * (1.0 / len(b) + 1.0 / len(c))
+        psi_adj = max(psi - noise, 0.0)
+        mean_shift = float(c.mean() - b.mean()) if len(b) and len(c) else 0.0
+        nb, nc = len(b), len(c)
+        if nb + nc > 2:
+            pooled_sd = float(_np.sqrt(
+                ((nb - 1) * _np.var(b, ddof=1) + (nc - 1) * _np.var(c, ddof=1))
+                / (nb + nc - 2)))
+        else:
+            pooled_sd = 0.0
+        if pooled_sd > 0:
+            shift_se = float(pooled_sd * _np.sqrt(1.0 / nb + 1.0 / nc) * 1.5)
+            loc = abs(mean_shift) > 2.0 * shift_se
+        else:
+            shift_se = 0.0
+            loc = psi_adj > 0
+        if nb < 100 or nc < 30:
+            status = "INSUFFICIENT"
+        elif not loc:
+            status = "OK"
+        elif psi_adj >= 0.25:
+            status = "ALERT"
+        elif psi_adj >= 0.10:
+            status = "WARN"
+        else:
+            status = "OK"
+        return {"psi": psi, "noise_floor": noise, "psi_adjusted": psi_adj,
+                "mean_shift": mean_shift, "shift_se": shift_se,
+                "location_shift": bool(loc), "status": status}
+
+    def _frame(self):
+        n_base, n_cur = 1930, 120
+        rng = np.random.default_rng(42)
+        same = -0.0018 + rng.normal(0, 0.001, n_base)
+        same_c = -0.0018 + rng.normal(0, 0.001, n_cur)
+        return pd.DataFrame({
+            "gameday": ["2025-09-07"] * n_base + ["2026-09-10"] * n_cur,
+            "same_dist": np.concatenate([same, same_c]),
+            "near_const": np.concatenate([
+                np.linspace(-0.004, 0.004, n_base), np.zeros(n_cur)]),
+            "real_shift": np.concatenate([
+                np.linspace(0.0, 1.0, n_base),
+                np.linspace(0.9, 1.0, n_cur)]),
+        }), n_base, n_cur
+
+    def test_matches_mlb_reference_on_shared_case(self):
+        """Same inputs -> same outputs (raw psi, adjusted, floors, location
+        gate, status) vs the verbatim MLB reference, for three scenarios at
+        NFL's drift geometry."""
+        feats, n_base, n_cur = self._frame()
+        mask_base = feats["gameday"].astype(str) < "2026-01-01"
+        mask_cur = ~mask_base
+        rows = {r["feature"]: r for r in mon.feature_drift_rows(
+            feats, ["same_dist", "near_const", "real_shift"],
+            mask_base.to_numpy(), mask_cur.to_numpy())}
+        for col in ("same_dist", "near_const", "real_shift"):
+            arr = pd.to_numeric(feats[col], errors="coerce").to_numpy()
+            ref = self._mlb_reference(arr[mask_base.to_numpy()],
+                                      arr[mask_cur.to_numpy()])
+            row = rows[col]
+            self.assertEqual(row["psi"], ref["psi"], col)
+            self.assertEqual(row["psi_adjusted"],
+                             round(ref["psi_adjusted"], 6), col)
+            self.assertEqual(row["noise_floor"],
+                             round(ref["noise_floor"], 6), col)
+            self.assertEqual(row["mean_shift"],
+                             round(ref["mean_shift"], 6), col)
+            self.assertEqual(row["shift_se"], round(ref["shift_se"], 6), col)
+            self.assertEqual(row["location_shift"], ref["location_shift"], col)
+            self.assertEqual(row["status"], ref["status"], col)
+            self.assertEqual(row["n_baseline"], n_base, col)
+            self.assertEqual(row["n_current"], n_cur, col)
+
+    def test_identical_means_exploding_raw_psi_stays_ok(self):
+        """The 09-02 pace_plays_min_diff class: current mean (~0) == baseline
+        mean (~0) on a tiny-scale near-constant feature, raw PSI > 1
+        (bin-boundary instability, the artifact showed 2.038) — MLB
+        statuses read OK, never ALERT."""
+        base = np.linspace(-0.004, 0.004, 1930)
+        cur = np.zeros(120)
+        drift = mon.noise_adjusted_drift(base, cur)
+        self.assertGreater(drift["psi"], 1.0)
+        self.assertAlmostEqual(drift["mean_shift"], 0.0, places=6)
+        self.assertFalse(drift["location_shift"])      # the mean never moved
+        self.assertEqual(mon.adjusted_status(drift["psi_adjusted"],
+                                             drift["location_shift"],
+                                             1930, 120), "OK")
+
+    def test_real_mean_shift_escalates(self):
+        base = np.linspace(0.0, 1.0, 1930)
+        cur = np.linspace(0.9, 1.0, 120)
+        drift = mon.noise_adjusted_drift(base, cur)
+        self.assertTrue(drift["location_shift"])
+        self.assertEqual(mon.adjusted_status(drift["psi_adjusted"],
+                                             drift["location_shift"],
+                                             1930, 120), "ALERT")
+
+    def test_row_field_set_matches_mlb(self):
+        feats, _, _ = self._frame()
+        mask_base = feats["gameday"].astype(str) < "2026-01-01"
+        row = mon.feature_drift_rows(feats, ["same_dist"],
+                                     mask_base.to_numpy(),
+                                     (~mask_base).to_numpy())[0]
+        self.assertEqual(set(row), {
+            "feature", "current_mean", "baseline_mean", "psi",
+            "psi_adjusted", "noise_floor", "mean_shift", "shift_se",
+            "location_shift", "status", "weight_pct", "n_baseline",
+            "n_current"})
+
+    def test_small_windows_report_insufficient(self):
+        feats, n_base, _ = self._frame()
+        # A 10-game current window is below the 30-game floor -> INSUFFICIENT
+        # regardless of how large raw PSI is (same as MLB never paging <30).
+        small = pd.DataFrame({
+            "gameday": ["2025-09-07"] * n_base + ["2026-09-10"] * 10,
+            "x": list(np.linspace(0, 1, n_base)) + [0.9] * 10,
+        })
+        mask_base = small["gameday"].astype(str) < "2026-01-01"
+        row = mon.feature_drift_rows(small, ["x"],
+                                     mask_base.to_numpy(),
+                                     (~mask_base).to_numpy())[0]
+        self.assertEqual(row["status"], "INSUFFICIENT")
+        self.assertEqual(row["n_current"], 10)
 
 
 class FeatureDriftRowsTest(unittest.TestCase):
@@ -501,6 +687,26 @@ class BuildMonitorTest(unittest.TestCase):
             current_date="20260831", baseline_cut_date="2026-01-01")
         self.assertTrue(all(r.get("weight_pct") is None
                             for r in rec["feature_drift"]))
+
+    def test_upset_note_pool_is_walk_forward_history(self):
+        """Upset pool = the per-game walk-forward history (pooled OOF +
+        sealed), NOT the decided frame (1,960) or drift baseline (1,930). On
+        the 09-02 frame it read 1,392 = pooled n 1,107 + sealed n 285 (== the
+        nfl_predictions_history row count) — the count was right, the
+        'decided pool' label was wrong."""
+        feats, result, history, cal, recs = self._inputs()
+        rec = mon.build_model_monitor(
+            feats=feats, result=result, history_df=history,
+            calibration=cal, moneyline_records=recs,
+            current_date="20260902", baseline_cut_date="2026-01-01")
+        note = rec["upset_note"]
+        self.assertIn("walk-forward history (pooled OOF + sealed)", note)
+        self.assertIn("games scored", note)
+        self.assertNotIn("decided pool", note)
+        # Count always equals the history frame's row count (1,107 OOF + 285
+        # sealed = 1,392 on the real frame, where the composer is handed the
+        # walk-forward's own _history_df) — never the decided-frame size.
+        self.assertIn(f"{history.shape[0]:,} games scored", note)
 
     def test_last_retrained_falls_back_to_emission_date(self):
         """The original NFL null bug: a walk-forward result without

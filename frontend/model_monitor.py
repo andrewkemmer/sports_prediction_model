@@ -82,9 +82,18 @@ if "ago" not in last_note and "today" not in last_note:
 
 n_warn = sum(1 for a in drift_alerts if a.get("status") == "WARN")
 n_alert = sum(1 for a in drift_alerts if a.get("status") == "ALERT")
-drift_value = "No drift" if not drift_alerts else (
-    f"{n_warn + n_alert} Alert" if n_alert else f"{n_warn} Warning"
-)
+# Count each status on its own line of the card — the ALERT+WARN union must
+# never be mislabeled "Alert" (the 09-02 NFL artifact: 7 ALERT + 2 WARN must
+# read "7 Alert · 2 Warning", not "9 Alert"). With a single status present
+# this is byte-identical to the old label.
+if not drift_alerts:
+    drift_value = "No drift"
+elif n_alert and n_warn:
+    drift_value = f"{n_alert} Alert · {n_warn} Warning"
+elif n_alert:
+    drift_value = f"{n_alert} Alert"
+else:
+    drift_value = f"{n_warn} Warning"
 drift_sub = "—" if not drift_alerts else (
     f"{drift_alerts[0].get('feature', '')} — elevated PSI"
 )

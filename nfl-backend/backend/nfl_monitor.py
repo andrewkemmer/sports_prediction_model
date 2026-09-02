@@ -6,9 +6,15 @@ The page contract (mirrors ``mlb-backend``'s ``model_monitor_*.json``):
 
 ``last_retrained`` / ``next_retrain`` + notes  — health cards
 ``upset_note``                                — upset-monitoring callout
-``feature_drift[]``                           — TRUE PSI drift matrix
-      [{feature, current_mean, baseline_mean, psi, status,
+``feature_drift[]``                           — TRUE PSI drift matrix, MLB-
+                                                identical row fields:
+      [{feature, current_mean, baseline_mean, psi, psi_adjusted,
+        noise_floor, mean_shift, shift_se, location_shift, status,
         weight_pct, n_baseline, n_current}]
+         status = NOISE-ADJUSTED psi + location-gate rule (MLB's
+         compute_feature_drift verbatim: INSUFFICIENT when n_b<100 or
+         n_c<30, else psi_status(psi_adjusted) only when the mean also
+         moved — identical means with large raw PSI stay OK);
          weight_pct = the MODEL WEIGHT column (blend-weighted importances,
          percent of the final blended ensemble, sums to ~100 across rows) —
          the SAME algorithm MLB ships (feature_importance_weights below,
@@ -43,10 +49,14 @@ import pandas as pd
 # inside functions, so there is no circular import.
 from nfl_moneyline import ADAPTIVE_WEIGHT_FLOOR, ENSEMBLE_WEIGHTS
 
-# Drift / coverage gates (mirror MLB's semantics).
+# Drift / coverage gates (mirror MLB's semantics). The 0.10/0.25 thresholds
+# apply to the NOISE-ADJUSTED psi (config.py PSI_WARN_THRESHOLD /
+# PSI_ALERT_THRESHOLD) — raw PSI at these sample sizes averages ~0.07 from
+# binning alone, so raw-threshold statuses constantly page (the 09-02
+# artifact's pace_plays_min_diff PSI 2.038 on identical means).
 PSI_WARN = 0.10
 PSI_ALERT = 0.25
-MIN_DRIFT_SAMPLES = 30        # below -> INSUFFICIENT (PSI only informational)
+MIN_DRIFT_SAMPLES = 30        # current-window floor (expand_drift_cut)
 COVERAGE_FLOOR = 0.80         # below CURRENT window -> LOW_COVERAGE / STARVED
 # "Next expected run" heuristic for the NEXT RETRAIN card (retrain-every-
 # run decision 2026-09-02, synced to MLB's corrected cadence): the ensemble
@@ -66,48 +76,109 @@ MEMBER_DESC = {
 
 
 # ---------------------------------------------------------------------------
-# PSI (Population Stability Index)
+# PSI (Population Stability Index) — MLB-identical replication
 # ---------------------------------------------------------------------------
+# Verbatim semantics of mlb-backend/backend/explainability.py::compute_psi /
+# psi_status / psi_noise_floor and the compute_feature_drift status rule:
+# quantile bins over the COMBINED sample, add-one-half smoothing, status on
+# the NOISE-ADJUSTED psi AND only when the mean ALSO moved (location gate).
 def psi_score(baseline: np.ndarray, current: np.ndarray,
               bins: int = 10) -> float:
-    """True PSI: sum over equi-width (in counts) bins of the baseline
-    distribution of ``(a - e) * ln(a / e)`` for the current-vs-baseline
-    probability mass, with a small floor on the expected share to avoid
-    log(0). Constant/singular features return 0.0 (no shift measurable)."""
+    """True PSI, byte-identical to MLB's compute_psi: quantile bin edges of
+    the COMBINED (deduplicated) sample, add-one-half smoothing instead of an
+    epsilon, PSI = sum((c - e) * ln(c / e)) clipped at 0 and rounded 6.
+    Constant/singular features return 0.0 (no shift measurable)."""
     b = np.asarray(baseline, dtype=float)
     c = np.asarray(current, dtype=float)
-    finite_b = b[np.isfinite(b)]
-    finite_c = c[np.isfinite(c)]
-    if len(finite_b) == 0 or len(finite_c) == 0:
+    b = b[~np.isnan(b)]
+    c = c[~np.isnan(c)]
+    if len(b) == 0 or len(c) == 0:
         return 0.0
-    lo, hi = float(np.min(finite_b)), float(np.max(finite_b))
-    if hi == lo:                       # constant feature -> no distributional shift
+    combined = np.concatenate([b, c])
+    lo, hi = float(combined.min()), float(combined.max())
+    if lo == hi:
         return 0.0
-    # Bin edges over the BASELINE range so current mass is scored in reference
-    # bins; widen slightly to catch values just at the boundary.
-    edges = np.linspace(lo, hi, bins + 1)
-    edges[0], edges[-1] = -np.inf, np.inf
-    def _share(x: np.ndarray) -> np.ndarray:
-        idx = np.clip(np.digitize(x, edges[1:-1]), 0, bins - 1)
-        counts = np.bincount(idx, minlength=bins).astype(float)
-        return counts / max(counts.sum(), 1.0)
-    e, a = _share(finite_b), _share(finite_c)
-    eps = 1e-6
-    e = np.where(e < eps, eps, e)
-    a = np.where(a < eps, eps, a)
-    return float(np.sum((a - e) * np.log(a / e)))
+    quantiles = np.linspace(0.0, 1.0, bins + 1)
+    edges = np.unique(np.quantile(combined, quantiles))
+    if len(edges) < 2:
+        return 0.0
+    edges[-1] = hi + 1e-10                    # include the right edge
+    baseline_counts = np.histogram(b, bins=edges)[0].astype(float)
+    current_counts = np.histogram(c, bins=edges)[0].astype(float)
+    k = len(edges) - 1
+    e = (baseline_counts + 0.5) / (baseline_counts.sum() + 0.5 * k)
+    a = (current_counts + 0.5) / (current_counts.sum() + 0.5 * k)
+    return round(max(float(np.sum((a - e) * np.log(a / e))), 0.0), 6)
 
 
-def drift_status(psi: float, n_current: int, min_samples: int = MIN_DRIFT_SAMPLES) -> str:
-    """OK / WARN / ALERT at MLB's 0.10 / 0.25 thresholds; INSUFFICIENT when the
-    current window is too small to judge."""
-    if n_current < min_samples:
-        return "INSUFFICIENT"
-    if psi >= PSI_ALERT:
+def psi_status(psi_value: float) -> str:
+    """OK / WARN / ALERT on the 0.10 / 0.25 thresholds (MLB's psi_status) —
+    applied by the monitor to the NOISE-ADJUSTED psi."""
+    if psi_value >= PSI_ALERT:
         return "ALERT"
-    if psi >= PSI_WARN:
+    if psi_value >= PSI_WARN:
         return "WARN"
     return "OK"
+
+
+def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
+    """Expected PSI from sampling noise alone when both samples are drawn
+    from the SAME distribution ((k-1)/2 * (1/n_base + 1/n_cur), MLB's
+    psi_noise_floor verbatim). At NFL's drift-window sizes (~1,930 baseline /
+    ~30 current) the floor is ~0.015 — identical distributions still page as
+    non-zero raw PSI, so statuses must read the adjusted value."""
+    if n_baseline <= 0 or n_current <= 0:
+        return 0.0
+    return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
+
+
+def noise_adjusted_drift(base: np.ndarray, cur: np.ndarray) -> dict:
+    """MLB's per-feature noise-adjusted drift math (compute_feature_drift):
+    raw psi, the sampling noise floor, psi_adjusted = max(psi - noise, 0),
+    and the location gate — mean_shift judged against 2x shift_se, where
+    shift_se = pooled_sd * sqrt(1/n_b + 1/n_c) * 1.5 (the 1.5 clustering
+    inflation for ~7-start teams in a short window). Degenerate (zero pooled
+    sd) falls back to location_shift = psi_adjusted > 0, exactly like MLB.
+    """
+    base = base[np.isfinite(base)]
+    cur = cur[np.isfinite(cur)]
+    nb, nc = int(len(base)), int(len(cur))
+    psi = psi_score(base, cur)
+    noise = psi_noise_floor(nb, nc)
+    psi_adjusted = max(psi - noise, 0.0)
+    mean_shift = float(np.mean(cur) - np.mean(base)) if nb and nc else 0.0
+    if nb + nc > 2:
+        pooled_sd = float(np.sqrt(
+            ((nb - 1) * np.var(base, ddof=1) + (nc - 1) * np.var(cur, ddof=1))
+            / (nb + nc - 2)))
+    else:
+        pooled_sd = 0.0
+    if pooled_sd > 0:
+        shift_se = float(pooled_sd * np.sqrt(1.0 / nb + 1.0 / nc) * 1.5)
+        location_shift = abs(mean_shift) > 2.0 * shift_se
+    else:
+        shift_se = 0.0
+        location_shift = psi_adjusted > 0
+    return {
+        "psi": psi, "noise_floor": noise, "psi_adjusted": psi_adjusted,
+        "mean_shift": mean_shift, "shift_se": shift_se,
+        "location_shift": bool(location_shift),
+    }
+
+
+def adjusted_status(psi_adjusted: float, location_shift: bool,
+                    n_baseline: int, n_current: int) -> str:
+    """MLB's compute_feature_drift status rule, verbatim: INSUFFICIENT when
+    either window is below the sample floors (baseline 100, current 30 — raw
+    PSI is meaningless at those sizes and must never page); otherwise the
+    status is read from the NOISE-ADJUSTED psi AND a real mean location
+    shift. Near-identical means with a large raw PSI (bin-boundary
+    instability on tiny-scale near-constant features) therefore stay OK."""
+    if n_baseline < 100 or n_current < 30:
+        return "INSUFFICIENT"
+    if not location_shift:
+        return "OK"
+    return psi_status(psi_adjusted)
 
 
 def expand_drift_cut(gd: pd.Series, cut,
@@ -144,12 +215,14 @@ def expand_drift_cut(gd: pd.Series, cut,
 def feature_drift_rows(feats: pd.DataFrame, columns: list[str],
                        baseline_mask: np.ndarray, current_mask: np.ndarray,
                        weight: dict[str, float] | None = None) -> list[dict]:
-    """One row per feature: current/baseline mean, true PSI, status, sample
-    sizes. ``weight`` (optional feature -> PERCENT share of the blended
-    ensemble, summing to ~100 — the ``feature_importance_weights`` output) is
-    surfaced as ``weight_pct`` rounded to 3 decimals, byte-matching MLB's own
-    ``weight_pct`` row field. When omitted (no model objects available) the
-    page hides the MODEL WEIGHT column, exactly like MLB with ``None``."""
+    """One row per feature — the MLB drift-row field set, byte-for-byte:
+    ``{feature, current_mean, baseline_mean, psi (raw), psi_adjusted,
+    noise_floor, mean_shift, shift_se, location_shift, status, weight_pct,
+    n_baseline, n_current}``. Status uses the noise-adjusted + location-gate
+    rule (adjusted_status); ``current_mean``/``baseline_mean`` are 0.0 for
+    an empty window and ``weight_pct`` mirrors MLB's percent, 3dp. When
+    ``weight`` is None the page hides the MODEL WEIGHT column, exactly like
+    MLB."""
     rows = []
     for col in columns:
         if col not in feats.columns:
@@ -159,16 +232,23 @@ def feature_drift_rows(feats: pd.DataFrame, columns: list[str],
         cur = ser[current_mask].to_numpy()
         base = base[np.isfinite(base)]
         cur = cur[np.isfinite(cur)]
-        psi = psi_score(base, cur)
+        nb, nc = int(len(base)), int(len(cur))
+        drift = noise_adjusted_drift(base, cur)
         rows.append({
             "feature": col,
-            "current_mean": (round(float(np.mean(cur)), 4) if len(cur) else None),
-            "baseline_mean": (round(float(np.mean(base)), 4) if len(base) else None),
-            "psi": round(psi, 4),
-            "status": drift_status(psi, int(len(cur))),
+            "current_mean": (round(float(np.mean(cur)), 4) if nc else 0.0),
+            "baseline_mean": (round(float(np.mean(base)), 4) if nb else 0.0),
+            "psi": drift["psi"],
+            "psi_adjusted": round(drift["psi_adjusted"], 6),
+            "noise_floor": round(drift["noise_floor"], 6),
+            "mean_shift": round(drift["mean_shift"], 6),
+            "shift_se": round(drift["shift_se"], 6),
+            "location_shift": drift["location_shift"],
+            "status": adjusted_status(drift["psi_adjusted"],
+                                       drift["location_shift"], nb, nc),
             "weight_pct": (round(float(weight[col]), 3) if weight and col in weight else None),
-            "n_baseline": int(len(base)),
-            "n_current": int(len(cur)),
+            "n_baseline": nb,
+            "n_current": nc,
         })
     return rows
 
@@ -509,7 +589,14 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
                                f"{'ADOPT' if (result.get('verdict') or {}).get('adopt') else 'DO NOT ADOPT (reporting only)'})",
         "next_retrain": next_retrain,
         "next_retrain_note": f"next expected run in {RETRAIN_INTERVAL_DAYS} day(s) (retrains every run)",
-        "upset_note": f"Model upset rate over the decided pool — {len(history_df):,} games scored; see Calibration for the upset strip.",
+        # Upset pool = the per-game walk-forward HISTORY (pooled OOF + sealed
+        # 2025) — len(history_df) == pooled n + sealed n == the
+        # nfl_predictions_history_*.csv row count (1,392 on the 09-02 frame),
+        # NOT the decided pool (1,960) or the baseline window (1,930).
+        "upset_note": ("Model upset rate over the walk-forward history "
+                       f"(pooled OOF + sealed) — {len(history_df):,} games "
+                       "scored; see Calibration for the upset strip."),
+
         "feature_drift": drift,
         "features_metadata": feature_metadata_map(cols, feature_descriptions),
         "feature_coverage": coverage,

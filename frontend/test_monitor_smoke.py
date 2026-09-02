@@ -46,16 +46,24 @@ _BACKUPS: dict[Path, bytes] = {}
 # Representative artifact construction (matches the emitted MLB-shaped schema)
 # ---------------------------------------------------------------------------
 def _monitor_record() -> dict:
+    # MLB-shaped drift rows: raw psi + the noise-adjusted fields the emitter
+    # now ships; the mixed ALERT+WARN table drives the card-count assertion.
     drift = [
         {"feature": "elo_diff", "current_mean": 22.4, "baseline_mean": 8.1,
-         "psi": 0.31, "status": "ALERT", "weight_pct": 45.0,
-         "n_baseline": 496, "n_current": 285},
+         "psi": 0.31, "psi_adjusted": 0.22, "noise_floor": 0.004,
+         "mean_shift": 14.3, "shift_se": 2.1, "location_shift": True,
+         "status": "ALERT", "weight_pct": 45.0,
+         "n_baseline": 1930, "n_current": 285},
         {"feature": "ewm_net_pts_diff", "current_mean": 3.2, "baseline_mean": 2.9,
-         "psi": 0.12, "status": "WARN", "weight_pct": 21.0,
-         "n_baseline": 496, "n_current": 285},
+         "psi": 0.12, "psi_adjusted": 0.11, "noise_floor": 0.004,
+         "mean_shift": 0.3, "shift_se": 0.1, "location_shift": True,
+         "status": "WARN", "weight_pct": 21.0,
+         "n_baseline": 1930, "n_current": 285},
         {"feature": "div_game", "current_mean": 0.50, "baseline_mean": 0.51,
-         "psi": 0.02, "status": "OK", "weight_pct": None,
-         "n_baseline": 496, "n_current": 285},
+         "psi": 0.02, "psi_adjusted": 0.0, "noise_floor": 0.004,
+         "mean_shift": -0.01, "shift_se": 0.02, "location_shift": False,
+         "status": "OK", "weight_pct": None,
+         "n_baseline": 1930, "n_current": 285},
     ]
     coverage = [
         {"feature": "elo_diff", "window": "decided pool", "n_games": 1960,
@@ -82,7 +90,8 @@ def _monitor_record() -> dict:
         "last_retrained_note": "Fresh model trained this run (sealed gate: ADOPT)",
         "next_retrain": "2026-09-01",
         "next_retrain_note": "next expected run in 1 day(s) (retrains every run)",
-        "upset_note": "Model upset rate over the decided pool — 1,392 games scored; "
+        "upset_note": "Model upset rate over the walk-forward history "
+                      "(pooled OOF + sealed) — 1,392 games scored; "
                       "see Calibration for the upset strip.",
         "feature_drift": drift,
         "features_metadata": {
@@ -188,6 +197,8 @@ def run() -> int:
             problems.append("missing upset-monitoring callout")
         if "1,392 games scored" not in text:
             problems.append("upset note did not render its data")
+        if "walk-forward history (pooled OOF + sealed)" not in text:
+            problems.append("upset note missing its walk-forward pool label")
 
         # (3) feature drift (PSI) matrix with WARN status pill
         if "Feature Drift Analysis (PSI Scores)" not in text:
@@ -196,6 +207,14 @@ def run() -> int:
             problems.append("drift matrix missing a drift row")
         if "WARN" not in text:
             problems.append("drift matrix missing WARN status pill")
+
+        # (3c) drift ALERT card breaks out the counts by status — an
+        #      ALERT+WARN table must never read "2 Alert" (the union
+        #      mislabel the 09-02 artifact showed as "9 Alert").
+        if "1 Alert · 1 Warning" not in text:
+            problems.append("drift card missing the split Alert/Warning counts")
+        if "2 Alert" in text:
+            problems.append("drift card labels the ALERT+WARN union 'Alert'")
 
         # (3a) MLB-identical MODEL WEIGHT column: header + formatted weight +
         #      per-feature description label (sport-dispatched describe_feature)
