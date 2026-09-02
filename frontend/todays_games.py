@@ -7,12 +7,14 @@ pitcher panels, ML/edge bar, collapsible SHAP features, outcome banner).
 
 Each card is enriched with run-engine projections from
 run_engine_markets_<date>.csv (slate rows joined by game_id == game_pk):
-projected team runs, the 8.5 O/U probability split, and the −1.5/+1.5 run
-line — quiet 'n/a' when the line grid is missing, never fabricated.
+projected team runs, the 8.5 O/U probability split, and the ±1.5 run line
+(shown favorite-anchored: the −1.5 side is the moneyline favorite) — quiet
+'n/a' when the line grid is missing, never fabricated.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -141,6 +143,141 @@ def _pitcher_box(name: str, era: str, k9: str) -> str:
             f'<div class="pstats">ERA {_fmt_stat(era)} · K/9 {_fmt_stat(k9)}</div></div>')
 
 
+# ---------------------------------------------------------------------------
+# Favorite-anchored run-line pair (DISPLAY orientation only)
+# ---------------------------------------------------------------------------
+# The run-engine ladder prices the pair HOME -L / AWAY +L at every grid
+# margin, always from the home team's side (market_diagnostics.run_engine_
+# card_bits). When the moneyline favorite is the AWAY team the natural
+# sportsbook pair is AWAY -L / HOME +L -- and those probabilities are NOT on
+# the ladder (away covering -1.5 = winning by 2+ is a different bet than
+# away +1.5 = winning or losing by 1). They are derived here from the game's
+# own NB(lambda, alpha) run marginals -- the same distributional model the
+# backend's Monte Carlo samples (mlb-backend/backend/run_engine.py
+# derive_markets_mc) -- by convolving the two side PMFs into the resolved
+# home-margin mass and summing the mirrored strict inequalities. No
+# run-engine/model change: the artifact and its ladder are untouched; this
+# is the card's orientation only.
+_RL_TIE_HOME_SHARE = 0.744  # MUST mirror run_engine.MARGIN_PLUS1_HOME_SHARE
+
+
+def _card_fav_home(g) -> bool:
+    """Run-line display anchor = the moneyline favorite (the card's pick
+    side), so the -L side of the run line is never the underdog. Coin-flip
+    / no-pick games anchor HOME deterministically -- a run-line pair must
+    pick a side, and home is the stable convention (a favorite by <1% is a
+    coin flip, not a side to anchor on)."""
+    pick = str(g.get("model_pick") or "").strip()
+    if pick:
+        return pick == str(g.get("home_team") or "")
+    return True
+
+
+def _rl_margin_pmf(row, kmax: int = 60):
+    """Resolved home-margin PMF P'(m) for a slate row's NB(lambda, alpha)
+    runs.
+
+    Convolves the two side PMFs over 0..kmax -- the per-margin mass the MC
+    samples -- then applies the run engine's structural no-tie adjustment
+    (regulation MLB games cannot tie): P(0) folds into the +/-1 bands
+    home-weighted with _RL_TIE_HOME_SHARE and P'(0) = 0; every other margin
+    keeps its raw mass (mirror of run_engine.derive_markets_mc, so this
+    agrees with the artifact's own ladder convention). Returns None when the
+    row lacks the NB parameters (legacy artifacts -- the favorite side
+    cannot be re-priced) or the mass is unusable. Index j of the result is
+    margin j - kmax.
+    """
+    lam_h = diag._num(row, "home_expected_runs")
+    lam_a = diag._num(row, "away_expected_runs")
+    al_h = diag._num(row, "alpha_home")
+    al_a = diag._num(row, "alpha_away")
+    if None in (lam_h, lam_a, al_h, al_a):
+        return None
+    try:
+        ph = np.asarray([diag._nb_pmf_scalar(int(k), lam_h, al_h)
+                         for k in range(kmax + 1)], dtype=float)
+        pa = np.asarray([diag._nb_pmf_scalar(int(k), lam_a, al_a)
+                         for k in range(kmax + 1)], dtype=float)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    outer = np.outer(ph, pa)
+    total = float(outer.sum())
+    if total <= 0.0 or not np.isfinite(total):
+        return None
+    outer = outer / total
+    h_idx, a_idx = np.indices(outer.shape)
+    offsets = (h_idx - a_idx).ravel() + kmax
+    mass = np.bincount(offsets, weights=outer.ravel(),
+                       minlength=2 * kmax + 1)
+    share = float(_RL_TIE_HOME_SHARE)
+    q0, q_p1, q_n1 = mass[kmax], mass[kmax + 1], mass[kmax - 1]
+    mass[kmax + 1] = q_p1 + share * q0
+    mass[kmax - 1] = q_n1 + (1.0 - share) * q0
+    mass[kmax] = 0.0
+    return mass
+
+
+def _rl_away_fav_pair(line: float, mass) -> tuple:
+    """(fav_cover, dog_cover, push) for the AWAY -L / HOME +L pair from a
+    resolved margin PMF -- mirrored strict inequalities: -L covers m < -L,
+    +L covers m > -L, and m == -L is the push band (whole lines only;
+    halves never match an integer margin, so push = 0). Returns
+    (None, None, 0.0) when the pair cannot be priced. Covers come back
+    RE-SCALED (push folded) so they sum to 1 -- the card's convention."""
+    kmax = (len(mass) - 1) // 2
+    margins = np.arange(-kmax, kmax + 1)
+    fav_cov = float(mass[margins < -line].sum())
+    dog_cov = float(mass[margins > -line].sum())
+    push = float(mass[margins == -line].sum())
+    denom = fav_cov + dog_cov
+    if denom <= 0.0:
+        return None, None, 0.0
+    return fav_cov / denom, dog_cov / denom, push
+
+
+def _orient_rl_bits(bits, row, fav_home: bool) -> dict:
+    """Add the favorite-anchored display pair (rl_fav_side / rl_fav_cover /
+    rl_dog_cover / rl_fav_push) to a card's run-engine bits.
+
+    Pure display orientation: the -L side of the run line is the moneyline
+    favorite, never the underdog. fav_home=True re-labels the home-anchored
+    ladder values the bits already carry (identical numbers, favorite =
+    home); fav_home=False re-anchors to AWAY -L / HOME +L from the row's NB
+    margin distribution (away -L is NOT the ladder's away +L). Rows without
+    the NB parameters (legacy artifacts) and unpricable lines keep the
+    home-anchored pair -- the favorite-side price is not in the artifact and
+    is never fabricated. Returns a shallow copy; the caller's bits are not
+    mutated."""
+    out = dict(bits or {})
+    out["rl_fav_side"] = None
+    out["rl_fav_cover"] = None
+    out["rl_dog_cover"] = None
+    out["rl_fav_push"] = float(bits.get("rl_push") or 0.0)
+    if fav_home is None:
+        return out
+    if bool(fav_home):
+        rh, ra = bits.get("rl_home"), bits.get("rl_away")
+        if rh is not None and ra is not None:
+            out["rl_fav_side"] = "home"
+            out["rl_fav_cover"] = float(rh)
+            out["rl_dog_cover"] = float(ra)
+        return out
+    if bits.get("rl_unverified") or not row:
+        return out
+    mass = _rl_margin_pmf(row)
+    if mass is None:
+        return out
+    line = bits.get("rl_line") or 1.5
+    fav_cov, dog_cov, push = _rl_away_fav_pair(float(line), mass)
+    if fav_cov is None:
+        return out
+    out["rl_fav_side"] = "away"
+    out["rl_fav_cover"] = fav_cov
+    out["rl_dog_cover"] = dog_cov
+    out["rl_fav_push"] = float(push)
+    return out
+
+
 def _runengine_html(bits, home_team: str, away_team: str) -> str:
     """Run-engine strip on the game card — projections, O/U, run line.
 
@@ -151,8 +288,12 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     selected for the card (bits["line_selected"] set — the per-card
     selector / future market-lines mode), in which case the O/U reflects
     that line and the label says "line selected". Notes when the line was
-    clamped to the shipped grid. Away +1.5 is the exact complement of home
-    −1.5 (the artifact ships home-cover columns only) — labeled as such.
+    clamped to the shipped grid. The run-line span is favorite-anchored:
+    the −L side is the moneyline favorite (never the underdog), derived by
+    _orient_rl_bits from the favorite's side of the run-engine ladder / NB
+    margin distribution. Home-favored games render exactly the artifact's
+    home-anchored pair; away-favored games mirror it (away −L is a
+    different bet than the ladder's away +L).
     """
     if bits is None:
         # No slate row for this game (run-engine artifacts missing for its
@@ -191,15 +332,29 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
 
 
 def _rl_html(bits, home_team: str, away_team: str) -> str:
-    """Run-line span — the selected line (default ±1.5) with the RE-SCALED
-    2-way cover split (push folded proportionately so home + away = 100%).
-    Alternate lines not yet verified on the current artifact render as
-    'unverified' (never fabricated)."""
+    """Run-line span — the selected line (default ±1.5) as the FAVORITE-
+    ANCHORED pair (FAV −L / DOG +L, RE-SCALED 2-way cover split so the
+    pair sums to 100%). _orient_rl_bits prices the pair from the moneyline
+    favorite's side, so the −L side is the favorite — never the underdog;
+    when no favorite was resolved (or a legacy row lacks the NB parameters
+    to re-anchor) the span falls back to the home-anchored pair exactly as
+    before. Alternate lines the artifact cannot price render as 'unverified'
+    (never fabricated)."""
     rl_line = bits.get("rl_line")
-    default = bits.get("rl_line_default", 1.5)
     selected_note = (f" (line selected: −{rl_line:.1f})" if rl_line else "")
+    fav_side = bits.get("rl_fav_side")
+    oriented = (fav_side in ("home", "away")
+                and bits.get("rl_fav_cover") is not None
+                and bits.get("rl_dog_cover") is not None)
     if rl_line is None:
-        # No per-card selection made — legacy ±1.5 pair.
+        # No per-card selection made — the ±1.5 pair.
+        if oriented:
+            fav_team = home_team if fav_side == "home" else away_team
+            dog_team = away_team if fav_side == "home" else home_team
+            return (f'<span>RL: {fav_team} −1.5 '
+                    f'{bits["rl_fav_cover"]:.0%} · '
+                    f'{dog_team} +1.5 {bits["rl_dog_cover"]:.0%} '
+                    f'(complement)</span>')
         if bits.get("p_home_cover") is None:
             return f'<span>RL: n/a</span>'
         return (f'<span>RL: {home_team} −1.5 '
@@ -208,16 +363,25 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
                 f'(complement)</span>')
     if bits.get("rl_unverified"):
         return (f'<span>RL: −{rl_line:.1f} '
-                f'(line selected{selected_note}) — unverified on this '
+                f'{selected_note} — unverified on this '
                 f'artifact</span>')
+    push_src = bits.get("rl_fav_push") if oriented else bits.get("rl_push")
+    push_note = (f' ({float(push_src):.0%} push)'
+                 if (push_src or 0) > 0.005 else "")
+    if oriented:
+        fav_team = home_team if fav_side == "home" else away_team
+        dog_team = away_team if fav_side == "home" else home_team
+        return (f'<span>RL: {fav_team} −{rl_line:.1f} '
+                f'{bits["rl_fav_cover"]:.0%} · '
+                f'{dog_team} +{rl_line:.1f} '
+                f'{bits["rl_dog_cover"]:.0%}{push_note}'
+                f'{selected_note}</span>')
     if bits.get("rl_home") is None or bits.get("rl_away") is None:
         return f'<span>RL: n/a</span>'
-    push_note = (f' ({bits["rl_push"]:.0%} push)'
-                 if (bits.get("rl_push") or 0) > 0.005 else "")
     return (f'<span>RL: {home_team} −{rl_line:.1f} '
             f'{bits["rl_home"]:.0%} · '
             f'{away_team} +{rl_line:.1f} {bits["rl_away"]:.0%}{push_note}'
-            f' (line selected{selected_note})</span>')
+            f'{selected_note}</span>')
 
 
 def _score_side(num, abbr: str, is_winner: bool) -> str:
@@ -1015,8 +1179,14 @@ def main() -> None:
         for col, (_, g) in zip(cols, filtered.iloc[i : i + 2].iterrows()):
             with col:
                 gid = str(g.get("game_id", ""))
+                # Run-line display anchor: the moneyline favorite (never the
+                # underdog on the −L side); coin flips anchor home.
+                rl_fav_home = _card_fav_home(g)
                 # Model line first (assigned), then the per-card selectors.
                 model_bits = diag.run_engine_card_bits(gid, slate_map)
+                if model_bits is not None:
+                    model_bits = _orient_rl_bits(
+                        model_bits, slate_map.get(gid), rl_fav_home)
                 if model_bits and model_bits.get("has_grid"):
                     model_line = model_bits["total_line"]
                     sel_line = resolve_totals_line(gid, model_line)
@@ -1037,17 +1207,23 @@ def main() -> None:
                         st.selectbox(
                             "Run line", diag.RUN_LINE_GRID_FULL,
                             index=diag.RUN_LINE_GRID_FULL.index(sel_rl),
-                            format_func=lambda v: (
-                                f"−{v:.1f}"
-                                + ("" if v in _verified else " (unverified)")),
+                            format_func=lambda v: f"±{v:.1f}",
                             key=f"rl_line_{gid}",
                             label_visibility="collapsed",
-                            help=("Run line to price this game at — "
-                                  "defaults to ±1.5; alternates are gated "
-                                  "on the committed calibration record "
-                                  "(unverified lines render as such)."))
+                            help=(f"Run-line pair magnitude — the card shows "
+                                  "the pair anchored to the moneyline "
+                                  "favorite (the −1.5 side is the favorite, "
+                                  "never the underdog). Defaults to ±1.5. "
+                                  f"{len(_verified)}/"
+                                  f"{len(diag.RUN_LINE_GRID_FULL)} grid lines "
+                                  "are cleared by the committed calibration "
+                                  "record; the rest are selectable but not "
+                                  "yet marked verified (kept here, not on "
+                                  "the option label)."))
                     re_bits = diag.run_engine_card_bits(
                         gid, slate_map, line=sel_line, rl_line=sel_rl)
+                    re_bits = _orient_rl_bits(
+                        re_bits, slate_map.get(gid), rl_fav_home)
                 else:
                     re_bits = model_bits
                 st.markdown(_card_html(g, re_bits), unsafe_allow_html=True)
