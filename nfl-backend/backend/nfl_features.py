@@ -635,6 +635,382 @@ def _compose_roster_candidates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ---------------------------------------------------------------------------
+# Tier-5 (v7, PLAYER-LEVEL) expected-QB-starter identity candidates -
+# composed but UNREGISTERED (absent from FEATURE_COLUMNS; admission only by
+# a sealed-2025 ablation verdict - the Tier-1 rule). First player-level
+# expansion (2026-09-02).
+#
+# WHY THIS FAMILY: the served 12-pool trails TEAM-level strength (ewm_ypp /
+# ewm_net_pts / pace ...), which is stale in QB-change games (~10-15% of
+# games) - those windows describe the OTHER quarterback who started the
+# team's prior games. The team-level QB-EPA composite was already rejected
+# (ewm_qb_epa_play_diff |r| 0.8055 with ewm_ypp_diff - corr-pair twin
+# verdict, DON'T ADOPT, cd3c26b). This family tests starter-IDENTITY
+# conditioning instead - a different hypothesis (per-game player-state
+# priors, not another trailing team aggregate).
+#
+# EXPECTED STARTER = the team's published QB1 from the nflverse depth chart
+# as of BEFORE the game's kickoff (never the pbp/schedule ACTUAL starter of
+# the target game - that is post-game truth and would leak the target):
+#   - seasons with weekly charts (nflverse parsed files, 2001-2024): the QB
+#     row with ``depth_team == 1`` for the game's (season, week). The chart
+#     is published mid-week pre-game, so it is pre-kickoff by construction.
+#   - seasons without weekly charts (nflverse publishes only dated rolling
+#     snapshots from 2025 on): the QB row with ``pos_abb == QB`` and
+#     ``pos_rank == 1`` from the LATEST snapshot whose ``dt`` (UTC) is
+#     STRICTLY before the game's kickoff (UTC) - an exact pre-cutoff state.
+# The ACTUAL starter (schedule home_qb_id/away_qb_id) enters ONLY as
+# strictly-prior facts: the team's prior-game starter, and the trailing
+# starts / EPA counts used by the skill fallback. Same per-team
+# chronological discipline as the 12-pool ladder; nothing below ever reads
+# the target game's own actual starter to build its value.
+#
+# qb1_skill_diff        - expected starter's QB EPA/play with a fallback
+#       structure (deliberately NOT separate season/last-5 columns: new
+#       starters have neither a full season nor 5 starts): current-season
+#       mean over the starter's >= QB1_MIN_STARTS_CURRENT_SEASON starts
+#       (strictly prior) -> the starter's prior-season (S-1) mean over his
+#       starts (any team) -> QB1_REPLACEMENT_EPA_PLAY (league-average
+#       prior, ~0 by construction of nflverse qb_epa). Home - away.
+# qb1_continuity_diff   - expected starter's prior starts with this team
+#       (strictly prior, capped at QB1_CONTINUITY_CAP) - system-familiarity
+#       prior, defined even with zero current-season EPA. Home - away.
+# qb1_change_diff       - flag: expected starter != team's prior-game
+#       actual starter (strictly prior), in {0, 1} per side; home - away
+#       in {-1, 0, 1}. THE conditioning variable for the Tier-5 decision
+#       surface (the pooled/sealed marginal averages are dilution-heavy).
+# qb1_primary_out_diff  - flag: team's primary QB (prior-season starts
+#       leader) is NOT the expected starter this week, per side; home - away
+#       in {-1, 0, 1} - the directional "lost star" signal.
+#
+# Coverage is verified in the ablation record (target: >= 95% in-frame per
+# column, as with every candidate family); corr vs the 12-pool is recorded
+# as DIAGNOSTICS only - the corr-pair admission gate is retired (2026-09-02)
+# and must not be reintroduced as a filter.
+# ---------------------------------------------------------------------------
+TIER5_QB_FEATURES = [
+    "qb1_skill_diff",
+    "qb1_continuity_diff",
+    "qb1_change_diff",
+    "qb1_primary_out_diff",
+]
+
+# Skill fallback chain thresholds / constants.
+QB1_MIN_STARTS_CURRENT_SEASON = 4    # >= this many prior starts -> season EPA
+QB1_REPLACEMENT_EPA_PLAY = 0.0        # league-average prior (qb_epa ~ centered)
+QB1_CONTINUITY_CAP = 16               # a full season of starts saturates familiarity
+
+# nflverse depth-chart keying (see the resolver helpers below): weekly parsed
+# charts mark the starter with ``depth_team == 1``; rolling snapshots mark it
+# with ``pos_abb == QB`` and ``pos_rank == 1``.
+_DC_DEPTH1 = 1
+_DC_QB_POS = "QB"
+
+# Excluded nflverse ``game_type`` values when building the decided long frame
+# (preseason / bye-week pseudo-games must never act as "prior games" for a
+# team's starter sequence).
+_TIER5_EXCLUDED_GAME_TYPES = ("PRE", "SBBYE")
+
+
+def _parse_kickoff_et(row) -> pd.Timestamp | None:
+    """Kickoff as a naive-UTC Timestamp from gameday + gametime.
+
+    nflverse ``gametime`` is the scheduled ET kickoff; recent pulls are
+    24-hour ("13:00"), older feeds "1:00PM" - both are handled. A missing /
+    unparseable gametime falls back to noon ET on gameday (still pre-kickoff
+    for snapshot selection; never post-game).
+    """
+    gd = row.get("gameday")
+    if gd is None or pd.isna(gd):
+        return None
+    try:
+        day = pd.Timestamp(gd).normalize()
+    except Exception:
+        return None
+    gt = row.get("gametime")
+    hour, minute = 12, 0
+    if gt is not None and pd.notna(gt):
+        txt = str(gt).strip()
+        try:
+            t = txt.upper()
+            if "PM" in t or "AM" in t:
+                hhmm = t.replace("PM", "").replace("AM", "").strip()
+                hh, mm = (int(x) for x in hhmm.split(":"))
+                if "PM" in t and hh != 12:
+                    hh += 12
+                if "AM" in t and hh == 12:
+                    hh = 0
+            else:
+                hh, mm = (int(x) for x in txt.split(":"))
+            hour, minute = hh, mm
+        except Exception:
+            hour, minute = 12, 0
+    try:
+        return (day.replace(hour=hour, minute=minute)
+                .tz_localize("America/New_York").tz_convert("UTC")
+                .tz_localize(None))
+    except Exception:
+        return day.replace(hour=12).tz_localize("America/New_York")
+
+
+def _dc_qb1_weekly(weekly: pd.DataFrame | None) -> dict:
+    """(season, week, team) -> gsis_id of the depth-chart QB1.
+
+    Weekly parsed charts (2001-2024): QB1 = the QB row with
+    ``depth_team == 1`` for the (season, week, team). Duplicate QB1 cells
+    (a chart quirk) resolve deterministically to the row that sorts first by
+    gsis_id - never fabricated.
+    """
+    out: dict = {}
+    if weekly is None:
+        return out
+    team_col = ("team" if "team" in weekly.columns else
+                ("club_code" if "club_code" in weekly.columns else None))
+    if team_col is None or not {"season", "week", "gsis_id", "position"
+                                }.issubset(weekly.columns):
+        return out
+    w = weekly.copy()
+    w = w[w["position"].astype(str).str.upper() == _DC_QB_POS]
+    if "depth_team" not in w.columns:
+        return out
+    w = w[pd.to_numeric(w["depth_team"], errors="coerce") == _DC_DEPTH1]
+    w = w.dropna(subset=["season", "week", team_col, "gsis_id"])
+    w["_team"] = w[team_col].astype(str).str.strip().str.upper()
+    w = w.sort_values("gsis_id").drop_duplicates(
+        ["season", "week", "_team"], keep="first")
+    for r in w[["season", "week", "_team", "gsis_id"]].itertuples(
+            index=False, name=None):
+        out[(int(r[0]), float(r[1]), r[2])] = r[3]
+    return out
+
+
+def _dc_qb1_snapshots(snapshots: pd.DataFrame | None) -> dict:
+    """team -> sorted [(dt_utc_naive, gsis_id)] QB1 snapshots (dt ascending).
+
+    Rolling snapshots (2025+): QB1 = the row with ``pos_abb == QB`` and
+    ``pos_rank == 1``; the per-(team, dt) cell is unique in the real data
+    (verified: 0 multi-QB1 cells across the 2025-2026 feed); a duplicate
+    cell resolves to the first row by gsis_id defensively.
+    """
+    out: dict[str, list[tuple[pd.Timestamp, str]]] = {}
+    if snapshots is None or not {"team", "dt", "gsis_id"}.issubset(
+            snapshots.columns):
+        return out
+    s = snapshots.copy()
+    if "pos_abb" in s.columns:
+        s = s[s["pos_abb"].astype(str).str.upper() == _DC_QB_POS]
+    if "pos_rank" in s.columns:
+        s = s[pd.to_numeric(s["pos_rank"], errors="coerce") == 1]
+    s = s.dropna(subset=["dt", "team", "gsis_id"])
+    s["_dt"] = pd.to_datetime(s["dt"], errors="coerce", utc=True).dt.tz_localize(None)
+    s = s.dropna(subset=["_dt"])
+    s["team"] = s["team"].astype(str).str.strip().str.upper()
+    s = s.sort_values(["team", "_dt", "gsis_id"]).drop_duplicates(
+        ["team", "_dt"], keep="first")
+    for team, sub in s.groupby("team"):
+        out[team] = sorted(
+            [(ts, gid) for ts, gid in zip(sub["_dt"], sub["gsis_id"])],
+            key=lambda x: x[0])
+    return out
+
+
+def _expected_starter_for(team: str, season: int, week, kickoff_utc,
+                          weekly_map: dict, snap_map: dict) -> str | None:
+    """The team's published QB1 before this game (gsis_id), else None.
+
+    Weekly charts first (by season/week when the chart exists for the team),
+    then the rolling-snapshot state strictly before kickoff."""
+    team = str(team).strip().upper()
+    if weekly_map:
+        gid = weekly_map.get((int(season), float(week), team))
+        if gid is not None:
+            return gid
+    if snap_map and kickoff_utc is not None and team in snap_map:
+        prior = [gid for ts, gid in snap_map[team] if ts < kickoff_utc]
+        if prior:
+            return prior[-1]
+    return None
+
+
+def compose_tier5_qb_features(df: pd.DataFrame,
+                              schedule: pd.DataFrame | None = None,
+                              pbp: pd.DataFrame | None = None,
+                              depth_weekly: pd.DataFrame | None = None,
+                              depth_snapshots: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach the 4 Tier-5 QB-starter identity candidates to a built frame.
+
+    ``df`` is ``build_features`` output (game_id, season, week, gameday,
+    teams, scores). ``schedule`` carries the decided rows + the schedule
+    ``home_qb_id``/``away_qb_id`` (the RECORDED actual starter, used ONLY
+    as strictly-prior facts); ``pbp`` supplies per-pass ``qb_epa`` for the
+    skill fallback; ``depth_weekly`` / ``depth_snapshots`` are the two
+    nflverse depth-chart shapes (see above - the compose seam stays pure and
+    network-free; the harness loads them).
+
+    Every candidate value is a per-(game, team) state computed by one
+    chronological pass over the decided timeline (warmup 2018 included, so
+    the first 2019 games have real priors): reads strictly-prior counters
+    FIRST, then updates them with the current row - future rows can never
+    touch an earlier value. Candidates are home - away via the same
+    ``_home_minus_away`` seam as the 12-pool. Rows whose expected starter
+    cannot be resolved (no weekly chart AND no snapshot before kickoff) get
+    NaN on all four candidates - never fabricated.
+    """
+    for c in TIER5_QB_FEATURES:
+        df[c] = np.nan
+    need = {"game_id", "season", "week", "gameday", "home_team", "away_team",
+            "home_score", "away_score"}
+    if schedule is None or not need.issubset(df.columns) or "game_id" not in \
+            schedule.columns:
+        return df
+    sched = schedule.copy()
+    for c in ("home_score", "away_score"):
+        if c in sched.columns:
+            sched[c] = pd.to_numeric(sched[c], errors="coerce")
+    sched = sched[sched["home_score"].notna() & sched["away_score"].notna()]
+    if "game_type" in sched.columns:
+        sched = sched[~sched["game_type"].astype(str).isin(
+            list(_TIER5_EXCLUDED_GAME_TYPES))]
+    if "gameday" not in sched.columns or "home_qb_id" not in sched.columns:
+        return df
+    sched["gameday"] = pd.to_datetime(sched["gameday"], errors="coerce")
+
+    # ---- long per-(game, team) decided frame with the ACTUAL starter ----
+    parts = []
+    for team_col, opp_col, qb_col, is_home in (
+            ("home_team", "away_team", "home_qb_id", True),
+            ("away_team", "home_team", "away_qb_id", False)):
+        if qb_col not in sched.columns:
+            continue
+        sub = pd.DataFrame({
+            "game_id": sched["game_id"], "season": sched["season"],
+            "week": sched["week"], "gameday": sched["gameday"],
+            "team": sched[team_col], "opponent": sched[opp_col],
+            "is_home": is_home,
+            "actual": sched[qb_col].astype(str).str.strip(),
+            "kickoff_utc": sched.apply(_parse_kickoff_et, axis=1),
+        })
+        parts.append(sub)
+    if not parts:
+        return df
+    long = pd.concat(parts, ignore_index=True)
+    long = long[long["actual"].notna() & (long["actual"] != "")]
+    long = long.sort_values(["team", "gameday", "game_id", "is_home"],
+                            kind="mergesort").reset_index(drop=True)
+    long["act_id"] = long["actual"]
+    long["gid"] = long["game_id"]
+
+    # ---- per-(game, passer) QB EPA/play from pbp (for the skill axis) ----
+    game_epa: dict[tuple, float] = {}
+    if pbp is not None and {"game_id", "passer_id", "qb_epa"}.issubset(
+            pbp.columns):
+        p = pbp.dropna(subset=["passer_id", "qb_epa"])
+        if not p.empty:
+            g = p.groupby(["game_id", "passer_id"])["qb_epa"].agg(
+                ["sum", "count"]).reset_index()
+            for r in g.itertuples(index=False):
+                if r.count > 0:
+                    game_epa[(r.game_id, r.passer_id)] = float(r.sum / r.count)
+    long["epa_v"] = long.apply(
+        lambda r: game_epa.get((r["gid"], r["act_id"]), np.nan), axis=1)
+
+    # ---- expected-starter maps (published pre-game, both chart shapes) ----
+    weekly_map = _dc_qb1_weekly(depth_weekly)
+    snap_map = _dc_qb1_snapshots(depth_snapshots)
+    long["exp_id"] = long.apply(
+        lambda r: _expected_starter_for(r["team"], int(r["season"]),
+                                        r["week"], r["kickoff_utc"],
+                                        weekly_map, snap_map), axis=1)
+
+    # ---- prior-season facts (whole past season -> strictly prior by
+    # construction; needed for the skill fallback and primary-out) ----
+    qb_season_epa: dict[tuple[str, int], tuple[float, int]] = {}
+    epa_rows = long.dropna(subset=["epa_v"])
+    if not epa_rows.empty:
+        for (qb, season), sub in epa_rows.groupby(["act_id", "season"]):
+            qb_season_epa[(str(qb), int(season))] = (float(sub["epa_v"].mean()),
+                                                     int(len(sub)))
+    primaries: dict[tuple[str, int], str] = {}
+    st = long.groupby(["team", "season", "act_id"]).size().reset_index(
+        name="n")
+    last = long.sort_values("gameday").drop_duplicates(
+        ["team", "season", "act_id"], keep="last")
+    st = st.merge(last[["team", "season", "act_id", "gameday"]],
+                  on=["team", "season", "act_id"])
+    for (team, season), sub in st.groupby(["team", "season"]):
+        best = sub.sort_values(["n", "gameday"], ascending=[False, False])
+        primaries[(str(team).strip().upper(), int(season))] = best.iloc[0]["act_id"]
+
+    # ---- one chronological pass: read prior state, then update -------
+    target_ids = set(df["game_id"])
+    prev_actual: dict[str, str | None] = {}
+    total_starts: dict[str, dict[str, int]] = {}
+    season_starts: dict[tuple[str, int], dict[str, int]] = {}
+    season_epa: dict[tuple[str, int], dict[str, tuple[float, int]]] = {}
+    skill: dict[tuple, float] = {}
+    continuity: dict[tuple, float] = {}
+    change: dict[tuple, float] = {}
+    primary_out: dict[tuple, float] = {}
+
+    for r in long.itertuples(index=False):
+        team = str(r.team).strip().upper()
+        season = int(r.season)
+        key = (r.game_id, team)
+        expected = r.exp_id
+        actual = r.act_id
+        is_target = r.game_id in target_ids
+
+        if is_target and expected is not None:
+            # continuity: prior starts of the EXPECTED starter with this team
+            cont = total_starts.get(team, {}).get(expected, 0)
+            continuity[key] = float(min(cont, QB1_CONTINUITY_CAP))
+            # skill fallback chain
+            sdict = season_starts.get((team, season), {})
+            n_cur = sdict.get(expected, 0)
+            if n_cur >= QB1_MIN_STARTS_CURRENT_SEASON:
+                s = season_epa.get((team, season), {}).get(expected)
+                skill[key] = float(s[0] / s[1]) if s and s[1] else np.nan
+            else:
+                prior = qb_season_epa.get((expected, season - 1))
+                skill[key] = (float(prior[0]) if prior is not None
+                              else QB1_REPLACEMENT_EPA_PLAY)
+            # change vs the team's prior-game ACTUAL starter
+            prev = prev_actual.get(team)
+            change[key] = (0.0 if prev == expected
+                           else (1.0 if prev is not None else np.nan))
+            # primary out (prior-season starts leader != expected)
+            prim = primaries.get((team, season - 1))
+            primary_out[key] = (0.0 if prim == expected
+                                else (1.0 if prim is not None else np.nan))
+
+        # ---- update strictly-prior state with this row ----------------
+        prev_actual[team] = actual
+        tdict = total_starts.setdefault(team, {})
+        tdict[actual] = tdict.get(actual, 0) + 1
+        sdict = season_starts.setdefault((team, season), {})
+        sdict[actual] = sdict.get(actual, 0) + 1
+        epa_v = r.epa_v
+        if pd.notna(epa_v):
+            edict = season_epa.setdefault((team, season), {})
+            s, n = edict.get(actual, (0.0, 0))
+            edict[actual] = (s + float(epa_v), n + 1)
+
+    # ---- home - away over the target games -----------------------------
+    ladder = long[long["game_id"].isin(target_ids)].copy()
+    gids = df["game_id"]
+    for feat, store in (("qb1_skill_diff", skill),
+                        ("qb1_continuity_diff", continuity),
+                        ("qb1_change_diff", change),
+                        ("qb1_primary_out_diff", primary_out)):
+        ladder["t5v"] = ladder.apply(
+            lambda r: store.get((r["game_id"], str(r["team"]).strip().upper()),
+                                np.nan), axis=1)
+        df[feat] = _home_minus_away(ladder, gids, "t5v")
+        ladder = ladder.drop(columns=["t5v"])
+    return df
+
+
 def team_events(game: pd.DataFrame) -> pd.DataFrame:
     """Long-form one-row-per-(team,game) view used by all trailing features.
 
