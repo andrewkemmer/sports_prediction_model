@@ -71,8 +71,14 @@ next_note = mon.get("next_retrain_note", "")
 if "tonight" not in next_note and days_until <= 1:
     next_note = f"{next_note} — tonight" if next_note else "tonight"
 last_note = mon.get("last_retrained_note", "Model healthy")
-if "ago" not in last_note:
-    last_note = f"{last_note} — {days_since} days ago"
+# Subtext must never contradict the date: with a same-day persist, days_since
+# is 0 -> "today" (not "0 days ago"); a retrain-every-run pipeline persists
+# the served ensemble on every run, so last_retrained == the artifact date.
+if "ago" not in last_note and "today" not in last_note:
+    suffix = ("today" if days_since == 0 else
+              (f"{days_since} day ago" if days_since == 1 else
+               f"{days_since} days ago"))
+    last_note = f"{last_note} — {suffix}"
 
 n_warn = sum(1 for a in drift_alerts if a.get("status") == "WARN")
 n_alert = sum(1 for a in drift_alerts if a.get("status") == "ALERT")

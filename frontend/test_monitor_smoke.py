@@ -75,11 +75,13 @@ def _monitor_record() -> dict:
         {"date": "2026-09-%02d" % d, "brier": round(0.205 + 0.002 * d, 4)}
         for d in range(1, 16)
     ]
+    # Retrain-every-run semantics: last == the artifact date; next == +1 day
+    # (the corrected MLB-shaped cadence, constant = 1, not the old +7).
     return {
         "last_retrained": "2026-08-31",
         "last_retrained_note": "Fresh model trained this run (sealed gate: ADOPT)",
-        "next_retrain": "2026-09-07",
-        "next_retrain_note": "retrain scheduled 7 days out",
+        "next_retrain": "2026-09-01",
+        "next_retrain_note": "next expected run in 1 day(s) (retrains every run)",
         "upset_note": "Model upset rate over the decided pool — 1,392 games scored; "
                       "see Calibration for the upset strip.",
         "feature_drift": drift,
@@ -203,6 +205,16 @@ def run() -> int:
             problems.append("drift matrix missing a formatted model-weight cell")
         if "Exponentially weighted" not in text and "point-in-time rating gap" not in text:
             problems.append("drift matrix missing the NFL feature description label")
+
+        # (3b) retrain cards must never contradict: same-day persist renders
+        #      "today" (not "0 days ago" / stale "7 days ago") and a +1-day
+        #      next-retrain fires the "tonight" subtext.
+        if "today" not in text:
+            problems.append("LAST RETRAIN subtext missing the same-day 'today' suffix")
+        if "0 days ago" in text or "7 days ago" in text:
+            problems.append("LAST RETRAIN subtext shows a stale days-ago count")
+        if "tonight" not in text:
+            problems.append("NEXT RETRAIN subtext missing the 'tonight' suffix for +1 day")
 
         # (4) feature coverage panel (picks up the STARVED row)
         if "Feature Coverage (non-null / measured)" not in text:

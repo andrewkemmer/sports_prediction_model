@@ -60,7 +60,18 @@ SP_K9_WINDOW = 30  # Games
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
+# Walk-forward FOLD cadence: fold boundaries every N days (weekly on the
+# ~7,018-game frame -> ~74 folds). This is GEOMETRY, not a retrain schedule —
+# the pipeline retrains the ensemble on EVERY run (no per-day dedup; the
+# run-line/run-engine refits per run too). Do not repurpose this constant as
+# a monitoring heuristic; the monitor's NEXT RETRAIN card uses
+# NEXT_RUN_HEURISTIC_DAYS below.
 RETRAIN_CADENCE_DAYS = 7
+# Model-monitor "next expected run" heuristic for the NEXT RETRAIN card:
+# retrain-every-run decision (2026-09-02) means the next expected run lands
+# ~1 day after this run's emission. NOT scheduler-backed (no cron/next_run
+# mechanism exists in the repo) — it drives card text only.
+NEXT_RUN_HEURISTIC_DAYS = 1
 # Walk-forward validation folds below this many games are skipped entirely:
 # a handful of games (postseason tails, offseason gaps) produce wild AUC/Brier
 # swings (e.g. AUC 0.18 on 11 games) that pollute pooled metrics and the

@@ -33,6 +33,7 @@ from config import (
     DATE_READABLE_FMT,
     MIN_VAL_FOLD_GAMES,
     MODEL_MONITOR,
+    NEXT_RUN_HEURISTIC_DAYS,
     POWER_RANKINGS,
     RETRAIN_CADENCE_DAYS,
     TODAYS_GAMES,
@@ -963,7 +964,11 @@ def _model_monitor_json(
         "date": target_date_str,
         "version": version,
         "last_retrained": last_retrained or datetime.now().strftime("%Y-%m-%d"),
-        "next_retrain": (datetime.now() + timedelta(days=RETRAIN_CADENCE_DAYS)).strftime("%Y-%m-%d"),
+        # NEXT RETRAIN = the next EXPECTED run per the retrain-every-run
+        # decision (NEXT_RUN_HEURISTIC_DAYS=1 -> tomorrow), NOT a scheduler
+        # (no cron/next_run exists). RETRAIN_CADENCE_DAYS is the walk-forward
+        # FOLD cadence and must never drive this card.
+        "next_retrain": (datetime.now() + timedelta(days=NEXT_RUN_HEURISTIC_DAYS)).strftime("%Y-%m-%d"),
         "metrics": metrics,
         "drift_summary": {
             "warnings": n_warns,

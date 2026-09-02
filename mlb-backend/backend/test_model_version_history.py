@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
 
+import config
 import pipeline as pl
 from training import (
     VERSION_HISTORY_CAP,
@@ -131,6 +133,58 @@ class TestVersionHistory(unittest.TestCase):
         path = pl._model_monitor_json({"auc": 0.55}, pd.DataFrame(), "20260825")
         mon = json.loads(Path(path).read_text())
         self.assertEqual(mon["version_history"], legacy)
+
+
+class TestRetrainCards(unittest.TestCase):
+    """NEXT/LAST RETRAIN card truthfulness on the corrected cadence.
+
+    Retrain-every-run decision (2026-09-02): the ensemble is persisted every
+    pipeline run, so LAST RETRAIN = this run's persist timestamp (today) and
+    NEXT RETRAIN = the next expected run (+NEXT_RUN_HEURISTIC_DAYS = 1 day),
+    NOT scheduler-backed. RETRAIN_CADENCE_DAYS stays 7 — it is the
+    walk-forward FOLD cadence (weekly ~74 folds), never the card heuristic;
+    this test pins that split so the constant can't be repurposed silently.
+    """
+
+    def setUp(self):
+        # Same hermetic data-delivery patcher as TestVersionHistory so the
+        # emitter never touches the repo's committed data_delivery dir.
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data_dir = Path(self._tmp.name)
+        for mod_name in ("training", "pipeline"):
+            patcher = patch(f"{mod_name}.DATA_DELIVERY_DIR", self.data_dir)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _emit(self, last_retrained=None):
+        path = pl._model_monitor_json(
+            {"auc": 0.55}, pd.DataFrame(), "20260825",
+            last_retrained=last_retrained)
+        return json.loads(Path(path).read_text())
+
+    def test_constants_split(self):
+        # Fold geometry (weekly) vs the next-run heuristic (daily) are
+        # deliberately different constants with different jobs.
+        self.assertEqual(config.RETRAIN_CADENCE_DAYS, 7)
+        self.assertEqual(config.NEXT_RUN_HEURISTIC_DAYS, 1)
+
+    def test_same_day_run_emits_today_plus_one(self):
+        mon = self._emit()
+        today = datetime.now().strftime("%Y-%m-%d")
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        # LAST RETRAIN: persist timestamp of the served ensemble = this run's
+        # date (never a stale 7-day-old value when unpassed).
+        self.assertEqual(mon["last_retrained"], today)
+        # NEXT RETRAIN: next expected run = now + cadence (1) -> tomorrow.
+        self.assertEqual(mon["next_retrain"], tomorrow)
+        self.assertNotEqual(tomorrow, today)
+
+    def test_explicit_last_retrained_respected(self):
+        mon = self._emit(last_retrained="2026-08-20")
+        self.assertEqual(mon["last_retrained"], "2026-08-20")
+        self.assertEqual(mon["next_retrain"],
+                         (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"))
 
 
 if __name__ == "__main__":
