@@ -1180,6 +1180,16 @@ def run_walk_forward(feats: pd.DataFrame,
     sealed Platt map is fit only on the pooled pre-holdout OOF (2021-2024),
     never 2025.
     """
+    # Reset the persistent blend-weight global BEFORE the fold loop: the
+    # fold-loop blend must always use the static ENSEMBLE_WEIGHTS priors
+    # (adaptive weights cannot exist until all OOF folds are scored, so a
+    # later walk in the same process would otherwise silently inherit the
+    # PREVIOUS walk's adaptive weights and change the pooled surface - the
+    # first-walk vs later-walk A/B divergence seen across ablation arms).
+    # The global is re-populated below with THIS run's adaptive weights for
+    # downstream serving calls, so single-walk (production) behavior is
+    # unchanged.
+    _ADAPTIVE_WEIGHTS.clear()
     preq_all = feats[feats["season"].isin(TRAIN_SEASONS)].copy()
     sealed = feats[feats["season"] == SEALED_SEASON].copy()
 

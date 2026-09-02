@@ -37,6 +37,7 @@ from nfl_moneyline import (  # noqa: E402
     TRAIN_SEASONS,
     V1_FEATURES,
     UNK_TEAM_ID,
+    _ADAPTIVE_WEIGHTS,
     _member_weights,
     adopt_decision,
     auc,
@@ -50,6 +51,7 @@ from nfl_moneyline import (  # noqa: E402
     logloss,
     platt_fit,
     platt_predict,
+    run_walk_forward,
     train_ensemble,
 )
 
@@ -95,6 +97,54 @@ def _synth_fold_frame(seasons=None, n_games_per_week=8):
                 })
                 gid += 1
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Adaptive-weights fold-blend reset (first-walk vs later-walk A/B state)
+# ---------------------------------------------------------------------------
+class TestAdaptiveWeightsReset(unittest.TestCase):
+    """run_walk_forward must never inherit a prior walk's adaptive weights.
+
+    Regression pin for the first-vs-later-walk divergence found in the
+    Tier-5 A2 validation: ensemble_predict's fold-loop blend reads the
+    module-global _ADAPTIVE_WEIGHTS, which run_walk_forward only writes at
+    the END of a walk. A later walk in the same process therefore blended
+    with the PREVIOUS arm's adaptive weights instead of the static
+    ENSEMBLE_WEIGHTS priors ("before the first OOF cycle"), silently
+    changing its pooled surface (e.g. the 12-pool measured 0.6312 first-
+    walk vs 0.6201 second-walk on identical data). The entry reset makes
+    every walk self-contained; two consecutive walks are byte-identical
+    post-fix.
+    """
+
+    def setUp(self):
+        self._saved = dict(_ADAPTIVE_WEIGHTS)
+
+    def tearDown(self):
+        _ADAPTIVE_WEIGHTS.clear()
+        _ADAPTIVE_WEIGHTS.update(self._saved)
+
+    def test_global_cleared_at_walk_entry_even_on_early_failure(self):
+        _ADAPTIVE_WEIGHTS.clear()
+        _ADAPTIVE_WEIGHTS.update({"xgboost": 0.45, "lightgbm": 0.1375})
+        with self.assertRaises(Exception):
+            # Empty frame fails before any fold training; the reset is the
+            # first statement of the walk, so the global must already be
+            # cleared when the frame access raises.
+            run_walk_forward(pd.DataFrame())
+        self.assertEqual(_ADAPTIVE_WEIGHTS, {})
+
+    def test_global_is_the_blend_source_so_the_reset_matters(self):
+        names = ["xgboost", "lightgbm", "logistic", "randomforest", "mlp"]
+        _ADAPTIVE_WEIGHTS.clear()
+        w_static = _member_weights(names, adaptive=_ADAPTIVE_WEIGHTS)
+        _ADAPTIVE_WEIGHTS.update({"xgboost": 1.0})
+        w_adapted = _member_weights(names, adaptive=_ADAPTIVE_WEIGHTS)
+        # A populated global changes the blend materially vs the static
+        # priors - which is exactly why a stale leftover would corrupt a
+        # later walk's fold-loop blend.
+        self.assertNotEqual(w_static["xgboost"], w_adapted["xgboost"])
+        self.assertGreater(w_adapted["xgboost"], w_static["xgboost"])
 
 
 # ---------------------------------------------------------------------------
