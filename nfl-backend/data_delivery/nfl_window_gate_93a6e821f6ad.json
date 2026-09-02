@@ -1,0 +1,632 @@
+{
+  "created_utc": "2026-09-01T23:54:02.010064Z",
+  "method": "within-run incumbent gate (nfl_moneyline.adopt_decision, df1ec8c): adopt = ll_ok and auc_ok and ece_ok on BOTH pooled and sealed vs the incumbent bundle re-predicted on the SAME folds + sealed window of this pull; ll_ok = cand <= inc + TOL_LL, auc_ok = cand >= inc - TOL_AUC, ece_ok = cand <= inc + ECE_TOL \u2014 each blocking, nothing else gates",
+  "frame_sha256": "93a6e821f6ad",
+  "tol": {
+    "ll": 0.012,
+    "auc": 0.016,
+    "ece": 0.01
+  },
+  "candidates": {
+    "W2016": 2016,
+    "W2014": 2014
+  },
+  "incumbent": {
+    "bundle": "ensemble_latest.joblib",
+    "features": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ],
+    "metadata": {
+      "created_utc": "2026-09-01T21:22:45.587202Z",
+      "train_seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "sealed_season": 2025,
+      "ece_bins": 10,
+      "ece_tol": 0.01
+    }
+  },
+  "arms": {
+    "W2016": {
+      "boundary": 2016,
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "decided_rows": 3028,
+      "frame_sha256": "93a6e821f6ad",
+      "fold_geometry": {
+        "train_seasons": [
+          2016,
+          2017,
+          2018,
+          2019,
+          2020,
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "val_seasons": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "sealed_season": 2025,
+        "fold_count": 88,
+        "pooled_oof_games": 1107,
+        "sealed_games": 285,
+        "preq_weeks": [
+          "2021-09-06",
+          "2021-09-13",
+          "2021-09-20",
+          "2021-09-27",
+          "2021-10-04",
+          "2021-10-11",
+          "2021-10-18",
+          "2021-10-25",
+          "2021-11-01",
+          "2021-11-08",
+          "2021-11-15",
+          "2021-11-22",
+          "2021-11-29",
+          "2021-12-06",
+          "2021-12-13",
+          "2021-12-20",
+          "2021-12-27",
+          "2022-01-03",
+          "2022-01-10",
+          "2022-01-17",
+          "2022-01-24",
+          "2022-02-07",
+          "2022-09-05",
+          "2022-09-12",
+          "2022-09-19",
+          "2022-09-26",
+          "2022-10-03",
+          "2022-10-10",
+          "2022-10-17",
+          "2022-10-24",
+          "2022-10-31",
+          "2022-11-07",
+          "2022-11-14",
+          "2022-11-21",
+          "2022-11-28",
+          "2022-12-05",
+          "2022-12-12",
+          "2022-12-19",
+          "2022-12-26",
+          "2023-01-02",
+          "2023-01-09",
+          "2023-01-16",
+          "2023-01-23",
+          "2023-02-06",
+          "2023-09-04",
+          "2023-09-11",
+          "2023-09-18",
+          "2023-09-25",
+          "2023-10-02",
+          "2023-10-09",
+          "2023-10-16",
+          "2023-10-23",
+          "2023-10-30",
+          "2023-11-06",
+          "2023-11-13",
+          "2023-11-20",
+          "2023-11-27",
+          "2023-12-04",
+          "2023-12-11",
+          "2023-12-18",
+          "2023-12-25",
+          "2024-01-01",
+          "2024-01-08",
+          "2024-01-15",
+          "2024-01-22",
+          "2024-02-05",
+          "2024-09-02",
+          "2024-09-09",
+          "2024-09-16",
+          "2024-09-23",
+          "2024-09-30",
+          "2024-10-07",
+          "2024-10-14",
+          "2024-10-21",
+          "2024-10-28",
+          "2024-11-04",
+          "2024-11-11",
+          "2024-11-18",
+          "2024-11-25",
+          "2024-12-02",
+          "2024-12-09",
+          "2024-12-16",
+          "2024-12-23",
+          "2024-12-30",
+          "2025-01-06",
+          "2025-01-13",
+          "2025-01-20",
+          "2025-02-03"
+        ]
+      },
+      "sealed_2025": {
+        "n": 285,
+        "constant_home_edge": {
+          "proba": 0.5488,
+          "logloss": 0.6914,
+          "auc": 0.5
+        },
+        "elo_logistic": {
+          "logloss": 0.653,
+          "auc": 0.6686
+        },
+        "model_raw": {
+          "logloss": 0.6273,
+          "auc": 0.6998
+        },
+        "model_platt": {
+          "logloss": 0.6336,
+          "auc": 0.6998,
+          "ece": 0.0541
+        },
+        "incumbent": {
+          "logloss": 0.6238,
+          "auc": 0.7093,
+          "ece": 0.0644
+        }
+      },
+      "pooled_preq_2021_2024": {
+        "n": 1107,
+        "fold_count": 88,
+        "constant_home_edge": {
+          "proba": 0.5488,
+          "logloss": 0.6881,
+          "auc": 0.5
+        },
+        "elo_logistic": {
+          "logloss": 0.6462,
+          "auc": 0.6761
+        },
+        "model_raw": {
+          "logloss": 0.6316,
+          "auc": 0.6912
+        },
+        "model_platt": {
+          "logloss": 0.6339,
+          "auc": 0.691,
+          "ece": 0.0378
+        },
+        "incumbent": {
+          "logloss": 0.6164,
+          "auc": 0.7127,
+          "ece": 0.0347
+        }
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1092,
+          "logloss": 0.6719,
+          "auc": 0.6476,
+          "ece": 0.0703,
+          "brier": 0.2373,
+          "logloss_calibrated": 0.6707,
+          "auc_calibrated": 0.6481,
+          "ece_calibrated": 0.0653
+        },
+        "logistic": {
+          "weight": 0.1846,
+          "logloss": 0.6393,
+          "auc": 0.6851,
+          "ece": 0.0481,
+          "brier": 0.2237,
+          "logloss_calibrated": 0.6414,
+          "auc_calibrated": 0.6856,
+          "ece_calibrated": 0.0427
+        },
+        "mlp": {
+          "weight": 0.1469,
+          "logloss": 0.6397,
+          "auc": 0.6816,
+          "ece": 0.0205,
+          "brier": 0.2241,
+          "logloss_calibrated": 0.6416,
+          "auc_calibrated": 0.6812,
+          "ece_calibrated": 0.0243
+        },
+        "randomforest": {
+          "weight": 0.1092,
+          "logloss": 0.6466,
+          "auc": 0.6737,
+          "ece": 0.0328,
+          "brier": 0.2268,
+          "logloss_calibrated": 0.6483,
+          "auc_calibrated": 0.6739,
+          "ece_calibrated": 0.0468
+        },
+        "xgboost": {
+          "weight": 0.4501,
+          "logloss": 0.6175,
+          "auc": 0.7188,
+          "ece": 0.0456,
+          "brier": 0.2144,
+          "logloss_calibrated": 0.6203,
+          "auc_calibrated": 0.7186,
+          "ece_calibrated": 0.0582
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6568,
+          "auc": 0.6736,
+          "ece": 0.0831,
+          "brier": 0.2314
+        },
+        "lightgbm": {
+          "logloss": 0.6444,
+          "auc": 0.6823,
+          "ece": 0.0559,
+          "brier": 0.226
+        },
+        "logistic": {
+          "logloss": 0.624,
+          "auc": 0.7008,
+          "ece": 0.0408,
+          "brier": 0.2182
+        },
+        "randomforest": {
+          "logloss": 0.621,
+          "auc": 0.7102,
+          "ece": 0.081,
+          "brier": 0.2165
+        },
+        "mlp": {
+          "logloss": 0.6236,
+          "auc": 0.7083,
+          "ece": 0.0554,
+          "brier": 0.2175
+        }
+      }
+    },
+    "W2014": {
+      "boundary": 2014,
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "travel_miles_diff",
+        "altitude_home",
+        "prime_time"
+      ],
+      "decided_rows": 3562,
+      "frame_sha256": "176f0df65088",
+      "fold_geometry": {
+        "train_seasons": [
+          2014,
+          2015,
+          2016,
+          2017,
+          2018,
+          2019,
+          2020,
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "val_seasons": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "sealed_season": 2025,
+        "fold_count": 88,
+        "pooled_oof_games": 1107,
+        "sealed_games": 285,
+        "preq_weeks": [
+          "2021-09-06",
+          "2021-09-13",
+          "2021-09-20",
+          "2021-09-27",
+          "2021-10-04",
+          "2021-10-11",
+          "2021-10-18",
+          "2021-10-25",
+          "2021-11-01",
+          "2021-11-08",
+          "2021-11-15",
+          "2021-11-22",
+          "2021-11-29",
+          "2021-12-06",
+          "2021-12-13",
+          "2021-12-20",
+          "2021-12-27",
+          "2022-01-03",
+          "2022-01-10",
+          "2022-01-17",
+          "2022-01-24",
+          "2022-02-07",
+          "2022-09-05",
+          "2022-09-12",
+          "2022-09-19",
+          "2022-09-26",
+          "2022-10-03",
+          "2022-10-10",
+          "2022-10-17",
+          "2022-10-24",
+          "2022-10-31",
+          "2022-11-07",
+          "2022-11-14",
+          "2022-11-21",
+          "2022-11-28",
+          "2022-12-05",
+          "2022-12-12",
+          "2022-12-19",
+          "2022-12-26",
+          "2023-01-02",
+          "2023-01-09",
+          "2023-01-16",
+          "2023-01-23",
+          "2023-02-06",
+          "2023-09-04",
+          "2023-09-11",
+          "2023-09-18",
+          "2023-09-25",
+          "2023-10-02",
+          "2023-10-09",
+          "2023-10-16",
+          "2023-10-23",
+          "2023-10-30",
+          "2023-11-06",
+          "2023-11-13",
+          "2023-11-20",
+          "2023-11-27",
+          "2023-12-04",
+          "2023-12-11",
+          "2023-12-18",
+          "2023-12-25",
+          "2024-01-01",
+          "2024-01-08",
+          "2024-01-15",
+          "2024-01-22",
+          "2024-02-05",
+          "2024-09-02",
+          "2024-09-09",
+          "2024-09-16",
+          "2024-09-23",
+          "2024-09-30",
+          "2024-10-07",
+          "2024-10-14",
+          "2024-10-21",
+          "2024-10-28",
+          "2024-11-04",
+          "2024-11-11",
+          "2024-11-18",
+          "2024-11-25",
+          "2024-12-02",
+          "2024-12-09",
+          "2024-12-16",
+          "2024-12-23",
+          "2024-12-30",
+          "2025-01-06",
+          "2025-01-13",
+          "2025-01-20",
+          "2025-02-03"
+        ]
+      },
+      "sealed_2025": {
+        "n": 285,
+        "constant_home_edge": {
+          "proba": 0.5496,
+          "logloss": 0.6915,
+          "auc": 0.5
+        },
+        "elo_logistic": {
+          "logloss": 0.653,
+          "auc": 0.6686
+        },
+        "model_raw": {
+          "logloss": 0.6227,
+          "auc": 0.7055
+        },
+        "model_platt": {
+          "logloss": 0.6299,
+          "auc": 0.7055,
+          "ece": 0.084
+        },
+        "incumbent": {
+          "logloss": 0.6237,
+          "auc": 0.7094,
+          "ece": 0.0645
+        }
+      },
+      "pooled_preq_2021_2024": {
+        "n": 1107,
+        "fold_count": 88,
+        "constant_home_edge": {
+          "proba": 0.5496,
+          "logloss": 0.6881,
+          "auc": 0.5
+        },
+        "elo_logistic": {
+          "logloss": 0.6459,
+          "auc": 0.6761
+        },
+        "model_raw": {
+          "logloss": 0.6291,
+          "auc": 0.6931
+        },
+        "model_platt": {
+          "logloss": 0.6314,
+          "auc": 0.6938,
+          "ece": 0.0278
+        },
+        "incumbent": {
+          "logloss": 0.6165,
+          "auc": 0.7127,
+          "ece": 0.035
+        }
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.0916,
+          "logloss": 0.6616,
+          "auc": 0.6583,
+          "ece": 0.0589,
+          "brier": 0.2334,
+          "logloss_calibrated": 0.6585,
+          "auc_calibrated": 0.6604,
+          "ece_calibrated": 0.0446
+        },
+        "logistic": {
+          "weight": 0.1564,
+          "logloss": 0.6398,
+          "auc": 0.6846,
+          "ece": 0.0452,
+          "brier": 0.2239,
+          "logloss_calibrated": 0.6409,
+          "auc_calibrated": 0.6862,
+          "ece_calibrated": 0.0496
+        },
+        "mlp": {
+          "weight": 0.2101,
+          "logloss": 0.6351,
+          "auc": 0.689,
+          "ece": 0.0224,
+          "brier": 0.2218,
+          "logloss_calibrated": 0.637,
+          "auc_calibrated": 0.6908,
+          "ece_calibrated": 0.039
+        },
+        "randomforest": {
+          "weight": 0.0919,
+          "logloss": 0.6435,
+          "auc": 0.6766,
+          "ece": 0.023,
+          "brier": 0.2257,
+          "logloss_calibrated": 0.6445,
+          "auc_calibrated": 0.6771,
+          "ece_calibrated": 0.0331
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6164,
+          "auc": 0.7169,
+          "ece": 0.0463,
+          "brier": 0.214,
+          "logloss_calibrated": 0.6206,
+          "auc_calibrated": 0.7189,
+          "ece_calibrated": 0.0603
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6507,
+          "auc": 0.6854,
+          "ece": 0.076,
+          "brier": 0.2287
+        },
+        "lightgbm": {
+          "logloss": 0.6295,
+          "auc": 0.7011,
+          "ece": 0.0711,
+          "brier": 0.2206
+        },
+        "logistic": {
+          "logloss": 0.6235,
+          "auc": 0.7007,
+          "ece": 0.0346,
+          "brier": 0.218
+        },
+        "randomforest": {
+          "logloss": 0.6157,
+          "auc": 0.7199,
+          "ece": 0.0432,
+          "brier": 0.2142
+        },
+        "mlp": {
+          "logloss": 0.6272,
+          "auc": 0.6995,
+          "ece": 0.0522,
+          "brier": 0.2195
+        }
+      }
+    }
+  },
+  "verdicts": {
+    "W2016": {
+      "adopt": false,
+      "ece_mode": "within-run incumbent",
+      "ll_ok_pooled": false,
+      "auc_ok_pooled": false,
+      "ece_ok_pooled": true,
+      "ll_ok_sealed": true,
+      "auc_ok_sealed": true,
+      "ece_ok_sealed": true,
+      "tol": {
+        "ll": 0.012,
+        "auc": 0.016,
+        "ece": 0.01
+      },
+      "sealed_beats_elo": true,
+      "sealed_beats_constant": true,
+      "reasons": [
+        "pooled logloss 0.6339 > incumbent 0.6164 + TOL_LL 0.012 (relative degradation)",
+        "pooled AUC 0.691 < incumbent 0.7127 - TOL_AUC 0.016 (relative degradation)"
+      ]
+    },
+    "W2014": {
+      "adopt": false,
+      "ece_mode": "within-run incumbent",
+      "ll_ok_pooled": false,
+      "auc_ok_pooled": false,
+      "ece_ok_pooled": true,
+      "ll_ok_sealed": true,
+      "auc_ok_sealed": true,
+      "ece_ok_sealed": false,
+      "tol": {
+        "ll": 0.012,
+        "auc": 0.016,
+        "ece": 0.01
+      },
+      "sealed_beats_elo": true,
+      "sealed_beats_constant": true,
+      "reasons": [
+        "pooled logloss 0.6314 > incumbent 0.6165 + TOL_LL 0.012 (relative degradation)",
+        "pooled AUC 0.6938 < incumbent 0.7127 - TOL_AUC 0.016 (relative degradation)",
+        "sealed ECE 0.084 > incumbent 0.0645 + ECE_TOL 0.01 (relative degradation)"
+      ]
+    }
+  }
+}
