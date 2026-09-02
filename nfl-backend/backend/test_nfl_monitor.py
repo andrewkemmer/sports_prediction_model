@@ -12,7 +12,10 @@ Run from nfl-backend/backend:
 
 from __future__ import annotations
 
+import sys
 import unittest
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -498,6 +501,56 @@ class BuildMonitorTest(unittest.TestCase):
             current_date="20260831", baseline_cut_date="2026-01-01")
         self.assertTrue(all(r.get("weight_pct") is None
                             for r in rec["feature_drift"]))
+
+    def test_last_retrained_falls_back_to_emission_date(self):
+        """The original NFL null bug: a walk-forward result without
+        ``trained_at`` must still emit the persist date (this run -> today),
+        never '' (the card's '—'). MLB-identical fallback (now())."""
+        feats, result, history, cal, recs = self._inputs()
+        self.assertIn("trained_at", result)          # present by default
+        result.pop("trained_at", None)
+        rec = mon.build_model_monitor(
+            feats=feats, result=result, history_df=history,
+            calibration=cal, moneyline_records=recs,
+            current_date="20260831", baseline_cut_date="2026-01-01")
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.assertEqual(rec["last_retrained"], today)
+        self.assertNotEqual(rec["last_retrained"], "")
+
+    def test_retrain_cadence_semantic_parity_with_mlb(self):
+        """Shared synthetic case: after the correction, NFL's card semantics
+        are IDENTICAL to MLB's corrected emitter — constant = 1 on both
+        sides, LAST RETRAIN = now() persist date, NEXT RETRAIN = now() + 1
+        (same anchor, same cadence). MLB constants are read from
+        mlb-backend/backend/config.py (stdlib-only imports)."""
+        from datetime import datetime as _dt
+
+        mlb_side = Path(__file__).resolve().parents[2] / "mlb-backend" / "backend"
+        sys.path.insert(0, str(mlb_side))
+        try:
+            import config as mlb_config
+        finally:
+            sys.path.remove(str(mlb_side))
+
+        # Cadence constants are equal (and = 1) on both sides.
+        self.assertEqual(mon.RETRAIN_INTERVAL_DAYS, mlb_config.NEXT_RUN_HEURISTIC_DAYS)
+        self.assertEqual(mon.RETRAIN_INTERVAL_DAYS, 1)
+        # NEXT RETRAIN: MLB's corrected derivation = now + constant; NFL's
+        # (now anchored at emission, not the artifact date) must match it.
+        mlb_next = (_dt.now()
+                    + pd.Timedelta(days=mlb_config.NEXT_RUN_HEURISTIC_DAYS)
+                    ).strftime("%Y-%m-%d")
+        nfl_next = (_dt.now()
+                    + pd.Timedelta(days=mon.RETRAIN_INTERVAL_DAYS)
+                    ).strftime("%Y-%m-%d")
+        self.assertEqual(nfl_next, mlb_next)
+        # MLB's fold-cadence constant is untouched (weekly folds remain 7):
+        # only the monitor heuristic changes.
+        self.assertEqual(mlb_config.RETRAIN_CADENCE_DAYS, 7)
+        # LAST RETRAIN: both emitters fall back to now() when no persist
+        # timestamp is provided — MLB's ``last_retrained or now()`` is pinned
+        # in mlb-backend test_model_version_history.py::TestRetrainCards and
+        # the NFL twin is test_last_retrained_falls_back_to_emission_date.
 
 
 if __name__ == "__main__":

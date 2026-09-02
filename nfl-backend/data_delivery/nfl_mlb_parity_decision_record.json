@@ -119,12 +119,30 @@
     }
   ],
   "deliberate_divergences": [
-    {"divergence": "21-day sealed -> season-sealed 2025 (NFL)", "rationale": "21-day NFL window is n~30 games — pure noise; season-sealed is the smallest NFL window with a usable gate n."},
-    {"divergence": "NFL-derived tolerance VALUES (TOL_LL 0.012 / TOL_AUC 0.016 / ECE_TOL 0.01)", "rationale": "measurement floors from 6 same-config walks on the NFL frame; MLB ships no module-level moneyline constants to copy. The within-run share is the aligned part; the values are sport-specific."},
-    {"divergence": "Fold geometry (day-cadence vs seasonal/weekly)", "rationale": "data availability per sport cadence; pooled/sealed discipline is aligned, spacing differs."},
-    {"divergence": "Production-gate incumbent semantics = window-expansion gate (NFL)", "rationale": "NFL keeps a production-facing window-expansion harness (run_nfl_window_gate.py) whose adopt_decision baseline is the within-run incumbent; served bundle demoted to diagnostic cross-check."},
-    {"divergence": "Member hyperparameters/rounds discipline (XGB/LGB/RF)", "rationale": "NFL members use inline pre-tuning configs; MLB's are Optuna-tuned on MLB data. Tuning is sport-specific — deferred to a named tuning pass on NFL data gated by the unified tolerance rule, NOT copied."},
-    {"divergence": "No model-generated feature in the NFL served pool (12-pool, market-free)", "rationale": "NFL feature program concluded the market-free 12-pool is the ceiling at the current frame; MLB ships a wider FEATURE_COLS set with OOF margins."}
+    {
+      "divergence": "21-day sealed -> season-sealed 2025 (NFL)",
+      "rationale": "21-day NFL window is n~30 games — pure noise; season-sealed is the smallest NFL window with a usable gate n."
+    },
+    {
+      "divergence": "NFL-derived tolerance VALUES (TOL_LL 0.012 / TOL_AUC 0.016 / ECE_TOL 0.01)",
+      "rationale": "measurement floors from 6 same-config walks on the NFL frame; MLB ships no module-level moneyline constants to copy. The within-run share is the aligned part; the values are sport-specific."
+    },
+    {
+      "divergence": "Fold geometry (day-cadence vs seasonal/weekly)",
+      "rationale": "data availability per sport cadence; pooled/sealed discipline is aligned, spacing differs."
+    },
+    {
+      "divergence": "Production-gate incumbent semantics = window-expansion gate (NFL)",
+      "rationale": "NFL keeps a production-facing window-expansion harness (run_nfl_window_gate.py) whose adopt_decision baseline is the within-run incumbent; served bundle demoted to diagnostic cross-check."
+    },
+    {
+      "divergence": "Member hyperparameters/rounds discipline (XGB/LGB/RF)",
+      "rationale": "NFL members use inline pre-tuning configs; MLB's are Optuna-tuned on MLB data. Tuning is sport-specific — deferred to a named tuning pass on NFL data gated by the unified tolerance rule, NOT copied."
+    },
+    {
+      "divergence": "No model-generated feature in the NFL served pool (12-pool, market-free)",
+      "rationale": "NFL feature program concluded the market-free 12-pool is the ceiling at the current frame; MLB ships a wider FEATURE_COLS set with OOF margins."
+    }
   ],
   "retired_gate": {
     "what": "NFL Phase-2 feature-admission gate + corr-pair auto-prune (coverage / available_12h / univariate AUC / |r|>0.8 drop)",
@@ -134,9 +152,34 @@
     "harness_backcompat": "run_feature_gate retained (marked RETIRED) for run_tier1_ablation / run_nfl_unified_confirm_ablation imports"
   },
   "deferred_followups": [
-    {"name": "NFL member tuning pass", "work": "Optuna tuning of XGB/LGB/RF (and re-check MLP) on NFL data with the same within-run geometry, gated by the unified tolerance_verdict rule (pooled AND sealed, ll/auc/ece, all blocking)", "target": "match MLB's tuned-member level without copying MLB numeric params"}
+    {
+      "name": "NFL member tuning pass",
+      "work": "Optuna tuning of XGB/LGB/RF (and re-check MLP) on NFL data with the same within-run geometry, gated by the unified tolerance_verdict rule (pooled AND sealed, ll/auc/ece, all blocking)",
+      "target": "match MLB's tuned-member level without copying MLB numeric params"
+    },
+    {
+      "name": "Weekly/event-driven NFL retrain cadence (deferred)",
+      "work": "Redesign NFL retraining from retrain-every-run to weekly (game-week resolution): pipeline scheduling + frozen-model serve path + gate semantics (within-run incumbent). Cadence constants (NFL RETRAIN_INTERVAL_DAYS, MLB NEXT_RUN_HEURISTIC_DAYS) stay = 1 as 'next expected run' heuristics until then.",
+      "target": "event-driven retraining"
+    }
   ],
   "deliberate_do_not_change": [
-    "sealed-window definition", "tolerance VALUES", "fold geometry", "production-gate incumbent semantics", "raw/diff split", "served feature pool"
-  ]
+    "sealed-window definition",
+    "tolerance VALUES",
+    "fold geometry",
+    "production-gate incumbent semantics",
+    "raw/diff split",
+    "served feature pool"
+  ],
+  "retrain_cadence_decision": {
+    "date": "2026-09-02",
+    "decision": "retrain every pipeline run for BOTH sports. MLB is daily (consecutive daily runs each persist a fresh ensemble; the run-line/run-engine refits per run too). NFL is matched to MLB for now.",
+    "cards": {
+      "last_retrained": "= the run's persist timestamp of the served ensemble; falls back to now() at emission when no trained_at is provided (MLB-identical fallback). NFL null bug fixed 2026-09-02 (was emitting '' -> card showed '—').",
+      "next_retrain": "= next EXPECTED run at emission: now + 1 day heuristic (MLB NEXT_RUN_HEURISTIC_DAYS = 1; NFL RETRAIN_INTERVAL_DAYS = 1; both anchored at now(), NOT the artifact date)."
+    },
+    "not_scheduler_backed": "no cron / next_run mechanism exists in the repo; the constants drive card text only.",
+    "fold_cadence_unchanged": "MLB RETRAIN_CADENCE_DAYS stays 7 — it is the weekly walk-forward FOLD cadence (~74 folds), consumed by frames/training/run_engine + every ablation harness; flipping it would silently change fold geometry. The monitor heuristic is the separate NEXT_RUN_HEURISTIC_DAYS constant. NFL folds are weekly via generate_weekly_folds (unchanged).",
+    "deferred": "weekly / event-driven NFL retraining on game-week resolution is a named deferred option: it would touch pipeline scheduling, the frozen-model serve path, and gate semantics (within-run incumbent definition)."
+  }
 }

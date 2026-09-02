@@ -31,6 +31,8 @@ the per-game prediction history, and prior dated moneyline records).
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 
@@ -46,7 +48,12 @@ PSI_WARN = 0.10
 PSI_ALERT = 0.25
 MIN_DRIFT_SAMPLES = 30        # below -> INSUFFICIENT (PSI only informational)
 COVERAGE_FLOOR = 0.80         # below CURRENT window -> LOW_COVERAGE / STARVED
-RETRAIN_INTERVAL_DAYS = 7     # next-retrain heuristic
+# "Next expected run" heuristic for the NEXT RETRAIN card (retrain-every-
+# run decision 2026-09-02, synced to MLB's corrected cadence): the ensemble
+# is persisted on EVERY pipeline run, so the next expected run is ~1 day out.
+# NOT scheduler-backed (no cron/next_run exists) — card text only. This is
+# NOT the fold cadence (NFL folds are weekly via generate_weekly_folds).
+RETRAIN_INTERVAL_DAYS = 1
 
 # The 5-member moneyline walk-forward roster the monitor page describes verbatim.
 MEMBER_DESC = {
@@ -459,7 +466,6 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
                            the feature builder when a run provides it)
     """
     cols = list(result.get("_deployed", {}).get("features", []))
-    c_iso = f"{current_date[:4]}-{current_date[4:6]}-{current_date[6:8]}"
 
     gd = pd.to_datetime(feats["gameday"], errors="coerce")
     # MLB-style 30-day rolling boundary, widened backward into the prior
@@ -484,17 +490,25 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
     coverage = feature_coverage_rows(feats, cols)
     r_brier, rb_meta, base_brier, base_label = rolling_brier_rows(history_df)
 
-    trained = result.get("trained_at", "")
+    # LAST RETRAIN = the run's persist timestamp of the served ensemble; the
+    # walk-forward result carries ``trained_at``, and when it is missing the
+    # emitter falls back to now() — the identical MLB fallback
+    # (pipeline.py::_model_monitor_json: ``last_retrained or now()``), so the
+    # card shows a real date (this run -> today), never "—".
+    trained = result.get("trained_at") or datetime.now().isoformat()
     last_retrained = str(trained)[:10]
-    next_retrain = (pd.to_datetime(c_iso) + pd.Timedelta(days=RETRAIN_INTERVAL_DAYS)
-                    ).strftime("%Y-%m-%d")
+    # NEXT RETRAIN = the next EXPECTED run, anchored at EMISSION time (now),
+    # not the artifact target date — byte-matching MLB's corrected emitter so
+    # both sports share (last=today, next=tomorrow) semantics.
+    next_retrain = (datetime.now()
+                    + pd.Timedelta(days=RETRAIN_INTERVAL_DAYS)).strftime("%Y-%m-%d")
 
     return {
         "last_retrained": last_retrained,
         "last_retrained_note": "Fresh model trained this run (sealed gate: "
                                f"{'ADOPT' if (result.get('verdict') or {}).get('adopt') else 'DO NOT ADOPT (reporting only)'})",
         "next_retrain": next_retrain,
-        "next_retrain_note": f"retrain scheduled {RETRAIN_INTERVAL_DAYS} days out",
+        "next_retrain_note": f"next expected run in {RETRAIN_INTERVAL_DAYS} day(s) (retrains every run)",
         "upset_note": f"Model upset rate over the decided pool — {len(history_df):,} games scored; see Calibration for the upset strip.",
         "feature_drift": drift,
         "features_metadata": feature_metadata_map(cols, feature_descriptions),
