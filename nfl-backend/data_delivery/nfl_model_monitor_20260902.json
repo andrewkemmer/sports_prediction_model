@@ -11,7 +11,7 @@
       "baseline_mean": 1.1782,
       "psi": 0.2834,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 17.279,
       "n_baseline": 1930,
       "n_current": 30
     },
@@ -21,7 +21,7 @@
       "baseline_mean": 0.0017,
       "psi": 0.6265,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 10.157,
       "n_baseline": 1929,
       "n_current": 30
     },
@@ -31,7 +31,7 @@
       "baseline_mean": -0.0306,
       "psi": 0.2633,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 5.119,
       "n_baseline": 1929,
       "n_current": 30
     },
@@ -41,7 +41,7 @@
       "baseline_mean": 0.3133,
       "psi": 0.0681,
       "status": "OK",
-      "weight_pct": null,
+      "weight_pct": 5.371,
       "n_baseline": 1893,
       "n_current": 30
     },
@@ -51,7 +51,7 @@
       "baseline_mean": -0.2685,
       "psi": 0.8129,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 12.889,
       "n_baseline": 1929,
       "n_current": 30
     },
@@ -61,7 +61,7 @@
       "baseline_mean": -0.0064,
       "psi": 0.7944,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 13.041,
       "n_baseline": 1913,
       "n_current": 30
     },
@@ -71,7 +71,7 @@
       "baseline_mean": -0.0018,
       "psi": 2.0385,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 7.994,
       "n_baseline": 1913,
       "n_current": 30
     },
@@ -81,7 +81,7 @@
       "baseline_mean": 0.0078,
       "psi": 0.0577,
       "status": "OK",
-      "weight_pct": null,
+      "weight_pct": 3.338,
       "n_baseline": 1929,
       "n_current": 30
     },
@@ -91,7 +91,7 @@
       "baseline_mean": 0.3461,
       "psi": 0.3397,
       "status": "ALERT",
-      "weight_pct": null,
+      "weight_pct": 4.156,
       "n_baseline": 1930,
       "n_current": 30
     },
@@ -101,7 +101,7 @@
       "baseline_mean": -945.7155,
       "psi": 0.239,
       "status": "WARN",
-      "weight_pct": null,
+      "weight_pct": 8.992,
       "n_baseline": 1930,
       "n_current": 30
     },
@@ -111,7 +111,7 @@
       "baseline_mean": 607.0187,
       "psi": 0.1035,
       "status": "WARN",
-      "weight_pct": null,
+      "weight_pct": 5.787,
       "n_baseline": 1930,
       "n_current": 30
     },
@@ -121,47 +121,71 @@
       "baseline_mean": 0.2223,
       "psi": 0.0621,
       "status": "OK",
-      "weight_pct": null,
+      "weight_pct": 5.877,
       "n_baseline": 1930,
       "n_current": 30
     }
   ],
   "features_metadata": {
     "elo_diff": {
-      "tooltip": "elo_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "ELO prior 1500, K=32, strictly-prior games",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: ELO prior 1500, K=32, strictly-prior games\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "win_pct_diff": {
-      "tooltip": "win_pct_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "trailing win% (last 12)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing win% (last 12)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "rest_days_diff": {
-      "tooltip": "rest_days_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "days since each team's prior game",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: days since each team's prior game\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "is_dome_home": {
-      "tooltip": "is_dome_home \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "home venue roof (nflverse schedule field)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home venue roof (nflverse schedule field)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "ewm_net_pts_diff": {
-      "tooltip": "ewm_net_pts_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "trailing net pts/game, ewm halflife=2 (decaying)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing net pts/game, ewm halflife=2 (decaying)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "ewm_ypp_diff": {
-      "tooltip": "ewm_ypp_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "trailing yards/play, ewm halflife=2 (from pbp)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing yards/play, ewm halflife=2 (from pbp)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "pace_plays_min_diff": {
-      "tooltip": "pace_plays_min_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "trailing plays per minute (last 4, from pbp clock)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing plays per minute (last 4, from pbp clock)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "rest_short_diff": {
-      "tooltip": "rest_short_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "short-rest flag (home rest < 7 days) \u2212 away flag",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: short-rest flag (home rest < 7 days) \u2212 away flag\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "div_game": {
-      "tooltip": "div_game \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "division game flag (nflverse schedule field)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: division game flag (nflverse schedule field)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "travel_miles_diff": {
-      "tooltip": "travel_miles_diff \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "home\u2212away stadium distance, haversine (nfl_stadiums.csv)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home\u2212away stadium distance, haversine (nfl_stadiums.csv)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "altitude_home": {
-      "tooltip": "altitude_home \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "home venue elevation, meters SRTM (nfl_stadiums.csv)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home venue elevation, meters SRTM (nfl_stadiums.csv)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     },
     "prime_time": {
-      "tooltip": "prime_time \u2014 defined/covered via the v1 feature admission gate."
+      "definition": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: evening-kickoff flag, ET hour >= 17 (nflverse gametime)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
     }
   },
   "feature_coverage": [
@@ -362,10 +386,6 @@
       "logloss": 0.6352,
       "ecer_calibrated": 0.0292,
       "ece_calibrated": 0.0292,
-      "calibration": {
-        "a": null,
-        "b": null
-      },
       "adopt": true
     },
     {
@@ -382,10 +402,6 @@
       "logloss": 0.63,
       "ecer_calibrated": 0.0267,
       "ece_calibrated": 0.0267,
-      "calibration": {
-        "a": null,
-        "b": null
-      },
       "adopt": true
     }
   ]
