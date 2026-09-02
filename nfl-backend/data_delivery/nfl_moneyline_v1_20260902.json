@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-02T04:02:19.181216Z",
+  "created_utc": "2026-09-02T11:48:40.587538Z",
   "config": {
     "features": [
       "elo_diff",
@@ -15,7 +15,7 @@
       "altitude_home",
       "prime_time"
     ],
-    "feature_source": "latest nfl_feature_v1_*.json admission gate (v2)",
+    "feature_source": "latest nfl_feature_v1_*.json served-pool manifest (v2; admission gate retired)",
     "excluded_constant_anchor": "is_home",
     "model": "5-member ensemble (XGBoost/LightGBM/Logistic/RF/MLP) + adaptive AUC blend + Platt twin",
     "ensemble_weights": {
@@ -319,7 +319,52 @@
     },
     "geometry": "fold-local pooled re-fit in the candidate's fold loop + within-run pre-2025 sealed re-fit; the persisted bundle is a diagnostic cross-check only"
   },
-  "bundle_crosscheck": null,
+  "bundle_crosscheck": {
+    "sealed": {
+      "logloss": 0.6249,
+      "auc": 0.7082,
+      "ece": 0.0745
+    },
+    "within_run_sealed": {
+      "logloss": 0.6249,
+      "auc": 0.7082,
+      "ece": 0.0745
+    },
+    "drift_vs_within_run": {
+      "logloss": 0.0,
+      "auc": 0.0,
+      "ece": 0.0
+    },
+    "note": "diagnostic cross-check only \u2014 the bundle is NOT the gate baseline; divergence here is cross-pull drift or config change",
+    "metadata": {
+      "created_utc": "2026-09-02T04:02:15.853266Z",
+      "train_seasons": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "sealed_season": 2025,
+      "ece_bins": 10,
+      "ece_tol": 0.01
+    },
+    "features": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ]
+  },
   "verdict": {
     "adopt": true,
     "ll_ok_pooled": true,
