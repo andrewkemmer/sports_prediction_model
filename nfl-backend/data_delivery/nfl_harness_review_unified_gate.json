@@ -1,0 +1,1805 @@
+{
+  "created_utc": "2026-09-02T02:21:26.136824Z",
+  "rule": "tolerance_verdict (nfl_moneyline): ll_ok = cand <= base + TOL_LL; auc_ok = cand >= base - TOL_AUC; ece_ok = cand <= base + ECE_TOL \u2014 each on pooled AND sealed, each blocking; adopt = all six. Baseline = the record's own WITHOUT/base arm re-trained within-run (removal arms: the WITH arm is the baseline, the removal is the candidate).",
+  "tol": {
+    "ll": 0.012,
+    "auc": 0.016,
+    "ece": 0.01
+  },
+  "summary": {
+    "records_reviewed": 8,
+    "arms_reviewed": 19,
+    "flips": 7,
+    "flip_directions": {
+      "O->A": 6,
+      "A->O": 1
+    },
+    "needs_rerun": [
+      "Tier-1 WITH/WITH_ADMITTED/WITH_SUBSET/TIER1_ONLY arms \u2014 the nfl_tier1_ablation_55d6e165bec1.json record was written on Kaggle and never committed/pushed, so no record data exists to re-derive (the abandoned old-gate values cannot be re-derived from the transcript: pooled AUC/ECE were never printed). Re-run run_tier1_ablation.py under the unified rule if Tier-1 verdicts are needed."
+    ]
+  },
+  "records": {
+    "tier4": {
+      "source": "nfl_tier4_ablation_ca7ed8d61cd9.json",
+      "frame_sha256": "ca7ed8d61cd9",
+      "baseline_arm": "WITHOUT",
+      "arms": {
+        "GS": {
+          "candidate": "GS",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_qb_epa_play_diff_gs",
+            "ewm_net_pts_diff_gs",
+            "ewm_ypp_diff_gs"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6352,
+            "auc": 0.6906,
+            "ece": 0.0644
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6249,
+            "auc": 0.7012,
+            "ece": 0.0412
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": false,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0103,
+              "sealed_auc": -0.0176,
+              "sealed_ece_cal": -0.0101,
+              "pooled_logloss": -0.0051,
+              "pooled_auc": 0.0068,
+              "pooled_ece": 0.0145
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.0412 > WITHOUT arm (within-run) 0.0267 + ECE_TOL 0.01 (relative degradation)",
+            "sealed AUC 0.6906 < WITHOUT arm (within-run) 0.7082 + TOL_AUC 0.016 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "OPPADJ": {
+          "candidate": "OPPADJ",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_qb_epa_play_diff_oppadj",
+            "ewm_net_pts_diff_oppadj",
+            "ewm_ypp_diff_oppadj"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6327,
+            "auc": 0.6963,
+            "ece": 0.0523
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6218,
+            "auc": 0.7071,
+            "ece": 0.038
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0078,
+              "sealed_auc": -0.0119,
+              "sealed_ece_cal": -0.0222,
+              "pooled_logloss": -0.0082,
+              "pooled_auc": 0.0127,
+              "pooled_ece": 0.0113
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.038 > WITHOUT arm (within-run) 0.0267 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "GSOPP": {
+          "candidate": "GSOPP",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_qb_epa_play_diff_gs",
+            "ewm_net_pts_diff_gs",
+            "ewm_ypp_diff_gs",
+            "ewm_qb_epa_play_diff_oppadj",
+            "ewm_net_pts_diff_oppadj",
+            "ewm_ypp_diff_oppadj"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6361,
+            "auc": 0.6942,
+            "ece": 0.0655
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6239,
+            "auc": 0.7016,
+            "ece": 0.041
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0112,
+              "sealed_auc": -0.014,
+              "sealed_ece_cal": -0.009,
+              "pooled_logloss": -0.0061,
+              "pooled_auc": 0.0072,
+              "pooled_ece": 0.0143
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.041 > WITHOUT arm (within-run) 0.0267 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "DRIVE": {
+          "candidate": "DRIVE",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_yds_per_drive_diff",
+            "ewm_epa_per_drive_diff",
+            "ewm_qb_epa_per_drive_diff"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6497,
+            "auc": 0.6835,
+            "ece": 0.1135
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6232,
+            "auc": 0.7034,
+            "ece": 0.0257
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": false,
+            "auc_ok_sealed": false,
+            "ece_ok_sealed": false,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0248,
+              "sealed_auc": -0.0247,
+              "sealed_ece_cal": 0.039,
+              "pooled_logloss": -0.0068,
+              "pooled_auc": 0.009,
+              "pooled_ece": -0.001
+            }
+          },
+          "reasons": [
+            "sealed logloss 0.6497 > WITHOUT arm (within-run) 0.6249 + TOL_LL 0.012 (relative degradation)",
+            "sealed AUC 0.6835 < WITHOUT arm (within-run) 0.7082 + TOL_AUC 0.016 (relative degradation)",
+            "sealed ECE 0.1135 > WITHOUT arm (within-run) 0.0745 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "QB": {
+          "candidate": "QB",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_qb_epa_starter_diff"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6291,
+            "auc": 0.701,
+            "ece": 0.0754
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6226,
+            "auc": 0.705,
+            "ece": 0.0323
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0042,
+              "sealed_auc": -0.0072,
+              "sealed_ece_cal": 0.0009,
+              "pooled_logloss": -0.0074,
+              "pooled_auc": 0.0106,
+              "pooled_ece": 0.0056
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        }
+      }
+    },
+    "raw": {
+      "source": "nfl_raw_ablation_8b3cb475639b.json",
+      "frame_sha256": "8b3cb475639b",
+      "baseline_arm": "C0",
+      "arms": {
+        "RAW_ADDED": {
+          "candidate": "RAW_ADDED",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "elo_home",
+            "elo_away",
+            "win_pct_home",
+            "win_pct_away",
+            "rest_days_home",
+            "rest_days_away",
+            "ewm_net_pts_home",
+            "ewm_net_pts_away",
+            "ewm_ypp_home",
+            "ewm_ypp_away",
+            "pace_plays_min_home",
+            "pace_plays_min_away",
+            "rest_short_home",
+            "rest_short_away"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6325,
+            "auc": 0.7017,
+            "ece": 0.0734
+          },
+          "sealed_base": {
+            "logloss": 0.6249,
+            "auc": 0.7082,
+            "ece": 0.0745
+          },
+          "pooled_cand": {
+            "logloss": 0.6328,
+            "auc": 0.6916,
+            "ece": 0.0358
+          },
+          "pooled_base": {
+            "logloss": 0.63,
+            "auc": 0.6944,
+            "ece": 0.0267
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0076,
+              "sealed_auc": -0.0065,
+              "sealed_ece_cal": -0.0011,
+              "pooled_logloss": 0.0028,
+              "pooled_auc": -0.0028,
+              "pooled_ece": 0.0091
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        }
+      }
+    },
+    "xgb_reg": {
+      "source": "nfl_xgb_reg_ablation_b3057bc8e870.json",
+      "frame_sha256": "b3057bc8e870",
+      "baseline_arm": "C0",
+      "arms": {
+        "C1": {
+          "candidate": "C1",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ewm_qb_epa_play_diff_oppadj",
+            "ewm_net_pts_diff_oppadj",
+            "ewm_ypp_diff_oppadj"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6378,
+            "auc": 0.6917,
+            "ece": 0.076
+          },
+          "sealed_base": {
+            "logloss": 0.635,
+            "auc": 0.6914,
+            "ece": 0.068
+          },
+          "pooled_cand": {
+            "logloss": 0.6317,
+            "auc": 0.6946,
+            "ece": 0.0409
+          },
+          "pooled_base": {
+            "logloss": 0.6314,
+            "auc": 0.6925,
+            "ece": 0.0321
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0028,
+              "sealed_auc": 0.0003,
+              "sealed_ece_cal": 0.008,
+              "pooled_logloss": 0.0003,
+              "pooled_auc": 0.0021,
+              "pooled_ece": 0.0088
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (ll AND auc)"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        }
+      }
+    },
+    "corr": {
+      "source": "nfl_feature_corr_ablation_e4aee120a4b8.json",
+      "frame_sha256": "e4aee120a4b8",
+      "baseline_arm": "WITH_13",
+      "arms": {
+        "WITHOUT_QBEPA": {
+          "candidate": "WITHOUT_QBEPA",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6383,
+            "auc": 0.6946,
+            "ece": 0.0656
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6222,
+            "auc": 0.7043,
+            "ece": 0.0259
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0124,
+              "sealed_auc": 0.0129,
+              "sealed_ece_cal": -0.0281,
+              "pooled_logloss": -0.0116,
+              "pooled_auc": 0.0148,
+              "pooled_ece": 0.0014
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": true,
+            "rule": "old sealed strict must-beat (removal)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "WITHOUT_YPP": {
+          "candidate": "WITHOUT_YPP",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6501,
+            "auc": 0.6798,
+            "ece": 0.0775
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6227,
+            "auc": 0.7034,
+            "ece": 0.0262
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0006,
+              "sealed_auc": -0.0019,
+              "sealed_ece_cal": -0.0162,
+              "pooled_logloss": -0.0111,
+              "pooled_auc": 0.0139,
+              "pooled_ece": 0.0017
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (removal)"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        },
+        "WITHOUT_BOTH": {
+          "candidate": "WITHOUT_BOTH",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6515,
+            "auc": 0.6825,
+            "ece": 0.0897
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6242,
+            "auc": 0.7015,
+            "ece": 0.0154
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0008,
+              "sealed_auc": 0.0008,
+              "sealed_ece_cal": -0.004,
+              "pooled_logloss": -0.0096,
+              "pooled_auc": 0.012,
+              "pooled_ece": -0.0091
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (removal)"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        }
+      }
+    },
+    "winpct": {
+      "source": "nfl_feature_winpct_ablation_e4aee120a4b8.json",
+      "frame_sha256": "e4aee120a4b8",
+      "baseline_arm": "WITH_14",
+      "arms": {
+        "WITHOUT_13": {
+          "candidate": "WITHOUT_13",
+          "candidate_features": [
+            "elo_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "market_home_implied"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "market_home_implied"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6433,
+            "auc": 0.7056,
+            "ece": 0.0907
+          },
+          "sealed_base": {
+            "logloss": 0.6339,
+            "auc": 0.7121,
+            "ece": 0.0759
+          },
+          "pooled_cand": {
+            "logloss": 0.605,
+            "auc": 0.7283,
+            "ece": 0.0293
+          },
+          "pooled_base": {
+            "logloss": 0.6132,
+            "auc": 0.7208,
+            "ece": 0.0363
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": false,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0094,
+              "sealed_auc": -0.0065,
+              "sealed_ece_cal": 0.0148,
+              "pooled_logloss": -0.0082,
+              "pooled_auc": 0.0075,
+              "pooled_ece": -0.007
+            }
+          },
+          "reasons": [
+            "sealed ECE 0.0907 > WITH_14 arm (within-run) 0.0759 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (removal)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        }
+      }
+    },
+    "window": {
+      "source": "nfl_window_ablation_e1a489f28b9d.json",
+      "frame_sha256": "e1a489f28b9d",
+      "baseline_arm": "see arms",
+      "arms": {
+        "w2016_vs_w2019": {
+          "candidate": "w2016_vs_w2019",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6332,
+            "auc": 0.6995,
+            "ece": 0.0576
+          },
+          "sealed_base": {
+            "logloss": 0.6346,
+            "auc": 0.697,
+            "ece": 0.0673
+          },
+          "pooled_cand": {
+            "logloss": 0.6337,
+            "auc": 0.6914,
+            "ece": 0.034
+          },
+          "pooled_base": {
+            "logloss": 0.6317,
+            "auc": 0.6918,
+            "ece": 0.0239
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0014,
+              "sealed_auc": 0.0025,
+              "sealed_ece_cal": -0.0097,
+              "pooled_logloss": 0.002,
+              "pooled_auc": -0.0004,
+              "pooled_ece": 0.0101
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.034 > W2019 arm (within-run) 0.0239 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": true,
+            "rule": "old sealed strict must-beat (window)"
+          },
+          "flipped": true,
+          "flip_dir": "A->O"
+        },
+        "w2014_vs_w2016": {
+          "candidate": "w2014_vs_w2016",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6301,
+            "auc": 0.7049,
+            "ece": 0.081
+          },
+          "sealed_base": {
+            "logloss": 0.6332,
+            "auc": 0.6995,
+            "ece": 0.0576
+          },
+          "pooled_cand": {
+            "logloss": 0.6311,
+            "auc": 0.6942,
+            "ece": 0.0286
+          },
+          "pooled_base": {
+            "logloss": 0.6337,
+            "auc": 0.6914,
+            "ece": 0.034
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": false,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0031,
+              "sealed_auc": 0.0054,
+              "sealed_ece_cal": 0.0234,
+              "pooled_logloss": -0.0026,
+              "pooled_auc": 0.0028,
+              "pooled_ece": -0.0054
+            }
+          },
+          "reasons": [
+            "sealed ECE 0.081 > W2016 arm (within-run) 0.0576 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat (window)"
+          },
+          "flipped": false,
+          "flip_dir": null
+        }
+      }
+    },
+    "tier2": {
+      "source": "nfl_tier2_ablation_5aa6121b2849.json (git history 30bd36c; deleted from tree by the 88d6c8f stale-artifact cleanup)",
+      "frame_sha256": "5aa6121b2849",
+      "baseline_arm": "WITHOUT",
+      "arms": {
+        "VENUE": {
+          "candidate": "VENUE",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "timezone_diff",
+            "altitude_home",
+            "turf_home",
+            "prime_time",
+            "neutral_site"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6438,
+            "auc": 0.6913,
+            "ece": 0.067
+          },
+          "sealed_base": {
+            "logloss": 0.6401,
+            "auc": 0.6913,
+            "ece": 0.0776
+          },
+          "pooled_cand": {
+            "logloss": 0.6179,
+            "auc": 0.7101,
+            "ece": 0.0499
+          },
+          "pooled_base": {
+            "logloss": 0.6333,
+            "auc": 0.6909,
+            "ece": 0.0349
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0037,
+              "sealed_auc": 0.0,
+              "sealed_ece_cal": -0.0106,
+              "pooled_logloss": -0.0154,
+              "pooled_auc": 0.0192,
+              "pooled_ece": 0.015
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.0499 > WITHOUT arm (within-run) 0.0349 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "VENUE_3": {
+          "candidate": "VENUE_3",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6382,
+            "auc": 0.6933,
+            "ece": 0.0571
+          },
+          "sealed_base": {
+            "logloss": 0.6401,
+            "auc": 0.6913,
+            "ece": 0.0776
+          },
+          "pooled_cand": {
+            "logloss": 0.6234,
+            "auc": 0.7045,
+            "ece": 0.0371
+          },
+          "pooled_base": {
+            "logloss": 0.6333,
+            "auc": 0.6909,
+            "ece": 0.0349
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0019,
+              "sealed_auc": 0.002,
+              "sealed_ece_cal": -0.0205,
+              "pooled_logloss": -0.0099,
+              "pooled_auc": 0.0136,
+              "pooled_ece": 0.0022
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": true,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": false,
+          "flip_dir": null
+        }
+      }
+    },
+    "tier3": {
+      "source": "nfl_tier3_ablation_e4aee120a4b8.json (untracked \u2014 not committed)",
+      "frame_sha256": "e4aee120a4b8",
+      "baseline_arm": "WITHOUT",
+      "arms": {
+        "MARK": {
+          "candidate": "MARK",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "market_home_implied"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6339,
+            "auc": 0.7121,
+            "ece": 0.0759
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6026,
+            "auc": 0.7326,
+            "ece": 0.0344
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": -0.0168,
+              "sealed_auc": 0.0304,
+              "sealed_ece_cal": -0.0178,
+              "pooled_logloss": -0.0312,
+              "pooled_auc": 0.0431,
+              "pooled_ece": 0.0099
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": true,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "OFF": {
+          "candidate": "OFF",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "ref_pen_tend",
+            "ref_pace"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6578,
+            "auc": 0.6815,
+            "ece": 0.0814
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6212,
+            "auc": 0.7057,
+            "ece": 0.04
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": false,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0071,
+              "sealed_auc": -0.0002,
+              "sealed_ece_cal": -0.0123,
+              "pooled_logloss": -0.0126,
+              "pooled_auc": 0.0162,
+              "pooled_ece": 0.0155
+            }
+          },
+          "reasons": [
+            "pooled ECE 0.04 > WITHOUT arm (within-run) 0.0245 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": false,
+          "flip_dir": null
+        },
+        "ROSTER": {
+          "candidate": "ROSTER",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "roster_age_diff",
+            "roster_exp_diff"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.6523,
+            "auc": 0.6763,
+            "ece": 0.0785
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6241,
+            "auc": 0.7018,
+            "ece": 0.0192
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": true,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": true,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0016,
+              "sealed_auc": -0.0054,
+              "sealed_ece_cal": -0.0152,
+              "pooled_logloss": -0.0097,
+              "pooled_auc": 0.0123,
+              "pooled_ece": -0.0053
+            }
+          },
+          "reasons": [],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": true,
+          "flip_dir": "O->A"
+        },
+        "ALL": {
+          "candidate": "ALL",
+          "candidate_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time",
+            "market_home_implied",
+            "ref_pen_tend",
+            "ref_pace",
+            "roster_age_diff",
+            "roster_exp_diff"
+          ],
+          "baseline_features": [
+            "elo_diff",
+            "win_pct_diff",
+            "rest_days_diff",
+            "is_dome_home",
+            "ewm_net_pts_diff",
+            "ewm_qb_epa_play_diff",
+            "ewm_ypp_diff",
+            "pace_plays_min_diff",
+            "rest_short_diff",
+            "div_game",
+            "travel_miles_diff",
+            "altitude_home",
+            "prime_time"
+          ],
+          "sealed_cand": {
+            "logloss": 0.659,
+            "auc": 0.7046,
+            "ece": 0.1134
+          },
+          "sealed_base": {
+            "logloss": 0.6507,
+            "auc": 0.6817,
+            "ece": 0.0937
+          },
+          "pooled_cand": {
+            "logloss": 0.6053,
+            "auc": 0.7276,
+            "ece": 0.018
+          },
+          "pooled_base": {
+            "logloss": 0.6338,
+            "auc": 0.6895,
+            "ece": 0.0245
+          },
+          "verdict": {
+            "adopt": false,
+            "ll_ok_pooled": true,
+            "auc_ok_pooled": true,
+            "ece_ok_pooled": true,
+            "ll_ok_sealed": true,
+            "auc_ok_sealed": true,
+            "ece_ok_sealed": false,
+            "tol": {
+              "ll": 0.012,
+              "auc": 0.016,
+              "ece": 0.01
+            },
+            "delta": {
+              "sealed_logloss": 0.0083,
+              "sealed_auc": 0.0229,
+              "sealed_ece_cal": 0.0197,
+              "pooled_logloss": -0.0285,
+              "pooled_auc": 0.0381,
+              "pooled_ece": -0.0065
+            }
+          },
+          "reasons": [
+            "sealed ECE 0.1134 > WITHOUT arm (within-run) 0.0937 + ECE_TOL 0.01 (relative degradation)"
+          ],
+          "old_verdict": {
+            "adopt": false,
+            "rule": "old sealed strict must-beat"
+          },
+          "flipped": false,
+          "flip_dir": null
+        }
+      }
+    }
+  },
+  "flip_table": [
+    {
+      "record": "corr",
+      "candidate": "WITHOUT_YPP",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": -0.0006,
+        "sealed_auc": -0.0019,
+        "sealed_ece_cal": -0.0162,
+        "pooled_logloss": -0.0111,
+        "pooled_auc": 0.0139,
+        "pooled_ece": 0.0017
+      }
+    },
+    {
+      "record": "corr",
+      "candidate": "WITHOUT_BOTH",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": 0.0008,
+        "sealed_auc": 0.0008,
+        "sealed_ece_cal": -0.004,
+        "pooled_logloss": -0.0096,
+        "pooled_auc": 0.012,
+        "pooled_ece": -0.0091
+      }
+    },
+    {
+      "record": "raw",
+      "candidate": "RAW_ADDED",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": 0.0076,
+        "sealed_auc": -0.0065,
+        "sealed_ece_cal": -0.0011,
+        "pooled_logloss": 0.0028,
+        "pooled_auc": -0.0028,
+        "pooled_ece": 0.0091
+      }
+    },
+    {
+      "record": "tier3",
+      "candidate": "ROSTER",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": 0.0016,
+        "sealed_auc": -0.0054,
+        "sealed_ece_cal": -0.0152,
+        "pooled_logloss": -0.0097,
+        "pooled_auc": 0.0123,
+        "pooled_ece": -0.0053
+      }
+    },
+    {
+      "record": "tier4",
+      "candidate": "QB",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": 0.0042,
+        "sealed_auc": -0.0072,
+        "sealed_ece_cal": 0.0009,
+        "pooled_logloss": -0.0074,
+        "pooled_auc": 0.0106,
+        "pooled_ece": 0.0056
+      }
+    },
+    {
+      "record": "window",
+      "candidate": "w2016_vs_w2019",
+      "direction": "A->O",
+      "old_adopt": true,
+      "new_adopt": false,
+      "blocking_conditions": [
+        "ece_ok_pooled"
+      ],
+      "reasons": [
+        "pooled ECE 0.034 > W2019 arm (within-run) 0.0239 + ECE_TOL 0.01 (relative degradation)"
+      ],
+      "deltas": {
+        "sealed_logloss": -0.0014,
+        "sealed_auc": 0.0025,
+        "sealed_ece_cal": -0.0097,
+        "pooled_logloss": 0.002,
+        "pooled_auc": -0.0004,
+        "pooled_ece": 0.0101
+      }
+    },
+    {
+      "record": "xgb_reg",
+      "candidate": "C1",
+      "direction": "O->A",
+      "old_adopt": false,
+      "new_adopt": true,
+      "blocking_conditions": [],
+      "reasons": [],
+      "deltas": {
+        "sealed_logloss": 0.0028,
+        "sealed_auc": 0.0003,
+        "sealed_ece_cal": 0.008,
+        "pooled_logloss": 0.0003,
+        "pooled_auc": 0.0021,
+        "pooled_ece": 0.0088
+      }
+    }
+  ],
+  "conclusion": "Unified six-condition tolerance rule re-derived from the record data only (numbers unchanged, rule changed). 7/19 arms flip verdict. Historical records are untouched; this record is the re-derived evidence."
+}

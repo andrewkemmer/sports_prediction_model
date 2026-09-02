@@ -12,13 +12,14 @@ Runs the SAME walk-forward + sealed-2025 machinery as the production gate
             points per drive).
 
 The sealed-2025 hold-out is never touched during fitting (guaranteed by the
-shared machinery), and the adoption gate mirrors MLB's
-``run_opponent_adjusted_ablation.py`` rule: WITH must beat WITHOUT on the
-SEALED hold-out in logloss AND AUC without degrading ECE-cal beyond the
-shared tolerance ``ECE_TOL`` (imported from nfl_moneyline — the same
-constant the production gate uses for its within-run incumbent comparison;
-MLB-aligned policy 2026-09-01). A pooled-gain / sealed-loss inversion means
-DON'T ADOPT, exactly as the user-specified gate.
+shared machinery), and the adoption gate is the SAME rule as the production
+gate — MLB-aligned policy 2026-09-02: tolerance-based on logloss / AUC /
+ECE, pooled AND sealed, each condition blocking, nothing else (see
+``nfl_moneyline.tolerance_verdict`` — the ONE shared helper, called
+verbatim by ``adopt_verdict`` below with the harness's own WITHIN-RUN
+WITHOUT arm as baseline; the production gate uses the same helper with its
+within-run incumbent as baseline). The strict sealed must-beat rule and the
+sealed-only view are retired.
 
 Usage (Kaggle — network + nflreadpy needed for the raw pull):
     python3 run_tier1_ablation.py                  # full 2019-2025 window
@@ -38,13 +39,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# The ONE shared relative-ECE tolerance used by BOTH the production gate
-# (nfl_moneyline.adopt_decision) and every ablation harness. Imported, never
-# duplicated — see the ECE_TOL comment in nfl_moneyline for the derivation
-# (binned-ECE noise at the sealed n vs the program's meaningful-degradation
-# floor). MLB-aligned policy 2026-09-01: relative, tolerance-based,
+# The ONE shared gate rule used by BOTH the production gate
+# (nfl_moneyline.adopt_decision) and every ablation harness — imported,
+# never duplicated: tolerance_verdict implements the six-condition
+# ll/auc/ece x pooled/sealed rule with the shared constants TOL_LL /
+# TOL_AUC / ECE_TOL (see their comments in nfl_moneyline for the derivation
+# and the measured noise basis). ECE_TOL/TOL_LL/TOL_AUC are re-exported here
+# so any consumer (tests, monitors) can assert harness == production
+# identity. MLB-aligned policy 2026-09-02: relative, tolerance-based,
 # no absolute calibration constant.
-from nfl_moneyline import ECE_TOL
+from nfl_moneyline import ECE_TOL, TOL_AUC, TOL_LL, tolerance_verdict
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
@@ -138,42 +142,16 @@ def _member_metrics(rec: dict, key: str) -> dict:
 
 def adopt_verdict(sealed_without: dict, sealed_with: dict,
                   pooled_without: dict, pooled_with: dict) -> dict:
-    """Gated rule (user-specified): WITH wins only on the SEALED hold-out in
-    logloss AND AUC without degrading ECE-cal; pooled corroborates."""
-    ll_w = sealed_with["logloss"]; ll_o = sealed_without["logloss"]
-    auc_w = sealed_with["auc"];     auc_o = sealed_without["auc"]
-    ece_w = sealed_with["ece"];     ece_o = sealed_without["ece"]
-    sealed_win = (ll_w is not None and ll_o is not None and auc_w is not None
-                  and auc_o is not None and ll_w < ll_o and auc_w > auc_o)
-    # Shared tolerance with the production gate (ECE_TOL from nfl_moneyline).
-    # The harness's baseline is its own WITHOUT arm (correct for research);
-    # the TOL is what is now uniform across gate and harness.
-    ece_ok = ece_w is None or ece_o is None or ece_w <= ece_o + ECE_TOL
-    pooled_win = (pooled_with["logloss"] is not None
-                  and pooled_without["logloss"] is not None
-                  and pooled_with["logloss"] < pooled_without["logloss"])
-    adopt = bool(sealed_win and ece_ok)
-    reason = []
-    if not sealed_win:
-        reason.append("arm does not beat WITHOUT on sealed logloss AND AUC")
-    if not ece_ok:
-        reason.append("sealed ECE-cal degraded")
-    if not pooled_win:
-        reason.append("pooled OOF logloss went the wrong way (corroboration only)")
-    return {
-        "adopt": adopt,
-        "sealed_win": bool(sealed_win),
-        "ece_ok": bool(ece_ok),
-        "pooled_win": bool(pooled_win),
-        "delta": {
-            "sealed_logloss": round(ll_w - ll_o, 4) if ll_w is not None and ll_o is not None else None,
-            "sealed_auc": round(auc_w - auc_o, 4) if auc_w is not None and auc_o is not None else None,
-            "sealed_ece_cal": round(ece_w - ece_o, 4) if ece_w is not None and ece_o is not None else None,
-            "pooled_logloss": round(pooled_with["logloss"] - pooled_without["logloss"], 4)
-            if pooled_with["logloss"] is not None and pooled_without["logloss"] is not None else None,
-        },
-        "reason": reason,
-    }
+    """UNIFIED gate rule — identical to the production gate
+    (``nfl_moneyline.tolerance_verdict``, called verbatim): tolerance-based
+    on logloss / AUC / ECE, pooled AND sealed, each condition blocking, the
+    shared constants (TOL_LL / TOL_AUC / ECE_TOL), nothing else. The
+    harness baseline is its own WITHOUT arm re-trained within-run (correct
+    for WITH/WITHOUT feature comparisons — NOT the incumbent, which would
+    compare a candidate against the served ensemble)."""
+    return tolerance_verdict(pooled_cand=pooled_with, pooled_base=pooled_without,
+                             sealed_cand=sealed_with, sealed_base=sealed_without,
+                             baseline_name="WITHOUT arm")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,16 +225,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\nVERDICT (WITH all-9 vs WITHOUT):",
           "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict["reason"]))
+          "|", " | ".join(verdict["reasons"]))
     print("VERDICT (WITH_ADMITTED-7 vs WITHOUT):",
           "ADOPT" if verdict_admitted["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict_admitted["reason"]))
+          "|", " | ".join(verdict_admitted["reasons"]))
     print("VERDICT (WITH_SUBSET-3 vs WITHOUT):",
           "ADOPT" if verdict_subset["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict_subset["reason"]))
+          "|", " | ".join(verdict_subset["reasons"]))
     print("VERDICT (TIER1_ONLY-7 vs WITHOUT):",
           "ADOPT" if verdict_tier1_only["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict_tier1_only["reason"]))
+          "|", " | ".join(verdict_tier1_only["reasons"]))
 
     if args.no_record:
         return 0

@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
               if v["adopt"] else
               "DON'T ADOPT (diff encoding is not the bottleneck — "
               "Tier-5 proceeds diff-first)",
-              "|", " | ".join(v["reason"]))
+              "|", " | ".join(v["reasons"]))
         print("\n=== which member moved (pooled OOF) ===")
         for r in _member_mover(member_pooled, "logloss"):
             print(f"  {r['member']:12s} c0 {r['c0']} -> raw {r['raw_added']} "

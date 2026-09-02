@@ -481,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
               if v["adopt"] else
               "DON'T ADOPT (xgb still rejects OPPADJ — the NFL feature "
               "program is tapped out at this sample size; Tier-5 deferred)",
-              "|", " | ".join(v["reason"]))
+              "|", " | ".join(v["reasons"]))
         print("\n=== which member moved (pooled OOF) ===")
         for r in _member_mover(member_pooled, "logloss"):
             print(f"  {r['member']:12s} c0 {r['c0']} -> c1 {r['c1']} "

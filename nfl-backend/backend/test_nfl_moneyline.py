@@ -513,6 +513,152 @@ class TestAdoptDecision(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# ONE shared gate rule — production gate AND ablation harnesses (2026-09-02)
+# ---------------------------------------------------------------------------
+class TestUnifiedGateRule(unittest.TestCase):
+    """The six-condition tolerance rule lives in exactly ONE place
+    (nfl_moneyline.tolerance_verdict). adopt_decision (baseline = the
+    within-run incumbent) and run_tier1_ablation.adopt_verdict (baseline =
+    the harness's own WITHOUT arm) both call it VERBATIM — same semantics,
+    same constants, no other conditions (no absolute ECE_MAX, no strict
+    sealed must-beat)."""
+
+    def test_harness_verdict_is_the_shared_helper_verbatim(self):
+        """Given identical (pooled, sealed) candidate/base metric dicts, the
+        harness adopt_verdict return equals tolerance_verdict's on EVERY
+        key (adopt, six legs, tol, delta, baseline, reasons)."""
+        from nfl_moneyline import tolerance_verdict
+        from run_tier1_ablation import adopt_verdict
+        cand = {"logloss": 0.54, "auc": 0.63, "ece": 0.060}
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.060}
+        expect = tolerance_verdict(pooled_cand=cand, pooled_base=base,
+                                   sealed_cand=cand, sealed_base=base)
+        got = adopt_verdict(base, cand, base, cand)
+        self.assertEqual(set(got), set(expect))
+        for k in expect:                       # every key except the label
+            if k == "baseline":
+                continue
+            self.assertEqual(got[k], expect[k], k)
+        # the label is the ONLY difference: the harness names its baseline
+        self.assertEqual(expect["baseline"], "incumbent")
+        self.assertEqual(got["baseline"], "WITHOUT arm")
+
+    def test_production_verdict_delegates_to_the_shared_helper(self):
+        """adopt_decision with the incumbent as baseline produces the same
+        six legs + tolerance + reasons as tolerance_verdict on the same
+        numbers (its only additions are informational: ece_mode and the
+        dashboard beats rows)."""
+        from nfl_moneyline import tolerance_verdict
+        cand = {"logloss": 0.54, "auc": 0.63, "ece": 0.060}
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.060}
+        pooled = {"model_platt": dict(cand),
+                  "elo_logistic": {"logloss": 0.60},
+                  "constant_home_edge": {"logloss": 0.65}}
+        sealed = {"model_platt": dict(cand),
+                  "elo_logistic": {"logloss": 0.61, "auc": 0.58},
+                  "constant_home_edge": {"logloss": 0.66, "auc": 0.50}}
+        incumbent = {"pooled_model_platt": dict(base),
+                     "sealed_model_platt": dict(base)}
+        v = adopt_decision(pooled, sealed, incumbent)
+        shared = tolerance_verdict(pooled_cand=cand, pooled_base=base,
+                                   sealed_cand=cand, sealed_base=base)
+        for k in ("adopt", "ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
+                  "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed", "tol"):
+            self.assertEqual(v[k], shared[k], k)
+        self.assertEqual(v["reasons"], shared["reasons"])
+
+    def test_all_six_within_tol_adopts(self):
+        from nfl_moneyline import tolerance_verdict
+        cand = {"logloss": 0.54, "auc": 0.63, "ece": 0.060}
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.060}
+        v = tolerance_verdict(pooled_cand=cand, pooled_base=base,
+                              sealed_cand=cand, sealed_base=base)
+        self.assertTrue(v["adopt"])
+        for k in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
+                  "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed"):
+            self.assertTrue(v[k], k)
+        self.assertEqual(v["reasons"], [])
+
+    def test_pooled_logloss_beyond_tol_blocks(self):
+        from nfl_moneyline import TOL_LL, tolerance_verdict
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.060}
+        v = tolerance_verdict(
+            pooled_cand={"logloss": 0.56 + TOL_LL + 0.001,
+                         "auc": 0.63, "ece": 0.060},
+            pooled_base=base,
+            sealed_cand={"logloss": 0.55, "auc": 0.63, "ece": 0.060},
+            sealed_base=base)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["ll_ok_pooled"])
+        self.assertTrue(v["auc_ok_pooled"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ll_ok_sealed"])
+        self.assertTrue(v["auc_ok_sealed"])
+        self.assertTrue(v["ece_ok_sealed"])
+        reasons = [r for r in v["reasons"] if "pooled logloss" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
+
+    def test_sealed_auc_beyond_tol_blocks(self):
+        from nfl_moneyline import TOL_AUC, tolerance_verdict
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.060}
+        good = {"logloss": 0.55, "auc": 0.63, "ece": 0.060}
+        v = tolerance_verdict(
+            pooled_cand=good, pooled_base=base,
+            sealed_cand={"logloss": 0.55,
+                         "auc": 0.61 - TOL_AUC - 0.001, "ece": 0.060},
+            sealed_base=base)
+        self.assertFalse(v["adopt"])
+        self.assertFalse(v["auc_ok_sealed"])
+        self.assertTrue(v["ll_ok_sealed"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertTrue(v["auc_ok_pooled"])
+        reasons = [r for r in v["reasons"] if "sealed AUC" in r]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("(relative degradation)", reasons[0])
+
+    def test_ece_within_tol_above_0_08_passes(self):
+        """No absolute calibration bar in the shared rule: ECE 0.095 is above
+        the retired 0.08 reference but within ECE_TOL of the baseline's
+        0.090 -> ADOPT and no reason mentions 0.08."""
+        from nfl_moneyline import tolerance_verdict
+        cand = {"logloss": 0.55, "auc": 0.62, "ece": 0.095}
+        base = {"logloss": 0.56, "auc": 0.61, "ece": 0.090}
+        v = tolerance_verdict(pooled_cand=cand, pooled_base=base,
+                              sealed_cand=cand, sealed_base=base)
+        self.assertTrue(v["adopt"])
+        self.assertTrue(v["ece_ok_pooled"])
+        self.assertTrue(v["ece_ok_sealed"])
+        self.assertFalse(any("0.08" in r for r in v["reasons"]))
+
+    def test_harness_rule_is_tolerance_based_not_strict_must_beat(self):
+        """The retired strict sealed must-beat rule is gone: a candidate that
+        LOSES sealed logloss by +0.002 (< TOL_LL 0.012) but wins sealed AUC
+        and stays within TOL on all six legs ADOPTS (old rule: sealed_win
+        required ll_w < ll_o -> rejected)."""
+        from run_tier1_ablation import adopt_verdict
+        base_s = {"logloss": 0.6400, "auc": 0.6910, "ece": 0.070}
+        cand_s = {"logloss": 0.6420, "auc": 0.6925, "ece": 0.069}
+        base_p = {"logloss": 0.6300, "auc": 0.6940, "ece": 0.030}
+        cand_p = {"logloss": 0.6295, "auc": 0.6940, "ece": 0.028}
+        v = adopt_verdict(base_s, cand_s, base_p, cand_p)
+        self.assertTrue(v["adopt"])
+        self.assertEqual(v["reasons"], [])
+        self.assertEqual(v["baseline"], "WITHOUT arm")
+
+    def test_harness_constants_are_the_gate_constants(self):
+        """Harness and production share all THREE tolerances (not just
+        ECE_TOL) — identity, never a duplicated value."""
+        from nfl_moneyline import ECE_TOL, TOL_AUC, TOL_LL
+        from run_tier1_ablation import ECE_TOL as H_ECE
+        from run_tier1_ablation import TOL_AUC as H_AUC
+        from run_tier1_ablation import TOL_LL as H_LL
+        self.assertIs(H_ECE, ECE_TOL)
+        self.assertIs(H_AUC, TOL_AUC)
+        self.assertIs(H_LL, TOL_LL)
+
+
+# ---------------------------------------------------------------------------
 # Incumbent bundle + within-run ECE gate (MLB-aligned, 2026-09-01)
 # ---------------------------------------------------------------------------
 class TestIncumbentGate(unittest.TestCase):

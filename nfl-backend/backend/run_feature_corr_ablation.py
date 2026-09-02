@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     for n, v in verdicts.items():
         tag = "ADOPT-REMOVE" if v["adopt"] else "KEEP"
         print(f"\nVERDICT {n}: {tag} (removal vs WITH_12)")
-        for r in v["reason"]:
+        for r in v["reasons"]:
             print("  -", r)
 
     drops = [n for n, v in verdicts.items() if v["adopt"]]

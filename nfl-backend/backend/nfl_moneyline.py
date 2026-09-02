@@ -41,6 +41,12 @@ Discipline (MLB retrospective):
   compared to the within-run incumbent so cross-pull drift becomes
   visible) — it never enters the verdict. No absolute calibration bar
   exists (ECE_MAX=0.08 is a historical reference constant).
+- ONE gate rule EVERYWHERE: the six-condition rule above is exported as
+  ``tolerance_verdict`` and used VERBATIM by every ablation harness
+  (``run_tier1_ablation.adopt_verdict`` — same helper, same constants;
+  the harness baseline is its own WITHIN-RUN WITHOUT arm, correct for
+  WITH/WITHOUT feature comparisons) — production gate and ablations
+  speak one MLB-shaped language (policy 2026-09-02).
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
@@ -1454,69 +1460,130 @@ def run_walk_forward(feats: pd.DataFrame,
     }
 
 
-def adopt_decision(pooled: dict, sealed: dict, incumbent: dict) -> dict:
-    """MLB-aligned candidate-vs-incumbent gate (policy 2026-09-02, third
-    revision — FULLY within-run): the baseline is the production-config
-    12-pool trained WITHIN this run on strictly-prior data only — POOLED as
-    a fold-local re-fit in the candidate's own fold loop, SEALED as one
-    re-fit on all pre-2025 rows of the current pull. ADOPT only if the
-    candidate is WITHIN TOLERANCE of that within-run incumbent on BOTH views
-    for ALL THREE metrics — nothing else:
+def tolerance_verdict(pooled_cand: dict, pooled_base: dict,
+                      sealed_cand: dict, sealed_base: dict,
+                      tol: dict | None = None,
+                      baseline_name: str = "incumbent") -> dict:
+    """THE ONE shared MLB-shaped gate rule (policy 2026-09-02). Used by the
+    production gate (``adopt_decision``, baseline = the within-run
+    incumbent) AND by every ablation harness (``run_tier1_ablation
+    .adopt_verdict``, baseline = the arm's own WITHOUT arm) — identical
+    semantics, identical constants, no other conditions:
 
       ll_ok  = cand <= base + TOL_LL
       auc_ok = cand >= base - TOL_AUC
       ece_ok = cand <= base + ECE_TOL
 
-    Each of the six (metric x view) conditions is BLOCKING and reasons
-    accumulate. There is NO advisory verdict mode: the within-run baseline
-    always exists (the production candidate is its own baseline by
-    RANDOM_SEED determinism; a window/feature candidate supplies its own
-    restricted-slice arm). ``sealed_beats_elo`` / ``sealed_beats_constant``
+    each on BOTH pooled AND sealed, each BLOCKING; adopt = all six. A metric
+    that is None on either side passes (unrecorded metrics cannot block —
+    historical/harness convention); reasons name the metric + view +
+    relative degradation against ``baseline_name``. An absolute metric value
+    (e.g. ECE > 0.08) is never consulted."""
+    t = dict(tol) if tol is not None else \
+        {"ll": TOL_LL, "auc": TOL_AUC, "ece": ECE_TOL}
+    tol_ll, tol_auc, tol_ece = t["ll"], t["auc"], t["ece"]
+
+    def _cmp(pair):
+        c, b, metric, op = pair
+        if c.get(metric) is None or b.get(metric) is None:
+            return True
+        if op == "ll":
+            return c[metric] <= b[metric] + tol_ll
+        if op == "auc":
+            return c[metric] >= b[metric] - tol_auc
+        return c[metric] <= b[metric] + tol_ece
+
+    legs = {
+        "ll_ok_pooled": (pooled_cand, pooled_base, "logloss", "ll"),
+        "auc_ok_pooled": (pooled_cand, pooled_base, "auc", "auc"),
+        "ece_ok_pooled": (pooled_cand, pooled_base, "ece", "ece"),
+        "ll_ok_sealed": (sealed_cand, sealed_base, "logloss", "ll"),
+        "auc_ok_sealed": (sealed_cand, sealed_base, "auc", "auc"),
+        "ece_ok_sealed": (sealed_cand, sealed_base, "ece", "ece"),
+    }
+    ok = {k: bool(_cmp(v)) for k, v in legs.items()}
+    adopt = bool(all(ok.values()))
+
+    def _fmt(metric):
+        return {"ll": "logloss", "auc": "AUC", "ece": "ECE"}[metric]
+
+    def _op_word(metric):
+        return {"ll": ">", "auc": "<", "ece": ">"}[metric]
+
+    def _tol_name(metric):
+        return {"ll": "TOL_LL", "auc": "TOL_AUC", "ece": "ECE_TOL"}[metric]
+
+    def _tol_val(metric):
+        return {"ll": tol_ll, "auc": tol_auc, "ece": tol_ece}[metric]
+
+    view_labels = {"pooled": "pooled", "sealed": "sealed"}
+    reasons = []
+    for view, cand, base in (("pooled", pooled_cand, pooled_base),
+                             ("sealed", sealed_cand, sealed_base)):
+        for metric, op_key in (("logloss", "ll"), ("auc", "auc"), ("ece", "ece")):
+            key = f"{op_key}_ok_{view}"
+            if not ok[key] and cand.get(metric) is not None \
+                    and base.get(metric) is not None:
+                reasons.append(
+                    f"{view_labels[view]} {_fmt(op_key)} {cand[metric]} "
+                    f"{_op_word(op_key)} {baseline_name} {base[metric]} "
+                    f"+ {_tol_name(op_key)} {_tol_val(op_key)} "
+                    f"(relative degradation)")
+
+    def _delta(m, op_key):
+        c = {"pooled": pooled_cand, "sealed": sealed_cand}[m]
+        b = {"pooled": pooled_base, "sealed": sealed_base}[m]
+        if c.get(op_key) is None or b.get(op_key) is None:
+            return None
+        return round(c[op_key] - b[op_key], 4)
+
+    return {
+        "adopt": adopt,
+        "ll_ok_pooled": ok["ll_ok_pooled"],
+        "auc_ok_pooled": ok["auc_ok_pooled"],
+        "ece_ok_pooled": ok["ece_ok_pooled"],
+        "ll_ok_sealed": ok["ll_ok_sealed"],
+        "auc_ok_sealed": ok["auc_ok_sealed"],
+        "ece_ok_sealed": ok["ece_ok_sealed"],
+        "baseline": baseline_name,
+        "tol": {"ll": tol_ll, "auc": tol_auc, "ece": tol_ece},
+        "delta": {
+            "sealed_logloss": _delta("sealed", "logloss"),
+            "sealed_auc": _delta("sealed", "auc"),
+            "sealed_ece_cal": _delta("sealed", "ece"),
+            "pooled_logloss": _delta("pooled", "logloss"),
+            "pooled_auc": _delta("pooled", "auc"),
+            "pooled_ece": _delta("pooled", "ece"),
+        },
+        "reasons": reasons,
+    }
+
+
+def adopt_decision(pooled: dict, sealed: dict, incumbent: dict) -> dict:
+    """Production gate — the SAME shared rule as every ablation harness
+    (``tolerance_verdict``): ADOPT only if the candidate is WITHIN TOLERANCE
+    of the within-run incumbent on BOTH views for ALL THREE metrics —
+    nothing else. Baseline = the production-config 12-pool trained WITHIN
+    this run on strictly-prior data only — POOLED as a fold-local re-fit in
+    the candidate's own fold loop, SEALED as one re-fit on all pre-2025 rows
+    of the current pull. ``sealed_beats_elo`` / ``sealed_beats_constant``
     remain INFORMATIONAL table rows only (dashboards) — NOT part of the
     verdict. The persisted served bundle is a DIAGNOSTIC cross-check (see
     ``_bundle_sealed_crosscheck``) and never enters this function;
-    ``ECE_MAX`` (0.08) is historical reference only."""
+    ``ECE_MAX`` (0.08) is historical reference only. There is NO advisory
+    verdict mode: the within-run baseline always exists (the production
+    candidate is its own baseline by RANDOM_SEED determinism; a
+    window/feature candidate supplies its own restricted-slice arm)."""
     ece_mode = "within-run incumbent (both views)"
-    m_p = pooled["model_platt"]
-    m_s = sealed["model_platt"]
-    i_p = incumbent["pooled_model_platt"]
-    i_s = incumbent["sealed_model_platt"]
-
-    ll_ok_pooled = m_p["logloss"] <= i_p["logloss"] + TOL_LL
-    auc_ok_pooled = m_p["auc"] >= i_p["auc"] - TOL_AUC
-    ece_ok_pooled = m_p["ece"] <= i_p["ece"] + ECE_TOL
-    ll_ok_sealed = m_s["logloss"] <= i_s["logloss"] + TOL_LL
-    auc_ok_sealed = m_s["auc"] >= i_s["auc"] - TOL_AUC
-    ece_ok_sealed = m_s["ece"] <= i_s["ece"] + ECE_TOL
-
-    adopt = bool(ll_ok_pooled and auc_ok_pooled and ece_ok_pooled
-                 and ll_ok_sealed and auc_ok_sealed and ece_ok_sealed)
-
-    reasons = []
-    if not ll_ok_pooled:
-        reasons.append(f"pooled logloss {m_p['logloss']} > incumbent "
-                       f"{i_p['logloss']} + TOL_LL {TOL_LL} "
-                       f"(relative degradation)")
-    if not auc_ok_pooled:
-        reasons.append(f"pooled AUC {m_p['auc']} < incumbent "
-                       f"{i_p['auc']} - TOL_AUC {TOL_AUC} "
-                       f"(relative degradation)")
-    if not ece_ok_pooled:
-        reasons.append(f"pooled ECE {m_p['ece']} > incumbent "
-                       f"{i_p['ece']} + ECE_TOL {ECE_TOL} "
-                       f"(relative degradation)")
-    if not ll_ok_sealed:
-        reasons.append(f"sealed logloss {m_s['logloss']} > incumbent "
-                       f"{i_s['logloss']} + TOL_LL {TOL_LL} "
-                       f"(relative degradation)")
-    if not auc_ok_sealed:
-        reasons.append(f"sealed AUC {m_s['auc']} < incumbent "
-                       f"{i_s['auc']} - TOL_AUC {TOL_AUC} "
-                       f"(relative degradation)")
-    if not ece_ok_sealed:
-        reasons.append(f"sealed ECE {m_s['ece']} > incumbent "
-                       f"{i_s['ece']} + ECE_TOL {ECE_TOL} "
-                       f"(relative degradation)")
+    verdict = tolerance_verdict(
+        pooled_cand=pooled["model_platt"],
+        pooled_base=incumbent["pooled_model_platt"],
+        sealed_cand=sealed["model_platt"],
+        sealed_base=incumbent["sealed_model_platt"],
+        baseline_name="incumbent",
+    )
+    adopt = verdict["adopt"]
+    reasons = list(verdict["reasons"])
 
     # ---- informational table rows (dashboards only, NEVER gating) ----
     m_s = sealed.get("model_platt") or {}
@@ -1549,18 +1616,11 @@ def adopt_decision(pooled: dict, sealed: dict, incumbent: dict) -> dict:
         reasons.append("note: model wins sealed but slightly worse pooled (watch)")
 
     return {
-        "adopt": adopt,
+        **verdict,
         "ece_mode": ece_mode,
-        "ll_ok_pooled": bool(ll_ok_pooled),
-        "auc_ok_pooled": bool(auc_ok_pooled),
-        "ece_ok_pooled": bool(ece_ok_pooled),
-        "ll_ok_sealed": bool(ll_ok_sealed),
-        "auc_ok_sealed": bool(auc_ok_sealed),
-        "ece_ok_sealed": bool(ece_ok_sealed),
         "sealed_beats_elo": sealed_beats_elo,
         "sealed_beats_constant": sealed_beats_constant,
         "pooled_gain_sealed_loss_inversion": inversion,
-        "tol": {"ll": TOL_LL, "auc": TOL_AUC, "ece": ECE_TOL},
         "reasons": reasons,
     }
 

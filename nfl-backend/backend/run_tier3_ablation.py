@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         v = verdicts[arm]
         print(f"VERDICT ({arm} vs WITHOUT):",
               "ADOPT" if v["adopt"] else "DON'T ADOPT",
-              f"({note})", "|", " | ".join(v["reason"]))
+              f"({note})", "|", " | ".join(v["reasons"]))
 
     if args.no_record:
         return 0

@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nVERDICT (REMOVAL vs WITH_12): KEEP — the removal wins neither "
               "sealed axis; win_pct_diff stays served on measurement, not "
               "assumption.")
-    for r in verdict["reason"]:
+    for r in verdict["reasons"]:
         print("  -", r)
 
     if args.no_record:

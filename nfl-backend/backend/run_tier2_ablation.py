@@ -137,10 +137,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\nVERDICT (VENUE-6 vs WITHOUT):",
           "ADOPT" if verdict["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict["reason"]))
+          "|", " | ".join(verdict["reasons"]))
     print("VERDICT (VENUE_3-3 vs WITHOUT):",
           "ADOPT" if verdict_3["adopt"] else "DON'T ADOPT",
-          "|", " | ".join(verdict_3["reason"]))
+          "|", " | ".join(verdict_3["reasons"]))
 
     if args.no_record:
         return 0

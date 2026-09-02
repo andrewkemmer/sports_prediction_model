@@ -552,13 +552,14 @@ def main(argv: list[str] | None = None) -> int:
             _platt(results["W2019"]["pooled_preq_2021_2024"]["model_platt"]),
             _platt(results["W2016"]["pooled_preq_2021_2024"]["model_platt"]))
         print("\nVERDICT (W2016 vs W2019):",
-              "ADOPT — the wider window beats 2019 on sealed logloss AND AUC"
-              " -> extend the core window to 2016 (also unlocks Tier-5 "
+              "ADOPT — W2016 is within TOL (ll/auc/ece, pooled+sealed) of the "
+              "within-run W2019 baseline -> the wider window is not worse; "
+              "extend the core window to 2016 (also unlocks Tier-5 "
               "participation data)"
               if v16["adopt"] else
-              "DON'T ADOPT — W2016 does not beat W2019 on sealed logloss AND "
-              "AUC -> era non-stationarity is real; stay at 2019",
-              "|", " | ".join(v16["reason"]))
+              "DON'T ADOPT — W2016 degrades vs the within-run W2019 baseline "
+              "on a blocking leg -> era non-stationarity is real; stay at 2019",
+              "|", " | ".join(v16["reasons"]))
     if "W2014" in todo and "W2016" in todo:
         v14 = adopt_verdict(
             _platt(results["W2016"]["sealed_2025"]["model_platt"]),
@@ -566,10 +567,12 @@ def main(argv: list[str] | None = None) -> int:
             _platt(results["W2016"]["pooled_preq_2021_2024"]["model_platt"]),
             _platt(results["W2014"]["pooled_preq_2021_2024"]["model_platt"]))
         print("VERDICT (W2014 vs W2016):",
-              "ADOPT — going back to 2014 still helps -> extend further"
+              "ADOPT — W2014 is within TOL (ll/auc/ece, pooled+sealed) of the "
+              "within-run W2016 baseline -> extend further"
               if v14["adopt"] else
-              "DON'T ADOPT — W2014 loses to W2016 -> the era floor is 2016",
-              "|", " | ".join(v14["reason"]))
+              "DON'T ADOPT — W2014 degrades vs the within-run W2016 baseline "
+              "on a blocking leg -> the era floor is 2016",
+              "|", " | ".join(v14["reasons"]))
 
     if args.no_record:
         return 0
