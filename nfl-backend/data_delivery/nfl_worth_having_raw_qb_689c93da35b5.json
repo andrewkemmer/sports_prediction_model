@@ -1,0 +1,84 @@
+{
+  "created_utc": "2026-09-02T23:00:00Z",
+  "frame_sha256": "689c93da35b5",
+  "source_audit": "nfl_blend_reauth_audit_689c93da35b5.json",
+  "baseline": "clean C0 pooled 0.6312/0.6923, sealed 0.6233/0.7095",
+  "tol": {"ll": 0.012, "auc": 0.016, "ece": 0.01},
+  "tol_third": {"ll": 0.004, "auc": 0.00533, "ece": 0.00333},
+  "rule": "worth-having bar: every delta leg must exceed TOL/3 in absolute value (razor-thin = inside TOL/3 = NOT worth having); pooled AND sealed must agree in direction; pooled corroboration required (no single-window sealed shimmer). Same treatment ROSTER and C1 received in 5398e71.",
+  "arms": {
+    "RAW_ADDED": {
+      "candidate": "C0 + 14 raw per-side columns (elo_home/away, win_pct_home/away, rest_days_home/away, ewm_net_pts_home/away, ewm_ypp_home/away, pace_plays_min_home/away, rest_short_home/away)",
+      "baseline": "C0 (served 12-pool)",
+      "runner": "masked (logistic sees diffs only; trees/mlp see raws + diffs)",
+      "features_added": ["elo_home", "elo_away", "win_pct_home", "win_pct_away", "rest_days_home", "rest_days_away", "ewm_net_pts_home", "ewm_net_pts_away", "ewm_ypp_home", "ewm_ypp_away", "pace_plays_min_home", "pace_plays_min_away", "rest_short_home", "rest_short_away"],
+      "feature_count": 26,
+      "coverage": {"elo_home": 100.0, "elo_away": 100.0, "win_pct_home": 100.0, "win_pct_away": 99.95, "rest_days_home": 100.0, "rest_days_away": 99.95, "ewm_net_pts_home": 100.0, "ewm_net_pts_away": 99.95, "ewm_ypp_home": 99.59, "ewm_ypp_away": 99.54, "pace_plays_min_home": 99.59, "pace_plays_min_away": 99.54, "rest_short_home": 100.0, "rest_short_away": 99.95},
+      "clean_surfaces": {
+        "candidate": {"pooled": {"logloss": 0.6332, "auc": 0.6902, "ece": 0.0274}, "sealed": {"logloss": 0.6340, "auc": 0.7007, "ece": 0.0816}},
+        "baseline": {"pooled": {"logloss": 0.6312, "auc": 0.6923, "ece": 0.0346}, "sealed": {"logloss": 0.6233, "auc": 0.7095, "ece": 0.0751}}
+      },
+      "deltas_vs_c0": {"pooled_ll": 0.0020, "pooled_auc": -0.0021, "pooled_ece": -0.0072, "sealed_ll": 0.0107, "sealed_auc": -0.0088, "sealed_ece": 0.0065},
+      "worth_having_check": {
+        "near_edge_pooled_legs": ["pooled_ll", "pooled_auc"],
+        "near_edge_sealed_legs": [],
+        "pooled_direction_ok": true,
+        "direction_agreement": {"ll": true, "auc": true, "ece": false},
+        "worth_having": false,
+        "reason": "Pooled ll and auc are razor-thin (inside TOL/3); ECE direction disagreement (pooled improves -0.0072, sealed degrades +0.0065). Matches the ROSTER/A5/AALL single-window-shimmer pattern: sealed-only signal without pooled corroboration."
+      },
+      "mechanism": "14 raw per-side columns decompose the 7 diff features into home/away components. The hypothesis was that raw per-side values recover signal the diff encoding discards. The pooled deltas are razor-thin, meaning the diff encoding is not the bottleneck. Per-member sealed movement shows opposing directions: xgboost degrades (ll +0.0156), MLP improves (ll -0.0202) — the signal is member-dependent and cancels in the blend.",
+      "decomposition_note": "14-column family; decomposition moot since pooled deltas are razor-thin — no meaningful signal to decompose.",
+      "determinism": "byte-identical first-walk/confirm-walk verified in the reauth audit (709c3bc); state-matched, 112326e failure mode eliminated.",
+      "same_universe": "moot — both pooled legs are razor-thin; universe correction cannot rescue signal that isn't there.",
+      "verdict": "NOT WORTH HAVING",
+      "recommendation": "do not wire; the 5398e71 no-wiring standing is UNCHANGED"
+    },
+    "QB": {
+      "candidate": "C0 + ewm_qb_epa_starter_diff (trailing QB EPA/play restricted to the announced starter's plays)",
+      "baseline": "C0 (served 12-pool)",
+      "runner": "plain (standard run_walk_forward)",
+      "features_added": ["ewm_qb_epa_starter_diff"],
+      "feature_count": 13,
+      "feature_definition": "Trailing QB EPA/play restricted to the ANNOUNCED/RECORDED starter's plays (nflverse schedule home_qb_id/away_qb_id, matched to pbp passer_id). Strictly-prior trailing values; pending rows get NaN. 100% coverage per season 2018-2025 on decided games.",
+      "clean_surfaces": {
+        "candidate": {"pooled": {"logloss": 0.6336, "auc": 0.6908, "ece": 0.0336}, "sealed": {"logloss": 0.6299, "auc": 0.6999, "ece": 0.0786}},
+        "baseline": {"pooled": {"logloss": 0.6312, "auc": 0.6923, "ece": 0.0346}, "sealed": {"logloss": 0.6233, "auc": 0.7095, "ece": 0.0751}}
+      },
+      "deltas_vs_c0": {"pooled_ll": 0.0024, "pooled_auc": -0.0015, "pooled_ece": -0.0010, "sealed_ll": 0.0066, "sealed_auc": -0.0096, "sealed_ece": 0.0035},
+      "worth_having_check": {
+        "near_edge_pooled_legs": ["pooled_ll", "pooled_auc", "pooled_ece"],
+        "near_edge_sealed_legs": [],
+        "pooled_direction_ok": true,
+        "direction_agreement": {"ll": true, "auc": true, "ece": false},
+        "worth_having": false,
+        "reason": "ALL pooled legs are razor-thin (inside TOL/3); ECE direction disagreement (pooled improves -0.0010, sealed degrades +0.0035). Classic single-window sealed shimmer: every pooled leg is noise, every sealed leg is beyond TOL/3 but in the wrong direction on ECE."
+      },
+      "mechanism": "ewm_qb_epa_starter_diff conditions on the announced starter's EPA/play rather than the team's overall trailing EPA. The earlier team-QB-EPA composite (ewm_qb_epa_play_diff) was rejected for corr 0.8055 with ewm_ypp_diff; this arm's starter-identity feature is conceptually distinct (conditions on WHO is playing, not just team-level efficiency). However, the pooled deltas are razor-thin, meaning the starter conditioning adds no marginal signal at the pooled average. The tier5 conditional table (QB-change games = 176 pooled / 58 sealed) is a diagnostic surface only — not a gate.",
+      "correlation_with_12_pool": "ewm_qb_epa_starter_diff is a single-column addition; its correlation with the 12-pool's ewm_ypp_diff is expected to be high (the tier5 qb1_skill_diff analog has r=0.658 with ewm_ypp_diff). The corr-pair admission gate is retired.",
+      "determinism": "byte-identical first-walk/confirm-walk verified in the reauth audit (709c3bc); state-matched, 112326e failure mode eliminated.",
+      "same_universe": "moot — ALL pooled legs are razor-thin; universe correction cannot rescue signal that isn't there.",
+      "verdict": "NOT WORTH HAVING",
+      "recommendation": "do not wire; the 5398e71 no-wiring standing is UNCHANGED"
+    }
+  },
+  "combined_arm_note": "RAW_ADDED and QB are different feature families (raw per-side decomposition vs starter-identity conditioning). A combined arm would be required BEFORE any independent wiring. Neither arm clears worth-having, so the combined check is moot.",
+  "decision": {
+    "verdict": "NO-CHANGE — the market-free served 12-pool stands (12 features + is_home anchor). Neither RAW_ADDED nor QB clears the worth-having bar.",
+    "adopted_arms": [],
+    "rejected_reason_summary": "Both arms fail the worth-having bar on the same pattern as ROSTER in 5398e71: pooled deltas are razor-thin (inside TOL/3), sealed-only signal lacks pooled corroboration, and ECE direction disagrees between pooled and sealed. The 5398e71 no-wiring standing is UNCHANGED for both arms.",
+    "final_pool": [
+      "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+      "ewm_net_pts_diff", "ewm_ypp_diff", "pace_plays_min_diff",
+      "rest_short_diff", "div_game", "travel_miles_diff",
+      "altitude_home", "prime_time"
+    ]
+  },
+  "notes": [
+    "This is a review record only — no adoption is wired. A deliberate adoption review commit follows only if an arm clears worth-having.",
+    "The clean canonical baseline (C0 pooled 0.6312/0.6923, sealed 0.6233/0.7095) is from the 709c3bc blend-state re-derivation audit. The earlier contaminated 0.6201/0.7069 is superseded.",
+    "RAW_ADDED's original rejection (8b3cb475) was DON'T ADOPT on sealed legs. The reauth audit flipped it to ADOPT on clean surfaces — but the clean deltas are razor-thin on pooled, so the worth-having bar catches what the tolerance gate missed.",
+    "QB's original rejection (ca7ed8d61cd9) was DON'T ADOPT on sealed legs. Same flip, same worth-having failure.",
+    "The tier5 QB-starter-identity features (qb1_skill_diff et al.) are a SEPARATE family from this arm's ewm_qb_epa_starter_diff. The tier5 ablation is the next step for QB signal, not this arm."
+  ]
+}
