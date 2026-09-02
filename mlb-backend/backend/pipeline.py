@@ -22,6 +22,7 @@ import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -752,18 +753,42 @@ def _daily_calibration_rows(oof: Optional[pd.DataFrame]) -> list[dict]:
     return rows
 
 
+def _count_evening_games(games: Optional[pd.DataFrame]) -> int:
+    """Count slate games beginning at/after 7 PM ET (ALL statuses).
+
+    ``start_time_utc`` is stored as a NAIVE UTC datetime. Treat it as UTC
+    and convert to America/New_York (zoneinfo, DST-aware) BEFORE comparing
+    the hour — never compare the raw UTC hour: a 9:38 PM ET game is 01:38
+    UTC the NEXT day, so a UTC-hour comparison drops exactly the west-coast
+    night games this badge is meant to count (the UTC-midnight rollover).
+    Rows with a missing/NaN start are skipped, never crashing the count.
+    """
+    if games is None or "start_time_utc" not in games.columns:
+        return 0
+    starts = pd.to_datetime(games["start_time_utc"], errors="coerce", utc=True)
+    valid = starts.notna()
+    if not valid.any():
+        return 0
+    et = starts[valid].dt.tz_convert(ZoneInfo("America/New_York"))
+    return int((et.dt.hour >= 19).sum())
+
+
 def _calibration_json(
     metrics: dict[str, float],
     y_true, y_pred,
     target_date_str: str,
     n_games: int,
     oof: Optional[pd.DataFrame] = None,
+    evening_games: Optional[int] = None,
 ) -> Path:
     """Write calibration_YYYYMMDD.json artifact.
 
     Headline buckets use ALL walk-forward out-of-sample predictions when
     available (a far richer curve than the target day alone); ``daily``
     carries per-day predicted-vs-actual for the date selector.
+    ``evening_games``: count of slate games beginning at/after 7 PM ET
+    (computed by the caller via _count_evening_games; default None keeps
+    the pre-fix behavior for direct callers).
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     path = DATA_DELIVERY_DIR / f"{CALIBRATION}_{target_date_str}.json"
@@ -810,9 +835,11 @@ def _calibration_json(
                     np.asarray(ot[ok].values), np.asarray(oc[ok].values)
                 )
 
-    # League-wide metadata
-    evening_games = 0
-    # (synthetic: count games with start hour >= 19)
+    # League-wide metadata (counted from the slate by the caller: games
+    # beginning at/after 7 PM ET, converted to ET before the hour test so
+    # UTC-midnight rollover games are not dropped).
+    if evening_games is None:
+        evening_games = 0
 
     data = {
         "date": target_date_str,
@@ -1917,7 +1944,11 @@ def run_daily_pipeline(
                 _op = pd.to_numeric(all_predictions["home_win_prob_model"], errors="coerce")
                 _ok = _ot.notna() & _op.notna()
                 cal_yt, cal_yp = _ot[_ok].values, _op[_ok].values
-            path = _calibration_json(pooled_metrics, cal_yt, cal_yp, target_date_str, len(target_games), oof=all_predictions)
+            path = _calibration_json(
+                pooled_metrics, cal_yt, cal_yp, target_date_str, len(target_games),
+                oof=all_predictions,
+                evening_games=_count_evening_games(target_games),
+            )
             summary["artifacts"].append(str(path))
             hist_path = _predictions_history_csv(all_predictions, target_date_str)
             if hist_path is not None:
