@@ -1059,18 +1059,34 @@ class TestPullAndRunSeasons(unittest.TestCase):
 
         import nfl_moneyline as nm
         path = self._csv()
+        # Isolation: pull_and_run PERSISTS the deployed bundle at the end
+        # (model_features from the mocked run = ["elo_diff"]). Without an
+        # explicit out_dir the test would clobber the real served bundle at
+        # MODELS_DIR/ensemble_latest.joblib with a degenerate 1-feature
+        # version — guard-rejected on the next load, killing the
+        # diagnostic cross-check. Regressed 2026-09-02.
+        import tempfile
+        tmp_out = Path(tempfile.mkdtemp(prefix="nfl_pull_and_run_test_"))
         try:
             stub = {"_deployed": {"features": ["elo_diff"]}}
+            # MODELS_DIR must ALSO point at the tmp dir: pull_and_run's
+            # bundle persist (nfl_moneyline.py:1744) does NOT forward its
+            # out_dir parameter — it writes to MODELS_DIR unconditionally.
+            # Only patching both keeps the real served bundle untouched.
             with mock.patch.object(nm, "run_walk_forward",
                                    return_value=stub) as rwf, \
+                    mock.patch.object(nm, "MODELS_DIR", tmp_out), \
                     mock.patch.object(nm, "_print_report", lambda r: None):
                 out = nm.pull_and_run(features_csv=Path(path),
                                       write_record=False,
-                                      seasons=seasons)
+                                      seasons=seasons,
+                                      out_dir=tmp_out)
             self.assertEqual(out, stub)
             rwf.assert_called_once()
         finally:
+            import shutil
             Path(path).unlink(missing_ok=True)
+            shutil.rmtree(tmp_out, ignore_errors=True)
 
     def test_default_seasons_does_not_raise(self):
         self._call(seasons=None)          # the UnboundLocalError path

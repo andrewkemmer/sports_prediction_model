@@ -1,0 +1,676 @@
+{
+  "created_utc": "2026-09-02T04:02:44.137593Z",
+  "frame_sha256": "689c93da35b5",
+  "arms": {
+    "T1_WITHOUT": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6409,
+        "auc": 0.6895,
+        "ece": 0.083
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6323,
+        "auc": 0.6924,
+        "ece": 0.038
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6749,
+          "auc": 0.6565,
+          "ece": 0.0749,
+          "brier": 0.2376,
+          "logloss_calibrated": 0.663,
+          "auc_calibrated": 0.6564,
+          "ece_calibrated": 0.053
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.646,
+          "auc": 0.6793,
+          "ece": 0.044,
+          "brier": 0.2263,
+          "logloss_calibrated": 0.6431,
+          "auc_calibrated": 0.6797,
+          "ece_calibrated": 0.0394
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6607,
+          "auc": 0.6581,
+          "ece": 0.0583,
+          "brier": 0.2332,
+          "logloss_calibrated": 0.6578,
+          "auc_calibrated": 0.6579,
+          "ece_calibrated": 0.0538
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6428,
+          "auc": 0.6823,
+          "ece": 0.0413,
+          "brier": 0.2248,
+          "logloss_calibrated": 0.6411,
+          "auc_calibrated": 0.6824,
+          "ece_calibrated": 0.0497
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6111,
+          "auc": 0.7375,
+          "ece": 0.0738,
+          "brier": 0.2113,
+          "logloss_calibrated": 0.6163,
+          "auc_calibrated": 0.737,
+          "ece_calibrated": 0.0797
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6512,
+          "auc": 0.6702,
+          "ece": 0.0839,
+          "brier": 0.2296
+        },
+        "lightgbm": {
+          "logloss": 0.6519,
+          "auc": 0.6649,
+          "ece": 0.0899,
+          "brier": 0.231
+        },
+        "logistic": {
+          "logloss": 0.6295,
+          "auc": 0.6901,
+          "ece": 0.0829,
+          "brier": 0.2206
+        },
+        "randomforest": {
+          "logloss": 0.6307,
+          "auc": 0.6921,
+          "ece": 0.0416,
+          "brier": 0.2212
+        },
+        "mlp": {
+          "logloss": 0.6243,
+          "auc": 0.7068,
+          "ece": 0.0858,
+          "brier": 0.2178
+        }
+      }
+    },
+    "T1_WITH": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "turnover_diff",
+        "any_a_diff",
+        "sack_rate_diff",
+        "success_rate_diff",
+        "explosive_rate_diff",
+        "penalty_diff",
+        "third_down_rate_diff",
+        "redzone_td_rate_diff",
+        "pts_per_drive_diff"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6486,
+        "auc": 0.6807,
+        "ece": 0.0632
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6348,
+        "auc": 0.6895,
+        "ece": 0.0297
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6822,
+          "auc": 0.6504,
+          "ece": 0.0803,
+          "brier": 0.2404,
+          "logloss_calibrated": 0.672,
+          "auc_calibrated": 0.6506,
+          "ece_calibrated": 0.0546
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.6514,
+          "auc": 0.6763,
+          "ece": 0.0491,
+          "brier": 0.2282,
+          "logloss_calibrated": 0.6485,
+          "auc_calibrated": 0.6772,
+          "ece_calibrated": 0.047
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6601,
+          "auc": 0.6611,
+          "ece": 0.0535,
+          "brier": 0.2323,
+          "logloss_calibrated": 0.6576,
+          "auc_calibrated": 0.6619,
+          "ece_calibrated": 0.03
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6472,
+          "auc": 0.6772,
+          "ece": 0.038,
+          "brier": 0.2268,
+          "logloss_calibrated": 0.6466,
+          "auc_calibrated": 0.6763,
+          "ece_calibrated": 0.0551
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6123,
+          "auc": 0.7393,
+          "ece": 0.0823,
+          "brier": 0.2117,
+          "logloss_calibrated": 0.6174,
+          "auc_calibrated": 0.7354,
+          "ece_calibrated": 0.0741
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6682,
+          "auc": 0.6556,
+          "ece": 0.0816,
+          "brier": 0.2363
+        },
+        "lightgbm": {
+          "logloss": 0.6564,
+          "auc": 0.669,
+          "ece": 0.0784,
+          "brier": 0.2317
+        },
+        "logistic": {
+          "logloss": 0.6308,
+          "auc": 0.691,
+          "ece": 0.036,
+          "brier": 0.2213
+        },
+        "randomforest": {
+          "logloss": 0.6323,
+          "auc": 0.6915,
+          "ece": 0.0373,
+          "brier": 0.2211
+        },
+        "mlp": {
+          "logloss": 0.6339,
+          "auc": 0.6879,
+          "ece": 0.0552,
+          "brier": 0.2223
+        }
+      }
+    },
+    "T1_WITH_ADMITTED": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "turnover_diff",
+        "sack_rate_diff",
+        "success_rate_diff",
+        "explosive_rate_diff",
+        "penalty_diff",
+        "third_down_rate_diff",
+        "redzone_td_rate_diff"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6461,
+        "auc": 0.6863,
+        "ece": 0.0942
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6237,
+        "auc": 0.7037,
+        "ece": 0.0294
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6843,
+          "auc": 0.6492,
+          "ece": 0.0761,
+          "brier": 0.241,
+          "logloss_calibrated": 0.6945,
+          "auc_calibrated": 0.6496,
+          "ece_calibrated": 0.0851
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.6495,
+          "auc": 0.676,
+          "ece": 0.0616,
+          "brier": 0.2278,
+          "logloss_calibrated": 0.6526,
+          "auc_calibrated": 0.6767,
+          "ece_calibrated": 0.057
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6576,
+          "auc": 0.6572,
+          "ece": 0.0313,
+          "brier": 0.2316,
+          "logloss_calibrated": 0.6624,
+          "auc_calibrated": 0.6579,
+          "ece_calibrated": 0.0407
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6472,
+          "auc": 0.6759,
+          "ece": 0.0402,
+          "brier": 0.2269,
+          "logloss_calibrated": 0.6505,
+          "auc_calibrated": 0.6764,
+          "ece_calibrated": 0.0431
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6116,
+          "auc": 0.7374,
+          "ece": 0.0786,
+          "brier": 0.2115,
+          "logloss_calibrated": 0.6076,
+          "auc_calibrated": 0.7368,
+          "ece_calibrated": 0.0608
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6641,
+          "auc": 0.6701,
+          "ece": 0.0805,
+          "brier": 0.2325
+        },
+        "lightgbm": {
+          "logloss": 0.6505,
+          "auc": 0.6769,
+          "ece": 0.0969,
+          "brier": 0.2286
+        },
+        "logistic": {
+          "logloss": 0.6308,
+          "auc": 0.6906,
+          "ece": 0.0402,
+          "brier": 0.2213
+        },
+        "randomforest": {
+          "logloss": 0.6399,
+          "auc": 0.6843,
+          "ece": 0.0695,
+          "brier": 0.2238
+        },
+        "mlp": {
+          "logloss": 0.633,
+          "auc": 0.6844,
+          "ece": 0.0384,
+          "brier": 0.2225
+        }
+      }
+    },
+    "T1_WITH_SUBSET": {
+      "features": [
+        "elo_diff",
+        "win_pct_diff",
+        "rest_days_diff",
+        "is_dome_home",
+        "ewm_net_pts_diff",
+        "ewm_qb_epa_play_diff",
+        "ewm_ypp_diff",
+        "pace_plays_min_diff",
+        "rest_short_diff",
+        "div_game",
+        "success_rate_diff",
+        "third_down_rate_diff",
+        "turnover_diff"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6427,
+        "auc": 0.6888,
+        "ece": 0.0579
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6233,
+        "auc": 0.7043,
+        "ece": 0.0319
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6796,
+          "auc": 0.6489,
+          "ece": 0.0874,
+          "brier": 0.24,
+          "logloss_calibrated": 0.6844,
+          "auc_calibrated": 0.649,
+          "ece_calibrated": 0.0939
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.6467,
+          "auc": 0.6792,
+          "ece": 0.045,
+          "brier": 0.2265,
+          "logloss_calibrated": 0.6476,
+          "auc_calibrated": 0.6795,
+          "ece_calibrated": 0.0497
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6646,
+          "auc": 0.6552,
+          "ece": 0.0634,
+          "brier": 0.2347,
+          "logloss_calibrated": 0.6649,
+          "auc_calibrated": 0.6527,
+          "ece_calibrated": 0.0434
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6457,
+          "auc": 0.6805,
+          "ece": 0.0578,
+          "brier": 0.2258,
+          "logloss_calibrated": 0.6478,
+          "auc_calibrated": 0.6796,
+          "ece_calibrated": 0.0623
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.6104,
+          "auc": 0.7379,
+          "ece": 0.0678,
+          "brier": 0.2111,
+          "logloss_calibrated": 0.6066,
+          "auc_calibrated": 0.7374,
+          "ece_calibrated": 0.0485
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6572,
+          "auc": 0.6729,
+          "ece": 0.0603,
+          "brier": 0.2304
+        },
+        "lightgbm": {
+          "logloss": 0.6496,
+          "auc": 0.6758,
+          "ece": 0.0672,
+          "brier": 0.2285
+        },
+        "logistic": {
+          "logloss": 0.6335,
+          "auc": 0.6885,
+          "ece": 0.0517,
+          "brier": 0.2223
+        },
+        "randomforest": {
+          "logloss": 0.6281,
+          "auc": 0.6998,
+          "ece": 0.0365,
+          "brier": 0.2196
+        },
+        "mlp": {
+          "logloss": 0.6347,
+          "auc": 0.6863,
+          "ece": 0.049,
+          "brier": 0.2233
+        }
+      }
+    },
+    "T1_TIER1_ONLY": {
+      "features": [
+        "turnover_diff",
+        "sack_rate_diff",
+        "success_rate_diff",
+        "explosive_rate_diff",
+        "penalty_diff",
+        "third_down_rate_diff",
+        "redzone_td_rate_diff"
+      ],
+      "sealed_model_platt": {
+        "logloss": 0.6794,
+        "auc": 0.6313,
+        "ece": 0.0835
+      },
+      "pooled_model_platt": {
+        "logloss": 0.6476,
+        "auc": 0.6607,
+        "ece": 0.0295
+      },
+      "members": {
+        "lightgbm": {
+          "weight": 0.1375,
+          "logloss": 0.6892,
+          "auc": 0.6289,
+          "ece": 0.082,
+          "brier": 0.2449,
+          "logloss_calibrated": 0.6941,
+          "auc_calibrated": 0.6245,
+          "ece_calibrated": 0.0877
+        },
+        "logistic": {
+          "weight": 0.1375,
+          "logloss": 0.66,
+          "auc": 0.6495,
+          "ece": 0.0398,
+          "brier": 0.2335,
+          "logloss_calibrated": 0.6628,
+          "auc_calibrated": 0.6446,
+          "ece_calibrated": 0.0363
+        },
+        "mlp": {
+          "weight": 0.1375,
+          "logloss": 0.6726,
+          "auc": 0.6178,
+          "ece": 0.0363,
+          "brier": 0.2395,
+          "logloss_calibrated": 0.6749,
+          "auc_calibrated": 0.6155,
+          "ece_calibrated": 0.0402
+        },
+        "randomforest": {
+          "weight": 0.1375,
+          "logloss": 0.6636,
+          "auc": 0.6375,
+          "ece": 0.0383,
+          "brier": 0.2355,
+          "logloss_calibrated": 0.6663,
+          "auc_calibrated": 0.6331,
+          "ece_calibrated": 0.0333
+        },
+        "xgboost": {
+          "weight": 0.45,
+          "logloss": 0.627,
+          "auc": 0.7111,
+          "ece": 0.0691,
+          "brier": 0.2189,
+          "logloss_calibrated": 0.6296,
+          "auc_calibrated": 0.7032,
+          "ece_calibrated": 0.0601
+        }
+      },
+      "members_sealed": {
+        "xgboost": {
+          "logloss": 0.6966,
+          "auc": 0.6076,
+          "ece": 0.0803,
+          "brier": 0.2486
+        },
+        "lightgbm": {
+          "logloss": 0.6623,
+          "auc": 0.6479,
+          "ece": 0.0408,
+          "brier": 0.2345
+        },
+        "logistic": {
+          "logloss": 0.6621,
+          "auc": 0.6356,
+          "ece": 0.0508,
+          "brier": 0.2355
+        },
+        "randomforest": {
+          "logloss": 0.6713,
+          "auc": 0.6297,
+          "ece": 0.0596,
+          "brier": 0.2387
+        },
+        "mlp": {
+          "logloss": 0.6655,
+          "auc": 0.6297,
+          "ece": 0.0439,
+          "brier": 0.2363
+        }
+      }
+    }
+  },
+  "tier1_gate": {
+    "turnover_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "any_a_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "sack_rate_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "success_rate_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "explosive_rate_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "penalty_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "third_down_rate_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "redzone_td_rate_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)",
+    "pts_per_drive_diff": "reverted: not in production candidate pool (FEATURE_COLUMNS)"
+  },
+  "verdict_with": {
+    "adopt": true,
+    "ll_ok_pooled": true,
+    "auc_ok_pooled": true,
+    "ece_ok_pooled": true,
+    "ll_ok_sealed": true,
+    "auc_ok_sealed": true,
+    "ece_ok_sealed": true,
+    "baseline": "T1_WITHOUT arm",
+    "tol": {
+      "ll": 0.012,
+      "auc": 0.016,
+      "ece": 0.01
+    },
+    "delta": {
+      "sealed_logloss": 0.0077,
+      "sealed_auc": -0.0088,
+      "sealed_ece_cal": -0.0198,
+      "pooled_logloss": 0.0025,
+      "pooled_auc": -0.0029,
+      "pooled_ece": -0.0083
+    },
+    "reasons": []
+  },
+  "verdict_with_admitted": {
+    "adopt": false,
+    "ll_ok_pooled": true,
+    "auc_ok_pooled": true,
+    "ece_ok_pooled": true,
+    "ll_ok_sealed": true,
+    "auc_ok_sealed": true,
+    "ece_ok_sealed": false,
+    "baseline": "T1_WITHOUT arm",
+    "tol": {
+      "ll": 0.012,
+      "auc": 0.016,
+      "ece": 0.01
+    },
+    "delta": {
+      "sealed_logloss": 0.0052,
+      "sealed_auc": -0.0032,
+      "sealed_ece_cal": 0.0112,
+      "pooled_logloss": -0.0086,
+      "pooled_auc": 0.0113,
+      "pooled_ece": -0.0086
+    },
+    "reasons": [
+      "sealed ECE 0.0942 > T1_WITHOUT arm 0.083 + ECE_TOL 0.01 (relative degradation)"
+    ]
+  },
+  "verdict_with_subset": {
+    "adopt": true,
+    "ll_ok_pooled": true,
+    "auc_ok_pooled": true,
+    "ece_ok_pooled": true,
+    "ll_ok_sealed": true,
+    "auc_ok_sealed": true,
+    "ece_ok_sealed": true,
+    "baseline": "T1_WITHOUT arm",
+    "tol": {
+      "ll": 0.012,
+      "auc": 0.016,
+      "ece": 0.01
+    },
+    "delta": {
+      "sealed_logloss": 0.0018,
+      "sealed_auc": -0.0007,
+      "sealed_ece_cal": -0.0251,
+      "pooled_logloss": -0.009,
+      "pooled_auc": 0.0119,
+      "pooled_ece": -0.0061
+    },
+    "reasons": []
+  },
+  "verdict_tier1_only": {
+    "adopt": false,
+    "ll_ok_pooled": false,
+    "auc_ok_pooled": false,
+    "ece_ok_pooled": true,
+    "ll_ok_sealed": false,
+    "auc_ok_sealed": false,
+    "ece_ok_sealed": true,
+    "baseline": "T1_WITHOUT arm",
+    "tol": {
+      "ll": 0.012,
+      "auc": 0.016,
+      "ece": 0.01
+    },
+    "delta": {
+      "sealed_logloss": 0.0385,
+      "sealed_auc": -0.0582,
+      "sealed_ece_cal": 0.0005,
+      "pooled_logloss": 0.0153,
+      "pooled_auc": -0.0317,
+      "pooled_ece": -0.0085
+    },
+    "reasons": [
+      "pooled logloss 0.6476 > T1_WITHOUT arm 0.6323 + TOL_LL 0.012 (relative degradation)",
+      "pooled AUC 0.6607 < T1_WITHOUT arm 0.6924 + TOL_AUC 0.016 (relative degradation)",
+      "sealed logloss 0.6794 > T1_WITHOUT arm 0.6409 + TOL_LL 0.012 (relative degradation)",
+      "sealed AUC 0.6313 < T1_WITHOUT arm 0.6895 + TOL_AUC 0.016 (relative degradation)"
+    ]
+  }
+}
