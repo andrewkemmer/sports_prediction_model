@@ -1,29 +1,35 @@
 """NFL window gate — W2014 / W2016 through the MLB-aligned within-run
-incumbent gate (nfl_moneyline.adopt_decision, df1ec8c).
+incumbent gate (nfl_moneyline.adopt_decision, fully-within-run as of the
+2026-09-02 revision).
 
 Background: the feature program concluded the market-free 12-pool is the
 ceiling at the current 1,960-game decided frame, and the window-extension
 ablation (32c338e) measured W2014/W2016 with the HARNESS geometry
-(arm-vs-W2019, relative ECE via run_tier1_ablation.adopt_verdict). This
-harness measures the same candidates through the PRODUCTION gate instead:
-ADOPT requires the candidate to be WITHIN TOLERANCE of the incumbent — the
-served ensemble, seeded on origin/main as ensemble_latest.joblib per
-9f88206, re-predicted on the SAME folds + SAME sealed-2025 window of the
-current pull (never a cross-run value) — on BOTH pooled and sealed for ALL
-THREE metrics (logloss TOL_LL, AUC TOL_AUC, ECE ECE_TOL). Each of the six
-(metric x view) conditions is BLOCKING; nothing else gates (the
-beats_elo/beats_const arms are informational table rows only).
+(arm-vs-W2019 relative ECE). This harness measures the same candidates
+through the PRODUCTION gate instead, under its FULLY within-run baseline:
+
+  POOLED  — the production-config 12-pool re-fit in the candidate's OWN
+            fold loop, on each fold's strictly-prior training portion
+            restricted to the PRODUCTION window (INCUMBENT_MIN_SEASON=2019;
+            same seed, same folds, same A/B walk state by construction).
+  SEALED  — one production-config re-fit on all pre-2025 rows of the
+            current pull (restricted to 2019+), scored on sealed-2025 with
+            the candidate's shared Platt map.
+
+ADOPT = within TOLERANCE of that within-run incumbent on BOTH pooled and
+sealed for ALL THREE metrics (TOL_LL 0.012, TOL_AUC 0.016, ECE_TOL 0.01),
+each of the six conditions BLOCKING — nothing else, and NO advisory verdict
+mode (the within-run baseline always exists). The persisted served bundle
+(seeded on origin/main as ensemble_latest.joblib per 9f88206, guarded load
+per the 2026-09-02 revision) is a DIAGNOSTIC CROSS-CHECK only: it is
+re-scored on sealed with its own stored weights + Platt map and compared to
+the within-run sealed incumbent so cross-pull drift becomes visible — it
+never enters the verdict.
 
 Candidates (same 12-pool, market-free, identical walk-forward geometry —
 2021-2024 pooled folds, sealed-2025 holdout, same seed):
   W2016 — warmup 2015, core 2016-2025 (train 2016..2024)
   W2014 — warmup 2013, core 2014-2025 (train 2014..2024)
-
-The incumbent bundle is loaded once and re-predicted per candidate on the
-candidate's folds + sealed window, its OWN stored adaptive weights + stored
-Platt map (exactly how the board served it). No bundle (fresh checkout /
-first run) -> advisory-only, no verdict — the production fallback, never a
-fabricated baseline.
 
 NO production config change ships from this harness: FEATURE_COLUMNS /
 DEFAULT_SEASONS are untouched regardless of outcome (wiring the window is a
@@ -33,7 +39,7 @@ Usage (network + nflreadpy needed for the raw pull):
     python3 run_nfl_window_gate.py                      # both arms + record
     python3 run_nfl_window_gate.py --arms W2016
     python3 run_nfl_window_gate.py --features <features.csv>
-    python3 run_nfl_window_gate.py --no-incumbent       # advisory-only, no verdict
+    python3 run_nfl_window_gate.py --no-incumbent       # skip bundle cross-check
     python3 run_nfl_window_gate.py --no-record
 Artifact: data_delivery/nfl_window_gate_<sha>.json (examined before any
 commit; the evidence record is committed with the harness per convention).
@@ -64,6 +70,11 @@ BOUNDARIES: dict[str, int] = {"W2016": 2016, "W2014": 2014}
 SEALED_SEASON = 2025           # sealed hold-out — constant across candidates
 TRAIN_END = SEALED_SEASON - 1  # train window is [B .. 2024]
 VAL_SEASONS = [2021, 2022, 2023, 2024]  # pooled-OOF weeks — constant
+# The within-run incumbent's training rows are restricted to the PRODUCTION
+# window (production TRAIN_SEASONS start) so a wider-window candidate is
+# compared against the model it would replace, trained in the SAME run on
+# the SAME folds + pull.
+INCUMBENT_MIN_SEASON = 2019
 
 # The gate's relative tolerances, SHARED with the production gate (single
 # source of truth — run tests pin the identity): logloss, AUC, ECE.
@@ -114,17 +125,19 @@ def load_arm_features(boundary: int) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Within-run incumbent helpers (exactly the production 9b93237 semantics)
+# Within-run incumbent helpers
 # ---------------------------------------------------------------------------
 def incumbent_predict(sld: pd.DataFrame, bundle: dict,
                       inc_features: list[str]) -> np.ndarray:
-    """Blend the incumbent's members with its stored adaptive weights and its
+    """Blend the bundle's members with its stored adaptive weights and its
     stored Platt map — the probabilities the board actually served.
 
-    A PURE function of (features, bundle): the incumbent's predictions never
-    depend on the target column, which is the within-run-isolation property
-    the tests pin (corrupting sealed outcomes leaves predictions byte-
-    identical; only the incumbent's scored metrics change)."""
+    A PURE function of (features, bundle): the predictions never depend on
+    the target column, which is the within-run-isolation property the tests
+    pin (corrupting sealed outcomes leaves predictions byte-identical; only
+    the scored metrics change). Used for the DIAGNOSTIC bundle cross-check
+    only — never the verdict.
+    """
     _, members, _ = M.ensemble_predict(bundle["models"], sld,
                                        features=inc_features)
     iw = M._member_weights(list(members),
@@ -137,23 +150,53 @@ def incumbent_predict(sld: pd.DataFrame, bundle: dict,
     return ib
 
 
-def usable_incumbent(bundle: dict | None,
-                     feats: pd.DataFrame) -> tuple[dict | None, list[str]]:
-    """Feature-alignment check — mirror of the production walk's block: the
-    bundle is usable only if EVERY stored feature exists in the frame (never
-    a silently-narrowed predict). Unusable -> (None, []) -> advisory ECE."""
+def _bundle_crosscheck(sld: pd.DataFrame, bundle: dict | None,
+                       within_run_sealed: dict) -> dict | None:
+    """Diagnostic-only: score the persisted served bundle on the sealed rows
+    of this pull and compare it to the within-run sealed incumbent.
+
+    The bundle NEVER enters the verdict — the within-run incumbent is the
+    gate baseline for BOTH views. Unusable bundle -> None (never misleads).
+    """
     if bundle is None:
-        return None, []
+        return None
     inc_features = [f for f in (bundle.get("features") or [])
-                    if f in feats.columns]
+                    if f in sld.columns]
     need = len(bundle.get("features") or [])
-    if (bundle.get("models") or {}) and need and len(inc_features) == need:
-        return bundle, inc_features
-    if bundle.get("models"):
-        logger.warning(
-            "incumbent bundle unusable (%d/%d features present) — ECE "
-            "advisory-only", len(inc_features), need)
-    return None, []
+    if not (bundle.get("models") and need and len(inc_features) == need):
+        logger.warning("bundle cross-check skipped: %d/%d features present",
+                       len(inc_features), need)
+        return None
+    try:
+        ics = incumbent_predict(sld, bundle, inc_features)
+        b_val = {
+            "logloss": round(M.logloss(sld[M.TARGET], ics), 4),
+            "auc": round(M.auc(sld[M.TARGET], ics), 4),
+            "ece": round(M.ece(sld[M.TARGET], ics), 4),
+        }
+        base = {k: within_run_sealed.get(k) for k in ("logloss", "auc", "ece")}
+
+        def _drift(key: str) -> float | None:
+            b = base.get(key)
+            return None if b is None else round(b_val[key] - b, 4)
+
+        return {
+            "sealed": b_val,
+            "within_run_sealed": base,
+            "drift_vs_within_run": {
+                "logloss": _drift("logloss"),
+                "auc": _drift("auc"),
+                "ece": _drift("ece"),
+            },
+            "note": "diagnostic cross-check only — the bundle is NOT the "
+                    "gate baseline; divergence here is cross-pull drift or "
+                    "config change",
+            "metadata": bundle.get("metadata"),
+            "features": bundle.get("features"),
+        }
+    except Exception as e:  # noqa: BLE001 — diagnostic never crashes the run
+        logger.warning("bundle cross-check predict failed: %s", e)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -164,20 +207,26 @@ def run_walk_forward_gate(feats: pd.DataFrame,
                           train_seasons: list[int],
                           sealed_season: int = SEALED_SEASON,
                           incumbent_bundle: dict | None = None,
-                          load_default_bundle: bool = True) -> dict:
+                          load_default_bundle: bool = True,
+                          incumbent_min_season: int | None =
+                          INCUMBENT_MIN_SEASON) -> dict:
     """Prequential walk-forward with a configurable training window, a twin
-    of ``nfl_moneyline.run_walk_forward`` that INCLUDES the within-run
-    incumbent arm exactly as production does (9b93237).
+    of ``nfl_moneyline.run_walk_forward`` that INCLUDES the fully within-run
+    incumbent baseline (pooled fold-local + sealed pre-2025 re-fit) exactly
+    as production does (2026-09-02 revision).
 
     The ONLY differences from production are that ``train_seasons`` /
     ``sealed_season`` are arguments instead of module constants (the
-    ``generate_weekly_folds`` val window stays 2021-2024) and the
-    history/calibration record emitters are omitted (pure gate measurement).
-    ``incumbent_bundle`` may be injected (tests) or auto-loaded from the
-    persisted ensemble_latest.joblib (production behavior).
+    ``generate_weekly_folds`` val window stays 2021-2024), the history/
+    calibration record emitters are omitted (pure gate measurement), and the
+    within-run incumbent re-trains on each fold's training slice restricted
+    to ``incumbent_min_season`` (the production window) so a wider-window
+    candidate is compared against the production-config model in the SAME
+    run. The persisted bundle (injected or auto-loaded via the guarded
+    production loader) is a DIAGNOSTIC cross-check only — never a verdict
+    baseline; there is no advisory verdict mode.
     """
-    from nfl_moneyline import (TARGET, META_COLS, _adaptive_blend,
-                               _elo_logistic_p, _member_weights,
+    from nfl_moneyline import (TARGET, _adaptive_blend, _elo_logistic_p,
                                _score_member_table, _valid_rows, adopt_decision,
                                auc, compute_adaptive_weights, compute_metrics,
                                ece, ensemble_predict, generate_weekly_folds,
@@ -195,12 +244,14 @@ def run_walk_forward_gate(feats: pd.DataFrame,
     sld = sealed[_valid_rows(sealed, Xcol)].copy()
     folds = generate_weekly_folds(preq)
 
-    # ---- WITHIN-RUN INCUMBENT (production 9b93237 block) ------------------
+    # ---- BUNDLE (DIAGNOSTIC cross-check only — never the verdict) --------
     bundle = incumbent_bundle
     if bundle is None and load_default_bundle:
-        bundle = load_ensemble()
-    incumbent, inc_features = usable_incumbent(bundle, feats)
-    inc_pool: list[np.ndarray] = []
+        bundle = load_ensemble()          # guarded production loader
+
+    inc_raw_pool: list[np.ndarray] = []
+    inc_y_pool: list[np.ndarray] = []   # the incumbent's OWN prior-fold OOF y
+    inc_pool_cal: list[np.ndarray] = []
 
     order_actual, order_raw, order_elo, ws_list = [], [], [], []
     oof_members: dict[str, list[float]] = {}
@@ -240,17 +291,32 @@ def run_walk_forward_gate(feats: pd.DataFrame,
         elo_pool.append(elo_p)
         y_pool.append(yva)
 
-        # Incumbent on the SAME val rows, calibrated by its OWN stored Platt
-        # map — collected per successful fold so pooled alignment with y_po
-        # is exact.
-        if incumbent is not None:
-            try:
-                ic = incumbent_predict(va, incumbent, inc_features)
-                inc_pool.append(ic)
-            except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
-                logger.warning("incumbent fold %s predict failed (%s) — ECE "
-                               "advisory-only", f["week_start"], e)
-                incumbent = None
+        # ---- Within-run POOLED incumbent --------------------------------
+        # Production-config 12-pool re-fit on THIS fold's strictly-prior
+        # training portion restricted to the production window — same seed,
+        # same fold loop, same A/B walk state as the candidate. For a
+        # production-window candidate this is byte-identical to the
+        # candidate's own fold model (RANDOM_SEED determinism).
+        inc_tr = tr
+        if incumbent_min_season is not None and "season" in tr.columns:
+            inc_tr = tr[tr["season"] >= incumbent_min_season]
+        if len(inc_tr) == 0:
+            # degenerate (production window empty on this fold) — fall back
+            # to the candidate's own fold model, documented, never fabricated
+            inc_cal = cal_p
+        else:
+            inc_models, _ = train_ensemble(inc_tr, va, features=Xcol)
+            inc_blend, _, _ = ensemble_predict(inc_models, va, features=Xcol)
+            lr_inc = None
+            if inc_raw_pool:   # strictly-EARLIER folds only (candidate pattern)
+                lr_inc = platt_fit(np.concatenate(inc_raw_pool),
+                                   np.concatenate(inc_y_pool).astype(int))
+                inc_cal = platt_predict(inc_blend, lr_inc)
+            else:
+                inc_cal = inc_blend.copy()
+            inc_raw_pool.append(inc_blend)
+            inc_y_pool.append(yva)
+        inc_pool_cal.append(inc_cal)
 
     if not y_pool:
         raise RuntimeError("no folds produced ensemble predictions")
@@ -259,17 +325,6 @@ def run_walk_forward_gate(feats: pd.DataFrame,
     raw_po = np.concatenate(raw_pool)
     cal_po = np.concatenate(cal_pool)
     elo_po = np.concatenate(elo_pool)
-
-    # Incumbent pooled arm (same OOF games as the candidate)
-    incumbent_pooled = None
-    if incumbent is not None and inc_pool \
-            and len(np.concatenate(inc_pool)) == len(y_po):
-        inc_po = np.concatenate(inc_pool)
-        incumbent_pooled = {
-            "logloss": round(logloss(y_po, inc_po), 4),
-            "auc": round(auc(y_po, inc_po), 4),
-            "ece": round(ece(y_po, inc_po), 4),
-        }
 
     const_p = preq[TARGET].mean()
 
@@ -295,6 +350,19 @@ def run_walk_forward_gate(feats: pd.DataFrame,
             "ece": round(ece(y_po, cal_po), 4),
         },
     }
+
+    # Within-run incumbent POOLED arm (same OOF games as the candidate)
+    incumbent_pooled = None
+    if inc_pool_cal:
+        inc_cal_all = np.concatenate(inc_pool_cal)
+        if len(inc_cal_all) == len(y_po):
+            incumbent_pooled = {
+                "logloss": round(logloss(y_po, inc_cal_all), 4),
+                "auc": round(auc(y_po, inc_cal_all), 4),
+                "ece": round(ece(y_po, inc_cal_all), 4),
+            }
+    if incumbent_pooled is None:  # defensive — folds succeeded implies present
+        incumbent_pooled = dict(pooled["model_platt"])
 
     adaptive = compute_adaptive_weights(oof_members, y_po)
     members_table = {}
@@ -346,31 +414,43 @@ def run_walk_forward_gate(feats: pd.DataFrame,
         },
     }
 
-    # Incumbent sealed arm (same 2025 rows as the candidate)
-    incumbent_sealed = None
-    if incumbent is not None and inc_features:
-        try:
-            ics = incumbent_predict(sld, incumbent, inc_features)
-            incumbent_sealed = {
-                "logloss": round(logloss(sld[TARGET], ics), 4),
-                "auc": round(auc(sld[TARGET], ics), 4),
-                "ece": round(ece(sld[TARGET], ics), 4),
-            }
-        except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
-            logger.warning("incumbent sealed predict failed (%s) — ECE "
-                           "advisory-only", e)
+    # ---- Within-run incumbent SEALED arm --------------------------------
+    # Production-config 12-pool re-fit ONCE on all pre-2025 rows of the
+    # current pull restricted to the production window (strictly prior to
+    # sealed), scored on the same 2025 rows and calibrated with the SAME
+    # sealed Platt map as the candidate (shared calibration machinery — any
+    # difference is model-level, not Platt-fit noise).
+    preq_inc = preq
+    if incumbent_min_season is not None and "season" in preq.columns:
+        preq_inc = preq[preq["season"] >= incumbent_min_season]
+    if len(preq_inc) == 0:
+        preq_inc = preq  # degenerate — documented, never fabricated
+    models_inc_sealed, _ = train_ensemble(preq_inc, None, features=Xcol)
+    sealed_inc_raw, _, _ = ensemble_predict(models_inc_sealed, sld,
+                                            features=Xcol)
+    sealed_inc_cal = platt_predict(sealed_inc_raw, platt_sealed)
+    incumbent_sealed = {
+        "logloss": round(logloss(sld[TARGET], sealed_inc_cal), 4),
+        "auc": round(auc(sld[TARGET], sealed_inc_cal), 4),
+        "ece": round(ece(sld[TARGET], sealed_inc_cal), 4),
+    }
+    pooled["incumbent"] = incumbent_pooled
+    sealed["incumbent"] = incumbent_sealed
 
-    if incumbent_pooled is not None:
-        pooled["incumbent"] = incumbent_pooled
-    if incumbent_sealed is not None:
-        sealed["incumbent"] = incumbent_sealed
+    # ---- BUNDLE DIAGNOSTIC CROSS-CHECK (demoted — informational only) ----
+    bundle_crosscheck = _bundle_crosscheck(sld, bundle, incumbent_sealed)
 
-    if incumbent_pooled is not None and incumbent_sealed is not None:
-        verdict = M.adopt_decision(pooled, sealed, incumbent={
-            "pooled_model_platt": incumbent_pooled,
-            "sealed_model_platt": incumbent_sealed})
-    else:
-        verdict = M.adopt_decision(pooled, sealed)
+    # The within-run incumbent ALWAYS exists — the verdict is the six
+    # tolerance legs vs it (the bundle is diagnostic-only, never gating).
+    verdict = M.adopt_decision(pooled, sealed, incumbent={
+        "pooled_model_platt": incumbent_pooled,
+        "sealed_model_platt": incumbent_sealed})
+
+    inc_geometry = ("fold-local pooled re-fit (production-window restriction "
+                    "%s) + within-run pre-2025 sealed re-fit; the persisted "
+                    "bundle is a diagnostic cross-check only"
+                    % (incumbent_min_season
+                       if incumbent_min_season is not None else "none"))
 
     return {
         "fold_geometry": {
@@ -387,6 +467,12 @@ def run_walk_forward_gate(feats: pd.DataFrame,
         "adaptive_weights": adaptive,
         "members": members_table,
         "members_sealed": sealed_members_table,
+        "incumbent_within_run": {
+            "pooled": incumbent_pooled,
+            "sealed": incumbent_sealed,
+            "geometry": inc_geometry,
+        },
+        "bundle_crosscheck": bundle_crosscheck,
         "verdict": verdict,
         "_deployed": {"features": Xcol},
     }
@@ -411,29 +497,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arms", nargs="*", choices=sorted(BOUNDARIES),
                     default=None, help="candidates to run (default: both)")
     ap.add_argument("--no-incumbent", action="store_true",
-                    help="force ECE advisory-only (simulate a fresh clone)")
+                    help="skip the bundle diagnostic cross-check (fresh-clone "
+                         "simulation); the within-run verdict is unaffected")
     ap.add_argument("--no-record", action="store_true",
                     help="compute/report only; skip writing the JSON record")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
     bundle = None
     if args.no_incumbent:
-        print("[warn] --no-incumbent: ECE advisory-only (fresh-clone "
-              "simulation — discrimination decides)")
+        print("[warn] --no-incumbent: bundle cross-check skipped (fresh-clone "
+              "simulation) — the within-run incumbent verdict is unaffected")
     else:
         bundle = M.load_ensemble()
         if bundle is None:
-            print("[warn] no incumbent bundle found on this checkout — ECE "
-                  "advisory-only (fresh clone / first run)")
+            print("[warn] no valid served bundle on this checkout — bundle "
+                  "cross-check unavailable; within-run verdict unaffected")
         else:
             meta = (bundle.get("metadata") or {})
-            member_names = sorted(k for k in (bundle.get("models") or {})
-                                  if k not in ("scaler", "impute_median",
-                                               "categorical_vocab"))
-            print(f"[incumbent] {M.ENSEMBLE_FILE}: "
-                  f"{len(bundle.get('features') or [])} features, "
-                  f"{member_names} members, created "
-                  f"{meta.get('created_utc', '?')}")
+            print(f"[bundle] {M.ENSEMBLE_FILE}: "
+                  f"{len(bundle.get('features') or [])} features, created "
+                  f"{meta.get('created_utc', '?')} — DIAGNOSTIC cross-check "
+                  "only (never a verdict baseline)")
 
     todo = [n for n in BOUNDARIES if args.arms is None or n in args.arms]
     feats_by_arm: dict[str, pd.DataFrame] = {}
@@ -463,8 +547,9 @@ def main(argv: list[str] | None = None) -> int:
         results[name] = run_walk_forward_gate(feats, cols, train,
                                               incumbent_bundle=bundle)
 
-    print(f"\n=== NFL window gate — within-run incumbent "
-          f"(TOL_LL {TOL_LL}, TOL_AUC {TOL_AUC}, ECE_TOL {ECE_TOL}) ===")
+    print(f"\n=== NFL window gate — fully within-run incumbent "
+          f"(TOL_LL {TOL_LL}, TOL_AUC {TOL_AUC}, ECE_TOL {ECE_TOL}; "
+          f"incumbent window >= {INCUMBENT_MIN_SEASON}) ===")
     print("arm        sealed_ll  sealed_auc  sealed_ece  pooled_ll  "
           "pooled_auc  pooled_ece")
     for name in todo:
@@ -477,13 +562,18 @@ def main(argv: list[str] | None = None) -> int:
               f"  {p['model_platt']['logloss']:9.4f} "
               f"{p['model_platt']['auc']:9.4f} "
               f"{p['model_platt']['ece']:9.4f}")
-        if "incumbent" in s and "incumbent" in p:
-            print(f"       incumbent {s['incumbent']['logloss']:10.4f} "
-                  f"{s['incumbent']['auc']:10.4f} "
-                  f"{s['incumbent']['ece']:10.4f}  "
-                  f"{p['incumbent']['logloss']:9.4f} "
-                  f"{p['incumbent']['auc']:9.4f} "
-                  f"{p['incumbent']['ece']:9.4f}")
+        wr = rec["incumbent_within_run"]["sealed"]
+        wp = rec["incumbent_within_run"]["pooled"]
+        print(f"   with-run  {wr['logloss']:10.4f} {wr['auc']:10.4f} "
+              f"{wr['ece']:10.4f}  {wp['logloss']:9.4f} "
+              f"{wp['auc']:9.4f} {wp['ece']:9.4f}")
+        bc = rec.get("bundle_crosscheck")
+        if bc is not None:
+            bs = bc["sealed"]
+            d = bc["drift_vs_within_run"]
+            print(f"   bundle    {bs['logloss']:10.4f} {bs['auc']:10.4f} "
+                  f"{bs['ece']:10.4f}  (drift ll {d['logloss']} auc "
+                  f"{d['auc']} ece {d['ece']} — diagnostic only)")
 
     for name in todo:
         v = results[name]["verdict"]
@@ -504,21 +594,31 @@ def main(argv: list[str] | None = None) -> int:
     inc_meta = (bundle.get("metadata") or {}) if bundle is not None else None
     record = {
         "created_utc": datetime.utcnow().isoformat() + "Z",
-        "method": "within-run incumbent gate (nfl_moneyline.adopt_decision, "
-                  "df1ec8c): adopt = ll_ok and auc_ok and ece_ok on BOTH "
-                  "pooled and sealed vs the incumbent bundle re-predicted on "
-                  "the SAME folds + sealed window of this pull; ll_ok = "
-                  "cand <= inc + TOL_LL, auc_ok = cand >= inc - TOL_AUC, "
-                  "ece_ok = cand <= inc + ECE_TOL — each blocking, nothing "
-                  "else gates",
+        "method": ("fully within-run incumbent gate (nfl_moneyline."
+                   "adopt_decision, third revision): baseline = production-"
+                   "config 12-pool trained WITHIN this run — pooled as a "
+                   "fold-local re-fit on each fold's strictly-prior training "
+                   "slice (restricted to production window >= %d) in the "
+                   "candidate's own fold loop, sealed as one re-fit on all "
+                   "pre-2025 rows of the current pull (restricted to >= %d); "
+                   "adopt = ll_ok and auc_ok and ece_ok on BOTH pooled and "
+                   "sealed (ll_ok = cand <= inc + TOL_LL, auc_ok = cand >= "
+                   "inc - TOL_AUC, ece_ok = cand <= inc + ECE_TOL) — each "
+                   "blocking, nothing else, NO advisory verdict mode; the "
+                   "persisted bundle is a diagnostic cross-check only"
+                   % (INCUMBENT_MIN_SEASON, INCUMBENT_MIN_SEASON)),
         "frame_sha256": first_fh,  # first arm's frame — per-arm shas live in arms[]
         "tol": {"ll": TOL_LL, "auc": TOL_AUC, "ece": ECE_TOL},
         "candidates": BOUNDARIES,
         "incumbent": {
+            "baseline": ("within-run (production window >= %d, same pull, "
+                         "same folds, same seed)" % INCUMBENT_MIN_SEASON),
             "bundle": M.ENSEMBLE_FILE,
-            "features": (bundle.get("features") if bundle is not None
-                         else None),
-            "metadata": inc_meta,
+            "bundle_role": "diagnostic cross-check only — never a verdict "
+                           "baseline",
+            "bundle_features": (bundle.get("features") if bundle is not None
+                                else None),
+            "bundle_metadata": inc_meta,
         },
         "arms": {},
         "verdicts": {},
@@ -533,6 +633,8 @@ def main(argv: list[str] | None = None) -> int:
             "fold_geometry": rec["fold_geometry"],
             "sealed_2025": rec["sealed_2025"],
             "pooled_preq_2021_2024": rec["pooled_preq_2021_2024"],
+            "incumbent_within_run": rec["incumbent_within_run"],
+            "bundle_crosscheck": rec.get("bundle_crosscheck"),
             "members": {m: dict(v) for m, v in (rec.get("members") or {}).items()},
             "members_sealed": {m: dict(v) for m, v in
                                (rec.get("members_sealed") or {}).items()},

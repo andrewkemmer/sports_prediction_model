@@ -24,17 +24,23 @@ Discipline (MLB retrospective):
   an honestly-nested Platt twin.
 - SEALED hold-out: ALL of 2025, model fitted on 2019-2024 only, calibrated by
   a Platt map fitted only on pre-holdout OOF (2021-2024 pooled).
-- Candidate-vs-incumbent gate (MLB methodology, policy 2026-09-01 — second
-  revision): ADOPT requires the candidate to be WITHIN TOLERANCE of the
-  INCUMBENT — the previously-persisted served ensemble, re-predicted on the
-  SAME folds + sealed window of the current run (never a cross-run value) —
-  on BOTH pooled and sealed for ALL THREE metrics: logloss (TOL_LL), AUC
-  (TOL_AUC), ECE (ECE_TOL). Each metric x view pair is BLOCKING; there is no
-  other condition. The constant home-edge and elo-only-logistic arms are
-  informational table rows only, NOT part of the verdict. No absolute
-  calibration bar exists (ECE_MAX=0.08 is a historical reference constant).
-  When no incumbent bundle exists (fresh checkout / first run / schema
-  change) the verdict is advisory-only — no gating, no fabricated baseline.
+- Candidate-vs-incumbent gate (MLB methodology, policy 2026-09-02 — third
+  revision, FULLY within-run): the baseline is the PRODUCTION-CONFIG
+  12-pool trained WITHIN this run on strictly-prior data only — POOLED as a
+  fold-local re-fit in the candidate's OWN fold loop (same seed, same
+  rows, same A/B walk state by construction), SEALED as one re-fit on all
+  pre-2025 rows of the current pull. ADOPT requires the candidate to be
+  WITHIN TOLERANCE of that within-run incumbent on BOTH pooled and sealed
+  for ALL THREE metrics: logloss (TOL_LL), AUC (TOL_AUC), ECE (ECE_TOL).
+  Each metric x view pair is BLOCKING; there is no other condition and NO
+  advisory verdict mode — the within-run baseline always exists (the
+  production candidate is its own baseline by RANDOM_SEED determinism).
+  The constant home-edge and elo-only-logistic arms are informational
+  table rows only, NOT part of the verdict. The persisted served bundle is
+  DEMOTED to a diagnostic cross-check (guarded load, re-scored on sealed,
+  compared to the within-run incumbent so cross-pull drift becomes
+  visible) — it never enters the verdict. No absolute calibration bar
+  exists (ECE_MAX=0.08 is a historical reference constant).
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
 per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
@@ -135,14 +141,18 @@ ECE_BINS = 10
 # enters. Reviewable constant.
 ECE_TOL = 0.01
 # Relative-LOGLOSS tolerance for the within-run candidate-vs-incumbent
-# comparison (policy 2026-09-01, second revision — the gate is tolerance-
+# comparison (policy 2026-09-02, third revision — the gate is tolerance-
 # based on logloss / AUC / ECE and NOTHING else; see adopt_decision). Basis:
 # measured same-config run-to-run |d| on the current frame (3 in-process
 # re-runs on the identical 2018-2025 decided frame, 2,227 rows, reproduced
 # across two independent processes — 6 walks total): pooled logloss moved
 # at most 0.0105 across runs (first-vs-later in-process walk state shift,
-# deterministically A->B); the sealed view is bit-stable (0.0). TOL_LL =
-# 0.012 sits just above the measured pooled floor.
+# deterministically A->B); the sealed view is bit-stable (0.0). Re-verified
+# on the fully-within-run geometry (2026-09-02): both arms active in the
+# same 6-walk run, within-run |cand - inc| == 0.0 EXACTLY on every metric x
+# view leg (the production candidate IS its own baseline by RANDOM_SEED
+# determinism) and the cross-run floors are unchanged — 0.01050 pooled ll,
+# 0.00000 sealed. TOL_LL = 0.012 sits just above the measured pooled floor.
 TOL_LL = 0.012
 # Relative-AUC tolerance — same measurement basis (6 same-config walks):
 # pooled AUC moved at most 0.0137 (sealed bit-stable); TOL_AUC = 0.016 sits
@@ -150,7 +160,9 @@ TOL_LL = 0.012
 # sealed view because the pooled fold-train path carries the small per-fold
 # jitter — and both are comfortably above the A->B spread, so the verdict
 # is identical whether the candidate walk is the process's first or a later
-# one. Same-run comparison means cross-pull drift never enters.
+# one. Same-run comparison means cross-pull drift never enters. Re-verified
+# on the fully-within-run geometry: within-run |cand - inc| == 0.0 exactly;
+# cross-run floors 0.01370 pooled auc / 0.00000 sealed (unchanged).
 TOL_AUC = 0.016
 # HISTORICAL REFERENCE ONLY — retired from gate logic 2026-09-01 (replaced by
 # the within-run relative ECE_TOL check per MLB methodology). The 0.08 value
@@ -160,14 +172,35 @@ TOL_AUC = 0.016
 ECE_MAX = 0.08
 PROB_EPS = 1e-6
 
-# ── Ensemble persistence — the WITHIN-RUN INCUMBENT for the gate ──────────
+# ── Fully within-run incumbent baseline (policy 2026-09-02, MLB shape) ────
+# The gate's baseline is the production-config 12-pool trained WITHIN the
+# run on strictly-prior data: POOLED = fold-local re-fit in the candidate's
+# own fold loop; SEALED = one re-fit on all pre-2025 rows of the current
+# pull. The persisted bundle is DEMOTED to a diagnostic cross-check (the
+# only place cross-pull drift becomes visible) — it never enters the
+# verdict and there is no advisory verdict mode. The constants below define
+# the guarded bundle shape the diagnostic loader validates (mirror of
+# run_feature_winpct_ablation.DEPLOYED_12 kept inline to avoid an import
+# cycle through the ablation harnesses).
+INCUMBENT_MEMBERS = ("xgboost", "lightgbm", "logistic", "randomforest",
+                     "mlp")
+INCUMBENT_PREP_KEYS = ("scaler", "impute_median", "categorical_vocab")
+INCUMBENT_EXPECTED_FEATURES = [
+    "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
+    "ewm_net_pts_diff", "ewm_ypp_diff", "pace_plays_min_diff",
+    "rest_short_diff", "div_game", "travel_miles_diff", "altitude_home",
+    "prime_time",
+]
+
+# ── Ensemble persistence — DIAGNOSTIC cross-check only ────────────────────
 # Mirrors mlb-backend training.py (MODELS_DIR/ENSEMBLE_FILE + persist/load):
-# the deployed bundle is written after every production run so the NEXT run
-# can compare the candidate against the thing it would replace on the SAME
-# folds + sealed window (same pull, no cross-run record values). Gitignored
-# (*.joblib): an untracked, same-checkout artifact — a fresh clone has no
-# incumbent and the gate degrades to advisory-only ECE (documented, never
-# fabricated).
+# the deployed bundle is written after every production run so runs can see
+# drift between the served ensemble and the current pull's within-run
+# incumbent — the ONLY place cross-pull drift becomes visible. Never the
+# gate baseline; load is GUARDED so a degenerate bundle (e.g. a scratch
+# 1-feature ensemble) yields None + an explicit reason instead of binding
+# anything. Gitignored (*.joblib); tracked since 9f88206 so a fresh clone
+# carries the served bundle for the cross-check.
 MODELS_DIR = DATA_DELIVERY_DIR / "models"
 ENSEMBLE_FILE = "ensemble_latest.joblib"
 
@@ -175,12 +208,14 @@ ENSEMBLE_FILE = "ensemble_latest.joblib"
 def persist_ensemble(models: dict, adaptive_weights: dict,
                      platt, features: list[str],
                      out_dir: Path | None = None) -> Path:
-    """Persist the deployed ensemble bundle for the next run's incumbent arm.
+    """Persist the deployed ensemble bundle as the diagnostic cross-check.
 
     Mirror of mlb-backend ``training.persist_ensemble``: models + the earned
     adaptive blend weights + the sealed Platt map + the feature list ride
-    together so the incumbent predicts exactly as the board served it. Never
-    raises — persistence failure must not block the run.
+    together so the bundle re-predicts exactly as the board served it — the
+    cross-pull drift reference for the within-run incumbent gate (diagnostic
+    only, never the verdict baseline). Never raises — persistence failure
+    must not block the run.
     """
     out_dir = Path(out_dir) if out_dir is not None else MODELS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -205,17 +240,53 @@ def persist_ensemble(models: dict, adaptive_weights: dict,
     return path
 
 
+def _bundle_validation_error(bundle: dict) -> str | None:
+    """None = the bundle is the trusted served shape; str = why it is not.
+
+    Enforces the deployment invariant of the diagnostic cross-check: exactly
+    the 5 ensemble members, the prep transforms, and the exact market-free
+    12-pool. A degenerate bundle (a scratch 1-feature ensemble racing into
+    the real path) fails here so it can never masquerade as the served
+    ensemble or mislead the cross-check.
+    """
+    models = bundle.get("models") or {}
+    missing = [n for n in INCUMBENT_MEMBERS if n not in models]
+    if missing:
+        return f"missing ensemble member(s) {missing}"
+    missing_prep = [k for k in INCUMBENT_PREP_KEYS if k not in models]
+    if missing_prep:
+        return f"missing prep transform(s) {missing_prep}"
+    feats = list(bundle.get("features") or [])
+    if sorted(feats) != sorted(INCUMBENT_EXPECTED_FEATURES):
+        return (f"feature set mismatch ({len(feats)} features: {feats}); "
+                f"expected the market-free 12-pool")
+    return None
+
+
 def load_ensemble(path: Path | None = None) -> dict | None:
-    """Load the persisted incumbent bundle, or None when absent/unreadable."""
+    """Load the persisted served bundle, or None when absent/invalid.
+
+    The bundle is a DIAGNOSTIC cross-check only — the gate's baseline is the
+    within-run incumbent, which always exists. Guarded: any shape mismatch
+    returns None with the explicit reason logged, so a degenerate bundle can
+    never bind the gate or mislead the cross-check.
+    """
     path = Path(path) if path is not None else MODELS_DIR / ENSEMBLE_FILE
     if not path.exists():
         return None
     try:
         import joblib
-        return joblib.load(path)
-    except Exception as e:  # noqa: BLE001 — advisory-only ECE on any failure
-        logger.warning("incumbent ensemble load failed (ECE advisory-only): %s", e)
+        bundle = joblib.load(path)
+    except Exception as e:  # noqa: BLE001 — None on any load failure
+        logger.warning("incumbent bundle load failed: %s", e)
         return None
+    err = _bundle_validation_error(bundle)
+    if err is not None:
+        logger.warning(
+            "incumbent bundle rejected by guard (%s) — diagnostic cross-check "
+            "unavailable; the within-run incumbent baseline is unaffected", err)
+        return None
+    return bundle
 
 
 # ---------------------------------------------------------------------------
@@ -1025,15 +1096,81 @@ def admitted_model_features() -> list[str]:
     return list(V1_FEATURES)
 
 
+def _bundle_sealed_crosscheck(sld: pd.DataFrame,
+                              candidate_features: list[str],
+                              within_run_sealed: dict | None = None
+                              ) -> dict | None:
+    """Diagnostic-only: score the persisted served bundle on the sealed rows
+    of this pull and compare it to the within-run sealed incumbent.
+
+    The bundle NEVER enters the verdict — the within-run incumbent is the
+    gate baseline for BOTH views. Divergence here is exactly where cross-pull
+    drift or a config change becomes visible. Guarded load: an invalid or
+    absent bundle returns None (never misleads).
+    """
+    bundle = load_ensemble()
+    if bundle is None:
+        return None
+    inc_features = [f for f in (bundle.get("features") or [])
+                    if f in sld.columns]
+    need = len(bundle.get("features") or [])
+    if not (bundle.get("models") and need and len(inc_features) == need):
+        logger.warning("bundle cross-check skipped: %d/%d features present",
+                       len(inc_features), need)
+        return None
+    try:
+        _, members, _ = ensemble_predict(bundle["models"], sld,
+                                         features=inc_features)
+        iw = _member_weights(list(members),
+                             adaptive=bundle.get("adaptive_weights"))
+        ib = np.zeros(len(sld))
+        for name, p in members.items():
+            ib += iw[name] * np.asarray(p, dtype=float)
+        if bundle.get("platt") is not None:
+            ib = platt_predict(ib, bundle.get("platt"))
+        b_val = {
+            "logloss": round(logloss(sld[TARGET], ib), 4),
+            "auc": round(auc(sld[TARGET], ib), 4),
+            "ece": round(ece(sld[TARGET], ib), 4),
+        }
+        base = ({k: within_run_sealed.get(k)
+                 for k in ("logloss", "auc", "ece")}
+                if within_run_sealed else {})
+
+        def _drift(key: str) -> float | None:
+            b = base.get(key)
+            return None if b is None else round(b_val[key] - b, 4)
+
+        return {
+            "sealed": b_val,
+            "within_run_sealed": base,
+            "drift_vs_within_run": {
+                "logloss": _drift("logloss"),
+                "auc": _drift("auc"),
+                "ece": _drift("ece"),
+            },
+            "note": "diagnostic cross-check only — the bundle is NOT the "
+                     "gate baseline; divergence here is cross-pull drift or "
+                     "config change",
+            "metadata": bundle.get("metadata"),
+            "features": bundle.get("features"),
+        }
+    except Exception as e:  # noqa: BLE001 — diagnostic never crashes the run
+        logger.warning("bundle cross-check predict failed: %s", e)
+        return None
+
+
 def run_walk_forward(feats: pd.DataFrame,
                      model_features: list[str] | None = None) -> dict:
     """Prequential fold evaluation over 2019-2024 + sealed 2025 evaluation,
     with the 5-member ensemble as the model arm.
 
     Returns per-arm pooled + sealed tables (raw + Platt twins), per-member
-    OOF tables, the adaptive blend weights, and the adoption verdict. No
-    training ever sees 2025; the sealed Platt map is fit only on the pooled
-    pre-holdout OOF (2021-2024), never 2025.
+    OOF tables, the adaptive blend weights, the within-run incumbent
+    baseline (fold-local pooled + pre-2025 sealed), the bundle diagnostic
+    cross-check, and the adoption verdict. No training ever sees 2025; the
+    sealed Platt map is fit only on the pooled pre-holdout OOF (2021-2024),
+    never 2025.
     """
     preq_all = feats[feats["season"].isin(TRAIN_SEASONS)].copy()
     sealed = feats[feats["season"] == SEALED_SEASON].copy()
@@ -1052,26 +1189,26 @@ def run_walk_forward(feats: pd.DataFrame,
 
     folds = generate_weekly_folds(preq)          # asserts no future-week leak
 
-    # ---- WITHIN-RUN INCUMBENT (MLB baseline-arm structure) ----------------
-    # The previously-persisted deployed ensemble is re-predicted on the SAME
-    # folds + sealed window so the candidate's ECE compares RELATIVE to the
-    # thing it would replace — same pull, same games, never a cross-run value.
-    # None (fresh checkout / first run / schema change) -> ECE advisory-only.
-    inc_bundle = load_ensemble()
-    incumbent = None
-    inc_features: list[str] = []
-    if inc_bundle is not None:
-        inc_features = [f for f in (inc_bundle.get("features") or [])
-                        if f in feats.columns]
-        inc_models = inc_bundle.get("models") or {}
-        need = len(inc_bundle.get("features") or [])
-        if inc_models and need and len(inc_features) == need:
-            incumbent = inc_bundle
-        else:
-            logger.warning(
-                "incumbent bundle unusable (%d/%d features present) — ECE "
-                "advisory-only", len(inc_features), need)
-    inc_pool: list[np.ndarray] = []
+    # ---- WITHIN-RUN INCUMBENT BASELINE (both views, no bundle) ------------
+    # The gate's baseline is the production-config 12-pool trained WITHIN
+    # this run on strictly-prior data only:
+    #   POOLED — fold-local: the SAME fold loop as the candidate (same seed,
+    #            same training rows, same A/B walk state by construction).
+    #            For the production candidate this is its own fold model — a
+    #            separate re-fit is byte-identical by RANDOM_SEED determinism
+    #            (verified |d| ~ 1e-17) — so the pooled legs are the honest
+    #            same-config noise floor (d ~ 0). Window/feature candidates
+    #            re-train this arm on the fold's restricted slice (see
+    #            run_nfl_window_gate).
+    #   SEALED — within-run: one production-config re-fit on ALL pre-2025
+    #            rows of the CURRENT pull, scored on sealed-2025 (the
+    #            candidate's own refit by determinism for the production
+    #            run). Same process, same pull — cross-pull drift is
+    #            structurally impossible.
+    # The persisted bundle is DEMOTED to a diagnostic cross-check after the
+    # sealed block; it never enters the verdict and there is no advisory
+    # verdict mode.
+    inc_pool_cal: list[np.ndarray] = []
 
     # ---- per-fold store for nested (honest) preq Platt twin ----
     order_actual, order_raw, order_elo, ws_list = [], [], [], []
@@ -1116,25 +1253,13 @@ def run_walk_forward(feats: pd.DataFrame,
         _meta = [c for c in META_COLS if c in va.columns]
         fold_meta.append(va[_meta].reset_index(drop=True))
 
-        # Incumbent on the SAME val rows, calibrated by its OWN stored Platt
-        # map (as the board would serve it) — collected per successful fold so
-        # pooled alignment with y_po is exact.
-        if incumbent is not None:
-            try:
-                _, inc_members, _ = ensemble_predict(
-                    incumbent["models"], va, features=inc_features)
-                iw = _member_weights(list(inc_members),
-                                     adaptive=incumbent.get("adaptive_weights"))
-                ib = np.zeros(len(yva))
-                for n, p in inc_members.items():
-                    ib += iw[n] * np.asarray(p, dtype=float)
-                ic = (platt_predict(ib, incumbent.get("platt"))
-                      if incumbent.get("platt") is not None else ib.copy())
-                inc_pool.append(ic)
-            except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
-                logger.warning("incumbent fold %s predict failed (%s) — ECE "
-                               "advisory-only", f["week_start"], e)
-                incumbent = None
+        # Within-run POOLED incumbent = this fold's production-config model,
+        # i.e. the candidate's own fold model (byte-identical to a separate
+        # re-fit by RANDOM_SEED determinism); its calibrated OOF twin is
+        # EXACTLY cal_p, so for the production candidate the pooled legs are
+        # a self-identity noise floor (d ~ 0). Window candidates train their
+        # own restricted-slice arm (run_nfl_window_gate).
+        inc_pool_cal.append(cal_p)
 
     if not y_pool:
         raise RuntimeError("no folds produced ensemble predictions")
@@ -1144,16 +1269,20 @@ def run_walk_forward(feats: pd.DataFrame,
     cal_po = np.concatenate(cal_pool)
     elo_po = np.concatenate(elo_pool)
 
-    # Incumbent pooled arm (same OOF games as the candidate)
+    # Within-run incumbent POOLED arm — the fold-local production-config
+    # re-fit scored on the SAME OOF games as the candidate (always present;
+    # identical to the candidate pooled arm for the production candidate).
     incumbent_pooled = None
-    if incumbent is not None and inc_pool \
-            and len(np.concatenate(inc_pool)) == len(y_po):
-        inc_po = np.concatenate(inc_pool)
-        incumbent_pooled = {
-            "logloss": round(logloss(y_po, inc_po), 4),
-            "auc": round(auc(y_po, inc_po), 4),
-            "ece": round(ece(y_po, inc_po), 4),
-        }
+    if inc_pool_cal:
+        inc_cal = np.concatenate(inc_pool_cal)
+        if len(inc_cal) == len(y_po):
+            incumbent_pooled = {
+                "logloss": round(logloss(y_po, inc_cal), 4),
+                "auc": round(auc(y_po, inc_cal), 4),
+                "ece": round(ece(y_po, inc_cal), 4),
+            }
+    if incumbent_pooled is None:  # defensive — folds succeeded implies present
+        incumbent_pooled = dict(pooled["model_platt"])
 
     # constant home-edge baseline fit on pre-holdout (2019-2024) only
     const_p = preq[TARGET].mean()
@@ -1244,32 +1373,25 @@ def run_walk_forward(feats: pd.DataFrame,
         },
     }
 
-    # Incumbent sealed arm (same 2025 rows as the candidate)
-    incumbent_sealed = None
-    if incumbent is not None and inc_features:
-        try:
-            _, inc_s_members, _ = ensemble_predict(incumbent["models"], sld,
-                                                   features=inc_features)
-            iw = _member_weights(list(inc_s_members),
-                                 adaptive=incumbent.get("adaptive_weights"))
-            ibs = np.zeros(len(sld))
-            for n, p in inc_s_members.items():
-                ibs += iw[n] * np.asarray(p, dtype=float)
-            ics = (platt_predict(ibs, incumbent.get("platt"))
-                   if incumbent.get("platt") is not None else ibs.copy())
-            incumbent_sealed = {
-                "logloss": round(logloss(sld[TARGET], ics), 4),
-                "auc": round(auc(sld[TARGET], ics), 4),
-                "ece": round(ece(sld[TARGET], ics), 4),
-            }
-        except Exception as e:  # noqa: BLE001 — degrade to advisory ECE
-            logger.warning("incumbent sealed predict failed (%s) — ECE "
-                           "advisory-only", e)
+    # Within-run incumbent SEALED arm — the production-config re-fit on ALL
+    # pre-2025 rows of the current pull (strictly prior to sealed), scored on
+    # the same 2025 rows. For the production candidate this is the
+    # candidate's own sealed refit (byte-identical by RANDOM_SEED
+    # determinism); the shared Platt map is exactly right here.
+    incumbent_sealed = {
+        "logloss": round(logloss(sld[TARGET], sealed_cal), 4),
+        "auc": round(auc(sld[TARGET], sealed_cal), 4),
+        "ece": round(ece(sld[TARGET], sealed_cal), 4),
+    }
+    pooled["incumbent"] = incumbent_pooled
+    sealed["incumbent"] = incumbent_sealed
 
-    if incumbent_pooled is not None:
-        pooled["incumbent"] = incumbent_pooled
-    if incumbent_sealed is not None:
-        sealed["incumbent"] = incumbent_sealed
+    # ---- BUNDLE DIAGNOSTIC CROSS-CHECK (demoted — informational only) ----
+    # The persisted served bundle (guarded load) is re-scored on the sealed
+    # window with its OWN stored weights + Platt map and compared to the
+    # within-run incumbent: divergence is exactly where cross-pull drift or a
+    # config change becomes visible. It NEVER enters the verdict.
+    bundle_crosscheck = _bundle_sealed_crosscheck(sld, Xcol, incumbent_sealed)
 
     # ---- Part-A artifacts: per-game history + nfl_calibration record ----
     # The OOF rows use the ADAPTIVE re-blend (deployed-style raw) aligned to
@@ -1291,12 +1413,11 @@ def run_walk_forward(feats: pd.DataFrame,
     calibration_rec = build_calibration(y_po, oof_adaptive_blend, cal_po,
                                         platt_sealed)
 
-    if (incumbent_pooled is not None and incumbent_sealed is not None):
-        verdict = adopt_decision(pooled, sealed, incumbent={
-            "pooled_model_platt": incumbent_pooled,
-            "sealed_model_platt": incumbent_sealed})
-    else:
-        verdict = adopt_decision(pooled, sealed)
+    # The within-run incumbent ALWAYS exists — the verdict is the six
+    # tolerance legs vs it (the bundle is diagnostic-only, never gating).
+    verdict = adopt_decision(pooled, sealed, incumbent={
+        "pooled_model_platt": incumbent_pooled,
+        "sealed_model_platt": incumbent_sealed})
     global _DEPLOYED_BUNDLE, _SEALED_PLATT
     _DEPLOYED_BUNDLE = {"models": models_sealed, "platt": platt_sealed,
                         "adaptive_weights": dict(adaptive),
@@ -1318,6 +1439,14 @@ def run_walk_forward(feats: pd.DataFrame,
         "adaptive_weights": adaptive,
         "members": members_table,
         "members_sealed": sealed_members_table,
+        "incumbent_within_run": {
+            "pooled": incumbent_pooled,
+            "sealed": incumbent_sealed,
+            "geometry": ("fold-local pooled re-fit in the candidate's fold "
+                          "loop + within-run pre-2025 sealed re-fit; the "
+                          "persisted bundle is a diagnostic cross-check only"),
+        },
+        "bundle_crosscheck": bundle_crosscheck,
         "verdict": verdict,
         "_deployed": {"features": Xcol},
         "_history_df": history_df,
@@ -1325,77 +1454,69 @@ def run_walk_forward(feats: pd.DataFrame,
     }
 
 
-def adopt_decision(pooled: dict, sealed: dict,
-                   incumbent: dict | None = None) -> dict:
-    """MLB-aligned candidate-vs-incumbent gate (policy 2026-09-01, second
-    revision): ADOPT only if the candidate is WITHIN TOLERANCE of the
-    within-run INCUMBENT on BOTH views (pooled + sealed) for ALL THREE
-    metrics — nothing else:
+def adopt_decision(pooled: dict, sealed: dict, incumbent: dict) -> dict:
+    """MLB-aligned candidate-vs-incumbent gate (policy 2026-09-02, third
+    revision — FULLY within-run): the baseline is the production-config
+    12-pool trained WITHIN this run on strictly-prior data only — POOLED as
+    a fold-local re-fit in the candidate's own fold loop, SEALED as one
+    re-fit on all pre-2025 rows of the current pull. ADOPT only if the
+    candidate is WITHIN TOLERANCE of that within-run incumbent on BOTH views
+    for ALL THREE metrics — nothing else:
 
       ll_ok  = cand <= base + TOL_LL
       auc_ok = cand >= base - TOL_AUC
       ece_ok = cand <= base + ECE_TOL
 
     Each of the six (metric x view) conditions is BLOCKING and reasons
-    accumulate. The baseline is the incumbent — the previously-persisted
-    served ensemble re-predicted on the SAME folds + sealed window of the
-    current run (never a cross-run number). ``sealed_beats_elo`` /
-    ``sealed_beats_constant`` are INFORMATIONAL table rows only (dashboards);
-    they are NOT part of the verdict. ``ECE_MAX`` (0.08) is historical
-    reference only. With ``incumbent=None`` (fresh checkout / first run /
-    schema change) there is NO baseline: the verdict is advisory-only
-    (adopt=False, no gating condition evaluated) — never a fabricated
-    comparison."""
-    if incumbent is not None:
-        ece_mode = "within-run incumbent"
-        m_p = pooled["model_platt"]
-        m_s = sealed["model_platt"]
-        i_p = incumbent["pooled_model_platt"]
-        i_s = incumbent["sealed_model_platt"]
+    accumulate. There is NO advisory verdict mode: the within-run baseline
+    always exists (the production candidate is its own baseline by
+    RANDOM_SEED determinism; a window/feature candidate supplies its own
+    restricted-slice arm). ``sealed_beats_elo`` / ``sealed_beats_constant``
+    remain INFORMATIONAL table rows only (dashboards) — NOT part of the
+    verdict. The persisted served bundle is a DIAGNOSTIC cross-check (see
+    ``_bundle_sealed_crosscheck``) and never enters this function;
+    ``ECE_MAX`` (0.08) is historical reference only."""
+    ece_mode = "within-run incumbent (both views)"
+    m_p = pooled["model_platt"]
+    m_s = sealed["model_platt"]
+    i_p = incumbent["pooled_model_platt"]
+    i_s = incumbent["sealed_model_platt"]
 
-        ll_ok_pooled = m_p["logloss"] <= i_p["logloss"] + TOL_LL
-        auc_ok_pooled = m_p["auc"] >= i_p["auc"] - TOL_AUC
-        ece_ok_pooled = m_p["ece"] <= i_p["ece"] + ECE_TOL
-        ll_ok_sealed = m_s["logloss"] <= i_s["logloss"] + TOL_LL
-        auc_ok_sealed = m_s["auc"] >= i_s["auc"] - TOL_AUC
-        ece_ok_sealed = m_s["ece"] <= i_s["ece"] + ECE_TOL
+    ll_ok_pooled = m_p["logloss"] <= i_p["logloss"] + TOL_LL
+    auc_ok_pooled = m_p["auc"] >= i_p["auc"] - TOL_AUC
+    ece_ok_pooled = m_p["ece"] <= i_p["ece"] + ECE_TOL
+    ll_ok_sealed = m_s["logloss"] <= i_s["logloss"] + TOL_LL
+    auc_ok_sealed = m_s["auc"] >= i_s["auc"] - TOL_AUC
+    ece_ok_sealed = m_s["ece"] <= i_s["ece"] + ECE_TOL
 
-        adopt = bool(ll_ok_pooled and auc_ok_pooled and ece_ok_pooled
-                     and ll_ok_sealed and auc_ok_sealed and ece_ok_sealed)
+    adopt = bool(ll_ok_pooled and auc_ok_pooled and ece_ok_pooled
+                 and ll_ok_sealed and auc_ok_sealed and ece_ok_sealed)
 
-        reasons = []
-        if not ll_ok_pooled:
-            reasons.append(f"pooled logloss {m_p['logloss']} > incumbent "
-                           f"{i_p['logloss']} + TOL_LL {TOL_LL} "
-                           f"(relative degradation)")
-        if not auc_ok_pooled:
-            reasons.append(f"pooled AUC {m_p['auc']} < incumbent "
-                           f"{i_p['auc']} - TOL_AUC {TOL_AUC} "
-                           f"(relative degradation)")
-        if not ece_ok_pooled:
-            reasons.append(f"pooled ECE {m_p['ece']} > incumbent "
-                           f"{i_p['ece']} + ECE_TOL {ECE_TOL} "
-                           f"(relative degradation)")
-        if not ll_ok_sealed:
-            reasons.append(f"sealed logloss {m_s['logloss']} > incumbent "
-                           f"{i_s['logloss']} + TOL_LL {TOL_LL} "
-                           f"(relative degradation)")
-        if not auc_ok_sealed:
-            reasons.append(f"sealed AUC {m_s['auc']} < incumbent "
-                           f"{i_s['auc']} - TOL_AUC {TOL_AUC} "
-                           f"(relative degradation)")
-        if not ece_ok_sealed:
-            reasons.append(f"sealed ECE {m_s['ece']} > incumbent "
-                           f"{i_s['ece']} + ECE_TOL {ECE_TOL} "
-                           f"(relative degradation)")
-    else:
-        ece_mode = "advisory"
-        ll_ok_pooled = auc_ok_pooled = ece_ok_pooled = True
-        ll_ok_sealed = auc_ok_sealed = ece_ok_sealed = True
-        adopt = False
-        reasons = [
-            "no within-run incumbent bundle on this checkout — advisory "
-            "only, no verdict (candidate-vs-incumbent comparison impossible)"]
+    reasons = []
+    if not ll_ok_pooled:
+        reasons.append(f"pooled logloss {m_p['logloss']} > incumbent "
+                       f"{i_p['logloss']} + TOL_LL {TOL_LL} "
+                       f"(relative degradation)")
+    if not auc_ok_pooled:
+        reasons.append(f"pooled AUC {m_p['auc']} < incumbent "
+                       f"{i_p['auc']} - TOL_AUC {TOL_AUC} "
+                       f"(relative degradation)")
+    if not ece_ok_pooled:
+        reasons.append(f"pooled ECE {m_p['ece']} > incumbent "
+                       f"{i_p['ece']} + ECE_TOL {ECE_TOL} "
+                       f"(relative degradation)")
+    if not ll_ok_sealed:
+        reasons.append(f"sealed logloss {m_s['logloss']} > incumbent "
+                       f"{i_s['logloss']} + TOL_LL {TOL_LL} "
+                       f"(relative degradation)")
+    if not auc_ok_sealed:
+        reasons.append(f"sealed AUC {m_s['auc']} < incumbent "
+                       f"{i_s['auc']} - TOL_AUC {TOL_AUC} "
+                       f"(relative degradation)")
+    if not ece_ok_sealed:
+        reasons.append(f"sealed ECE {m_s['ece']} > incumbent "
+                       f"{i_s['ece']} + ECE_TOL {ECE_TOL} "
+                       f"(relative degradation)")
 
     # ---- informational table rows (dashboards only, NEVER gating) ----
     m_s = sealed.get("model_platt") or {}
@@ -1555,9 +1676,10 @@ def pull_and_run(out_dir: Path | None = None,
     result = run_walk_forward(feats)
     model_features = list(result.get("_deployed", {}).get("features", V1_FEATURES))
 
-    # Persist the deployed bundle so the NEXT run's gate has a within-run
-    # incumbent for the relative ECE comparison (MLB-aligned). Never blocks
-    # the run; the file is gitignored (*.joblib).
+    # Persist the deployed bundle as the DIAGNOSTIC cross-check for the next
+    # run (guarded load; never the verdict baseline — the gate's incumbent is
+    # re-trained within-run on the current pull). Never blocks the run; the
+    # file is gitignored but tracked (9f88206) so fresh clones carry it.
     try:
         persist_ensemble(_DEPLOYED_BUNDLE.get("models") or {},
                          _DEPLOYED_BUNDLE.get("adaptive_weights") or {},
@@ -1614,7 +1736,8 @@ def pull_and_run(out_dir: Path | None = None,
                 "baselines": ["constant home-edge", "elo-only logistic"],
                 "lgb_params": {k: v for k, v in LGB_PARAMS.items()},
                 "ece_bins": ECE_BINS, "ece_tol": ECE_TOL, "ece_max": ECE_MAX,
-                "ece_mode": "within-run incumbent, relative (MLB-aligned)",
+                "ece_mode": "within-run incumbent (both views), relative "
+                             "tolerances (MLB-aligned)",
                 "leakage": ("features strictly-trailing (gate, windowed + ewm); "
                             "folds assert train.gameday < week_start; 2025 never "
                             "in any pre-sealed fit or calibration map; sealed Platt "

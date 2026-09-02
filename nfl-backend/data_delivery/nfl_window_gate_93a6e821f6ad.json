@@ -1,6 +1,6 @@
 {
-  "created_utc": "2026-09-01T23:54:02.010064Z",
-  "method": "within-run incumbent gate (nfl_moneyline.adopt_decision, df1ec8c): adopt = ll_ok and auc_ok and ece_ok on BOTH pooled and sealed vs the incumbent bundle re-predicted on the SAME folds + sealed window of this pull; ll_ok = cand <= inc + TOL_LL, auc_ok = cand >= inc - TOL_AUC, ece_ok = cand <= inc + ECE_TOL \u2014 each blocking, nothing else gates",
+  "created_utc": "2026-09-02T00:49:50.506008Z",
+  "method": "fully within-run incumbent gate (nfl_moneyline.adopt_decision, third revision): baseline = production-config 12-pool trained WITHIN this run \u2014 pooled as a fold-local re-fit on each fold's strictly-prior training slice (restricted to production window >= 2019) in the candidate's own fold loop, sealed as one re-fit on all pre-2025 rows of the current pull (restricted to >= 2019); adopt = ll_ok and auc_ok and ece_ok on BOTH pooled and sealed (ll_ok = cand <= inc + TOL_LL, auc_ok = cand >= inc - TOL_AUC, ece_ok = cand <= inc + ECE_TOL) \u2014 each blocking, nothing else, NO advisory verdict mode; the persisted bundle is a diagnostic cross-check only",
   "frame_sha256": "93a6e821f6ad",
   "tol": {
     "ll": 0.012,
@@ -12,8 +12,10 @@
     "W2014": 2014
   },
   "incumbent": {
+    "baseline": "within-run (production window >= 2019, same pull, same folds, same seed)",
     "bundle": "ensemble_latest.joblib",
-    "features": [
+    "bundle_role": "diagnostic cross-check only \u2014 never a verdict baseline",
+    "bundle_features": [
       "elo_diff",
       "win_pct_diff",
       "rest_days_diff",
@@ -27,7 +29,7 @@
       "altitude_home",
       "prime_time"
     ],
-    "metadata": {
+    "bundle_metadata": {
       "created_utc": "2026-09-01T21:22:45.587202Z",
       "train_seasons": [
         2019,
@@ -195,9 +197,9 @@
           "ece": 0.0541
         },
         "incumbent": {
-          "logloss": 0.6238,
-          "auc": 0.7093,
-          "ece": 0.0644
+          "logloss": 0.6251,
+          "auc": 0.7073,
+          "ece": 0.0519
         }
       },
       "pooled_preq_2021_2024": {
@@ -222,10 +224,69 @@
           "ece": 0.0378
         },
         "incumbent": {
-          "logloss": 0.6164,
-          "auc": 0.7127,
-          "ece": 0.0347
+          "logloss": 0.6325,
+          "auc": 0.69,
+          "ece": 0.0216
         }
+      },
+      "incumbent_within_run": {
+        "pooled": {
+          "logloss": 0.6325,
+          "auc": 0.69,
+          "ece": 0.0216
+        },
+        "sealed": {
+          "logloss": 0.6251,
+          "auc": 0.7073,
+          "ece": 0.0519
+        },
+        "geometry": "fold-local pooled re-fit (production-window restriction 2019) + within-run pre-2025 sealed re-fit; the persisted bundle is a diagnostic cross-check only"
+      },
+      "bundle_crosscheck": {
+        "sealed": {
+          "logloss": 0.6238,
+          "auc": 0.7093,
+          "ece": 0.0644
+        },
+        "within_run_sealed": {
+          "logloss": 0.6251,
+          "auc": 0.7073,
+          "ece": 0.0519
+        },
+        "drift_vs_within_run": {
+          "logloss": -0.0013,
+          "auc": 0.002,
+          "ece": 0.0125
+        },
+        "note": "diagnostic cross-check only \u2014 the bundle is NOT the gate baseline; divergence here is cross-pull drift or config change",
+        "metadata": {
+          "created_utc": "2026-09-01T21:22:45.587202Z",
+          "train_seasons": [
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024
+          ],
+          "sealed_season": 2025,
+          "ece_bins": 10,
+          "ece_tol": 0.01
+        },
+        "features": [
+          "elo_diff",
+          "win_pct_diff",
+          "rest_days_diff",
+          "is_dome_home",
+          "ewm_net_pts_diff",
+          "ewm_ypp_diff",
+          "pace_plays_min_diff",
+          "rest_short_diff",
+          "div_game",
+          "travel_miles_diff",
+          "altitude_home",
+          "prime_time"
+        ]
       },
       "members": {
         "lightgbm": {
@@ -466,9 +527,9 @@
           "ece": 0.084
         },
         "incumbent": {
-          "logloss": 0.6237,
-          "auc": 0.7094,
-          "ece": 0.0645
+          "logloss": 0.6281,
+          "auc": 0.7045,
+          "ece": 0.0496
         }
       },
       "pooled_preq_2021_2024": {
@@ -493,10 +554,69 @@
           "ece": 0.0278
         },
         "incumbent": {
-          "logloss": 0.6165,
-          "auc": 0.7127,
-          "ece": 0.035
+          "logloss": 0.6294,
+          "auc": 0.6954,
+          "ece": 0.0237
         }
+      },
+      "incumbent_within_run": {
+        "pooled": {
+          "logloss": 0.6294,
+          "auc": 0.6954,
+          "ece": 0.0237
+        },
+        "sealed": {
+          "logloss": 0.6281,
+          "auc": 0.7045,
+          "ece": 0.0496
+        },
+        "geometry": "fold-local pooled re-fit (production-window restriction 2019) + within-run pre-2025 sealed re-fit; the persisted bundle is a diagnostic cross-check only"
+      },
+      "bundle_crosscheck": {
+        "sealed": {
+          "logloss": 0.6237,
+          "auc": 0.7094,
+          "ece": 0.0645
+        },
+        "within_run_sealed": {
+          "logloss": 0.6281,
+          "auc": 0.7045,
+          "ece": 0.0496
+        },
+        "drift_vs_within_run": {
+          "logloss": -0.0044,
+          "auc": 0.0049,
+          "ece": 0.0149
+        },
+        "note": "diagnostic cross-check only \u2014 the bundle is NOT the gate baseline; divergence here is cross-pull drift or config change",
+        "metadata": {
+          "created_utc": "2026-09-01T21:22:45.587202Z",
+          "train_seasons": [
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024
+          ],
+          "sealed_season": 2025,
+          "ece_bins": 10,
+          "ece_tol": 0.01
+        },
+        "features": [
+          "elo_diff",
+          "win_pct_diff",
+          "rest_days_diff",
+          "is_dome_home",
+          "ewm_net_pts_diff",
+          "ewm_ypp_diff",
+          "pace_plays_min_diff",
+          "rest_short_diff",
+          "div_game",
+          "travel_miles_diff",
+          "altitude_home",
+          "prime_time"
+        ]
       },
       "members": {
         "lightgbm": {
@@ -587,10 +707,10 @@
   "verdicts": {
     "W2016": {
       "adopt": false,
-      "ece_mode": "within-run incumbent",
-      "ll_ok_pooled": false,
-      "auc_ok_pooled": false,
-      "ece_ok_pooled": true,
+      "ece_mode": "within-run incumbent (both views)",
+      "ll_ok_pooled": true,
+      "auc_ok_pooled": true,
+      "ece_ok_pooled": false,
       "ll_ok_sealed": true,
       "auc_ok_sealed": true,
       "ece_ok_sealed": true,
@@ -602,15 +722,14 @@
       "sealed_beats_elo": true,
       "sealed_beats_constant": true,
       "reasons": [
-        "pooled logloss 0.6339 > incumbent 0.6164 + TOL_LL 0.012 (relative degradation)",
-        "pooled AUC 0.691 < incumbent 0.7127 - TOL_AUC 0.016 (relative degradation)"
+        "pooled ECE 0.0378 > incumbent 0.0216 + ECE_TOL 0.01 (relative degradation)"
       ]
     },
     "W2014": {
       "adopt": false,
-      "ece_mode": "within-run incumbent",
-      "ll_ok_pooled": false,
-      "auc_ok_pooled": false,
+      "ece_mode": "within-run incumbent (both views)",
+      "ll_ok_pooled": true,
+      "auc_ok_pooled": true,
       "ece_ok_pooled": true,
       "ll_ok_sealed": true,
       "auc_ok_sealed": true,
@@ -623,9 +742,7 @@
       "sealed_beats_elo": true,
       "sealed_beats_constant": true,
       "reasons": [
-        "pooled logloss 0.6314 > incumbent 0.6165 + TOL_LL 0.012 (relative degradation)",
-        "pooled AUC 0.6938 < incumbent 0.7127 - TOL_AUC 0.016 (relative degradation)",
-        "sealed ECE 0.084 > incumbent 0.0645 + ECE_TOL 0.01 (relative degradation)"
+        "sealed ECE 0.084 > incumbent 0.0496 + ECE_TOL 0.01 (relative degradation)"
       ]
     }
   }

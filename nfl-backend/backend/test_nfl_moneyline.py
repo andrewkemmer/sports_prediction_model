@@ -273,7 +273,7 @@ class TestAdoptDecision(unittest.TestCase):
         pooled, sealed, incumbent = self._fixtures()
         v = adopt_decision(pooled, sealed, incumbent)
         self.assertTrue(v["adopt"])
-        self.assertEqual(v["ece_mode"], "within-run incumbent")
+        self.assertEqual(v["ece_mode"], "within-run incumbent (both views)")
         for key in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
                     "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed"):
             self.assertTrue(v[key], key)
@@ -434,21 +434,18 @@ class TestAdoptDecision(unittest.TestCase):
         self.assertTrue(v["ece_ok_pooled"])
         self.assertTrue(v["ece_ok_sealed"])
 
-    def test_no_incumbent_is_advisory_only_no_verdict(self):
-        """(e) no incumbent bundle -> advisory-only, NO verdict: without a
-        baseline there is nothing to compare the candidate against, so adopt
-        is False and no gating condition is evaluated — never a fabricated
-        comparison."""
+    def test_incumbent_required_no_advisory_mode(self):
+        """(e) The within-run incumbent ALWAYS exists — there is NO advisory
+        verdict mode. adopt_decision requires the incumbent arms; omitting
+        them is a programming error (TypeError). The persisted bundle is a
+        diagnostic cross-check outside this function, never a baseline."""
         pooled, sealed, _ = self._fixtures()
-        v = adopt_decision(pooled, sealed)          # incumbent omitted
-        self.assertFalse(v["adopt"])
-        self.assertEqual(v["ece_mode"], "advisory")
-        for key in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
-                    "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed"):
-            self.assertTrue(v[key])     # informational only — not gating
-        joined = "\n".join(v["reasons"])
-        self.assertIn("no verdict", joined)
-        self.assertIn("advisory", joined)
+        with self.assertRaises(TypeError):
+            adopt_decision(pooled, sealed)          # incumbent omitted
+        # the verdict never speaks in advisory terms
+        p2, s2, inc2 = self._fixtures()
+        v = adopt_decision(p2, s2, inc2)
+        self.assertNotIn("advisory", v["ece_mode"])
 
     def test_tolerances_defined_shared_and_positive(self):
         """(f) TOL_LL/TOL_AUC/ECE_TOL are the gate's shared constants, all
@@ -473,7 +470,7 @@ class TestAdoptDecision(unittest.TestCase):
     def test_inversion_flag_when_pooled_wins_sealed_loses(self):
         """Pooled-gain / sealed-loss inversion should set the flag."""
         pooled = {
-            "model_platt": {"logloss": 0.50, "auc": 0.65},
+            "model_platt": {"logloss": 0.50, "auc": 0.65, "ece": 0.04},
             "elo_logistic": {"logloss": 0.55},
             "constant_home_edge": {"logloss": 0.60},
         }
@@ -482,7 +479,16 @@ class TestAdoptDecision(unittest.TestCase):
             "elo_logistic": {"logloss": 0.58, "auc": 0.57},
             "constant_home_edge": {"logloss": 0.62, "auc": 0.50},
         }
-        v = adopt_decision(pooled, sealed)
+        # within-run incumbent that the candidate is WITHIN TOL of on every
+        # leg except pooled logloss (cand 0.50 > inc 0.48 + TOL_LL) — so the
+        # verdict rejects and the inversion diagnostic fires.
+        incumbent = {
+            "pooled_model_platt": {"logloss": 0.48, "auc": 0.55,
+                                   "ece": 0.04},
+            "sealed_model_platt": {"logloss": 0.65, "auc": 0.52,
+                                   "ece": 0.04},
+        }
+        v = adopt_decision(pooled, sealed, incumbent)
         self.assertFalse(v["adopt"])
         self.assertTrue(v["pooled_gain_sealed_loss_inversion"])
         inv_reasons = [r for r in v["reasons"] if "inversion" in r]
@@ -515,20 +521,78 @@ class TestIncumbentGate(unittest.TestCase):
         feats = _synth_fold_frame(seasons=TRAIN_SEASONS + [SEALED_SEASON])
         return feats[_valid_cols(feats)].copy()
 
+    @staticmethod
+    def _shape_valid_bundle(features=None):
+        """A bundle that passes the load guard's SHAPE checks (member names,
+        prep keys, feature list) without being a trained ensemble."""
+        import nfl_moneyline as nm
+        features = list(features or nm.INCUMBENT_EXPECTED_FEATURES)
+        models = ({n: object() for n in nm.INCUMBENT_MEMBERS}
+                  | {k: object() for k in nm.INCUMBENT_PREP_KEYS})
+        return {"models": models, "adaptive_weights": {"xgboost": 0.25},
+                "platt": None, "features": features,
+                "metadata": {"ece_tol": nm.ECE_TOL}}
+
     def test_persist_load_roundtrip(self):
+        """A guard-valid (12-pool, 5-member, prep-carrying) bundle persists
+        and loads back intact via the guarded loader."""
         import nfl_moneyline as nm
         with tempfile.TemporaryDirectory() as td:
-            path = nm.persist_ensemble(
-                {"dummy": object}, {"xgboost": 0.25}, None,
-                ["elo_diff"], out_dir=Path(td))
+            bundle = self._shape_valid_bundle()
+            path = nm.persist_ensemble(bundle["models"],
+                                       bundle["adaptive_weights"], None,
+                                       bundle["features"], out_dir=Path(td))
             self.assertTrue(path.exists())
             with mock.patch.object(nm, "MODELS_DIR", Path(td)):
-                bundle = nm.load_ensemble()
-            self.assertIsNotNone(bundle)
-            self.assertEqual(bundle["features"], ["elo_diff"])
-            self.assertEqual(bundle["adaptive_weights"], {"xgboost": 0.25})
-            self.assertIsNone(bundle["platt"])
-            self.assertEqual(bundle["metadata"]["ece_tol"], nm.ECE_TOL)
+                loaded = nm.load_ensemble()
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded["features"], bundle["features"])
+            self.assertEqual(loaded["adaptive_weights"],
+                             {"xgboost": 0.25})
+            self.assertIsNone(loaded["platt"])
+            self.assertEqual(loaded["metadata"]["ece_tol"], nm.ECE_TOL)
+
+    def test_load_ensemble_rejects_degenerate_1_feature_bundle(self):
+        """The guard rejects the mystery-writer signature (a real-shaped
+        bundle on features=['elo_diff']) — the gate NEVER binds on it; the
+        loader returns None so the diagnostic is simply unavailable."""
+        import joblib
+        import nfl_moneyline as nm
+        bad = self._shape_valid_bundle(features=["elo_diff"])
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "degenerate.joblib"
+            joblib.dump(bad, path)
+            with self.assertLogs("nfl_moneyline", level="WARNING"):
+                self.assertIsNone(nm.load_ensemble(path))
+
+    def test_load_ensemble_rejects_wrong_shape(self):
+        """Guard rejects: missing members, missing prep transforms, and a
+        feature set that is not the exact market-free 12-pool."""
+        import joblib
+        import nfl_moneyline as nm
+        with tempfile.TemporaryDirectory() as td:
+            cases = [
+                # missing one member
+                {**self._shape_valid_bundle(),
+                 "models": {n: object() for n in nm.INCUMBENT_MEMBERS[:-1]}
+                            | {k: object()
+                               for k in nm.INCUMBENT_PREP_KEYS}},
+                # missing a prep transform
+                {**self._shape_valid_bundle(),
+                 "models": {n: object() for n in nm.INCUMBENT_MEMBERS}
+                            | {k: object()
+                               for k in nm.INCUMBENT_PREP_KEYS[:-1]}},
+                # 13 features (market feature sneaked in)
+                self._shape_valid_bundle(
+                    features=list(nm.INCUMBENT_EXPECTED_FEATURES)
+                    + ["market_home_implied"]),
+            ]
+            for i, bad in enumerate(cases):
+                path = Path(td) / f"bad{i}.joblib"
+                joblib.dump(bad, path)
+                with self.assertLogs("nfl_moneyline", level="WARNING"):
+                    self.assertIsNone(nm.load_ensemble(path),
+                                      f"case {i} must be rejected")
 
     def test_load_ensemble_absent_returns_none(self):
         import nfl_moneyline as nm
@@ -536,19 +600,28 @@ class TestIncumbentGate(unittest.TestCase):
             with mock.patch.object(nm, "MODELS_DIR", Path(td)):
                 self.assertIsNone(nm.load_ensemble())
 
-    def test_walk_forward_emits_incumbent_arm_when_bundle_present(self):
-        """With a persisted bundle on disk, run_walk_forward produces the
-        incumbent pooled + sealed arms and the verdict runs in within-run
-        incumbent ECE mode (integration — trains two ensembles, ~1 min)."""
+    def test_guard_expected_features_sync_with_deployed_pool(self):
+        """The guard's expected bundle shape = the canonical served pool
+        (market-free 12) — the two definitions must never drift apart."""
         import nfl_moneyline as nm
-        import tempfile
+        from run_feature_winpct_ablation import DEPLOYED_12
+        self.assertEqual(nm.INCUMBENT_EXPECTED_FEATURES, DEPLOYED_12)
+        self.assertEqual(len(nm.INCUMBENT_EXPECTED_FEATURES), 12)
+        for c in nm.INCUMBENT_EXPECTED_FEATURES:
+            self.assertNotIn("market", c.lower())
+            self.assertNotIn("line", c.lower())
+            self.assertNotIn("implied", c.lower())
+
+    def test_walk_forward_emits_within_run_incumbent_arms(self):
+        """run_walk_forward ALWAYS emits the within-run incumbent arms on
+        BOTH views — no bundle required; for the production candidate the
+        pooled/sealed incumbent arms ARE the candidate's own (byte-identical
+        re-fit by RANDOM_SEED determinism), and with no served bundle the
+        diagnostic cross-check is None while the verdict is unaffected.
+        (Integration — trains the full walk, ~1 min.)"""
+        import nfl_moneyline as nm
         feats = self._synth_v1()
-        half = len(feats) // 2
-        models, _ = nm.train_ensemble(feats.iloc[:half], feats.iloc[half:],
-                                      features=nm.V1_FEATURES)
         with tempfile.TemporaryDirectory() as td:
-            nm.persist_ensemble(models, {"xgboost": 0.5, "logistic": 0.5},
-                                None, nm.V1_FEATURES, out_dir=Path(td))
             with mock.patch.object(nm, "MODELS_DIR", Path(td)):
                 res = nm.run_walk_forward(feats,
                                           model_features=nm.V1_FEATURES)
@@ -557,9 +630,18 @@ class TestIncumbentGate(unittest.TestCase):
         for key in ("logloss", "auc", "ece"):
             self.assertIn(key, res["sealed_2025"]["incumbent"])
             self.assertIn(key, res["pooled_preq_2021_2024"]["incumbent"])
-        self.assertEqual(res["verdict"]["ece_mode"], "within-run incumbent")
-        self.assertIn("ece_ok_pooled", res["verdict"])
-        self.assertIn("ece_ok_sealed", res["verdict"])
+        # within-run identity: the production candidate IS its own baseline
+        self.assertEqual(res["pooled_preq_2021_2024"]["incumbent"],
+                         res["pooled_preq_2021_2024"]["model_platt"])
+        self.assertEqual(res["sealed_2025"]["incumbent"],
+                         res["sealed_2025"]["model_platt"])
+        self.assertEqual(res["verdict"]["ece_mode"],
+                         "within-run incumbent (both views)")
+        # bundle demoted: absent bundle -> cross-check None, verdict intact
+        self.assertIsNone(res["bundle_crosscheck"])
+        self.assertIn("incumbent_within_run", res)
+        self.assertIn("diagnostic cross-check only",
+                      res["incumbent_within_run"]["geometry"])
 
 
 # ---------------------------------------------------------------------------

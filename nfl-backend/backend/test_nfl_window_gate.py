@@ -1,18 +1,20 @@
 """Tests for the NFL window gate (run_nfl_window_gate.py) — W2014/W2016
 through the within-run incumbent gate.
 
-Pins, per the task spec:
+Pins, per the task spec (fully-within-run revision 2026-09-02):
   - the shared ECE_TOL constant (harness == production gate, one constant);
   - the incumbent WITHIN-RUN ISOLATION property (corrupting sealed outcomes
-    leaves incumbent predictions byte-identical — they are a pure function of
-    the features + bundle, never the target);
+    leaves earlier fits byte-identical — predictions are a pure function of
+    the features, never the target);
+  - the within-run incumbent baseline is ALWAYS present on BOTH views (no
+    advisory verdict mode) and is byte-identical to the candidate's own
+    arms for a production-window candidate (RANDOM_SEED determinism);
   - candidates differ ONLY in the window: same val/sealed geometry, same
     12-pool market-free features, same sealed-2025 holdout;
   - the 12-pool market-free invariant (no market/line/implied feature
     anywhere near the model input);
-  - the advisory fallback (no usable bundle -> ece_mode advisory, ECE
-    never blocks) and the within-run incumbent mode (bundle -> ece_mode
-    within-run incumbent, both arms emitted).
+  - the persisted bundle is a DIAGNOSTIC cross-check only: an unusable or
+    missing bundle degrades the cross-check row, never the verdict.
 """
 from __future__ import annotations
 
@@ -134,9 +136,10 @@ class TestIncumbentIsolation(unittest.TestCase):
                              f"target (diff {diff:e} vs noise floor {noise:e})")
         self.assertTrue(np.all(np.isfinite(p_clean)))
 
-    def test_feature_mismatch_degrades_to_advisory(self):
-        """A bundle whose stored features can't align -> unusable ->
-        advisory ECE, discrimination decides (never a fabricated baseline)."""
+    def test_bundle_mismatch_only_disables_diagnostic(self):
+        """A bundle whose stored features can't align only degrades the
+        DIAGNOSTIC cross-check row — the within-run incumbent baseline is
+        unaffected and the verdict never goes advisory (no advisory mode)."""
         bad = dict(self.bundle)
         bad["features"] = list(g.DEPLOYED_12) + ["market_home_implied"]
         feats = self.feats.copy()
@@ -144,13 +147,15 @@ class TestIncumbentIsolation(unittest.TestCase):
                                       list(range(2016, 2025)),
                                       incumbent_bundle=bad)
         v = res["verdict"]
-        self.assertEqual(v["ece_mode"], "advisory")
-        self.assertTrue(v["ece_ok_pooled"])
-        self.assertTrue(v["ece_ok_sealed"])
-        self.assertNotIn("incumbent", res["sealed_2025"])
-        self.assertNotIn("incumbent", res["pooled_preq_2021_2024"])
+        self.assertEqual(v["ece_mode"], "within-run incumbent (both views)")
+        self.assertIn("ll_ok_pooled", v)
+        self.assertIn("ece_ok_sealed", v)
+        # arms always present — the within-run baseline, not the bundle
+        self.assertIn("incumbent", res["sealed_2025"])
+        self.assertIn("incumbent", res["pooled_preq_2021_2024"])
+        self.assertIsNone(res["bundle_crosscheck"])
 
-    def test_injected_bundle_yields_within_run_incumbent_mode(self):
+    def test_injected_bundle_yields_diagnostic_crosscheck(self):
         feats = self.feats.copy()
         res = g.run_walk_forward_gate(feats, g.DEPLOYED_12,
                                       list(range(2016, 2025)),
@@ -160,14 +165,69 @@ class TestIncumbentIsolation(unittest.TestCase):
         for key in ("logloss", "auc", "ece"):
             self.assertIn(key, res["sealed_2025"]["incumbent"])
             self.assertIn(key, res["pooled_preq_2021_2024"]["incumbent"])
-        self.assertEqual(res["verdict"]["ece_mode"], "within-run incumbent")
-        # inherited from the PRODUCTION adopt_decision (df1ec8c): the six
-        # tolerance conditions, nothing else gates
+        self.assertEqual(res["verdict"]["ece_mode"],
+                         "within-run incumbent (both views)")
+        # the injected bundle surfaces as the diagnostic cross-check row
+        bc = res["bundle_crosscheck"]
+        self.assertIsNotNone(bc)
+        for key in ("logloss", "auc", "ece"):
+            self.assertIn(key, bc["sealed"])
+            self.assertIn(key, bc["drift_vs_within_run"])
+        self.assertIn("diagnostic", bc["note"])
+        # inherited from the PRODUCTION adopt_decision: the six tolerance
+        # conditions, nothing else gates
         for k in ("adopt", "ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
                   "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed", "tol"):
             self.assertIn(k, res["verdict"], k)
         self.assertEqual(res["verdict"]["tol"],
                          {"ll": M.TOL_LL, "auc": M.TOL_AUC, "ece": M.ECE_TOL})
+
+
+class TestWithinRunBaseline(unittest.TestCase):
+    """The baseline ALWAYS exists on BOTH views — no bundle needed, no
+    advisory verdict mode; for a production-window candidate it is the
+    candidate's own arms by RANDOM_SEED determinism."""
+
+    def test_incumbent_arms_present_without_bundle(self):
+        feats = _synth_gate_feats()
+        res = g.run_walk_forward_gate(feats, g.DEPLOYED_12,
+                                      list(range(2016, 2025)),
+                                      incumbent_bundle=None,
+                                      load_default_bundle=False)
+        self.assertIn("incumbent", res["pooled_preq_2021_2024"])
+        self.assertIn("incumbent", res["sealed_2025"])
+        self.assertIsNone(res["bundle_crosscheck"])
+        self.assertEqual(res["verdict"]["ece_mode"],
+                         "within-run incumbent (both views)")
+        for k in ("ll_ok_pooled", "auc_ok_pooled", "ece_ok_pooled",
+                  "ll_ok_sealed", "auc_ok_sealed", "ece_ok_sealed", "tol"):
+            self.assertIn(k, res["verdict"], k)
+
+    def test_same_config_retrain_is_deterministic(self):
+        """The byte-identity basis for the within-run pooled incumbent: two
+        same-config, same-seed trainings on the SAME fold rows produce
+        predictions identical to float noise (~1e-16) — so re-fitting the
+        production-config arm in the candidate's own fold loop IS the
+        candidate's fold model, and the pooled legs are a self-identity
+        noise floor for production-window candidates."""
+        feats = _synth_gate_feats()
+        half = len(feats) // 2
+        tr, va = feats.iloc[:half], feats.iloc[half:]
+        m1, _ = M.train_ensemble(tr, va, features=g.DEPLOYED_12)
+        m2, _ = M.train_ensemble(tr, va, features=g.DEPLOYED_12)
+        _, mem1, w1 = M.ensemble_predict(m1, va, features=g.DEPLOYED_12)
+        _, mem2, _ = M.ensemble_predict(m2, va, features=g.DEPLOYED_12)
+        w = M._member_weights(list(mem1))
+
+        def _blend(members):
+            out = np.zeros(len(va))
+            for name, p in members.items():
+                out += w[name] * np.asarray(p, dtype=float)
+            return out
+
+        self.assertTrue(np.allclose(_blend(mem1), _blend(mem2), atol=1e-12),
+                        "same-config same-seed retrain must be byte-identical")
+        self.assertEqual(set(mem1), set(mem2))
 
 
 class TestCandidatesDifferOnlyInWindow(unittest.TestCase):
@@ -178,10 +238,10 @@ class TestCandidatesDifferOnlyInWindow(unittest.TestCase):
     def test_windows_geometry_and_features(self):
         feats = _synth_gate_feats(seasons=list(range(2013, 2026)),
                                   n_games_per_week=4)
-        # advisory path (no bundle) — geometry is bundle-independent;
-        # load_default_bundle=False keeps the test hermetic (this checkout
-        # carries the seeded incumbent bundle, which the harness would
-        # otherwise auto-load into within-run incumbent mode)
+        # The within-run baseline is bundle-independent — load_default_bundle
+        # =False keeps the test hermetic (this checkout carries the seeded
+        # incumbent bundle, which the harness would otherwise auto-load into
+        # the diagnostic cross-check).
         res16 = g.run_walk_forward_gate(feats, g.DEPLOYED_12,
                                         list(range(2016, 2025)),
                                         load_default_bundle=False)
@@ -206,8 +266,11 @@ class TestCandidatesDifferOnlyInWindow(unittest.TestCase):
                          res14["_deployed"]["features"])
         for c in res16["_deployed"]["features"]:
             self.assertNotIn("market", c.lower())
-        # advisory mode without a bundle
-        self.assertEqual(res16["verdict"]["ece_mode"], "advisory")
+        # fully within-run verdict without any bundle — no advisory mode
+        self.assertEqual(res16["verdict"]["ece_mode"],
+                         "within-run incumbent (both views)")
+        self.assertIsNone(res16["bundle_crosscheck"])
+        self.assertIsNone(res14["bundle_crosscheck"])
 
 
 if __name__ == "__main__":
