@@ -125,8 +125,11 @@ def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
     """Expected PSI from sampling noise alone when both samples are drawn
     from the SAME distribution ((k-1)/2 * (1/n_base + 1/n_cur), MLB's
     psi_noise_floor verbatim). At NFL's drift-window sizes (~1,930 baseline /
-    ~30 current) the floor is ~0.015 — identical distributions still page as
-    non-zero raw PSI, so statuses must read the adjusted value."""
+    ~30 current) the floor is ~0.152 — the 1/n_cur current-window term
+    dominates (9/2 * (1/1930 + 1/30) = 0.152); the earlier '~0.015' prose was
+    a 10x typo, the computed value was always the formula. Identical
+    distributions still page as non-zero raw PSI, so statuses must read the
+    adjusted value."""
     if n_baseline <= 0 or n_current <= 0:
         return 0.0
     return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
