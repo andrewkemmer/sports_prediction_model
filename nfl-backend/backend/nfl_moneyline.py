@@ -1457,6 +1457,11 @@ def run_walk_forward(feats: pd.DataFrame,
         "bundle_crosscheck": bundle_crosscheck,
         "verdict": verdict,
         "_deployed": {"features": Xcol},
+        # The deployed re-fit's model objects (MLB's ``best_models`` analog) —
+        # consumed ONLY by the monitor's MODEL WEIGHT column (blend-weighted
+        # importances); never persisted in the record (see the exclusion list
+        # in run_moneyline).
+        "_models": models_sealed,
         "_history_df": history_df,
         "_calibration": calibration_rec,
     }
@@ -1806,7 +1811,7 @@ def pull_and_run(out_dir: Path | None = None,
                             "fit on pooled pre-holdout OOF only"),
             },
             **{k: v for k, v in result.items()
-               if k not in ("_deployed", "_history_df", "_calibration")},
+               if k not in ("_deployed", "_models", "_history_df", "_calibration")},
         }        # The seal gate is reported (testing/model-change comparison) but never
         # blocks the board, mirroring MLB's daily pipeline. games[] is always
         # written from the fresh ensemble when a schedule is present.
@@ -1860,8 +1865,12 @@ def _write_monitor(out_dir: Path, *, feats: pd.DataFrame, result: dict,
     """Write the MLB-shaped ``nfl_model_monitor_<date>.json`` from this run's
     objects. PSI 'current' window = the last 30 days of decided games;
     'baseline' = every decided game before it. Version history is gathered
-    from prior dated moneyline v1 records in ``out_dir``."""
+    from prior dated moneyline v1 records in ``out_dir``; the MODEL
+    WEIGHT column comes from the deployed re-fit's blend-weighted
+    importances, and feature descriptions come from the feature
+    builder's CANONICAL_SOURCE."""
     from nfl_monitor import build_model_monitor
+    from nfl_features import CANONICAL_SOURCE  # drift-table descriptions
 
     gd = pd.to_datetime(feats["gameday"], errors="coerce")
     latest = gd.max() if hasattr(gd, "max") else None
@@ -1886,7 +1895,8 @@ def _write_monitor(out_dir: Path, *, feats: pd.DataFrame, result: dict,
     mon = build_model_monitor(
         feats=feats, result=result, history_df=history_df, calibration=calibration,
         moneyline_records=records, current_date=current_date,
-        baseline_cut_date=baseline_cut)
+        baseline_cut_date=baseline_cut,
+        feature_descriptions=CANONICAL_SOURCE)
     mon_path = out_dir / MONITOR_TEMPLATE.format(date=current_date)
     with open(mon_path, "w") as fh:
         json.dump(mon, fh, indent=2)

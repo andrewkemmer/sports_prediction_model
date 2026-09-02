@@ -63,7 +63,7 @@ class FeatureDriftRowsTest(unittest.TestCase):
         cur = ~base
         rows = mon.feature_drift_rows(
             feat, ["elo_diff", "rest_days_diff"], base.to_numpy(), cur.to_numpy(),
-            weight={"elo_diff": 0.62, "rest_days_diff": 0.38})
+            weight={"elo_diff": 62.0, "rest_days_diff": 38.0})
         self.assertEqual([r["feature"] for r in rows],
                          ["elo_diff", "rest_days_diff"])
         for r in rows:
@@ -72,8 +72,10 @@ class FeatureDriftRowsTest(unittest.TestCase):
             self.assertIn("psi", r)
             self.assertIn("status", r)
             self.assertEqual(r["n_current"], int(cur.sum()))
-        # weight_pct present + rounds to whole %.
+        # weight_pct carries MLB's PERCENT semantics (dict values sum to 100)
+        # rounded to 3 decimals — the raw value, like MLB's own row field.
         self.assertEqual(rows[0]["weight_pct"], 62.0)
+        self.assertEqual(rows[1]["weight_pct"], 38.0)
 
     def test_no_weight_omits_weight_pct(self):
         feat = pd.DataFrame({"gameday": ["2025-09-07"] * 3 + ["2026-09-10"] * 2,
@@ -92,6 +94,167 @@ class FeatureDriftRowsTest(unittest.TestCase):
         rows = mon.feature_drift_rows(feat, ["nope"], base.to_numpy(),
                                       cur.to_numpy())
         self.assertEqual(rows, [])
+
+
+class WeightImportanceTest(unittest.TestCase):
+    """MODEL WEIGHT column — the backend must replicate MLB's algorithm, not
+    approximate it: same inputs -> same weights (see the embedded MLB
+    reference in test_mlb_reference_equivalence)."""
+
+    class _Tree:
+        def __init__(self, imp):
+            self.feature_importances_ = np.asarray(imp, dtype=float)
+
+    class _Lin:
+        def __init__(self, coef):
+            self.coef_ = np.asarray(coef, dtype=float).reshape(1, -1)
+
+    class _Mlp:
+        """No feature_importances_/coef_ — the MLP contributes nothing."""
+
+    @staticmethod
+    def _mlb_reference(models, feature_cols, adaptive_weights=None):
+        """VERBATIM mlb-backend/backend/training.py::feature_importance_weights
+        (+ its _member_weights helper), parameterized by feature_cols so the
+        shared synthetic case can drive both implementations."""
+        import numpy as _np
+
+        ens_weights = {"xgboost": 0.25, "lightgbm": 0.25, "logistic": 0.30,
+                       "randomforest": 0.10, "mlp": 0.10}
+        floor = 0.05
+
+        def _member_weights(member_names):
+            source = adaptive_weights or ens_weights
+            raw = {n: float(source.get(n, 0.0)) for n in member_names}
+            for n in [n for n, v in raw.items() if v <= 0]:
+                prior = float(ens_weights.get(n, 0.0))
+                if prior > 0:
+                    raw[n] = min(prior, floor * 2)
+            total = sum(raw.values())
+            if total <= 0:
+                return {n: 1.0 / max(len(member_names), 1)
+                        for n in member_names}
+            return {n: v / total for n, v in raw.items()}
+
+        members = {n: m for n, m in models.items()
+                   if n not in ("scaler", "impute_median", "categorical_vocab")}
+        eff = _member_weights(list(members.keys()))
+        raw = {n: float(eff.get(n, 0.0)) for n in members}
+        total = sum(raw.values())
+        if total <= 0:
+            raw = {n: 1.0 / len(members) for n in members}
+            total = 1.0
+        nfc = len(feature_cols)
+        agg = _np.zeros(nfc)
+        contributed = False
+        for name, model in members.items():
+            if hasattr(model, "feature_importances_"):
+                imp = _np.asarray(model.feature_importances_,
+                                  dtype=float).ravel()
+            elif hasattr(model, "coef_"):
+                imp = _np.abs(_np.asarray(model.coef_,
+                                          dtype=float)).ravel()
+            else:
+                continue
+            if len(imp) >= nfc:
+                imp = imp[:nfc]
+            if len(imp) != nfc or imp.sum() <= 0:
+                continue
+            agg += (raw[name] / total) * (imp / imp.sum())
+            contributed = True
+        if not contributed or agg.sum() <= 0:
+            return None
+        return {f: round(float(w), 4)
+                for f, w in zip(feature_cols, agg / agg.sum() * 100.0)}
+
+    def _shared_case(self):
+        """The shared synthetic case: 4 features; trees carry the fit-time
+        team-ID tail (2 extra values) that must be trimmed, logistic carries
+        |coef|, the MLP exposes nothing."""
+        cols = ["feature_a", "feature_b", "feature_c", "feature_d"]
+        models = {
+            "xgboost": self._Tree([3.0, 1.0, 0.5, 0.2, 9.9, 9.9]),
+            "lightgbm": self._Tree([2.5, 2.0, 0.4, 0.1, 9.9, 9.9]),
+            "randomforest": self._Tree([1.0, 0.8, 0.6, 0.4, 9.9, 9.9]),
+            "logistic": self._Lin([0.9, -0.3, 0.2, -0.05]),
+            "mlp": self._Mlp(),
+            "scaler": object(), "impute_median": object(),
+            "categorical_vocab": {},
+        }
+        adaptive = {"xgboost": 0.45, "lightgbm": 0.30, "logistic": 0.15,
+                    "randomforest": 0.10, "mlp": 0.0}
+        return cols, models, adaptive
+
+    def test_mlb_reference_equivalence(self):
+        """Same inputs -> same weights: NFL's implementation must be
+        numerically IDENTICAL to MLB's reference on a shared synthetic case."""
+        cols, models, adaptive = self._shared_case()
+        nfl = mon.feature_importance_weights(models, cols,
+                                             adaptive_weights=adaptive)
+        mlb = self._mlb_reference(models, cols, adaptive)
+        self.assertIsNotNone(nfl)
+        self.assertEqual(nfl, mlb)
+        self.assertAlmostEqual(sum(nfl.values()), 100.0, places=3)
+
+    def test_mlp_skipped_members_renormalize(self):
+        """MLP (no importances surface) contributes nothing; the remaining
+        members renormalize to 100 — MLB's exact fallback."""
+        cols, models, adaptive = self._shared_case()
+        w = mon.feature_importance_weights(models, cols,
+                                           adaptive_weights=adaptive)
+        self.assertEqual(set(w), set(cols))          # only model columns
+        # Per-value rounding to 4dp (MLB's convention) can leave the sum at
+        # 100.00±0.01 — assert the ~100 contract, not exact closure.
+        self.assertAlmostEqual(sum(w.values()), 100.0, places=2)
+        # Deterministic on a repeat call (stable, no row-order dependence).
+        self.assertEqual(w, mon.feature_importance_weights(
+            models, cols, adaptive_weights=adaptive))
+
+    def test_zeroed_member_gets_static_prior(self):
+        """A member with zero adaptive weight still contributes its capped
+        static prior (MLB's _member_weights zeroed-member rule)."""
+        cols, models, adaptive = self._shared_case()
+        adaptive_no_mlp = dict(adaptive)
+        adaptive_no_mlp.pop("mlp", None)
+        w = mon.feature_importance_weights(models, cols,
+                                           adaptive_weights=adaptive_no_mlp)
+        self.assertEqual(w, self._mlb_reference(models, cols,
+                                                adaptive_no_mlp))
+
+    def test_none_when_no_member_exposes_importances(self):
+        cols = ["a", "b"]
+        models = {"xgboost": self._Mlp(), "mlp": self._Mlp()}
+        self.assertIsNone(mon.feature_importance_weights(models, cols))
+
+    def test_static_fallback_without_adaptive_weights(self):
+        """No adaptive weights -> static ENSEMBLE_WEIGHTS priors, still
+        matching the MLB reference on the same inputs."""
+        cols, models, _ = self._shared_case()
+        self.assertEqual(
+            mon.feature_importance_weights(models, cols),
+            self._mlb_reference(models, cols))
+
+
+class MetadataTest(unittest.TestCase):
+    def test_metadata_map_shapes(self):
+        meta = mon.feature_metadata_map(
+            ["elo_diff", "div_game"],
+            descriptions={"elo_diff": "rating gap", "div_game": "flag"})
+        self.assertEqual(set(meta), {"elo_diff", "div_game"})
+        for c in meta:
+            self.assertIn("tooltip", meta[c])
+            self.assertIn("definition", meta[c])
+            self.assertIn("source", meta[c])
+        self.assertIn("rating gap", meta["elo_diff"]["tooltip"])
+
+    def test_unknown_feature_falls_back_to_name(self):
+        meta = mon.feature_metadata_map(["mystery_col"], descriptions={})
+        self.assertIn("mystery_col", meta["mystery_col"]["tooltip"])
+
+    def test_no_stale_gate_text_default(self):
+        meta = mon.feature_metadata_map(["elo_diff"], descriptions=None)
+        self.assertNotIn("admission gate", meta["elo_diff"]["tooltip"].lower())
+        self.assertNotIn("admission gate", meta["elo_diff"]["definition"].lower())
 
 
 class FeatureCoverageTest(unittest.TestCase):
@@ -278,6 +441,63 @@ class BuildMonitorTest(unittest.TestCase):
         self.assertEqual(len(rec["version_history"]), 1)
         # Rolling brier from the 40-game dense day.
         self.assertTrue(rec["rolling_brier"])
+
+    def test_deployed_models_emit_weight_column_and_descriptions(self):
+        """With the deployed re-fit's model objects in result (the production
+        path), every drift row carries MLB-semantics weight_pct (percent,
+        summing to ~100) and features_metadata is the real description map —
+        never the retired-gate stub."""
+        feats, result, history, cal, recs = self._inputs()
+        cols = ["elo_diff", "div_game"]
+        result["_models"] = {
+            "xgboost": WeightImportanceTest._Tree(
+                [4.0, 1.0, 0.9, 0.9]),   # numeric cols + 2 team-ID slots
+            "lightgbm": WeightImportanceTest._Tree(
+                [3.0, 2.0, 0.9, 0.9]),
+            "logistic": WeightImportanceTest._Lin([1.2, -0.4]),
+            "randomforest": WeightImportanceTest._Tree(
+                [0.8, 0.6, 0.9, 0.9]),
+            "mlp": WeightImportanceTest._Mlp(),
+            "scaler": object(),
+            "impute_median": object(),
+            "categorical_vocab": {},
+        }
+        result["_deployed"] = {"features": cols}
+        descs = {"elo_diff": "rating gap", "div_game": "division flag"}
+        rec = mon.build_model_monitor(
+            feats=feats, result=result, history_df=history,
+            calibration=cal, moneyline_records=recs,
+            current_date="20260831", baseline_cut_date="2026-01-01",
+            feature_descriptions=descs)
+
+        rows = {r["feature"]: r for r in rec["feature_drift"]}
+        self.assertEqual(set(rows), set(cols))
+        wp = [rows[c]["weight_pct"] for c in cols]
+        self.assertTrue(all(w is not None for w in wp))
+        self.assertAlmostEqual(sum(wp), 100.0, places=2)
+        # No stale admission-gate text anywhere in the drift metadata.
+        meta = rec["features_metadata"]
+        self.assertEqual(set(meta), set(cols))
+        self.assertIn("rating gap", meta["elo_diff"]["tooltip"])
+        self.assertIn("division flag", meta["div_game"]["tooltip"])
+        for c in cols:
+            self.assertNotIn("admission gate",
+                             meta[c]["tooltip"].lower())
+            self.assertNotIn("admission gate",
+                             meta[c]["definition"].lower())
+
+    def test_no_models_omits_weight_column(self):
+        """Back-compat: without model objects the page contract must stay
+        valid with the weight column hidden (weight_pct None), exactly like
+        MLB's None path."""
+        feats, result, history, cal, recs = self._inputs()
+        self.assertNotIn("_models", result)
+        rec = mon.build_model_monitor(
+            feats=feats, result=result, history_df=history,
+            calibration=cal, moneyline_records=recs,
+            current_date="20260831", baseline_cut_date="2026-01-01")
+        self.assertTrue(all(r.get("weight_pct") is None
+                            for r in rec["feature_drift"]))
 
 
 if __name__ == "__main__":

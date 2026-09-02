@@ -84,7 +84,14 @@ def _monitor_record() -> dict:
                       "see Calibration for the upset strip.",
         "feature_drift": drift,
         "features_metadata": {
-            c["feature"]: {"tooltip": f"{c['feature']} — v1 admission gate."}
+            c["feature"]: {
+                "definition": f"{c['feature']} — plain-language twin of "
+                              "nfl_features.CANONICAL_SOURCE",
+                "source": "nfl feature engine (strictly-trailing per-team "
+                           "aggregates)",
+                "tooltip": f"What: {c['feature']} — plain-language description.\n"
+                           f"Consumed by: the 5-member moneyline blend.",
+            }
             for c in drift
         },
         "feature_coverage": coverage,
@@ -153,6 +160,10 @@ def run() -> int:
         at = AppTest.from_file(str(FRONTEND_DIR / "model_monitor.py"),
                                default_timeout=60)
         at.session_state["sport"] = "nfl"
+        # Pin the page to the fixture date so the STAGED artifact renders
+        # (the default selected date is the newest committed artifact, which
+        # would silently bypass the fixture).
+        at.session_state["selected_date"] = ARTIFACT_DATE
         at.run()
 
         if at.exception:
@@ -183,6 +194,15 @@ def run() -> int:
             problems.append("drift matrix missing a drift row")
         if "WARN" not in text:
             problems.append("drift matrix missing WARN status pill")
+
+        # (3a) MLB-identical MODEL WEIGHT column: header + formatted weight +
+        #      per-feature description label (sport-dispatched describe_feature)
+        if "MODEL WEIGHT" not in text:
+            problems.append("drift matrix missing the MODEL WEIGHT column header")
+        if "45.00%" not in text:
+            problems.append("drift matrix missing a formatted model-weight cell")
+        if "Exponentially weighted" not in text and "point-in-time rating gap" not in text:
+            problems.append("drift matrix missing the NFL feature description label")
 
         # (4) feature coverage panel (picks up the STARVED row)
         if "Feature Coverage (non-null / measured)" not in text:

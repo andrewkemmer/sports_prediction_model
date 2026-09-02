@@ -7,9 +7,14 @@ The page contract (mirrors ``mlb-backend``'s ``model_monitor_*.json``):
 ``last_retrained`` / ``next_retrain`` + notes  — health cards
 ``upset_note``                                — upset-monitoring callout
 ``feature_drift[]``                           — TRUE PSI drift matrix
-      [{feature, current_mean, baseline_mean, psi, status, weight_pct(optional),
-        n_baseline, n_current}]
-``features_metadata{}``                       — feature -> {"tooltip"} for hover
+      [{feature, current_mean, baseline_mean, psi, status,
+        weight_pct, n_baseline, n_current}]
+         weight_pct = the MODEL WEIGHT column (blend-weighted importances,
+         percent of the final blended ensemble, sums to ~100 across rows) —
+         the SAME algorithm MLB ships (feature_importance_weights below,
+         verbatim semantics of mlb-backend/backend/training.py).
+``features_metadata{}``                       — feature -> {tooltip, definition}
+                                                for hover + description
 ``feature_coverage[]``                        — non-null/measured per window
       [{feature, window, n_games, pct_measured, pct_nonnull, n_default_zero, status}]
 ``ensemble[]``                                — per-member weight + pooled metrics
@@ -19,7 +24,8 @@ The page contract (mirrors ``mlb-backend``'s ``model_monitor_*.json``):
 
 All functions are PURE (no I/O, no Streamlit) so they are unit-testable in
 isolation; ``build_model_monitor`` composes them from the objects a moneyline
-run already has in memory (the decided feature frame, the walk-forward result,
+run already has in memory (the decided feature frame, the walk-forward result
+— including the deployed re-fit's model objects under ``result["_models"]`` —
 the per-game prediction history, and prior dated moneyline records).
 """
 
@@ -27,6 +33,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
+# Blend-weight constants for the MODEL WEIGHT column — the NFL ensemble is
+# the same 5-member roster as MLB's, so the fallback/floor semantics are
+# byte-identical (see _member_weight_share). Imported from nfl_moneyline for
+# a single source of truth; nfl_moneyline only imports nfl_monitor lazily
+# inside functions, so there is no circular import.
+from nfl_moneyline import ADAPTIVE_WEIGHT_FLOOR, ENSEMBLE_WEIGHTS
 
 # Drift / coverage gates (mirror MLB's semantics).
 PSI_WARN = 0.10
@@ -125,9 +138,11 @@ def feature_drift_rows(feats: pd.DataFrame, columns: list[str],
                        baseline_mask: np.ndarray, current_mask: np.ndarray,
                        weight: dict[str, float] | None = None) -> list[dict]:
     """One row per feature: current/baseline mean, true PSI, status, sample
-    sizes. ``weight`` (optional feature->share) is surfaced as ``weight_pct``
-    only when provided — NFL doesn't compute blend importances, so it is
-    omitted by default and the page simply hides the MODEL WEIGHT column."""
+    sizes. ``weight`` (optional feature -> PERCENT share of the blended
+    ensemble, summing to ~100 — the ``feature_importance_weights`` output) is
+    surfaced as ``weight_pct`` rounded to 3 decimals, byte-matching MLB's own
+    ``weight_pct`` row field. When omitted (no model objects available) the
+    page hides the MODEL WEIGHT column, exactly like MLB with ``None``."""
     rows = []
     for col in columns:
         if col not in feats.columns:
@@ -144,11 +159,121 @@ def feature_drift_rows(feats: pd.DataFrame, columns: list[str],
             "baseline_mean": (round(float(np.mean(base)), 4) if len(base) else None),
             "psi": round(psi, 4),
             "status": drift_status(psi, int(len(cur))),
-            "weight_pct": (round(100.0 * float(weight[col]), 1) if weight and col in weight else None),
+            "weight_pct": (round(float(weight[col]), 3) if weight and col in weight else None),
             "n_baseline": int(len(base)),
             "n_current": int(len(cur)),
         })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Model weight — the MLB MODEL WEIGHT column (blend-weighted importances)
+# ---------------------------------------------------------------------------
+def _member_weight_share(adaptive_weights: dict | None,
+                         member_names: list[str]) -> dict[str, float]:
+    """Normalized blend weights for the members that actually trained.
+
+    MLB-identical to ``mlb-backend/backend/training.py::_member_weights``:
+    adaptive weights earned from pooled OOF AUC when available; static
+    ENSEMBLE_WEIGHTS priors otherwise; a member with no earned weight still
+    gets its static prior (capped at 2x the adaptive floor) so it can prove
+    itself next cycle; survivors renormalize to exactly 1.0."""
+    names = [n for n in member_names
+             if n not in ("scaler", "impute_median", "categorical_vocab")]
+    if not names:
+        return {}
+    source = adaptive_weights if adaptive_weights else ENSEMBLE_WEIGHTS
+    raw = {n: float(source.get(n, 0.0)) for n in names}
+    zeroed = [n for n, v in raw.items() if v <= 0]
+    for n in zeroed:
+        prior = float(ENSEMBLE_WEIGHTS.get(n, 0.0))
+        if prior > 0:
+            raw[n] = min(prior, ADAPTIVE_WEIGHT_FLOOR * 2)
+    total = sum(raw.values())
+    if total <= 0:
+        w = 1.0 / max(len(names), 1)
+        return {n: w for n in names}
+    return {n: v / total for n, v in raw.items()}
+
+
+def feature_importance_weights(models: dict | None, feature_cols: list[str],
+                               adaptive_weights: dict | None = None) -> dict[str, float] | None:
+    """Blend-weighted feature importance across ensemble members (sums to 100).
+
+    VERBATIM semantics of ``mlb-backend/backend/training.py::
+    feature_importance_weights`` — the exact algorithm behind MLB's MODEL
+    WEIGHT column, replicated line-for-line (not approximated):
+
+    * per member, importances = split-gain ``feature_importances_`` for the
+      tree members (XGB/LGB/RF) and |coefficient| for logistic — trimmed to
+      the numeric feature columns only (the team-ID categoricals the trees
+      are fit with sit AFTER the numeric columns and carry no served-pool
+      interpretation on the drift table, matching MLB);
+    * each member's importances are normalized internally;
+    * the members' normalized vectors are averaged with their blend-weight
+      share (adaptive when present, static priors otherwise);
+    * the result answers "what fraction of the final blended model rides on
+      this feature?" and sums to 100.
+
+    This is NOT per-game SHAP. A member with neither ``feature_importances_``
+    nor ``coef_`` (the MLP) contributes nothing and the remaining members
+    renormalize to 100 — MLB's exact MLP handling. Returns None when no
+    member exposes importances (the page then hides the column, as MLB does).
+    """
+    members = {n: m for n, m in (models or {}).items()
+               if n not in ("scaler", "impute_median", "categorical_vocab")}
+    if not members:
+        return None
+    eff = _member_weight_share(adaptive_weights, list(members.keys()))
+    raw = {n: float(eff.get(n, 0.0)) for n in members}
+    total = sum(raw.values())
+    if total <= 0:
+        raw = {n: 1.0 / len(members) for n in members}
+        total = 1.0
+
+    nfc = len(feature_cols)
+    agg = np.zeros(nfc)
+    contributed = False
+    for name, model in members.items():
+        try:
+            if hasattr(model, "feature_importances_"):
+                imp = np.asarray(model.feature_importances_, dtype=float).ravel()
+            elif hasattr(model, "coef_"):
+                imp = np.abs(np.asarray(model.coef_, dtype=float)).ravel()
+            else:
+                continue   # MLP et al. — no importances surface
+        except Exception:
+            continue
+        if len(imp) >= nfc:
+            imp = imp[:nfc]
+        if len(imp) != nfc or imp.sum() <= 0:
+            continue
+        agg += (raw[name] / total) * (imp / imp.sum())
+        contributed = True
+    if not contributed or agg.sum() <= 0:
+        return None
+    return {f: round(float(w), 4) for f, w in zip(feature_cols, agg / agg.sum() * 100.0)}
+
+
+def feature_metadata_map(columns: list[str],
+                         descriptions: dict | None = None) -> dict[str, dict]:
+    """Per-feature description map for the drift table's hover + label.
+
+    MLB shape: ``{feature: {definition, source, tooltip}}`` where the
+    page renders ``tooltip`` and falls back to the raw name when the backend
+    has no description for a feature. ``descriptions`` comes from the NFL
+    feature builder's CANONICAL_SOURCE one-liners when a run provides them."""
+    meta: dict[str, dict] = {}
+    for col in columns:
+        desc = (descriptions or {}).get(col) or col
+        meta[col] = {
+            "definition": desc,
+            "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+            "tooltip": (f"What: {desc}\n"
+                        f"Consumed by: the 5-member moneyline blend "
+                        f"(see Model Ensemble)."),
+        }
+    return meta
 
 
 def feature_coverage_rows(feats: pd.DataFrame, columns: list[str]) -> list[dict]:
@@ -269,8 +394,15 @@ def ensemble_rows(result: dict, history_len: int) -> list[dict]:
 
 
 def _platt_ab(calibration: dict | None) -> dict:
+    """The deployed Platt map, MLB-shaped: the "calibration" row field is
+    OMITTED entirely when the record has no params (the renderer then shows
+    'identity/none'). Emitting "a": null / "b": null instead crashes the
+    shared version-history table (``float(None)``) — MLB never emits it, so
+    neither does NFL."""
     params = calibration.get("params") if calibration else None
-    return {"a": params.get("a"), "b": params.get("b")} if params else {"a": None, "b": None}
+    if params and params.get("a") is not None and params.get("b") is not None:
+        return {"a": params["a"], "b": params["b"]}
+    return {}
 
 
 def version_history_rows(moneyline_records: list[dict],
@@ -284,16 +416,19 @@ def version_history_rows(moneyline_records: list[dict],
         pooled = rec.get("pooled_preq_2021_2024") or {}
         plt = (pooled.get("model_platt") or {})
         cal = rec.get("calibration") or {}
-        rows.append({
+        row = {
             "version": rec.get("_date") or current_date,
             "date": str(rec.get("date") or rec.get("_date") or current_date),
             "weights": rec.get("adaptive_weights") or {},
             "auc": plt.get("auc"), "logloss": plt.get("logloss"),
             "ecer_calibrated": plt.get("ece"),
             "ece_calibrated": plt.get("ece"),
-            "calibration": _platt_ab(cal),
             "adopt": verdict.get("adopt"),
-        })
+        }
+        cal_map = _platt_ab(cal)
+        if cal_map:
+            row["calibration"] = cal_map
+        rows.append(row)
     return rows
 
 
@@ -303,17 +438,25 @@ def version_history_rows(moneyline_records: list[dict],
 def build_model_monitor(*, feats: pd.DataFrame, result: dict,
                         history_df: pd.DataFrame, calibration: dict,
                         moneyline_records: list[dict], current_date: str,
-                        baseline_cut_date: str) -> dict:
+                        baseline_cut_date: str,
+                        feature_descriptions: dict | None = None) -> dict:
     """Compose the MLB-shaped monitor record.
 
     ``feats``            : decided game frame (with ``gameday`` + model columns)
-    ``result``           : ``run_walk_forward`` result (members / weights /
-                           verdict / trained_at)
+    ``result``           : ``run_walk_forward`` result — carries the deployed
+                           re-fit model objects under ``result["_models"]``
+                           (MLB's ``best_models`` analog) plus members /
+                           adaptive weights / verdict / trained_at. When the
+                           models are absent the MODEL WEIGHT column is
+                           omitted (weight_pct None), matching MLB's None path.
     ``history_df``       : per-game OOF+sealed prediction history
     ``calibration``      : ``nfl_calibration_*.json`` (Platt a/b)
     ``moneyline_records``: prior dated nfl_moneyline_v1 records for the table
     ``current_date``     : YYYYMMDD
     ``baseline_cut_date``: ISO date; games >= it are the 'current' drift window
+    ``feature_descriptions``: {feature: one-line description} for the drift
+                           table's description/hover (CANONICAL_SOURCE from
+                           the feature builder when a run provides it)
     """
     cols = list(result.get("_deployed", {}).get("features", []))
     c_iso = f"{current_date[:4]}-{current_date[4:6]}-{current_date[6:8]}"
@@ -331,8 +474,13 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
     if not baseline_mask.any():                      # fallback: everything before
         baseline_mask = gd.notna() & (gd < gd.max())
 
+    # MODEL WEIGHT column: MLB-identical blend-weighted importances from the
+    # deployed re-fit (models_sealed) blended with the run's adaptive weights.
+    weights = feature_importance_weights(
+        result.get("_models"), cols,
+        adaptive_weights=result.get("adaptive_weights"))
     drift = feature_drift_rows(feats, cols, baseline_mask.to_numpy(),
-                               current_mask.to_numpy())
+                               current_mask.to_numpy(), weight=weights)
     coverage = feature_coverage_rows(feats, cols)
     r_brier, rb_meta, base_brier, base_label = rolling_brier_rows(history_df)
 
@@ -349,10 +497,7 @@ def build_model_monitor(*, feats: pd.DataFrame, result: dict,
         "next_retrain_note": f"retrain scheduled {RETRAIN_INTERVAL_DAYS} days out",
         "upset_note": f"Model upset rate over the decided pool — {len(history_df):,} games scored; see Calibration for the upset strip.",
         "feature_drift": drift,
-        "features_metadata": {
-            c: {"tooltip": f"{c} — defined/covered via the v1 feature admission gate."}
-            for c in cols
-        },
+        "features_metadata": feature_metadata_map(cols, feature_descriptions),
         "feature_coverage": coverage,
         "ensemble": ensemble_rows(result, int(history_df.shape[0])),
         "rolling_brier": r_brier,

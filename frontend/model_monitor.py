@@ -138,7 +138,7 @@ if drift:
                     "INSUFFICIENT": "ok"}.get(status, "ok")
         n_base, n_cur = r.get("n_baseline"), r.get("n_current")
         samples = f" ({n_base}/{n_cur})" if n_base is not None and n_cur is not None else ""
-        label = utils.describe_feature(r.get("feature", "")) or r.get("feature", "")
+        label = utils.describe_feature(r.get("feature", ""), sport=utils.get_sport()) or r.get("feature", "")
         # Hover tooltip from the backend-generated features_metadata artifact
         # (definition/formula/source/window/units/direction/members). Row
         # content unchanged — the tooltip is additive; unknown features fall
@@ -469,9 +469,15 @@ if history:
     rows = []
     for row in history:
         cal = row.get("calibration") or {}
+        # A present-but-None map (older NFL emitters wrote {"a": null,
+        # "b": null} for records without Platt params) must render as
+        # identity/none, never crash with float(None) — treat None a/b the
+        # same as an absent map (the MLB legacy-row intent).
+        has_map = (isinstance(cal, dict) and "a" in cal
+                   and cal.get("a") is not None and cal.get("b") is not None)
         cal_str = (
             f"a={float(cal['a']):.3f}, b={float(cal['b']):.3f}"
-            if isinstance(cal, dict) and "a" in cal else "identity/none"
+            if has_map else "identity/none"
         )
         rows.append({
             "VERSION": row.get("version", "—"),

@@ -1899,26 +1899,50 @@ FEATURE_DESCRIPTIONS = {
 }
 
 
-def describe_feature(name: str) -> str:
+NFL_FEATURE_DESCRIPTIONS = {
+    # The served market-free 12-pool (+ the is_home report anchor) — plain-
+    # language twins of nfl_features.CANONICAL_SOURCE, kept on the frontend
+    # so the shared Feature Drift table renders descriptions for both sports.
+    "is_home": "Constant 1 — anchors the home-field edge",
+    "elo_diff": "Home Elo − away Elo (point-in-time rating gap, updated each game)",
+    "win_pct_diff": "Home trailing win% (last 12 games) − away",
+    "rest_days_diff": "Home days since prior game − away (schedule fatigue)",
+    "is_dome_home": "1 if the home venue has a roof, 0 if open-air",
+    "ewm_net_pts_diff": "Home−away net points/game, exponentially weighted (recent form)",
+    "ewm_ypp_diff": "Home−away yards/play, exponentially weighted (recent form)",
+    "pace_plays_min_diff": "Home−away plays per minute (pace of play)",
+    "rest_short_diff": "Short-rest edge: home on <7 days rest − away flag",
+    "div_game": "1 for division matchups (familiarity/rivalry factor)",
+    "travel_miles_diff": "Home−away stadium distance in miles (travel fatigue)",
+    "altitude_home": "Home venue elevation in meters (thin-air effects)",
+    "prime_time": "1 for evening kickoffs (ET hour ≥ 17)",
+}
+
+
+def describe_feature(name: str, sport: str = "mlb") -> str:
     """Human description for a feature column like 'sp_era_5g_diff'.
 
-    Exact diff-name matches win first (the current model layout). For legacy
-    per-side names (('sp_era_5g_home')), strip the _home/_away slot suffix and
-    note which side of the matchup the value describes. 'is_home' is a
-    baseline feature whose name genuinely ends in '_home' — the exact match
-    must win so it is not mangled into a name-repeating label.
+    Sport-dispatched: MLB and NFL share this page but describe their own
+    served pools (MLB's dict is keyed on MLB feature names; NFL's on the
+    12-feature market-free pool). Exact match wins first; legacy per-side
+    names (('sp_era_5g_home')) strip the _home/_away slot suffix and note
+    which side of the matchup the value describes. 'is_home' is a baseline
+    feature whose name genuinely ends in '_home' — the exact match must win
+    so it is not mangled into a name-repeating label. Default sport is MLB,
+    so existing callers (and MLB-only pages) are byte-unchanged.
     """
     s = str(name or "").strip()
-    base = FEATURE_DESCRIPTIONS.get(s)
+    table = NFL_FEATURE_DESCRIPTIONS if sport == "nfl" else FEATURE_DESCRIPTIONS
+    base = table.get(s)
     if base is not None:
         return base
     for suf in ("_home", "_away"):
         if s.endswith(suf):
-            base = FEATURE_DESCRIPTIONS.get(s[: -len(suf)])
+            base = table.get(s[: -len(suf)])
             if base is not None:
                 return f"{base} — home team" if suf == "_home" else f"{base} — away team"
             break
-    for k, v in FEATURE_DESCRIPTIONS.items():
+    for k, v in table.items():
         if s.startswith(k):
             return v
     return name
