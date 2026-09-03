@@ -1,0 +1,122 @@
+{
+  "created_utc": "2026-09-03T00:39:50.243739Z",
+  "version": "v2",
+  "build": {
+    "core_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "warmup_seasons": [
+      2018
+    ],
+    "decided_games": 2761,
+    "decided_frame": "/kaggle/working/sports_prediction_model/nfl-backend/data_delivery/nfl_game_level_features.csv",
+    "elo_prior": 1500.0,
+    "elo_k": 32.0,
+    "windows": {
+      "form": 4,
+      "win_pct": 12,
+      "ypp": 5,
+      "ewm_halflife": 2,
+      "opp_adj": 6,
+      "pace": 4
+    },
+    "candidate_set": "v1 base + v2: decaying-window strength aggregates (net pts / EPA / yards / scoring), opponent-adjusted margin, pace, short-rest edge, QB EPA, weather (temp/wind), division",
+    "leakage_rule": "every trailing feature (windowed OR decaying-ewm) uses only games with gameday strictly before the target (asserted in code: team_stats_ladder strict monotonicity).",
+    "holdout": "2025 is the moneyline model's sealed hold-out: it stays OUT of the decided frame (unchanged by the retired admission gate)."
+  },
+  "feature_admission": {
+    "v1_features": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ],
+    "kept_home_anchor": true,
+    "served_pool_size": 12,
+    "policy": "STATIC MANIFEST \u2014 feature-admission gate retired 2026-09-02; served pool = FEATURE_COLUMNS by declaration; missingness handled in-model at serve time",
+    "features": [
+      {
+        "name": "elo_diff",
+        "served": true,
+        "source": "ELO prior 1500, K=32, strictly-prior games"
+      },
+      {
+        "name": "win_pct_diff",
+        "served": true,
+        "source": "trailing win% (last 12)"
+      },
+      {
+        "name": "rest_days_diff",
+        "served": true,
+        "source": "days since each team's prior game"
+      },
+      {
+        "name": "is_dome_home",
+        "served": true,
+        "source": "home venue roof (nflverse schedule field)"
+      },
+      {
+        "name": "ewm_net_pts_diff",
+        "served": true,
+        "source": "trailing net pts/game, ewm halflife=2 (decaying)"
+      },
+      {
+        "name": "ewm_ypp_diff",
+        "served": true,
+        "source": "trailing yards/play, ewm halflife=2 (from pbp)"
+      },
+      {
+        "name": "pace_plays_min_diff",
+        "served": true,
+        "source": "trailing plays per minute (last 4, from pbp clock)"
+      },
+      {
+        "name": "rest_short_diff",
+        "served": true,
+        "source": "short-rest flag (home rest < 7 days) \u2212 away flag"
+      },
+      {
+        "name": "div_game",
+        "served": true,
+        "source": "division game flag (nflverse schedule field)"
+      },
+      {
+        "name": "travel_miles_diff",
+        "served": true,
+        "source": "home\u2212away stadium distance, haversine (nfl_stadiums.csv)"
+      },
+      {
+        "name": "altitude_home",
+        "served": true,
+        "source": "home venue elevation, meters SRTM (nfl_stadiums.csv)"
+      },
+      {
+        "name": "prime_time",
+        "served": true,
+        "source": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)"
+      },
+      {
+        "name": "is_home",
+        "served": false,
+        "source": "constant anchor for the home edge"
+      }
+    ],
+    "auto_prune": null,
+    "dropped": [],
+    "reasons": {}
+  }
+}
