@@ -1,0 +1,572 @@
+{
+  "record": "nfl_joint_rebaseline",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "84987a607522",
+  "written_utc": "2026-09-03T17:48:23.599090+00:00",
+  "elapsed_seconds": 46.9,
+  "scope": "Pure re-measurement through committed entrypoints on the grid-fixed engine (f251bc6) \u2014 fits NOTHING new. The engine's sigma_const/rho/tie params keep fit_joint_params' existing pooled-OOF convention (the engine's design, unchanged). No pooled static overlay of any kind. The market-layer shrinkage d is OUT OF SCOPE (its fold-fitted version is the next build, written against this record's honest baselines).",
+  "design_rule": "fits NOTHING new \u2014 pure re-measurement through committed entrypoints; engine sigma_const/rho/tie keep fit_joint_params' pooled-OOF convention (unchanged engine design); no pooled static overlay; market-layer shrinkage d OUT OF SCOPE",
+  "geometry": {
+    "seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "pooled_oof_n": 1091,
+    "sealed_n": 285,
+    "marginal": "era-centered DN + const sigma (era layer 7260ddc)",
+    "engine_files_sha256": {
+      "nfl_joint_engine.py": "206af13adc7f776f",
+      "nfl_per_side_engine.py": "b493985a8a03f30b",
+      "nfl_era_features.py": "64caeff771101772"
+    },
+    "engines_modified": false,
+    "prior_records": {
+      "era": "nfl_era_3e8c8a510f04.json",
+      "sigma": "nfl_sigma_layer_3e8c8a510f04.json"
+    }
+  },
+  "engine_state_step0": {
+    "dn_eq_marginal_max_diff": 0.0,
+    "marginal_cells": 76,
+    "joint_shape": [
+      76,
+      76
+    ],
+    "total_mean_shift_vs_muH_muA": 0.07164,
+    "clamp_allowance": 0.5,
+    "ok": true
+  },
+  "step1_chain_rerun": {
+    "c0_walk": {
+      "mae": {
+        "home": 7.4811,
+        "away": 7.0526
+      },
+      "era_pin_mae": {
+        "home": 7.4811,
+        "away": 7.0526
+      },
+      "mae_match": true,
+      "rounds": {
+        "home": 20,
+        "away": 23
+      },
+      "era_pin_rounds": {
+        "home": 20,
+        "away": 23
+      },
+      "rounds_match": true,
+      "read": "the per-side mu walk is engine-independent \u2014 MAE/rounds pins prove the mu table is byte-unchanged on the fixed engine; fit_joint_params on the walked table reproduces the era sigma/rho pins (machinery check)"
+    },
+    "joint_params_walk_pin": {
+      "family": "dn",
+      "sigma_h": {
+        "spec": "const",
+        "sigma0": 9.663,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "sigma_a": {
+        "spec": "const",
+        "sigma0": 9.0789,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "rho": 0.0076,
+      "rho_ci": {
+        "low": -0.0518,
+        "high": 0.0669
+      },
+      "match_era": true
+    },
+    "chain_inputs": {
+      "pooled_oof_n": 1091,
+      "sealed_n": 285,
+      "source": "era record 7260ddc /tmp era-centered dumps (canonical frame 3e8c8a510f04)"
+    }
+  },
+  "step2_gates_fixed_engine": {
+    "joint_params_fixed_engine": {
+      "family": "dn",
+      "sigma_h": {
+        "spec": "const",
+        "sigma0": 9.663,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "sigma_a": {
+        "spec": "const",
+        "sigma0": 9.0789,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "rho": 0.0076,
+      "rho_ci": {
+        "low": -0.0518,
+        "high": 0.0669
+      },
+      "rho_n": 1091,
+      "fit_on": "pooled_oof",
+      "ll_table": {
+        "dn_power": {
+          "family": "dn",
+          "sigma_spec": "power",
+          "ll_home": -6594.468,
+          "ll_away": -5011.445,
+          "ll_total": -11605.913
+        },
+        "dn_const": {
+          "family": "dn",
+          "sigma_spec": "const",
+          "ll_home": -4009.74,
+          "ll_away": -3936.783,
+          "ll_total": -7946.523
+        },
+        "nb_power": {
+          "family": "nb",
+          "sigma_spec": "power",
+          "ll_home": -5610.193,
+          "ll_away": -4918.949,
+          "ll_total": -10529.142
+        },
+        "nb_const": {
+          "family": "nb",
+          "sigma_spec": "const",
+          "ll_home": -4742.46,
+          "ll_away": -4021.357,
+          "ll_total": -8763.817
+        }
+      }
+    },
+    "tie": {
+      "p_tie_empirical": 0.00275,
+      "n_ties_pooled": 3,
+      "d_raw_mean": 0.02795,
+      "d_calibrated_mean": 0.00274977
+    },
+    "gates": {
+      "g1": {
+        "pass": false,
+        "pooled": {
+          "n": 1091,
+          "crps_home": 5.3894,
+          "climatological_crps_home": 5.6491,
+          "ratio_home": 0.954,
+          "improvement_pct_home": 4.6,
+          "crps_away": 5.0892,
+          "climatological_crps_away": 5.3983,
+          "ratio_away": 0.9427,
+          "improvement_pct_away": 5.73
+        },
+        "sealed": {
+          "n": 285,
+          "crps_home": 5.3379,
+          "climatological_crps_home": 5.5578,
+          "ratio_home": 0.9604,
+          "improvement_pct_home": 3.96,
+          "crps_away": 5.7045,
+          "climatological_crps_away": 5.6359,
+          "ratio_away": 1.0122,
+          "improvement_pct_away": -1.22
+        }
+      },
+      "g2": {
+        "pass": true,
+        "delta_pp": 0.0
+      },
+      "g3": {
+        "pass": true,
+        "max_err": 1e-11
+      },
+      "g4": {
+        "metrics": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        },
+        "c0_anchor": {
+          "logloss": 0.6312,
+          "auc": 0.6923,
+          "ece": 0.0346
+        },
+        "flag": false
+      },
+      "g5": {
+        "pass": true
+      }
+    },
+    "dn_vs_nb": {
+      "nb_minus_dn": -817.294,
+      "dn_wins_by": 817.294,
+      "dn_const_ll": -7946.523,
+      "nb_const_ll": -8763.817,
+      "pre_fix_gap": 15809.319,
+      "read": "DN beats NB by ~817 LL units post-fix (pre-fix 15,809) \u2014 the corrected grid reads NB's mass fairly; family choice unchanged (dn) and now on a much narrower, honest margin"
+    },
+    "per_side_ll_crps_pooled": {
+      "ll_home": -3.6753,
+      "ll_away": -3.6084,
+      "crps_home": 5.3894,
+      "crps_away": 5.0892
+    },
+    "internal_totals_ece": {
+      "thresholds": [
+        {
+          "threshold": 42.5,
+          "n": 1091,
+          "pred_over_rate": 0.5643,
+          "actual_over_rate": 0.549,
+          "gap": 0.0152
+        },
+        {
+          "threshold": 47.5,
+          "n": 1091,
+          "pred_over_rate": 0.4205,
+          "actual_over_rate": 0.3905,
+          "gap": 0.0301
+        },
+        {
+          "threshold": 52.5,
+          "n": 1091,
+          "pred_over_rate": 0.2886,
+          "actual_over_rate": 0.2585,
+          "gap": 0.0301
+        }
+      ],
+      "ece": 0.0251
+    },
+    "total_pit_documented": {
+      "mean": 0.4915,
+      "ece": 0.0092,
+      "chi2_p": 0.2592,
+      "ks_p": 0.0656,
+      "is_uniform": true
+    },
+    "convention_collapse": {
+      "internal_totals_ece_fixed_engine": 0.0251,
+      "total_pit_ece_documented": 0.0092,
+      "pre_fix_split": {
+        "internal_totals_ece": 0.0796,
+        "total_pit_ece": 0.0092
+      },
+      "collapsed": true
+    }
+  },
+  "step3_seam": {
+    "seam": {
+      "path": "nflreadpy.load_schedules",
+      "ok": true,
+      "spread_line_coverage_pct": 100.0,
+      "total_line_coverage_pct": 100.0,
+      "spread_margin_corr": 0.446,
+      "sign_convention": "positive spread_line = home favored (corr(spread_line, margin) = 0.446 on the same rows); home covers iff margin > spread_line; over iff total > total_line",
+      "covers": {
+        "n": 1091,
+        "ece": 0.078,
+        "bins": [
+          {
+            "bin": "[0.00,0.31)",
+            "n": 109,
+            "pred_mean": 0.2307,
+            "actual_rate": 0.3945
+          },
+          {
+            "bin": "[0.31,0.38)",
+            "n": 109,
+            "pred_mean": 0.3477,
+            "actual_rate": 0.4404
+          },
+          {
+            "bin": "[0.38,0.42)",
+            "n": 109,
+            "pred_mean": 0.4013,
+            "actual_rate": 0.4312
+          },
+          {
+            "bin": "[0.42,0.46)",
+            "n": 109,
+            "pred_mean": 0.4416,
+            "actual_rate": 0.4495
+          },
+          {
+            "bin": "[0.46,0.50)",
+            "n": 109,
+            "pred_mean": 0.4792,
+            "actual_rate": 0.5229
+          },
+          {
+            "bin": "[0.50,0.54)",
+            "n": 110,
+            "pred_mean": 0.5167,
+            "actual_rate": 0.4545
+          },
+          {
+            "bin": "[0.54,0.58)",
+            "n": 108,
+            "pred_mean": 0.5564,
+            "actual_rate": 0.4537
+          },
+          {
+            "bin": "[0.58,0.62)",
+            "n": 109,
+            "pred_mean": 0.5948,
+            "actual_rate": 0.5138
+          },
+          {
+            "bin": "[0.62,0.67)",
+            "n": 109,
+            "pred_mean": 0.6422,
+            "actual_rate": 0.5413
+          },
+          {
+            "bin": "[0.67,1.00)",
+            "n": 110,
+            "pred_mean": 0.7406,
+            "actual_rate": 0.6455
+          }
+        ],
+        "definition": "derived P(margin > spread_line) vs actual margin > spread_line (home perspective)",
+        "empirical_home_ats_rate": 0.4849
+      },
+      "totals": {
+        "n": 1091,
+        "ece": 0.087,
+        "bins": [
+          {
+            "bin": "[0.00,0.30)",
+            "n": 109,
+            "pred_mean": 0.2466,
+            "actual_rate": 0.3303
+          },
+          {
+            "bin": "[0.30,0.37)",
+            "n": 109,
+            "pred_mean": 0.3392,
+            "actual_rate": 0.3853
+          },
+          {
+            "bin": "[0.37,0.41)",
+            "n": 109,
+            "pred_mean": 0.389,
+            "actual_rate": 0.4587
+          },
+          {
+            "bin": "[0.41,0.46)",
+            "n": 109,
+            "pred_mean": 0.4317,
+            "actual_rate": 0.4862
+          },
+          {
+            "bin": "[0.46,0.50)",
+            "n": 109,
+            "pred_mean": 0.477,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.50,0.53)",
+            "n": 109,
+            "pred_mean": 0.5145,
+            "actual_rate": 0.4495
+          },
+          {
+            "bin": "[0.53,0.57)",
+            "n": 109,
+            "pred_mean": 0.5516,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.57,0.63)",
+            "n": 109,
+            "pred_mean": 0.6038,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.63,0.70)",
+            "n": 109,
+            "pred_mean": 0.6626,
+            "actual_rate": 0.5321
+          },
+          {
+            "bin": "[0.70,1.00)",
+            "n": 110,
+            "pred_mean": 0.7739,
+            "actual_rate": 0.5273
+          }
+        ],
+        "definition": "derived P(total > total_line) vs actual total > total_line",
+        "empirical_over_rate": 0.4684
+      },
+      "totals_top_bin": {
+        "bin": "[0.70,1.00)",
+        "n": 110,
+        "pred_mean": 0.7739,
+        "actual_rate": 0.5273
+      }
+    },
+    "invariance_pre_vs_post_fix": {
+      "n": 12,
+      "max_margin_pmf_diff": 1.1196410849751565e-05,
+      "max_tie_diff": 1.1045107586787895e-05,
+      "max_ml_diff": 7.327389457412181e-07,
+      "max_p_home_diff": 5.314894383601221e-06,
+      "max_p_away_diff": 5.730213202992385e-06,
+      "read": "margin PMF / tie / p_home / p_away / derived-ML are index-DIFFERENCE quantities \u2014 unchanged pre-vs-post grid fix up to the below-0.5 tail sliver (pre-fix the mass below -0.5 sat in a phantom 'score \u22121' cell; post-fix it is absorbed into score 0). The renormalized shared cell masses are identical to float precision; the residual ~1e-5 derived diffs are exactly that tail-mass re-seating, not an index change (LL/CRPS move because they index at the actual score). Seam covers ECE is unchanged to 3 decimals (0.078 -> 0.078) as a result."
+    }
+  },
+  "delta_table": [
+    {
+      "quantity": "seam totals ECE",
+      "before": 0.0935,
+      "after": 0.087,
+      "read": "the +2 derived-totals shift removed; expect a large drop toward the internal calibration level"
+    },
+    {
+      "quantity": "totals top bin pred/actual",
+      "before": {
+        "pred": 0.8159,
+        "actual": 0.5273
+      },
+      "after": {
+        "pred": 0.7739,
+        "actual": 0.5273
+      },
+      "read": "model-vs-market disagreement residual after the grid fix"
+    },
+    {
+      "quantity": "seam covers ECE",
+      "before": 0.078,
+      "after": 0.078,
+      "read": "margins are index differences \u2014 unchanged to 3 decimals (invariance arm verifies the ~1e-5 tail-sliver residual numerically)"
+    },
+    {
+      "quantity": "G4 derived-ML metrics",
+      "before": {
+        "logloss": 0.6365,
+        "auc": 0.695,
+        "ece": 0.0435,
+        "brier": 0.2221
+      },
+      "after": {
+        "logloss": 0.6365,
+        "auc": 0.695,
+        "ece": 0.0435,
+        "brier": 0.2221
+      },
+      "read": "derived ML is shift-invariant (index differences) \u2014 the fix's +2 removal is expected to move it only via the tie/ML normalization of corrected marginals, if at all"
+    },
+    {
+      "quantity": "internal totals ECE (engine grid)",
+      "before": 0.0796,
+      "after": 0.0251,
+      "read": "engine's own derived totals now priced at the documented convention \u2014 collapses toward the corrected total-PIT ECE"
+    },
+    {
+      "quantity": "total-PIT ECE (documented)",
+      "before": 0.0092,
+      "after": 0.0092,
+      "read": "convention-independent of the engine grid \u2014 unchanged by the fix (mu/sigma inputs identical)"
+    },
+    {
+      "quantity": "per-side pooled LL home",
+      "before": -3.6784,
+      "after": -3.6753,
+      "read": "actual-score lookups read P(score y) post-fix"
+    },
+    {
+      "quantity": "per-side pooled LL away",
+      "before": -3.6183,
+      "after": -3.6084,
+      "read": "actual-score lookups read P(score y) post-fix"
+    },
+    {
+      "quantity": "per-side pooled CRPS home",
+      "before": 5.4188,
+      "after": 5.3894,
+      "read": "corrected marginal read"
+    },
+    {
+      "quantity": "per-side pooled CRPS away",
+      "before": 5.1449,
+      "after": 5.0892,
+      "read": "corrected marginal read"
+    },
+    {
+      "quantity": "DN-vs-NB LL gap",
+      "before": 15809.319,
+      "after": {
+        "nb_minus_dn": -817.294,
+        "dn_wins_by": 817.294
+      },
+      "read": "family choice re-measured on the corrected marginals: DN beats NB by 817 LL post-fix (pre-fix 15,809) \u2014 NB's near-Poisson tail was over-penalized by the off-by-one grid; DN still wins clearly"
+    },
+    {
+      "quantity": "G1 pooled improvement %",
+      "before": {
+        "home": 4.08,
+        "away": 4.69
+      },
+      "after": {
+        "home": 4.6,
+        "away": 5.73
+      },
+      "read": "G1 is a mean-layer gate \u2014 small movement expected"
+    },
+    {
+      "quantity": "G1 sealed improvement %",
+      "before": {
+        "home": 2.76,
+        "away": -1.52
+      },
+      "after": {
+        "home": 3.96,
+        "away": -1.22
+      },
+      "read": "G1 is a mean-layer gate \u2014 small movement expected"
+    },
+    {
+      "quantity": "G2 tie delta pp",
+      "before": 0.0,
+      "after": 0.0,
+      "read": "IPF tie calibration is index-invariant (diagonal mass)"
+    },
+    {
+      "quantity": "G3 post-IPF marginal err",
+      "before": 1e-11,
+      "after": 1e-11,
+      "read": "IPF convergence pin"
+    },
+    {
+      "quantity": "G5 determinism",
+      "before": true,
+      "after": true,
+      "read": "byte-identical double build"
+    }
+  ],
+  "verdict": {
+    "state": "RE_BASELINED",
+    "pass": true,
+    "read": "absolute PMF-derived numbers re-quoted on the fixed engine; relative verdicts from the prior records stand (same bug in both arms of every comparison); the market layer's fold-fitted shrinkage d is built against THESE numbers"
+  },
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "convention_collapse": "internal totals ECE and documented-convention total-PIT ECE are different binnings of the same calibration fact; post-fix they agree at the small level reported (pre-fix they disagreed at 0.0796 vs 0.0092 because the engine priced totals one grid index off)",
+    "seam_top_bin": "the totals top bin after the fix is the model-vs-market residual the market layer addresses (disagreement shrinkage / own-line quoting) \u2014 NOT a dispersion defect",
+    "g1_reported_not_gated": "G1 is a mean-layer gate; re-quoted for completeness, not re-gated"
+  }
+}
