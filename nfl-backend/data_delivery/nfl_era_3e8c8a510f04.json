@@ -1,0 +1,1155 @@
+{
+  "record": "nfl_era_conditional_mean",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "84987a607522",
+  "written_utc": "2026-09-03T14:30:11.334503+00:00",
+  "elapsed_seconds": 125.2,
+  "scope": "This layer addresses LEAGUE-LEVEL scoring-environment drift, not team-specific offseason structural change (roster/defense overhaul stays invisible until games confirm it \u2014 do not overclaim). Leakage-safe side-specific era centers over strictly-prior decided games; centered-target marginal (E2) fits (target \u2212 center) and adds the center back at prediction. Spec chosen empirically on 2021-24 pooled OOF CV only; sealed 2025 evaluated once. Joint-chain re-run through the EXISTING nfl_joint_engine entrypoints \u2014 no engine edits, no wiring. Market pricing/calibration paths, artifact emitters, and wire-in remain later phases.",
+  "geometry": {
+    "seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "pooled_oof_n": 1091,
+    "sealed_n": 285,
+    "view": "12-pool per-side PIT (SIDE_FEATURES) \u2014 E1 adds era macro columns, E2 centers targets; FEATURE_COLUMNS untouched",
+    "engines_modified": false
+  },
+  "step0_falsification": {
+    "fact_table_2019_2025": [
+      {
+        "season": 2019,
+        "n": 267,
+        "mean_home_score": 22.873,
+        "mean_away_score": 22.831,
+        "mean_total": 45.704,
+        "home_win_rate": 0.5206,
+        "n_final_ties": 1
+      },
+      {
+        "season": 2020,
+        "n": 269,
+        "mean_home_score": 24.833,
+        "mean_away_score": 24.658,
+        "mean_total": 49.491,
+        "home_win_rate": 0.4981,
+        "n_final_ties": 1
+      },
+      {
+        "season": 2021,
+        "n": 285,
+        "mean_home_score": 24.0,
+        "mean_away_score": 22.067,
+        "mean_total": 46.067,
+        "home_win_rate": 0.5158,
+        "n_final_ties": 1
+      },
+      {
+        "season": 2022,
+        "n": 284,
+        "mean_home_score": 23.06,
+        "mean_away_score": 20.972,
+        "mean_total": 44.032,
+        "home_win_rate": 0.5634,
+        "n_final_ties": 2
+      },
+      {
+        "season": 2023,
+        "n": 285,
+        "mean_home_score": 23.361,
+        "mean_away_score": 20.439,
+        "mean_total": 43.8,
+        "home_win_rate": 0.5649,
+        "n_final_ties": 0
+      },
+      {
+        "season": 2024,
+        "n": 285,
+        "mean_home_score": 24.147,
+        "mean_away_score": 21.87,
+        "mean_total": 46.018,
+        "home_win_rate": 0.5474,
+        "n_final_ties": 0
+      },
+      {
+        "season": 2025,
+        "n": 285,
+        "mean_home_score": 23.993,
+        "mean_away_score": 21.965,
+        "mean_total": 45.958,
+        "home_win_rate": 0.5333,
+        "n_final_ties": 1
+      }
+    ],
+    "oof_bias_by_season": {
+      "home": [
+        {
+          "n": 271,
+          "mean_resid": -0.0909,
+          "rmse": 10.1412,
+          "season": 2021
+        },
+        {
+          "n": 271,
+          "mean_resid": -0.8053,
+          "rmse": 8.713,
+          "season": 2022
+        },
+        {
+          "n": 267,
+          "mean_resid": -0.4221,
+          "rmse": 9.5482,
+          "season": 2023
+        },
+        {
+          "n": 282,
+          "mean_resid": 0.535,
+          "rmse": 9.0265,
+          "season": 2024
+        }
+      ],
+      "away": [
+        {
+          "n": 271,
+          "mean_resid": -1.7111,
+          "rmse": 9.2545,
+          "season": 2021
+        },
+        {
+          "n": 271,
+          "mean_resid": -1.6271,
+          "rmse": 8.9728,
+          "season": 2022
+        },
+        {
+          "n": 267,
+          "mean_resid": -2.2707,
+          "rmse": 9.2973,
+          "season": 2023
+        },
+        {
+          "n": 282,
+          "mean_resid": -0.4002,
+          "rmse": 8.7333,
+          "season": 2024
+        }
+      ]
+    },
+    "sealed_2025_bias_c0": {
+      "home": {
+        "n": 285,
+        "mean_resid": 0.351,
+        "rmse": 9.3264
+      },
+      "away": {
+        "n": 285,
+        "mean_resid": -0.1406,
+        "rmse": 9.7616
+      }
+    },
+    "week_half_away_bias": {
+      "home": [
+        {
+          "season": 2021,
+          "w1_5_n": 77,
+          "w1_5_mean_resid": 0.289,
+          "w6_plus_n": 184,
+          "w6_plus_mean_resid": -0.3968
+        },
+        {
+          "season": 2022,
+          "w1_5_n": 77,
+          "w1_5_mean_resid": -1.0847,
+          "w6_plus_n": 184,
+          "w6_plus_mean_resid": -0.8072
+        },
+        {
+          "season": 2023,
+          "w1_5_n": 70,
+          "w1_5_mean_resid": -0.6508,
+          "w6_plus_n": 191,
+          "w6_plus_mean_resid": -0.5173
+        },
+        {
+          "season": 2024,
+          "w1_5_n": 78,
+          "w1_5_mean_resid": -0.2898,
+          "w6_plus_n": 194,
+          "w6_plus_mean_resid": 0.8049
+        }
+      ],
+      "away": [
+        {
+          "season": 2021,
+          "w1_5_n": 77,
+          "w1_5_mean_resid": -0.5528,
+          "w6_plus_n": 184,
+          "w6_plus_mean_resid": -2.179
+        },
+        {
+          "season": 2022,
+          "w1_5_n": 77,
+          "w1_5_mean_resid": -2.1748,
+          "w6_plus_n": 184,
+          "w6_plus_mean_resid": -1.6376
+        },
+        {
+          "season": 2023,
+          "w1_5_n": 70,
+          "w1_5_mean_resid": -0.4722,
+          "w6_plus_n": 191,
+          "w6_plus_mean_resid": -2.8862
+        },
+        {
+          "season": 2024,
+          "w1_5_n": 78,
+          "w1_5_mean_resid": -1.0699,
+          "w6_plus_n": 194,
+          "w6_plus_mean_resid": 0.0246
+        }
+      ]
+    },
+    "sign_convention": "resid = actual \u2212 pred; negative mean resid \u21d2 predictions run HIGH (overprediction)",
+    "ceiling_model_free": {
+      "per_side": {
+        "home": {
+          "ps": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": 0.8327
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": 0.9401
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": -0.3015
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -0.786
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": 0.1544
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.6914
+          },
+          "ewm_2w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": -0.059
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": -0.9629
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": -0.3986
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -0.3107
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": 0.225
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.4735
+          },
+          "ewm_4w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": -0.1288
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": -0.8784
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": -0.5117
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -0.4898
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": 0.3516
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.5063
+          },
+          "ewm_8w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": -0.2736
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": -0.3229
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": -0.4147
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -0.7769
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": 0.4587
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.3371
+          }
+        },
+        "away": {
+          "ps": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": 2.5913
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": 1.0949
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": 0.5332
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -1.4316
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": -0.0947
+              }
+            ],
+            "mean_abs_bias_2021_23": 1.4065
+          },
+          "ewm_2w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": 0.7178
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": 0.6056
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": 0.327
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": 0.1398
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": -0.0607
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.5501
+          },
+          "ewm_4w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": 0.8928
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": 0.5043
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": 0.4115
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": 0.0729
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": -0.1922
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.6029
+          },
+          "ewm_8w": {
+            "by_season": [
+              {
+                "season": 2021,
+                "n": 285,
+                "mean_bias": 0.9488
+              },
+              {
+                "season": 2022,
+                "n": 284,
+                "mean_bias": 0.2259
+              },
+              {
+                "season": 2023,
+                "n": 285,
+                "mean_bias": 0.4355
+              },
+              {
+                "season": 2024,
+                "n": 285,
+                "mean_bias": -0.1699
+              },
+              {
+                "season": 2025,
+                "n": 285,
+                "mean_bias": -0.2015
+              }
+            ],
+            "mean_abs_bias_2021_23": 0.5367
+          }
+        }
+      },
+      "summary": {}
+    },
+    "gate": {
+      "i_away_scoring_tracks_bias": {
+        "pass": true,
+        "rule": "2020 spike = away_mean(2020) \u2212 mean(away 2021-23) >= 1.0 pt AND scored-season away range >= 1.0 pt (\u22482 season-SEs)",
+        "spike_pts": 3.499,
+        "scored_season_range_pts": 1.628
+      },
+      "ii_center_cuts_bias": {
+        "pass": true,
+        "rule": "some spec's model-free 2021-23 mean |bias| cuts the LGB's (1.87) by >= 1.0 pt or to <= 50%",
+        "specs": {
+          "ps": {
+            "mean_abs_bias_2021_23": 1.4065,
+            "lgb_mean_abs_2021_23": 1.8696,
+            "cut_abs_1pt": false,
+            "cut_rel_50pct": false,
+            "passes": false
+          },
+          "ewm_2w": {
+            "mean_abs_bias_2021_23": 0.5501,
+            "lgb_mean_abs_2021_23": 1.8696,
+            "cut_abs_1pt": true,
+            "cut_rel_50pct": true,
+            "passes": true
+          },
+          "ewm_4w": {
+            "mean_abs_bias_2021_23": 0.6029,
+            "lgb_mean_abs_2021_23": 1.8696,
+            "cut_abs_1pt": true,
+            "cut_rel_50pct": true,
+            "passes": true
+          },
+          "ewm_8w": {
+            "mean_abs_bias_2021_23": 0.5367,
+            "lgb_mean_abs_2021_23": 1.8696,
+            "cut_abs_1pt": true,
+            "cut_rel_50pct": true,
+            "passes": true
+          }
+        }
+      },
+      "pass": true,
+      "on_fail": "era layer refuted at the data level \u2014 record tables and stop (no E arms)"
+    }
+  },
+  "step1_arms": {
+    "cv_selection": {
+      "note": "selected on pooled 2021-24 OOF ONLY \u2014 sealed 2025 structurally never enters selection (centers for 2021-24 rows depend only on strictly-prior games)",
+      "metric": "2021-23 away mean |season resid|, tiebreak away MAE",
+      "table": {
+        "ps": {
+          "away_mean_abs_resid_2021_23": 1.8212,
+          "away_mae": 7.0828,
+          "home_mae": 7.4413,
+          "n": 1091,
+          "walk_s": 10.3
+        },
+        "ewm_2w": {
+          "away_mean_abs_resid_2021_23": 0.4083,
+          "away_mae": 7.0526,
+          "home_mae": 7.4811,
+          "n": 1091,
+          "walk_s": 8.8
+        },
+        "ewm_4w": {
+          "away_mean_abs_resid_2021_23": 0.5236,
+          "away_mae": 7.0465,
+          "home_mae": 7.394,
+          "n": 1091,
+          "walk_s": 9.7
+        },
+        "ewm_8w": {
+          "away_mean_abs_resid_2021_23": 0.5589,
+          "away_mae": 6.9641,
+          "home_mae": 7.302,
+          "n": 1091,
+          "walk_s": 12.2
+        }
+      },
+      "chosen": "ewm_2w",
+      "ranking": [
+        "ewm_2w",
+        "ewm_4w",
+        "ewm_8w",
+        "ps"
+      ]
+    },
+    "c0": {
+      "mae": {
+        "home": 7.2621,
+        "away": 7.1232
+      },
+      "bias_by_season": {
+        "home": [
+          {
+            "n": 271,
+            "mean_resid": -0.0909,
+            "rmse": 10.1412,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": -0.8053,
+            "rmse": 8.713,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -0.4221,
+            "rmse": 9.5482,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": 0.535,
+            "rmse": 9.0265,
+            "season": 2024
+          }
+        ],
+        "away": [
+          {
+            "n": 271,
+            "mean_resid": -1.7111,
+            "rmse": 9.2545,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": -1.6271,
+            "rmse": 8.9728,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -2.2707,
+            "rmse": 9.2973,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": -0.4002,
+            "rmse": 8.7333,
+            "season": 2024
+          }
+        ]
+      },
+      "n": 1091
+    },
+    "e1": {
+      "mae": {
+        "home": 7.3602,
+        "away": 7.0621
+      },
+      "bias_by_season": {
+        "home": [
+          {
+            "n": 271,
+            "mean_resid": 0.0417,
+            "rmse": 10.126,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": -0.5168,
+            "rmse": 8.907,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -0.1346,
+            "rmse": 9.5638,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": 0.4953,
+            "rmse": 9.2246,
+            "season": 2024
+          }
+        ],
+        "away": [
+          {
+            "n": 271,
+            "mean_resid": -1.4972,
+            "rmse": 9.187,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": -0.8919,
+            "rmse": 8.9656,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -1.5616,
+            "rmse": 9.1977,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": -0.2647,
+            "rmse": 8.7677,
+            "season": 2024
+          }
+        ]
+      },
+      "n": 1091,
+      "view": "SIDE_FEATURES + [era_center_home, era_center_away] (raw targets \u2014 trees must find the level)"
+    },
+    "e2": {
+      "mae": {
+        "home": 7.4811,
+        "away": 7.0526
+      },
+      "bias_by_season": {
+        "home": [
+          {
+            "n": 271,
+            "mean_resid": 0.2736,
+            "rmse": 10.2403,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": 0.6676,
+            "rmse": 9.2308,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -0.1347,
+            "rmse": 9.6036,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": 0.1098,
+            "rmse": 9.5534,
+            "season": 2024
+          }
+        ],
+        "away": [
+          {
+            "n": 271,
+            "mean_resid": -0.8939,
+            "rmse": 9.2517,
+            "season": 2021
+          },
+          {
+            "n": 271,
+            "mean_resid": -0.0664,
+            "rmse": 9.1783,
+            "season": 2022
+          },
+          {
+            "n": 267,
+            "mean_resid": -0.2645,
+            "rmse": 9.0184,
+            "season": 2023
+          },
+          {
+            "n": 282,
+            "mean_resid": 0.0712,
+            "rmse": 8.8699,
+            "season": 2024
+          }
+        ]
+      },
+      "away_mean_abs_resid_2021_23": 0.4083,
+      "n": 1091,
+      "rounds": {
+        "home": 20,
+        "away": 23
+      },
+      "determinism_byte_identical": true,
+      "view": "SIDE_FEATURES on (target \u2212 center), center added back at prediction"
+    }
+  },
+  "step2_joint_chain": {
+    "adopted_arm": "E2",
+    "adoption_note": "E2 ~= E1 by design (E2 fixes level by construction, leaves the 12-feature mapping untouched, cannot be ignored by the trees) \u2014 E2 adopted",
+    "joint_params": {
+      "family": "dn",
+      "sigma_h": {
+        "spec": "const",
+        "sigma0": 9.663,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "sigma_a": {
+        "spec": "const",
+        "sigma0": 9.0789,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "rho": 0.0076,
+      "rho_ci": {
+        "low": -0.0518,
+        "high": 0.0669
+      },
+      "rho_n": 1091,
+      "fit_on": "pooled_oof",
+      "ll_table": {
+        "dn_power": {
+          "family": "dn",
+          "sigma_spec": "power",
+          "ll_home": -6619.66,
+          "ll_away": -5055.301,
+          "ll_total": -11674.961
+        },
+        "dn_const": {
+          "family": "dn",
+          "sigma_spec": "const",
+          "ll_home": -4013.179,
+          "ll_away": -3947.579,
+          "ll_total": -7960.759
+        },
+        "nb_power": {
+          "family": "nb",
+          "sigma_spec": "power",
+          "ll_home": -11723.507,
+          "ll_away": -13742.469,
+          "ll_total": -25465.976
+        },
+        "nb_const": {
+          "family": "nb",
+          "sigma_spec": "const",
+          "ll_home": -10879.321,
+          "ll_away": -12890.757,
+          "ll_total": -23770.078
+        }
+      }
+    },
+    "tie": {
+      "p_tie_empirical": 0.00275,
+      "n_ties_pooled": 3,
+      "d_raw_mean": 0.02789,
+      "d_calibrated_mean": 0.00274977
+    },
+    "crps_vs_climatology": {
+      "pooled": {
+        "n": 1091,
+        "crps_home": 5.4188,
+        "climatological_crps_home": 5.6491,
+        "ratio_home": 0.9592,
+        "improvement_pct_home": 4.08,
+        "crps_away": 5.1449,
+        "climatological_crps_away": 5.3983,
+        "ratio_away": 0.9531,
+        "improvement_pct_away": 4.69
+      },
+      "sealed": {
+        "n": 285,
+        "crps_home": 5.4046,
+        "climatological_crps_home": 5.5578,
+        "ratio_home": 0.9724,
+        "improvement_pct_home": 2.76,
+        "crps_away": 5.7214,
+        "climatological_crps_away": 5.6359,
+        "ratio_away": 1.0152,
+        "improvement_pct_away": -1.52
+      }
+    },
+    "gates": {
+      "g1": {
+        "pass": false,
+        "pooled": {
+          "n": 1091,
+          "crps_home": 5.4188,
+          "climatological_crps_home": 5.6491,
+          "ratio_home": 0.9592,
+          "improvement_pct_home": 4.08,
+          "crps_away": 5.1449,
+          "climatological_crps_away": 5.3983,
+          "ratio_away": 0.9531,
+          "improvement_pct_away": 4.69
+        },
+        "sealed": {
+          "n": 285,
+          "crps_home": 5.4046,
+          "climatological_crps_home": 5.5578,
+          "ratio_home": 0.9724,
+          "improvement_pct_home": 2.76,
+          "crps_away": 5.7214,
+          "climatological_crps_away": 5.6359,
+          "ratio_away": 1.0152,
+          "improvement_pct_away": -1.52
+        }
+      },
+      "g2": {
+        "pass": true,
+        "delta_pp": -0.0
+      },
+      "g3": {
+        "pass": true,
+        "max_err": 1e-11
+      },
+      "g4": {
+        "metrics": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        },
+        "c0_anchor": {
+          "logloss": 0.6312,
+          "auc": 0.6923,
+          "ece": 0.0346
+        },
+        "flag": false
+      },
+      "g5": {
+        "pass": true
+      }
+    },
+    "bias_after_era_pooled": {
+      "home": [
+        {
+          "n": 271,
+          "mean_resid": 0.2736,
+          "rmse": 10.2403,
+          "season": 2021
+        },
+        {
+          "n": 271,
+          "mean_resid": 0.6676,
+          "rmse": 9.2308,
+          "season": 2022
+        },
+        {
+          "n": 267,
+          "mean_resid": -0.1347,
+          "rmse": 9.6036,
+          "season": 2023
+        },
+        {
+          "n": 282,
+          "mean_resid": 0.1098,
+          "rmse": 9.5534,
+          "season": 2024
+        }
+      ],
+      "away": [
+        {
+          "n": 271,
+          "mean_resid": -0.8939,
+          "rmse": 9.2517,
+          "season": 2021
+        },
+        {
+          "n": 271,
+          "mean_resid": -0.0664,
+          "rmse": 9.1783,
+          "season": 2022
+        },
+        {
+          "n": 267,
+          "mean_resid": -0.2645,
+          "rmse": 9.0184,
+          "season": 2023
+        },
+        {
+          "n": 282,
+          "mean_resid": 0.0712,
+          "rmse": 8.8699,
+          "season": 2024
+        }
+      ]
+    },
+    "bias_after_era_sealed": {
+      "home": {
+        "n": 285,
+        "mean_resid": -0.5057,
+        "rmse": 9.4111
+      },
+      "away": {
+        "n": 285,
+        "mean_resid": 0.2684,
+        "rmse": 10.063
+      }
+    },
+    "data_seam": {
+      "path": "nflreadpy.load_schedules",
+      "ok": true,
+      "spread_line_coverage_pct": 100.0,
+      "total_line_coverage_pct": 100.0,
+      "sign_convention": "positive spread_line = home favored (corr(spread_line, margin) = 0.446 on the same rows); home covers iff margin > spread_line; over iff total > total_line",
+      "covers": {
+        "n": 1091,
+        "ece": 0.078,
+        "bins": [
+          {
+            "bin": "[0.00,0.31)",
+            "n": 109,
+            "pred_mean": 0.2309,
+            "actual_rate": 0.3945
+          },
+          {
+            "bin": "[0.31,0.38)",
+            "n": 109,
+            "pred_mean": 0.3478,
+            "actual_rate": 0.4404
+          },
+          {
+            "bin": "[0.38,0.42)",
+            "n": 109,
+            "pred_mean": 0.4014,
+            "actual_rate": 0.4312
+          },
+          {
+            "bin": "[0.42,0.46)",
+            "n": 109,
+            "pred_mean": 0.4417,
+            "actual_rate": 0.4495
+          },
+          {
+            "bin": "[0.46,0.50)",
+            "n": 109,
+            "pred_mean": 0.4792,
+            "actual_rate": 0.5229
+          },
+          {
+            "bin": "[0.50,0.54)",
+            "n": 110,
+            "pred_mean": 0.5167,
+            "actual_rate": 0.4545
+          },
+          {
+            "bin": "[0.54,0.58)",
+            "n": 108,
+            "pred_mean": 0.5564,
+            "actual_rate": 0.4537
+          },
+          {
+            "bin": "[0.58,0.62)",
+            "n": 109,
+            "pred_mean": 0.5948,
+            "actual_rate": 0.5138
+          },
+          {
+            "bin": "[0.62,0.67)",
+            "n": 109,
+            "pred_mean": 0.6422,
+            "actual_rate": 0.5321
+          },
+          {
+            "bin": "[0.67,1.00)",
+            "n": 110,
+            "pred_mean": 0.7406,
+            "actual_rate": 0.6545
+          }
+        ],
+        "definition": "derived P(margin > spread_line) vs actual margin > spread_line (home perspective)",
+        "empirical_home_ats_rate": 0.4849
+      },
+      "totals": {
+        "n": 1091,
+        "ece": 0.0935,
+        "bins": [
+          {
+            "bin": "[0.00,0.36)",
+            "n": 109,
+            "pred_mean": 0.296,
+            "actual_rate": 0.3303
+          },
+          {
+            "bin": "[0.36,0.43)",
+            "n": 109,
+            "pred_mean": 0.3961,
+            "actual_rate": 0.3945
+          },
+          {
+            "bin": "[0.43,0.47)",
+            "n": 109,
+            "pred_mean": 0.4481,
+            "actual_rate": 0.4495
+          },
+          {
+            "bin": "[0.47,0.52)",
+            "n": 109,
+            "pred_mean": 0.4917,
+            "actual_rate": 0.4862
+          },
+          {
+            "bin": "[0.52,0.56)",
+            "n": 109,
+            "pred_mean": 0.5373,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.56,0.59)",
+            "n": 109,
+            "pred_mean": 0.5745,
+            "actual_rate": 0.4495
+          },
+          {
+            "bin": "[0.59,0.63)",
+            "n": 109,
+            "pred_mean": 0.6106,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.63,0.69)",
+            "n": 109,
+            "pred_mean": 0.6607,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.69,0.75)",
+            "n": 109,
+            "pred_mean": 0.7159,
+            "actual_rate": 0.5321
+          },
+          {
+            "bin": "[0.75,1.00)",
+            "n": 110,
+            "pred_mean": 0.8159,
+            "actual_rate": 0.5273
+          }
+        ],
+        "definition": "derived P(total > total_line) vs actual total > total_line",
+        "empirical_over_rate": 0.4684
+      }
+    }
+  },
+  "before_reference": {
+    "source": "nfl_mean_bias_calibration_3e8c8a510f04.json on main",
+    "c0_by_season_away_resid": [
+      -1.7111,
+      -1.6271,
+      -2.2707,
+      -0.4002
+    ],
+    "c0_away_mean_abs_2021_23": 1.8696,
+    "c0_mae": {
+      "home": null,
+      "away": null
+    },
+    "sealed_2025_away_bias_c0": -0.1406
+  },
+  "verdict": {
+    "state": "SCORED",
+    "criteria": {
+      "2021_23_away_bias_halved": {
+        "pass": true,
+        "c0_mean_abs": 1.8696,
+        "e2_mean_abs": 0.4083,
+        "rule": ">= 1.0 pt cut or <= 50% of C0"
+      },
+      "sealed_not_overcorrected": {
+        "pass": false,
+        "sealed_resid": {
+          "home": -0.5057,
+          "away": 0.2684
+        },
+        "rule": "both sides within \u00b10.5"
+      },
+      "g2_g3_g5": {
+        "pass": true
+      },
+      "g4_coherent_or_better": {
+        "pass": true,
+        "flag": false
+      }
+    },
+    "pass": false,
+    "note": "NOT gated on G1 >= 5% both legs or the totals top-bin closing \u2014 the dispersion/sigma layer's job; this layer is a NECESSARY step toward the market layer, not sufficient. On success the away CRPS leg may still sit below 5% and the queued sigma layer follows."
+  },
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "scope": "LEAGUE-LEVEL scoring-environment drift only; team roster/defense overhaul stays invisible until games confirm it",
+    "linear_center_specs": "ps + ewm_2w/4w/8w only; no blend spec \u2014 clean falsifiable candidates, thin CV",
+    "neutral_fallback": "constant 21.0 for rows with no strictly-prior history (warmup only, never scored; constant is information-free)",
+    "league_level_not_team": "team strength is already in the 12-pool; the era layer isolates the common scoring level",
+    "sealed_center_definition": "2025 rows' centers may use strictly-prior 2025 games (pure time-series; never the row's own or later labels); the model is never fit on 2025",
+    "g1_not_gated": "G1 >= 5% and totals top-bin are the dispersion/sigma layer's job \u2014 see verdict.note"
+  }
+}
