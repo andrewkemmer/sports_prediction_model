@@ -1,0 +1,164 @@
+{
+  "record": "nfl_weather_diagnostic",
+  "frame_sha": "3e8c8a510f04",
+  "written_utc": "2026-09-03T02:31:59.295306+00:00",
+  "coverage": {
+    "total_games": 1960,
+    "n_indoor": 636,
+    "n_outdoor": 1324,
+    "n_outdoor_with_weather": 1324,
+    "pct_coverage": 100.0
+  },
+  "severity_distribution": {
+    "0.0": 863,
+    "1.0": 302,
+    "2.0": 142,
+    "3.0": 17
+  },
+  "diagnostic": {
+    "severity_distribution": {
+      "0.0": 862,
+      "1.0": 302,
+      "2.0": 142,
+      "3.0": 17
+    },
+    "n_outdoor_games": 1323,
+    "bin_analysis": [
+      {
+        "severity": 0,
+        "n": 862,
+        "home_win_rate": 0.5302,
+        "elo_diff_mean": -0.88
+      },
+      {
+        "severity": 1,
+        "n": 302,
+        "home_win_rate": 0.5596,
+        "elo_diff_mean": 7.76
+      },
+      {
+        "severity": 2,
+        "n": 142,
+        "home_win_rate": 0.6338,
+        "elo_diff_mean": 39.97
+      },
+      {
+        "severity": 3,
+        "n": 17,
+        "home_win_rate": 0.5294,
+        "elo_diff_mean": -22.83
+      }
+    ],
+    "baseline_logloss": 0.638,
+    "baseline_auc": 0.6882,
+    "interaction_logloss": 0.6413,
+    "interaction_auc": 0.6824,
+    "interaction_coefs": {
+      "elo_diff": 0.004377,
+      "severity": 0.112915,
+      "elo_x_severity": -0.000217
+    },
+    "interaction_intercept": 0.136264,
+    "interaction_bootstrap": {
+      "coef": -0.000217,
+      "se": 0.000559,
+      "ci_95_lo": -0.001327,
+      "ci_95_hi": 0.000866,
+      "z": -0.3883,
+      "p_value": 0.697772
+    },
+    "separate_flags_coefs": {
+      "elo_diff": 0.004449,
+      "cold_flag": 0.149535,
+      "high_wind_flag": 0.085223,
+      "precip_flag": 0.133175,
+      "elo_x_cold": -0.000608,
+      "elo_x_wind": 0.000496,
+      "elo_x_precip": -0.000869
+    },
+    "separate_interactions_bootstrap": {
+      "elo_x_cold": {
+        "coef": -0.000608,
+        "se": 0.001136,
+        "ci_95_lo": -0.002488,
+        "ci_95_hi": 0.001606,
+        "z": -0.5354,
+        "p_value": 0.592363
+      },
+      "elo_x_wind": {
+        "coef": 0.000496,
+        "se": 0.001578,
+        "ci_95_lo": -0.001954,
+        "ci_95_hi": 0.004467,
+        "z": 0.3143,
+        "p_value": 0.753285
+      },
+      "elo_x_precip": {
+        "coef": -0.000869,
+        "se": 0.001275,
+        "ci_95_lo": -0.003492,
+        "ci_95_hi": 0.001689,
+        "z": -0.6818,
+        "p_value": 0.495358
+      }
+    },
+    "away_dome_in_extremes": {
+      "n_total_extremes": 159,
+      "n_away_dome": 35,
+      "home_win_rate_away_dome": 0.4286,
+      "home_win_rate_away_nondome": 0.6774
+    },
+    "residuals_by_severity": [
+      {
+        "severity": 0,
+        "n": 862,
+        "mean_residual": -0.0123,
+        "se_residual": 0.0161,
+        "significant_2se": false
+      },
+      {
+        "severity": 1,
+        "n": 302,
+        "mean_residual": 0.0094,
+        "se_residual": 0.0275,
+        "significant_2se": false
+      },
+      {
+        "severity": 2,
+        "n": 142,
+        "mean_residual": 0.0547,
+        "se_residual": 0.0389,
+        "significant_2se": false
+      },
+      {
+        "severity": 3,
+        "n": 17,
+        "mean_residual": 0.0007,
+        "se_residual": 0.1086,
+        "significant_2se": false
+      }
+    ],
+    "cold_wind_combination": [
+      {
+        "cold_plus_wind": 0,
+        "n": 974,
+        "home_win_rate": 0.5329
+      },
+      {
+        "cold_plus_wind": 1,
+        "n": 329,
+        "home_win_rate": 0.5988
+      },
+      {
+        "cold_plus_wind": 2,
+        "n": 20,
+        "home_win_rate": 0.45
+      }
+    ],
+    "home_win_rate_precip_0": 0.5424,
+    "home_win_rate_precip_1": 0.5868
+  },
+  "verdict": "CLOSE_WEATHER_QUESTION",
+  "reason": "no signal at standard thresholds",
+  "recommendation": "Close the weather question; proceed to margin-engine project"
+}
