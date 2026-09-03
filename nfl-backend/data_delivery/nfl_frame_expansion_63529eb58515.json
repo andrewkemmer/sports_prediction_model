@@ -1,0 +1,675 @@
+{
+  "record": "nfl_w2016_frame_expansion",
+  "frame_sha": "63529eb58515",
+  "frame_sha256_w2016": "47329e6105ac",
+  "frame_sha256_w2019_reference": "d1408801b869",
+  "w2019_frame_sha256_pinned": "84987a607522",
+  "written_utc": "2026-09-03T13:36:46.314786+00:00",
+  "elapsed_seconds": 3.2,
+  "scope": "the window gate's W2016 DON'T-ADOPT verdict applied to the binary moneyline target; this is a separate per-side/joint-engine measurement and does not bind or contradict that record. Moneyline remains adopted at 2019. Frame start is a per-model hyperparameter.",
+  "step0_elo": {
+    "prior": 1500.0,
+    "k": 32.0,
+    "scale": 400.0,
+    "expected": "1/(1+10**((r_opp - r_self)/400)); update r += K*(actual - expected); actual = win 1 / loss 0 / tie 0.5",
+    "season_boundary_reset_or_regression_to_mean": "NONE \u2014 the per-team rating dict persists across all seasons; no reversion, no reset, no prior re-anchor at any boundary",
+    "home_field_bonus": "NONE in the ELO update \u2014 expected win is symmetric in the two ratings; HFA enters only via the is_home anchor and the other features, never the rating",
+    "unseen_team_initialization": "rating.get(team, 1500.0) \u2014 a team with no prior games enters at ELO_PRIOR",
+    "chronology": "strictly chronological iteration sorted by (gameday, game_id, is_home); elo_entering per (game_id, team) read from the rating dict BEFORE that game's update (strictly-prior games only)",
+    "source": "nfl_features._elo_apply / compute_elo (ELO_PRIOR/ELO_K/ELO_SCALE module constants); ladder over _decided_rows(schedule)",
+    "frame_start_interpretation": "no-reversion ELO \u21d2 the ratings entering 2019 in the W2016 build carry 2016-18 history, and the Step-1.5 by-season delta trend measures whether that offset persists or decays through the scored window"
+  },
+  "step0_ewm": {
+    "halflife": 2.0,
+    "halflife_units": "GAMES \u2014 per-team ewm over that team's own games",
+    "implementation": "per-team groupby(team)[value].ewm(halflife=2, min_periods=1).mean().groupby(level=0).shift(1) \u2014 strictly-prior by the same shift(1) discipline as the windowed ladder",
+    "leakage_gate": "team_stats_ladder asserts gameday is strictly increasing within each (team) after sorting by (team, gameday, game_id)",
+    "source": "nfl_features._trailing_ewm (EWM_HALFLIFE = 2)"
+  },
+  "step0_summary": "With no season-boundary reset and no home-field bonus in the rating update, the only way 2016-18 history reaches the scored window is through the strictly-prior ladder itself \u2014 which is exactly what the Step-1.5 elo delta measures. EWM (halflife 2 games) decays to ~0 within ~10 prior games, so EWM features are NOT warm-up features: the sanity check pins max |\u0394| <= 1e-3 on scored rows.",
+  "step1_frame": {
+    "seasons": [
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "n_games": 2761,
+    "n_home_wins": 1514,
+    "home_win_rate": 0.5484,
+    "combined_ppg": 45.7,
+    "per_season": [
+      {
+        "season": 2016,
+        "games": 267
+      },
+      {
+        "season": 2017,
+        "games": 267
+      },
+      {
+        "season": 2018,
+        "games": 267
+      },
+      {
+        "season": 2019,
+        "games": 267
+      },
+      {
+        "season": 2020,
+        "games": 269
+      },
+      {
+        "season": 2021,
+        "games": 285
+      },
+      {
+        "season": 2022,
+        "games": 284
+      },
+      {
+        "season": 2023,
+        "games": 285
+      },
+      {
+        "season": 2024,
+        "games": 285
+      },
+      {
+        "season": 2025,
+        "games": 285
+      }
+    ],
+    "frame_sha": "63529eb58515"
+  },
+  "step1_5_diagnostics": {
+    "n_shared_rows_pooled": 1139,
+    "elo_delta_by_season": [
+      {
+        "season": 2021,
+        "n": 285,
+        "elo_diff": {
+          "mean_abs_delta": 10.681,
+          "p95_abs_delta": 29.976,
+          "max_abs_delta": 52.726,
+          "mean_signed_delta": -0.48
+        },
+        "home_elo": {
+          "mean_abs_delta": 8.879,
+          "p95_abs_delta": 22.127,
+          "max_abs_delta": 36.899,
+          "mean_signed_delta": 4.346
+        },
+        "away_elo": {
+          "mean_abs_delta": 8.926,
+          "p95_abs_delta": 21.431,
+          "max_abs_delta": 38.546,
+          "mean_signed_delta": 4.826
+        }
+      },
+      {
+        "season": 2022,
+        "n": 284,
+        "elo_diff": {
+          "mean_abs_delta": 5.79,
+          "p95_abs_delta": 15.166,
+          "max_abs_delta": 30.276,
+          "mean_signed_delta": 0.499
+        },
+        "home_elo": {
+          "mean_abs_delta": 6.169,
+          "p95_abs_delta": 13.071,
+          "max_abs_delta": 15.683,
+          "mean_signed_delta": 4.843
+        },
+        "away_elo": {
+          "mean_abs_delta": 5.787,
+          "p95_abs_delta": 13.015,
+          "max_abs_delta": 16.848,
+          "mean_signed_delta": 4.344
+        }
+      },
+      {
+        "season": 2023,
+        "n": 285,
+        "elo_diff": {
+          "mean_abs_delta": 2.783,
+          "p95_abs_delta": 8.103,
+          "max_abs_delta": 11.049,
+          "mean_signed_delta": -0.227
+        },
+        "home_elo": {
+          "mean_abs_delta": 4.713,
+          "p95_abs_delta": 8.725,
+          "max_abs_delta": 10.412,
+          "mean_signed_delta": 4.462
+        },
+        "away_elo": {
+          "mean_abs_delta": 4.904,
+          "p95_abs_delta": 8.734,
+          "max_abs_delta": 10.212,
+          "mean_signed_delta": 4.689
+        }
+      },
+      {
+        "season": 2024,
+        "n": 285,
+        "elo_diff": {
+          "mean_abs_delta": 1.624,
+          "p95_abs_delta": 4.287,
+          "max_abs_delta": 7.91,
+          "mean_signed_delta": 0.169
+        },
+        "home_elo": {
+          "mean_abs_delta": 4.672,
+          "p95_abs_delta": 7.147,
+          "max_abs_delta": 7.581,
+          "mean_signed_delta": 4.661
+        },
+        "away_elo": {
+          "mean_abs_delta": 4.5,
+          "p95_abs_delta": 7.074,
+          "max_abs_delta": 7.582,
+          "mean_signed_delta": 4.492
+        }
+      }
+    ],
+    "outcome_regression": {
+      "home_win": {
+        "beta": 0.00448,
+        "se": 0.00178,
+        "ci_lo": 0.00099,
+        "ci_hi": 0.00797,
+        "t": 2.516,
+        "r2": 0.005539,
+        "n": 1139
+      },
+      "home_margin": {
+        "beta": 0.17671,
+        "se": 0.05053,
+        "ci_lo": 0.07756,
+        "ci_hi": 0.27585,
+        "t": 3.497,
+        "r2": 0.010641,
+        "n": 1139
+      },
+      "note": "beta = expected change in the outcome per 1 ELO point of frame-start delta (W2016 minus W2019); rows = pooled 2021-24 shared games"
+    },
+    "feature_sanity": {
+      "ewm": {
+        "max_abs_delta_per_feature": {
+          "ewm_net_pts_diff": 1.364764e-06,
+          "ewm_ypp_diff": 6.3228e-08
+        },
+        "max_abs_delta": 1.364764e-06
+      },
+      "rolling": {
+        "max_abs_delta_per_feature": {
+          "win_pct_diff": 0.0,
+          "pace_plays_min_diff": 0.0,
+          "rest_days_diff": 0.0
+        },
+        "max_abs_delta": 0.0
+      },
+      "static": {
+        "max_abs_delta_per_feature": {
+          "is_dome_home": 0.0,
+          "div_game": 0.0,
+          "travel_miles_diff": 0.0,
+          "altitude_home": 0.0,
+          "prime_time": 0.0
+        },
+        "max_abs_delta": 0.0
+      },
+      "ewm_bar": 0.001,
+      "ewm_ok": true,
+      "rolling_static_exact_zero": true
+    },
+    "material_threshold": 20.0,
+    "signal_threshold": 2.0,
+    "material": true,
+    "signal": true,
+    "decision_rule": {
+      "verdict": "material_plus_signal",
+      "reason": "the 2016 frame already captures the better strength estimate (2016-18 history carries outcome signal on the scored window) \u2192 a season-reset ELO would LOSE it"
+    }
+  },
+  "harness_geometry_note": "the per-side/joint runners build folds from TRAIN_SEASONS (2019-2024) rows only (_moneyline_folds / _sealed_eval filter feats[season in TRAIN_SEASONS] before generate_weekly_folds), so expanding the decided frame to 2016 does NOT add training rows through these runners \u2014 the W2016 measurement isolates the FEATURE-level frame-start effect (2016-18 ELO priors entering the 2019-24 rows). The ~800-added-training-rows component is only exercised by the window-gate fold geometry (run_nfl_window_gate builds folds over the candidate's full train window).",
+  "step2_per_side": {
+    "record": "63529eb58515",
+    "oof": {
+      "home": {
+        "mae": 7.357,
+        "crps": 7.357,
+        "n": 1091
+      },
+      "away": {
+        "mae": 7.186,
+        "crps": 7.186,
+        "n": 1091
+      }
+    },
+    "sealed": {
+      "home": {
+        "mae": 7.5,
+        "crps": 7.5,
+        "n": 285
+      },
+      "away": {
+        "mae": 7.684,
+        "crps": 7.684,
+        "n": 285
+      }
+    },
+    "family_recheck": {
+      "lgb": {
+        "family": "lgb",
+        "n": 1091,
+        "mae_home": 7.357,
+        "crps_home": 7.357,
+        "mae_away": 7.186,
+        "crps_away": 7.186
+      },
+      "rf": {
+        "family": "rf",
+        "n": 1091,
+        "mae_home": 7.827,
+        "crps_home": 7.827,
+        "mae_away": 7.618,
+        "crps_away": 7.618
+      },
+      "xgb": {
+        "family": "xgb",
+        "n": 1091,
+        "mae_home": 7.356,
+        "crps_home": 7.356,
+        "mae_away": 7.2,
+        "crps_away": 7.2
+      }
+    },
+    "determinism": {
+      "two_identical_walks_byte_identical": true,
+      "method": "two OOF walks, same folds + seed, CSV-bytes equal"
+    }
+  },
+  "step3_joint": {
+    "record": "63529eb58515",
+    "crps_vs_climatology": {
+      "pooled": {
+        "n": 1091,
+        "crps_home": 5.3689,
+        "climatological_crps_home": 5.6491,
+        "ratio_home": 0.9504,
+        "improvement_pct_home": 4.96,
+        "crps_away": 5.2631,
+        "climatological_crps_away": 5.3983,
+        "ratio_away": 0.975,
+        "improvement_pct_away": 2.5
+      },
+      "sealed": {
+        "n": 285,
+        "crps_home": 5.2994,
+        "climatological_crps_home": 5.5578,
+        "ratio_home": 0.9535,
+        "improvement_pct_home": 4.65,
+        "crps_away": 5.5421,
+        "climatological_crps_away": 5.6359,
+        "ratio_away": 0.9834,
+        "improvement_pct_away": 1.66
+      }
+    },
+    "gates": {
+      "g1": {
+        "pass": false,
+        "rule": "per-side distributional CRPS >= 5% better than same-sample climatological on pooled OOF (sealed = external check)"
+      },
+      "g2": {
+        "pass": true,
+        "delta_pp": 0.0,
+        "rule": "mean calibrated tie mass == empirical rate within +-0.2pp"
+      },
+      "g3": {
+        "pass": true,
+        "max_err": 9e-12,
+        "rule": "post-IPF row/col sums == marginals to 1e-9"
+      },
+      "g4": {
+        "metrics": {
+          "logloss": 0.6308,
+          "auc": 0.7027,
+          "ece": 0.0589,
+          "brier": 0.2203
+        },
+        "c0_anchor": {
+          "logloss": 0.6312,
+          "auc": 0.6923,
+          "ece": 0.0346
+        },
+        "flag": false,
+        "flag_rule": "flagged (coherency note, not failure) if derived-ML logloss trails C0 by > 0.02",
+        "note": "derived ML = P(H>A)/(1-P_tie), raw (uncalibrated) vs the Platt-calibrated 12-pool ensemble; comparison is framing, not a gate"
+      },
+      "g5": {
+        "pass": true,
+        "method": "two identical builds byte-identical (derived tables CSV-equal)"
+      }
+    },
+    "data_seam": {
+      "path": "nflreadpy.load_schedules",
+      "ok": true,
+      "spread_line_coverage_pct": 100.0,
+      "total_line_coverage_pct": 100.0,
+      "sign_convention": "positive spread_line = home favored (corr(spread_line, margin) = 0.446 on the same rows); home covers iff margin > spread_line; over iff total > total_line",
+      "covers": {
+        "n": 1091,
+        "ece": 0.0731,
+        "bins": [
+          {
+            "bin": "[0.00,0.32)",
+            "n": 109,
+            "pred_mean": 0.2566,
+            "actual_rate": 0.3761
+          },
+          {
+            "bin": "[0.32,0.37)",
+            "n": 109,
+            "pred_mean": 0.3446,
+            "actual_rate": 0.422
+          },
+          {
+            "bin": "[0.37,0.41)",
+            "n": 109,
+            "pred_mean": 0.3905,
+            "actual_rate": 0.4862
+          },
+          {
+            "bin": "[0.41,0.44)",
+            "n": 109,
+            "pred_mean": 0.4288,
+            "actual_rate": 0.4679
+          },
+          {
+            "bin": "[0.44,0.47)",
+            "n": 109,
+            "pred_mean": 0.4574,
+            "actual_rate": 0.5046
+          },
+          {
+            "bin": "[0.47,0.50)",
+            "n": 110,
+            "pred_mean": 0.4851,
+            "actual_rate": 0.4364
+          },
+          {
+            "bin": "[0.50,0.54)",
+            "n": 109,
+            "pred_mean": 0.5173,
+            "actual_rate": 0.5505
+          },
+          {
+            "bin": "[0.54,0.58)",
+            "n": 108,
+            "pred_mean": 0.5627,
+            "actual_rate": 0.463
+          },
+          {
+            "bin": "[0.58,0.64)",
+            "n": 109,
+            "pred_mean": 0.6115,
+            "actual_rate": 0.5596
+          },
+          {
+            "bin": "[0.64,1.00)",
+            "n": 110,
+            "pred_mean": 0.7002,
+            "actual_rate": 0.5818
+          }
+        ],
+        "definition": "derived P(margin > spread_line) vs actual margin > spread_line (home perspective)",
+        "empirical_home_ats_rate": 0.4849
+      },
+      "totals": {
+        "n": 1091,
+        "ece": 0.1338,
+        "bins": [
+          {
+            "bin": "[0.00,0.41)",
+            "n": 109,
+            "pred_mean": 0.3554,
+            "actual_rate": 0.3394
+          },
+          {
+            "bin": "[0.41,0.49)",
+            "n": 109,
+            "pred_mean": 0.4512,
+            "actual_rate": 0.422
+          },
+          {
+            "bin": "[0.49,0.53)",
+            "n": 109,
+            "pred_mean": 0.5085,
+            "actual_rate": 0.4771
+          },
+          {
+            "bin": "[0.53,0.57)",
+            "n": 109,
+            "pred_mean": 0.5501,
+            "actual_rate": 0.3853
+          },
+          {
+            "bin": "[0.57,0.61)",
+            "n": 109,
+            "pred_mean": 0.5902,
+            "actual_rate": 0.4771
+          },
+          {
+            "bin": "[0.61,0.64)",
+            "n": 109,
+            "pred_mean": 0.624,
+            "actual_rate": 0.4404
+          },
+          {
+            "bin": "[0.64,0.68)",
+            "n": 110,
+            "pred_mean": 0.6617,
+            "actual_rate": 0.5091
+          },
+          {
+            "bin": "[0.68,0.72)",
+            "n": 108,
+            "pred_mean": 0.7017,
+            "actual_rate": 0.5278
+          },
+          {
+            "bin": "[0.72,0.79)",
+            "n": 109,
+            "pred_mean": 0.7498,
+            "actual_rate": 0.5688
+          },
+          {
+            "bin": "[0.79,1.00)",
+            "n": 110,
+            "pred_mean": 0.8287,
+            "actual_rate": 0.5364
+          }
+        ],
+        "definition": "derived P(total > total_line) vs actual total > total_line",
+        "empirical_over_rate": 0.4684
+      }
+    },
+    "marginal_family": {
+      "chosen": "dn",
+      "selection": "pooled-OOF integer log-likelihood; DN default within 10 LL units (NB does not auto-win)",
+      "ll_table": {
+        "dn_power": {
+          "family": "dn",
+          "sigma_spec": "power",
+          "ll_home": -6596.2,
+          "ll_away": -5032.098,
+          "ll_total": -11628.298
+        },
+        "dn_const": {
+          "family": "dn",
+          "sigma_spec": "const",
+          "ll_home": -4000.667,
+          "ll_away": -3965.606,
+          "ll_total": -7966.273
+        },
+        "nb_power": {
+          "family": "nb",
+          "sigma_spec": "power",
+          "ll_home": -11037.332,
+          "ll_away": -13814.852,
+          "ll_total": -24852.185
+        },
+        "nb_const": {
+          "family": "nb",
+          "sigma_spec": "const",
+          "ll_home": -10174.696,
+          "ll_away": -12913.109,
+          "ll_total": -23087.805
+        }
+      }
+    },
+    "sigma_curve": {
+      "home": {
+        "spec": "const",
+        "sigma0": 9.4918,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "away": {
+        "spec": "const",
+        "sigma0": 9.1028,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "note": "per-side power law sigma(mu)=sigma0*mu^q vs constant RMSE, winner by per-side pooled-OOF integer LL under the chosen family; clamp [1.0, 15.0]"
+    },
+    "rho": {
+      "rho": 0.0059,
+      "ci": {
+        "low": -0.0535,
+        "high": 0.0652
+      },
+      "n": 1091,
+      "note": "global scalar on pooled-OOF standardized pairs z=resid/sigma(mu); applied unchanged to sealed \u2014 never refit on sealed"
+    },
+    "tie": {
+      "p_tie_empirical": 0.00275,
+      "n_ties_pooled": 3,
+      "d_raw_mean": 0.02878,
+      "d_calibrated_mean": 0.00274977,
+      "method": "IPF-calibrated final-tie diagonal (constant base; covariate model data-limited at ~5-10 positives \u2014 not attempted); excess mass shifts to near-diagonal cells"
+    },
+    "determinism_g5": {
+      "pass": true,
+      "method": "two identical builds byte-identical (derived tables CSV-equal)"
+    }
+  },
+  "away_bias_w2016_by_season": [
+    {
+      "season": 2021,
+      "n": 271,
+      "away_bias": -1.637,
+      "home_bias": -0.133
+    },
+    {
+      "season": 2022,
+      "n": 271,
+      "away_bias": -1.757,
+      "home_bias": -0.86
+    },
+    {
+      "season": 2023,
+      "n": 267,
+      "away_bias": -2.115,
+      "home_bias": -0.652
+    },
+    {
+      "season": 2024,
+      "n": 282,
+      "away_bias": -0.215,
+      "home_bias": 0.471
+    },
+    {
+      "season": 2025,
+      "n": 285,
+      "away_bias": -0.196,
+      "home_bias": 0.24
+    }
+  ],
+  "away_bias_w2019_by_season": [
+    {
+      "season": 2021,
+      "n": 271,
+      "mean_resid": -1.7111
+    },
+    {
+      "season": 2022,
+      "n": 271,
+      "mean_resid": -1.6271
+    },
+    {
+      "season": 2023,
+      "n": 267,
+      "mean_resid": -2.2707
+    },
+    {
+      "season": 2024,
+      "n": 282,
+      "mean_resid": -0.4002
+    },
+    {
+      "season": 2025,
+      "mean_resid": {
+        "n": 285,
+        "mean_resid": -0.1406,
+        "rmse": 9.7616,
+        "mae": 7.7546
+      }
+    }
+  ],
+  "exit_criteria": {
+    "c1_sealed_crps_both_legs_ge_5pct": {
+      "pass": false,
+      "home_pct": 4.65,
+      "away_pct": 1.66,
+      "bar": ">= 5% on BOTH legs (W2019: 4.74 home / 1.36 away)"
+    },
+    "c2_away_bias_2021_23_shrinks_ge_40pct": {
+      "pass": false,
+      "w2019_mean_2021_23": 1.87,
+      "w2016_mean_2021_23": 1.836,
+      "shrink_pct": 1.8,
+      "bar": ">= 40% shrink vs the W2019 mean (2021 -1.71 / 2022 -1.63 / 2023 -2.27)"
+    },
+    "c3_totals_top_bin_gap_lt_0_15": {
+      "pass": false,
+      "gap": 0.2923,
+      "pred": 0.8287,
+      "actual": 0.5364,
+      "bar": "< 0.15 (W2019: 0.83 - 0.55 = 0.28)"
+    },
+    "c4_determinism_g5": {
+      "pass": true
+    },
+    "w2019_totals_ece": 0.1338,
+    "w2016_totals_ece": 0.1338
+  },
+  "verdict": {
+    "verdict": "NOTHING_MOVED \u2014 2016 is not the binding constraint for this harness; reassess (dispersion/conditional-curvature layer is the fallback lever)",
+    "passed": [
+      "c4_determinism_g5"
+    ],
+    "note": "c4 determinism is a mechanical invariant, not an outcome improvement; only c1-c3 count toward GO"
+  },
+  "feature_columns_untouched": true,
+  "engines_unmodified": true
+}

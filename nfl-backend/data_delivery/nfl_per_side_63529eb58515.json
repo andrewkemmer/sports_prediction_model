@@ -1,0 +1,179 @@
+{
+  "record": "nfl_per_side_step1",
+  "frame_sha": "63529eb58515",
+  "frame_sha256": "c60f9c9be862",
+  "written_utc": "2026-09-03T13:33:50.150739+00:00",
+  "elapsed_seconds": 97.0,
+  "supersedes": "standalone margin-only sigma layer (dropped \u2014 the per-side engine is the end-state: one joint distribution prices spread, moneyline, totals, tie mass)",
+  "scope": "Step 1 delivers per-side mean regressors + per-game OOF residuals. Joint layer \u2014 residual covariance between sides, per-side distribution family choice (NFL scores are not Poisson; NB-per-side like MLB is the wrong default \u2014 discretized-normal grid or similar is the candidate), discrete tie diagonal, and derived market probabilities with calibration \u2014 is the following build.",
+  "geometry": {
+    "seasons": [
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "targets": {
+      "home": "home_score (full game incl. OT)",
+      "away": "away_score (full game incl. OT)"
+    },
+    "view": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ],
+    "family": "lgb",
+    "family_is_parameter": true
+  },
+  "coverage": {
+    "n_total": 2761,
+    "n_pre_sealed_2019_24": 2476,
+    "n_sealed_2025": 285,
+    "n_oof_covered": 1091,
+    "pct_covered_pre_sealed": 44.1,
+    "n_uncovered_pre_sealed": 1385,
+    "n_sealed_refill": 285,
+    "pct_covered_sealed": 100.0,
+    "imputation": "uncovered = 2019-20 warmup (never in a fold's val window) + playoff weeks with <5 val games \u2192 absent from the residual artifact \u2192 NaN \u2192 tree-native routing / train-median downstream; sealed 2025 = fit-only refill at per-side median rounds (100% of valid rows)"
+  },
+  "per_side_oof": {
+    "model": {
+      "home": {
+        "mae": 7.357,
+        "crps": 7.357,
+        "n": 1091
+      },
+      "away": {
+        "mae": 7.186,
+        "crps": 7.186,
+        "n": 1091
+      }
+    },
+    "naive_team_season_mean": {
+      "home": {
+        "mae": 6.86,
+        "n": 1091
+      },
+      "away": {
+        "mae": 6.746,
+        "n": 1091
+      }
+    },
+    "naive_homefield_constant": {
+      "home": {
+        "mae": 7.976,
+        "constant": 23.494,
+        "n": 1091
+      },
+      "away": {
+        "mae": 7.712,
+        "constant": 21.219,
+        "n": 1091
+      }
+    },
+    "climatological_crps_reference": {
+      "home": {
+        "sigma": 10.0943,
+        "naive_crps": 5.695,
+        "n": 1091
+      },
+      "away": {
+        "sigma": 9.5255,
+        "naive_crps": 5.374,
+        "n": 1091
+      }
+    },
+    "crps_note": "point-forecast CRPS == MAE (degenerate); climatological CRPS = sigma/sqrt(pi) full distribution \u2014 a point predictor loses to it by construction (Phase-1 finding). Per-side CRPS is PRE-JOINT-LAYER; distributional CRPS is only meaningful after the joint layer."
+  },
+  "per_side_sealed": {
+    "home": {
+      "mae": 7.5,
+      "crps": 7.5,
+      "n": 285
+    },
+    "away": {
+      "mae": 7.684,
+      "crps": 7.684,
+      "n": 285
+    }
+  },
+  "determinism_pin": {
+    "two_identical_walks_byte_identical": true,
+    "method": "two OOF walks, same folds + seed, CSV-bytes equal"
+  },
+  "family_recheck": {
+    "note": "report-only, NOT a gate \u2014 same folds, per-side targets (integer support, floor at 0, right skew differ from the margin target); standing interim decision = lgb",
+    "table": {
+      "lgb": {
+        "family": "lgb",
+        "n": 1091,
+        "mae_home": 7.357,
+        "crps_home": 7.357,
+        "mae_away": 7.186,
+        "crps_away": 7.186
+      },
+      "rf": {
+        "family": "rf",
+        "n": 1091,
+        "mae_home": 7.827,
+        "crps_home": 7.827,
+        "mae_away": 7.618,
+        "crps_away": 7.618
+      },
+      "xgb": {
+        "family": "xgb",
+        "n": 1091,
+        "mae_home": 7.356,
+        "crps_home": 7.356,
+        "mae_away": 7.2,
+        "crps_away": 7.2
+      }
+    }
+  },
+  "residual_artifact": {
+    "path": "data_delivery/nfl_per_side_oof_residuals_63529eb58515.csv",
+    "n_rows": 1091,
+    "columns": [
+      "game_id",
+      "fold_idx",
+      "pred_home",
+      "pred_away",
+      "resid_home",
+      "resid_away",
+      "best_iter_home",
+      "best_iter_away"
+    ],
+    "guard": "persist_residuals raises RuntimeError if the artifact cannot be written (missing columns / empty frame / write failure / missing file after write)"
+  },
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "targets_include_ot": "full-game final scores INCLUDING OT so totals/spread calibration matches settlement; regulation-only targets only if P(OT) becomes a separate upset diagnostic \u2014 not in scope",
+    "family": "LightGBM interim (standing decision); family is a parameter, rechecked on this target report-only",
+    "no_moneyline_ablation": "candidate-only walk path this step \u2014 per-side means are a feature producer, not a moneyline candidate yet"
+  }
+}
