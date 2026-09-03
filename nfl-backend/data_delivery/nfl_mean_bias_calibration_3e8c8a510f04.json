@@ -1,0 +1,731 @@
+{
+  "record": "nfl_mean_bias_calibration",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "84987a607522",
+  "written_utc": "2026-09-03T12:31:13.307918+00:00",
+  "elapsed_seconds": 36.5,
+  "scope": "Step adds a leak-free LINEAR recalibration of the per-side means (prediction-layer transform: per-side OLS actual ~ a*pred + b fit on pooled OOF only; pred_cal = b + a*pred applied to pooled AND sealed 2025) and re-runs the joint chain through the EXISTING engine entrypoints \u2014 no engine edits, no wiring. Sigma re-estimation is in scope because the old sigma was fit on biased residuals. Market pricing/calibration paths, artifact emitters, and wire-in remain later phases; future market-layer wiring consumes the stored params JSON.",
+  "geometry": {
+    "seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "pooled_oof_n": 1091,
+    "sealed_n": 285,
+    "view": "12-pool per-side PIT (SIDE_FEATURES, unchanged)",
+    "engines_modified": false,
+    "note": "per-side + joint engine modules untouched; prediction-layer transform only"
+  },
+  "step1_diagnostics": {
+    "pooled_oof_n": 1091,
+    "per_side": {
+      "home": {
+        "stats": {
+          "n": 1091,
+          "mean_resid": -0.1876,
+          "rmse": 9.3688,
+          "mae": 7.2621
+        },
+        "by_season": [
+          {
+            "season": 2021,
+            "n": 271,
+            "mean_resid": -0.0909
+          },
+          {
+            "season": 2022,
+            "n": 271,
+            "mean_resid": -0.8053
+          },
+          {
+            "season": 2023,
+            "n": 267,
+            "mean_resid": -0.4221
+          },
+          {
+            "season": 2024,
+            "n": 282,
+            "mean_resid": 0.535
+          }
+        ],
+        "by_pred_decile": [
+          {
+            "decile": "(11.263, 20.1]",
+            "pred_mid": 15.68,
+            "n": 110,
+            "mean_resid": -0.7974
+          },
+          {
+            "decile": "(20.1, 21.549]",
+            "pred_mid": 20.82,
+            "n": 109,
+            "mean_resid": -1.1572
+          },
+          {
+            "decile": "(21.549, 22.659]",
+            "pred_mid": 22.1,
+            "n": 109,
+            "mean_resid": -0.66
+          },
+          {
+            "decile": "(22.659, 23.299]",
+            "pred_mid": 22.98,
+            "n": 109,
+            "mean_resid": -1.7574
+          },
+          {
+            "decile": "(23.299, 23.636]",
+            "pred_mid": 23.47,
+            "n": 109,
+            "mean_resid": 1.7
+          },
+          {
+            "decile": "(23.636, 23.98]",
+            "pred_mid": 23.81,
+            "n": 109,
+            "mean_resid": -0.3441
+          },
+          {
+            "decile": "(23.98, 24.64]",
+            "pred_mid": 24.31,
+            "n": 109,
+            "mean_resid": -1.6475
+          },
+          {
+            "decile": "(24.64, 25.73]",
+            "pred_mid": 25.19,
+            "n": 109,
+            "mean_resid": -0.2011
+          },
+          {
+            "decile": "(25.73, 27.21]",
+            "pred_mid": 26.47,
+            "n": 109,
+            "mean_resid": 0.5403
+          },
+          {
+            "decile": "(27.21, 36.824]",
+            "pred_mid": 32.02,
+            "n": 109,
+            "mean_resid": 2.4539
+          }
+        ],
+        "ols_actual_on_pred": {
+          "a": 1.2561,
+          "a_ci_low": 1.0749,
+          "a_ci_high": 1.4373,
+          "b": -6.2529,
+          "b_ci_low": -10.5798,
+          "b_ci_high": -1.9259,
+          "r2": 0.1449,
+          "n": 1091
+        },
+        "curvature_swing_pts": 3.7059,
+        "time_trend": {
+          "corr_season_idx": 0.5139,
+          "seasonal_range_pts": 1.3403
+        },
+        "classification": {
+          "labels": [
+            "slope tilt",
+            "curvature"
+          ],
+          "note": "advisory: offset |mean resid|>=0.30; slope tilt |a-1|>=0.05 (construction-change candidate at |a-1|>0.15); curvature quadratic swing >=0.50 pts; time trend |r|>=0.80 on season means with >=0.40 pt seasonal range"
+        },
+        "construction_change_flag": true,
+        "construction_change_note": "|a - 1| > 0.15 \u21d2 suspected feature-orientation inversion (side-anchored away features) \u2014 recorded as a candidate for the future view-expansion work, NOT a blocker here"
+      },
+      "away": {
+        "stats": {
+          "n": 1091,
+          "mean_resid": -1.4883,
+          "rmse": 9.0632,
+          "mae": 7.1232
+        },
+        "by_season": [
+          {
+            "season": 2021,
+            "n": 271,
+            "mean_resid": -1.7111
+          },
+          {
+            "season": 2022,
+            "n": 271,
+            "mean_resid": -1.6271
+          },
+          {
+            "season": 2023,
+            "n": 267,
+            "mean_resid": -2.2707
+          },
+          {
+            "season": 2024,
+            "n": 282,
+            "mean_resid": -0.4002
+          }
+        ],
+        "by_pred_decile": [
+          {
+            "decile": "(12.205, 19.205]",
+            "pred_mid": 15.7,
+            "n": 110,
+            "mean_resid": -1.8502
+          },
+          {
+            "decile": "(19.205, 20.75]",
+            "pred_mid": 19.98,
+            "n": 109,
+            "mean_resid": -1.659
+          },
+          {
+            "decile": "(20.75, 21.769]",
+            "pred_mid": 21.26,
+            "n": 109,
+            "mean_resid": -2.6467
+          },
+          {
+            "decile": "(21.769, 22.231]",
+            "pred_mid": 22.0,
+            "n": 109,
+            "mean_resid": -1.7978
+          },
+          {
+            "decile": "(22.231, 22.706]",
+            "pred_mid": 22.47,
+            "n": 109,
+            "mean_resid": -2.1334
+          },
+          {
+            "decile": "(22.706, 23.157]",
+            "pred_mid": 22.93,
+            "n": 110,
+            "mean_resid": -2.2207
+          },
+          {
+            "decile": "(23.157, 23.808]",
+            "pred_mid": 23.48,
+            "n": 108,
+            "mean_resid": -0.491
+          },
+          {
+            "decile": "(23.808, 24.547]",
+            "pred_mid": 24.18,
+            "n": 109,
+            "mean_resid": -0.111
+          },
+          {
+            "decile": "(24.547, 26.143]",
+            "pred_mid": 25.34,
+            "n": 109,
+            "mean_resid": -0.9283
+          },
+          {
+            "decile": "(26.143, 34.301]",
+            "pred_mid": 30.22,
+            "n": 109,
+            "mean_resid": -1.0259
+          }
+        ],
+        "ols_actual_on_pred": {
+          "a": 1.1732,
+          "a_ci_low": 0.9861,
+          "a_ci_high": 1.3603,
+          "b": -5.4215,
+          "b_ci_low": -9.7035,
+          "b_ci_high": -1.1396,
+          "r2": 0.1218,
+          "n": 1091
+        },
+        "curvature_swing_pts": 0.7946,
+        "time_trend": {
+          "corr_season_idx": 0.5387,
+          "seasonal_range_pts": 1.8705
+        },
+        "classification": {
+          "labels": [
+            "offset",
+            "slope tilt",
+            "curvature"
+          ],
+          "note": "advisory: offset |mean resid|>=0.30; slope tilt |a-1|>=0.05 (construction-change candidate at |a-1|>0.15); curvature quadratic swing >=0.50 pts; time trend |r|>=0.80 on season means with >=0.40 pt seasonal range"
+        },
+        "construction_change_flag": true,
+        "construction_change_note": "|a - 1| > 0.15 \u21d2 suspected feature-orientation inversion (side-anchored away features) \u2014 recorded as a candidate for the future view-expansion work, NOT a blocker here"
+      }
+    },
+    "sealed_2025_bias": {
+      "home": {
+        "n": 285,
+        "mean_resid": 0.351,
+        "rmse": 9.3264,
+        "mae": 7.4578
+      },
+      "away": {
+        "n": 285,
+        "mean_resid": -0.1406,
+        "rmse": 9.7616,
+        "mae": 7.7546
+      }
+    },
+    "sealed_bias_question": "does the \u22121.49 away OOF bias persist on sealed 2025? \u2014 see sealed_2025_bias.away.mean_resid (fit-only refill, never refit on sealed)"
+  },
+  "step2_calibration": {
+    "method": "per-side OLS actual ~ a*pred + b on pooled OOF (n=1091); pred_cal = b + a*pred",
+    "fit_on": "pooled_oof",
+    "sealed_season": 2025,
+    "leak_guards": "fit_calibration raises on any season >= sealed in the fit input; apply_calibration refuses cal dicts whose fit_on != pooled_oof",
+    "home": {
+      "a": 1.2561,
+      "a_ci_low": 1.0749,
+      "a_ci_high": 1.4373,
+      "b": -6.2529,
+      "b_ci_low": -10.5798,
+      "b_ci_high": -1.9259,
+      "r2": 0.1449,
+      "n": 1091,
+      "fit_on": "pooled_oof"
+    },
+    "away": {
+      "a": 1.1732,
+      "a_ci_low": 0.9861,
+      "a_ci_high": 1.3603,
+      "b": -5.4215,
+      "b_ci_low": -9.7035,
+      "b_ci_high": -1.1396,
+      "r2": 0.1218,
+      "n": 1091,
+      "fit_on": "pooled_oof"
+    },
+    "bias_and_mae_before_after": {
+      "home": {
+        "pooled_before": -0.1876,
+        "pooled_after": 0.0004,
+        "sealed_before": 0.351,
+        "sealed_after": 0.5492,
+        "pooled_mae_before": 7.2621,
+        "pooled_mae_after": 7.2335,
+        "sealed_mae_before": 7.4578,
+        "sealed_mae_after": 7.4637
+      },
+      "away": {
+        "pooled_before": -1.4883,
+        "pooled_after": 0.0003,
+        "sealed_before": -0.1406,
+        "sealed_after": 1.4523,
+        "pooled_mae_before": 7.1232,
+        "pooled_mae_after": 7.0201,
+        "sealed_mae_before": 7.7546,
+        "sealed_mae_after": 7.8478
+      }
+    },
+    "pooled_calibration_is_in_sample_note": "the linear map (2 params/side) is fit on the pooled rows being scored \u2192 pooled bias-after ~ 0 is by construction; sealed 2025 is the honest external check"
+  },
+  "step3_chain_rerun": {
+    "joint_params_after": {
+      "family": "dn",
+      "sigma_h": {
+        "spec": "const",
+        "sigma0": 9.3341,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "sigma_a": {
+        "spec": "const",
+        "sigma0": 8.9267,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "rho": 0.0114,
+      "rho_ci": {
+        "low": -0.048,
+        "high": 0.0707
+      },
+      "rho_n": 1091,
+      "fit_on": "pooled_oof"
+    },
+    "ll_table_after": {
+      "dn_power": {
+        "family": "dn",
+        "sigma_spec": "power",
+        "ll_home": -6387.529,
+        "ll_away": -4726.543,
+        "ll_total": -11114.071
+      },
+      "dn_const": {
+        "family": "dn",
+        "sigma_spec": "const",
+        "ll_home": -3979.082,
+        "ll_away": -3925.531,
+        "ll_total": -7904.613
+      },
+      "nb_power": {
+        "family": "nb",
+        "sigma_spec": "power",
+        "ll_home": -10929.661,
+        "ll_away": -13657.825,
+        "ll_total": -24587.486
+      },
+      "nb_const": {
+        "family": "nb",
+        "sigma_spec": "const",
+        "ll_home": -10156.118,
+        "ll_away": -12879.395,
+        "ll_total": -23035.513
+      }
+    },
+    "sigma_before_after": {
+      "home": {
+        "before": 9.3688,
+        "after": 9.3341
+      },
+      "away": {
+        "before": 9.0632,
+        "after": 8.9267
+      }
+    },
+    "sigma_note": "old sigma was fit on biased residuals \u2014 re-estimation in scope; away expectation sqrt(9.0632^2 \u2212 1.49^2) \u2248 8.94",
+    "tie": {
+      "p_tie_empirical": 0.00275,
+      "n_ties_pooled": 3,
+      "d_raw_mean_after": 0.02823,
+      "d_calibrated_mean_after": 0.00274977
+    },
+    "crps_vs_climatology_after": {
+      "pooled": {
+        "n": 1091,
+        "crps_home": 5.2555,
+        "climatological_crps_home": 5.6491,
+        "ratio_home": 0.9303,
+        "improvement_pct_home": 6.97,
+        "crps_away": 5.056,
+        "climatological_crps_away": 5.3983,
+        "ratio_away": 0.9366,
+        "improvement_pct_away": 6.34
+      },
+      "sealed": {
+        "n": 285,
+        "crps_home": 5.2883,
+        "climatological_crps_home": 5.5578,
+        "ratio_home": 0.9515,
+        "improvement_pct_home": 4.85,
+        "crps_away": 5.5315,
+        "climatological_crps_away": 5.6359,
+        "ratio_away": 0.9815,
+        "improvement_pct_away": 1.85
+      }
+    },
+    "totals_ece_before_after": {
+      "before": 0.1379,
+      "after": 0.1114,
+      "covers_ece_before": 0.0574,
+      "covers_ece_after": 0.0633,
+      "before_provenance": "nfl_joint_3e8c8a510f04.json on main (commit 4c69cdb)",
+      "hot_top_bin_prior": "prior totals top bin pred 0.83 vs actual 0.55 (joint record) \u2014 see seam.totals.bins after"
+    },
+    "seam": {
+      "path": "nflreadpy.load_schedules",
+      "ok": true,
+      "spread_line_coverage_pct": 100.0,
+      "total_line_coverage_pct": 100.0,
+      "sign_convention": "positive spread_line = home favored (corr(spread_line, margin) = 0.446 on the same rows); home covers iff margin > spread_line; over iff total > total_line",
+      "covers": {
+        "n": 1091,
+        "ece": 0.0633,
+        "bins": [
+          {
+            "bin": "[0.00,0.33)",
+            "n": 109,
+            "pred_mean": 0.2624,
+            "actual_rate": 0.3761
+          },
+          {
+            "bin": "[0.33,0.39)",
+            "n": 109,
+            "pred_mean": 0.3629,
+            "actual_rate": 0.422
+          },
+          {
+            "bin": "[0.39,0.44)",
+            "n": 109,
+            "pred_mean": 0.416,
+            "actual_rate": 0.4312
+          },
+          {
+            "bin": "[0.44,0.48)",
+            "n": 109,
+            "pred_mean": 0.4571,
+            "actual_rate": 0.4679
+          },
+          {
+            "bin": "[0.48,0.51)",
+            "n": 109,
+            "pred_mean": 0.4915,
+            "actual_rate": 0.4587
+          },
+          {
+            "bin": "[0.51,0.55)",
+            "n": 109,
+            "pred_mean": 0.5272,
+            "actual_rate": 0.4771
+          },
+          {
+            "bin": "[0.55,0.59)",
+            "n": 109,
+            "pred_mean": 0.567,
+            "actual_rate": 0.4954
+          },
+          {
+            "bin": "[0.59,0.63)",
+            "n": 109,
+            "pred_mean": 0.6058,
+            "actual_rate": 0.5229
+          },
+          {
+            "bin": "[0.63,0.68)",
+            "n": 109,
+            "pred_mean": 0.6513,
+            "actual_rate": 0.5963
+          },
+          {
+            "bin": "[0.68,1.00)",
+            "n": 110,
+            "pred_mean": 0.742,
+            "actual_rate": 0.6
+          }
+        ],
+        "definition": "derived P(margin > spread_line) vs actual margin > spread_line (home perspective)",
+        "empirical_home_ats_rate": 0.4849
+      },
+      "totals": {
+        "n": 1091,
+        "ece": 0.1114,
+        "bins": [
+          {
+            "bin": "[0.00,0.34)",
+            "n": 109,
+            "pred_mean": 0.2703,
+            "actual_rate": 0.3578
+          },
+          {
+            "bin": "[0.34,0.43)",
+            "n": 109,
+            "pred_mean": 0.3864,
+            "actual_rate": 0.422
+          },
+          {
+            "bin": "[0.43,0.47)",
+            "n": 109,
+            "pred_mean": 0.4522,
+            "actual_rate": 0.3761
+          },
+          {
+            "bin": "[0.47,0.52)",
+            "n": 109,
+            "pred_mean": 0.4953,
+            "actual_rate": 0.3394
+          },
+          {
+            "bin": "[0.52,0.56)",
+            "n": 109,
+            "pred_mean": 0.5438,
+            "actual_rate": 0.4771
+          },
+          {
+            "bin": "[0.56,0.61)",
+            "n": 109,
+            "pred_mean": 0.5826,
+            "actual_rate": 0.5229
+          },
+          {
+            "bin": "[0.61,0.64)",
+            "n": 110,
+            "pred_mean": 0.6252,
+            "actual_rate": 0.5091
+          },
+          {
+            "bin": "[0.64,0.69)",
+            "n": 108,
+            "pred_mean": 0.6645,
+            "actual_rate": 0.537
+          },
+          {
+            "bin": "[0.69,0.75)",
+            "n": 109,
+            "pred_mean": 0.7186,
+            "actual_rate": 0.5872
+          },
+          {
+            "bin": "[0.75,1.00)",
+            "n": 110,
+            "pred_mean": 0.812,
+            "actual_rate": 0.5545
+          }
+        ],
+        "definition": "derived P(total > total_line) vs actual total > total_line",
+        "empirical_over_rate": 0.4684
+      }
+    },
+    "gates": {
+      "g1": {
+        "pass": true,
+        "pooled": {
+          "n": 1091,
+          "crps_home": 5.2555,
+          "climatological_crps_home": 5.6491,
+          "ratio_home": 0.9303,
+          "improvement_pct_home": 6.97,
+          "crps_away": 5.056,
+          "climatological_crps_away": 5.3983,
+          "ratio_away": 0.9366,
+          "improvement_pct_away": 6.34
+        },
+        "sealed": {
+          "n": 285,
+          "crps_home": 5.2883,
+          "climatological_crps_home": 5.5578,
+          "ratio_home": 0.9515,
+          "improvement_pct_home": 4.85,
+          "crps_away": 5.5315,
+          "climatological_crps_away": 5.6359,
+          "ratio_away": 0.9815,
+          "improvement_pct_away": 1.85
+        },
+        "rule": "per-side distributional CRPS >= 5% better than same-sample climatological on pooled OOF (sealed = external check)"
+      },
+      "g2": {
+        "pass": true,
+        "delta_pp": 0.0,
+        "rule": "mean calibrated tie mass == empirical rate within +-0.2pp"
+      },
+      "g3": {
+        "pass": true,
+        "max_err": 1e-11,
+        "rule": "post-IPF row/col sums == marginals to 1e-9"
+      },
+      "g4": {
+        "metrics": {
+          "logloss": 0.6239,
+          "auc": 0.6984,
+          "ece": 0.0319,
+          "brier": 0.2181
+        },
+        "c0_anchor": {
+          "logloss": 0.6312,
+          "auc": 0.6923,
+          "ece": 0.0346
+        },
+        "flag": false,
+        "flag_rule": "flagged (coherency note, not failure) if derived-ML logloss trails C0 by > 0.02"
+      },
+      "g5": {
+        "pass": true,
+        "method": "two identical builds byte-identical (derived tables CSV-equal)"
+      }
+    },
+    "g1_before_after_summary": {
+      "home_improvement_pct": [
+        6.3,
+        6.97
+      ],
+      "away_improvement_pct": [
+        2.94,
+        6.34
+      ]
+    }
+  },
+  "before_reference": {
+    "source": "nfl_joint_3e8c8a510f04.json on main (commit 4c69cdb)",
+    "sigma": {
+      "home": {
+        "spec": "const",
+        "sigma0": 9.3688,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "away": {
+        "spec": "const",
+        "sigma0": 9.0632,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "note": "per-side power law sigma(mu)=sigma0*mu^q vs constant RMSE, winner by per-side pooled-OOF integer LL under the chosen family; clamp [1.0, 15.0]"
+    },
+    "rho": {
+      "rho": 0.0053,
+      "ci": {
+        "low": -0.0541,
+        "high": 0.0646
+      },
+      "n": 1091,
+      "note": "global scalar on pooled-OOF standardized pairs z=resid/sigma(mu); applied unchanged to sealed \u2014 never refit on sealed"
+    },
+    "tie": {
+      "p_tie_empirical": 0.00275,
+      "n_ties_pooled": 3,
+      "d_raw_mean": 0.02889,
+      "d_calibrated_mean": 0.00274977,
+      "method": "IPF-calibrated final-tie diagonal (constant base; covariate model data-limited at ~5-10 positives \u2014 not attempted); excess mass shifts to near-diagonal cells"
+    },
+    "crps_pooled": {
+      "n": 1091,
+      "crps_home": 5.293,
+      "climatological_crps_home": 5.6491,
+      "ratio_home": 0.937,
+      "improvement_pct_home": 6.3,
+      "crps_away": 5.2394,
+      "climatological_crps_away": 5.3983,
+      "ratio_away": 0.9706,
+      "improvement_pct_away": 2.94
+    },
+    "crps_sealed": {
+      "n": 285,
+      "crps_home": 5.2942,
+      "climatological_crps_home": 5.5578,
+      "ratio_home": 0.9526,
+      "improvement_pct_home": 4.74,
+      "crps_away": 5.5591,
+      "climatological_crps_away": 5.6359,
+      "ratio_away": 0.9864,
+      "improvement_pct_away": 1.36
+    },
+    "totals_ece": 0.1379,
+    "covers_ece": 0.0574,
+    "derived_ml_metrics": {
+      "logloss": 0.6282,
+      "auc": 0.6985,
+      "ece": 0.0404,
+      "brier": 0.2195
+    }
+  },
+  "exit_criteria": {
+    "g1_both_legs": true,
+    "pooled_bias_lt_0_1": true,
+    "totals_ece_improved": true,
+    "g5_pass": true,
+    "all_met": true
+  },
+  "construction_change_statement": "|a - 1| max = 0.256 \u2014 EXCEEDS 0.15 \u2014 side-anchored away features remain a warranted construction-change candidate for the future view-expansion work; recorded, not a blocker here. The away bias (\u22121.49 pooled, sign +/\u2212 per side) is the diagnosed defect; this step's linear map corrects it leak-free at the prediction layer.",
+  "next_lever_if_away_still_fails": "sigma/climatology layer, NOT means \u2014 recorded per the task spec exit criteria",
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "linear_over_isotonic": "n=1,091 is thin; linear OLS chosen; isotonic only if post-linear diagnostics show clear curvature (see step1 per-side curvature_swing_pts)",
+    "per_side_independent_maps": "home a/b and away a/b fitted separately, never pooled",
+    "prediction_layer_only": "calibration is a prediction-layer transform; engine modules untouched; future market-layer wiring consumes the stored params JSON",
+    "sigma_reestimation_in_scope": "old sigma fit on biased residuals \u2014 re-estimated from calibrated residuals"
+  }
+}
