@@ -1,0 +1,50 @@
+{
+  "artifact": "nfl_run_engine_monitor_20260903.json",
+  "target_date": "20260903",
+  "as_of_utc": "2026-09-03T23:04:53.573366+00:00",
+  "oof_baseline_research_pinned": {
+    "covers_ece_pooled": 0.078,
+    "totals_ece_pooled_own": 0.087,
+    "derived_ml": {
+      "logloss": 0.6365,
+      "auc": 0.695,
+      "ece": 0.0435
+    },
+    "provenance": [
+      "nfl_era_3e8c8a510f04.json (era record: seam covers ECE, G4)",
+      "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
+      "nfl_adoption_decision_3e8c8a510f04.json (spread adoption)"
+    ],
+    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the first-run monitor slate-history section is empty by design (no served slate outcomes exist yet)"
+  },
+  "slate_history": [],
+  "markets_persisted": true,
+  "markets_path": "nfl_run_engine_markets_20260903.csv",
+  "gates": {
+    "g1_mass_conservation": {
+      "pass": true,
+      "rule": "every 76x76 joint sums to 1"
+    },
+    "g2_tie_calibrated": {
+      "pass": true,
+      "mean_trace": 0.00275,
+      "target": 0.00275,
+      "rule": "IPF-calibrated tie diagonal == 0.275%"
+    },
+    "g3_marginal_post_ipf": {
+      "pass": true,
+      "max_err": 7e-12,
+      "rule": "row/col marginals match to 1e-9"
+    },
+    "g4_derived_ml_range": {
+      "pass": true
+    },
+    "g5_leakage_and_market_free": {
+      "pass": true
+    },
+    "g6_determinism": {
+      "pass": true,
+      "rule": "byte-identical double price walk"
+    }
+  }
+}

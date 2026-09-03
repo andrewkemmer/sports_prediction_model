@@ -1,0 +1,104 @@
+{
+  "record": "nfl_slate_serve",
+  "target_date": "20260903",
+  "written_utc": "2026-09-03T23:04:53.656684+00:00",
+  "frame_sha256": "3e8c8a510f04",
+  "scope": "run-line/totals slate-serve pricing path + artifact emitters \u2014 record + dated artifacts only; NOTHING wired into master_pipeline; FEATURE_COLUMNS / served 12-pool / daily pipeline untouched",
+  "config": {
+    "era_spec": "ewm_2w",
+    "median_rounds": {
+      "home": 20,
+      "away": 23
+    },
+    "pinned_joint": {
+      "sigma_h": 9.663,
+      "sigma_a": 9.0789,
+      "rho": 0.0076,
+      "p_tie": 0.00275
+    },
+    "market_params": {
+      "totals_cd": [
+        -0.3599,
+        0.3472
+      ],
+      "spread_cd": [
+        0.446165,
+        0.307486
+      ]
+    },
+    "view": "12-pool per-side PIT (SIDE_FEATURES)"
+  },
+  "impute_rates": {
+    "elo_diff": 0.0,
+    "win_pct_diff": 0.0,
+    "rest_days_diff": 0.0,
+    "is_dome_home": 0.1581,
+    "ewm_net_pts_diff": 0.0,
+    "ewm_ypp_diff": 0.0,
+    "pace_plays_min_diff": 0.7647,
+    "rest_short_diff": 0.0,
+    "div_game": 0.0,
+    "travel_miles_diff": 0.1985,
+    "altitude_home": 0.1985,
+    "prime_time": 0.0
+  },
+  "gates": {
+    "g1_mass_conservation": {
+      "pass": true,
+      "rule": "every 76x76 joint sums to 1"
+    },
+    "g2_tie_calibrated": {
+      "pass": true,
+      "mean_trace": 0.00275,
+      "target": 0.00275,
+      "rule": "IPF-calibrated tie diagonal == 0.275%"
+    },
+    "g3_marginal_post_ipf": {
+      "pass": true,
+      "max_err": 7e-12,
+      "rule": "row/col marginals match to 1e-9"
+    },
+    "g4_derived_ml_range": {
+      "pass": true
+    },
+    "g5_leakage_and_market_free": {
+      "pass": true
+    },
+    "g6_determinism": {
+      "pass": true,
+      "rule": "byte-identical double price walk"
+    }
+  },
+  "n_board": 272,
+  "mapping_table": {
+    "markets_csv": {
+      "mlb": "run_engine_markets_{YYYYMMDD}.csv",
+      "nfl": "nfl_run_engine_markets_{YYYYMMDD}.csv",
+      "rows": "per-game rows; MLB kind \u2208 {oof, slate}; NFL first-run rows all kind == 'slate' (no OOF rows \u2014 the OOF baseline is research-pinned in the monitor JSON)",
+      "identity": "game_pk (MLB, int) -> game_id (NFL, nflverse string)",
+      "offer_columns": "MLB p_over_<U>/p_push_<U>/p_under_<U> over the totals grid + p_home_cover_<L> over the run-line grid -> NFL p_over_<U>/p_under_<U>/p_push_<U> over TOTAL_INT_LINES 24..66 and p_home_cover_<L>/p_push_<L> over SPREAD_INT_LINES -14..+14 (integers; NFL margin PMF is integer-support)",
+      "derived_pair": "p_home_win_derived/p_away_win_derived (MLB derived from NB lambda layer) -> NFL same names from P(H>A)/(1-P_tie) of the calibrated 76x76 joint",
+      "raw_pair": "NFL-only additive pair a future \u00b10.5 toggle needs: p_home/away_cover_{minus,plus}_half at the offered spread line",
+      "fair_vs_offer": "fair_* columns = model medians (no market blending); offered line columns = nflreadpy schedule; never conflated",
+      "persist": "tmp-write + atomic replace + .meta.json sidecar \u2014 identical to MLB persist_markets"
+    },
+    "meta_json": {
+      "mlb": "run_engine_markets_{YYYYMMDD}.meta.json",
+      "nfl": "nfl_run_engine_markets_{YYYYMMDD}.meta.json",
+      "content": "treatment mode per side, line-vintage status, as-of date, provenance record list, OOF baseline figures"
+    },
+    "monitor_json": {
+      "mlb": "model_monitor_*.json run_engine block",
+      "nfl": "nfl_run_engine_monitor_{YYYYMMDD}.json",
+      "content": "research-pinned OOF baseline (covers ECE 0.078, seam totals ECE 0.087, derived-ML ll/auc/ece 0.6365/0.695/0.0435) + accumulating slate-history (empty on the first run)"
+    }
+  },
+  "retention_decision": "dated artifacts tracked-and-accumulating (MLB mirror); repo cleanup may never delete a committed file (tracked-file guard)",
+  "judgment_calls": {
+    "1_pinned_dispersion": "joint dispersion params pinned from research (DN/9.663/9.0789/0.0076/0.275%) \u2014 in-sample refit on all-decided residuals would understate sigma and re-create hot totals",
+    "2_own_line_first_run": "no known-vintage feed exists \u2014 shrink columns additive + flagged, never silently applied",
+    "3_impute_at_serve": "board rows with no 2026 pbp yet (pace) or venue facts (neutral sites) are median-imputed from decided-train at serve time, mirroring the moneyline ensemble's impute-median bundle; rates recorded",
+    "4_spread_formal_adoption": "folded in per the adoption record's deferral (see nfl_adoption_decision_3e8c8a510f04.json)",
+    "5_artifact_schema": "mirrors MLB emitters from source (run_engine.persist_markets / markets loader) with nfl_ prefixes + the NFL-only raw-vs-derived \u00b10.5 pair"
+  }
+}

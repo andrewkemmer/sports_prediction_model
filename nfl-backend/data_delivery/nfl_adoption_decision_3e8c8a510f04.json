@@ -1,0 +1,201 @@
+{
+  "record": "nfl_adoption_decision",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "7a0cd016b06f",
+  "written_utc": "2026-09-03T22:51:30.350299+00:00",
+  "elapsed_seconds": 200.5,
+  "supersedes": "the adoption review commit 14bffb9 (nfl_adoption_decision_3e8c8a510f04.json) was stranded on an unavailable cloud session and never pushed; this record RE-DERIVES its spread figures deterministically on the canonical frame 3e8c8a510f04 and supersedes it",
+  "scope": "Spread-side formal adoption (deferred from the market layer 13cb7ce, whose scope explicitly left the spread side untouched) + the totals re-verification, machine-verified on this machine. Slate-serve pricing and the dated market artifacts are separate deliverables. No wiring into master_pipeline; FEATURE_COLUMNS / served 12-pool / daily pipeline untouched.",
+  "totals_reference": {
+    "record": "nfl_market_3e8c8a510f04.json (committed, 13cb7ce)",
+    "verdict": "ADOPT_SHRINK_TO_LINE",
+    "median_cd": [
+      -0.3599,
+      0.3472
+    ],
+    "ece": {
+      "pooled_own": 0.087,
+      "pooled_shrink": 0.0385,
+      "sealed_own": 0.1547,
+      "sealed_shrink": 0.0781
+    },
+    "local_recheck": "run_nfl_market.py re-run on this machine \u2014 see nfl_market_run.log / the committed record for the C0 anchors + gates"
+  },
+  "spread_measurement": {
+    "method": "fold-disciplined OLS actual_margin - spread_line ~ c + d*(mu_M_hat - spread_line); 79 evaluated weeks (75 fitted + 4 warmup < 50 prior rows), strict-prior fit sets, leak-safe asserted, sealed via median-of-fold",
+    "sign_convention": "positive spread_line = home favored; corr(spread_line, margin) = +0.446; home covers iff margin > spread_line",
+    "walk": {
+      "n_folds": 79,
+      "n_fitted": 75,
+      "n_warmup": 4,
+      "median_c": 0.446165,
+      "median_d": 0.307486,
+      "leak_safe": true,
+      "d_range": [
+        -0.0229,
+        0.5351
+      ]
+    },
+    "covers_ece": {
+      "pooled": {
+        "own": 0.078,
+        "shrink": 0.0537
+      },
+      "sealed": {
+        "own": 0.1145,
+        "shrink": 0.0714
+      }
+    },
+    "top_decile_gap_report_only": {
+      "pooled": {
+        "own": 0.0951,
+        "shrink": 0.0442
+      },
+      "sealed": {
+        "own": 0.3534,
+        "shrink": 0.1385
+      },
+      "note": "last-decile |pred - actual| gap \u2014 report-only; the recovery targets and gates pin covers ECE (covers calibration has no totals-style top-bin defect story)"
+    },
+    "derived_ml": {
+      "pooled": {
+        "own": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        },
+        "shrink": {
+          "logloss": 0.6095,
+          "auc": 0.7328,
+          "ece": 0.0527,
+          "brier": 0.2108
+        }
+      },
+      "sealed": {
+        "own": {
+          "logloss": 0.6535,
+          "auc": 0.6782,
+          "ece": 0.1009,
+          "brier": 0.2299
+        },
+        "shrink": {
+          "logloss": 0.6157,
+          "auc": 0.726,
+          "ece": 0.0637,
+          "brier": 0.2139
+        }
+      }
+    },
+    "totals_invariance_pooled_ece": {
+      "own": 0.087,
+      "shrink": 0.0852
+    }
+  },
+  "recovery": {
+    "target": {
+      "median_d_spread": 0.3075,
+      "pooled_covers_ece_own": 0.078,
+      "pooled_covers_ece_shrink": 0.0537,
+      "sealed_covers_ece_own": 0.1145,
+      "sealed_covers_ece_shrink": 0.0714
+    },
+    "measured": {
+      "median_d_spread": 0.307486,
+      "pooled_covers_ece_own": 0.078,
+      "pooled_covers_ece_shrink": 0.0537,
+      "sealed_covers_ece_own": 0.1145,
+      "sealed_covers_ece_shrink": 0.0714
+    },
+    "deltas": {
+      "median_d_spread": -0.0,
+      "pooled_covers_ece_own": 0.0,
+      "pooled_covers_ece_shrink": 0.0,
+      "sealed_covers_ece_own": 0.0,
+      "sealed_covers_ece_shrink": 0.0
+    },
+    "material_deviation": false,
+    "read": "deterministic re-derivation reproduces the stranded record's figures within noise \u2014 recovery by re-computation confirmed"
+  },
+  "gates": {
+    "g1": {
+      "pass": true,
+      "pooled": {
+        "own": 0.078,
+        "shrink": 0.0537
+      },
+      "sealed": {
+        "own": 0.1145,
+        "shrink": 0.0714
+      },
+      "rule": "shrink covers ECE < own-line covers ECE (pooled AND sealed)"
+    },
+    "g2": {
+      "pass": true,
+      "bar": 0.0033,
+      "pooled_delta": 0.0243,
+      "sealed_delta": 0.0431,
+      "rule": "covers ECE improvement >= ECE_TOL/3 = 0.0033 on pooled AND sealed (worth-having vs the shared tolerance)"
+    },
+    "g3": {
+      "pass": true,
+      "totals_ece_shrink_pooled": 0.0852,
+      "totals_ece_own_pooled": 0.087,
+      "bar": 0.003,
+      "rule": "totals ECE not degraded: shrink <= own + 0.003 (margin-center shrink is total-mean invariant; the residual ~+/-0.002 ECE perturbation is second-order IPF/discretization, not a model effect \u2014 one-sided bar sits above it)"
+    },
+    "g4": {
+      "pass": true,
+      "method": "byte-identical double build"
+    },
+    "g5": {
+      "pass": true,
+      "pooled_rows_mismatched": 0,
+      "sealed_rows_on_median": 285,
+      "sealed_n": 285,
+      "read": "every pooled shrink row carries its own fold's (c_k, d_k); sealed 2025 carries the median-of-fitted-folds; no pooled-global (c, d) exists by construction"
+    }
+  },
+  "verdict": {
+    "state": "ADOPT_SHRINK_TO_LINE",
+    "pass": true,
+    "read": "spread shrink verified: median d_spread 0.3075 material; covers ECE 0.078 -> 0.0537 pooled / 0.1145 -> 0.0714 sealed, totals invariant (G3). Matches the stranded record's figures within noise \u2014 re-derivation supersedes 14bffb9."
+  },
+  "feed_decision": {
+    "one_feed_governs_both_sides": true,
+    "known_vintage_feed_present": false,
+    "mode": "own-line both sides with honest ECE",
+    "shrink_applied": false,
+    "shrink_columns": "computed and present but flagged shrink_applied=false until a known-vintage feed is wired",
+    "rationale": "nflreadpy schedule-line vintage (closing vs early) is unconfirmed; shrink is only trustworthy with a known-vintage feed (market-record judgment call 5). Adoption of the shrink TREATMENT is conditional on the feed; the machinery + params are verified and recorded now."
+  },
+  "provenance": {
+    "engine_files_sha256": {
+      "nfl_joint_engine.py": "1e3d251298d7c66e",
+      "nfl_per_side_engine.py": "8b28742129f793d5",
+      "nfl_era_features.py": "673dbec5a3219945",
+      "nfl_market_engine.py": "aa4f33e5705520fd"
+    },
+    "era_record": "nfl_era_3e8c8a510f04.json",
+    "era_config": {
+      "spec": "ewm_2w",
+      "rounds_home": 20,
+      "rounds_away": 23,
+      "sigma_h": 9.663,
+      "sigma_a": 9.0789,
+      "rho": 0.0076,
+      "p_tie": 0.00275
+    },
+    "environment_note": "local lightgbm 4.7.0 / xgboost 3.4.0 / pandas 3.0.1; the era C0/E1/E2 walk pins reproduced the committed record's numbers exactly (7.2621/7.1232, rounds 20/23, sigma 9.663/9.0789, rho 0.0076, G4 0.6365/0.695/0.0435) \u2014 the chain is canonical on this machine"
+  },
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "1_spread_center_only": "shrink moves the margin center only (+delta/2 home, -delta/2 away); the total mean is invariant by construction (G3 one-sided non-degradation bar 0.003 \u2014 the measured -0.0018 totals-ECE drift is second-order IPF/discretization)",
+    "2_second_level_only": "same second-level fold discipline as the totals layer \u2014 no pooled static overlay (the -0.14 -> +1.45 failure mode is forbidden)",
+    "3_recovery_by_recomputation": "the stranded 14bffb9 record is unreachable; deterministic reproduction on the canonical frame is the recovery mechanism",
+    "4_conditional_adoption": "treatment adopted conditionally on a known-vintage feed; the default slate mode is own-line quoting with honest ECE"
+  },
+  "artifacts": {
+    "markets_meta": "see the slate runner's dated nfl_run_engine_markets_*.meta.json"
+  }
+}

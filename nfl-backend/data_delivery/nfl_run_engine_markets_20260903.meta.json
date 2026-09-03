@@ -1,0 +1,82 @@
+{
+  "artifact": "nfl_run_engine_markets_20260903.csv",
+  "target_date": "20260903",
+  "as_of_utc": "2026-09-03T23:04:53.573366+00:00",
+  "frame_sha256": "3e8c8a510f04",
+  "board": {
+    "season": 2026,
+    "n_games": 272,
+    "weeks": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "line_vintage_status": "nflreadpy schedule-line vintage (closing vs early) UNCONFIRMED \u2014 shrink columns are computed and flagged shrink_applied=false; own-line quoting is the served mode",
+  "treatment": {
+    "mode": "own-line quoting both sides with honest ECE",
+    "shrink_applied": false,
+    "one_feed_governs_both_sides": true,
+    "shrink_params": {
+      "totals_cd": [
+        -0.3599,
+        0.3472
+      ],
+      "spread_cd": [
+        0.446165,
+        0.307486
+      ]
+    }
+  },
+  "impute_rates": {
+    "elo_diff": 0.0,
+    "win_pct_diff": 0.0,
+    "rest_days_diff": 0.0,
+    "is_dome_home": 0.1581,
+    "ewm_net_pts_diff": 0.0,
+    "ewm_ypp_diff": 0.0,
+    "pace_plays_min_diff": 0.7647,
+    "rest_short_diff": 0.0,
+    "div_game": 0.0,
+    "travel_miles_diff": 0.1985,
+    "altitude_home": 0.1985,
+    "prime_time": 0.0
+  },
+  "oof_baseline": {
+    "covers_ece_pooled": 0.078,
+    "totals_ece_pooled_own": 0.087,
+    "derived_ml": {
+      "logloss": 0.6365,
+      "auc": 0.695,
+      "ece": 0.0435
+    },
+    "provenance": [
+      "nfl_era_3e8c8a510f04.json (era record: seam covers ECE, G4)",
+      "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
+      "nfl_adoption_decision_3e8c8a510f04.json (spread adoption)"
+    ],
+    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the first-run monitor slate-history section is empty by design (no served slate outcomes exist yet)"
+  },
+  "provenance_records": [
+    "nfl_era_3e8c8a510f04.json",
+    "nfl_market_3e8c8a510f04.json",
+    "nfl_adoption_decision_3e8c8a510f04.json"
+  ],
+  "engines_modified": false,
+  "moneyline_pool_untouched": true
+}
