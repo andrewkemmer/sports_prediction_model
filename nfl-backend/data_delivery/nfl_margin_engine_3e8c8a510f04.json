@@ -1,0 +1,260 @@
+{
+  "record": "nfl_margin_engine_ablation",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "84987a607522",
+  "written_utc": "2026-09-03T04:41:37.060934+00:00",
+  "elapsed_seconds": 100.6,
+  "scope": "C1 verdict is provisional first-look using the interim single-margin mu; re-test with per-side-derived mu_H - mu_A only if moneyline adoption is pursued",
+  "geometry": {
+    "seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "c0": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ],
+    "c1": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time",
+      "pt_margin_diff"
+    ]
+  },
+  "coverage": {
+    "n_total": 1960,
+    "n_pre_sealed_2019_24": 1675,
+    "n_sealed_2025": 285,
+    "n_oof_margins": 1091,
+    "pct_covered_pre_sealed": 65.1,
+    "n_uncovered_pre_sealed": 584,
+    "n_sealed_refill": 285,
+    "pct_covered_sealed": 100.0,
+    "imputation": "uncovered = 2019-20 warmup (never in a fold's val window) + playoff weeks with <5 val games \u2192 NaN \u2192 tree-native routing / train-median for logistic+MLP; sealed 2025 = fit-only refill at median rounds (100% of valid rows)"
+  },
+  "margin_model": {
+    "oof": {
+      "label": "oof 2021-24",
+      "n": 1091,
+      "mae": 9.829,
+      "crps": 9.829,
+      "rmse": 12.985,
+      "sigma": 14.2194,
+      "naive_mae": 11.375,
+      "naive_crps": 8.022,
+      "mae_improvement_pct": 13.6,
+      "crps_note": "model CRPS == MAE (degenerate point forecast); naive CRPS = climatological N(0, sigma) full-distribution baseline — a degenerate point forecast does not beat it on CRPS by construction"
+    },
+    "sealed": {
+      "label": "sealed 2025",
+      "n": 285,
+      "mae": 10.092,
+      "crps": 10.092,
+      "rmse": 12.92,
+      "sigma": 14.1329,
+      "naive_mae": 11.306,
+      "naive_crps": 7.974,
+      "mae_improvement_pct": 10.7,
+      "crps_note": "model CRPS == MAE (degenerate point forecast); naive CRPS = climatological N(0, sigma) full-distribution baseline — a degenerate point forecast does not beat it on CRPS by construction"
+    },
+    "median_rounds": {
+      "home": 30,
+      "away": 30
+    },
+    "features": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ]
+  },
+  "c0": {
+    "pooled": {
+      "ll_pooled": 0.6314,
+      "ll_cal_pooled": 0.6316,
+      "auc_pooled": 0.6929,
+      "auc_cal_pooled": 0.6926,
+      "ece_raw_pooled": 0.0317,
+      "ece_cal_pooled": 0.0294,
+      "n_pooled": 1107
+    },
+    "sealed": {
+      "ll_sealed": 0.6242,
+      "ll_cal_sealed": 0.6253,
+      "auc_sealed": 0.7047,
+      "auc_cal_sealed": 0.7047,
+      "ece_raw_sealed": 0.0155,
+      "ece_cal_sealed": 0.0477,
+      "n_sealed": 285
+    }
+  },
+  "c1": {
+    "pooled": {
+      "ll_pooled": 0.6223,
+      "ll_cal_pooled": 0.6232,
+      "auc_pooled": 0.7056,
+      "auc_cal_pooled": 0.7052,
+      "ece_raw_pooled": 0.0338,
+      "ece_cal_pooled": 0.0363,
+      "n_pooled": 1107
+    },
+    "sealed": {
+      "ll_sealed": 0.626,
+      "ll_cal_sealed": 0.6281,
+      "auc_sealed": 0.7051,
+      "auc_cal_sealed": 0.7051,
+      "ece_raw_sealed": 0.033,
+      "ece_cal_sealed": 0.0626,
+      "n_sealed": 285
+    }
+  },
+  "gate": {
+    "verdict": "DON'T_ADOPT",
+    "adopt": false,
+    "legs": {
+      "ll_ok_pooled": {
+        "cand": 0.6232,
+        "base": 0.6316,
+        "delta": -0.0084,
+        "tol": 0.012,
+        "pass": true
+      },
+      "auc_ok_pooled": {
+        "cand": 0.7052,
+        "base": 0.6926,
+        "delta": 0.0126,
+        "tol": 0.016,
+        "pass": true
+      },
+      "ece_ok_pooled": {
+        "cand": 0.0363,
+        "base": 0.0294,
+        "delta": 0.0069,
+        "tol": 0.01,
+        "pass": true
+      },
+      "ll_ok_sealed": {
+        "cand": 0.6281,
+        "base": 0.6253,
+        "delta": 0.0028,
+        "tol": 0.012,
+        "pass": true
+      },
+      "auc_ok_sealed": {
+        "cand": 0.7051,
+        "base": 0.7047,
+        "delta": 0.0004,
+        "tol": 0.016,
+        "pass": true
+      },
+      "ece_ok_sealed": {
+        "cand": 0.0626,
+        "base": 0.0477,
+        "delta": 0.0149,
+        "tol": 0.01,
+        "pass": false
+      }
+    },
+    "reasons": [
+      "sealed ECE 0.0626 > C0 0.0477 + ECE_TOL 0.01 (relative degradation)"
+    ],
+    "delta": {
+      "sealed_logloss": 0.0028,
+      "sealed_auc": 0.0004,
+      "sealed_ece_cal": 0.0149,
+      "pooled_logloss": -0.0084,
+      "pooled_auc": 0.0126,
+      "pooled_ece": 0.0069
+    }
+  },
+  "worth_having": {
+    "checks": {
+      "pooled_ll_cal_pooled": {
+        "delta": -0.0084,
+        "tol_3": 0.004,
+        "beyond_tol": true,
+        "right_direction": true
+      },
+      "pooled_auc_cal_pooled": {
+        "delta": 0.0126,
+        "tol_3": 0.0053,
+        "beyond_tol": true,
+        "right_direction": true
+      },
+      "pooled_ece_cal_pooled": {
+        "delta": 0.0069,
+        "tol_3": 0.0033,
+        "beyond_tol": true,
+        "right_direction": false
+      },
+      "sealed_ll_cal_sealed": {
+        "delta": 0.0028,
+        "tol_3": 0.004,
+        "beyond_tol": false,
+        "right_direction": false
+      },
+      "sealed_auc_cal_sealed": {
+        "delta": 0.0004,
+        "tol_3": 0.0053,
+        "beyond_tol": false,
+        "right_direction": true
+      },
+      "sealed_ece_cal_sealed": {
+        "delta": 0.0149,
+        "tol_3": 0.0033,
+        "beyond_tol": true,
+        "right_direction": false
+      }
+    },
+    "verdict": "NOT_WORTH_HAVING"
+  },
+  "feature_columns_untouched": true,
+  "adopted": false,
+  "judgment_calls": {
+    "phase1_view_12pool": "12-pool as-is (cheapest clean first answer; per-side offense/defense EWM splits are Phase 2)",
+    "single_margin_regression": "not per-side Poisson \u2014 NFL margins are near-normal; per-side matters only for spread/total pricing later",
+    "imputation": "uncovered rows (pre-2021 warmup) \u2192 NaN \u2192 tree-native routing / train-median for logistic+MLP; sealed = fit 2019-24 at median rounds; slate = fit all 2019-25"
+  }
+}
