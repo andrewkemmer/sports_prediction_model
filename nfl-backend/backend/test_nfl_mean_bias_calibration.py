@@ -199,10 +199,11 @@ class TestEngineTableAndChain(unittest.TestCase):
         params = je.fit_joint_params(self.eng)
         self.assertEqual(params["fit_on"], "pooled_oof")
         pmfs, summary = je.build_joint_pmfs(self.eng, params, p_tie=0.004)
-        # The engine's marginal-breakpoint convention yields 77x77 joints
-        # (76 half-integer cells + the absorbed upper-tail cell) — the
-        # engine's own grid, never reimplemented here.
-        self.assertEqual(pmfs.shape, (len(self.eng), 77, 77))
+        # GRID-INDEX CONVENTION FIX (joint-engine commit): marginal_breakpoints
+        # now places P(score k) at index k on the 0..75 grid -> joints are
+        # 76x76 (pre-fix they were 77x77, with cell k holding score k-1).
+        # The engine's own grid, never reimplemented here.
+        self.assertEqual(pmfs.shape, (len(self.eng), 76, 76))
         self.assertEqual(len(summary["derived"]), len(self.eng))
         # the calibration module is a pure transform — imports neither engine
         src = Path(bc.__file__).read_text()

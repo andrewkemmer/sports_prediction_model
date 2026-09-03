@@ -78,16 +78,17 @@ class TestPitConventions(unittest.TestCase):
         self.assertGreater(np.std(u_narrow), sd_uniform * 1.05)
         self.assertLess(np.std(u_wide), sd_uniform * 0.97)
 
-    def test_engine_grid_offset_evidence(self):
-        # Cell k of marginal_pmf(25, 9) holds the mass of score k-1:
-        # argmax sits at index 26 while the documented convention (dn_pmf
-        # semantics) puts P(round(N(25,9)) = 25) at index 25.
+    def test_engine_grid_convention_aligned(self):
+        # GRID-INDEX CONVENTION FIX (joint-engine commit): marginal_pmf now
+        # places P(score k) at index k, matching dn_pmf — cell k of
+        # marginal_pmf(25, 9) holds the mass of score k itself. Argmax sits
+        # at index 25 (pre-fix it sat at 26, cell k holding score k-1).
         p = marginal_pmf(25.0, 9.0, "dn")
-        self.assertEqual(int(np.argmax(p)), 26)
+        self.assertEqual(int(np.argmax(p)), 25)
         from scipy import stats
         text = stats.norm.cdf((25.5 - 25.0) / 9.0) \
             - stats.norm.cdf((24.5 - 25.0) / 9.0)
-        self.assertAlmostEqual(float(p[26]), float(text), places=4)
+        self.assertAlmostEqual(float(p[25]), float(text), places=4)
 
 
 class TestUniformityAndGamma(unittest.TestCase):

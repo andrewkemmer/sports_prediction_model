@@ -140,15 +140,23 @@ FAMILIES = tuple(sorted(MARGINAL_PMF))
 
 
 def marginal_breakpoints(mu: float, sigma: float, family: str) -> np.ndarray:
-    """CDF at half-integer boundaries: b[0]=0, b[i]=F(i-0.5), b[76]=1."""
+    """CDF at half-integer boundaries between grid cells: 77 breakpoints
+    [0, F(0.5), F(1.5), ..., F(74.5), 1] -> 76 cells with cell k = P(score k)
+    (score 0 absorbs below 0.5; score 75 absorbs the upper tail). This is the
+    grid-index convention fix (P(score k) at index k, matching ``dn_pmf``);
+    the previous implementation used F(arange(76) - 0.5), placing each
+    score's mass one cell too high (cell k held score k-1) and pushing the
+    derived totals +2.
+    """
     if family == "dn":
         mu = float(mu)
         sigma = max(float(sigma), 1e-9)
-        b = stats.norm.cdf((np.arange(GRID_MAX + 1) - 0.5 - mu) / sigma)
+        b = stats.norm.cdf((np.arange(1, GRID_MAX + 1) - 0.5 - mu) / sigma)
     else:  # nb
         mu = max(float(mu), 1e-9)
         r = _nb_r(mu, sigma)
-        b = stats.nbinom.cdf(np.arange(GRID_MAX + 1) - 0.5, r, r / (r + mu))
+        b = stats.nbinom.cdf(np.arange(1, GRID_MAX + 1) - 0.5, r,
+                             r / (r + mu))
     b = np.clip(b, 0.0, 1.0)
     b = np.concatenate([[0.0], b, [1.0]])
     # enforce monotone (clip can create plateaus; diff() below stays >= 0)
