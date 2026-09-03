@@ -1,0 +1,1130 @@
+{
+  "record": "nfl_sigma_layer",
+  "frame_sha": "3e8c8a510f04",
+  "frame_sha256": "84987a607522",
+  "written_utc": "2026-09-03T15:26:08.470924+00:00",
+  "elapsed_seconds": 31.0,
+  "scope": "the totals top-bin (pred 0.83 vs actual 0.55) implies z +0.95 vs +0.13, i.e. sigma_true would need to be ~7.5x sigma_model to close by dispersion \u2014 that defect is NOT in scope here; this layer only fixes internal PIT miscalibration if Step 0 shows one.",
+  "geometry": {
+    "seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "train_seasons": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "sealed_season": 2025,
+    "n_folds": 88,
+    "pooled_oof_n": 1091,
+    "sealed_n": 285,
+    "marginal": "era-centered DN + const sigma (era layer 7260ddc)",
+    "sigma_const": {
+      "home": 9.663,
+      "away": 9.0789
+    },
+    "engines_modified": false,
+    "engine_files_sha256": {
+      "nfl_joint_engine.py": "50bc4fea0e4b7374",
+      "nfl_per_side_engine.py": "b493985a8a03f30b",
+      "nfl_era_features.py": "64caeff771101772"
+    }
+  },
+  "engine_grid_finding": {
+    "summary": "nfl_joint_engine.marginal_breakpoints builds its DN cells one index off its own documented convention: cell k holds the mass of score k-1 (breakpoints at k-1.5 instead of the documented k-0.5).",
+    "evidence": {
+      "argmax_marginal_pmf_mu25_sig9": 26,
+      "argmax_expected_if_cell_k_equals_score_k": 25,
+      "mean_of_marginal_pmf_in_index_space": 26.005,
+      "mean_in_score_space_index_minus_1": 25.005,
+      "mass_at_index_26_mu25_sig9": 0.0443,
+      "textbook_P_round_N25_9_equals_25": 0.0443
+    },
+    "impact": {
+      "integer_ll_crps_index_int_actual": "actual-score lookups read the mass of score y-1: per-side LL/CRPS mildly degraded",
+      "derived_totals": "derived P(total > U) is computed at index-total = actual + 2 \u2014 a systematic +2 hot shift in totals over-probs; margins/tie/derived ML use index DIFFERENCES so they are shift-invariant",
+      "pit_fair_test": "the sigma layer's PIT gates therefore use the DOCUMENTED convention (cell k = score k); the engine index convention is reported for contrast"
+    },
+    "resolution": "record-only: NOT applied. Flagged for the engine maintainers (a one-index arange shift in marginal_breakpoints would restore the documented convention) and for the market layer's totals quotes. This finding explains the raw index-convention mean PIT ~0.45-0.47 seen before any model defect."
+  },
+  "step0": {
+    "convention_note": "PIT evaluated under the engine's DOCUMENTED DN convention (cell k = score k) \u2014 the fair test of mu/sigma; raw engine-index convention reported for contrast (see engine finding)",
+    "0a_per_side_pit": {
+      "sigma_const": {
+        "home": 9.663,
+        "away": 9.0789
+      },
+      "pooled": {
+        "home": {
+          "documented_convention": {
+            "label": "home_doc",
+            "n": 1091,
+            "mean_pit": 0.5005,
+            "sd_pit": 0.2835,
+            "ks_p": 0.1781,
+            "chi2_p": 0.2383,
+            "ece": 0.0091,
+            "uniform": true
+          },
+          "engine_index_convention": {
+            "label": "home_engine",
+            "n": 1091,
+            "mean_pit": 0.471,
+            "sd_pit": 0.2836,
+            "ks_p": 0.0,
+            "chi2_p": 0.0,
+            "ece": 0.0161,
+            "uniform": false
+          },
+          "standardized_residual_moments": {
+            "mean_z": 0.0237,
+            "sd_z": 0.9997
+          }
+        },
+        "away": {
+          "documented_convention": {
+            "label": "away_doc",
+            "n": 1091,
+            "mean_pit": 0.4879,
+            "sd_pit": 0.2837,
+            "ks_p": 0.0305,
+            "chi2_p": 0.0836,
+            "ece": 0.0084,
+            "uniform": false
+          },
+          "engine_index_convention": {
+            "label": "away_engine",
+            "n": 1091,
+            "mean_pit": 0.4566,
+            "sd_pit": 0.283,
+            "ks_p": 0.0,
+            "chi2_p": 0.0,
+            "ece": 0.0171,
+            "uniform": false
+          },
+          "standardized_residual_moments": {
+            "mean_z": -0.0314,
+            "sd_z": 0.9995
+          }
+        },
+        "away_by_season_documented": [
+          {
+            "season": 2021,
+            "n": 271,
+            "mean_pit": 0.4743,
+            "ks_p": 0.3706,
+            "chi2_p": 0.1011,
+            "away_mean_resid": -0.8939
+          },
+          {
+            "season": 2022,
+            "n": 271,
+            "mean_pit": 0.4966,
+            "ks_p": 0.8048,
+            "chi2_p": 0.915,
+            "away_mean_resid": -0.0664
+          },
+          {
+            "season": 2023,
+            "n": 267,
+            "mean_pit": 0.4872,
+            "ks_p": 0.1153,
+            "chi2_p": 0.4108,
+            "away_mean_resid": -0.2645
+          },
+          {
+            "season": 2024,
+            "n": 282,
+            "mean_pit": 0.4931,
+            "ks_p": 0.266,
+            "chi2_p": 0.2582,
+            "away_mean_resid": 0.0712
+          }
+        ]
+      },
+      "sealed": {
+        "home": {
+          "documented_convention": {
+            "label": "home_doc",
+            "n": 285,
+            "mean_pit": 0.4814,
+            "sd_pit": 0.2858,
+            "ks_p": 0.528,
+            "chi2_p": 0.9866,
+            "ece": 0.0077,
+            "uniform": true
+          },
+          "engine_index_convention": {
+            "label": "home_engine",
+            "n": 285,
+            "mean_pit": 0.4521,
+            "sd_pit": 0.285,
+            "ks_p": 0.0253,
+            "chi2_p": 0.3406,
+            "ece": 0.0172,
+            "uniform": false
+          },
+          "standardized_residual_moments": {
+            "mean_z": -0.0523,
+            "sd_z": 0.9725
+          }
+        },
+        "away": {
+          "documented_convention": {
+            "label": "away_doc",
+            "n": 285,
+            "mean_pit": 0.5062,
+            "sd_pit": 0.3047,
+            "ks_p": 0.6737,
+            "chi2_p": 0.1691,
+            "ece": 0.0182,
+            "uniform": true
+          },
+          "engine_index_convention": {
+            "label": "away_engine",
+            "n": 285,
+            "mean_pit": 0.4769,
+            "sd_pit": 0.3042,
+            "ks_p": 0.0904,
+            "chi2_p": 0.0166,
+            "ece": 0.0207,
+            "uniform": false
+          },
+          "standardized_residual_moments": {
+            "mean_z": 0.0296,
+            "sd_z": 1.108
+          }
+        },
+        "away_by_season_documented": [
+          {
+            "season": 2021,
+            "n": 271,
+            "mean_pit": 0.4743,
+            "ks_p": 0.3706,
+            "chi2_p": 0.1011,
+            "away_mean_resid": -0.8939
+          },
+          {
+            "season": 2022,
+            "n": 271,
+            "mean_pit": 0.4966,
+            "ks_p": 0.8048,
+            "chi2_p": 0.915,
+            "away_mean_resid": -0.0664
+          },
+          {
+            "season": 2023,
+            "n": 267,
+            "mean_pit": 0.4872,
+            "ks_p": 0.1153,
+            "chi2_p": 0.4108,
+            "away_mean_resid": -0.2645
+          },
+          {
+            "season": 2024,
+            "n": 282,
+            "mean_pit": 0.4931,
+            "ks_p": 0.266,
+            "chi2_p": 0.2582,
+            "away_mean_resid": 0.0712
+          }
+        ]
+      }
+    },
+    "0b_total_pit": {
+      "pooled": {
+        "overall": {
+          "label": "total",
+          "n": 1091,
+          "mean_pit": 0.4915,
+          "sd_pit": 0.2865,
+          "ks_p": 0.0656,
+          "chi2_p": 0.2592,
+          "ece": 0.0092,
+          "uniform": true
+        },
+        "terciles": [
+          {
+            "label": "tercile1",
+            "n": 364,
+            "mean_pit": 0.515,
+            "sd_pit": 0.28,
+            "ks_p": 0.2823,
+            "chi2_p": 0.1402,
+            "ece": 0.0163,
+            "uniform": true,
+            "mu_t_range": [
+              30.3,
+              42.9
+            ]
+          },
+          {
+            "label": "tercile2",
+            "n": 363,
+            "mean_pit": 0.4805,
+            "sd_pit": 0.2738,
+            "ks_p": 0.0323,
+            "chi2_p": 0.2595,
+            "ece": 0.0157,
+            "uniform": false,
+            "mu_t_range": [
+              42.9,
+              46.0
+            ]
+          },
+          {
+            "label": "tercile3",
+            "n": 364,
+            "mean_pit": 0.479,
+            "sd_pit": 0.3034,
+            "ks_p": 0.1039,
+            "chi2_p": 0.3279,
+            "ece": 0.0143,
+            "uniform": true,
+            "mu_t_range": [
+              46.0,
+              65.4
+            ]
+          }
+        ],
+        "by_season": [
+          {
+            "label": "season_2021",
+            "n": 271,
+            "mean_pit": 0.4832,
+            "sd_pit": 0.2997,
+            "ks_p": 0.4424,
+            "chi2_p": 0.6325,
+            "ece": 0.0137,
+            "uniform": true,
+            "season": 2021
+          },
+          {
+            "label": "season_2022",
+            "n": 271,
+            "mean_pit": 0.5012,
+            "sd_pit": 0.2866,
+            "ks_p": 0.8582,
+            "chi2_p": 0.6095,
+            "ece": 0.0137,
+            "uniform": true,
+            "season": 2022
+          },
+          {
+            "label": "season_2023",
+            "n": 267,
+            "mean_pit": 0.4849,
+            "sd_pit": 0.2796,
+            "ks_p": 0.4401,
+            "chi2_p": 0.5704,
+            "ece": 0.0141,
+            "uniform": true,
+            "season": 2023
+          },
+          {
+            "label": "season_2024",
+            "n": 282,
+            "mean_pit": 0.4964,
+            "sd_pit": 0.2795,
+            "ks_p": 0.3069,
+            "chi2_p": 0.2231,
+            "ece": 0.015,
+            "uniform": true,
+            "season": 2024
+          }
+        ]
+      },
+      "sealed": {
+        "overall": {
+          "label": "total",
+          "n": 285,
+          "mean_pit": 0.4859,
+          "sd_pit": 0.3037,
+          "ks_p": 0.3006,
+          "chi2_p": 0.5466,
+          "ece": 0.0147,
+          "uniform": true
+        },
+        "terciles": [
+          {
+            "label": "tercile1",
+            "n": 95,
+            "mean_pit": 0.5926,
+            "sd_pit": 0.2972,
+            "ks_p": 0.0044,
+            "chi2_p": 0.0969,
+            "ece": 0.0326,
+            "uniform": false,
+            "mu_t_range": [
+              37.9,
+              45.2
+            ]
+          },
+          {
+            "label": "tercile2",
+            "n": 95,
+            "mean_pit": 0.4668,
+            "sd_pit": 0.3068,
+            "ks_p": 0.1624,
+            "chi2_p": 0.3057,
+            "ece": 0.0274,
+            "uniform": true,
+            "mu_t_range": [
+              45.2,
+              47.4
+            ]
+          },
+          {
+            "label": "tercile3",
+            "n": 95,
+            "mean_pit": 0.3982,
+            "sd_pit": 0.2735,
+            "ks_p": 0.0004,
+            "chi2_p": 0.0658,
+            "ece": 0.0347,
+            "uniform": false,
+            "mu_t_range": [
+              47.4,
+              53.4
+            ]
+          }
+        ],
+        "by_season": [
+          {
+            "label": "season_2025",
+            "n": 285,
+            "mean_pit": 0.4859,
+            "sd_pit": 0.3037,
+            "ks_p": 0.3006,
+            "chi2_p": 0.5466,
+            "ece": 0.0147,
+            "uniform": true,
+            "season": 2025
+          }
+        ]
+      }
+    },
+    "0c_dispersion": {
+      "home": {
+        "f_test_abs_resid": {
+          "n": 1091,
+          "k": 15,
+          "r2": 0.0154,
+          "f": 1.204,
+          "p": 0.2662
+        },
+        "f_test_resid_sq": {
+          "n": 1091,
+          "k": 15,
+          "r2": 0.0227,
+          "f": 1.788,
+          "p": 0.0358
+        },
+        "levene_mu_terciles": {
+          "stat": 0.424,
+          "p": 0.6547
+        },
+        "split_half_screen": {
+          "side": "home",
+          "rule": "sign stable in >= 6 of 8 chronological split-halves with |r| >= 0.05",
+          "candidates": {
+            "abs_elo_diff": {
+              "overall_r": -0.0073,
+              "sign": "neg",
+              "n_same_sign_strong": 2,
+              "qualifies": false,
+              "half_corrs": [
+                -0.0589,
+                0.0897,
+                -0.018,
+                -0.1858,
+                0.077,
+                -0.0325,
+                -0.0109,
+                0.0101
+              ]
+            },
+            "rest_short_diff": {
+              "overall_r": -0.0172,
+              "sign": "neg",
+              "n_same_sign_strong": 3,
+              "qualifies": false,
+              "half_corrs": [
+                0.0914,
+                -0.1444,
+                -0.0053,
+                -0.0107,
+                -0.0698,
+                0.0689,
+                -0.1394,
+                0.078
+              ]
+            },
+            "div_game": {
+              "overall_r": -0.0062,
+              "sign": "neg",
+              "n_same_sign_strong": 3,
+              "qualifies": false,
+              "half_corrs": [
+                0.0377,
+                -0.0407,
+                -0.0527,
+                -0.0382,
+                0.0146,
+                0.1527,
+                -0.0551,
+                -0.1536
+              ]
+            },
+            "is_dome_home": {
+              "overall_r": 0.0326,
+              "sign": "pos",
+              "n_same_sign_strong": 3,
+              "qualifies": false,
+              "half_corrs": [
+                0.0323,
+                0.0782,
+                0.1882,
+                0.141,
+                -0.1831,
+                0.0164,
+                -0.0292,
+                0.0288
+              ]
+            },
+            "mu_T": {
+              "overall_r": 0.0279,
+              "sign": "pos",
+              "n_same_sign_strong": 2,
+              "qualifies": false,
+              "half_corrs": [
+                0.1544,
+                0.0347,
+                -0.263,
+                0.0409,
+                0.0882,
+                0.0221,
+                0.0082,
+                -0.0677
+              ]
+            }
+          },
+          "qualified": []
+        },
+        "screen_passes": false
+      },
+      "away": {
+        "f_test_abs_resid": {
+          "n": 1091,
+          "k": 15,
+          "r2": 0.02,
+          "f": 1.572,
+          "p": 0.0805
+        },
+        "f_test_resid_sq": {
+          "n": 1091,
+          "k": 15,
+          "r2": 0.0211,
+          "f": 1.653,
+          "p": 0.0598
+        },
+        "levene_mu_terciles": {
+          "stat": 0.374,
+          "p": 0.6879
+        },
+        "split_half_screen": {
+          "side": "away",
+          "rule": "sign stable in >= 6 of 8 chronological split-halves with |r| >= 0.05",
+          "candidates": {
+            "abs_elo_diff": {
+              "overall_r": -0.0251,
+              "sign": "neg",
+              "n_same_sign_strong": 2,
+              "qualifies": false,
+              "half_corrs": [
+                -0.0432,
+                -0.0224,
+                0.013,
+                0.05,
+                0.0064,
+                -0.0026,
+                -0.1314,
+                -0.081
+              ]
+            },
+            "rest_short_diff": {
+              "overall_r": 0.0912,
+              "sign": "pos",
+              "n_same_sign_strong": 5,
+              "qualifies": false,
+              "half_corrs": [
+                0.2147,
+                -0.1122,
+                -0.0485,
+                0.1751,
+                0.2294,
+                0.1426,
+                0.096,
+                0.0073
+              ]
+            },
+            "div_game": {
+              "overall_r": -0.0137,
+              "sign": "neg",
+              "n_same_sign_strong": 2,
+              "qualifies": false,
+              "half_corrs": [
+                -0.0165,
+                -0.0538,
+                0.0214,
+                0.0462,
+                -0.0041,
+                0.0399,
+                -0.0355,
+                -0.0594
+              ]
+            },
+            "is_dome_home": {
+              "overall_r": -0.0069,
+              "sign": "neg",
+              "n_same_sign_strong": 2,
+              "qualifies": false,
+              "half_corrs": [
+                -0.0482,
+                -0.0791,
+                0.0658,
+                -0.1518,
+                0.0201,
+                -0.027,
+                0.1048,
+                0.0548
+              ]
+            },
+            "mu_T": {
+              "overall_r": 0.0357,
+              "sign": "pos",
+              "n_same_sign_strong": 3,
+              "qualifies": false,
+              "half_corrs": [
+                0.0736,
+                -0.0321,
+                0.0845,
+                -0.0351,
+                0.1261,
+                -0.0047,
+                0.0416,
+                -0.0344
+              ]
+            }
+          },
+          "qualified": []
+        },
+        "screen_passes": false
+      }
+    },
+    "0d_gamma_sweep": {
+      "table": [
+        {
+          "gamma": 1.0,
+          "total_pit_ece": 0.0092,
+          "pit_mean": 0.4915,
+          "pit_sd": 0.2865,
+          "chi2_p": 0.2592
+        },
+        {
+          "gamma": 1.1,
+          "total_pit_ece": 0.0129,
+          "pit_mean": 0.4919,
+          "pit_sd": 0.2722,
+          "chi2_p": 0.0065
+        },
+        {
+          "gamma": 1.2,
+          "total_pit_ece": 0.0186,
+          "pit_mean": 0.4919,
+          "pit_sd": 0.2591,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.3,
+          "total_pit_ece": 0.025,
+          "pit_mean": 0.4915,
+          "pit_sd": 0.2473,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.4,
+          "total_pit_ece": 0.0318,
+          "pit_mean": 0.4907,
+          "pit_sd": 0.2365,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.5,
+          "total_pit_ece": 0.0368,
+          "pit_mean": 0.4896,
+          "pit_sd": 0.2268,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.6,
+          "total_pit_ece": 0.0432,
+          "pit_mean": 0.4881,
+          "pit_sd": 0.2179,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.7,
+          "total_pit_ece": 0.0465,
+          "pit_mean": 0.4864,
+          "pit_sd": 0.2099,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.8,
+          "total_pit_ece": 0.0501,
+          "pit_mean": 0.4844,
+          "pit_sd": 0.2025,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 1.9,
+          "total_pit_ece": 0.0534,
+          "pit_mean": 0.4822,
+          "pit_sd": 0.1958,
+          "chi2_p": 0.0
+        },
+        {
+          "gamma": 2.0,
+          "total_pit_ece": 0.0566,
+          "pit_mean": 0.4797,
+          "pit_sd": 0.1895,
+          "chi2_p": 0.0
+        }
+      ],
+      "clean_minimum_rule": {
+        "clean": false,
+        "argmin_gamma": 1.0,
+        "ece_at_1_0": 0.0092,
+        "ece_at_argmin": 0.0092,
+        "drop_vs_gamma1": 0.0,
+        "reason": "flat or < 0.005 drop at gamma > 1 \u2014 uniform-scale story not supported"
+      },
+      "note": "ECE rises monotonically from gamma=1.0 -> uniform-scale sigma inflation REFUTED (no defect to inflate away under the documented convention)"
+    },
+    "0e_trap_door": {
+      "i_total_on_mu_T": {
+        "beta": [
+          15.2237,
+          0.6587
+        ],
+        "se": [
+          4.1191,
+          0.0916
+        ],
+        "r2": 0.0454,
+        "n": 1091,
+        "beta_intercept": 15.2237,
+        "beta_mu_T": 0.6587,
+        "se_b": 0.0916,
+        "t_b_equals_1": -3.73,
+        "p_b_equals_1": 0.0002,
+        "read": "b < 1 (errors-in-variables attenuation: OOF mu_T is a noisy regressor of the total) \u2014 mean-layer signal strength, NOT sigma; PIT tables are the dispersion test and they pass"
+      },
+      "ii_offered_line": {
+        "n": 1091,
+        "r2": 0.0209,
+        "beta_c": 0.1041,
+        "beta_d_disagreement_shrink": 0.3417,
+        "se_d": 0.0709,
+        "total_line_coverage_pct": 100.0,
+        "read": "d = 0.34 (SE 0.07) \u2014 NOT << 1: model-market disagreement DOES predict actual-vs-line gaps about a third of the way. The model carries real total-level signal beyond the market (or lines are inefficient at extremes); a disagreement-shrinkage term belongs in the market layer. Consistent with 0e(i) b=0.66: the model's own mu_T extremes over-forecast while its disagreement still predicts actuals \u2014 both are MEAN-layer, not sigma"
+      }
+    }
+  },
+  "stop_rules": {
+    "rule_1_uniform_pit": {
+      "pass": true,
+      "note": "pooled home/total + sealed 2025 all legs uniform (documented convention); pooled away KS p=0.03 borderline but chi2 p=0.08 and the deficit is a ~0.28-pt MEAN offset (era away residual 2021 leg -0.89), not dispersion. Stratified note: sealed 2025 mu_T terciles show a monotone MEAN tilt (low tercile mean PIT 0.59 ks 0.004, high tercile 0.40 ks 0.0004; overall passes because the two tilts cancel) \u2014 the mu_T-shrinkage/level signature of 0e(i) b=0.66, MEAN-layer not dispersion (sigma cannot fix a level tilt; the 0c screen qualifies nothing, so Arm C stays unjustified)",
+      "on_pass": "STOP the sigma layer \u2014 internal distribution calibrated; totals top-bin is model-vs-market / engine-grid info; fix belongs to the market layer (disagreement shrinkage / own-line quoting). No sigma model built."
+    },
+    "rule_2_gamma_clean_min": {
+      "clean": false,
+      "argmin_gamma": 1.0,
+      "ece_at_1_0": 0.0092,
+      "ece_at_argmin": 0.0092,
+      "drop_vs_gamma1": 0.0,
+      "reason": "flat or < 0.005 drop at gamma > 1 \u2014 uniform-scale story not supported"
+    },
+    "rule_3_conditional_screen": {
+      "pass": false,
+      "note": "no split-half-qualified feature on either side (max 5/8 stable halves); F-tests/Levene weak",
+      "on_fail": "Arm C not justified \u2014 STOP with that record"
+    },
+    "0e_mean_side": "b < 1 (errors-in-variables attenuation: OOF mu_T is a noisy regressor of the total) \u2014 mean-layer signal strength, NOT sigma; PIT tables are the dispersion test and they pass"
+  },
+  "arms": {
+    "built": [],
+    "reason": "Step-0 stop rule 1 fired (STOP_RULE_1) \u2014 internal distribution calibrated under the documented convention; 0d has no clean gamma minimum; the 0c screen qualifies nothing. Per the spec's stop rules, NO sigma model is built. Arm-U machinery (per-fold sigma_const, PIT-optimal per-fold gamma, median-of-fold sealed transfer) exists in nfl_sigma_layer.py for a future run if a cleaner defect shows on another target/frame."
+  },
+  "c0_era_reproduction": {
+    "purpose": "validation anchor only (spec: C0 always run for contrast) \u2014 the era E2 walk + joint chain reproduced through the EXISTING entrypoints and pinned byte-exact vs the era record 7260ddc",
+    "mae": {
+      "home": 7.4811,
+      "away": 7.0526
+    },
+    "era_pin_mae": {
+      "home": 7.4811,
+      "away": 7.0526
+    },
+    "mae_match": true,
+    "rounds": {
+      "home": 20,
+      "away": 23
+    },
+    "rounds_match": true,
+    "joint_params": {
+      "family": "dn",
+      "sigma_h": {
+        "spec": "const",
+        "sigma0": 9.663,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "sigma_a": {
+        "spec": "const",
+        "sigma0": 9.0789,
+        "q": 0.0,
+        "n_fit": 1091
+      },
+      "rho": 0.0076,
+      "rho_ci": {
+        "low": -0.0518,
+        "high": 0.0669
+      },
+      "ll_table": {
+        "dn_power": {
+          "family": "dn",
+          "sigma_spec": "power",
+          "ll_home": -6619.66,
+          "ll_away": -5055.301,
+          "ll_total": -11674.961
+        },
+        "dn_const": {
+          "family": "dn",
+          "sigma_spec": "const",
+          "ll_home": -4013.179,
+          "ll_away": -3947.579,
+          "ll_total": -7960.759
+        },
+        "nb_power": {
+          "family": "nb",
+          "sigma_spec": "power",
+          "ll_home": -11723.507,
+          "ll_away": -13742.469,
+          "ll_total": -25465.976
+        },
+        "nb_const": {
+          "family": "nb",
+          "sigma_spec": "const",
+          "ll_home": -10879.321,
+          "ll_away": -12890.757,
+          "ll_total": -23770.078
+        }
+      }
+    },
+    "sigma_match_era": true,
+    "sealed_resid": {
+      "home": {
+        "n": 285,
+        "mean_resid": -0.5057,
+        "rmse": 9.4111
+      },
+      "away": {
+        "n": 285,
+        "mean_resid": 0.2684,
+        "rmse": 10.063
+      }
+    },
+    "sealed_n": 285,
+    "corrected_convention": {
+      "total_pit": {
+        "mean": 0.4915,
+        "ece": 0.0092,
+        "chi2_p": 0.2592,
+        "ks_p": 0.0656
+      },
+      "joint_ll_mean_documented": -7.2922,
+      "joint_ll_mean_engine_index": -7.2769,
+      "pit_convention_note": "total PIT + corrected LL use the DOCUMENTED DN convention (cell k = score k); joint_ll_mean is the engine-index convention the joint actually prices \u2014 see the engine grid-convention finding in the record"
+    },
+    "totals_ece_internal_grid": {
+      "thresholds": [
+        {
+          "threshold": 42.5,
+          "n": 1091,
+          "pred_over_rate": 0.6202,
+          "actual_over_rate": 0.549,
+          "gap": 0.0711
+        },
+        {
+          "threshold": 47.5,
+          "n": 1091,
+          "pred_over_rate": 0.4774,
+          "actual_over_rate": 0.3905,
+          "gap": 0.0869
+        },
+        {
+          "threshold": 52.5,
+          "n": 1091,
+          "pred_over_rate": 0.3394,
+          "actual_over_rate": 0.2585,
+          "gap": 0.0809
+        }
+      ],
+      "ece": 0.0796
+    },
+    "crps_vs_climatology": {
+      "pooled": {
+        "n": 1091,
+        "crps_home": 5.4188,
+        "climatological_crps_home": 5.6491,
+        "ratio_home": 0.9592,
+        "improvement_pct_home": 4.08,
+        "crps_away": 5.1449,
+        "climatological_crps_away": 5.3983,
+        "ratio_away": 0.9531,
+        "improvement_pct_away": 4.69
+      },
+      "sealed": {
+        "n": 285,
+        "crps_home": 5.4046,
+        "climatological_crps_home": 5.5578,
+        "ratio_home": 0.9724,
+        "improvement_pct_home": 2.76,
+        "crps_away": 5.7214,
+        "climatological_crps_away": 5.6359,
+        "ratio_away": 1.0152,
+        "improvement_pct_away": -1.52
+      }
+    },
+    "gates": {
+      "g2": {
+        "pass": true,
+        "delta_pp": -0.0
+      },
+      "g3": {
+        "pass": true,
+        "max_err": 1e-11
+      },
+      "g4": {
+        "metrics": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        },
+        "c0_anchor": {
+          "logloss": 0.6312,
+          "auc": 0.6923,
+          "ece": 0.0346
+        },
+        "flag": false
+      },
+      "g5": {
+        "pass": true,
+        "method": "per-game sigma path == engine build_joint_pmfs byte-for-byte on a 12-game parity sample (const sigma); full double-build determinism is covered by the era record's G5 and the suite pin"
+      },
+      "g1_reported_not_gated": {
+        "pooled": {
+          "n": 1091,
+          "crps_home": 5.4188,
+          "climatological_crps_home": 5.6491,
+          "ratio_home": 0.9592,
+          "improvement_pct_home": 4.08,
+          "crps_away": 5.1449,
+          "climatological_crps_away": 5.3983,
+          "ratio_away": 0.9531,
+          "improvement_pct_away": 4.69
+        },
+        "sealed": {
+          "n": 285,
+          "crps_home": 5.4046,
+          "climatological_crps_home": 5.5578,
+          "ratio_home": 0.9724,
+          "improvement_pct_home": 2.76,
+          "crps_away": 5.7214,
+          "climatological_crps_away": 5.6359,
+          "ratio_away": 1.0152,
+          "improvement_pct_away": -1.52
+        }
+      }
+    }
+  },
+  "verdict": {
+    "state": "STOP_RULE_1",
+    "pass": true,
+    "summary": "Internal PIT is CALIBRATED under the engine's documented DN convention: the earlier apparent miscalibration (mean PIT ~0.45-0.47, KS p~0) was dominated by the joint engine's +1 grid-index offset (flagged finding above), which also injects a systematic +2 into derived totals. Residual borderline signals are MEAN-layer, not sigma: pooled away KS p=0.03 traces to the era 2021 away residual (-0.89; ~0.28-pt pooled offset), and 0e(i) b=0.66<1 is errors-in-variables attenuation of weak OOF means. No conditional dispersion survives the 0c screen and 0d refutes uniform-scale inflation. STOP rule 1 \u2014 no sigma model built. The totals top-bin (pred ~0.81-0.83 vs actual ~0.55) is NOT a sigma-fixable internal defect: its mid-probability component carries the engine +2 shift; its top-bin component is model-vs-market information asymmetry for the market layer (disagreement shrinkage / own-line quoting).",
+    "next_lever": "market layer (per the era/sigma chain verdict queue); a real engine-grid fix (one-index marginal_breakpoints arange shift) belongs to the engine maintainers before any totals pricing is consumed downstream"
+  },
+  "data_seam": {
+    "path": "nflreadpy.load_schedules",
+    "ok": true,
+    "spread_line_coverage_pct": 100.0,
+    "total_line_coverage_pct": 100.0,
+    "sign_convention": "positive spread_line = home favored (corr(spread_line, margin) = 0.446 on the same rows); home covers iff margin > spread_line; over iff total > total_line",
+    "covers": {
+      "n": 1091,
+      "ece": 0.078,
+      "bins": [
+        {
+          "bin": "[0.00,0.31)",
+          "n": 109,
+          "pred_mean": 0.2309,
+          "actual_rate": 0.3945
+        },
+        {
+          "bin": "[0.31,0.38)",
+          "n": 109,
+          "pred_mean": 0.3478,
+          "actual_rate": 0.4404
+        },
+        {
+          "bin": "[0.38,0.42)",
+          "n": 109,
+          "pred_mean": 0.4014,
+          "actual_rate": 0.4312
+        },
+        {
+          "bin": "[0.42,0.46)",
+          "n": 109,
+          "pred_mean": 0.4417,
+          "actual_rate": 0.4495
+        },
+        {
+          "bin": "[0.46,0.50)",
+          "n": 109,
+          "pred_mean": 0.4792,
+          "actual_rate": 0.5229
+        },
+        {
+          "bin": "[0.50,0.54)",
+          "n": 110,
+          "pred_mean": 0.5167,
+          "actual_rate": 0.4545
+        },
+        {
+          "bin": "[0.54,0.58)",
+          "n": 108,
+          "pred_mean": 0.5564,
+          "actual_rate": 0.4537
+        },
+        {
+          "bin": "[0.58,0.62)",
+          "n": 109,
+          "pred_mean": 0.5948,
+          "actual_rate": 0.5138
+        },
+        {
+          "bin": "[0.62,0.67)",
+          "n": 109,
+          "pred_mean": 0.6422,
+          "actual_rate": 0.5321
+        },
+        {
+          "bin": "[0.67,1.00)",
+          "n": 110,
+          "pred_mean": 0.7406,
+          "actual_rate": 0.6545
+        }
+      ],
+      "definition": "derived P(margin > spread_line) vs actual margin > spread_line (home perspective)",
+      "empirical_home_ats_rate": 0.4849
+    },
+    "totals": {
+      "n": 1091,
+      "ece": 0.0935,
+      "bins": [
+        {
+          "bin": "[0.00,0.36)",
+          "n": 109,
+          "pred_mean": 0.296,
+          "actual_rate": 0.3303
+        },
+        {
+          "bin": "[0.36,0.43)",
+          "n": 109,
+          "pred_mean": 0.3961,
+          "actual_rate": 0.3945
+        },
+        {
+          "bin": "[0.43,0.47)",
+          "n": 109,
+          "pred_mean": 0.4481,
+          "actual_rate": 0.4495
+        },
+        {
+          "bin": "[0.47,0.52)",
+          "n": 109,
+          "pred_mean": 0.4917,
+          "actual_rate": 0.4862
+        },
+        {
+          "bin": "[0.52,0.56)",
+          "n": 109,
+          "pred_mean": 0.5373,
+          "actual_rate": 0.5046
+        },
+        {
+          "bin": "[0.56,0.59)",
+          "n": 109,
+          "pred_mean": 0.5745,
+          "actual_rate": 0.4495
+        },
+        {
+          "bin": "[0.59,0.63)",
+          "n": 109,
+          "pred_mean": 0.6106,
+          "actual_rate": 0.5046
+        },
+        {
+          "bin": "[0.63,0.69)",
+          "n": 109,
+          "pred_mean": 0.6607,
+          "actual_rate": 0.5046
+        },
+        {
+          "bin": "[0.69,0.75)",
+          "n": 109,
+          "pred_mean": 0.7159,
+          "actual_rate": 0.5321
+        },
+        {
+          "bin": "[0.75,1.00)",
+          "n": 110,
+          "pred_mean": 0.8159,
+          "actual_rate": 0.5273
+        }
+      ],
+      "definition": "derived P(total > total_line) vs actual total > total_line",
+      "empirical_over_rate": 0.4684
+    }
+  },
+  "feature_columns_untouched": true,
+  "judgment_calls": {
+    "layer_may_terminate_at_step0": "judgment call 1 confirmed: the layer correctly terminates at Step 0 \u2014 internal PIT is uniform under the documented convention, so sigma cannot fix the totals top-bin; the defect attribution splits between the engine grid shift (this record) and market information asymmetry (market layer)",
+    "g1_not_gated": "CRPS-vs-climatology (G1) is a mean-layer gate \u2014 sigma moves it little; reported for C0 only, not gated",
+    "fold_discipline": "Arm-U/C design rule preserved in the module: per-fold sigma_const + per-fold PIT-optimal gamma, median-of-fold transfer to sealed; NO pooled-OOF static overlay ever touches a scored row (guard raises) \u2014 applicable to future arms",
+    "home_not_perturbed": "do-not-perturb-the-home-marginal rule (era cost lesson) \u2014 moot at STOP, encoded in the module for future arms",
+    "convention_split": "all calibration tables reported in the documented convention with the engine index convention alongside \u2014 the fair internal test plus the engine's actual pricing convention"
+  }
+}
