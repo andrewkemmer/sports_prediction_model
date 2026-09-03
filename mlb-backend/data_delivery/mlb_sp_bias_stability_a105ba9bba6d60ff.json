@@ -1,0 +1,326 @@
+{
+  "schema": "mlb_sp_bias_stability.v1",
+  "market_date": "20260903",
+  "frame_sha": "a105ba9bba6d60ff",
+  "frame_sha_source": "game_level_features.csv (sha1:16)",
+  "sources": {
+    "run_engine_markets": "run_engine_markets_20260903.csv kind==oof",
+    "game_level_features": "game_level_features.csv (sp_era_diff)",
+    "predictions_history": "predictions_history_20260903.csv (binary context)"
+  },
+  "row_counts": {
+    "run_engine_oof": 6885,
+    "aligned_oof": 6277,
+    "clean_sp": 6244,
+    "oof_span": [
+      "2024-04-25",
+      "2026-09-02"
+    ]
+  },
+  "caveat_window": "The available OOF window is ~2.3 partial seasons (2024 tail from 2024-04-02, full 2025, 2026 to 2026-09-02). Per-season cells on the 2024 tail are small; the record states n per cell and does not overclaim statistical power.",
+  "metric_definitions": {
+    "margin_error": "actual margin - (lam_home - lam_away); >0 => model under-spreads",
+    "away_lambda_error": "lam_away - actual_away_runs; >0 => away model over-predicts away runs",
+    "derived_gap": "derived_ml_mean - actual_home_win_rate; >0 => derived ML overstates home",
+    "compression_ratio": "lam_edge sextile spread / actual margin sextile spread (per season)"
+  },
+  "season_x_stratum": [
+    {
+      "n": 349,
+      "margin_error_mean": 0.227,
+      "away_lambda_error_mean": 0.237,
+      "away_lambda_error_se": 0.17,
+      "home_lambda_error_mean": 0.011,
+      "derived_ml_mean": 0.5498,
+      "actual_home_win": 0.5559,
+      "derived_gap": -0.006,
+      "sp_era_diff_mean": -2.81,
+      "key": "2024",
+      "stratum": "home SP better >= 1.5"
+    },
+    {
+      "n": 488,
+      "margin_error_mean": 0.202,
+      "away_lambda_error_mean": 0.121,
+      "away_lambda_error_se": 0.143,
+      "home_lambda_error_mean": -0.081,
+      "derived_ml_mean": 0.5609,
+      "actual_home_win": 0.5943,
+      "derived_gap": -0.0334,
+      "sp_era_diff_mean": -3.02,
+      "key": "2025",
+      "stratum": "home SP better >= 1.5"
+    },
+    {
+      "n": 463,
+      "margin_error_mean": 0.214,
+      "away_lambda_error_mean": 0.059,
+      "away_lambda_error_se": 0.145,
+      "home_lambda_error_mean": -0.155,
+      "derived_ml_mean": 0.5472,
+      "actual_home_win": 0.5594,
+      "derived_gap": -0.0122,
+      "sp_era_diff_mean": -3.05,
+      "key": "2026",
+      "stratum": "home SP better >= 1.5"
+    },
+    {
+      "n": 1266,
+      "margin_error_mean": 0.037,
+      "away_lambda_error_mean": -0.036,
+      "away_lambda_error_se": 0.088,
+      "home_lambda_error_mean": -0.073,
+      "derived_ml_mean": 0.5353,
+      "actual_home_win": 0.5427,
+      "derived_gap": -0.0074,
+      "sp_era_diff_mean": -0.0,
+      "key": "2024",
+      "stratum": "even |diff| < 1.5"
+    },
+    {
+      "n": 1252,
+      "margin_error_mean": 0.0,
+      "away_lambda_error_mean": -0.068,
+      "away_lambda_error_se": 0.09,
+      "home_lambda_error_mean": -0.069,
+      "derived_ml_mean": 0.5353,
+      "actual_home_win": 0.5256,
+      "derived_gap": 0.0098,
+      "sp_era_diff_mean": -0.01,
+      "key": "2025",
+      "stratum": "even |diff| < 1.5"
+    },
+    {
+      "n": 1043,
+      "margin_error_mean": -0.015,
+      "away_lambda_error_mean": -0.096,
+      "away_lambda_error_se": 0.104,
+      "home_lambda_error_mean": -0.081,
+      "derived_ml_mean": 0.5342,
+      "actual_home_win": 0.5244,
+      "derived_gap": 0.0098,
+      "sp_era_diff_mean": 0.01,
+      "key": "2026",
+      "stratum": "even |diff| < 1.5"
+    },
+    {
+      "n": 389,
+      "margin_error_mean": -0.513,
+      "away_lambda_error_mean": -0.244,
+      "away_lambda_error_se": 0.153,
+      "home_lambda_error_mean": 0.269,
+      "derived_ml_mean": 0.5186,
+      "actual_home_win": 0.4447,
+      "derived_gap": 0.0739,
+      "sp_era_diff_mean": 2.9,
+      "key": "2024",
+      "stratum": "away SP better >= 1.5"
+    },
+    {
+      "n": 535,
+      "margin_error_mean": -0.237,
+      "away_lambda_error_mean": -0.262,
+      "away_lambda_error_se": 0.158,
+      "home_lambda_error_mean": -0.026,
+      "derived_ml_mean": 0.5115,
+      "actual_home_win": 0.5121,
+      "derived_gap": -0.0006,
+      "sp_era_diff_mean": 3.01,
+      "key": "2025",
+      "stratum": "away SP better >= 1.5"
+    },
+    {
+      "n": 459,
+      "margin_error_mean": -0.176,
+      "away_lambda_error_mean": -0.076,
+      "away_lambda_error_se": 0.153,
+      "home_lambda_error_mean": 0.1,
+      "derived_ml_mean": 0.512,
+      "actual_home_win": 0.4837,
+      "derived_gap": 0.0284,
+      "sp_era_diff_mean": 3.19,
+      "key": "2026",
+      "stratum": "away SP better >= 1.5"
+    },
+    {
+      "n": 104,
+      "margin_error_mean": -0.142,
+      "away_lambda_error_mean": 0.24,
+      "away_lambda_error_se": 0.282,
+      "home_lambda_error_mean": 0.383,
+      "derived_ml_mean": 0.5495,
+      "actual_home_win": 0.5192,
+      "derived_gap": 0.0303,
+      "sp_era_diff_mean": -4.46,
+      "key": "2024",
+      "stratum": "home SP better >= 3.0"
+    },
+    {
+      "n": 183,
+      "margin_error_mean": -0.03,
+      "away_lambda_error_mean": 0.054,
+      "away_lambda_error_se": 0.234,
+      "home_lambda_error_mean": 0.084,
+      "derived_ml_mean": 0.565,
+      "actual_home_win": 0.5628,
+      "derived_gap": 0.0022,
+      "sp_era_diff_mean": -4.57,
+      "key": "2025",
+      "stratum": "home SP better >= 3.0"
+    },
+    {
+      "n": 180,
+      "margin_error_mean": 0.176,
+      "away_lambda_error_mean": -0.115,
+      "away_lambda_error_se": 0.241,
+      "home_lambda_error_mean": -0.29,
+      "derived_ml_mean": 0.5443,
+      "actual_home_win": 0.5556,
+      "derived_gap": -0.0112,
+      "sp_era_diff_mean": -4.47,
+      "key": "2026",
+      "stratum": "home SP better >= 3.0"
+    },
+    {
+      "n": 120,
+      "margin_error_mean": -0.585,
+      "away_lambda_error_mean": -0.076,
+      "away_lambda_error_se": 0.282,
+      "home_lambda_error_mean": 0.509,
+      "derived_ml_mean": 0.5104,
+      "actual_home_win": 0.4083,
+      "derived_gap": 0.1021,
+      "sp_era_diff_mean": 4.72,
+      "key": "2024",
+      "stratum": "away SP better >= 3.0"
+    },
+    {
+      "n": 192,
+      "margin_error_mean": 0.151,
+      "away_lambda_error_mean": -0.373,
+      "away_lambda_error_se": 0.276,
+      "home_lambda_error_mean": -0.523,
+      "derived_ml_mean": 0.5184,
+      "actual_home_win": 0.5625,
+      "derived_gap": -0.0441,
+      "sp_era_diff_mean": 4.59,
+      "key": "2025",
+      "stratum": "away SP better >= 3.0"
+    },
+    {
+      "n": 176,
+      "margin_error_mean": -0.04,
+      "away_lambda_error_mean": 0.104,
+      "away_lambda_error_se": 0.244,
+      "home_lambda_error_mean": 0.145,
+      "derived_ml_mean": 0.5089,
+      "actual_home_win": 0.483,
+      "derived_gap": 0.0259,
+      "sp_era_diff_mean": 4.86,
+      "key": "2026",
+      "stratum": "away SP better >= 3.0"
+    }
+  ],
+  "structural_compression_per_season": [
+    {
+      "n": 2004,
+      "actual_margin_sextile_spread": 1.105,
+      "lam_edge_sextile_spread": 0.375,
+      "compression_ratio": 0.34,
+      "season": "2024"
+    },
+    {
+      "n": 2275,
+      "actual_margin_sextile_spread": 1.103,
+      "lam_edge_sextile_spread": 0.597,
+      "compression_ratio": 0.541,
+      "season": "2025"
+    },
+    {
+      "n": 1965,
+      "actual_margin_sextile_spread": 1.185,
+      "lam_edge_sextile_spread": 0.419,
+      "compression_ratio": 0.353,
+      "season": "2026"
+    }
+  ],
+  "early_vs_late": [
+    {
+      "key": "early",
+      "n": 3136,
+      "date_min": "2024-04-25",
+      "date_max": "2025-06-29",
+      "home_fav": {
+        "n": 629,
+        "margin_error_mean": 0.146,
+        "away_lambda_error_mean": 0.153,
+        "derived_gap": -0.0109
+      },
+      "even": {
+        "n": 1833,
+        "margin_error_mean": -0.001,
+        "away_lambda_error_mean": -0.018,
+        "derived_gap": -0.0009
+      },
+      "away_fav": {
+        "n": 674,
+        "margin_error_mean": -0.393,
+        "away_lambda_error_mean": -0.244,
+        "derived_gap": 0.0409
+      }
+    },
+    {
+      "key": "late",
+      "n": 3108,
+      "date_min": "2025-06-30",
+      "date_max": "2026-09-02",
+      "home_fav": {
+        "n": 671,
+        "margin_error_mean": 0.276,
+        "away_lambda_error_mean": 0.109,
+        "derived_gap": -0.0256
+      },
+      "even": {
+        "n": 1728,
+        "margin_error_mean": 0.019,
+        "away_lambda_error_mean": -0.115,
+        "derived_gap": 0.0085
+      },
+      "away_fav": {
+        "n": 709,
+        "margin_error_mean": -0.201,
+        "away_lambda_error_mean": -0.149,
+        "derived_gap": 0.0195
+      }
+    }
+  ],
+  "verdict": {
+    "verdict": "SPLIT: structural STABLE, derived-gap leg UNSTABLE",
+    "text": "Leg 1 (away-side lambda error) is STABLE: over-predicts away runs when home SP is elite ([0.237, 0.121, 0.059]) and under-predicts when away SP is elite ([-0.244, -0.262, -0.076]), same signs in every season-partial and in the early/late split ([0.153, 0.109]/[-0.244, -0.149]); the structural compression ratio [0.34, 0.541, 0.353] appears in all seasons. Leg 2 (derived-ML band gap) is NOT stable: the away-fav gap is +7.4pp (2024), ~0 (2025), +2.8pp (2026) \u2014 the 2-3pp gap does not replicate per-season and the extreme band sign-flips (2024 +10.2pp vs 2025 -4.4pp). That instability traces to actuals' variance (home win rate in the away-SP>=3.0 band: 0.408/0.562/0.483) against a near-flat derived ML (~0.51) \u2014 the model is stable, reality wobbles. Proceed with the projection-feature arm-test (it targets lambda structure, which is stable and orthogonal to seasonality); do NOT build a conditional correction sized to a fixed 2-3pp derived-gap.",
+    "next_action": "SPLIT: proceed to the projection-feature arm-test; any derived-gap correction must be season-aware or lean on the binary.",
+    "away_err_by_season_home_fav": [
+      0.237,
+      0.121,
+      0.059
+    ],
+    "away_err_by_season_away_fav": [
+      -0.244,
+      -0.262,
+      -0.076
+    ],
+    "derived_gap_by_season_home_fav": [
+      -0.006,
+      -0.0334,
+      -0.0122
+    ],
+    "derived_gap_by_season_away_fav": [
+      0.0739,
+      -0.0006,
+      0.0284
+    ],
+    "away_leg_stable": true,
+    "derived_gap_leg_stable": false,
+    "min_even_n_per_season": 1043,
+    "power_note": "OOF window is ~2.3 partial seasons (2024 tail, full 2025, 2026 to date) \u2014 limited power; do not overclaim."
+  }
+}
