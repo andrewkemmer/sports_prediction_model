@@ -35,7 +35,7 @@ import market_diagnostics as diag  # noqa: E402
 TOTAL_GRID = getattr(diag, "TOTAL_GRID",
                      [round(6.5 + 0.5 * i, 1) for i in range(13)])
 RUN_LINE_GRID_FULL = getattr(diag, "RUN_LINE_GRID_FULL",
-                             [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
+                             [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0])
 
 utils.inject_css()
 
@@ -287,8 +287,10 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     (bits["total_line"], nearest 0.5 of λ_home + λ_away) unless a line was
     selected for the card (bits["line_selected"] set — the per-card
     selector / future market-lines mode), in which case the O/U reflects
-    that line and the label says "line selected". Notes when the line was
-    clamped to the shipped grid. The run-line span is favorite-anchored:
+    that line (the active line is already visible in the card's own
+    dropdown, so the strip does not repeat "line selected"). Notes when
+    the line was clamped to the shipped grid. The run-line span is
+    favorite-anchored:
     the −L side is the moneyline favorite (never the underdog), derived by
     _orient_rl_bits from the favorite's side of the run-engine ladder / NB
     margin distribution. Home-favored games render exactly the artifact's
@@ -306,11 +308,8 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     if not bits.get("has_grid"):
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
-    selected = bits.get("line_selected")
     ou_label = (f'O/U {bits["total_line"]:.1f}'
-                + (" (clamped)" if bits.get("clamped") else "")
-                + (f' (line selected: {selected:.1f})' if selected is not None
-                   else ""))
+                + (" (clamped)" if bits.get("clamped") else ""))
     # The card shows the 2-WAY re-scaled split: Over + Under sum to 100%
     # (the push was folded proportionately by run_engine_card_bits, since a
     # push refunds the bet — whole-number lines price that way). p_push is
@@ -332,16 +331,21 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
 
 
 def _rl_html(bits, home_team: str, away_team: str) -> str:
-    """Run-line span — the selected line (default ±1.5) as the FAVORITE-
-    ANCHORED pair (FAV −L / DOG +L, RE-SCALED 2-way cover split so the
-    pair sums to 100%). _orient_rl_bits prices the pair from the moneyline
-    favorite's side, so the −L side is the favorite — never the underdog;
-    when no favorite was resolved (or a legacy row lacks the NB parameters
-    to re-anchor) the span falls back to the home-anchored pair exactly as
-    before. Alternate lines the artifact cannot price render as 'unverified'
-    (never fabricated)."""
+    """Run-line span — the selected magnitude (default ±1.5) as the
+    FAVORITE-ANCHORED pair (FAV −L / DOG +L, RE-SCALED 2-way cover split so
+    the pair sums to 100%). _orient_rl_bits prices the pair from the
+    moneyline favorite's side, so the −L side is the favorite — never the
+    underdog; when no favorite was resolved (or a legacy row lacks the NB
+    parameters to re-anchor) the span falls back to the home-anchored pair
+    exactly as before. The active magnitude is already shown in the card's
+    own dropdown, so the strip never repeats "(line selected …)". At the
+    ±0.5 stop there is no push (integer margins never tie on decided MLB
+    games), so the vacated push slot is replaced by PER-SIDE grey-italic
+    derived-ML parentheticals '(ML X%)' — equal to the cover number by
+    construction on MLB (cover −0.5 ≡ winning outright); integer stops keep
+    the shared push note and no ML notes. Alternate lines the artifact
+    cannot price render as 'unverified' (never fabricated)."""
     rl_line = bits.get("rl_line")
-    selected_note = (f" (line selected: −{rl_line:.1f})" if rl_line else "")
     fav_side = bits.get("rl_fav_side")
     oriented = (fav_side in ("home", "away")
                 and bits.get("rl_fav_cover") is not None
@@ -362,9 +366,30 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
                 f'{away_team} +1.5 {bits["p_away_cover"]:.0%} '
                 f'(complement)</span>')
     if bits.get("rl_unverified"):
-        return (f'<span>RL: −{rl_line:.1f} '
-                f'{selected_note} — unverified on this '
+        return (f'<span>RL: −{rl_line:.1f} — unverified on this '
                 f'artifact</span>')
+    if abs(float(rl_line) - 0.5) < 1e-9:
+        # Half-point ±0.5: half-lines never push, so each side carries its
+        # derived-ML parenthetical (grey-italic, like the totals push
+        # note). At ±0.5 the −0.5 side covers exactly when it WINS outright,
+        # so on MLB each (ML X%) equals that side's cover number by
+        # construction (the expected placeholder identity — the future NFL
+        # port's tie-adjusted ML will differ). Covers come from whichever
+        # pair the orientation resolved (favorite-anchored) or the
+        # home-anchored fallback — never fabricated.
+        if oriented:
+            fav_team = home_team if fav_side == "home" else away_team
+            dog_team = away_team if fav_side == "home" else home_team
+            fav_cov, dog_cov = bits["rl_fav_cover"], bits["rl_dog_cover"]
+        elif bits.get("rl_home") is None or bits.get("rl_away") is None:
+            return f'<span>RL: n/a</span>'
+        else:
+            fav_team, dog_team = home_team, away_team
+            fav_cov, dog_cov = bits["rl_home"], bits["rl_away"]
+        fav_note = f' <span class="re-na">(ML {fav_cov:.0%})</span>'
+        dog_note = f' <span class="re-na">(ML {dog_cov:.0%})</span>'
+        return (f'<span>RL: {fav_team} −0.5 {fav_cov:.0%}{fav_note} · '
+                f'{dog_team} +0.5 {dog_cov:.0%}{dog_note}</span>')
     push_src = bits.get("rl_fav_push") if oriented else bits.get("rl_push")
     push_note = (f' ({float(push_src):.0%} push)'
                  if (push_src or 0) > 0.005 else "")
@@ -374,14 +399,13 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
         return (f'<span>RL: {fav_team} −{rl_line:.1f} '
                 f'{bits["rl_fav_cover"]:.0%} · '
                 f'{dog_team} +{rl_line:.1f} '
-                f'{bits["rl_dog_cover"]:.0%}{push_note}'
-                f'{selected_note}</span>')
+                f'{bits["rl_dog_cover"]:.0%}{push_note}</span>')
     if bits.get("rl_home") is None or bits.get("rl_away") is None:
         return f'<span>RL: n/a</span>'
     return (f'<span>RL: {home_team} −{rl_line:.1f} '
             f'{bits["rl_home"]:.0%} · '
             f'{away_team} +{rl_line:.1f} {bits["rl_away"]:.0%}{push_note}'
-            f'{selected_note}</span>')
+            f'</span>')
 
 
 def _score_side(num, abbr: str, is_winner: bool) -> str:

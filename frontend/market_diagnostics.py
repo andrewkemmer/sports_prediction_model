@@ -68,11 +68,13 @@ TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 TOTAL_GRID_LO = TOTAL_GRID[0]
 TOTAL_GRID_HI = TOTAL_GRID[-1]
 RUN_COVER_COL = "p_home_cover_1_5"
-# Per-line run-line grid (mirror of the backend RUN_LINE_GRID_FULL): the
-# half-lines (−1.5 … −4.5 by legacy grid) PLUS whole-number alternates
-# (−1 … −4). Column names come from rl_cols() — built from the RAW margin,
-# so whole 1 and half 1.5 never collide (the totals-grid lesson).
-RUN_LINE_GRID_FULL = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
+# Per-line run-line grid: the backend RUN_LINE_GRID_FULL (1.0 … 4.0)
+# PLUS the innermost ±0.5 stop. Lines ≥ 1 price from the p_rl_<m>_* columns
+# (column names from rl_cols() — built from the RAW margin, so whole 1 and
+# half 1.5 never collide, the totals-grid lesson); ±0.5 has NO p_rl_0_5
+# columns — it is priced via the corrected moneyline (covering −0.5 ≡
+# winning outright), handled in run_engine_card_bits.
+RUN_LINE_GRID_FULL = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
 
 
 def rl_cols(margin: float) -> tuple[str, str, str]:
@@ -1865,6 +1867,31 @@ def _num(row, key: str) -> Optional[float]:
         return None
 
 
+def _row_home_win(row) -> Optional[float]:
+    """Row-level corrected home-win probability (single slate row, not the
+    DataFrame-level ``corrected_home_win``) — the ±0.5 run-line price.
+
+    Preferred source: the emitter's own p_home_cover_0_5 column — the raw
+    ±0.5 cover probability, which the artifact builds as P'(margin > 0) =
+    P(margin ≥ 2) + P'(margin == 1 resolved) and ships bit-identical to
+    p_home_win_derived (cover −0.5 ≡ outright win). When absent (older
+    artifacts / synthetic rows), compose that same corrected mass from
+    p_rl_1_0_home + p_rl_1_0_push; fall back to p_home_win_derived, then
+    p_rl_1_0_home alone. None where unpricable — never fabricated."""
+    v = _num(row, "p_home_cover_0_5")
+    if v is None:
+        a = _num(row, "p_rl_1_0_home")
+        b = _num(row, "p_rl_1_0_push")
+        v = (a + b) if (a is not None and b is not None) else None
+    if v is None:
+        v = _num(row, "p_home_win_derived")
+    if v is None:
+        v = _num(row, "p_rl_1_0_home")
+    if v is None or not (0.0 <= v <= 1.0):
+        return None
+    return float(v)
+
+
 def run_engine_card_bits(game_id: str,
                          slate_map: Optional[dict] = None,
                          line: Optional[float] = None,
@@ -1877,10 +1904,12 @@ def run_engine_card_bits(game_id: str,
     9.5) — pulled from the grid columns at that line (p_over_9_5 /
     p_under_9_5), unless an explicit ``line`` override is given (the
     per-card selector / future market-lines mode): then the split is
-    priced at THAT grid line instead, and line_selected records it so the
-    card can flag a non-default line. A ``line`` outside the shipped grid
-    (or None) falls back to the game's own rounded line — the selector's
-    guard, so an invalid/out-of-grid choice can never crash the card.
+    priced at THAT grid line instead, and line_selected records it (the
+    active line is already shown in the card's own dropdown, so the strip
+    does not annotate a non-default selection). A ``line`` outside the
+    shipped grid (or None) falls back to the game's own rounded line — the
+    selector's guard, so an invalid/out-of-grid choice can never crash the
+    card.
     Lines outside the shipped grid clamp to the nearest edge with
     clamped=True (the card notes it). Never fabricated: missing
     columns / NaN degrade has_grid to False (quiet 'n/a') and a missing
@@ -1911,6 +1940,8 @@ def run_engine_card_bits(game_id: str,
         "rl_line_default": 1.5,
         "rl_home": None,
         "rl_away": None,
+        "rl_ml_home": None,
+        "rl_ml_away": None,
         "rl_push": 0.0,
         "rl_unverified": False,
         "has_grid": False,
@@ -1938,24 +1969,50 @@ def run_engine_card_bits(game_id: str,
             rl_selected = rl_line
     rl_home = rl_away = None
     rl_home_raw = rl_away_raw = None
+    rl_ml_home = rl_ml_away = None
     rl_push = 0.0
     rl_unverified = False
-    h_col, push_col, a_col = rl_cols(use_rl)
-    if h_col in row and push_col in row and a_col in row:
-        vh = _num(row, h_col)
-        vp = _num(row, push_col)
-        va = _num(row, a_col)
-        if vh is not None and va is not None:
-            rl_home = rl_home_raw = vh
-            rl_away = rl_away_raw = va
-            rl_push = vp if vp is not None else 0.0
-    elif use_rl == 1.5:
-        # Legacy artifact: ±1.5 via p_home_cover_1_5 (complement, no push).
-        if p_home_cover is not None:
-            rl_home = rl_home_raw = p_home_cover
-            rl_away = rl_away_raw = 1.0 - p_home_cover
+    if use_rl == 0.5:
+        # ±0.5 has no p_rl_0_5_* columns (rl_cols(0.5) is a name that no
+        # artifact ships): on integer margins the −0.5 side covers exactly
+        # when it WINS outright, so the price IS the corrected home-win
+        # probability from the same margin PMF — the emitter ships it as
+        # p_home_cover_0_5 (== p_home_win_derived by construction: the
+        # cover-0.5 identity the game-structure sampler's current-arm test
+        # pins). Never fabricated: a row the composition cannot price is
+        # unverified, like any other column-less grid line.
+        hw = _row_home_win(row)
+        if hw is not None:
+            rl_home = rl_home_raw = hw
+            rl_away = rl_away_raw = 1.0 - hw
+            # Half-point lines never push (integer margins never equal 0.5).
+            # On MLB the derived ML equals the ±0.5 cover by construction
+            # (cover −0.5 ≡ outright win), so the per-side (ML X%) note is
+            # this same float — the placeholder identity is expected, not a
+            # bug; the keys stay separate so a future NFL margin PMF (with
+            # ties) can differ without touching the MLB render.
+            rl_ml_home = rl_home
+            rl_ml_away = rl_away
+        else:
+            rl_unverified = True
     else:
-        rl_unverified = True
+        h_col, push_col, a_col = rl_cols(use_rl)
+        if h_col in row and push_col in row and a_col in row:
+            vh = _num(row, h_col)
+            vp = _num(row, push_col)
+            va = _num(row, a_col)
+            if vh is not None and va is not None:
+                rl_home = rl_home_raw = vh
+                rl_away = rl_away_raw = va
+                rl_push = vp if vp is not None else 0.0
+        elif use_rl == 1.5:
+            # Legacy artifact: ±1.5 via p_home_cover_1_5 (complement, no
+            # push).
+            if p_home_cover is not None:
+                rl_home = rl_home_raw = p_home_cover
+                rl_away = rl_away_raw = 1.0 - p_home_cover
+        else:
+            rl_unverified = True
     if proj_home is not None and proj_away is not None:
         # Default own line = FAIR line (grid argmin of |re-scaled P(over)
         # − 0.5|, ties → lower), the legal 50/50 anchor; falls back to the
@@ -2032,7 +2089,9 @@ def run_engine_card_bits(game_id: str,
     # into home/away so they sum to 100% — same convention as the O/U
     # split). The raw 3-way (home/push/away) is never shown on the card but
     # stays available for EV (push refunds the stake). Half-lines have
-    # push = 0 → re-scale is a no-op.
+    # push = 0 → re-scale is a no-op. rl_ml_home/rl_ml_away (set only at the
+    # ±0.5 stop) are the per-side derived-ML display values; at ±0.5 they
+    # equal the raw cover by construction (see the branch above).
     if rl_home is not None and rl_away is not None:
         denom = rl_home + rl_away
         if denom > 0:
@@ -2041,6 +2100,7 @@ def run_engine_card_bits(game_id: str,
     bits.update({"rl_line": rl_selected, "rl_line_default": 1.5,
                  "rl_home": rl_home, "rl_away": rl_away,
                  "rl_home_raw": rl_home_raw, "rl_away_raw": rl_away_raw,
+                 "rl_ml_home": rl_ml_home, "rl_ml_away": rl_ml_away,
                  "rl_push": rl_push, "rl_unverified": rl_unverified})
     return bits
 

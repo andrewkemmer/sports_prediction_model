@@ -436,12 +436,13 @@ class TestLineSelector(unittest.TestCase):
         self.assertIn("TOTAL_GRID", src,
                       "selection must validate against the shipped grid")
 
-    def test_html_marks_selected_line(self):
-        """The card strip must label a non-model line as 'line selected' so
-        it is clear when the user has moved off the model's line."""
+    def test_strip_no_longer_annotates_selected_line(self):
+        """The card strip no longer renders a '(line selected: …)' suffix on
+        the O/U or run-line readouts — the active line is already shown in
+        the card's own dropdowns, so the annotation was redundant."""
         src = (FRONTEND / "todays_games.py").read_text()
-        self.assertIn("line selected", src,
-                      "card must flag a non-default selected line")
+        self.assertNotIn("line selected:", src,
+                         "card strip must not annotate the selected line")
 
 
 class TestRunLineSelector(unittest.TestCase):
@@ -483,6 +484,16 @@ class TestRunLineSelector(unittest.TestCase):
             "p_rl_4_0_away": 0.86,
         }
 
+    def test_selector_grid_includes_half_point_stop(self):
+        """The run-line selector's grid adds ±0.5 as its innermost stop
+        (Change 2): 0.5, then 1.0 … 4.0 by 0.5 — nothing below."""
+        self.assertEqual(diag.RUN_LINE_GRID_FULL[0], 0.5)
+        self.assertEqual(diag.RUN_LINE_GRID_FULL[1], 1.0)
+        self.assertEqual(diag.RUN_LINE_GRID_FULL[-1], 4.0)
+        self.assertEqual(
+            diag.RUN_LINE_GRID_FULL,
+            [0.5] + [round(0.5 + 0.5 * i, 1) for i in range(1, 8)])
+
     def test_column_injectivity(self):
         """p_rl_1_0_home vs p_rl_1_5_home are DISTINCT columns (whole 1 vs
         half 1.5 never collide — the totals-grid lesson)."""
@@ -519,6 +530,42 @@ class TestRunLineSelector(unittest.TestCase):
         self.assertEqual(bits["rl_push"], 0.0)
         self.assertFalse(bits["rl_unverified"])
 
+    def test_half_point_line_priced_from_corrected_home_win(self):
+        """rl_line=0.5 → priced from the corrected home-win probability of
+        the same margin PMF (no p_rl_0_5 columns exist): with the fixture's
+        p_rl_1_0_home 0.44 + p_rl_1_0_push 0.10 the −0.5/+0.5 split is
+        0.54/0.46, no push, verified — and each side's derived-ML equals its
+        ±0.5 cover (the MLB placeholder identity, bit-identical)."""
+        row = self._rl_row()
+        bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=0.5)
+        self.assertEqual(bits["rl_line"], 0.5)
+        self.assertAlmostEqual(bits["rl_home"], 0.54, places=9)
+        self.assertAlmostEqual(bits["rl_away"], 0.46, places=9)
+        self.assertAlmostEqual(bits["rl_home"] + bits["rl_away"], 1.0,
+                               places=9)
+        # Half-lines never push; the line is priced, not 'unverified'.
+        self.assertEqual(bits["rl_push"], 0.0)
+        self.assertFalse(bits["rl_unverified"])
+        # Derived-ML per side == the ±0.5 cover by construction on MLB.
+        self.assertEqual(bits["rl_ml_home"], bits["rl_home"])
+        self.assertEqual(bits["rl_ml_away"], bits["rl_away"])
+
+    def test_half_point_prefers_shipped_cover_0_5_column(self):
+        """On real artifacts the row ships p_home_cover_0_5 (==
+        p_home_win_derived by emitter construction); when present the ±0.5
+        price resolves through that explicit column, and both sides of the
+        derived-ML equal the cover values."""
+        row = dict(self._rl_row())
+        row.update({"p_home_cover_0_5": 0.555, "p_home_win_derived": 0.555,
+                    "p_away_win_derived": 0.445})
+        bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=0.5)
+        self.assertEqual(bits["rl_line"], 0.5)
+        self.assertAlmostEqual(bits["rl_home"], 0.555, places=9)
+        self.assertAlmostEqual(bits["rl_away"], 0.445, places=9)
+        self.assertEqual(bits["rl_ml_home"], bits["rl_home"])
+        self.assertEqual(bits["rl_ml_away"], bits["rl_away"])
+        self.assertFalse(bits["rl_unverified"])
+
     def test_whole_line_3way_and_rescale(self):
         """rl_line=2.0 (whole): 3-way raw sums to 1.0 with push > 0; the
         card's re-scaled 2-way sums to 100% (±1) with the ratio preserved."""
@@ -540,9 +587,10 @@ class TestRunLineSelector(unittest.TestCase):
         self.assertAlmostEqual(bits["rl_away"], 0.62 / 0.92, places=3)
 
     def test_invalid_rl_line_falls_back(self):
-        """Out-of-grid / non-numeric / None rl_line → ±1.5 fallback."""
+        """Out-of-grid / non-numeric / None rl_line → ±1.5 fallback (0.5
+        IS on the grid now — covered by the half-point tests)."""
         row = self._rl_row()
-        for bad in (0.5, 5.0, 1.7, "abc", None):
+        for bad in (5.0, 1.7, "abc", None):
             bits = diag.run_engine_card_bits("RL", {"RL": row}, rl_line=bad)
             self.assertIsNone(bits["rl_line"],
                               f"rl_line={bad!r} must fall back to default")
@@ -561,6 +609,12 @@ class TestRunLineSelector(unittest.TestCase):
         self.assertTrue(bits2["rl_unverified"])
         self.assertIsNone(bits2["rl_home"])
         self.assertIsNone(bits2["rl_away"])
+        # ±0.5 on a legacy row with no composition/derived columns is
+        # likewise unverified (never fabricated from the ±1.5 pair).
+        bits3 = diag.run_engine_card_bits("LG", {"LG": row}, rl_line=0.5)
+        self.assertTrue(bits3["rl_unverified"])
+        self.assertIsNone(bits3["rl_home"])
+        self.assertIsNone(bits3["rl_ml_home"])
 
     def test_selector_state_keyed_per_game(self):
         """Selector session_state keyed rl_line_<game_pk> via a named
@@ -570,14 +624,19 @@ class TestRunLineSelector(unittest.TestCase):
         self.assertIn("resolve_rl_line", src)
         self.assertIn("RUN_LINE_GRID_FULL", src)
 
-    def test_html_marks_selected_rl_line(self):
-        """The card strip must label a selected run line explicitly and
-        reference the re-scaled home/away + push handling."""
+    def test_html_rl_no_line_selected_suffix_with_ml_notes(self):
+        """The run-line strip no longer labels the selected line (it is
+        already in the card's own dropdown) and still references the
+        re-scaled home/away + push handling; the ±0.5 stop renders the
+        per-side derived-ML parentheticals."""
         src = (FRONTEND / "todays_games.py").read_text()
-        self.assertIn("line selected", src)
+        self.assertNotIn("line selected:", src,
+                         "run-line strip must not annotate the line")
         self.assertIn("rl_home", src)
         self.assertIn("rl_push", src)
         self.assertIn("unverified", src)
+        self.assertIn("(ML ", src,
+                      "±0.5 render must carry per-side derived-ML notes")
 
 
 class TestRunLineCalibrationRecord(unittest.TestCase):
@@ -599,8 +658,13 @@ class TestRunLineCalibrationRecord(unittest.TestCase):
         self.record = json.loads(cands[0].read_text())
 
     def test_all_grid_lines_present_with_verdict(self):
+        # The record covers the run-line-gated stops (1.0 … 4.0). ±0.5 is a
+        # moneyline-equivalence stop (no p_rl_0_5 columns — priced via the
+        # corrected home-win, i.e. the card's derived-ML), so it has no
+        # separate run-line gate row and is excluded here by design.
         lines = {r["line"] for r in self.record["lines"]}
-        self.assertEqual(lines, set(diag.RUN_LINE_GRID_FULL))
+        self.assertEqual(lines,
+                         set(diag.RUN_LINE_GRID_FULL) - {0.5})
         for r in self.record["lines"]:
             self.assertIn(r["verdict"],
                           ("calibrated", "over-predicting",
@@ -771,6 +835,59 @@ class TestRunEngineStripSmoke(unittest.TestCase):
             '<span>RL: BOS −1.5 55% · NYY +1.5 45% (complement)</span></div>',
             "normal run-engine strip must be byte-identical")
         self.assertNotIn("currently unavailable", out)
+
+    def test_ou_line_selection_no_longer_annotated(self):
+        """A user-selected O/U line renders without the '(line selected: …)'
+        suffix — the active line is shown in the card's own dropdown."""
+        todays = self._todays()
+        bits = {
+            "has_grid": True, "total_line": 8.5, "clamped": False,
+            "line_selected": 8.5, "proj_away": 4.2, "proj_home": 4.8,
+            "p_over": 0.43, "p_under": 0.57, "p_push": 0.0,
+            "rl_line": None, "p_home_cover": 0.55, "p_away_cover": 0.45,
+        }
+        out = todays._runengine_html(bits, "BOS", "NYY")
+        self.assertIn("O/U 8.5: Over 43% / Under 57%", out)
+        self.assertNotIn("line selected:", out)
+
+    def test_rl_half_point_render_shows_per_side_ml(self):
+        """At the ±0.5 stop (no push possible) each side renders its
+        derived-ML in a grey-italic parenthetical '(ML X%)' — on MLB equal
+        to the cover number by construction (the expected placeholder)."""
+        todays = self._todays()
+        bits = {"rl_line": 0.5, "rl_home": 0.51, "rl_away": 0.49,
+                "rl_ml_home": 0.51, "rl_ml_away": 0.49, "rl_push": 0.0,
+                "rl_unverified": False}
+        out = todays._rl_html(bits, "BOS", "NYY")
+        self.assertEqual(
+            out,
+            '<span>RL: BOS −0.5 51% <span class="re-na">(ML 51%)</span> · '
+            'NYY +0.5 49% <span class="re-na">(ML 49%)</span></span>')
+        self.assertNotIn("push", out)
+        self.assertNotIn("line selected:", out)
+
+    def test_rl_integer_render_keeps_shared_push_note(self):
+        """Integer stops keep the existing shared push note and add NO
+        derived-ML parentheticals."""
+        todays = self._todays()
+        bits = {"rl_line": 1.0, "rl_home": 0.48, "rl_away": 0.52,
+                "rl_push": 0.10, "rl_unverified": False,
+                "rl_ml_home": None, "rl_ml_away": None}
+        out = todays._rl_html(bits, "BOS", "NYY")
+        self.assertEqual(
+            out, '<span>RL: BOS −1.0 48% · NYY +1.0 52% (10% push)</span>')
+        self.assertNotIn("ML ", out)
+        self.assertNotIn("line selected:", out)
+
+    def test_rl_unverified_render_drops_line_selected_text(self):
+        """The unverified-line notice no longer embeds a '(line selected …)'
+        fragment."""
+        todays = self._todays()
+        bits = {"rl_line": 2.0, "rl_unverified": True}
+        out = todays._rl_html(bits, "BOS", "NYY")
+        self.assertEqual(out,
+                         '<span>RL: −2.0 — unverified on this artifact</span>')
+        self.assertNotIn("line selected:", out)
 
 
 class TestResolveTotalsLineGridBinding(unittest.TestCase):
