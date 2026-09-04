@@ -569,10 +569,14 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                 pass
         return sorted(dates, reverse=True)
 
-    # NFL: the named dated families the calibration/history/monitor pages use.
+    # NFL: the named dated families the calibration/history/monitor/markets
+    # pages use (the run-engine slate-serve families included so the NFL
+    # Totals & Run Lines page resolves its latest artifact date).
     prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
                 ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json"),
-                ("nfl_power_rankings_", ".csv")]
+                ("nfl_power_rankings_", ".csv"),
+                ("nfl_run_engine_markets_", ".csv"),
+                ("nfl_run_engine_monitor_", ".json")]
     if owner and repo:
         try:
             api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
@@ -1062,6 +1066,93 @@ def load_run_engine_markets(date_str: str,
     except Exception as exc:
         _log.error("Run-engine markets CSV parse failed for %s: %s", fname, exc)
         return pd.DataFrame()
+
+
+def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
+    """Available YYYYMMDD dates (newest first) for an NFL run-engine family.
+
+    Enumerates the GitHub data_delivery contents API (when a repo is
+    configured) plus the local dir, exactly like the MLB per-sport loaders
+    — the family name/pattern maps to ``markets_csv`` /
+    ``markets_monitor_json`` in the registry."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    pat = artifact_patterns(s).get(family)
+    cfg = get_source_config()
+    prefix, ext = None, None
+    if family == "markets_csv":
+        prefix, ext = "nfl_run_engine_markets_", ".csv"
+    elif family == "markets_monitor_json":
+        prefix, ext = "nfl_run_engine_monitor_", ".json"
+    if not pat or not prefix:
+        return []
+    subdir = resolve_sport(s)["repo_subdir"]
+    dates: set[str] = set()
+    if cfg["owner"] and cfg["repo"]:
+        try:
+            api = (f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}"
+                   f"/contents/{subdir}/data_delivery")
+            resp = requests.get(api, timeout=15)
+            if resp.ok:
+                for item in resp.json():
+                    name = str(item.get("name", ""))
+                    if name.startswith(prefix) and name.endswith(ext):
+                        core = name[len(prefix):-len(ext)]
+                        if len(core) == 8 and core.isdigit():
+                            dates.add(core)
+        except requests.RequestException:
+            pass
+    dd = REPO_ROOT / subdir / "data_delivery"
+    if dd.is_dir():
+        for p in dd.glob(f"{prefix}*{ext}"):
+            dates |= _stamp_suffixes(p)
+    return sorted(dates, reverse=True)
+
+
+def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame, str | None]:
+    """Newest NFL run-engine slate-serve markets artifact + its YYYYMMDD date.
+
+    Walks the family dates (newest first) and fetches the CSV through the
+    shared GitHub raw / local fallback (bare filename — the repo subdir +
+    data_delivery/ prefix is applied internally, so the same source config
+    serves MLB and NFL artifacts). Returns (empty frame, None) when no
+    artifact is reachable — never fabricated. The MLB-only
+    ``load_run_engine_markets`` stays untouched (the run-engine slate is a
+    per-sport family: MLB ``run_engine_markets_*``, NFL
+    ``nfl_run_engine_markets_*``)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    for d in _nfl_run_engine_family_dates(s, "markets_csv"):
+        raw, _src = _fetch_bytes(f"nfl_run_engine_markets_{d}.csv",
+                                 **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            return pd.read_csv(io.BytesIO(raw)), d
+        except Exception:
+            continue
+    return pd.DataFrame(), None
+
+
+def load_nfl_run_engine_monitor(sport: str | None = "nfl") -> dict | None:
+    """Newest NFL run-engine monitor JSON (``nfl_run_engine_monitor_*.json``).
+
+    Walks the family dates (newest first) and parses the JSON through the
+    shared fetch fallback. Returns None when missing/unparseable — the page
+    then shows the honest artifact-missing state (never fabricated
+    calibration)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    for d in _nfl_run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _src = _fetch_bytes(f"nfl_run_engine_monitor_{d}.json",
+                                 **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        return data if isinstance(data, dict) else None
+    return None
 
 
 def load_prediction_history(date_str: str,

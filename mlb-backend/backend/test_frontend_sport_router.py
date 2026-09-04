@@ -248,15 +248,18 @@ class TestCalendarExtraction(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSportRegistryAndRouting(unittest.TestCase):
-    def test_nfl_registered_with_no_run_engine(self):
+    def test_nfl_registered_with_run_engine(self):
+        """NFL ships slate-serve artifacts (Totals & Run Lines — the
+        market-free model product), so it registers the run-engine family."""
         cfg = sports_config.resolve_sport("nfl")
         self.assertEqual(cfg["repo_subdir"], "nfl-backend")
-        self.assertFalse(cfg["has_run_engine"])
+        self.assertTrue(cfg["has_run_engine"])
 
-    def test_nfl_excludes_markets_page(self):
+    def test_nfl_includes_markets_page(self):
         self.assertEqual(
             sports_config.active_page_url_paths("nfl"),
-            ["todays-games", "power-rankings", "calibration", "model-monitor"])
+            ["todays-games", "power-rankings", "calibration", "model-monitor",
+             "markets"])
         self.assertEqual(
             sports_config.active_page_url_paths("mlb"),
             ["todays-games", "power-rankings", "calibration", "model-monitor",
@@ -266,7 +269,12 @@ class TestSportRegistryAndRouting(unittest.TestCase):
         self.assertEqual(
             sports_config.artifact_patterns("nfl"),
             {"moneyline_json": "nfl_moneyline_v1_*.json",
-             "feature_json": "nfl_feature_v1_*.json"})
+             "feature_json": "nfl_feature_v1_*.json",
+             "calibration_json": "nfl_calibration_*.json",
+             "predictions_history_csv": "nfl_predictions_history_*.csv",
+             "power_rankings_csv": "nfl_power_rankings_*.csv",
+             "markets_csv": "nfl_run_engine_markets_*.csv",
+             "markets_monitor_json": "nfl_run_engine_monitor_*.json"})
         self.assertIn("todays_games_csv",
                       sports_config.artifact_patterns("mlb"))
 
@@ -323,7 +331,7 @@ class TestArtifactResolver(unittest.TestCase):
         u = _utils_with_sport({})
         # Per-game moneyline slate (step 3) is the newest moneyline artifact.
         self.assertEqual(u["latest_artifact_date"]("nfl", "moneyline_json"),
-                         "20260830")
+                         "20260903")
 
     def test_nfl_feature_resolves(self):
         u = _utils_with_sport({})

@@ -664,13 +664,33 @@ def _et_today_compact() -> str:
     return datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
 
 
-def _nfl_card_html(r) -> str:
+def _nfl_widget_key(r) -> str:
+    """Stable per-game widget key: the game_id when the moneyline row has
+    one, else a (date, away@home) composite — unique per game, stable across
+    reruns (the slate row is matched the same way)."""
+    gid = str(r.get("game_id", "") or "")
+    if gid:
+        return gid
+    d = str(r.get("game_date", "") or "")[:10].replace("-", "")
+    return f"{d}_{r.get('away_team', '')}@{r.get('home_team', '')}"
+
+
+def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
+                   half_stop=False) -> str:
     """Compact NFL moneyline card (teams + win prob) from the adapted frame.
 
     Honors the shared card look (fb-card / fb-team / fb-bar) but omits the
-    MLB-only sections (pitchers, run engine, ML odds). Win prob renders as
-    '—' when the artifact carries none (per-game predictions ship with step
-    3)."""
+    MLB-only sections (pitchers, ML odds/edge). Win prob renders as '—' when
+    the artifact carries none. When a run-engine slate row resolves for this
+    game (``slate_row``), a market-free run-engine box is appended:
+    projected scores, the O/U at the fair/selected total with a push note at
+    integer totals, the run-line pair at the fair/selected home spread (or
+    the ±0.5 stop's raw + derived pair), and the derived-ML pair
+    (P(H>A)/(1−P(tie))) — offered lines, shrink columns and edges are never
+    rendered (NFL dashboard policy).
+    """
+    import nfl_slate_view as nfl_sv
+
     home = str(r.get("home_team", "") or "")
     away = str(r.get("away_team", "") or "")
     home_name = str(r.get("home_team_name", "") or "") or home
@@ -699,21 +719,119 @@ def _nfl_card_html(r) -> str:
     meta += f" · {start}" if start else ""
     meta_html = (f'<div class="fb-venue">📅 {meta}</div>' if meta
                  else '<div class="fb-venue">&nbsp;</div>')
+    runengine = ""
+    if slate_row is not None:
+        try:
+            runengine = nfl_sv.runengine_html(
+                slate_row, home, away, total_line=total_line,
+                home_spread=home_spread, half_stop=half_stop)
+        except Exception:
+            runengine = ('<div class="fb-runengine"><span class="re-label">'
+                         'RUN ENGINE</span><span class="re-na">n/a</span></div>')
     return (
         f'<div class="fb-card"><div class="fb-top">'
         f'<span class="fb-tag">NFL MONEYLINE</span><span class="spacer"></span></div>'
-        f'{_row(home_name, home, ph)}{_row(away_name, away, pa)}{meta_html}</div>'
+        f'{_row(home_name, home, ph)}{_row(away_name, away, pa)}{meta_html}'
+        f'{runengine}</div>'
     )
 
 
-def _render_nfl_cards(frame) -> None:
-    """Render the compact NFL moneyline cards (two per row) for a frame."""
+def _match_slate_row(r, slate: pd.DataFrame):
+    """Slate row (Series) for a moneyline board row, or None.
+
+    Matches by game_id first (the slate's ``game_id`` equals the moneyline
+    record's per-game key), then falls back to the (gameday, teams) matchup
+    so a stale-id artifact still enriches the card. None when no row
+    resolves — the card then omits the run-engine box rather than fabricate.
+    """
+    if slate is None or not len(slate):
+        return None
+    gid = str(r.get("game_id", "") or "")
+    if gid:
+        hit = slate[slate["game_id"].astype(str) == gid]
+        if len(hit):
+            return hit.iloc[0]
+    # Matchup fallback: (date, away, home).
+    d = str(r.get("game_date", "") or "")[:10]
+    h = str(r.get("home_team", "") or "").strip().upper()
+    a = str(r.get("away_team", "") or "").strip().upper()
+    if d and h and a:
+        hit = slate[(slate["gameday"].astype(str).str[:10] == d)
+                    & (slate["home_team"].astype(str).str.strip().str.upper() == h)
+                    & (slate["away_team"].astype(str).str.strip().str.upper() == a)]
+        if len(hit):
+            return hit.iloc[0]
+    return None
+
+
+def _nfl_run_engine_selectors(r, srow):
+    """Per-card O/U + run-line selectors for a game with a slate row.
+
+    Mirror of the MLB card flow: the strip prices the SELECTED grid line
+    (defaults: the model's fair total, and the fair home spread), and the
+    run-line dropdown includes the ±0.5 stop (favorite-anchored raw cover +
+    derived-ML pair — they diverge by the tie rate on NFL). Returns
+    (total_line, home_spread, half_stop) or None when the slate row lacks
+    the fair-line columns (no selectors — the strip then renders n/a).
+    Keys are namespaced nfl_* so they never collide with the MLB card's
+    ou_line_/rl_line_ widgets. Model probabilities only — no offered lines.
+    """
+    import nfl_slate_view as nfl_sv
+    if srow is None:
+        return None
+    fair_total = nfl_sv._f(srow, "fair_total")
+    fair_spread = nfl_sv._f(srow, "fair_spread")
+    if fair_total is None or fair_spread is None:
+        return None
+    gid = _nfl_widget_key(r)
+    totals = sorted(set(nfl_sv.TOTAL_GRID) | {int(round(fair_total))})
+    fair_home = -int(round(fair_spread))          # home quoted spread at the fair threshold
+    home_options = sorted(set(-s for s in nfl_sv.SPREAD_GRID)) + ["±0.5"]
+    c_ou, c_rl = st.columns([1.35, 1], gap="small")
+    with c_ou:
+        total_line = st.selectbox(
+            "O/U line", totals, index=totals.index(int(round(fair_total))),
+            format_func=lambda u: f"{u}  (fair)" if int(u) == int(round(fair_total))
+            else f"{u}",
+            key=f"nfl_ou_{gid}", label_visibility="collapsed",
+            help=("Totals line to price this game at — defaults to the "
+                  "model's fair total; model probabilities at your line."))
+    with c_rl:
+        picked = st.selectbox(
+            "Run line", home_options,
+            index=home_options.index(fair_home),
+            format_func=lambda v: ("±0.5 (raw vs ML)" if v == "±0.5"
+                                   else (f"Home {v:+d} / Away {-v:+d}  (fair)"
+                                         if v == fair_home
+                                         else f"Home {v:+d} / Away {-v:+d}")),
+            key=f"nfl_rl_{gid}", label_visibility="collapsed",
+            help=("Run-line pair to price this game at — defaults to the "
+                  "fair home spread. ±0.5 is the pick'em stop: per-side raw "
+                  "cover plus the derived (ML) pair, which diverge by the "
+                  "tie rate on NFL. Model probabilities only."))
+    half_stop = (picked == "±0.5")
+    home_spread = None if half_stop else int(picked)
+    return int(total_line), home_spread, half_stop
+
+
+def _render_nfl_cards(frame, slate: pd.DataFrame | None = None) -> None:
+    """Render the compact NFL moneyline cards (two per row) for a frame,
+    each enriched with its run-engine box when a slate row resolves (with
+    per-card O/U + run-line selectors mirroring the MLB card flow)."""
     for i in range(0, len(frame), 2):
         cols = st.columns(2)
         for col, (_, r) in zip(cols, frame.iloc[i:i + 2].iterrows()):
             with col:
-                st.markdown(_nfl_card_html(r), unsafe_allow_html=True)
-    st.caption("NFL moneyline probabilities are point-in-time model outputs.")
+                srow = _match_slate_row(r, slate)
+                sel = _nfl_run_engine_selectors(r, srow) if srow is not None else None
+                kw = {}
+                if sel is not None:
+                    kw = {"total_line": sel[0], "home_spread": sel[1],
+                          "half_stop": sel[2]}
+                st.markdown(_nfl_card_html(r, srow, **kw),
+                            unsafe_allow_html=True)
+    st.caption("NFL moneyline probabilities are point-in-time model outputs; "
+               "run-engine lines are the model's fair values.")
 
 
 def _render_nfl_board() -> None:
@@ -741,7 +859,8 @@ def _render_nfl_board() -> None:
             "win probabilities (step 3)."
         )
         return
-    _render_nfl_cards(frame)
+    slate, _date = utils.load_nfl_run_engine_markets("nfl")
+    _render_nfl_cards(frame, slate)
 
 
 def _render_nearest_valid_fallback(valid, current: str) -> None:
@@ -1034,8 +1153,10 @@ def _render_date_nav(valid, current: str) -> None:
             st.rerun()
 
 
-def _render_nfl_day_board(frame, date_str: str) -> None:
-    """Per-date NFL moneyline board for the selected valid game date."""
+def _render_nfl_day_board(frame, date_str: str,
+                          slate: pd.DataFrame | None = None) -> None:
+    """Per-date NFL moneyline board for the selected valid game date,
+    enriched with the run-engine box from the slate-serve artifact."""
     st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
                 unsafe_allow_html=True)
     fdate = utils.latest_artifact_date("nfl", "moneyline_json")
@@ -1045,7 +1166,7 @@ def _render_nfl_day_board(frame, date_str: str) -> None:
         f"{utils.format_date_long(date_str)} · artifact {tag}</div>",
         unsafe_allow_html=True,
     )
-    _render_nfl_cards(frame)
+    _render_nfl_cards(frame, slate)
 
 
 def _run_nfl_main(valid, valid_set) -> None:
@@ -1076,7 +1197,11 @@ def _run_nfl_main(valid, valid_set) -> None:
     if day.empty:
         _render_nearest_valid_fallback(valid, date_str)
         return
-    _render_nfl_day_board(day, date_str)
+    try:
+        slate, _sdate = utils.load_nfl_run_engine_markets("nfl")
+    except Exception:
+        slate = pd.DataFrame()
+    _render_nfl_day_board(day, date_str, slate)
 
 
 def main() -> None:

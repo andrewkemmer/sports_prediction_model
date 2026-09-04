@@ -236,10 +236,12 @@ class TestSportNavSafety(unittest.TestCase):
                 self.sc.ALL_PAGE_URL_PATHS,
                 f"unknown sport {bad!r} must fall back to the full page set",
             )
-        # NFL is registered → its ordered page set (markets is MLB-only).
+        # NFL is registered → its ordered page set now includes markets
+        # (both sports ship run-engine slate-serve artifacts).
         self.assertEqual(
             self.sc.active_page_url_paths("nfl"),
-            ["todays-games", "power-rankings", "calibration", "model-monitor"])
+            ["todays-games", "power-rankings", "calibration", "model-monitor",
+             "markets"])
 
     def test_missing_default_sport_is_silent_not_a_warning(self):
         # The logo-click / navigation rerun leaves sport unset or None/"none"

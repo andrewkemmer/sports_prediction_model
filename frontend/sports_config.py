@@ -61,16 +61,19 @@ SPORTS = {
         "title": "NFL Predictions",
         "subtitle": "NFL betting model dashboard",
         "repo_subdir": "nfl-backend",
-        "has_run_engine": False,
-        # NFL ships the generic shared-contract dashboards only for now; the
-        # run-engine Totals & Run Lines page (markets) is MLB-only. Today's
-        # Games keeps a moneyline-first board; Calibration / Model Monitor /
-        # Power Rankings render the shared contract or a step-3 notice.
+        # NFL now publishes run-engine slate-serve artifacts (Totals & Run
+        # Lines — the model product; market-free by policy) alongside the
+        # moneyline pool, so the markets page renders for NFL too. Today's
+        # Games keeps a moneyline-first board enriched by the run-engine box;
+        # Calibration / Model Monitor / Power Rankings render the shared
+        # contract or a step-3 notice.
+        "has_run_engine": True,
         "pages": [
             "todays-games",
             "power-rankings",
             "calibration",
             "model-monitor",
+            "markets",
         ],
         "artifacts": {
             "moneyline_json": "nfl_moneyline_v1_*.json",
@@ -78,6 +81,8 @@ SPORTS = {
             "calibration_json": "nfl_calibration_*.json",
             "predictions_history_csv": "nfl_predictions_history_*.csv",
             "power_rankings_csv": "nfl_power_rankings_*.csv",
+            "markets_csv": "nfl_run_engine_markets_*.csv",
+            "markets_monitor_json": "nfl_run_engine_monitor_*.json",
         },
     },
 }
@@ -164,9 +169,11 @@ def active_page_url_paths(sport_key: str) -> list[str]:
     """The ordered subset of ALL_PAGE_URL_PATHS the given sport renders.
 
     Today's Games (``todays-games``) is a shared-contract page and is ALWAYS
-    present for every sport; the run-engine pages (markets) are MLB-only.
-    The ordering follows ALL_PAGE_URL_PATHS, which mirrors Home.py's literal
-    ``pages`` list (the sidebar-order contract).
+    present for every sport. Both MLB and NFL register the full five-dashboard
+    set (MLB + NFL both ship run-engine slate-serve artifacts — the NFL
+    markets page renders the market-free model product). The ordering follows
+    ALL_PAGE_URL_PATHS, which mirrors Home.py's literal ``pages`` list (the
+    sidebar-order contract).
 
     A sport whose page set is empty/list is exhausted degrades to the full
     set so the sidebar never renders blank.

@@ -25,6 +25,21 @@ import streamlit as st
 
 import utils
 
+# ---------------------------------------------------------------------------
+# Sport dispatch — NFL Totals & Run Lines (market-free model product).
+#
+# Both MLB and NFL register the ``markets`` page (the run-engine slate-serve
+# artifact family is per-sport: MLB ``run_engine_markets_*``, NFL
+# ``nfl_run_engine_markets_*``). The MLB content below stays the default
+# path, byte-unchanged; the NFL path delegates to the NFL markets page
+# module (fair lines and model probabilities ONLY — no offered lines, no
+# shrink columns, no market 'edge').
+# ---------------------------------------------------------------------------
+if utils.get_sport() == "nfl":
+    import nfl_markets_page  # noqa: E402 (page module, imported lazily)
+    nfl_markets_page.run()
+    st.stop()
+
 utils.inject_css()
 
 dates = utils.available_dates(**utils.get_source_config())
