@@ -1068,6 +1068,54 @@ def load_run_engine_markets(date_str: str,
         return pd.DataFrame()
 
 
+def _family_dated_dates(sport: str | None,
+                        prefixes: list[tuple[str, str]],
+                        source_cfg: dict | None = None) -> list[str]:
+    """Union of YYYYMMDD dates (newest first) across dated artifact
+    families for a sport.
+
+    ``prefixes`` is a list of (filename_prefix, extension) pairs (e.g.
+    [("run_engine_markets_", ".csv")]). Enumerates the GitHub
+    data_delivery contents API (when a repo is configured) plus the local
+    committed dir — the same fetch semantics as ``available_dates()``,
+    scoped to exactly the families the caller reads. A page whose
+    artifacts ship on their own cadence therefore never inherits a date
+    from an unrelated family (``available_dates()`` builds its union from
+    todays_games_* / calibration_* / predictions_history_* and never
+    enumerates the run-engine families). Returns [] when nothing resolves
+    (no owner/repo AND an empty or missing local dir)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    subdir = resolve_sport(s)["repo_subdir"]
+    cfg = source_cfg if source_cfg is not None else get_source_config()
+    dates: set[str] = set()
+    # isinstance guard: under streamlit-stubbed test imports the source
+    # config carries MagicMock values (truthy but not strings) — never let
+    # those trigger a real contents-API request.
+    if (isinstance(cfg.get("owner"), str) and isinstance(cfg.get("repo"), str)
+            and cfg["owner"] and cfg["repo"]):
+        try:
+            api = (f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}"
+                   f"/contents/{subdir}/data_delivery")
+            resp = requests.get(api, timeout=15)
+            if resp.ok:
+                for item in resp.json():
+                    name = str(item.get("name", ""))
+                    for pfx, ext in prefixes:
+                        if name.startswith(pfx) and name.endswith(ext):
+                            core = name[len(pfx):-len(ext)]
+                            if len(core) == 8 and core.isdigit():
+                                dates.add(core)
+                            break
+        except requests.RequestException:
+            pass
+    dd = REPO_ROOT / subdir / "data_delivery"
+    if dd.is_dir():
+        for pfx, ext in prefixes:
+            for p in dd.glob(f"{pfx}*{ext}"):
+                dates |= _stamp_suffixes(p)
+    return sorted(dates, reverse=True)
+
+
 def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
     """Available YYYYMMDD dates (newest first) for an NFL run-engine family.
 
@@ -1077,7 +1125,6 @@ def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
     ``markets_monitor_json`` in the registry."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     pat = artifact_patterns(s).get(family)
-    cfg = get_source_config()
     prefix, ext = None, None
     if family == "markets_csv":
         prefix, ext = "nfl_run_engine_markets_", ".csv"
@@ -1085,27 +1132,39 @@ def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
         prefix, ext = "nfl_run_engine_monitor_", ".json"
     if not pat or not prefix:
         return []
-    subdir = resolve_sport(s)["repo_subdir"]
-    dates: set[str] = set()
-    if cfg["owner"] and cfg["repo"]:
-        try:
-            api = (f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}"
-                   f"/contents/{subdir}/data_delivery")
-            resp = requests.get(api, timeout=15)
-            if resp.ok:
-                for item in resp.json():
-                    name = str(item.get("name", ""))
-                    if name.startswith(prefix) and name.endswith(ext):
-                        core = name[len(prefix):-len(ext)]
-                        if len(core) == 8 and core.isdigit():
-                            dates.add(core)
-        except requests.RequestException:
-            pass
-    dd = REPO_ROOT / subdir / "data_delivery"
-    if dd.is_dir():
-        for p in dd.glob(f"{prefix}*{ext}"):
-            dates |= _stamp_suffixes(p)
-    return sorted(dates, reverse=True)
+    return _family_dated_dates(s, [(prefix, ext)])
+
+
+def run_engine_page_dates(owner: str = "", repo: str = "",
+                          branch: str = "main",
+                          sport: str | None = None) -> list[str]:
+    """Newest-first YYYYMMDD dates for the run-engine Totals & Run Lines
+    page: the union of the page's OWN artifact families
+    (``run_engine_markets_*.csv`` + ``run_engine_monitor_*.json`` on MLB;
+    the ``nfl_run_engine_*`` twins on NFL).
+
+    ``available_dates()`` builds its union from todays_games_*,
+    calibration_* and predictions_history_* and NEVER enumerates the
+    run-engine families — when one of those ships a date whose run-engine
+    files are absent or late, its dates[0] points at a day the page cannot
+    render. Resolving from this page's own families makes the pick
+    drift-proof. Empty when nothing resolves (offline / empty local) —
+    callers fall back to ``available_dates()`` so the documented warning
+    path still fires instead of a crash.
+
+    Not st.cache_data-wrapped (unlike ``available_dates``): the only
+    caller is the markets page's module-level pick, and the isinstance
+    guard in ``_family_dated_dates`` keeps it inert under streamlit-
+    stubbed test imports."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    if s == "nfl":
+        prefixes = [("nfl_run_engine_markets_", ".csv"),
+                    ("nfl_run_engine_monitor_", ".json")]
+    else:
+        prefixes = [("run_engine_markets_", ".csv"),
+                    ("run_engine_monitor_", ".json")]
+    return _family_dated_dates(
+        s, prefixes, {"owner": owner, "repo": repo, "branch": branch})
 
 
 def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame, str | None]:

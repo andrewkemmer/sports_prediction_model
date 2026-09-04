@@ -706,6 +706,120 @@ def _load_markets(dd: Path):
         return None
 
 
+class TestMarketsFamilyAwareDateResolution(TestCase):
+    """markets.py must resolve its date from ITS OWN run-engine artifact
+    families (run_engine_markets_* / run_engine_monitor_*), not from
+    available_dates()'s todays_games/calibration/history union — that
+    union never enumerates the run-engine families, so a date shipped by
+    another family but absent from the run engine blanked the page (the
+    drift case). Pins the family-aware pick; the page falls back to the
+    shared union only when no run-engine date resolves at all."""
+
+    @staticmethod
+    def _page_dates(root):
+        """run_engine_page_dates() with the repo root pointed at a temp
+        fixture dir, the remote source disabled (local-only) and the sport
+        explicit, so no streamlit session state is touched."""
+        import utils as u
+        with patch.object(u, "REPO_ROOT", root):
+            return u.run_engine_page_dates(owner="", repo="",
+                                           branch="main", sport="mlb")
+
+    @staticmethod
+    def _write(dd, *names):
+        dd.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            (dd / n).write_bytes(b"placeholder")
+
+    def test_drift_case_markets_stop_before_todays_games(self):
+        """todays_games_20260904 (and calibration/history for 09-04)
+        exist but the run-engine families stop at 09-03 → the page must
+        pick 09-03, never blank on the drifted date."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dd = root / "mlb-backend" / "data_delivery"
+            self._write(dd, "todays_games_20260904.csv",
+                        "calibration_20260904.json",
+                        "predictions_history_20260904.csv",
+                        "run_engine_markets_20260903.csv",
+                        "run_engine_monitor_20260903.json")
+            dates = self._page_dates(root)
+        self.assertIn("20260903", dates)
+        self.assertNotIn("20260904", dates,
+                         "run-engine families stop at 09-03 — the drifted "
+                         "09-04 (todays_games-only) must NOT be picked")
+        self.assertEqual(dates[0], "20260903")
+
+    def test_aligned_families_pick_newest_run_engine_date(self):
+        """When every family ships the same day, the newest run-engine
+        date wins (the aligned steady-state case)."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dd = root / "mlb-backend" / "data_delivery"
+            self._write(dd, "todays_games_20260904.csv",
+                        "run_engine_markets_20260903.csv",
+                        "run_engine_markets_20260904.csv",
+                        "run_engine_monitor_20260904.json")
+            dates = self._page_dates(root)
+        self.assertEqual(dates[0], "20260904")
+
+    def test_monitor_ships_ahead_of_markets_surfaces_in_union(self):
+        """The pick is the union of the page's OWN families: a monitor
+        artifact dated after the last markets CSV still surfaces (the
+        markets loader then honestly warns for the CSV it cannot find)."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dd = root / "mlb-backend" / "data_delivery"
+            self._write(dd, "run_engine_markets_20260903.csv",
+                        "run_engine_monitor_20260903.json",
+                        "run_engine_monitor_20260904.json")
+            dates = self._page_dates(root)
+        self.assertEqual(dates[0], "20260904")
+        self.assertIn("20260903", dates)
+
+    def test_empty_local_returns_empty_and_page_falls_back(self):
+        """No run-engine artifact anywhere (offline / empty local) → the
+        family resolver returns [] and markets.py falls back to the shared
+        available_dates() union so the documented warning path fires
+        instead of a crash."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "mlb-backend" / "data_delivery").mkdir(
+                parents=True, exist_ok=True)
+            dates = self._page_dates(root)
+        self.assertEqual(dates, [])
+        src = (_frontend / "markets.py").read_text(encoding="utf-8")
+        self.assertIn("utils.run_engine_page_dates(", src,
+                      "page must resolve from its own families first")
+        self.assertIn("if not dates:", src,
+                      "empty family union must fall back, not crash")
+        self.assertIn("utils.available_dates(", src,
+                      "fallback must use the shared date union")
+        self.assertIn("dates[0]", src,
+                      "latest-run pin (TestMarketsAlwaysLatestArtifact) "
+                      "must keep passing")
+        self.assertNotIn("selected_date", src,
+                         "page must never read the Today's Games date")
+
+    def test_calibration_walkback_unchanged(self):
+        """Calibration keeps its own date resolution + walk-back; the
+        family-aware hardening is scoped to the markets page."""
+        cal_src = (_frontend / "model_calibration.py").read_text(
+            encoding="utf-8")
+        self.assertIn("dates[0]", cal_src,
+                      "Calibration still defaults to the newest available")
+        self.assertNotIn("run_engine_page_dates", cal_src,
+                         "Calibration must not adopt the markets resolver")
+        utils_src = (_frontend / "utils.py").read_text(encoding="utf-8")
+        self.assertIn("def _pick_artifact_date", utils_src,
+                      "Calibration's walk-back helper must stay")
+        self.assertIn("def load_calibration", utils_src)
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()

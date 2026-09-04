@@ -42,7 +42,16 @@ if utils.get_sport() == "nfl":
 
 utils.inject_css()
 
-dates = utils.available_dates(**utils.get_source_config())
+# The page's date is resolved from ITS OWN artifact families
+# (run_engine_markets_* / run_engine_monitor_*) — never from
+# available_dates()'s todays_games/calibration/history union, which never
+# enumerates the run-engine families: a date shipped by another family but
+# absent from the run engine would otherwise blank this page. When no
+# run-engine date resolves (offline / empty local), fall back to the shared
+# union so the documented warning path below still fires, not a crash.
+dates = utils.run_engine_page_dates(**utils.get_source_config())
+if not dates:
+    dates = utils.available_dates(**utils.get_source_config())
 # Always show the most recent run (like Calibration):
 # ignore the date picked on Today's Games so Phase-6-pruned past
 # artifacts never produce a misleading empty state.
