@@ -46,6 +46,92 @@ def _ols_slope(y: np.ndarray, x: np.ndarray) -> float:
     return float(beta[1])
 
 
+def _side_components(side: str) -> tuple[list[str], list[str]]:
+    """(lo_better, hi_better) per-side component column names."""
+    return ([f"{c}_{side}" for c in PROJ_LO_BETTER],
+            [f"{c}_{side}" for c in PROJ_HI_BETTER])
+
+
+def projection_components_present(games: pd.DataFrame,
+                                  side: str | None = None) -> bool:
+    """True when every component the producer needs (per side) exists in the
+    frame. Guards the production attach seam so a frame that never carried
+    the Statcast-derived trailing components (synthetic fixtures, a fresh
+    cold-start frame) degrades to the legacy view instead of raising."""
+    sides = ("home", "away") if side is None else (side,)
+    for s in sides:
+        lo, hi = _side_components(s)
+        need = lo + hi + [f"sp_era_{s}"]
+        if any(c not in games.columns for c in need):
+            return False
+    return True
+
+
+def _composite(frame: pd.DataFrame, lo: list[str], hi: list[str],
+               mu: dict, sd: dict) -> pd.Series:
+    """Composite = mean over the z-scored components (higher = better),
+    requiring >= MIN_PROJ_COMPONENTS non-null. mu/sd keyed by component
+    column. Arithmetic is the verbatim b7eed32 definition."""
+    z = pd.DataFrame(index=frame.index)
+    for c in lo + hi:
+        z[c] = (frame[c] - mu[c]) / sd[c]
+    n_comp = z[lo + hi].notna().sum(axis=1)
+    comp = (-z[lo].sum(axis=1, min_count=1)
+            + z[hi].sum(axis=1, min_count=1))
+    comp = comp.where(n_comp >= MIN_PROJ_COMPONENTS)
+    comp = comp / n_comp.where(n_comp >= MIN_PROJ_COMPONENTS)
+    return comp
+
+
+def fit_projection_stats(games: pd.DataFrame,
+                         pre_mask: np.ndarray) -> dict:
+    """Fit the per-side projection stats on the PRE-HOLDOUT rows only.
+
+    Returns a stats dict consumable by apply_projection_stats:
+        {side: {"mu": {col: float}, "sd": {col: float},
+                "slope": float, "n_cal": int}}
+    slope = OLS sp_era ~ composite over pre rows with |sp_era| <= 15
+    (junk ERA excluded); 0.0 when the calibration set is empty.
+    """
+    pre = np.asarray(pre_mask, dtype=bool)
+    if len(pre) != len(games):
+        raise ValueError(
+            f"pre_mask length {len(pre)} != frame rows {len(games)}")
+    stats: dict = {}
+    for side in ("home", "away"):
+        lo, hi = _side_components(side)
+        era = f"sp_era_{side}"
+        missing = [c for c in lo + hi + [era] if c not in games.columns]
+        if missing:
+            raise ValueError(f"missing component columns: {missing}")
+        mu = {c: float(games.loc[pre, c].mean()) for c in lo + hi}
+        sd = {c: float(games.loc[pre, c].std()) for c in lo + hi}
+        comp_pre = _composite(games.loc[pre], lo, hi, mu, sd)
+        era_pre = games.loc[pre, era]
+        cal = comp_pre[era_pre.notna().to_numpy()
+                       & (era_pre.abs() <= SP_JUNK_ERA).to_numpy()]
+        cal = cal[cal.notna()]
+        slope = _ols_slope(era_pre.loc[cal.index].to_numpy(),
+                           cal.to_numpy()) if len(cal) else 0.0
+        stats[side] = {"mu": mu, "sd": sd, "slope": float(slope),
+                       "n_cal": int(len(cal))}
+    return stats
+
+
+def apply_projection_stats(games: pd.DataFrame, stats: dict) -> pd.DataFrame:
+    """Add sp_proj_era_{home,away} to a copy of ``games`` using ALREADY-FIT
+    stats (fit_projection_stats) — the cross-frame seam (a slate row set
+    transformed with the decided-frame fit, never refit on itself)."""
+    df = games.copy()
+    for side in ("home", "away"):
+        st = stats[side]
+        lo, hi = _side_components(side)
+        comp = _composite(df, lo, hi, st["mu"], st["sd"])
+        slope = float(st["slope"])
+        df[f"sp_proj_era_{side}"] = comp / abs(slope) if slope else comp
+    return df
+
+
 def attach_projection_cols(
     games: pd.DataFrame, pre_mask: np.ndarray
 ) -> tuple[pd.DataFrame, dict]:
@@ -58,41 +144,21 @@ def attach_projection_cols(
     Returns (frame_with_cols, meta) where meta holds the per-side OLS slope
     and coverage on the pre pool and the complement (sealed) pool.
     """
-    df = games.copy()
-    if len(pre_mask) != len(df):
+    if len(pre_mask) != len(games):
         raise ValueError(
-            f"pre_mask length {len(pre_mask)} != frame rows {len(df)}")
+            f"pre_mask length {len(pre_mask)} != frame rows {len(games)}")
     pre = np.asarray(pre_mask, dtype=bool)
+    stats = fit_projection_stats(games, pre_mask)
+    df = apply_projection_stats(games, stats)
     meta: dict = {}
     for side in ("home", "away"):
-        lo = [f"{c}_{side}" for c in PROJ_LO_BETTER]
-        hi = [f"{c}_{side}" for c in PROJ_HI_BETTER]
-        missing = [c for c in lo + hi + [f"sp_era_{side}"]
-                   if c not in df.columns]
-        if missing:
-            raise ValueError(f"missing component columns: {missing}")
-        z = pd.DataFrame(index=df.index)
-        for c in lo + hi:
-            mu = float(df.loc[pre, c].mean())
-            sd = float(df.loc[pre, c].std())
-            z[c] = (df[c] - mu) / sd
-        n_comp = z[lo + hi].notna().sum(axis=1)
-        comp = (-z[lo].sum(axis=1, min_count=1)
-                + z[hi].sum(axis=1, min_count=1))
-        comp = comp.where(n_comp >= MIN_PROJ_COMPONENTS)
-        comp = comp / n_comp.where(n_comp >= MIN_PROJ_COMPONENTS)
-        df[f"sp_proj_{side}"] = comp
-        # ERA-equivalent scale: OLS sp_era ~ comp on pre-holdout, junk out.
-        era = f"sp_era_{side}"
-        cal = df.loc[pre & comp.notna() & df[era].notna()
-                     & (df[era].abs() <= SP_JUNK_ERA)]
-        slope = _ols_slope(cal[era].to_numpy(), comp[cal.index].to_numpy()) \
-            if len(cal) else 0.0
-        df[f"sp_proj_era_{side}"] = comp / abs(slope) if slope else comp
+        s = stats[side]
+        col = f"sp_proj_era_{side}"
         meta[side] = {
-            "era_on_proj_slope": round(slope, 4),
-            "coverage_pre": round(float(comp[pre].notna().mean()), 4),
-            "coverage_sealed": round(float(comp[~pre].notna().mean()), 4),
-            "n_cal_rows": int(len(cal)),
+            "era_on_proj_slope": round(s["slope"], 4),
+            "coverage_pre": round(float(df.loc[pre, col].notna().mean()), 4),
+            "coverage_sealed": round(
+                float(df.loc[~pre, col].notna().mean()), 4),
+            "n_cal_rows": int(s["n_cal"]),
         }
     return df, meta

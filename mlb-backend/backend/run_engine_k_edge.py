@@ -218,6 +218,11 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         if oof is None or oof.empty:
             decided = (decided_snapshot.copy() if decided_snapshot is not None
                        else _re.get_decided_frame(games))
+            # P1 projection input (adoption 7e4c529): enrich the fallback
+            # decided the same way the original daily does so k is fit on
+            # the SAME lambda basis the markets are priced on (the daily's
+            # own OOF is P1 after its internal attach).
+            decided, _, _ = _re.attach_projection_levels(decided)
             oof = _orig_run_oof(decided, decided_snapshot=decided)["oof"]
         mask = k_edge_holdout_mask(oof)
         k_edge = fit_k_edge(oof["home_expected_runs"].to_numpy(float),
