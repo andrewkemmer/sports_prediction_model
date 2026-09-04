@@ -1,0 +1,500 @@
+{
+  "last_retrained": "2026-09-04",
+  "last_retrained_note": "Fresh model trained this run (sealed gate: ADOPT)",
+  "next_retrain": "2026-09-05",
+  "next_retrain_note": "next expected run in 1 day(s) (retrains every run)",
+  "upset_note": "Model upset rate over the walk-forward history (pooled OOF + sealed) \u2014 1,392 games scored; see Calibration for the upset strip.",
+  "feature_drift": [
+    {
+      "feature": "elo_diff",
+      "current_mean": 8.1605,
+      "baseline_mean": 1.1782,
+      "psi": 0.226799,
+      "psi_adjusted": 0.074467,
+      "noise_floor": 0.152332,
+      "mean_shift": 6.982301,
+      "shift_se": 40.302907,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 17.279,
+      "n_baseline": 1930,
+      "n_current": 30
+    },
+    {
+      "feature": "win_pct_diff",
+      "current_mean": 0.0694,
+      "baseline_mean": 0.0017,
+      "psi": 0.246667,
+      "psi_adjusted": 0.094334,
+      "noise_floor": 0.152333,
+      "mean_shift": 0.067755,
+      "shift_se": 0.075843,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 10.157,
+      "n_baseline": 1929,
+      "n_current": 30
+    },
+    {
+      "feature": "rest_days_diff",
+      "current_mean": 0.1667,
+      "baseline_mean": -0.0306,
+      "psi": 0.521096,
+      "psi_adjusted": 0.368763,
+      "noise_floor": 0.152333,
+      "mean_shift": 0.197252,
+      "shift_se": 1.108844,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 5.119,
+      "n_baseline": 1929,
+      "n_current": 30
+    },
+    {
+      "feature": "is_dome_home",
+      "current_mean": 0.2,
+      "baseline_mean": 0.3133,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152377,
+      "mean_shift": -0.113259,
+      "shift_se": 0.127835,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 5.371,
+      "n_baseline": 1893,
+      "n_current": 30
+    },
+    {
+      "feature": "ewm_net_pts_diff",
+      "current_mean": 4.3578,
+      "baseline_mean": -0.2685,
+      "psi": 0.464878,
+      "psi_adjusted": 0.312545,
+      "noise_floor": 0.152333,
+      "mean_shift": 4.626369,
+      "shift_se": 2.798366,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 12.889,
+      "n_baseline": 1929,
+      "n_current": 30
+    },
+    {
+      "feature": "ewm_ypp_diff",
+      "current_mean": 0.0712,
+      "baseline_mean": -0.0064,
+      "psi": 0.11174,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152352,
+      "mean_shift": 0.07758,
+      "shift_se": 0.187892,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 13.041,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "pace_plays_min_diff",
+      "current_mean": -0.0,
+      "baseline_mean": -0.0018,
+      "psi": 0.348475,
+      "psi_adjusted": 0.196123,
+      "noise_floor": 0.152352,
+      "mean_shift": 0.001751,
+      "shift_se": 0.03378,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 7.994,
+      "n_baseline": 1913,
+      "n_current": 30
+    },
+    {
+      "feature": "rest_short_diff",
+      "current_mean": -0.0667,
+      "baseline_mean": 0.0078,
+      "psi": 0.075034,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152333,
+      "mean_shift": -0.074443,
+      "shift_se": 0.101509,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 3.338,
+      "n_baseline": 1929,
+      "n_current": 30
+    },
+    {
+      "feature": "div_game",
+      "current_mean": 0.6333,
+      "baseline_mean": 0.3461,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152332,
+      "mean_shift": 0.287219,
+      "shift_se": 0.131386,
+      "location_shift": true,
+      "status": "OK",
+      "weight_pct": 4.156,
+      "n_baseline": 1930,
+      "n_current": 30
+    },
+    {
+      "feature": "travel_miles_diff",
+      "current_mean": -892.9795,
+      "baseline_mean": -945.7155,
+      "psi": 0.087542,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152332,
+      "mean_shift": 52.736043,
+      "shift_se": 187.813641,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 8.992,
+      "n_baseline": 1930,
+      "n_current": 30
+    },
+    {
+      "feature": "altitude_home",
+      "current_mean": 916.2,
+      "baseline_mean": 607.0187,
+      "psi": 0.192035,
+      "psi_adjusted": 0.039703,
+      "noise_floor": 0.152332,
+      "mean_shift": 309.181347,
+      "shift_se": 266.830085,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 5.787,
+      "n_baseline": 1930,
+      "n_current": 30
+    },
+    {
+      "feature": "prime_time",
+      "current_mean": 0.3333,
+      "baseline_mean": 0.2223,
+      "psi": 0.0,
+      "psi_adjusted": 0.0,
+      "noise_floor": 0.152332,
+      "mean_shift": 0.111054,
+      "shift_se": 0.115056,
+      "location_shift": false,
+      "status": "OK",
+      "weight_pct": 5.877,
+      "n_baseline": 1930,
+      "n_current": 30
+    }
+  ],
+  "features_metadata": {
+    "elo_diff": {
+      "definition": "ELO prior 1500, K=32, strictly-prior games",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: ELO prior 1500, K=32, strictly-prior games\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "win_pct_diff": {
+      "definition": "trailing win% (last 12)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing win% (last 12)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "rest_days_diff": {
+      "definition": "days since each team's prior game",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: days since each team's prior game\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "is_dome_home": {
+      "definition": "home venue roof (nflverse schedule field)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home venue roof (nflverse schedule field)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "ewm_net_pts_diff": {
+      "definition": "trailing net pts/game, ewm halflife=2 (decaying)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing net pts/game, ewm halflife=2 (decaying)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "ewm_ypp_diff": {
+      "definition": "trailing yards/play, ewm halflife=2 (from pbp)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing yards/play, ewm halflife=2 (from pbp)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "pace_plays_min_diff": {
+      "definition": "trailing plays per minute (last 4, from pbp clock)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: trailing plays per minute (last 4, from pbp clock)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "rest_short_diff": {
+      "definition": "short-rest flag (home rest < 7 days) \u2212 away flag",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: short-rest flag (home rest < 7 days) \u2212 away flag\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "div_game": {
+      "definition": "division game flag (nflverse schedule field)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: division game flag (nflverse schedule field)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "travel_miles_diff": {
+      "definition": "home\u2212away stadium distance, haversine (nfl_stadiums.csv)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home\u2212away stadium distance, haversine (nfl_stadiums.csv)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "altitude_home": {
+      "definition": "home venue elevation, meters SRTM (nfl_stadiums.csv)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: home venue elevation, meters SRTM (nfl_stadiums.csv)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    },
+    "prime_time": {
+      "definition": "evening-kickoff flag, ET hour >= 17 (nflverse gametime)",
+      "source": "nfl feature engine (strictly-trailing per-team aggregates)",
+      "tooltip": "What: evening-kickoff flag, ET hour >= 17 (nflverse gametime)\nConsumed by: the 5-member moneyline blend (see Model Ensemble)."
+    }
+  },
+  "feature_coverage": [
+    {
+      "feature": "elo_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "win_pct_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_days_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "is_dome_home",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 98.1,
+      "pct_nonnull": 98.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ewm_net_pts_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "ewm_ypp_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "pace_plays_min_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.1,
+      "pct_nonnull": 99.1,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "rest_short_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 99.9,
+      "pct_nonnull": 99.9,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "div_game",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "travel_miles_diff",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "altitude_home",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    },
+    {
+      "feature": "prime_time",
+      "window": "decided pool",
+      "n_games": 1960,
+      "pct_measured": 100.0,
+      "pct_nonnull": 100.0,
+      "n_default_zero": 0,
+      "status": "OK"
+    }
+  ],
+  "ensemble": [
+    {
+      "name": "xgboost",
+      "weight": 0.45,
+      "auc": 0.7321,
+      "brier": 0.2121,
+      "logloss": 0.6126,
+      "n_eval": 1392
+    },
+    {
+      "name": "lightgbm",
+      "weight": 0.1375,
+      "auc": 0.6555,
+      "brier": 0.2375,
+      "logloss": 0.673,
+      "n_eval": 1392
+    },
+    {
+      "name": "logistic",
+      "weight": 0.1375,
+      "auc": 0.6826,
+      "brier": 0.2253,
+      "logloss": 0.6438,
+      "n_eval": 1392
+    },
+    {
+      "name": "randomforest",
+      "weight": 0.1375,
+      "auc": 0.6818,
+      "brier": 0.2247,
+      "logloss": 0.6414,
+      "n_eval": 1392
+    },
+    {
+      "name": "mlp",
+      "weight": 0.1375,
+      "auc": 0.6805,
+      "brier": 0.225,
+      "logloss": 0.6415,
+      "n_eval": 1392
+    }
+  ],
+  "rolling_brier": [
+    {
+      "date": "2026-01-10",
+      "brier": 0.3229
+    },
+    {
+      "date": "2026-01-11",
+      "brier": 0.2496
+    },
+    {
+      "date": "2026-01-17",
+      "brier": 0.4072
+    },
+    {
+      "date": "2026-01-18",
+      "brier": 0.3001
+    },
+    {
+      "date": "2026-01-25",
+      "brier": 0.605
+    }
+  ],
+  "rolling_brier_meta": {
+    "window_days": 30,
+    "min_games_per_day": 2,
+    "excluded_sparse_days": 2,
+    "calibrator_is_identity": false,
+    "map_scope_note": "post-calibration probabilities are the deployed Platt map \u03c3(a\u00b7logit(p)+b)"
+  },
+  "brier_baseline": 0.495639078808297,
+  "brier_baseline_label": "Constant home-edge",
+  "version_history": [
+    {
+      "version": "20260831",
+      "date": "20260831",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.1375,
+        "logistic": 0.1375,
+        "randomforest": 0.1375,
+        "mlp": 0.1375
+      },
+      "auc": 0.6877,
+      "logloss": 0.6352,
+      "ecer_calibrated": 0.0292,
+      "ece_calibrated": 0.0292,
+      "adopt": true
+    },
+    {
+      "version": "20260901",
+      "date": "20260901",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.1375,
+        "logistic": 0.1375,
+        "randomforest": 0.1375,
+        "mlp": 0.1375
+      },
+      "auc": 0.6944,
+      "logloss": 0.63,
+      "ecer_calibrated": 0.0267,
+      "ece_calibrated": 0.0267,
+      "adopt": true
+    },
+    {
+      "version": "20260902",
+      "date": "20260902",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.1375,
+        "logistic": 0.1375,
+        "randomforest": 0.1375,
+        "mlp": 0.1375
+      },
+      "auc": 0.6944,
+      "logloss": 0.63,
+      "ecer_calibrated": 0.0267,
+      "ece_calibrated": 0.0267,
+      "adopt": true
+    },
+    {
+      "version": "20260903",
+      "date": "20260903",
+      "weights": {
+        "xgboost": 0.45,
+        "lightgbm": 0.1375,
+        "logistic": 0.1375,
+        "randomforest": 0.1375,
+        "mlp": 0.1375
+      },
+      "auc": 0.6944,
+      "logloss": 0.63,
+      "ecer_calibrated": 0.0267,
+      "ece_calibrated": 0.0267,
+      "adopt": true
+    }
+  ]
+}
