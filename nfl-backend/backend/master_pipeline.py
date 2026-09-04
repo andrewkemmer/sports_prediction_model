@@ -516,6 +516,12 @@ _PROTECTED_DELIVERY_PREFIXES = (
     "nfl_run_engine_markets_", "nfl_run_engine_monitor_",
     "nfl_slate_serve_", "nfl_era_", "nfl_market_",
     "nfl_adoption_decision_",
+    # Decision/diagnostic records (cb4036f, 2026-09-05): the drift/coverage
+    # v2 + fit-panel parity records are DATELESS (sha-named) — the date-gate
+    # can never save them, so like the other nfl_* record families they get
+    # targeted prefix protection (never a broad nfl_ prefix — the dated
+    # moneyline/feature families legitimately ride the date-gate).
+    "nfl_run_engine_diagnostics_", "nfl_markets_fit_panel_parity_",
     # Run-engine drift/coverage families (diagnostics emitters, 2026-09-04)
     "run_engine_feature_drift_", "run_engine_feature_coverage_",
 )

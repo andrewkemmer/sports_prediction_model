@@ -436,6 +436,11 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         # Run-engine drift/coverage emitters (diagnostics wiring, 2026-09-04)
         "run_engine_feature_drift_20260830.csv",
         "run_engine_feature_coverage_20260830.csv",
+        # Dateless decision/diagnostic records (cb4036f, 2026-09-05): the
+        # date-gate can never save them (no _YYYYMMDD), so like the other
+        # nfl_* record families they get targeted prefix protection.
+        "nfl_run_engine_diagnostics_v2_3e8c8a510f04.json",
+        "nfl_markets_fit_panel_parity_3e8c8a510f04.json",
     ]
 
     def test_run_engine_and_research_families_never_stale(self):
@@ -463,6 +468,28 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
             self.assertEqual(
                 out["deleted"],
                 [f"{DD}/nfl_model_monitor_20260801.json"])
+
+    def test_diagnostics_v2_records_never_stale_and_scope_exact(self):
+        """The cb4036f decision records classify PROTECTED (not would-be-
+        stale on the tracked guard) — and the protection is TARGETED: the
+        two record prefixes are the ONLY additions, no broad ``nfl_``
+        prefix (the dated moneyline/feature families must keep riding the
+        board-backed date-gate)."""
+        from master_pipeline import _PROTECTED_DELIVERY_PREFIXES as P
+        self.assertIn("nfl_run_engine_diagnostics_", P)
+        self.assertIn("nfl_markets_fit_panel_parity_", P)
+        self.assertNotIn("nfl_", P)
+        for name in ("nfl_run_engine_diagnostics_v2_3e8c8a510f04.json",
+                     "nfl_markets_fit_panel_parity_3e8c8a510f04.json"):
+            rel = f"{DD}/{name}"
+            self.assertTrue(_is_protected_name(rel), name)
+            self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY),
+                             "protected", name)
+        # Dated moneyline/feature families are untouched by the addition.
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_feature_v1_20260830.json"))
 
     def test_moneyline_records_still_board_backed_not_prefix_protected(self):
         """Rule scope intact: moneyline/feature records keep the board-backed
