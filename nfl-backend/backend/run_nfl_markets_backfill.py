@@ -47,8 +47,14 @@ Emitted for target_date = run date (America/New_York):
 
 Retention: dated artifacts are TRACKED-AND-ACCUMULATING (MLB mirror).
 
+The full emission is the shared daily core: ``run_daily_markets`` is called
+by BOTH the standalone CLI below AND ``master_pipeline`` Phase 3b (the
+daily NFL run's run-engine emission — the Totals & Run Lines dashboard
+stays current without manual backfills). One schema, no fork.
+
 Usage:
     cd nfl-backend && python3 backend/run_nfl_markets_backfill.py [--no-record]
+    cd nfl-backend && python3 backend/run_nfl_markets_backfill.py --out-dir /tmp/x
 
 Deterministic (no RNG): identical pull -> byte-identical artifacts (g2
 double-walk assert).
@@ -407,20 +413,39 @@ def _gates(oof: pd.DataFrame, board_out: pd.DataFrame, pins: dict[str, Any],
     return gates
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--no-record", action="store_true",
-                    help="compute/print only; skip writing artifacts")
-    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+def run_daily_markets(out_dir: Path | None = None,
+                      no_record: bool = False) -> dict[str, Any]:
+    """The full daily-emission core — ONE shared code path, no fork.
+
+    Called by BOTH entrypoints: the standalone/backfill CLI (``main``) and
+    ``master_pipeline`` Phase 3b (the daily NFL run's run-engine emission —
+    MLB's ``run_engine_daily`` mirror: the moneyline/training phase ends by
+    regenerating the dated markets artifact, decided OOF rows WITH actuals
+    + today's slate rows in one dated file, read by the Totals & Run Lines
+    dashboard as the newest dated store). Steps 0-4 are the historical
+    backfill body unchanged: config pins -> deterministic E2 regeneration
+    verified against the record pins -> board + decided store -> gates -> emitters.
+
+    Raises RuntimeError (loudly) on ANY failure — frame-sha drift, record-pin
+    breach, gate failure — after printing the FATAL reason. It NEVER returns
+    a partial emit: the emitters run only after every gate passes. A same-date
+    re-run reproduces the store byte-identically (no RNG, no re-fit drift,
+    no duplicate rows — each dated file is regenerated from scratch, never
+    appended to). ``out_dir`` overrides the default ``data_delivery`` target
+    (used by acceptance dry runs); ``no_record`` computes/prints only.
+
+    Returns {"date_str", "as_of_utc", "n_slate", "n_oof", "n_board",
+    "gates", "written": [artifact names]}.
+    """
     warnings.filterwarnings("ignore",
                             message="The argument 'eval_set' is deprecated")
     t0 = time.time()
 
     frame_sha = _frame_sha()
     if frame_sha != CANONICAL_FRAME_SHA:
-        print(f"FATAL: frame sha {frame_sha} != canonical "
-              f"{CANONICAL_FRAME_SHA} — STOP")
-        return 1
+        raise RuntimeError(
+            f"FATAL: frame sha {frame_sha} != canonical "
+            f"{CANONICAL_FRAME_SHA} — STOP")
     print(f"frame_sha256={frame_sha}")
 
     # =====================================================================
@@ -513,8 +538,8 @@ def main(argv: list[str] | None = None) -> int:
     gates = _gates(oof, out_b, pins, checks, frame_sha)
     ok = all(v["pass"] for v in gates.values())
     if not ok:
-        print("FATAL: backfill gates failed — no artifacts emitted")
-        return 2
+        raise RuntimeError(
+            "FATAL: backfill gates failed — no artifacts emitted")
 
     # =====================================================================
     # STEP 4 — emitters (markets CSV + meta + monitor + serve record)
@@ -599,20 +624,25 @@ def main(argv: list[str] | None = None) -> int:
         "gates": gates,
     }
 
-    if not args.no_record:
-        DATA_DELIVERY.mkdir(parents=True, exist_ok=True)
-        csv_path = DATA_DELIVERY / f"nfl_run_engine_markets_{date_str}.csv"
+    written: list[str] = []
+    if not no_record:
+        emit_dir = out_dir if out_dir is not None else DATA_DELIVERY
+        emit_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = emit_dir / f"nfl_run_engine_markets_{date_str}.csv"
         tmp = csv_path.with_suffix(".csv.tmp")
         out.to_csv(tmp, index=False)
         tmp.replace(csv_path)
-        meta_path = DATA_DELIVERY / f"nfl_run_engine_markets_{date_str}.meta.json"
+        written.append(csv_path.name)
+        meta_path = emit_dir / f"nfl_run_engine_markets_{date_str}.meta.json"
         tmp = meta_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(meta, indent=2, default=str))
         tmp.replace(meta_path)
-        mon_path = DATA_DELIVERY / f"nfl_run_engine_monitor_{date_str}.json"
+        written.append(meta_path.name)
+        mon_path = emit_dir / f"nfl_run_engine_monitor_{date_str}.json"
         tmp = mon_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(monitor, indent=2, default=str))
         tmp.replace(mon_path)
+        written.append(mon_path.name)
         rec = {
             "record": "nfl_markets_backfill",
             "target_date": date_str,
@@ -621,9 +651,10 @@ def main(argv: list[str] | None = None) -> int:
             "scope": ("run-engine decided-history connector: decided OOF "
                       "store through the slate emitter's schema + actuals, "
                       "one dated markets artifact (kinds slate + oof), MLB "
-                      "mirror. Record + dated artifacts only; NOTHING wired "
-                      "into master_pipeline; FEATURE_COLUMNS / served "
-                      "12-pool untouched"),
+                      "mirror. This shared core is wired into "
+                      "master_pipeline Phase 3b (daily emission); the CLI "
+                      "remains the standalone/backfill entrypoint. "
+                      "FEATURE_COLUMNS / served 12-pool untouched"),
             "config": {"era_spec": SE.ERA_SPEC, "median_rounds": dict(
                 SE.MEDIAN_ROUNDS), "pinned_joint": {
                     "sigma_h": SE.PINNED_SIGMA_HOME,
@@ -672,10 +703,11 @@ def main(argv: list[str] | None = None) -> int:
                                                 "history"),
             },
         }
-        rec_path = DATA_DELIVERY / f"nfl_slate_serve_{date_str}.json"
+        rec_path = emit_dir / f"nfl_slate_serve_{date_str}.json"
         tmp = rec_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(rec, indent=2, default=str))
         tmp.replace(rec_path)
+        written.append(rec_path.name)
         print(f"  wrote {csv_path.name} ({len(out_b)} slate + "
               f"{len(oof)} oof rows)")
         print(f"  wrote {meta_path.name}")
@@ -684,6 +716,29 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("  [--no-record] artifacts skipped")
     print(f"Done in {time.time() - t0:.0f}s")
+    return {"date_str": date_str, "as_of_utc": as_of_utc,
+            "n_slate": int(len(out_b)), "n_oof": int(len(oof)),
+            "n_board": int(len(out_b)), "gates": gates,
+            "written": written}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Standalone/backfill CLI — thin wrapper over the shared
+    ``run_daily_markets`` core (the same function ``master_pipeline``
+    Phase 3b calls). Exit 0 on success; 1 when the core raises (frame sha,
+    record pins, or gates) — the FATAL reason is printed by the core."""
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--no-record", action="store_true",
+                    help="compute/print only; skip writing artifacts")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="emit artifacts here instead of data_delivery "
+                         "(default: nfl-backend/data_delivery)")
+    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    try:
+        run_daily_markets(out_dir=args.out_dir, no_record=args.no_record)
+    except RuntimeError as exc:
+        print(str(exc))
+        return 1
     return 0
 
 

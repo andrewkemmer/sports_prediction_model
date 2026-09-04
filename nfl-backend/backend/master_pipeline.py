@@ -15,6 +15,14 @@ Mirrors ``mlb-backend/backend/master_pipeline.py`` for the NFL backend:
            sealed-2025 gate → ``nfl_moneyline_v1_<date>.json`` with the
            per-game ``games[]`` slate — written ONLY when the sealed window
            earns adoption; otherwise ``predictions: {status: blocked}``.
+  Phase 3b run-engine markets emission (MLB ``run_engine_daily`` mirror):
+           after the moneyline phase, the shared core
+           (``run_nfl_markets_backfill.run_daily_markets``) regenerates the
+           decided OOF store (pooled/sealed walk, pinned chain) + today's
+           slate rows into ``nfl_run_engine_markets_<date>.csv`` (+ meta /
+           monitor / serve record) so the Totals & Run Lines dashboard
+           stays current without manual backfills. Any gate/pin breach
+           RAISES — the run stops loudly, nothing partial is emitted.
   Phase 4  GitHub sync: stage ONLY this run's ``nfl-backend/data_delivery``
            files (never ``.pyc``, never other sport dirs) and push.
   Phase 5  stale-artifact cleanup: runs strictly after a confirmed push (a
@@ -37,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -264,6 +273,51 @@ def phase3(args) -> None:
                  slate_season=args.slate_season,
                  seasons=args.window)
 
+    # Phase 3b — run-engine markets emission (the daily Totals & Run Lines
+    # store). MLB mirror: the moneyline/training phase ends with
+    # run_engine_daily emitting the dated markets artifact (decided rows
+    # WITH actuals + today's slate rows in one dated file) that the
+    # dashboard reads as the newest dated store. The shared core raises on
+    # any pin/gate breach — the run stops loudly (sync/cleanup never run),
+    # never a silent or partial emit.
+    _phase3b(args)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3b — run-engine markets emission (daily Totals & Run Lines store)
+# ---------------------------------------------------------------------------
+def _phase3b(args) -> None:
+    """Run-engine markets emission — the daily dated store, MLB mirror.
+
+    Mirrors MLB's ``run_engine_daily`` call at the end of its
+    moneyline/training phase (pipeline.py: the markets artifact regenerates
+    every run, decided rows WITH actuals + today's slate rows in one dated
+    file, and the frontend reads the newest one). Calls the SAME shared
+    core the standalone backfill CLI calls
+    (``run_nfl_markets_backfill.run_daily_markets``) — one schema, no fork.
+
+    Failure policy (judgment call 2 of the wiring spec): the core RAISES on
+    any frame-sha / record-pin / gate breach after printing the FATAL
+    reason, and this phase lets the exception propagate — the run stops
+    loudly, sync/cleanup never run, nothing partial is emitted, and the
+    last good committed dated store stays the served store until the
+    degradation is resolved. A dry path without nflreadpy (no board/slate
+    possible) is the one graceful skip, mirroring Phase 3's slate stage.
+    """
+    _banner("PHASE 3b",
+            "Run-engine markets emission (decided OOF store + today's slate)")
+    if importlib.util.find_spec("nflreadpy") is None:
+        print("  [phase 3b] nflreadpy not installed - run-engine emission "
+              "skipped (dry path, mirror of the slate stage)")
+        return
+    from run_nfl_markets_backfill import run_daily_markets
+    out_dir = Path(args.out_dir) if getattr(args, "out_dir", None) else None
+    res = run_daily_markets(out_dir=out_dir)
+    print(f"  [ok] emitted {res['date_str']}: {res['n_slate']} slate + "
+          f"{res['n_oof']} decided rows")
+    for w in res["written"]:
+        print(f"    {w}")
+
 
 # ---------------------------------------------------------------------------
 # Phase 4 — GitHub sync (stage ONLY this run's nfl-backend/data_delivery)
@@ -397,7 +451,12 @@ def phase4(args) -> None:
         for s in staged:
             print(f"    {s}")
         if staged:
-            repo.index.add(staged)
+            # force=True == ``git add -f``: the dated markets CSV is
+            # gitignored (nfl-backend/.gitignore: data_delivery/*.csv), and a
+            # BRAND-NEW dated .csv (never committed before its first push)
+            # would otherwise be silently skipped. Tracked files are
+            # unaffected (gitignore never applies to them).
+            repo.index.add(staged, force=True)
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             repo.index.commit(f"Update NFL features + predictions: {ts}")
             _git_push_confirmed(repo, CONFIG["github_branch"])
@@ -427,8 +486,10 @@ def phase4(args) -> None:
 # BOARD-BACKED RETENTION (MLB regression lesson): an artifact a navigable
 # game-date depends on must never be pruned while that date still renders a
 # board. MLB kept todays_games_*/shap_game_* for 3 days but run-engine markets
-# only 2, so a still-shown board lost its RUN ENGINE data. NFL has no run-
-# engine family, so the rule translates to the record family: a dated
+# only 2, so a still-shown board lost its RUN ENGINE data. NFL run-engine
+# families are handled by PREFIX-PROTECTION instead (below — accumulating
+# dated history, MLB's run_engine_monitor_ rule); the board-backed rule
+# translates to the moneyline record family: a dated
 # nfl_moneyline_v1_<d>.json / nfl_feature_v1_<d>.json is kept while <d> is
 # still a board date — <d> appears as a distinct game_date in the moneyline
 # record(s)' games[]. Mirror the board-backed mechanism (no fixed count).
@@ -444,6 +505,17 @@ _PROTECTED_DELIVERY_NAMES = {
 }
 _PROTECTED_DELIVERY_PREFIXES = (
     "models/",          # deployed ensemble bundles
+    # Run-engine + research-record families (daily emission wiring,
+    # 2026-09-04): the dated markets store + its monitor + the slate-serve
+    # record and the PINNED research records (era/market/adoption) a daily
+    # run depends on are NEVER swept — not even as stale-untracked copies
+    # (the tracked-file guard already protects committed copies; prefix-
+    # protection extends the same guarantee to untracked ones, so a sweep
+    # can never remove the last good dated store or a research record).
+    # History accumulates — growth is expected and matches MLB.
+    "nfl_run_engine_markets_", "nfl_run_engine_monitor_",
+    "nfl_slate_serve_", "nfl_era_", "nfl_market_",
+    "nfl_adoption_decision_",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

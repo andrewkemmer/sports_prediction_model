@@ -417,5 +417,137 @@ class TestIncumbentBundleAvailability(unittest.TestCase):
                 "nfl-backend/data_delivery/nfl_moneyline_v1_20260830.json"))
 
 
+class TestRunEngineAndResearchProtection(unittest.TestCase):
+    """Daily-emission wiring (2026-09-04): the run-engine dated families and
+    the pinned research records a daily run depends on are PREFIX-PROTECTED
+    — never swept, not even as stale-untracked copies (the tracked-file
+    guard already protects committed copies; prefix-protection extends the
+    same guarantee to untracked ones, so a sweep can never remove the last
+    good dated store or a research record). Plain monitor-like dated files
+    stay on the retention window (rule scoping intact)."""
+    FAMILIES = [
+        "nfl_run_engine_markets_20260830.csv",
+        "nfl_run_engine_markets_20260830.meta.json",
+        "nfl_run_engine_monitor_20260830.json",
+        "nfl_slate_serve_20260830.json",
+        "nfl_era_3e8c8a510f04.json",
+        "nfl_market_3e8c8a510f04.json",
+        "nfl_adoption_decision_3e8c8a510f04.json",
+    ]
+
+    def test_run_engine_and_research_families_never_stale(self):
+        """Stale-dated, no board, empty retention — still protected."""
+        for name in self.FAMILIES:
+            rel = f"{DD}/{name}"
+            self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY),
+                             "protected", name)
+            self.assertTrue(_is_protected_name(rel), name)
+
+    def test_untracked_sweep_keeps_families_and_removes_plain_stale(self):
+        """A real sweep keeps the (untracked, stale-dated) run-engine /
+        research files and still removes a plain stale monitor file — the
+        protected set is additive, not a blanket no-delete."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            for name in self.FAMILIES:
+                (d / name).write_text("{}", encoding="utf-8")
+            plain = d / "nfl_model_monitor_20260801.json"
+            plain.write_text("{}", encoding="utf-8")
+            out = _prune_stale(d, EMPTY, EMPTY, {"20260901"}, set())
+            for name in self.FAMILIES:
+                self.assertTrue((d / name).exists(), f"{name} was swept!")
+            self.assertFalse(plain.exists())
+            self.assertEqual(
+                out["deleted"],
+                [f"{DD}/nfl_model_monitor_20260801.json"])
+
+    def test_moneyline_records_still_board_backed_not_prefix_protected(self):
+        """Rule scope intact: moneyline/feature records keep the board-backed
+        retention rule (not prefix protection)."""
+        rel = f"{DD}/nfl_moneyline_v1_20260830.json"
+        self.assertFalse(_is_protected_name(rel))
+        self.assertEqual(classify_stale(rel, EMPTY, {"20260830"}, EMPTY),
+                         "keep")   # its date still renders a board
+
+
+class TestDailyEmissionWiring(unittest.TestCase):
+    """The daily pipeline phase and the standalone/backfill CLI share ONE
+    emission core (``run_nfl_markets_backfill.run_daily_markets``) — no
+    forked schema (spec Step 1). Source-level pins, like the slate tests."""
+    BACKEND = Path(__file__).resolve().parent
+
+    def _source(self, name: str) -> str:
+        return (self.BACKEND / name).read_text(encoding="utf-8")
+
+    def test_master_pipeline_phase3b_calls_the_shared_core(self):
+        src = self._source("master_pipeline.py")
+        # phase3 ends by invoking the Phase-3b sub-phase...
+        self.assertIn("# Phase 3b — run-engine markets emission", src)
+        self.assertIn("_phase3b(args)", src)
+        # ...which imports and calls run_nfl_markets_backfill's shared core.
+        tail = src[src.index("def _phase3b"):]
+        self.assertIn(
+            "from run_nfl_markets_backfill import run_daily_markets", tail)
+        self.assertIn("res = run_daily_markets(out_dir=out_dir)", tail)
+
+    def test_backfill_cli_delegates_to_the_same_core(self):
+        src = self._source("run_nfl_markets_backfill.py")
+        self.assertIn("def run_daily_markets(out_dir: Path | None = None,",
+                      src)
+        cli = src[src.index("def main("):]
+        self.assertIn("run_daily_markets(out_dir=args.out_dir, "
+                      "no_record=args.no_record)", cli)
+
+    def test_phase_order_moneyline_then_emission_then_sync(self):
+        """Insertion point: after the moneyline phase, before sync/cleanup."""
+        src = self._source("master_pipeline.py")
+        i_phase3 = src.index('_banner("PHASE 3",')
+        i_phase3b_call = src.index("_phase3b(args)")
+        i_phase4 = src.index("def phase4(")
+        i_phase5 = src.index("def phase5(")
+        self.assertLess(i_phase3, i_phase3b_call)
+        self.assertLess(i_phase3b_call, i_phase4)
+        self.assertLess(i_phase4, i_phase5)
+
+
+class TestForceAddIgnoredDatedCsv(unittest.TestCase):
+    """Judgment call 3: the dated markets CSV is gitignored
+    (nfl-backend/.gitignore: ``data_delivery/*.csv``). Phase 4 must commit a
+    BRAND-NEW dated .csv (never committed before its first push) with
+    ``git add -f`` semantics — gitpython's ``index.add(..., force=True)``.
+    Pin the explicit call in source AND the behavior in a scratch repo so a
+    future gitpython change cannot silently skip the dated store."""
+
+    def test_phase4_add_is_explicit_force(self):
+        src = (Path(__file__).resolve().parent / "master_pipeline.py")\
+            .read_text(encoding="utf-8")
+        self.assertIn("repo.index.add(staged, force=True)", src)
+
+    def test_new_ignored_csv_committed_by_force_add(self):
+        import git
+        with tempfile.TemporaryDirectory() as td:
+            repo = git.Repo.init(str(Path(td) / "repo"))
+            with repo.config_writer() as cw:
+                cw.set_value("user", "name", "Test")
+                cw.set_value("user", "email", "test@example.com")
+            try:
+                root = Path(repo.working_tree_dir)
+                (root / ".gitignore").write_text(
+                    "data_delivery/*.csv\n", encoding="utf-8")
+                repo.index.add([".gitignore"])
+                repo.index.commit("init ignore")
+                dd = root / "data_delivery"
+                dd.mkdir()
+                (dd / "nfl_run_engine_markets_20260904.csv").write_text(
+                    "a,b\n1,2\n", encoding="utf-8")
+                rel = "data_delivery/nfl_run_engine_markets_20260904.csv"
+                repo.index.add([rel], force=True)  # phase-4 call pattern
+                repo.index.commit("stage dated csv")
+                self.assertIn(rel,
+                              set(repo.git.ls_files().splitlines()))
+            finally:
+                repo.close()  # release file locks so the temp dir can go
+
+
 if __name__ == "__main__":
     unittest.main()

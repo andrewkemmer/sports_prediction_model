@@ -1,0 +1,50 @@
+{
+  "record": "nfl_daily_emission_wiring",
+  "target_date": "20260904",
+  "written_utc": "2026-09-04T08:36:00Z",
+  "scope": "Wire the run-engine decided-history emission into the NFL daily master_pipeline (Phase 3b) so the Totals & Run Lines dashboard stays current without manual backfills. MLB mirror: one dated markets file per run carrying decided OOF rows WITH actuals + today's slate rows; history accumulates via committed dated files. Phase A (33145c1) built the deterministic backfill core and shared board path; this change wires them into the daily run. FEATURE_COLUMNS / served 12-pool / MLB + frontend untouched.",
+  "wiring_map": {
+    "pipeline_phases": [
+      "Phase 0 environment -> Phase 1 ingest (decided frame) -> Phase 2 features -> Phase 3 moneyline ensemble + gated slate",
+      "Phase 3b run-engine markets emission (NEW): runs at the END of phase3 (after the moneyline ensemble, before Phase 4 sync) — MLB mirror: pipeline.py runs run_engine_daily at the end of its moneyline/training phase, regenerating the dated markets artifact every run",
+      "Phase 4 GitHub sync: content-diff staging of nfl-backend/data_delivery (only files changed vs the committed copy), explicit force-add so a brand-new gitignored dated .csv is committed",
+      "Phase 5 stale-artifact cleanup: only stale UNTRACKED files swept; tracked/committed never deleted"
+    ],
+    "call_graph": "master_pipeline.phase3 -> master_pipeline._phase3b -> run_nfl_markets_backfill.run_daily_markets (the SAME shared core the standalone backfill CLI main() calls — one schema, no fork). The core reuses run_nfl_slate.build_board_inputs / price_board_rows (the shared board path from 33145c1) and run_nfl_era's own E2 entrypoints (regenerate_era_e2 / _folds_for / _sealed_era_eval) with the pinned chain: era E2 ewm_2w rounds 20/23, DN joint sigma 9.663/9.0789 rho 0.0076 tie 0.275%, totals (c,d) = (-0.3599, 0.3472), spread (c,d) = (0.446165, 0.307486).",
+    "emitted_file_set": [
+      "nfl_run_engine_markets_{run_date}.csv         kind == oof (decided store WITH actuals) + kind == slate (today's board) in one file, 250-col schema",
+      "nfl_run_engine_markets_{run_date}.meta.json   treatment mode, line-vintage status, decided-store calibration + regeneration checks",
+      "nfl_run_engine_monitor_{run_date}.json        research-pinned OOF baseline + backfill-computed calibration + accumulating slate-history (empty until served 2026 slate rows decide)",
+      "nfl_slate_serve_{run_date}.json               run gates + mapping table (the record)"
+    ],
+    "standalone_entrypoint": "run_nfl_markets_backfill.py remains the standalone/backfill CLI (thin wrapper over the same run_daily_markets core); --out-dir added for dry/scratch emissions."
+  },
+  "idempotency": "Same-date re-runs reproduce the store byte-identically: no RNG, no re-fit drift, and each dated file is regenerated from scratch — never appended to — so no duplicate rows are possible. Record-pin verification (g3) and a double-pricing-walk gate (g2) run before every emission. Meta/monitor as-of timestamps advance per run by design (as-of semantics).",
+  "retention_rules": {
+    "protected_prefixes": ["models/", "nfl_run_engine_markets_", "nfl_run_engine_monitor_", "nfl_slate_serve_", "nfl_era_", "nfl_market_", "nfl_adoption_decision_"],
+    "protected_names": ["nfl_game_level_features.csv (canonical decided frame)"],
+    "board_backed_records": ["nfl_moneyline_v1_*", "nfl_feature_v1_*", "nfl_calibration_*", "nfl_predictions_history_* — kept while the filename date still renders a board"],
+    "tracked_never_deleted": "ANY file committed to git is the permanent record; the sweep never deletes it (2026-09-01 regression guard) — dated history accumulates, growth is expected and matches MLB (judgment call 1)",
+    "same_day_retention": "today + previous GMT day kept regardless",
+    "sweep_scope": "only stale UNTRACKED files outside protection/retention/board windows are removed",
+    "no_day_window_truncation": "none — no window ever truncates old dated markets/monitor history"
+  },
+  "degradation_policy": "The shared core RAISES (prints the FATAL reason) on ANY frame-sha / record-pin / gate breach; _phase3b lets the exception propagate — the run stops loudly before sync/cleanup, nothing partial is emitted, and the last good committed dated store remains the served store until the degradation is resolved (judgment call 2). A dry path without nflreadpy (no board/slate possible) is the one graceful skip, mirroring Phase 3's slate stage.",
+  "judgment_calls": {
+    "1_accumulating_history": "the Monitor needs accumulating dated history — old dated files are never deleted; growth is expected and matches MLB",
+    "2_loud_stop_over_silent_degrade": "a daily run that cannot produce a verified store stops loudly rather than shipping a partial walk as fresh; re-runs of a same date are byte-identical",
+    "3_force_add_gitignored_csv": "the markets CSV is gitignored (nfl-backend/.gitignore data_delivery/*.csv); Phase 4's sync now calls repo.index.add(staged, force=True) (git add -f semantics — gitpython's add defaults to force, made explicit + behavior-pinned by test) so a brand-new dated .csv is committed every run and the frontend can fetch it from GitHub"
+  },
+  "acceptance": {
+    "wired_phase_run": "master_pipeline._phase3b invoked end-to-end (the exact phase3 tail the daily run calls) from the nfl-backend checkout; 407s; all gates passed (monitor gates all pass=true); emitted 20260904 family into data_delivery",
+    "artifact_verified": {
+      "nfl_run_engine_markets_20260904.csv": "250 cols, 1,648 rows = 272 slate (kind==slate, decided==0, decided-target cols NaN) + 1,376 oof (kind==oof, decided==1, actuals home/away present, 100% spread/total line coverage, frame_view pooled/sealed)",
+      "meta": "decided_store n_total 1,376; calibration pins reproduce (pooled totals/covers ECE offered 0.087/0.078, derived-ML 0.6365/0.695/0.0435; sealed 0.1547/0.1145, 0.6535/0.6782/0.1009)",
+      "monitor": "research-pinned OOF baseline + backfill-computed calibration; slate_history [] (honest empty — no served 2026 slate outcomes exist)",
+      "serve_record": "nfl_slate_serve_20260904.json regenerated (the dated record)"
+    },
+    "determinism": "second full emission of the same date to a scratch out_dir through the same wired phase: nfl_run_engine_markets_20260904.csv cmp BYTE-IDENTICAL (no RNG, no duplicate rows — each dated file regenerated from scratch)",
+    "frontend_discovery": "loader _nfl_run_engine_family_dates resolves 20260904 as the newest dated markets file with no manual step; test_frontend_nfl_slate 38/38 green (loader + data-loaded render over the 20260904 artifact)",
+    "next_day_semantics": "each dated file is self-contained and regenerated from scratch (never appended), so a next-day run emits its own dated family and cannot duplicate prior rows; served-2026 slate outcomes will begin filling the monitor's slate_history once 2026 games decide"
+  }
+}
