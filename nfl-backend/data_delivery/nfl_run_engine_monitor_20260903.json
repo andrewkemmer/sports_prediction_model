@@ -1,7 +1,7 @@
 {
   "artifact": "nfl_run_engine_monitor_20260903.json",
   "target_date": "20260903",
-  "as_of_utc": "2026-09-03T23:04:53.573366+00:00",
+  "as_of_utc": "2026-09-04T03:49:58.305761+00:00",
   "oof_baseline_research_pinned": {
     "covers_ece_pooled": 0.078,
     "totals_ece_pooled_own": 0.087,
@@ -15,36 +15,91 @@
       "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
       "nfl_adoption_decision_3e8c8a510f04.json (spread adoption)"
     ],
-    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the first-run monitor slate-history section is empty by design (no served slate outcomes exist yet)"
+    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the backfill-computed store below verifies them deterministically on every run"
+  },
+  "oof_decided_store_backfill_computed": {
+    "n_pooled": 1091,
+    "n_sealed": 285,
+    "method": "backfill-computed from the decided OOF store in this artifact (kind == 'oof' rows): totals/covers ECE at the fair lines and at the offered lines, derived-ML ll/auc/ece, per view",
+    "calibration": {
+      "pooled": {
+        "n": 1091,
+        "totals_ece_offered": 0.087,
+        "covers_ece_offered": 0.078,
+        "totals_ece_fair": 0.0393,
+        "covers_ece_fair": 0.0419,
+        "derived_ml": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        }
+      },
+      "sealed": {
+        "n": 285,
+        "totals_ece_offered": 0.1547,
+        "covers_ece_offered": 0.1145,
+        "totals_ece_fair": 0.0965,
+        "covers_ece_fair": 0.0599,
+        "derived_ml": {
+          "logloss": 0.6535,
+          "auc": 0.6782,
+          "ece": 0.1009,
+          "brier": 0.2299
+        }
+      }
+    },
+    "regeneration_checks": {
+      "pooled": {
+        "derived_ml": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        }
+      },
+      "sealed": {
+        "derived_ml": {
+          "logloss": 0.6535,
+          "auc": 0.6782,
+          "ece": 0.1009,
+          "brier": 0.2299
+        }
+      },
+      "away_abs_resid_2021_23": 0.4083
+    }
   },
   "slate_history": [],
   "markets_persisted": true,
   "markets_path": "nfl_run_engine_markets_20260903.csv",
   "gates": {
-    "g1_mass_conservation": {
+    "g1_actuals_and_coverage": {
       "pass": true,
-      "rule": "every 76x76 joint sums to 1"
+      "rule": "1,376 decided rows, actuals + 100% offered-line coverage"
     },
-    "g2_tie_calibrated": {
+    "g2_determinism": {
       "pass": true,
-      "mean_trace": 0.00275,
-      "target": 0.00275,
-      "rule": "IPF-calibrated tie diagonal == 0.275%"
+      "rule": "byte-identical double pricing walk on the priced columns (no RNG)"
     },
-    "g3_marginal_post_ipf": {
+    "g3_record_pins": {
       "pass": true,
-      "max_err": 7e-12,
-      "rule": "row/col marginals match to 1e-9"
+      "mismatches": [],
+      "rule": "offered-line calibration + derived-ML reproduce the market record pins"
     },
-    "g4_derived_ml_range": {
-      "pass": true
-    },
-    "g5_leakage_and_market_free": {
-      "pass": true
-    },
-    "g6_determinism": {
+    "g4_leakage": {
       "pass": true,
-      "rule": "byte-identical double price walk"
+      "oof_max_day": "2026-02-08",
+      "oof_min_day": "2021-09-09",
+      "board_min_day": "2026-09-09",
+      "rule": "pooled 2021-24 + sealed 2025 rows only; the 2026 board is strictly later; fit windows prior by construction"
+    },
+    "g5_schema": {
+      "pass": true,
+      "rule": "grid populated everywhere; OOF rows carry offers; board rows carry no decided-targets"
+    },
+    "g6_pool_untouched": {
+      "pass": true,
+      "rule": "FEATURE_COLUMNS untouched (12 market-free + is_home anchor), market-free"
     }
   }
 }

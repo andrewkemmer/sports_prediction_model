@@ -156,54 +156,14 @@ def _record_config() -> dict[str, Any]:
                          "feed": adopt["feed_decision"]}}
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--no-record", action="store_true",
-                    help="compute/print only; skip writing artifacts")
-    ap.add_argument("--out-dir", default=None,
-                    help="emit artifacts here instead of data_delivery")
-    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
-    warnings.filterwarnings("ignore",
-                            message="The argument 'eval_set' is deprecated")
-    t0 = time.time()
-    out_dir = Path(args.out_dir) if args.out_dir else DATA_DELIVERY
+def build_board_inputs() -> dict[str, Any]:
+    """STEP 1 — decided frame + era centers + schedule/board.
 
-    # =====================================================================
-    # STEP 0 — frame + config pins
-    # =====================================================================
-    frame_sha = _frame_sha()
-    if frame_sha != CANONICAL_FRAME_SHA:
-        print(f"FATAL: frame sha {frame_sha} != canonical "
-              f"{CANONICAL_FRAME_SHA} — STOP")
-        return 1
-    cfg = _record_config()
-    era_cfg = cfg["era"]
-    # Verify record-vs-engine constants (provenance pin, not assumption).
-    assert era_cfg["spec"] == SE.ERA_SPEC, (era_cfg["spec"], SE.ERA_SPEC)
-    assert era_cfg["rounds"]["home"] == SE.MEDIAN_ROUNDS["home"]
-    assert era_cfg["rounds"]["away"] == SE.MEDIAN_ROUNDS["away"]
-    assert era_cfg["sigma_h"]["sigma0"] == SE.PINNED_SIGMA_HOME
-    assert era_cfg["sigma_a"]["sigma0"] == SE.PINNED_SIGMA_AWAY
-    assert abs(era_cfg["rho"] - SE.PINNED_RHO) < 1e-9
-    assert abs(era_cfg["p_tie"] - SE.PINNED_P_TIE) < 1e-9
-    mkt_cd = tuple(round(float(x), 4) for x in cfg["market"]["median_cd"])
-    assert mkt_cd == SE.TOTALS_CD, (mkt_cd, SE.TOTALS_CD)
-    adopt_cd = tuple(round(float(x), 6) for x in cfg["adoption"]["median_cd"])
-    assert adopt_cd == SE.SPREAD_CD, (adopt_cd, SE.SPREAD_CD)
-    print(f"frame_sha256={frame_sha}")
-    print(f"  era spec={era_cfg['spec']} rounds={era_cfg['rounds']} "
-          f"sigma_h/a={era_cfg['sigma_h']['sigma0']}/"
-          f"{era_cfg['sigma_a']['sigma0']} rho={era_cfg['rho']} "
-          f"p_tie={era_cfg['p_tie']}")
-    print(f"  market totals (c,d)={mkt_cd} "
-          f"[{cfg['market']['verdict']}] | spread (c,d)={adopt_cd} "
-          f"[{cfg['adoption']['verdict']}] | "
-          f"feed_present={cfg['adoption']['feed']['known_vintage_feed_present']}")
-
-    # =====================================================================
-    # STEP 1 — decided frame + era centers + schedule/board
-    # =====================================================================
-    print("\n[Step 1] data + era centers...")
+    Shared with ``run_nfl_markets_backfill`` so the 2026 board path is ONE
+    code path (the decided-history backfill appends kind==oof rows to the
+    SAME board artifact the slate runner emits). Returns everything the
+    pricing step needs.
+    """
     decided = pd.read_csv(DECIDED_FRAME)
     decided["gameday"] = pd.to_datetime(decided["gameday"], errors="coerce")
     dv = decided[["game_id", "season", "week", "gameday", "home_score",
@@ -274,11 +234,19 @@ def main(argv: list[str] | None = None) -> int:
         impute_rate[f] = round(rate, 4)
     print("  serve-time impute rates: "
           + ", ".join(f"{f}={r}" for f, r in impute_rate.items() if r))
+    return {"decided": decided, "dv": dv, "decided_f": decided_f,
+            "board": board, "lines": lines, "impute_rate": impute_rate}
 
-    # =====================================================================
-    # STEP 2 — fit-only refit at median rounds (era-centered) + price
-    # =====================================================================
-    print("\n[Step 2] refit + price...")
+
+def price_board_rows(bi: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """STEP 2 — fit-only refit at median rounds (era-centered) + price.
+
+    Shared with ``run_nfl_markets_backfill``. Returns (preds, mkt) — the
+    refit per-side means and the priced market rows for the board.
+    """
+    board, decided, dv, decided_f, lines = (bi["board"], bi["decided"],
+                                            bi["dv"], bi["decided_f"],
+                                            bi["lines"])
     preds = refit_centered_per_side(decided_f, board, SE.MEDIAN_ROUNDS,
                                     SIDE_FEATURES)
     if len(preds) != len(board):
@@ -294,6 +262,67 @@ def main(argv: list[str] | None = None) -> int:
                                       "total_line"]])
     if len(mkt) != len(board):
         raise RuntimeError(f"price coverage {len(mkt)}/{len(board)}")
+    return preds, mkt
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--no-record", action="store_true",
+                    help="compute/print only; skip writing artifacts")
+    ap.add_argument("--out-dir", default=None,
+                    help="emit artifacts here instead of data_delivery")
+    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    warnings.filterwarnings("ignore",
+                            message="The argument 'eval_set' is deprecated")
+    t0 = time.time()
+    out_dir = Path(args.out_dir) if args.out_dir else DATA_DELIVERY
+
+    # =====================================================================
+    # STEP 0 — frame + config pins
+    # =====================================================================
+    frame_sha = _frame_sha()
+    if frame_sha != CANONICAL_FRAME_SHA:
+        print(f"FATAL: frame sha {frame_sha} != canonical "
+              f"{CANONICAL_FRAME_SHA} — STOP")
+        return 1
+    cfg = _record_config()
+    era_cfg = cfg["era"]
+    # Verify record-vs-engine constants (provenance pin, not assumption).
+    assert era_cfg["spec"] == SE.ERA_SPEC, (era_cfg["spec"], SE.ERA_SPEC)
+    assert era_cfg["rounds"]["home"] == SE.MEDIAN_ROUNDS["home"]
+    assert era_cfg["rounds"]["away"] == SE.MEDIAN_ROUNDS["away"]
+    assert era_cfg["sigma_h"]["sigma0"] == SE.PINNED_SIGMA_HOME
+    assert era_cfg["sigma_a"]["sigma0"] == SE.PINNED_SIGMA_AWAY
+    assert abs(era_cfg["rho"] - SE.PINNED_RHO) < 1e-9
+    assert abs(era_cfg["p_tie"] - SE.PINNED_P_TIE) < 1e-9
+    mkt_cd = tuple(round(float(x), 4) for x in cfg["market"]["median_cd"])
+    assert mkt_cd == SE.TOTALS_CD, (mkt_cd, SE.TOTALS_CD)
+    adopt_cd = tuple(round(float(x), 6) for x in cfg["adoption"]["median_cd"])
+    assert adopt_cd == SE.SPREAD_CD, (adopt_cd, SE.SPREAD_CD)
+    print(f"frame_sha256={frame_sha}")
+    print(f"  era spec={era_cfg['spec']} rounds={era_cfg['rounds']} "
+          f"sigma_h/a={era_cfg['sigma_h']['sigma0']}/"
+          f"{era_cfg['sigma_a']['sigma0']} rho={era_cfg['rho']} "
+          f"p_tie={era_cfg['p_tie']}")
+    print(f"  market totals (c,d)={mkt_cd} "
+          f"[{cfg['market']['verdict']}] | spread (c,d)={adopt_cd} "
+          f"[{cfg['adoption']['verdict']}] | "
+          f"feed_present={cfg['adoption']['feed']['known_vintage_feed_present']}")
+
+    # =====================================================================
+    # STEP 1 — decided frame + era centers + schedule/board
+    # =====================================================================
+    print("\n[Step 1] data + era centers...")
+    bi = build_board_inputs()
+    decided, dv, decided_f, board, lines, impute_rate = (
+        bi["decided"], bi["dv"], bi["decided_f"], bi["board"],
+        bi["lines"], bi["impute_rate"])
+
+    # =====================================================================
+    # STEP 2 — fit-only refit at median rounds (era-centered) + price
+    # =====================================================================
+    print("\n[Step 2] refit + price...")
+    preds, mkt = price_board_rows(bi)
     print(f"  priced {len(mkt)}/{len(board)} board games (100% coverage)")
 
     # =====================================================================

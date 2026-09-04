@@ -1,9 +1,9 @@
 {
-  "record": "nfl_slate_serve",
+  "record": "nfl_markets_backfill",
   "target_date": "20260903",
-  "written_utc": "2026-09-03T23:04:53.656684+00:00",
+  "written_utc": "2026-09-04T03:49:58.542047+00:00",
   "frame_sha256": "3e8c8a510f04",
-  "scope": "run-line/totals slate-serve pricing path + artifact emitters \u2014 record + dated artifacts only; NOTHING wired into master_pipeline; FEATURE_COLUMNS / served 12-pool / daily pipeline untouched",
+  "scope": "run-engine decided-history connector: decided OOF store through the slate emitter's schema + actuals, one dated markets artifact (kinds slate + oof), MLB mirror. Record + dated artifacts only; NOTHING wired into master_pipeline; FEATURE_COLUMNS / served 12-pool untouched",
   "config": {
     "era_spec": "ewm_2w",
     "median_rounds": {
@@ -28,48 +28,85 @@
     },
     "view": "12-pool per-side PIT (SIDE_FEATURES)"
   },
-  "impute_rates": {
-    "elo_diff": 0.0,
-    "win_pct_diff": 0.0,
-    "rest_days_diff": 0.0,
-    "is_dome_home": 0.1581,
-    "ewm_net_pts_diff": 0.0,
-    "ewm_ypp_diff": 0.0,
-    "pace_plays_min_diff": 0.7647,
-    "rest_short_diff": 0.0,
-    "div_game": 0.0,
-    "travel_miles_diff": 0.1985,
-    "altitude_home": 0.1985,
-    "prime_time": 0.0
+  "regeneration_checks": {
+    "pooled": {
+      "derived_ml": {
+        "logloss": 0.6365,
+        "auc": 0.695,
+        "ece": 0.0435,
+        "brier": 0.2221
+      }
+    },
+    "sealed": {
+      "derived_ml": {
+        "logloss": 0.6535,
+        "auc": 0.6782,
+        "ece": 0.1009,
+        "brier": 0.2299
+      }
+    },
+    "away_abs_resid_2021_23": 0.4083
+  },
+  "decided_calibration": {
+    "pooled": {
+      "n": 1091,
+      "totals_ece_offered": 0.087,
+      "covers_ece_offered": 0.078,
+      "totals_ece_fair": 0.0393,
+      "covers_ece_fair": 0.0419,
+      "derived_ml": {
+        "logloss": 0.6365,
+        "auc": 0.695,
+        "ece": 0.0435,
+        "brier": 0.2221
+      }
+    },
+    "sealed": {
+      "n": 285,
+      "totals_ece_offered": 0.1547,
+      "covers_ece_offered": 0.1145,
+      "totals_ece_fair": 0.0965,
+      "covers_ece_fair": 0.0599,
+      "derived_ml": {
+        "logloss": 0.6535,
+        "auc": 0.6782,
+        "ece": 0.1009,
+        "brier": 0.2299
+      }
+    }
   },
   "gates": {
-    "g1_mass_conservation": {
+    "g1_actuals_and_coverage": {
       "pass": true,
-      "rule": "every 76x76 joint sums to 1"
+      "rule": "1,376 decided rows, actuals + 100% offered-line coverage"
     },
-    "g2_tie_calibrated": {
+    "g2_determinism": {
       "pass": true,
-      "mean_trace": 0.00275,
-      "target": 0.00275,
-      "rule": "IPF-calibrated tie diagonal == 0.275%"
+      "rule": "byte-identical double pricing walk on the priced columns (no RNG)"
     },
-    "g3_marginal_post_ipf": {
+    "g3_record_pins": {
       "pass": true,
-      "max_err": 7e-12,
-      "rule": "row/col marginals match to 1e-9"
+      "mismatches": [],
+      "rule": "offered-line calibration + derived-ML reproduce the market record pins"
     },
-    "g4_derived_ml_range": {
-      "pass": true
-    },
-    "g5_leakage_and_market_free": {
-      "pass": true
-    },
-    "g6_determinism": {
+    "g4_leakage": {
       "pass": true,
-      "rule": "byte-identical double price walk"
+      "oof_max_day": "2026-02-08",
+      "oof_min_day": "2021-09-09",
+      "board_min_day": "2026-09-09",
+      "rule": "pooled 2021-24 + sealed 2025 rows only; the 2026 board is strictly later; fit windows prior by construction"
+    },
+    "g5_schema": {
+      "pass": true,
+      "rule": "grid populated everywhere; OOF rows carry offers; board rows carry no decided-targets"
+    },
+    "g6_pool_untouched": {
+      "pass": true,
+      "rule": "FEATURE_COLUMNS untouched (12 market-free + is_home anchor), market-free"
     }
   },
   "n_board": 272,
+  "n_oof": 1376,
   "mapping_table": {
     "markets_csv": {
       "mlb": "run_engine_markets_{YYYYMMDD}.csv",
@@ -95,10 +132,9 @@
   },
   "retention_decision": "dated artifacts tracked-and-accumulating (MLB mirror); repo cleanup may never delete a committed file (tracked-file guard)",
   "judgment_calls": {
-    "1_pinned_dispersion": "joint dispersion params pinned from research (DN/9.663/9.0789/0.0076/0.275%) \u2014 in-sample refit on all-decided residuals would understate sigma and re-create hot totals",
-    "2_own_line_first_run": "no known-vintage feed exists \u2014 shrink columns additive + flagged, never silently applied",
-    "3_impute_at_serve": "board rows with no 2026 pbp yet (pace) or venue facts (neutral sites) are median-imputed from decided-train at serve time, mirroring the moneyline ensemble's impute-median bundle; rates recorded",
-    "4_spread_formal_adoption": "folded in per the adoption record's deferral (see nfl_adoption_decision_3e8c8a510f04.json)",
-    "5_artifact_schema": "mirrors MLB emitters from source (run_engine.persist_markets / markets loader) with nfl_ prefixes + the NFL-only raw-vs-derived \u00b10.5 pair"
+    "1_deterministic_regeneration": "the era E2 pooled walk + sealed eval are re-generated with the era runner's own entrypoints and pinned frame \u2014 no /tmp dump dependency, verified against the market record pins before emission",
+    "2_one_file_both_kinds": "MLB mirror: the dated markets CSV carries kind==oof (decided, with actuals) AND kind==slate (2026 board) rows so the newest dated file is the complete store",
+    "3_fair_vs_offered": "fair-line probabilities computed directly from the rebuilt PMFs; offered-line quotes carry the line-vintage caveat; never conflated",
+    "4_slate_history_still_empty": "no served-slate outcomes exist yet \u2014 the monitor's slate_history stays empty; the backfill-computed OOF calibration is labeled as such, not as slate history"
   }
 }

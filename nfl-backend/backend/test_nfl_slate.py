@@ -279,12 +279,23 @@ class TestRealArtifacts(unittest.TestCase):
         if path is None:
             self.skipTest("no nfl_run_engine_markets_* artifact committed")
         df = pd.read_csv(path)
-        self.assertTrue((df["kind"] == "slate").all())
+        # MLB mirror: ONE dated file carries both kinds — the 2026 board
+        # (slate) and the decided OOF store (oof, with actuals) once the
+        # decided-history backfill ships.
+        self.assertTrue(set(df["kind"]).issubset({"slate", "oof"}))
         for col in ("game_id", "gameday", "home_team", "away_team",
                     "mu_h", "mu_a", "fair_spread", "fair_total",
                     "derived_ml", "p_home_win_derived", "p_away_win_derived",
                     "shrink_applied"):
             self.assertIn(col, df.columns)
+        if "oof" in set(df["kind"]):
+            oof = df[df["kind"] == "oof"]
+            # decided rows carry actuals + outcomes
+            self.assertTrue(oof["home_score"].notna().all())
+            self.assertTrue(oof["away_score"].notna().all())
+            self.assertTrue(oof["y_home_win"].isin([0.0, 1.0]).all())
+        else:
+            self.skipTest("artifact predates the decided-history backfill")
         # grid columns present per the mapping table
         grid_cols = ([f"p_home_cover_{SE._fname(float(L))}"
                       for L in SE.SPREAD_INT_LINES]

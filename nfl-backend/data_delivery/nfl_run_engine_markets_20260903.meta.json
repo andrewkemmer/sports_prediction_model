@@ -1,7 +1,7 @@
 {
   "artifact": "nfl_run_engine_markets_20260903.csv",
   "target_date": "20260903",
-  "as_of_utc": "2026-09-03T23:04:53.573366+00:00",
+  "as_of_utc": "2026-09-04T03:49:58.305761+00:00",
   "frame_sha256": "3e8c8a510f04",
   "board": {
     "season": 2026,
@@ -26,6 +26,60 @@
       17,
       18
     ]
+  },
+  "decided_store": {
+    "n_pooled": 1091,
+    "n_sealed": 285,
+    "n_total": 1376,
+    "method": "deterministic E2 regeneration (canonical frame, 88 weekly folds, seeded LGB) + slate-emitter schema + actuals; verified against the market record pins before emission",
+    "calibration": {
+      "pooled": {
+        "n": 1091,
+        "totals_ece_offered": 0.087,
+        "covers_ece_offered": 0.078,
+        "totals_ece_fair": 0.0393,
+        "covers_ece_fair": 0.0419,
+        "derived_ml": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        }
+      },
+      "sealed": {
+        "n": 285,
+        "totals_ece_offered": 0.1547,
+        "covers_ece_offered": 0.1145,
+        "totals_ece_fair": 0.0965,
+        "covers_ece_fair": 0.0599,
+        "derived_ml": {
+          "logloss": 0.6535,
+          "auc": 0.6782,
+          "ece": 0.1009,
+          "brier": 0.2299
+        }
+      }
+    },
+    "regeneration_checks": {
+      "pooled": {
+        "derived_ml": {
+          "logloss": 0.6365,
+          "auc": 0.695,
+          "ece": 0.0435,
+          "brier": 0.2221
+        }
+      },
+      "sealed": {
+        "derived_ml": {
+          "logloss": 0.6535,
+          "auc": 0.6782,
+          "ece": 0.1009,
+          "brier": 0.2299
+        }
+      },
+      "away_abs_resid_2021_23": 0.4083
+    },
+    "line_vintage_caveat": "nflreadpy schedule-line vintage (closing vs early) UNCONFIRMED \u2014 offered-line columns and shrink params carry this caveat; fair-line quotes are model-only"
   },
   "line_vintage_status": "nflreadpy schedule-line vintage (closing vs early) UNCONFIRMED \u2014 shrink columns are computed and flagged shrink_applied=false; own-line quoting is the served mode",
   "treatment": {
@@ -70,7 +124,7 @@
       "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
       "nfl_adoption_decision_3e8c8a510f04.json (spread adoption)"
     ],
-    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the first-run monitor slate-history section is empty by design (no served slate outcomes exist yet)"
+    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the backfill-computed store below verifies them deterministically on every run"
   },
   "provenance_records": [
     "nfl_era_3e8c8a510f04.json",
