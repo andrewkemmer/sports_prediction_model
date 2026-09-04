@@ -166,8 +166,14 @@ class TestIsolationAndDeterminism(unittest.TestCase):
                        "import training", "from training"):
             self.assertNotIn(banned, src,
                              f"sp_projection.py must not import {banned!r}")
+        # Importing the producer must not ADD run_engine/training to
+        # sys.modules (earlier test modules may already have imported them —
+        # the pin is that sp_projection itself never pulls them in).
+        before = set(sys.modules)
         import sp_projection
-        self.assertNotIn("run_engine", sys.modules)
+        added = set(sys.modules) - before
+        self.assertFalse(added & {"run_engine", "training"},
+                         f"sp_projection import pulled in: {sorted(added)}")
         self.assertFalse(hasattr(sp_projection, "run_engine"))
 
     def test_determinism(self):
