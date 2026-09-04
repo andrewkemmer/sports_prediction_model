@@ -52,6 +52,8 @@ NFL_DD = ROOT / "nfl-backend" / "data_delivery"
 
 MLB_MARKETS_SRC = (FRONTEND / "markets.py").read_text(encoding="utf-8")
 NFL_MARKETS_SRC = (FRONTEND / "nfl_markets_page.py").read_text(encoding="utf-8")
+MODEL_MONITOR_SRC = (FRONTEND / "model_monitor.py").read_text(
+    encoding="utf-8")
 
 
 def _norm(src: str) -> str:
@@ -149,6 +151,70 @@ class TestMlbStructuralParity(unittest.TestCase):
         for phrase in ("**Honesty note:**", "no styling hides it"):
             self.assertIn(phrase, MLB_MARKETS_SRC)
             self.assertIn(phrase, NFL_MARKETS_SRC)
+
+    def test_monitor_subsections_match_mlb(self):
+        """The Monitor sub-section LIST + ORDER matches between the pages,
+        source-derived from each page's actual render flow (the Monitor
+        render tail, from the '### Run-Line & Totals Monitor' heading to
+        EOF): winner cards -> calibration-cards expander -> fit-panel
+        expander -> run-engine drift -> run-engine coverage -> run-engine
+        model card -> rolling-history expander. MLB's helper defs sit above
+        the render block, so the MLB tail scan uses the render-call names;
+        the NFL page inlines its headings inside run() — each scan pins its
+        own page's flow, and presence on BOTH pages is pinned by
+        test_run_engine_drift_coverage_owned_by_markets_page. The two
+        drift/coverage sections are INCLUDED because MLB's markets page
+        renders them (they are not Model Monitor sections)."""
+        mlb_tail = MLB_MARKETS_SRC[
+            MLB_MARKETS_SRC.index("### Run-Line & Totals Monitor"):]
+        nfl_tail = NFL_MARKETS_SRC[
+            NFL_MARKETS_SRC.index("### Run-Line & Totals Monitor"):]
+        mlb_seq = ("### Run-Line & Totals Monitor", "_render_winner_cards(",
+                   "Calibration Cards — Totals & Run Line",
+                   "Distributional Fit Diagnostics",
+                   "_render_run_engine_drift(",
+                   "_render_run_engine_coverage(",
+                   "_render_run_engine_model_card(",
+                   "Rolling History (last 10 points per card)")
+        nfl_seq = ("### Run-Line & Totals Monitor", "_render_winner_cards(",
+                   "Calibration Cards — Totals & Run Line",
+                   "Distributional Fit Diagnostics",
+                   "### Run-Engine Feature Drift (PSI)",
+                   "### Run-Engine Feature Coverage (non-null / measured)",
+                   "### Run-Engine Model (per-side era + 76×76 joint)",
+                   "Rolling History (last 10 points per card)")
+        for seq, tail, name in ((mlb_seq, mlb_tail, "MLB"),
+                                (nfl_seq, nfl_tail, "NFL")):
+            idx = [tail.index(h) for h in seq]
+            self.assertEqual(idx, sorted(idx),
+                             f"{name} Monitor render flow must follow "
+                             "winner cards → calibration → fit → drift → "
+                             "coverage → model card → rolling history")
+
+    def test_run_engine_drift_coverage_owned_by_markets_page(self):
+        """Ground-truth ownership check (MLB source, not screenshots):
+        'Run-Engine Feature Drift (PSI)' / 'Run-Engine Feature Coverage'
+        are sections of MLB's TOTALS & RUN LINES markets page
+        (frontend/markets.py Monitor bottom), NOT of the Model Monitor
+        page — model_monitor.py owns the separate MONEYLINE-ensemble
+        family ('Feature Drift Analysis (PSI Scores)' / 'Feature
+        Coverage'). The NFL mirror keeps them with MLB's own empty-state
+        path until the NFL pipeline emits the underlying artifacts."""
+        for h in ("### Run-Engine Feature Drift (PSI)",
+                  "### Run-Engine Feature Coverage (non-null / measured)"):
+            self.assertIn(h, MLB_MARKETS_SRC,
+                          f"MLB markets page must render {h!r}")
+            self.assertIn(h, NFL_MARKETS_SRC,
+                          f"NFL mirror must render {h!r} (MLB parity)")
+        self.assertNotIn("Run-Engine Feature Drift", MODEL_MONITOR_SRC,
+                         "run-engine drift is NOT a Model Monitor section")
+        self.assertNotIn("Run-Engine Feature Coverage", MODEL_MONITOR_SRC,
+                         "run-engine coverage is NOT a Model Monitor section")
+        # The moneyline-family sections the Model Monitor page DOES own.
+        self.assertIn("### Feature Drift Analysis (PSI Scores)",
+                      MODEL_MONITOR_SRC)
+        self.assertIn("### Feature Coverage (non-null / measured)",
+                      MODEL_MONITOR_SRC)
 
     def test_no_per_game_hero(self):
         """MLB renders NO per-game content on the markets page (its
@@ -592,6 +658,22 @@ class TestDataLoadedRender(unittest.TestCase):
         joined = "|".join(labels)
         for want in ("Win rate", "AUC", "Pooled ECE-cal", "Pooled Brier"):
             self.assertIn(want, joined, f"winner-card metric {want!r} missing")
+
+    def test_winner_cards_actual_predicted_line_real(self):
+        """The winner-card bold line renders with REAL Actual-vs-Predicted
+        content when the dated artifact carries decided rows (MLB's
+        'Actual X% · Predicted Y%' compact line) — never the '--'
+        placeholder and never an empty card set."""
+        st = self._run()
+        md = self._text(st, "markdown")
+        # MLB's exact compact-line format with real percentages.
+        self.assertRegex(
+            md, r"Actual \d+\.\d+% · Predicted \d+\.\d+%",
+            "winner cards must show the Actual-vs-Predicted line with real "
+            "values from the decided store")
+        self.assertNotIn("Actual -- · Predicted --", md,
+                         "data-loaded winner cards must never show the "
+                         "missing-data placeholder")
 
     def test_no_market_tokens_in_data_loaded_render(self):
         st = self._run()
