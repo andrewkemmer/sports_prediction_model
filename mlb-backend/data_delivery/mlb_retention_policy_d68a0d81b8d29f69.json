@@ -1,0 +1,106 @@
+{
+  "artifact": "mlb_retention_policy_d68a0d81b8d29f69.json",
+  "spec": "MLB data_delivery rolling-retention policy (audit + implement)",
+  "recorded_at": "2026-09-04",
+  "head": "827de1b",
+  "frame_sha": "d68a0d81b8d29f69",
+  "frame_rows": 7048,
+  "convention_reversal": {
+    "note": "DELIBERATE reversal of the repo's old 'committed artifacts are never auto-deleted' convention, applied ONLY to the ALLOWLISTED dated board-artifact families below. Forward `git rm` commits only — git history keeps every blob. Masters, research/verdict records, and series readers remain never-delete and are asserted disjoint from the allowlist.",
+    "scope": "The reversal was already in effect at HEAD 827de1b (Phase 6 prunes tracked stale files after a confirmed push); this record + retention_policy.py formalize it as an explicit, audited, per-family policy instead of special-cased tuples."
+  },
+  "step0_consumer_audit": {
+    "source": "traced every dated family's loader at HEAD 827de1b (frontend utils.py/markets.py/model_monitor.py/model_calibration.py + backend pipeline.py/explainability.py/build_pbp_defense.py/ablation harnesses)",
+    "families": [
+      {"family": "calibration_*.json", "consumers": "model_calibration page (_pick_artifact_date, newest); available_dates merges daily[] from NEWEST calibration only", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "model_monitor_*.json", "consumers": "Model Monitor page (newest per date); EMBEDS drift/coverage/brier/features_metadata; run_feature_pruning_ablation reads cands[-1] (newest)", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "predictions_history_*.csv", "consumers": "calibration/history pages (per date); available_dates game_dates from NEWEST; compute_rolling_brier re-reads in-run (newest)", "read_pattern": "newest-only + board-backed", "retention": "keep-while-board"},
+      {"family": "todays_games_*.csv", "consumers": "board date navigator (loads per date)", "read_pattern": "newest-only per navigable date", "retention": "3d slate window"},
+      {"family": "run_engine_markets_*.csv (+ .meta.json)", "consumers": "Totals & Run Lines page (family-aware dates[0], 827de1b); board cards (market_diagnostics per date)", "read_pattern": "newest-only + board-backed", "retention": "keep-while-board"},
+      {"family": "run_engine_oof_*.csv", "consumers": "no frontend reader; backend monitor rebuild + diagnostic harnesses", "read_pattern": "newest-only + board-backed", "retention": "keep-while-board"},
+      {"family": "run_engine_monitor_*.json", "consumers": "market pages (newest per date); **producer folds ALL dated files into rolling per-line series** (pipeline._run_engine_monitor_json glob)", "read_pattern": "SERIES (producer-side)", "retention": "NEVER DELETE"},
+      {"family": "rolling_brier_*.json", "consumers": "never read standalone — recomputed each run from predictions_history, embedded in model_monitor json", "read_pattern": "newest-only snapshot", "retention": "2d window"},
+      {"family": "run_engine_feature_drift_*.csv", "consumers": "markets page drift table (per date)", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "run_engine_feature_coverage_*.csv", "consumers": "markets page coverage table (per date)", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "feature_drift_*.csv", "consumers": "never read standalone — embedded in model_monitor json", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "feature_coverage_*.csv", "consumers": "never read standalone — embedded in model_monitor json", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "features_metadata_*.json", "consumers": "never read standalone — embedded in model_monitor json", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "shap_game_*.csv", "consumers": "board per-game card fetch (per selected date, game_id embeds date)", "read_pattern": "newest-only per navigable date", "retention": "3d slate window"},
+      {"family": "power_rankings_*.csv", "consumers": "Home / power_rankings page (load_power_rankings, newest)", "read_pattern": "newest-only", "retention": "2d window"},
+      {"family": "pbp_defense_*.parquet (+ .meta.json)", "consumers": "defense ablation harnesses GLOB ALL dated caches (ablation_defense.py, run_mlb_runline_defense_ablation.py) — research series", "read_pattern": "SERIES (research)", "retention": "NEVER DELETE"},
+      {"family": "pbp_chunks/", "consumers": "build_pbp_defense (cumulative raw chunks, never rewritten)", "read_pattern": "SERIES (cumulative)", "retention": "NEVER DELETE"},
+      {"family": "models/", "consumers": "ensemble/monitor loaders (newest); staged every run", "read_pattern": "newest-only", "retention": "NEVER DELETE"},
+      {"family": "mlb_* records (sha-named)", "consumers": "research/verdict audit trail (diagnostics, adoptions, margin walks, arm-tests)", "read_pattern": "record", "retention": "NEVER DELETE"},
+      {"family": "*_triage_* records", "consumers": "hygiene/audit records", "read_pattern": "record", "retention": "NEVER DELETE"},
+      {"family": "masters (game_level_features.csv, model_history.json, model_version_history.json, umpire_map.csv, umpire_stats.csv, lineups.parquet, batter_woba.parquet, team_woba.parquet, statsapi_roof_cache.json)", "consumers": "multiple (dashboard final scores, lineup-delta inputs, umpire access, roof cache)", "read_pattern": "master", "retention": "NEVER DELETE"}
+    ],
+    "audit_answers": {
+      "a_run_engine_monitor_rolling_series": "The rolling-history curve is folded by the PRODUCER (pipeline._run_engine_monitor_json globs ALL run_engine_monitor_*.json each run). Deleting old monitors would reset the monitor's rolling per-line history → never-delete.",
+      "b_brier_curve": "compute_rolling_brier recomputes the full trailing-window series from predictions_history EACH RUN and embeds it in model_monitor_<date>.json; the standalone rolling_brier_<date>.json is a newest-only snapshot never read back → 2d window.",
+      "c_monitor_drift_coverage": "Model Monitor renders drift/coverage/brier from INSIDE the newest model_monitor_<date>.json (feature_drift / feature_coverage / features_metadata / rolling_brier keys); markets page reads the run-engine dated CSVs for the resolved (newest) date. No recent-dates series tables across dated files → newest-only.",
+      "d_board_navigator": "available_dates = todays_games_* names (remote+local) ∪ newest calibration daily[] ∪ newest predictions_history game_dates. Selecting a past date fetches todays_games_<date>.csv, shap_game_<date>_*.csv, run_engine_markets_<date>, etc. Full-fidelity reach ≈ 3 days (todays_games/shap slate window); board-backed retention keeps run-engine/predictions data for any date whose todays_games board is still tracked, so navigation never loses the RUN ENGINE block while the board exists.",
+      "e_pbp_defense_consumers": "No production (frontend or daily-pipeline) consumer reads pbp_defense_*. The only readers are the defense ablation harnesses, which GLOB ALL dated files (research series). Per guardrail 1: exempt (never-delete), not forced into newest-1."
+    }
+  },
+  "policy_table": {
+    "source": "mlb-backend/backend/retention_policy.py (FAMILY_POLICY — the single config master_pipeline Phase 6 derives from)",
+    "windows": {
+      "2d_window_retention_days_1": ["calibration_", "model_monitor_", "rolling_brier_", "run_engine_feature_drift_", "run_engine_feature_coverage_", "feature_drift_", "feature_coverage_", "features_metadata_", "power_rankings_"],
+      "board_supported_keep_while_board_tracked": ["predictions_history_", "run_engine_markets_", "run_engine_oof_"],
+      "3d_slate_settle_window": ["todays_games_", "shap_game_"],
+      "never_delete_allowlisted_false": ["run_engine_monitor_ (series reader)", "pbp_defense_ (research series)"],
+      "never_delete_exact_masters": ["statsapi_roof_cache.json", "model_history.json", "model_version_history.json", "lineups.parquet", "batter_woba.parquet", "team_woba.parquet", "umpire_map.csv", "umpire_stats.csv", "game_level_features.csv"],
+      "never_delete_prefixes": ["models/", "pbp_chunks/", "run_engine_monitor_", "pbp_defense_", "mlb_", "test_hygiene_triage"]
+    },
+    "guardrail_notes": [
+      "Allowlist is asserted disjoint from the never-delete set (test_cleanup_fix.TestRetentionPolicyConfig).",
+      "Run-dated harness OUTPUTS (calibration_ablation_*, calibration_flip_*, run_*_ablation_*.json) intentionally keep riding the date gate — the existing test_cleanup_fix pins that convention; they are regenerable run outputs, not decision records. New decision/diagnostic records should use mlb_* or *_triage_* naming to inherit protection."
+    ]
+  },
+  "step2_implementation": {
+    "mechanism": "Deletion lives in the git-commit path, not the untracked sweep: master_pipeline Phase 5 pushes this run's new artifacts first; Phase 6 then computes the keep-set from retention_policy.classify_artifact over `git ls-files`, `git rm`s the expired allowlisted files, commits, and pushes. Atomicity guarantee: deletions never precede the new artifacts being committed (Phase 5 push must confirm before Phase 6 runs).",
+    "changes": [
+      "NEW mlb-backend/backend/retention_policy.py — the explicit policy config (FAMILY_POLICY table, EXACT_MASTER_NAMES, SERIES_PREFIXES, RECORD_PREFIXES, is_never_delete / classify_artifact / is_allowlisted).",
+      "REFACTOR mlb-backend/backend/master_pipeline.py Phase 6 — constants + predicate replaced by imports from retention_policy (no hard-coded family tuples remain). Adds two protections absent before: mlb_* + *_triage_* record prefixes, and game_level_features.csv as an exact-name master.",
+      "TESTS mlb-backend/backend/test_cleanup_fix.py — the fixture helpers now run the production predicate (retention_policy.classify_artifact); added TestRetentionPolicyConfig (family coverage, allowlist disjoint from never-delete, windows parse, series exempt), TestRetentionPolicyDryRun (exact delete list on current inventory + hermetic fixture, no non-allowlisted selection, newest-per-family survives), and master/record protection tests."
+    ]
+  },
+  "step3_acceptance": {
+    "dry_run_delete_list_run_date_20260904": [
+      "mlb-backend/data_delivery/calibration_20260902.json",
+      "mlb-backend/data_delivery/feature_coverage_20260902.csv",
+      "mlb-backend/data_delivery/feature_drift_20260902.csv",
+      "mlb-backend/data_delivery/features_metadata_20260902.json",
+      "mlb-backend/data_delivery/model_monitor_20260902.json",
+      "mlb-backend/data_delivery/power_rankings_20260902.csv",
+      "mlb-backend/data_delivery/rolling_brier_20260902.json",
+      "mlb-backend/data_delivery/run_engine_feature_coverage_20260902.csv",
+      "mlb-backend/data_delivery/run_engine_feature_drift_20260902.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_ATH@TEX.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_ATL@WSH.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_BAL@COL.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_CHW@HOU.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_DET@MIN.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_MIA@KC.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_MIL@CHC.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_NYM@TB.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_NYY@LAA.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_PHI@ARI.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_SD@CIN.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_SEA@BOS.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_SF@PIT.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_STL@LAD.csv",
+      "mlb-backend/data_delivery/shap_game_20260901_TOR@CLE.csv",
+      "mlb-backend/data_delivery/todays_games_20260901.csv"
+    ],
+    "dry_run_delete_count": 25,
+    "dry_run_exclusions": "run_engine_monitor_* (10), pbp_defense_* (8), mlb_* records (5), test_hygiene_triage_20260904.json, masters (9), models/ — all never-delete; board/retention/slate windows keep every family's NEWEST artifact (loader-fallback regression guard asserted in tests)",
+    "tests": "test_cleanup_fix: 47 tests OK (25 pre-existing + new policy classes). Full MLB backend+frontend suite: see commit message for the canonical discover result (0 failures introduced; hygiene baseline 0/0/21 maintained).",
+    "no_production_behavior_change": "The Phase 6 keep/stale decisions are byte-identical to HEAD for every pre-existing tested case EXCEPT the two additive protections (mlb_* / *_triage_* records now safe; game_level_features.csv now name-protected as a master). Frontend files untouched (read-only per scope)."
+  },
+  "judgment_calls": [
+    "pbp_defense_* stays never-delete (guardrail 1): the ablation harnesses genuinely glob a series across dated files, so forcing newest-1 would break the defense ladders; the big parquets are exempt.",
+    "Untracked scratch (ablation_defense_*_oof.parquet, rf_study.db, etc.) never enters Phase 6 (ls-files only) — nothing to do.",
+    "The optional one-time backfill cleanup of already-expired files (e.g. today's 25) is NOT folded into this policy commit — it runs naturally at the next daily auto-commit (2026-09-04 run), per the spec's 'separate explicit commit after this lands' option (the next auto-commit is that commit)."
+  ]
+}

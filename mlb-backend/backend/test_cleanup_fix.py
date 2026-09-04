@@ -23,79 +23,20 @@ if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
 
-# ── Helper functions (duplicated from master_pipeline to test in isolation) ──
-
-_PROTECTED_DELIVERY_NAMES = {
-    "statsapi_roof_cache.json",
-    "model_history.json",
-    "model_version_history.json",
-    # Lineup-delta feature runtime inputs (Phase 2, shipped in aead200; the
-    # daily pipeline CONSUMES them and never rebuilds them). Dateless names →
-    # the date-gate can't save them → exact-name protect (42ef3f7 deleted
-    # them; pipeline now fails loud without them).
-    "lineups.parquet",
-    "batter_woba.parquet",
-    "team_woba.parquet",
-    "umpire_map.csv",
-    "umpire_stats.csv",
-}
-_PROTECTED_DELIVERY_PREFIXES = (
-    "models/", "pbp_chunks/", "run_engine_monitor_",
-)
-_DATE_RE = re.compile(r"_(\d{8})")
-
-# Recent-slate protection (mirrors master_pipeline.py constants).
-_SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
-
-# Board-backed retention (mirrors master_pipeline.py constants): dated
-# run-engine/predictions artifacts survive as long as the date still has a
-# tracked todays_games_<date>.csv board.
-_BOARD_BACKED_PREFIXES = ("run_engine_markets_", "run_engine_oof_",
-                          "predictions_history_")
-
-
-def _is_protected(rel: str) -> bool:
-    """True if ``rel`` is a persistent asset that cleanup must never touch."""
-    # Strip leading path up to and including 'data_delivery/'
-    _DD = "data_delivery/"
-    idx = rel.find(_DD)
-    local = rel[idx + len(_DD):] if idx >= 0 else rel
-    basename = local.rsplit("/", 1)[-1]
-    return (basename in _PROTECTED_DELIVERY_NAMES
-            or any(local.startswith(pfx) for pfx in _PROTECTED_DELIVERY_PREFIXES))
-
-
-def _artifact_date(rel: str):
-    """Extract the YYYYMMDD date from an artifact path, or None if dateless."""
-    m = _DATE_RE.search(rel)
-    return m.group(1) if m else None
-
-
-def _is_recent_slate(rel: str, recent_dates: set[str]) -> bool:
-    """True if ``rel`` is a todays_games_ or shap_game_ artifact whose
-    extracted date falls within the recent-slate protection window."""
-    art_date = _artifact_date(rel)
-    if art_date not in recent_dates:
-        return False
-    basename = rel.rsplit("/", 1)[-1]
-    return any(basename.startswith(pfx) for pfx in _SLATE_PROTECTED_PREFIXES)
-
-
-def _is_board_backed(rel: str, board_dates: set[str]) -> bool:
-    """True for a run-engine/predictions artifact whose extracted date still
-    has a tracked todays_games_<date>.csv board (mirrors the Phase 6
-    board-backed retention rule)."""
-    art_date = _artifact_date(rel)
-    if art_date not in board_dates:
-        return False
-    basename = rel.rsplit("/", 1)[-1]
-    return any(basename.startswith(pfx) for pfx in _BOARD_BACKED_PREFIXES)
+# ── Production predicate (single source of truth) ───────────────────────────
+# The Phase 6 keep/stale predicate now lives in the explicit policy module
+# (retention_policy.py) — the consumer-audit-backed per-family windows and
+# never-delete markers (masters / records / series readers).  ``classify_tracked``
+# below is a thin wrapper that runs THE PRODUCTION predicate over a fixture's
+# tracked list with the Phase 6 window defaults, so every test here (old and
+# new) exercises the same code path master_pipeline Phase 6 calls.
+from retention_policy import classify_artifact as _production_classify
 
 
 def classify_tracked(tracked, seen, run_date_compact="20260824",
                      recent_dates=None, retention_dates=None,
                      board_dates=None):
-    """Replicate the Phase 6 classification logic for testing.
+    """Run the production Phase 6 classification over ``tracked`` for testing.
 
     ``recent_dates`` is an optional set of YYYYMMDD strings within the
     recent-slate protection window: todays_games_* / shap_game_* whose date
@@ -121,23 +62,14 @@ def classify_tracked(tracked, seen, run_date_compact="20260824",
         board_dates = set()
     stale, kept_protected, kept_current = [], 0, 0
     for p in tracked:
-        if p in seen:
+        verdict = _production_classify(p, seen, retention_dates,
+                                       recent_dates, board_dates)
+        if verdict == "seen":
             continue
-        if _is_protected(p):
+        if verdict == "protected":
             kept_protected += 1
             continue
-        art_date = _artifact_date(p)
-        if art_date in retention_dates:
-            kept_current += 1
-            continue  # within the 48h retention window — keep
-        # Recent-slate protection: keep todays_games / shap_game for
-        # the current run date AND the 2 prior days.
-        if _is_recent_slate(p, recent_dates):
-            kept_current += 1
-            continue
-        # Board-backed retention: keep run-engine/predictions for any date
-        # that still has a tracked todays_games_<date>.csv board.
-        if _is_board_backed(p, board_dates):
+        if verdict == "current":
             kept_current += 1
             continue
         stale.append(p)
@@ -372,14 +304,46 @@ class TestDateGating(TestCase):
         self.assertEqual(cur, 1)
 
     def test_dateless_file_stale(self):
-        """Files with no date pattern are treated as stale (not protected)."""
+        """Dateless files with no never-delete marker are treated as stale
+        (not protected). game_level_features.csv is now a protected MASTER
+        (retention_policy.EXACT_MASTER_NAMES) — this test uses a non-master
+        dateless name so it pins the real "dateless + unprotected -> stale"
+        rule."""
         tracked = [
-            "mlb-backend/data_delivery/game_level_features.csv",
+            "mlb-backend/data_delivery/consensus_picks.csv",
         ]
         seen = set()
         stale, prot, cur = classify_tracked(tracked, seen, "20260824")
         self.assertEqual(len(stale), 1)
         self.assertEqual(cur, 0)
+
+    def test_game_level_features_master_protected(self):
+        """game_level_features.csv is now an explicit MASTER in
+        retention_policy.EXACT_MASTER_NAMES (policy change: the undated
+        master the dashboard reads for final scores is never pruned, even
+        when a run does not restage it)."""
+        tracked = [
+            "mlb-backend/data_delivery/game_level_features.csv",
+        ]
+        seen = set()
+        stale, prot, cur = classify_tracked(tracked, seen, "20260824")
+        self.assertEqual(stale, [])
+        self.assertEqual(prot, 1)
+
+    def test_mlb_records_protected(self):
+        """Research/verdict records (mlb_* + *_triage_*) are never deleted,
+        even though their sha/date names sit outside every window."""
+        tracked = [
+            "mlb-backend/data_delivery/mlb_sp_bias_stability_a105ba9bba6d60ff.json",
+            "mlb-backend/data_delivery/mlb_projection_margin_walk_7bec561aa0391920.json",
+            "mlb-backend/data_delivery/test_hygiene_triage_20260904.json",
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+        ]
+        stale, prot, cur = classify_tracked(tracked, set(), "20260824")
+        self.assertEqual(stale, [
+            "mlb-backend/data_delivery/run_engine_markets_20260820.csv",
+        ])
+        self.assertEqual(prot, 3)
 
     def test_seen_files_never_stale(self):
         """Files in the seen set are never stale regardless of date."""
@@ -767,6 +731,217 @@ class TestRealArtifacts(TestCase):
     def test_roof_cache_exists(self):
         cache = Path(__file__).resolve().parent.parent / "data_delivery" / "statsapi_roof_cache.json"
         self.assertTrue(cache.exists(), "statsapi_roof_cache.json missing")
+
+
+class TestRetentionPolicyConfig(TestCase):
+    """The explicit policy table (retention_policy.py) is the single source
+    of truth Phase 6 derives from: every audited family classified, the
+    deletion allowlist disjoint from the never-delete set, windows parse,
+    series readers exempt."""
+
+    def _audited_families(self):
+        return {
+            "calibration_", "model_monitor_", "predictions_history_",
+            "todays_games_", "run_engine_markets_", "run_engine_oof_",
+            "run_engine_monitor_", "rolling_brier_",
+            "run_engine_feature_drift_", "run_engine_feature_coverage_",
+            "feature_drift_", "feature_coverage_", "features_metadata_",
+            "shap_game_", "power_rankings_", "pbp_defense_",
+        }
+
+    def test_every_audited_family_classified(self):
+        from retention_policy import FAMILY_POLICY
+        prefixes = {fp.prefix for fp in FAMILY_POLICY}
+        missing = self._audited_families() - prefixes
+        self.assertEqual(
+            missing, set(),
+            f"audited families missing from the policy: {missing}")
+
+    def test_allowlist_disjoint_from_never_delete(self):
+        from retention_policy import (EXACT_MASTER_NAMES, FAMILY_POLICY,
+                                      RECORD_PREFIXES, SERIES_PREFIXES)
+        never_delete_prefixes = (*SERIES_PREFIXES, *RECORD_PREFIXES)
+        for fp in FAMILY_POLICY:
+            if not fp.allowlisted:
+                continue
+            self.assertNotIn(
+                fp.prefix.rstrip("_"), EXACT_MASTER_NAMES,
+                f"allowlisted family {fp.prefix} collides with a master name")
+            for npfx in never_delete_prefixes:
+                self.assertFalse(
+                    fp.prefix.startswith(npfx.rstrip("/")),
+                    f"allowlisted family {fp.prefix} is shadowed by "
+                    f"never-delete prefix {npfx}")
+
+    def test_series_families_are_not_allowlisted(self):
+        """run_engine_monitor_ and pbp_defense_ are series readers — they
+        must be exempt (allowlisted=False) AND in the never-delete set."""
+        from retention_policy import (FAMILY_POLICY, SERIES_PREFIXES)
+        for name in ("run_engine_monitor_", "pbp_defense_"):
+            fp = next(x for x in FAMILY_POLICY if x.prefix == name)
+            self.assertFalse(fp.allowlisted,
+                             f"{name} is a series reader and must be exempt")
+            self.assertIn(name, SERIES_PREFIXES,
+                          f"{name} must be in SERIES_PREFIXES")
+
+    def test_windows_parse_and_every_allowlisted_family_has_a_window(self):
+        from retention_policy import FAMILY_POLICY
+        for fp in FAMILY_POLICY:
+            self.assertIsInstance(fp.prefix, str)
+            if fp.retention_days is not None:
+                self.assertGreaterEqual(fp.retention_days, 0)
+            self.assertGreaterEqual(fp.slate_window_days, 0)
+            if fp.allowlisted:
+                self.assertTrue(
+                    fp.retention_days is not None or fp.board_supported
+                    or fp.slate_window_days > 0,
+                    f"allowlisted family {fp.prefix} has no retention "
+                    f"mechanism")
+
+
+class TestRetentionPolicyDryRun(TestCase):
+    """Deletion dry-run: simulate the keep-set computation on the CURRENT
+    committed data_delivery (git ls-files — untracked scratch never enters,
+    exactly like the Phase 6 loop) at the next run boundary (2026-09-04) and
+    assert the exact delete list. Never-delete families (monitors,
+    pbp_defense, records, masters) must never be selected, and the NEWEST
+    dated artifact of every family must survive (the loader-fallback
+    regression guard)."""
+
+    RUN = "20260904"
+    RECENT = {"20260904", "20260903", "20260902"}
+    RETENTION = {"20260904", "20260903"}
+
+    # 2-day allowlisted families: day-2 (20260902) files prune at this run.
+    _TWO_DAY_PREFIXES = (
+        "calibration_", "model_monitor_", "rolling_brier_",
+        "run_engine_feature_drift_", "run_engine_feature_coverage_",
+        "feature_drift_", "feature_coverage_", "features_metadata_",
+        "power_rankings_",
+    )
+    _SLATE_PREFIXES = ("todays_games_", "shap_game_")
+    _NEVER_DELETE_STARTS = ("run_engine_monitor_", "pbp_defense_",
+                            "mlb_", "test_hygiene_triage")
+
+    def _tracked(self):
+        import subprocess
+        repo = Path(__file__).resolve().parent.parent.parent
+        out = subprocess.run(
+            ["git", "ls-files", "mlb-backend/data_delivery"],
+            cwd=str(repo), capture_output=True, text=True)
+        if out.returncode != 0:
+            self.skipTest(f"git ls-files failed: {out.stderr[:200]}")
+        return [ln for ln in out.stdout.splitlines() if ln]
+
+    @staticmethod
+    def _date_of(base: str) -> str | None:
+        m = re.search(r"_(\d{8})", base)
+        return m.group(1) if m else None
+
+    def test_exact_delete_list_on_current_inventory(self):
+        from retention_policy import (FAMILY_POLICY, is_allowlisted)
+        tracked = self._tracked()
+        board_dates = {
+            d for p in tracked
+            for d in [self._date_of(p.rsplit("/", 1)[-1])]
+            if d and p.rsplit("/", 1)[-1].startswith("todays_games_")
+        }
+        stale, prot, cur = classify_tracked(
+            tracked, set(), self.RUN, recent_dates=self.RECENT,
+            retention_dates=self.RETENTION, board_dates=board_dates)
+        stale_names = sorted(s.rsplit("/", 1)[-1] for s in stale)
+
+        # Rule-based expectation: 2-day allowlisted families at day -2, and
+        # slate families beyond the 3-day window at day -3.
+        expected = sorted(
+            b for p in tracked
+            for b in [p.rsplit("/", 1)[-1]]
+            if (self._date_of(b) == "20260902"
+                and b.startswith(self._TWO_DAY_PREFIXES))
+            or (self._date_of(b) == "20260901"
+                and b.startswith(self._SLATE_PREFIXES))
+        )
+        self.assertEqual(expected, stale_names,
+                         "dry-run delete list diverges from the policy rule")
+        self.assertEqual(len(stale_names), 25,
+                         "expected 25 prunable files at the 09-04 boundary "
+                         "(9 two-day + 1 board-slate + 15 shap-slate)")
+
+        # Guardrail 2: NO family outside the allowlist is ever selected.
+        for base in stale_names:
+            self.assertTrue(
+                is_allowlisted(base),
+                f"{base} is outside the deletion allowlist but selected")
+            self.assertFalse(
+                base.startswith(self._NEVER_DELETE_STARTS),
+                f"never-delete family selected: {base}")
+
+        # Never-delete families present in the inventory stay present.
+        for base in (b for p in tracked
+                     for b in [p.rsplit("/", 1)[-1]]
+                     if b.startswith(self._NEVER_DELETE_STARTS)):
+            self.assertNotIn(base, stale_names,
+                             f"never-delete artifact selected: {base}")
+
+        # Render-preserved guard: the newest dated artifact of EVERY family
+        # survives — markets/calibration/monitor/board loaders resolve the
+        # newest, never a pruned old file.
+        for fp in FAMILY_POLICY:
+            fam_dates = [
+                self._date_of(p.rsplit("/", 1)[-1])
+                for p in tracked
+                if p.rsplit("/", 1)[-1].startswith(fp.prefix)
+            ]
+            fam_dates = [d for d in fam_dates if d]
+            if not fam_dates:
+                continue
+            newest_date = max(fam_dates)
+            stale_fam_dates = [
+                self._date_of(n) for n in stale_names
+                if n.startswith(fp.prefix)
+            ]
+            self.assertNotIn(
+                newest_date, stale_fam_dates,
+                f"newest {fp.prefix} artifact would be pruned "
+                f"({newest_date})")
+
+    def test_fixture_exact_delete_list(self):
+        """Hermetic fixture pinning the exact delete list: 2-day allowlisted
+        families at day -2, slate families beyond the 3-day window, board
+        families kept while their board is tracked, series/records/masters
+        never selected."""
+        tracked = [
+            "mlb-backend/data_delivery/calibration_20260902.json",
+            "mlb-backend/data_delivery/calibration_20260903.json",
+            "mlb-backend/data_delivery/feature_drift_20260902.csv",
+            "mlb-backend/data_delivery/todays_games_20260901.csv",
+            "mlb-backend/data_delivery/todays_games_20260902.csv",
+            "mlb-backend/data_delivery/shap_game_20260901_ATH@TEX.csv",
+            "mlb-backend/data_delivery/shap_game_20260902_NYY@LAA.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260901.csv",
+            "mlb-backend/data_delivery/run_engine_markets_20260901.meta.json",
+            "mlb-backend/data_delivery/predictions_history_20260901.csv",
+            "mlb-backend/data_delivery/run_engine_oof_20260901.csv",
+            "mlb-backend/data_delivery/run_engine_monitor_20260826.json",
+            "mlb-backend/data_delivery/pbp_defense_20260831.parquet",
+            "mlb-backend/data_delivery/mlb_sp_bias_stability_a105ba9bba6d60ff.json",
+            "mlb-backend/data_delivery/test_hygiene_triage_20260904.json",
+            "mlb-backend/data_delivery/game_level_features.csv",
+        ]
+        stale, prot, cur = classify_tracked(
+            tracked, set(), "20260904",
+            recent_dates={"20260904", "20260903", "20260902"},
+            retention_dates={"20260904", "20260903"},
+            board_dates={"20260901", "20260902", "20260903"})
+        self.assertEqual(sorted(stale), sorted([
+            "mlb-backend/data_delivery/calibration_20260902.json",
+            "mlb-backend/data_delivery/feature_drift_20260902.csv",
+            "mlb-backend/data_delivery/todays_games_20260901.csv",
+            "mlb-backend/data_delivery/shap_game_20260901_ATH@TEX.csv",
+        ]))
+        self.assertEqual(prot, 5,  # monitor + pbp_defense + 2 records + master
+                         "series/records/master must be protected")
+        self.assertEqual(cur, 7, "board-backed + window families kept")
 
 
 if __name__ == "__main__":

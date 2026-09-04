@@ -374,35 +374,23 @@ else:
 # whose date is STRICTLY OLDER than the current run's date.
 import re as _re
 from datetime import date as _date
+from datetime import timedelta as _td, timezone as _tz
+import datetime as _dt
 
-# Persistent files / dirs that must NEVER be cleaned up.
-_PROTECTED_DELIVERY_NAMES = {
-    "statsapi_roof_cache.json",
-    "model_history.json",
-    "model_version_history.json",
-    # Lineup-delta feature runtime inputs (Phase 2, shipped in aead200). The
-    # daily pipeline CONSUMES these; only the standalone builders regenerate
-    # them. Dateless names → the date-gate can never save them → exact-name
-    # protect (42ef3f7 deleted them; pipeline now fails loud without them).
-    "lineups.parquet",
-    "batter_woba.parquet",
-    "team_woba.parquet",
-    # Maintained umpire data access (umpires.py): the cumulative map + the
-    # per-umpire diagnostics table are dateless files updated IN PLACE every
-    # run (incremental, cache-by-season). The bare date-gate can't save a
-    # dateless name, so exact-name protect them or Phase 6 would delete the
-    # map and force a full re-fetch.
-    "umpire_map.csv",
-    "umpire_stats.csv",
-}
-# Prefix-protected. ``run_engine_monitor_<date>.json`` is date-stamped so the
-# bare date-gate would delete each day's monitor before the next run builds
-# its rolling per-line series — resetting the monitor's history every day.
-# Prefix-protect it (the same way model_history.json is name-protected for
-# the moneyline monitor's history leg) so every dated monitor survives and
-# the next day folds today's stats into the cumulative-by-date series.
-_PROTECTED_DELIVERY_PREFIXES = (
-    "models/", "pbp_chunks/", "run_engine_monitor_", "pbp_defense_",
+# SINGLE SOURCE OF TRUTH: the explicit rolling-retention policy
+# (retention_policy.py) — the consumer-audit-backed per-family windows, the
+# never-delete markers (masters / records / series readers), and the pure
+# keep/stale predicate ``classify_artifact``.  Phase 6 derives EVERY rule
+# from it; no family tuples are hard-coded here anymore.  The policy
+# deliberately REVERSES the old "committed artifacts are never auto-deleted"
+# convention for the ALLOWLISTED dated board-artifact families only — never
+# for records, masters, or series readers (see the module docstring and the
+# audit record data_delivery/mlb_retention_policy_<framesha>.json).
+from retention_policy import (
+    classify_artifact,
+    artifact_date as _artifact_date,
+    family_prefixes as _family_prefixes,
+    local_name as _basename,
 )
 
 # Current run date in YYYYMMDD for date-gating.
@@ -411,25 +399,19 @@ _run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"
 # Recent-slate protection window: keep todays_games_* and shap_game_*
 # for the current run date AND the 2 prior days so that games have time to
 # settle before their card snapshots are pruned.  Other dated artifacts
-from datetime import timedelta as _td, timezone as _tz
-import datetime as _dt
+# ride the 48h retention window below.
 _now_utc = _dt.datetime.now(_tz.utc)
 _RECENT_DATES = {
     (_now_utc - _td(days=i)).strftime("%Y%m%d")
     for i in range(3)  # today, yesterday, 2 days ago
 }
-_SLATE_PROTECTED_PREFIXES = ("todays_games_", "shap_game_")
 
 # Board-backed retention (doubleheader regression fix): a dated run-engine /
 # predictions artifact is kept for ANY date that still has a tracked
 # todays_games_<date>.csv board, so a navigable board is never left without
-# the RUN ENGINE columns its cards need. todays_games_* boards ride the
-# 3-day _RECENT_DATES window, but run_engine_markets_* / run_engine_oof_* /
-# predictions_history_* only had the 48h _RETENTION_DATES window — a board
-# surviving into day 3 lost its run-engine data (the 2026-08-29 _2_2
-# regression). Keep them for as long as the board itself is tracked.
-_BOARD_BACKED_PREFIXES = ("run_engine_markets_", "run_engine_oof_",
-                          "predictions_history_")
+# the RUN ENGINE columns its cards need. Keep them for as long as the board
+# itself is tracked (policy: families with board_supported=True).
+_BOARD_BACKED_PREFIXES = _family_prefixes("board_supported")
 
 # Rolling 48-hour retention window (GMT-rollover regression fix): keep EVERY
 # dated artifact for the current run date AND the previous GMT day. US games
@@ -444,71 +426,6 @@ _RETENTION_DAYS = 1
 _run_date_obj = _date(*(int(x) for x in CONFIG["end_date"].split("-")))
 _RETENTION_DATES = {(_run_date_obj - _td(days=i)).strftime("%Y%m%d")
                     for i in range(_RETENTION_DAYS + 1)}  # {today, yesterday}
-
-# Regex to extract an 8-digit date from artifact filenames like
-#   run_engine_markets_20260824.csv  →  20260824
-_DATE_RE = _re.compile(r"_(\d{8})")
-
-def _is_protected(rel: str) -> bool:
-    """True if ``rel`` is a persistent asset that cleanup must never touch."""
-    # Strip leading path up to and including 'data_delivery/' so we can
-    # match short prefixes like 'models/' against the local portion.
-    _DD = "data_delivery/"
-    idx = rel.find(_DD)
-    local = rel[idx + len(_DD):] if idx >= 0 else rel
-    basename = local.rsplit("/", 1)[-1]
-    return (basename in _PROTECTED_DELIVERY_NAMES
-            or any(local.startswith(pfx) for pfx in _PROTECTED_DELIVERY_PREFIXES))
-
-def _artifact_date(rel: str) -> str | None:
-    """Extract the YYYYMMDD date from an artifact path, or None if dateless."""
-    m = _DATE_RE.search(rel)
-    return m.group(1) if m else None
-
-
-def _basename(rel: str) -> str:
-    """Local filename of an artifact path (after any data_delivery/ dir)."""
-    _DD = "data_delivery/"
-    idx = rel.find(_DD)
-    local = rel[idx + len(_DD):] if idx >= 0 else rel
-    return local.rsplit("/", 1)[-1]
-
-
-def _classify_artifact(rel, seen, protected, retention_dates, recent_dates,
-                       board_dates,
-                       board_backed_prefixes=_BOARD_BACKED_PREFIXES,
-                       slate_prefixes=_SLATE_PROTECTED_PREFIXES) -> str:
-    """Pure keep/stale decision for one tracked artifact path.
-
-    Returns one of:
-      "seen"      - staged by this run (kept; never counted)
-      "protected" - persistent asset cleanup must never touch
-      "current"   - kept via a date window: the 48h retention window, a
-                    recent slate snapshot (todays_games_*/shap_game_* in the
-                    3-day _RECENT_DATES window), or a board-backed
-                    run-engine/predictions artifact whose date still has a
-                    tracked todays_games_<date>.csv board
-      "stale"     - safe to delete
-
-    Pure (no I/O, no module state beyond the passed sets/tuples) so it is
-    unit-testable in isolation — master_pipeline runs top-to-bottom on
-    import, so the live Phase 6 loop only calls this predicate.
-    """
-    if rel in seen:
-        return "seen"
-    if protected(rel):
-        return "protected"
-    art_date = _artifact_date(rel)
-    if art_date in retention_dates:
-        return "current"  # within the 48h retention window — keep
-    base = _basename(rel)
-    if (art_date in recent_dates
-            and any(base.startswith(pfx) for pfx in slate_prefixes)):
-        return "current"  # recent slate snapshot (3-day window) — keep
-    if (art_date in board_dates
-            and any(base.startswith(pfx) for pfx in board_backed_prefixes)):
-        return "current"  # board still tracked -> keep its run-engine data
-    return "stale"
 
 _banner("PHASE 6", "Stale artifact cleanup (final step)")
 if not token:
@@ -533,9 +450,8 @@ else:
         kept_protected = 0
         kept_current = 0
         for p in tracked:
-            verdict = _classify_artifact(
-                p, seen, _is_protected, _RETENTION_DATES, _RECENT_DATES,
-                board_dates)
+            verdict = classify_artifact(
+                p, seen, _RETENTION_DATES, _RECENT_DATES, board_dates)
             if verdict == "seen":
                 continue  # this run staged it
             if verdict == "protected":
