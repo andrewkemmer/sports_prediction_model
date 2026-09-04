@@ -1,0 +1,58 @@
+{
+  "artifact": "mlb_card_bit_drift_d68a0d81b8d29f69.json",
+  "spec": "MLB Today's Games card-bit run-engine date-drift audit + fix",
+  "recorded_at": "2026-09-04",
+  "head": "15559cd",
+  "frame_sha": "d68a0d81b8d29f69",
+  "verdict": {
+    "hazard": "REAL-BUT-NARROW",
+    "summary": "The card path is already family-aware and already degrades honestly for the pure drift case (board date exists, run_engine_markets missing or older -> muted 'unavailable', never wrong-date prices, never a crash). The ONE guardrail-3 gap: when a game is priced from a NEWER artifact than the board date (the deliberate 145d841 / GMT-rollover cross-artifact convention), the strip rendered cross-date prices with NO visible date label. Fixed by stamping the source artifact date onto each resolved slate row and rendering a muted 'prices from <date> run' notice whenever it differs from the board date. Aligned-date output is byte-identical (no notice).",
+    "guardrail_3_status": "CLOSED — a run-engine quote can never render on a board whose date differs from the pricing artifact without a visible date notice."
+  },
+  "step0_ground_truth": {
+    "a_date_resolution": "todays_games.main() resolves the slate date from utils.valid_dates (todays_games_*.csv names, remote contents API + local glob; calibration daily[] + prediction-history game_dates merged in available_dates). The selected date reaches the card loop as date_str.",
+    "b_artifact_and_columns": "Run-engine card bits come from run_engine_markets_<date>.csv slate rows (kind=='slate') joined by game_id == game_pk (the 145d841 convention). market_diagnostics.resolve_slate_across_artifacts maps {game_id: slate_record}; run_engine_card_bits reads home/away_expected_runs, p_*_<line> grid columns, RUN_COVER_COL, derived-ML.",
+    "c_miss_behavior": "load_run_engine_markets returns an EMPTY frame (with a loud log line) when the artifact is missing; _slate_rows skips empty/no-kind frames; an unresolvable id is simply absent from the map. _runengine_html(None) renders the muted 'Run Engine data currently unavailable' notice inside the intact fb-runengine container — never a crash, never a silent omission. Confirmed at source + tests.",
+    "d_date_state_combinations": [
+      {"board": "exists at Y", "markets": "Y present", "behavior": "prices from Y (artifact_date == board -> no notice)"},
+      {"board": "exists at Y", "markets": "stops before Y (drift)", "behavior": "frame set = {Y: empty} + {d >= Y} none -> no slate rows -> honest 'unavailable'. NO wrong-date prices"},
+      {"board": "exists at Y", "markets": "newest > Y", "behavior": "frames include the newer artifact; games matched by game_pk / GMT-rollover matchup resolve from it (fresher, same game). NOW carries the visible 'prices from <date> run' notice"},
+      {"board": "exists at Y", "markets": "only older than Y (no Y, no newer)", "behavior": "older artifacts are EXCLUDED by the d >= date_str filter -> 'unavailable'. Stale quotes are impossible by construction"},
+      {"offline / empty local": "", "behavior": "_run_engine_dates() -> [] -> only Y (empty) -> 'unavailable', no exception"},
+      {"board": "absent (date not navigable)", "behavior": "date never selected -> nothing renders (available_dates needs todays_games_* / calibration daily / prediction-history). Markets for a pruned board's date are pruned by the 15559cd board-backed rule in the same cleanup run"}
+    ],
+    "retention_policy_interaction": "15559cd: todays_games_* / shap_game_* prune at 3 days; run_engine_markets_* / run_engine_oof_* / predictions_history_* are board-backed (kept while the board is tracked). So a navigable board Y always has its run-engine data IF it was ever shipped; a partial-failure run (board shipped, markets not) triggers the honest unavailable fallback, and markets-newer-than-board occurs naturally across the GMT rollover (a later run re-prices the same evening games) — the exact case now date-labeled."
+  },
+  "step1_verdict": "Real-but-narrow: the drift case was already honest; the cross-date-pricing-without-label case was not. Fix implemented rather than record-only because guardrail 3 makes wrong-date-without-notice unacceptable and the 145d841 convention legitimately produces cross-date quotes.",
+  "step2_fix": {
+    "market_diagnostics.py": [
+      "resolve_slate_across_artifacts: each resolved slate record is now tagged {**row, 'artifact_date': <winning frame date>} in every precedence branch (a/b/c) — additive; the frame's row dicts are never mutated.",
+      "run_engine_card_bits: bits carries 'artifact_date' from the row (None for pre-tagging callers -> no notice; byte-identical behavior)."
+    ],
+    "todays_games.py": [
+      "_runengine_html(bits, home, away, board_date=None): when bits.artifact_date and board_date differ, renders '<span class=re-na>(prices from YYYY-MM-DD run)</span>' right after the RUN ENGINE label; same-date or None -> exactly nothing.",
+      "_card_html(g, re_bits, board_date=None) threads board_date through to the strip.",
+      "main() card loop passes board_date=date_str, so the live board path gets the label."
+    ],
+    "design_choice": "Family-aware pick was already the pattern here (todays_games._run_engine_dates predates the 827de1b shared utils helper and enumerates markets-only for the card). The new notice is the minimal change that satisfies guardrail 3 without duplicating or reworking the resolver. Consolidating todays_games._run_engine_dates onto utils._family_dated_dates is a clean follow-up, deliberately NOT done here (no behavior change needed; guardrail-1 'no speculative rewrites')."
+  },
+  "step3_tests": {
+    "test_market_diagnostics.py": [
+      "test_game_only_in_newer_artifact_resolves_rollover: + artifact_date == '20260830' assertion.",
+      "test_present_row_is_the_raw_slate_record: repurposed for the additive tag — original fields preserved AND artifact_date == exact-date file (mechanical schema addition, comment updated; no assertion weakened)."
+    ],
+    "test_frontend_todays_games.py": [
+      "DRIFT CASE: board 09-04, markets stop at 09-03 -> frames {09-04: empty} -> {} -> strip renders 'currently unavailable', no 'Proj:', no crash.",
+      "ALIGNED: same-date render == board_date=None render byte-for-byte; no notice.",
+      "STALE-MISLABEL GUARD: GMT-rollover resolve (artifact_date 09-30 on board 09-29) -> strip contains '(prices from 2026-08-30 run)'; legacy no-board_date call stays notice-free.",
+      "LIVE/empty-local: resolve({}) -> {} -> unavailable notice, no exception.",
+      "_card_html threading: same-date no notice; board one day behind -> notice present on the full card HTML."
+    ],
+    "acceptance": "Full MLB backend+frontend suite: 1278 tests, 0 failures / 0 errors, 21 skips (pre-change baseline 1268/0/21 — +10 collected, +5 new card tests all green). First full-suite run after the change reported FAILED(1,1) with a weather-API 429/503 retry storm visible in the log; the identical code passed cleanly on the immediate re-run (transient network flake, not a logic failure)."
+  },
+  "judgment_calls": [
+    "The card was NOT rewritten to a markets-page-style family-aware pick — it already had one; the record documents that finding rather than speculating a rewrite (guardrail 1).",
+    "The '/prices from <date> run/' label is the chosen honest presentation (compact, muted, re-na-styled like the run-ML caption) — alternative (omit the box) was rejected because the 145d841 convention intentionally serves fresher same-game prices and a label keeps them useful.",
+    "Market_diagnostics.py and todays_games.py are FRONTEND files (repo-root frontend/), which is the task's allowed edit scope; no backend engine/pricing/feature/schema file was touched."
+  ]
+}

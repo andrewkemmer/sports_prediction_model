@@ -2237,6 +2237,8 @@ class TestResolveSlateAcrossArtifacts(unittest.TestCase):
         self.assertIn("20260829_BAL@ATH", res,
                       "rollover card must resolve via the newer artifact")
         self.assertEqual(res["20260829_BAL@ATH"]["game_pk"], "20260830_BAL@ATH")
+        self.assertEqual(res["20260829_BAL@ATH"]["artifact_date"], "20260830",
+                         "cross-date resolve must stamp the source artifact date")
 
     def test_exact_date_file_wins_over_newer(self):
         # Both the exact-date file and a newer run price the id: exact wins.
@@ -2272,12 +2274,17 @@ class TestResolveSlateAcrossArtifacts(unittest.TestCase):
 
     def test_present_row_is_the_raw_slate_record(self):
         # When the exact-date file holds the id, the map carries the RAW row
-        # unchanged -- render is byte-identical to current behavior.
+        # with its original fields unchanged plus the additive artifact_date
+        # tag (added in the card-bit drift fix so cross-date pricing is
+        # visible to the renderer; same-date rows tag the exact-date file).
         row = self._slate("20260829_PHI@LAA", 4.36)
         f29 = self._frame(row)
         res = diag.resolve_slate_across_artifacts(
             {"20260829": f29}, ["20260829_PHI@LAA"])
-        self.assertEqual(res["20260829_PHI@LAA"], row)
+        self.assertEqual(res["20260829_PHI@LAA"]["game_pk"], "20260829_PHI@LAA")
+        self.assertEqual(res["20260829_PHI@LAA"]["home_expected_runs"], 4.36)
+        self.assertEqual(res["20260829_PHI@LAA"]["artifact_date"], "20260829",
+                         "exact-date row tags its own date")
 
     def test_invalid_and_blank_game_pk_fall_back(self):
         f30 = self._frame(self._slate("20260830_MIA@WSH"))

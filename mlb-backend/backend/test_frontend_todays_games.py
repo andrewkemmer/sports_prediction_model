@@ -1402,5 +1402,123 @@ class TestRunEngineSlateLegMatching(unittest.TestCase):
         self.assertNotIn("20260829_BOS@NYY", m)
 
 
+class TestRunEngineCrossDateNotice(unittest.TestCase):
+    """Card-bit run-engine date-drift guard (guardrail 3): a run-engine
+    quote may NEVER render on a card whose board date differs from the
+    artifact that priced it without a visible date notice, and the card
+    must degrade honestly (no wrong-date prices, no crash) whenever the
+    run-engine families lag or precede the board families.
+    """
+
+    def _todays(self):
+        import streamlit as st  # noqa: F401
+        import todays_games as todays
+        return todays
+
+    @staticmethod
+    def _slate(game_pk, proj=4.5):
+        return {"game_pk": game_pk, "kind": "slate",
+                "home_expected_runs": proj, "away_expected_runs": 4.0,
+                "p_over_9_5": 0.5, "p_under_9_5": 0.5}
+
+    def test_drift_case_board_date_without_markets_degrades_honestly(self):
+        """Drift acceptance case: todays_games_20260904 exists but
+        run_engine_markets_* stops at 20260903. main() builds frames as
+        {date_str} + {d >= date_str} — 09-04 loads empty, no newer artifact
+        qualifies -> no slate rows -> the card renders the honest
+        'unavailable' notice. NO wrong-date prices, NO crash."""
+        todays = self._todays()
+        # main() frame construction: [date_str] + [d for d in dates if d >= date_str]
+        frames = {"20260904": pd.DataFrame(
+            columns=["game_pk", "kind", "home_expected_runs"])}
+        # markets stop at 09-03 -> nothing >= "20260904" is loaded
+        res = diag.resolve_slate_across_artifacts(
+            frames, ["20260904_ATH@TEX"])
+        self.assertEqual(res, {}, "no resolvable slate row -> absent")
+        out = todays._runengine_html(
+            diag.run_engine_card_bits("20260904_ATH@TEX", res),
+            "TEX", "ATH", board_date="20260904")
+        self.assertIn("Run Engine data currently unavailable", out)
+        self.assertNotIn("Proj:", out, "no prices may render on a miss")
+
+    def test_aligned_case_byte_identical_no_notice(self):
+        """Board date == artifact date: the strip renders EXACTLY as before
+        (byte-identical to the no-board_date call) — no date notice."""
+        todays = self._todays()
+        row = self._slate("20260829_PHI@LAA", 4.36)
+        res = diag.resolve_slate_across_artifacts(
+            {"20260829": pd.DataFrame([row])}, ["20260829_PHI@LAA"])
+        bits = diag.run_engine_card_bits("20260829_PHI@LAA", res)
+        out_aligned = todays._runengine_html(
+            bits, "PHI", "LAA", board_date="20260829")
+        out_none = todays._runengine_html(bits, "PHI", "LAA")
+        self.assertEqual(out_aligned, out_none,
+                         "same-date render must be byte-identical")
+        self.assertNotIn("prices from", out_aligned)
+
+    def test_stale_mislabel_guard_cross_date_notice_renders(self):
+        """GMT-rollover / later-run pricing: the board is 20260829 but the
+        game priced from the 20260830 artifact. The strip MUST carry a
+        visible date notice; without a board_date (pre-tagging callers)
+        nothing extra renders."""
+        todays = self._todays()
+        f29 = pd.DataFrame(columns=["game_pk", "kind",
+                                    "home_expected_runs"])
+        f30 = pd.DataFrame([self._slate("20260830_BAL@ATH", 4.44)])
+        res = diag.resolve_slate_across_artifacts(
+            {"20260829": f29, "20260830": f30}, ["20260829_BAL@ATH"])
+        self.assertEqual(res["20260829_BAL@ATH"]["artifact_date"], "20260830")
+        bits = diag.run_engine_card_bits("20260829_BAL@ATH", res)
+        self.assertEqual(bits["artifact_date"], "20260830",
+                         "bits must carry the source artifact date")
+        out = todays._runengine_html(
+            bits, "BAL", "ATH", board_date="20260829")
+        self.assertIn("prices from 2026-08-30 run", out,
+                      "cross-date quote must carry a visible date notice")
+        self.assertNotIn("Run Engine data currently unavailable", out)
+        # Without a board_date the legacy callers stay byte-identical.
+        out_legacy = todays._runengine_html(bits, "BAL", "ATH")
+        self.assertNotIn("prices from", out_legacy)
+
+    def test_live_and_empty_local_never_crash(self):
+        """Live/offline: with no reachable artifacts (empty frames / empty
+        date union) the strip renders the honest no-artifact notice — never
+        an exception or fabricated rows."""
+        todays = self._todays()
+        res = diag.resolve_slate_across_artifacts({}, ["20260904_ATH@TEX"])
+        self.assertEqual(res, {})
+        out = todays._runengine_html(
+            diag.run_engine_card_bits("20260904_ATH@TEX", res),
+            "TEX", "ATH", board_date="20260904")
+        self.assertIn("Run Engine data currently unavailable", out)
+
+    def test_card_html_threads_board_date(self):
+        """_card_html passes board_date through to the strip (the live card
+        path), so the notice appears exactly when the loop calls it with the
+        board date."""
+        todays = self._todays()
+        row = self._slate("20260830_BAL@ATH", 4.44)
+        res = diag.resolve_slate_across_artifacts(
+            {"20260830": pd.DataFrame([row])}, ["20260830_BAL@ATH"])
+        g = pd.Series({"game_id": "20260830_BAL@ATH",
+                       "home_team": "ATH", "away_team": "BAL",
+                       "home_team_name": "Athletics",
+                       "away_team_name": "Orioles",
+                       "game_status": "Scheduled",
+                       "home_win_prob_model": 0.52,
+                       "away_win_prob_model": 0.48,
+                       "home_score": None, "away_score": None,
+                       "model_pick": "", "start_time_utc": "",
+                       "venue": "", "home_record": "", "away_record": ""})
+        bits = diag.run_engine_card_bits("20260830_BAL@ATH", res)
+        # Same-date: card with board_date == artifact date -> no notice.
+        out_same = todays._card_html(g, bits, board_date="20260830")
+        self.assertNotIn("prices from", out_same)
+        # Board date one day behind (e.g. GMT-rollover board snapshot):
+        # the notice appears on the actual card HTML.
+        out_diff = todays._card_html(g, bits, board_date="20260829")
+        self.assertIn("prices from 2026-08-30 run", out_diff)
+
+
 if __name__ == "__main__":
     unittest.main()

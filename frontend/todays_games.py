@@ -278,8 +278,17 @@ def _orient_rl_bits(bits, row, fav_home: bool) -> dict:
     return out
 
 
-def _runengine_html(bits, home_team: str, away_team: str) -> str:
+def _runengine_html(bits, home_team: str, away_team: str,
+                    board_date: str | None = None) -> str:
     """Run-engine strip on the game card — projections, O/U, run line.
+
+    ``board_date`` is the slate date being displayed (YYYYMMDD): when bits
+    carry an ``artifact_date`` that differs from it (a later run priced
+    the game — the GMT-rollover / 145d841 cross-artifact case), a muted
+    'prices from <date> run' notice renders next to the RUN ENGINE label,
+    so cross-date quotes never appear without a visible date label.  When
+    the dates match (or ``board_date`` is None) nothing extra renders —
+    aligned output stays byte-identical to pre-tagging behavior.
 
     bits comes from market_diagnostics.run_engine_card_bits; None means no
     slate row for this game (strip omitted), has_grid=False renders a quiet
@@ -311,6 +320,14 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     if not bits.get("has_grid"):
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
+    # Cross-date label (guardrail: never quote from a snapshot whose date
+    # differs from the board without a visible note). Same-date/None -> ''.
+    _date_note = ""
+    _ad = bits.get("artifact_date")
+    if _ad and board_date and str(_ad) != str(board_date):
+        _iso = f"{_ad[:4]}-{_ad[4:6]}-{_ad[6:]}"
+        _date_note = (f' <span class="re-na">(prices from '
+                      f'{_iso} run)</span>')
     ou_label = (f'O/U {bits["total_line"]:.1f}'
                 + (" (clamped)" if bits.get("clamped") else ""))
     # The card shows the 2-WAY re-scaled split: Over + Under sum to 100%
@@ -328,6 +345,7 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     return (
         f'<div class="fb-runengine">'
         f'<span class="re-label">RUN ENGINE</span>'
+        f'{_date_note}'
         f'<span>Proj: {away_team} {bits["proj_away"]:.1f} – '
         f'{home_team} {bits["proj_home"]:.1f}</span>'
         f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
@@ -439,7 +457,7 @@ def _score_side(num, abbr: str, is_winner: bool) -> str:
             f'<div class="abbr">{abbr}</div></div>')
 
 
-def _card_html(g: pd.Series, re_bits=None) -> str:
+def _card_html(g: pd.Series, re_bits=None, board_date: str | None = None) -> str:
     home_team, away_team = g["home_team"], g["away_team"]
     home_name = g.get("home_team_name", "") or home_team
     away_name = g.get("away_team_name", "") or away_team
@@ -541,7 +559,8 @@ def _card_html(g: pd.Series, re_bits=None) -> str:
     banner = _banner_html(status, is_final, is_live, winner, pick, correct, is_coin_flip,
                           is_upset, home_team, away_team, g)
 
-    runengine = _runengine_html(re_bits, home_team, away_team)
+    runengine = _runengine_html(re_bits, home_team, away_team,
+                                board_date=board_date)
 
     return (
         f'<div class="fb-card"><div class="fb-top">{top}</div>{score}{home_row}{away_row}'
@@ -1388,7 +1407,8 @@ def main() -> None:
                         re_bits, slate_map.get(gid), rl_fav_home)
                 else:
                     re_bits = model_bits
-                st.markdown(_card_html(g, re_bits), unsafe_allow_html=True)
+                st.markdown(_card_html(g, re_bits, board_date=date_str),
+                            unsafe_allow_html=True)
                 _shap_expander(g, date_str)
 
     st.caption("Model outputs are point-in-time — only data available before each "

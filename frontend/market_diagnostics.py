@@ -1737,12 +1737,21 @@ def resolve_slate_across_artifacts(
       (d) otherwise the id is absent -> the caller renders the quiet
           'unavailable' fallback. Never fabricates rows.
 
-    Returns ``{str(game_id): slate_record}`` for the resolvable ids.
+    Returns ``{str(game_id): slate_record}`` for the resolvable ids.  Each
+    record carries the winning frame's date as ``artifact_date`` so the
+    card can label cross-date prices (the board date may differ from the
+    run that priced the game — see the card's visible notice).
     """
     ids = [str(g) for g in game_ids if str(g).strip()]
     frames_by_date = {str(d): f for d, f in frames_by_date.items()
                       if f is not None}
     dates = sorted(frames_by_date, reverse=True)
+
+    def _tag(row: dict, d: str) -> dict:
+        """Copy a slate record and stamp the source artifact date onto it,
+        so cross-date pricing is visible to the renderer (never mutates the
+        frame's row dict)."""
+        return {**row, "artifact_date": d}
 
     def _exact(d, g):
         for pk, rec in _slate_rows(frames_by_date[d]):
@@ -1769,7 +1778,7 @@ def resolve_slate_across_artifacts(
         if d is not None and d in frames_by_date:
             r = _exact(d, g)
             if r is not None:
-                result[g] = r
+                result[g] = _tag(r, d)
     # (b) newest frame holding the exact game_pk fills the gaps.
     for d in dates:
         for g in ids:
@@ -1777,7 +1786,7 @@ def resolve_slate_across_artifacts(
                 continue
             r = _exact(d, g)
             if r is not None:
-                result[g] = r
+                result[g] = _tag(r, d)
     # (c) newest frame holding a same-matchup row (GMT rollover reconcile).
     for d in dates:
         for g in ids:
@@ -1785,7 +1794,7 @@ def resolve_slate_across_artifacts(
                 continue
             r = _matchup(d, g)
             if r is not None:
-                result[g] = r
+                result[g] = _tag(r, d)
     return result
 
 
@@ -1926,6 +1935,11 @@ def run_engine_card_bits(game_id: str,
     proj_away = _num(row, "away_expected_runs")
     p_home_cover = _num(row, RUN_COVER_COL)
     bits: dict[str, Any] = {
+        # Source artifact date (added by resolve_slate_across_artifacts when
+        # the row came through it). Present only for cross-date awareness;
+        # callers with a raw row carry None -> no date notice (byte-identical
+        # behavior for pre-tagging inputs).
+        "artifact_date": row.get("artifact_date"),
         "proj_home": proj_home,
         "proj_away": proj_away,
         "total_line": None,
