@@ -530,6 +530,11 @@ _PROTECTED_DELIVERY_PREFIXES = (
     # QB-strata / QB-feature decision records (2026-09-05): dateless
     # sha-named records from the QB/availability feature program.
     "nfl_qb_",
+    # PBP player-cohort feature diagnostic records (2026-09-05): dateless
+    # sha-named records from the cohort-structure feature program. Prefix
+    # without the trailing underscore: the record is plural
+    # (nfl_pbp_cohorts_3e8c8a510f04.json) and the family stays narrow.
+    "nfl_pbp_cohort",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

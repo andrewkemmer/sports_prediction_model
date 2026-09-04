@@ -445,6 +445,8 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         "nfl_binary_calibration_3e8c8a510f04.json",
         # QB-strata diagnostic record (2026-09-05)
         "nfl_qb_strata_3e8c8a510f04.json",
+        # PBP player-cohort diagnostic record (2026-09-05)
+        "nfl_pbp_cohorts_3e8c8a510f04.json",
     ]
 
     def test_run_engine_and_research_families_never_stale(self):
@@ -521,6 +523,23 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         self.assertIn("nfl_qb_", P)
         self.assertNotIn("nfl_", P)
         rel = f"{DD}/nfl_qb_strata_3e8c8a510f04.json"
+        self.assertTrue(_is_protected_name(rel))
+        self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY), "protected")
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
+
+    def test_pbp_cohort_record_prefix_scope_exact(self):
+        """The PBP cohort diagnostic record (2026-09-05) is prefix-protected
+        (nfl_pbp_cohort) like its nfl_* record siblings — never stale; the
+        prefix deliberately has NO trailing underscore so it covers the
+        plural record name (nfl_pbp_cohorts_...) and stays TARGETED (no
+        broad ``nfl_``; dated moneyline/feature families keep the
+        board-backed date-gate)."""
+        from master_pipeline import _PROTECTED_DELIVERY_PREFIXES as P
+        self.assertIn("nfl_pbp_cohort", P)
+        self.assertNotIn("nfl_pbp_cohort_", P)  # would miss the plural name
+        self.assertNotIn("nfl_", P)
+        rel = f"{DD}/nfl_pbp_cohorts_3e8c8a510f04.json"
         self.assertTrue(_is_protected_name(rel))
         self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY), "protected")
         self.assertFalse(

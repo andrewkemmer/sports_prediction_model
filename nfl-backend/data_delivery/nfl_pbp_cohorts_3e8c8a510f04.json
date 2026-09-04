@@ -1,0 +1,420 @@
+{
+  "record": "nfl_pbp_cohorts_diagnostic",
+  "record_sha": "3e8c8a510f04",
+  "written_utc": "2026-09-05T00:00:00Z",
+  "purpose": "PBP player-cohort feature diagnostic (READ-ONLY): tests whether six offense-vs-defense UNIT-TYPE structure families (pass EPA, rush EPA, OL/DL pressure, big-play %, red-zone TD, 3rd-down) add signal BEYOND the 12-pool level diffs (elo_diff / ewm_ypp_diff / ewm_net_pts_diff). QB-strata protocol (796802c): strata + pre-registered in-sample ceiling bar; no pipeline built unless a family survives.",
+  "scope": "nfl-backend + data_delivery only; decided OOF rows only (1,376 shared universe, never slate rows); no production/model/feature change (FEATURE_COLUMNS untouched).",
+  "as_of_convention": {
+    "ewm_halflife": 2,
+    "floor_prior_weeks": 4,
+    "prior_season_fallback_floor_weeks": 5,
+    "fallback_chain": "within-season ewm(hl=2) over prior weeks >= 4 -> prior-season (S-1) weekly mean >= 5 weeks -> global league-mean carry"
+  },
+  "pairing": {
+    "M_h": "asof_off(home) - asof_def(away)",
+    "M_a": "asof_off(away) - asof_def(home)",
+    "mismatch": "max(|M_h|, |M_a|)",
+    "ceiling_model": "M0 = logit(p); Mf = logit(p) + M_h + M_a (in-sample, same 1,376 rows)"
+  },
+  "family_definitions": {
+    "F1_pass_epa": "OFF mean EPA/pass play; DEF mean EPA allowed on opponent pass plays",
+    "F2_rush_epa": "OFF mean EPA/run play; DEF mean EPA allowed on opponent run plays",
+    "F3_pressure": "OFF OL pressure-rate allowed (PFR starter row: pressures per dropback); DEF DL pressure generated = opponent's OL rate in the same game",
+    "F4_big_play": "OFF share of scrimmage plays that are big (run > 10 yds; pass air_yards >= 20, or yards >= 20 when air_yards NaN); DEF mirrored on opponent plays",
+    "F5_redzone_td": "OFF red-zone TD rate per possession drive (RZ = yardline_100 <= 20); DEF mirrored",
+    "F6_third_down": "OFF mean EPA on 3rd-down plays; DEF mean EPA allowed on opponent 3rd-down plays"
+  },
+  "universe": {
+    "n": 1376,
+    "n_binary_nonnull": 1376,
+    "seasons": {
+      "2025": 285,
+      "2024": 282,
+      "2021": 271,
+      "2022": 271,
+      "2023": 267
+    }
+  },
+  "features": {
+    "frame_sha_prefix": "fb0a01b655ee",
+    "cache_path": "\\tmp\\nfl_features_fb0a01b655ee.parquet",
+    "n_rows": 1960
+  },
+  "families": {
+    "F1_pass_epa": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 22.68
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5529,
+          "actual_home_win": 0.5523,
+          "logloss": 0.6162,
+          "ece": 0.0616,
+          "mean_derived_ml": 0.5659,
+          "mean_abs_binary_derived": 0.0944,
+          "mean_mismatch": 0.4277
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5509,
+          "actual_home_win": 0.5426,
+          "logloss": 0.6194,
+          "ece": 0.0352,
+          "mean_derived_ml": 0.5546,
+          "mean_abs_binary_derived": 0.1074,
+          "mean_mismatch": 0.1763
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.6179,
+        "delta_ll_vs_M0": -0.0005,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": 0.0665,
+        "coef_M_a": 0.3042,
+        "coef_sign_M_h": "positive",
+        "coef_sign_M_a": "positive",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F1_pass_epa",
+        "verdict": "STOP",
+        "reason": "strata gap -0.0031999999999999806 < 0.002 and/or ceiling delta -0.0005 >= -0.002",
+        "redundant": false,
+        "redundancy_r2_max": 0.204,
+        "strata_logloss_gap_topq_minus_rest": -0.0032,
+        "ceiling_delta_ll": -0.0005,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    },
+    "F2_rush_epa": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 22.68
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5605,
+          "actual_home_win": 0.5233,
+          "logloss": 0.6123,
+          "ece": 0.0548,
+          "mean_derived_ml": 0.5671,
+          "mean_abs_binary_derived": 0.1001,
+          "mean_mismatch": 0.2754
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5483,
+          "actual_home_win": 0.5523,
+          "logloss": 0.6207,
+          "ece": 0.0381,
+          "mean_derived_ml": 0.5542,
+          "mean_abs_binary_derived": 0.1055,
+          "mean_mismatch": 0.1132
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.6179,
+        "delta_ll_vs_M0": -0.0005,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": -0.0905,
+        "coef_M_a": 0.4653,
+        "coef_sign_M_h": "negative",
+        "coef_sign_M_a": "positive",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F2_rush_epa",
+        "verdict": "STOP",
+        "reason": "strata gap -0.008400000000000074 < 0.002 and/or ceiling delta -0.0005 >= -0.002",
+        "redundant": false,
+        "redundancy_r2_max": 0.0436,
+        "strata_logloss_gap_topq_minus_rest": -0.0084,
+        "ceiling_delta_ll": -0.0005,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    },
+    "F3_pressure": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 22.68
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5484,
+          "actual_home_win": 0.5552,
+          "logloss": 0.6226,
+          "ece": 0.0416,
+          "mean_derived_ml": 0.5595,
+          "mean_abs_binary_derived": 0.098,
+          "mean_mismatch": 0.1261
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5524,
+          "actual_home_win": 0.5417,
+          "logloss": 0.6173,
+          "ece": 0.0359,
+          "mean_derived_ml": 0.5568,
+          "mean_abs_binary_derived": 0.1062,
+          "mean_mismatch": 0.0527
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.6178,
+        "delta_ll_vs_M0": -0.0006,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": 0.0411,
+        "coef_M_a": -1.1355,
+        "coef_sign_M_h": "positive",
+        "coef_sign_M_a": "negative",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F3_pressure",
+        "verdict": "RE_TEST_CANDIDATE",
+        "reason": "strata gap 0.0053 in [0.002, 0.008) or ceiling delta -0.0006 in (-0.004, -0.002]",
+        "redundant": false,
+        "redundancy_r2_max": 0.0284,
+        "strata_logloss_gap_topq_minus_rest": 0.0053,
+        "ceiling_delta_ll": -0.0006,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    },
+    "F4_big_play": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 22.68
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5618,
+          "actual_home_win": 0.6163,
+          "logloss": 0.5877,
+          "ece": 0.0677,
+          "mean_derived_ml": 0.565,
+          "mean_abs_binary_derived": 0.0961,
+          "mean_mismatch": 0.0541
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5479,
+          "actual_home_win": 0.5213,
+          "logloss": 0.6289,
+          "ece": 0.0501,
+          "mean_derived_ml": 0.5549,
+          "mean_abs_binary_derived": 0.1068,
+          "mean_mismatch": 0.0217
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.617,
+        "delta_ll_vs_M0": -0.0014,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": -1.8273,
+        "coef_M_a": 4.1967,
+        "coef_sign_M_h": "negative",
+        "coef_sign_M_a": "positive",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F4_big_play",
+        "verdict": "STOP",
+        "reason": "strata gap -0.041200000000000014 < 0.002 and/or ceiling delta -0.0014 >= -0.002",
+        "redundant": false,
+        "redundancy_r2_max": 0.0387,
+        "strata_logloss_gap_topq_minus_rest": -0.0412,
+        "ceiling_delta_ll": -0.0014,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    },
+    "F5_redzone_td": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 23.01
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5491,
+          "actual_home_win": 0.5378,
+          "logloss": 0.6163,
+          "ece": 0.0425,
+          "mean_derived_ml": 0.5534,
+          "mean_abs_binary_derived": 0.0952,
+          "mean_mismatch": 0.3609
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5521,
+          "actual_home_win": 0.5475,
+          "logloss": 0.6194,
+          "ece": 0.0398,
+          "mean_derived_ml": 0.5588,
+          "mean_abs_binary_derived": 0.1071,
+          "mean_mismatch": 0.1468
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.6172,
+        "delta_ll_vs_M0": -0.0012,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": -0.0605,
+        "coef_M_a": 0.5779,
+        "coef_sign_M_h": "negative",
+        "coef_sign_M_a": "positive",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F5_redzone_td",
+        "verdict": "STOP",
+        "reason": "strata gap -0.0030999999999999917 < 0.002 and/or ceiling delta -0.0012 >= -0.002",
+        "redundant": false,
+        "redundancy_r2_max": 0.0375,
+        "strata_logloss_gap_topq_minus_rest": -0.0031,
+        "ceiling_delta_ll": -0.0012,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    },
+    "F6_third_down": {
+      "weekly_team_weeks": 3386,
+      "coverage": {
+        "n_paired": 1376,
+        "pct_of_universe": 100.0,
+        "asof_prior_lt_floor_pct": 22.68
+      },
+      "strata": [
+        {
+          "label": "top_quartile_mismatch",
+          "n": 344,
+          "mean_platt_pred": 0.5634,
+          "actual_home_win": 0.5494,
+          "logloss": 0.6174,
+          "ece": 0.0464,
+          "mean_derived_ml": 0.5715,
+          "mean_abs_binary_derived": 0.0991,
+          "mean_mismatch": 0.6708
+        },
+        {
+          "label": "rest",
+          "n": 1032,
+          "mean_platt_pred": 0.5474,
+          "actual_home_win": 0.5436,
+          "logloss": 0.619,
+          "ece": 0.0335,
+          "mean_derived_ml": 0.5528,
+          "mean_abs_binary_derived": 0.1058,
+          "mean_mismatch": 0.2825
+        }
+      ],
+      "ceiling": {
+        "n": 1376,
+        "M0_logit_p_only_ll": 0.6184,
+        "Mf_plus_pairing_ll": 0.6181,
+        "delta_ll_vs_M0": -0.0003,
+        "r2_of_y_minus_p": 0.0,
+        "coef_M_h": 0.1486,
+        "coef_M_a": -0.0274,
+        "coef_sign_M_h": "positive",
+        "coef_sign_M_a": "negative",
+        "label": "IN-SAMPLE explanatory fit with as-of unit values on the same games the model consumes \u2014 an UPPER BOUND; serve-time noise lowers achievable gain"
+      },
+      "verdict": {
+        "family": "F6_third_down",
+        "verdict": "STOP",
+        "reason": "strata gap -0.0016000000000000458 < 0.002 and/or ceiling delta -0.0003 >= -0.002",
+        "redundant": false,
+        "redundancy_r2_max": 0.1161,
+        "strata_logloss_gap_topq_minus_rest": -0.0016,
+        "ceiling_delta_ll": -0.0003,
+        "rules": {
+          "GO": "R2 <= 0.95 AND strata gap >= 0.008 AND ceiling delta <= -0.004 (or R2 >= 0.02)",
+          "RE_TEST_CANDIDATE": "R2 <= 0.95 and strata gap in [0.002, 0.008) or ceiling delta in (-0.004, -0.002]",
+          "STOP": "redundant (R2 > 0.95) or ceiling < 0.002"
+        }
+      }
+    }
+  },
+  "verdict_summary": {
+    "F1_pass_epa": "STOP",
+    "F2_rush_epa": "STOP",
+    "F3_pressure": "RE_TEST_CANDIDATE",
+    "F4_big_play": "STOP",
+    "F5_redzone_td": "STOP",
+    "F6_third_down": "STOP"
+  },
+  "headline": "No family GO. None of the six unit-structure pairings is redundant (max R2 vs served inputs 0.03-0.20) and none is worth-having (all in-sample ceiling deltas -0.0003..-0.0014, far above the -0.004 GO bar). Five STOP; F3 pressure is the sole RE_TEST_CANDIDATE (strata logloss gap +0.0053 in [0.002, 0.008) but ceiling -0.0006). The binary's errors do NOT concentrate in structural-pairing games; big-play mismatch games are BETTER calibrated (gap -0.0412). Cohort structure is not the missing axis at this sample size.",
+  "judgment_calls": {
+    "family_semantics": "each family measured OFF (unit's own weekly stat) and DEF (allowed vs opponent plays / generated); game pairing M_h = asof_off(home) - asof_def(away), M_a mirrored; strata score = max(|M_h|, |M_a|)",
+    "as_of": "strictly-prior ewm halflife-2 over same-season prior weeks (floor >= 4), prior-season (S-1) weekly mean >= 5 weeks fallback, global league-mean carry \u2014 QB-strata precedent (documented; league constant is diagnostic baseline only)",
+    "F3_pressure_source": "nflreadpy load_pfr_advstats (PFR weekly); the team-week OL rate = the STARTING QB's protection row (max implied dropbacks = pressures / pressure rate); DL generated = the opponent's OL rate in the same game",
+    "re_test_band": "RE_TEST_CANDIDATE band implemented as strata gap in [0.002, 0.008) OR ceiling delta in (-0.004, -0.002] \u2014 F3's 0.0053 gap lands in the between-zone below GO's 0.008",
+    "sign_stability": "M_h/M_a coefficient signs at ~0 logloss gain are collinear-unstable and NOT interpretable; the ceiling delta is the gate"
+  },
+  "follow_ons": {
+    "F3_pressure": "RE_TEST_CANDIDATE \u2014 re-test when scored n grows (2026 decided rows, ~272/yr); needs serve-time PFR pressure (network + delay) and a per-fold gated arm before any build",
+    "others": "five STOP families dismissed for now; the diagnostic reruns cheaply on the same harness once 2026 decided rows exist",
+    "direction": "as in QB strata (796802c) and calibration arms (e3aeece/fc4f4bd): the model's residual error concentrates on AGGREGATE-quality extremes, not unit-structure or player-availability strata"
+  },
+  "acceptance": {
+    "determinism": "byte-identical double run (cmp on the probe JSON)",
+    "tests": "test_pbp_cohorts.py 18/18 (12 synthetic + 6 real-universe pins); test_master_pipeline prefix pin added",
+    "feature_columns_untouched": true,
+    "no_production_change": true
+  }
+}
