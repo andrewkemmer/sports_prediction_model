@@ -1,0 +1,128 @@
+{
+  "record": "nfl_markets_page_parity",
+  "written_utc": "2026-09-04T05:10:00+00:00",
+  "frame_sha256": "3e8c8a510f04",
+  "scope": "Phase B of the run-engine decided-history connector: the NFL Totals & Run Lines page is a STRUCTURAL 1:1 mirror of MLB's markets page (frontend/markets.py), verified against live screenshots of both pages (data-loaded) in this session plus source-derived structural-parity tests. MLB frontend behavior byte-unchanged; market-free rule unchanged (offered/shrink/edge columns stay in the artifact but are never rendered).",
+  "method": {
+    "mlb_ground_truth": "frontend/markets.py read end-to-end; live MLB page rendered locally (streamlit run Home.py, MLB sport, /markets) against mlb-backend/data_delivery artifacts (6,885 decided games)",
+    "nfl_ground_truth": "live NFL page rendered against the Phase-A backfilled artifact nfl_run_engine_markets_20260903.csv (1,376 decided OOF + 272 slate rows)",
+    "capture_note": "Screenshots of both pages (top / history / monitor regions) were captured live in-session and compared section-by-section. The structural-parity test class (backend/test_frontend_nfl_slate.py) pins the same anatomy from MLB source so the identical-match claim is machine-verifiable.",
+    "acceptance_bar": "any structural difference from MLB not in the documented legitimate-deltas list means the rebuild is NOT done"
+  },
+  "layout_checklist": [
+    {
+      "section": "Page title",
+      "mlb": "Today's Totals & Run Lines",
+      "nfl": "Today's Totals & Run Lines",
+      "match": "MATCH"
+    },
+    {
+      "section": "Subtitle caption",
+      "mlb": "Run-engine model diagnostics from NB(λ, α(λ)) Monte Carlo over the line grid — per-game projections and full probabilities live in run_engine_markets_*.csv.",
+      "nfl": "Run-engine model diagnostics from the per-side era model + pinned 76×76 joint (DN) over the line grid — per-game projections and full probabilities live in nfl_run_engine_markets_*.csv.",
+      "match": "DIFF",
+      "delta": "LEGITIMATE — model description names the NFL engine (era + DN joint) instead of MLB's NB(λ, α(λ)) sampler; sentence shape identical; artifact pointer sport-prefixed"
+    },
+    {
+      "section": "Markets CSV load + missing/stale warnings",
+      "mlb": "latest run_engine_markets_*.csv; warning when missing",
+      "nfl": "latest nfl_run_engine_markets_*.csv; warning when missing (MLB-shaped wording)",
+      "match": "MATCH"
+    },
+    {
+      "section": "### Diagnostics — no-data path",
+      "mlb": "single st.warning, no tabs",
+      "nfl": "single st.warning, no tabs (MLB's own code path)",
+      "match": "MATCH"
+    },
+    {
+      "section": "### Diagnostics — data-loaded tabs",
+      "mlb": "st.tabs([Distribution, Relativized, Pooled lines, Game Total Lines, Run Lines])",
+      "nfl": "identical five tab labels, identical order",
+      "match": "MATCH"
+    },
+    {
+      "section": "Game Total Lines tab body",
+      "mlb": "line selectbox ('All = own fair line') + curve chart + st.table + caption",
+      "nfl": "identical selectbox + chart + st.table + caption shape; fed by REAL data from the decided OOF store",
+      "match": "MATCH"
+    },
+    {
+      "section": "Run Lines tab body",
+      "mlb": "line selectbox (favorite −L) + curve chart + st.table + caption",
+      "nfl": "identical; favorite magnitude selectbox; outcome-based push exclusion",
+      "match": "MATCH"
+    },
+    {
+      "section": "### Prediction History — Totals & Run Lines",
+      "mlb": "history start/end date inputs + side-filter radio + Game Totals table + Run Lines table (fb-table schema DATE | MATCHUP | SCORE (A–H) | LINE | MODEL PICK | WINNER | RESULT)",
+      "nfl": "identical structure + identical table header schema; rows from the decided OOF store",
+      "match": "MATCH"
+    },
+    {
+      "section": "History no-data path",
+      "mlb": "single st.info line",
+      "nfl": "single st.info line (MLB-shaped wording)",
+      "match": "MATCH"
+    },
+    {
+      "section": "Run-Line & Totals Monitor — honesty caption",
+      "mlb": "'**Honesty note:** ... no styling hides it' convention",
+      "nfl": "identical honesty-note convention",
+      "match": "MATCH"
+    },
+    {
+      "section": "Monitor — winner cards",
+      "mlb": "three cards (Over/Under, Run Line (favorite), Derived ML) each: label + ECE emoji badge, rule caption, 'Actual X% · Predicted Y%' line, Win rate / AUC / Pooled ECE-cal / Holdout ECE-cal / Pooled Brier / Pooled Logloss / Holdout AUC metrics, n caption",
+      "nfl": "identical three-card structure with the identical metric set and compact Actual/Predicted line; ECE badge uses MLB's exact emoji + thresholds (🟢<0.01, 🟡<0.02, 🔴≥0.02); values computed from the decided store (real, honest — NFL raw ECE renders red, consistent with the honesty note)",
+      "match": "MATCH",
+      "delta_note": "NFL winner-card metrics are computed in-page from the decided OOF rows (the NFL monitor artifact does not yet carry pipeline-built cards); MLB reads its monitor JSON. Same schema, same semantics (actual_win_rate == win_rate == empirical pick win rate, push-excluded; predicted_mean = pooled favored-probability mean; every metric on the PICKED side)."
+    },
+    {
+      "section": "Monitor — calibration cards expander",
+      "mlb": "'Calibration Cards — Totals & Run Line' expander with Totals confidence/side selectboxes + metrics + side-split dataframe, then Run Line favorite-magnitude selectbox + metrics",
+      "nfl": "identical widget set + metrics, fed by real decided-store stats",
+      "match": "MATCH"
+    },
+    {
+      "section": "Monitor — fit/drift/coverage/model-card sections",
+      "mlb": "Distributional Fit Diagnostics, Feature Drift (PSI), Feature Coverage, Model card from pipeline monitor sections",
+      "nfl": "MLB's own 'no data in this monitor artifact' wording (the NFL slate runner does not yet emit those pipeline sections); nothing fabricated",
+      "match": "DIFF",
+      "delta": "LEGITIMATE — data-availability delta only; identical empty-state code path and wording shape, no bespoke panel"
+    },
+    {
+      "section": "Monitor — rolling history",
+      "mlb": "rolling-history expander, empty on first build",
+      "nfl": "identical expander + first-run empty state",
+      "match": "MATCH"
+    },
+    {
+      "section": "Per-game projections on this page",
+      "mlb": "NONE (docstring: the per-game slate board is un-rendered on the markets page)",
+      "nfl": "NONE — no week-selector / Scheduled Games hero (removed)",
+      "match": "MATCH"
+    }
+  ],
+  "legitimate_deltas": [
+    "Sport name (NFL vs MLB) and artifact pointer prefix (nfl_run_engine_markets_* vs run_engine_markets_*)",
+    "Subtitle model description (per-side era model + pinned 76×76 joint (DN) vs NB(λ, α(λ)) Monte Carlo)",
+    "Integer-support push/tie wording where NFL semantics differ (whole-number totals/spreads carry a real push band; pushes excluded from 2-way bases and reported)",
+    "Winner-card rule captions name the NFL derivation (P(H>A)/(1−P(tie)) of the calibrated 76×76 joint)",
+    "Monitor fit/drift/coverage/model-card sections show MLB's own no-data wording until the NFL pipeline emits those sections",
+    "The ±0.5 raw-vs-derived (ML X%) pair lives on the Today's Games cards (this page has no per-game content, exactly like MLB)"
+  ],
+  "deltas_not_present": [
+    "No bespoke 'Scheduled Games' week-selector drill-down",
+    "No research-pinned 'Totals ECE 0.0870' card or provenance paragraph block on the data-loaded path",
+    "No custom no-data panel — MLB's own no-data code path is mirrored",
+    "No offered/shrink/edge column is read or rendered anywhere"
+  ],
+  "tests": {
+    "structural_parity_class": "section order, five tab labels, history-table header schema, title wording, empty-state wording, honesty-note convention, no-per-game-hero, market-free source scan — all vs MLB source-derived constants",
+    "data_loaded_render_class": "artifact carries 1,376 oof + 272 slate rows; five tabs created with MLB labels; no empty-state text on the data-loaded page; real calibration markers (pooled ECE, decided games) present; history table renders the fb-table schema; winner cards render Win rate/AUC/ECE-cal/Brier metrics; no market tokens in the rendered text",
+    "loader_resolution": "newest nfl_run_engine_markets date resolves locally",
+    "market_free": "no offered/shrink/edge token in any rendered strip or the page code"
+  },
+  "result": "PASS — every checklist row is MATCH or a documented legitimate delta; the data-loaded pages render the same sections in the same order with the same tab labels, dropdowns, chart components, table schemas, and empty-state behavior."
+}

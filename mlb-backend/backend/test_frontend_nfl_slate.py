@@ -159,14 +159,18 @@ class TestMlbStructuralParity(unittest.TestCase):
         self.assertNotIn("nfl_markets_week", NFL_MARKETS_SRC)
 
     def test_market_free_page_source(self):
-        """The page never reads the offered/shrink column families (the
+        """The page never READS the offered/shrink column families (the
         artifact keeps them; the model product does not) and never renders
-        offered-line values. ('edge' wording appears only in the policy
-        notes; the rendered-strip tests assert no market tokens in HTML.)"""
+        offered-line values. The module docstring documents the policy (and
+        may quote the column names), so the scan is over CODE only, not
+        prose. ('edge' wording appears only in policy notes; the rendered-
+        strip tests assert no market tokens in HTML.)"""
+        code = NFL_MARKETS_SRC.split('"""', 2)[2]  # drop the module docstring
         for token in ("p_cover_offered", "p_push_offered", "p_over_offered",
-                      "shrink_applied", "spread_line", "total_line"):
-            self.assertNotIn(token, NFL_MARKETS_SRC,
-                             f"page source must not read market token "
+                      "shrink_applied", "spread_line", "total_line",
+                      "has_offer", "edge"):
+            self.assertNotIn(token, code,
+                             f"page code must not read market token "
                              f"{token!r}")
 
 
@@ -461,28 +465,143 @@ class TestEmptyStatesHonesty(unittest.TestCase):
         # the honest info, never a metric grid with zeroed numbers.
         self.assertNotIn("Covers ECE", text)
 
-    def test_artifact_without_decided_rows_shows_honest_states(self):
-        df = _real_frame()
-        has_scores = {"home_score", "away_score"}.issubset(df.columns)
-        if has_scores and df[["home_score", "away_score"]].notna().any().any():
-            self.skipTest("artifact already carries decided rows")
-        mon = json.loads(_artifact("nfl_run_engine_monitor_*.json").read_text())
-        st = self._run_page(df, mon)
+
+class TestDataLoadedRender(unittest.TestCase):
+    """With the Phase-A backfilled artifact (1,376 decided OOF rows + 272
+    slate rows), the page's data-loaded paths render: the five diagnostics
+    tabs, the prediction-history tables, and the winner/calibration cards
+    — all from REAL calibration of the decided store, never research-
+    pinned stand-ins."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.df = _real_frame()
+        cls.mon = json.loads(
+            _artifact("nfl_run_engine_monitor_*.json").read_text())
+
+    def test_artifact_carries_decided_and_slate_rows(self):
+        kinds = (self.df["kind"].value_counts().to_dict()
+                 if "kind" in self.df else {})
+        self.assertEqual(kinds.get("oof", 0), 1376,
+                         "decided OOF rows missing from the artifact")
+        self.assertEqual(kinds.get("slate", 0), 272,
+                         "slate board rows missing from the artifact")
+
+    def _run(self):
+        """Run the page with the REAL artifact + monitor under a streamlit
+        stub whose selectboxes/date-inputs return real defaults (the
+        data-loaded paths must execute, not blow up on MagicMock values)."""
+        with mock.patch.dict(sys.modules):
+            sys.modules.pop("nfl_markets_page", None)
+            st = mock.MagicMock()
+            st.tabs.side_effect = lambda labels: [mock.MagicMock()
+                                                  for _ in labels]
+            oof = self.df[self.df["kind"] == "oof"]
+            dts = pd.to_datetime(oof["gameday"], errors="coerce").dropna()
+            lo, hi = dts.min().date(), dts.max().date()
+            date_vals = iter([lo, hi])
+
+            def _pick(opts, idx):
+                return opts[idx] if idx < len(opts) else opts[0]
+
+            class Col:
+                def __init__(self, base):
+                    self._base = base
+
+                def __getattr__(self, name):
+                    return getattr(self._base, name)
+
+                def date_input(self, *a, **k):
+                    return next(date_vals)
+
+                def selectbox(self, *a, **k):
+                    opts = a[1] if len(a) > 1 else k.get("options", [])
+                    return _pick(opts, k.get("index", 0))
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    return False
+
+            st.columns.side_effect = lambda n: [Col(st) for _ in range(
+                n if isinstance(n, int) else len(n))]
+            st.selectbox.side_effect = lambda *a, **k: _pick(
+                a[1] if len(a) > 1 else k.get("options", []),
+                k.get("index", 0))
+            utils_fake = types.ModuleType("utils")
+            utils_fake.inject_css = lambda *a, **k: None
+            utils_fake.format_date_long = lambda d=None, **k: (str(d)
+                                                               if d else "—")
+            utils_fake.show_chart = lambda *a, **k: None
+            utils_fake.load_nfl_run_engine_markets = \
+                lambda sport=None: (self.df, None)
+            utils_fake.load_nfl_run_engine_monitor = \
+                lambda sport=None: self.mon
+            sys.modules["utils"] = utils_fake
+            sys.modules["streamlit"] = st
+            import nfl_markets_page as page
+            page.run()
+        return st
+
+    def _text(self, st, *attrs):
+        out = []
+        for a in attrs:
+            for call in getattr(st, a).call_args_list:
+                args = call[0]
+                if args and isinstance(args[0], str):
+                    out.append(args[0])
+        return "\n".join(out)
+
+    def test_five_tabs_created_with_mlb_labels(self):
+        st = self._run()
+        calls = st.tabs.call_args_list
+        self.assertTrue(calls, "st.tabs never called — data-loaded path dead")
+        self.assertEqual(list(calls[0][0][0]),
+                         ["Distribution", "Relativized", "Pooled lines",
+                          "Game Total Lines", "Run Lines"])
+
+    def test_no_emptystate_and_real_calibration_text(self):
+        st = self._run()
+        text = self._text(st, "warning", "info", "markdown", "caption")
+        for phrase in ("No decided OOF rows",
+                       "No run-engine markets artifact",
+                       "No run-engine monitor artifact"):
+            self.assertNotIn(phrase, text,
+                             f"data-loaded page must not show {phrase!r}")
+        # Real calibration markers from the decided store (never a
+        # research-pinned stand-in): pooled ECE in the GTL/RL captions and
+        # decided-game counts in the distribution caption.
+        self.assertIn("pooled ECE", text)
+        self.assertIn("decided games", text)
+        self.assertNotIn("research-pinned", text.lower())
+
+    def test_history_table_renders_mlb_schema(self):
+        st = self._run()
+        md = self._text(st, "markdown")
+        self.assertIn("fb-table", md)
+        self.assertIn("<th>DATE", md)
+        self.assertIn("<th>RESULT</th>", md)
+        self.assertIn("Game Totals — Prediction History", md)
+        self.assertIn("Run Lines — Prediction History", md)
+
+    def test_winner_cards_render_real_metrics(self):
+        st = self._run()
+        labels = [c[0][0] for c in st.metric.call_args_list
+                  if c[0] and isinstance(c[0][0], str)]
+        joined = "|".join(labels)
+        for want in ("Win rate", "AUC", "Pooled ECE-cal", "Pooled Brier"):
+            self.assertIn(want, joined, f"winner-card metric {want!r} missing")
+
+    def test_no_market_tokens_in_data_loaded_render(self):
+        st = self._run()
         text = self._text(st, "warning", "info", "markdown", "caption",
-                          "metric")
-        # MLB-shaped decided-empty warnings + research-pinned stand-in.
-        self.assertIn("No decided OOF rows in nfl_run_engine_markets", text)
-        self.assertIn("No decided OOF rows in the run-engine markets "
-                      "artifact", text)
-        # Baseline metrics + provenance render (never fabricated slate
-        # calibration).
-        self.assertIn("Covers ECE (pooled OOF)", text)
-        self.assertIn("research-pinned", text.lower())
-        self.assertIn("Provenance:", text)
-        self.assertIn("No slate history yet (first build starts empty).",
-                      text)
-        baseline = mon.get("oof_baseline_research_pinned") or {}
-        self.assertTrue(baseline, "monitor baseline missing")
+                          "metric", "dataframe").lower()
+        for tok in ("offered", "shrink", "spread_line", "total_line",
+                    "edge"):
+            self.assertNotIn(tok, text,
+                             f"market token {tok!r} rendered in data-loaded "
+                             "page")
 
     def test_monitor_section_empty_history_state(self):
         mon = json.loads(_artifact("nfl_run_engine_monitor_*.json").read_text())
