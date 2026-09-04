@@ -524,6 +524,9 @@ _PROTECTED_DELIVERY_PREFIXES = (
     "nfl_run_engine_diagnostics_", "nfl_markets_fit_panel_parity_",
     # Run-engine drift/coverage families (diagnostics emitters, 2026-09-04)
     "run_engine_feature_drift_", "run_engine_feature_coverage_",
+    # Binary moneyline calibration decision record (2026-09-05): dateless
+    # sha-named — targeted prefix protection like its nfl_* siblings.
+    "nfl_binary_calibration_",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

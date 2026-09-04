@@ -1,0 +1,115 @@
+{
+  "record": "nfl_binary_calibration_3e8c8a510f04.json",
+  "title": "NFL binary moneyline high-band calibration — Phase-1 same-set cell + map-family selection, Phase-2 gated verdict",
+  "date": "2026-09-05",
+  "gated": "adoption-style: Phase 2 runs only behind Phase 1's computed gate; verdict computed, not narrated",
+  "scope": "nfl-backend + data_delivery ONLY; READ-ONLY over production code (no engine/pricing/feature change; FEATURE_COLUMNS byte-untouched); the only production-code edit is the targeted retention-prefix pin in master_pipeline.py",
+  "provenance": {
+    "audit": "nfl_margin_audit_3e8c8a510f04.json (c1a7c12) — binary Platt 70-80 band pred 0.7485 vs actual 0.6754 (n=191, ECE 0.0731); raw axis at its own band 0.747 vs 0.800; DIFFERENT game sets — same-set cell unproven until now",
+    "universe": "shared 1,376-game decided OOF (markets kind==oof 20260904: pooled 2021-24 n=1,091 + sealed 2025 n=285); binary axes from nfl_predictions_history_20260904.csv (raw = home_win_prob_model, published = home_win_prob_model_calibrated)",
+    "production_map": "the deployed/published Platt twin = the SEALED global logistic on logit(raw), a=1.276336 b=0.121988, fit on ALL pooled pre-holdout OOF rows (n=1107 per the moneyline record, incl. playoff weeks); the walk itself is 88 folds over the pooled 1,107 (2019-2024 train, 2021-2024 val weeks, 2025 = sealed hold-out, never in any fit or calibration map)",
+    "validated_reproduction": "fitting family (a) on the CSV pooled adaptive-blend raw reproduces the published map to 3e-5 (a=1.276365, b=0.121987) and the sealed metrics exactly (ll 0.6249 / ECE 0.0745 == nfl_moneyline_v1_20260904 sealed model_platt) — the read-only deployed-path measurements ARE the production numbers",
+    "harness": "probe_binary_calibration.py (read-only; double-run byte-identical)"
+  },
+  "phase1_same_set_cell": {
+    "forward_platt_band_games": {
+      "n": 191,
+      "mean_calibrated": 0.7485,
+      "mean_raw_on_same_set": 0.6815,
+      "actual_win_rate": 0.6754,
+      "se_actual": 0.0339,
+      "band_ece": 0.0731
+    },
+    "reverse_raw_band_games": {
+      "n": 175,
+      "mean_raw": 0.7469,
+      "mean_calibrated_on_same_set": 0.8174,
+      "actual_win_rate": 0.8,
+      "se_actual": 0.0302,
+      "band_ece_raw_axis": 0.0531
+    },
+    "branch": "B",
+    "branch_finding": "the RAW ensemble is well-calibrated on exactly the games Platt pushes into 70-80 (raw 0.6815 vs actual 0.6754); the deployed global logistic (slope a=1.276) over-stretches the raw 0.66-0.72 region to ~0.73-0.78. Reverse cell: on games raw scores 70-80 (actual 0.80) Platt pushes to 0.8174 — approximately right there (under-confidence at the raw top end is what the global slope is compensating for, and the fixed 2-parameter slope over-corrects the mid-high band).",
+    "deeper_statement": "the miscalibration is introduced by the CALIBRATION LAYER (map shape), not by the ensemble: a recalibration family with LOCAL flexibility can recover genuine calibration at the band. This is NOT the Branch-A case (ensemble overconfidence) — no feature/availability lever is implicated by this cell."
+  },
+  "phase1_sub_band_splits": {
+    "inside_platt_band": {
+      "70%-75%": {"n": 108, "mean_cal": 0.7267, "mean_raw": 0.6618, "actual": 0.6759, "band_ece": 0.0508, "se": 0.045},
+      "75%-80%": {"n": 83, "mean_cal": 0.7768, "mean_raw": 0.7072, "actual": 0.6747, "band_ece": 0.1021, "se": 0.0514}
+    },
+    "finding": "the over-confidence WORSE NS toward the top of the band (ECE 0.051 at 70-75, 0.102 at 75-80) — consistent with a slope over-correction growing with logit distance from the map's anchor, diagnostic only (SE +-4.8pp at n~95)."
+  },
+  "phase1_band_decomposition": {
+    "published_70_80_band": {
+      "pooled_2021_24_in_sample": {"n": 152, "mean_cal": 0.7483, "mean_raw": 0.6814, "actual": 0.6908, "band_ece": 0.0576},
+      "sealed_2025_out_of_sample": {"n": 39, "mean_cal": 0.7491, "mean_raw": 0.6821, "actual": 0.6154, "band_ece": 0.1337}
+    },
+    "finding": "the distortion appears BOTH in-sample on the map's own fit pool (0.0576) and out-of-sample on sealed 2025 (0.1337) — a genuine shape limitation of the 2-parameter logistic, not a fit artifact."
+  },
+  "phase1_map_family_selection": {
+    "rows": "pooled pre-holdout OOF n=1107 (moneyline walk pool incl. playoff weeks), 88 fold-weeks",
+    "protocol": "nested per-fold: each fold's map fit on STRICTLY-EARLIER folds' (raw, actual) pairs only — the production nested-Platt geometry; identity fallback when <10 prior rows / single class; raw axis = the CSV adaptive-blend (documented delta: the record's pooled cal_po metrics use the fold-loop STATIC blend raw; the deployed map and every Phase-2 band leg target the adaptive blend the CSV carries)",
+    "a_platt_refit_global_logistic": {"overall_ece": 0.0402, "logloss": 0.6193, "band_60_70_ece": 0.0707, "band_70_80_ece": 0.028, "band_80_ece": 0.0666},
+    "b_isotonic_pava": {"overall_ece": 0.0389, "logloss": 0.7056, "band_60_70_ece": 0.0497, "band_70_80_ece": 0.0331, "band_80_ece": 0.0601},
+    "c_pchip_monotone_spline": {"overall_ece": 0.0295, "logloss": 0.6322, "band_60_70_ece": 0.0492, "band_70_80_ece": 0.002, "band_80_ece": 0.0423},
+    "family_choice_rule": "best joint band-ECE profile, preferring Platt within 0.005 (parsimony). Family (c) is 0.026 better than (a) on the target band — beyond the 0.005 parsimony band — so the chosen family is c_pchip_monotone_spline (b_isotonic loses logloss +0.086 and under-performs (a)/(c) on every band).",
+    "finding": "a locally flexible monotone map recovers the band (0.028 -> 0.002 nested) WITHOUT adjacent-band regression (60-70 and 80+ both improve) — consistent with Branch B."
+  },
+  "phase1_gate": {
+    "leg1_same_set_band_gap": {"gap": 0.0731, "two_se": 0.0678, "band_ece": 0.0731, "threshold": "gap > 2*SE OR band ECE > 0.04", "pass": true},
+    "leg2_family_improvement": {"current_family_target_band_ece": 0.028, "best_family": "c_pchip_spline", "best_target_band_ece": 0.002, "improvement": 0.026, "adjacent_band_regression_max": 0.0, "threshold": ">= 0.02 improvement, no adjacent regression > 0.01", "pass": true},
+    "verdict": "GATE_PASS"
+  },
+  "phase2_projected_leg_table": {
+    "basis": "Phase-2 legs computed READ-ONLY at production fidelity — the map change rides on the committed pooled OOF outputs (validated bit-consistent with the moneyline record), so a full 88-fold ensemble re-run would re-derive identical numbers; no production code was changed. Deployed protocol = map fit on ALL pooled rows (the platt_sealed protocol); nested protocol = per-fold strictly-earlier fits (the record's pooled-calibrated convention). Sealed S1/S2 = chronological halves of the 285 sealed-2025 games by gameday (S1 n=142, S2 n=143; S2 = arbiter). NO prior NFL S1/S2 convention existed — defined here and recorded.",
+    "chosen_family": "c_pchip_monotone_spline",
+    "legs": {
+      "pooled_cal_logloss_no_regression_beyond_0_001": {"protocol": "nested", "current": 0.6193, "candidate_c": 0.6322, "regression": 0.0129, "pass": false, "note": "BLOCKING — the logistic MLE is the logloss optimum of its family; a band-local map trades ~+0.013 pooled logloss for band honesty. 13x the +/-0.001 bar — deterministic, not noise."},
+      "pooled_cal_ece_improves_target_lt_0_02": {"protocol": "nested", "current": 0.0402, "candidate_c": 0.0295, "pass": false, "note": "improves by 0.0107 but the final value 0.0295 does not reach the < 0.02 target; deployed in-sample 0.0360 -> 0.0287 (also > 0.02)"},
+      "platt_70_80_band_ece_lt_0_03_new_axis": {"sealed_full_c": 0.0421, "sealed_s1_c": 0.1213, "sealed_s2_c": 0.0107, "nested_pooled_c": 0.002, "pass": false, "note": "BLOCKING on the out-of-sample reads (sealed 0.0421, S1 0.1213 > 0.03); only the nested pooled read clears it"},
+      "adjacent_bands_no_regression_beyond_0_01": {"sealed_60_70_delta": -0.0526, "sealed_80_plus_delta": 0.0953, "sealed_80_plus_n": 20, "pass": false, "note": "BLOCKING — sealed 80+ band ECE 0.0094 -> 0.1047 (+0.0953, n=20); the flexible map's flat tail over-corrects the highest-confidence games the global slope was protecting"},
+      "pooled_cal_auc_flat_within_0_001": {"pass": true, "note": "CONTRACT leg: every candidate family is strictly monotone -> rank-invariant -> AUC identical to the raw axis by construction; no AUC-improvement claim is made or expected"},
+      "sealed_s1_s2_same_bands_s2_arbiter": {"S1_overall_ece": {"current_a": 0.0674, "candidate_c": 0.0826, "delta": 0.0152}, "S2_overall_ece": {"current_a": 0.1296, "candidate_c": 0.0695, "delta": -0.0601}, "S2_70_80_band": {"current_a": 0.1623, "candidate_c": 0.0107}, "pass": false, "note": "the arbiter half S2 improves materially (ECE 0.1296 -> 0.0695; 70-80 band 0.162 -> 0.011) but S1 regresses (0.0674 -> 0.0826) — mixed, and the S1 regression plus the sealed-full legs above fail the blocking set"},
+      "determinism": {"pass": true, "note": "probe double-run byte-identical; map fits are deterministic (sklearn/scipy, no stochasticity)"},
+      "worth_having_band_gain_gt_noise_over_3": {"note": "the S2/band gains are large (0.026-0.15); not the binding constraint"}
+    },
+    "family_a_status": "platt refit == the current deployed map; cannot fix the deployed band (sealed 70-80 ECE 0.1337 > 0.03) — a same-family re-fit changes nothing.",
+    "family_b_status": "isotonic degenerates on the out-of-sample axis (sealed 70-80 band ECE 0.7103 — step-function extrapolation) and costs +0.086 pooled logloss.",
+    "verdict": "DO_NOT_REFIT",
+    "blocking_legs": [
+      "pooled_cal_logloss regression +0.0129 > +/-0.001 (nested protocol, the record's pooled-calibrated convention)",
+      "70-80 band ECE on the NEW axis not < 0.03 out-of-sample (sealed 0.0421, S1 0.1213)",
+      "adjacent 80+ band regression +0.0953 > +0.01 on sealed (n=20)"
+    ]
+  },
+  "verdict_summary": "Phase-1 gate PASSED (the miscalibration is real beyond noise and a locally flexible family fixes the band on pre-holdout), but Phase-2's own full blocking leg set fails for EVERY candidate family — the deployed global-logistic over-stretch at raw ~0.66-0.72 is a genuine 2-parameter shape limitation, and the only family that fixes it (monotone spline) trades pooled logloss (+0.013) and small-n top-band calibration to do so. Production Platt twin UNCHANGED. The calibration layer is the locus (Branch B); the ensemble itself is well-calibrated on the disputed games — this is an output-layer map-shape finding, NOT a feature/availability signal.",
+  "follow_on_options_noted_not_taken": [
+    "a product-level decision to accept band-honesty at a pooled-logloss cost (relaxing the +/-0.001 pooled-cal-ll leg) — a decision for the user, out of scope here",
+    "a serve-time convention to quote the RAW axis (or a flatter local map) specifically above ~0.68 confidence while keeping the Platt twin elsewhere — schema/frontend implications, out of scope",
+    "revisit after more sealed-2025 data: the sealed 70-80/80+ bands sit at n=39/46 (S1/S2 ~8-29) — the spline tail behavior at 80+ is the least certain leg"
+  ],
+  "evidence_sources": [
+    "nfl_predictions_history_20260904.csv (raw + published Platt axes + actuals)",
+    "nfl_run_engine_markets_20260904.csv (kind==oof rows; shared-universe anchor)",
+    "nfl_moneyline_v1_20260904.json (fold geometry 88/1107/285; sealed model_platt 0.6249/0.7082/0.0745; deployed map a=1.276336 b=0.121988)",
+    "nfl_calibration_20260904.json (pooled calibrated metrics + map params)",
+    "nfl_margin_audit_3e8c8a510f04.json (the triggering audit)",
+    "probe_binary_calibration.py (read-only harness; byte-identical double run)"
+  ],
+  "acceptance_evidence": {
+    "probe_determinism": "probe_binary_calibration.py double-run byte-identical (cmp)",
+    "deployed_path_validation": "family (a) fit on the pooled CSV raw reproduces the published map a/b (1.276365/0.121987 vs pinned 1.276336/0.121988) and the moneyline record's sealed metrics exactly (ll 0.6249 / ECE 0.0745) — the read-only Phase-2 measurements ARE the production numbers; a full 88-fold ensemble re-run would not change them",
+    "suites": [
+      "test_binary_calibration_fix: 15/15 OK (same-set cell branch B; parsimony rule; fit-on-pre-holdout-only spy; Phase-2 blocking legs; AUC-flat contract; determinism)",
+      "test_master_pipeline: 40/40 OK (nfl_binary_calibration_ prefix scope-exact pin)",
+      "test_nfl_calibration + test_nfl_moneyline: 76/76 OK — zero regression",
+      "no other suite touched: no production code changed (Platt twin, artifacts, FEATURE_COLUMNS byte-untouched)"
+    ]
+  },
+  "guardrails_met": [
+    "decided OOF rows ONLY as evidence (pooled pre-holdout + sealed 2025); no slate/serve-time rows used",
+    "published Platt-calibrated axis primary; raw axis carried and labeled throughout",
+    "no production change of any kind: Phase-2 verdict DO_NOT_REFIT -> the moneyline Platt twin and all artifacts are byte-unchanged; the only production edit is the retention-prefix pin",
+    "record inherits protected naming: nfl_binary_calibration_ prefix added to _PROTECTED_DELIVERY_PREFIXES in master_pipeline.py (same commit, targeted — no broad nfl_)"
+  ]
+}

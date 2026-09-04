@@ -441,6 +441,8 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         # nfl_* record families they get targeted prefix protection.
         "nfl_run_engine_diagnostics_v2_3e8c8a510f04.json",
         "nfl_markets_fit_panel_parity_3e8c8a510f04.json",
+        # Binary calibration decision record (2026-09-05)
+        "nfl_binary_calibration_3e8c8a510f04.json",
     ]
 
     def test_run_engine_and_research_families_never_stale(self):
@@ -485,6 +487,23 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
             self.assertTrue(_is_protected_name(rel), name)
             self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY),
                              "protected", name)
+        # Dated moneyline/feature families are untouched by the addition.
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_feature_v1_20260830.json"))
+
+    def test_binary_calibration_record_prefix_scope_exact(self):
+        """The binary-calibration decision record (2026-09-05) is prefix-
+        protected like its nfl_* record siblings — never stale, and the
+        protection stays TARGETED (no broad ``nfl_``; the dated
+        moneyline/feature families keep the board-backed date-gate)."""
+        from master_pipeline import _PROTECTED_DELIVERY_PREFIXES as P
+        self.assertIn("nfl_binary_calibration_", P)
+        self.assertNotIn("nfl_", P)
+        rel = f"{DD}/nfl_binary_calibration_3e8c8a510f04.json"
+        self.assertTrue(_is_protected_name(rel))
+        self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY), "protected")
         # Dated moneyline/feature families are untouched by the addition.
         self.assertFalse(
             _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
