@@ -443,6 +443,8 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         "nfl_markets_fit_panel_parity_3e8c8a510f04.json",
         # Binary calibration decision record (2026-09-05)
         "nfl_binary_calibration_3e8c8a510f04.json",
+        # QB-strata diagnostic record (2026-09-05)
+        "nfl_qb_strata_3e8c8a510f04.json",
     ]
 
     def test_run_engine_and_research_families_never_stale(self):
@@ -509,6 +511,20 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
             _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
         self.assertFalse(
             _is_protected_name(f"{DD}/nfl_feature_v1_20260830.json"))
+
+    def test_qb_strata_record_prefix_scope_exact(self):
+        """The QB-strata diagnostic record (2026-09-05) is prefix-protected
+        (nfl_qb_) like its nfl_* record siblings — never stale; protection
+        stays TARGETED (no broad ``nfl_``; dated moneyline/feature families
+        keep the board-backed date-gate)."""
+        from master_pipeline import _PROTECTED_DELIVERY_PREFIXES as P
+        self.assertIn("nfl_qb_", P)
+        self.assertNotIn("nfl_", P)
+        rel = f"{DD}/nfl_qb_strata_3e8c8a510f04.json"
+        self.assertTrue(_is_protected_name(rel))
+        self.assertEqual(classify_stale(rel, EMPTY, EMPTY, EMPTY), "protected")
+        self.assertFalse(
+            _is_protected_name(f"{DD}/nfl_moneyline_v1_20260830.json"))
 
     def test_moneyline_records_still_board_backed_not_prefix_protected(self):
         """Rule scope intact: moneyline/feature records keep the board-backed

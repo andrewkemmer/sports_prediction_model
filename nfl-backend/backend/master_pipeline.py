@@ -527,6 +527,9 @@ _PROTECTED_DELIVERY_PREFIXES = (
     # Binary moneyline calibration decision record (2026-09-05): dateless
     # sha-named — targeted prefix protection like its nfl_* siblings.
     "nfl_binary_calibration_",
+    # QB-strata / QB-feature decision records (2026-09-05): dateless
+    # sha-named records from the QB/availability feature program.
+    "nfl_qb_",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

@@ -1,0 +1,122 @@
+{
+  "record": "nfl_qb_strata_3e8c8a510f04.json",
+  "title": "NFL QB-mismatch strata diagnostic (Step 1 of the QB/availability feature program) — pre-registered verdict STOP-ALL",
+  "date": "2026-09-05",
+  "background": "the NFL binary moneyline has ZERO player-level features; this diagnostic tests whether its OOF errors concentrate in QB-strata games BEFORE any QB feature pipeline is built (nflverse load_injuries is dead after 2024 — a naive availability feature is unbuildable; actual starters + per-QB EPA/play ARE derivable retrospectively from PBP)",
+  "scope": "READ-ONLY, record-only — no production/model change; nfl-backend + data_delivery only; FEATURE_COLUMNS byte-untouched",
+  "provenance": {
+    "universe": "the c1a7c12 shared 1,376-game OOF lookup (nfl_run_engine_markets_20260904.csv kind==oof x nfl_predictions_history_20260904.csv) — pooled 2021-24 (n=1,091, 88-fold prequential walk, regular-season weeks) + sealed 2025 (n=285); playoff-week rows beyond the fold geometry excluded; NEVER slate/serve rows",
+    "pbp": "nflreadpy season parquets 2020-2025 (cached /tmp/nfl_pbp_<yr>.parquet; 2020 supplies the 2021 week-1 / prior-season fallbacks); passer = qb_dropback==1 plays with passer_player_id non-null; starter per (game, team) = most dropbacks, tie -> first passer; game_id join verified 285/285 per season",
+    "harness": "probe_qb_strata.py (read-only; double-run byte-identical)"
+  },
+  "operational_definitions": {
+    "actual_starter": "retrospective from PBP: the passer with the most dropback plays in that game per team (tie -> first passer); 0 of 1,376 games missing a starter on either side",
+    "backup_flag_op": "a team is in QB deviation for game g iff its actual starter differs from that team's starter in its most recent PRIOR game in the SAME season; week-1/no-prior -> compare to the prior season's primary starter (by most starts; tie -> the last game's starter). Justification recorded: captures injury-replacement + benching as-of the game without the rookie-takeover inversion (a late-season rookie takeover would mislabel the vet's early starts).",
+    "backup_flag_sensitivity": "season-primary by most starts (every non-primary start flags)",
+    "qb_gap": "as-of, strictly-prior (no look-ahead): per starter, rolling mean EPA/play over his prior games THAT season (floor >= 3), else prior-season per-game mean (>= 5 games), else league mean; qb_gap = home_asof - away_asof. Retrospective actual-starter facts are permitted ONLY for this ceiling diagnostic — a production build must use serve-time EXPECTED starters; train/serve skew is the recorded risk."
+  },
+  "facts": {
+    "pbp_seasons": [2020, 2021, 2022, 2023, 2024, 2025],
+    "games_with_starter_both_teams": 1376,
+    "games_missing_any_starter": 0,
+    "backup_op_games": 350,
+    "backup_op_frac": 0.2544,
+    "backup_season_primary_games": 446,
+    "backup_season_primary_frac": 0.3241,
+    "qb_gap_nonnull": 1376,
+    "qb_gap_mean": -0.0015,
+    "qb_gap_std": 0.2021,
+    "high_gap_n_at_0_10": 796,
+    "abs_gap_q75": 0.2213,
+    "league_epa_mean_per_dropback": 0.0434,
+    "note": "backup_op 25.4% of games: the definition flags change-first games AND return games AND week-1-vs-prior-season-primary transitions. The spec's 5-25% sanity heuristic is slightly exceeded by the measured definition (widened band 0.15-0.35 in tests, documented); the season-primary sensitivity is looser (32.4%)."
+  },
+  "phase2_strata": {
+    "backup_vs_non_backup": {
+      "non_backup": {"n": 1026, "mean_platt_pred": 0.5492, "actual_home_win": 0.538, "logloss": 0.6192, "ece": 0.0329, "mean_derived_ml": 0.5552, "mean_abs_binary_derived": 0.1039, "hi_conf_0_65_gap_pp": 2.35, "hi_conf_0_70_gap_pp": 1.94},
+      "backup": {"n": 350, "mean_platt_pred": 0.5577, "actual_home_win": 0.5657, "logloss": 0.6168, "ece": 0.0632, "mean_derived_ml": 0.5641, "mean_abs_binary_derived": 0.1047, "hi_conf_0_65_gap_pp": 0.89, "hi_conf_0_70_gap_pp": 3.85},
+      "finding": "backup games are NOT harder: logloss 0.6168 vs 0.6192 complement (delta -0.0024, the WRONG direction for the hypothesis); backup games run slightly UNDER-predicted at the top (actual 0.5657 vs pred 0.5577)."
+    },
+    "high_gap_vs_low_gap_at_0_10": {
+      "low_gap": {"n": 580, "logloss": 0.6718, "ece": 0.0461, "hi_conf_0_70_gap_pp": 14.16},
+      "high_gap": {"n": 796, "logloss": 0.5799, "ece": 0.0442, "hi_conf_0_70_gap_pp": -3.0},
+      "finding": "the REVERSE of the hypothesis: high-|qb_gap| games are BETTER calibrated (0.580 vs 0.672); the binary's high-confidence over-prediction (+14.2pp at >=0.70, n=114) concentrates in LOW-QB-mismatch games."
+    },
+    "top_quartile_sensitivity": {
+      "bottom_3q": {"n": 1031, "logloss": 0.641, "hi_conf_0_70_gap_pp": 6.02},
+      "top_quartile_abs_gap_ge_0_2213": {"n": 345, "logloss": 0.5517, "hi_conf_0_70_gap_pp": -4.89},
+      "finding": "robust across the cut: top-quartile |qb_gap| games are better-calibrated and UNDER-predicted at hi-conf; the over-prediction lives in the low-mismatch games."
+    },
+    "interaction": {
+      "backup_x_high_gap": {"n": 200, "logloss": 0.5791, "hi_conf_0_70_gap_pp": -3.58},
+      "backup_x_low_gap": {"n": 150, "logloss": 0.6672, "hi_conf_0_70_gap_pp": 14.4},
+      "non_backup_x_high_gap": {"n": 596, "logloss": 0.5802, "hi_conf_0_70_gap_pp": -2.8},
+      "non_backup_x_low_gap": {"n": 430, "logloss": 0.6734, "hi_conf_0_70_gap_pp": 14.01},
+      "finding": "the stratum where a QB mismatch EXISTS (backup x high-gap) has the LOWEST logloss of the interaction cells; the worst cell is low-gap regardless of backup status."
+    },
+    "step2_2_over_under_recovery": {
+      "finding": "the binary's hi-conf over-recovery (audit c1a7c12) lives in LOW-|qb_gap| games — the same population as the e3aeece Branch-B Platt over-stretch (moderate-confidence games driven by aggregate team quality, raw ~0.68-0.72, actual ~0.675). No stratum shows a run-engine-specific divergence (mean_abs_binary_derived ~0.10 across all cells)."
+    }
+  },
+  "phase3_ceiling": {
+    "label": "RETROSPECTIVE actual-starter facts + IN-SAMPLE explanatory fit on the same 1,376 rows — an UPPER BOUND, not a predicted adoption gain. A production build must use serve-time EXPECTED starters (depth-chart/timestamp-derived), which are noisy and arrive later; achievable gain will be lower.",
+    "n": 1376,
+    "M0_logit_p_only": {"logloss": 0.6184},
+    "M1_plus_backup": {"logloss": 0.6182, "r2_of_y_minus_p": 0.0},
+    "M2_plus_qb_gap": {"logloss": 0.6176, "r2_of_y_minus_p": 0.0},
+    "M3_plus_both_and_interaction": {"logloss": 0.6175, "r2_of_y_minus_p": 0.0},
+    "delta_ll_M2_vs_M0": -0.0008,
+    "delta_ll_M3_vs_M0": -0.0009,
+    "qb_gap_coef_sign": "positive",
+    "qb_gap_coef_value": 0.5275,
+    "sign_interpretation": "positive => the binary UNDER-prices home QB advantage / OVER-prices away — the direction a future feature must have — but the effect is small at this sample size (the binary prices qb_gap almost not at all: mean Platt pred 0.5528 high-gap vs 0.5495 low-gap while actual home win moves 0.517 -> 0.565).",
+    "r2_note": "R2 of (y - p) on the covariates rounds to 0.00: y - p is near-Bernoulli noise; the informative quantity is the logloss delta, which is ~0.001."
+  },
+  "phase4_verdict": {
+    "pre_registered_rules": {
+      "GO": "backup stratum n >= 100 AND its logloss >= +0.008 worse than complement AND M2/M3 in-sample logloss delta >= 0.004 (or R2 >= 0.02) with a sensible coefficient direction",
+      "STOP-BINARY": "errors concentrate in backup/high-gap strata but the ceiling covariate is weak (delta < 0.004)",
+      "STOP-ALL": "no concentration anywhere"
+    },
+    "computed": {
+      "backup_n": 350,
+      "backup_logloss_delta_vs_complement": -0.0024,
+      "delta_ll_M2_vs_M0": -0.0008,
+      "delta_ll_M3_vs_M0": -0.0009,
+      "r2_M3": 0.0,
+      "qb_gap_coef_sign": "positive"
+    },
+    "verdict": "STOP-ALL",
+    "reason": "No concentration in the QB direction on 1,376 decided games: backup games are not harder (ll delta -0.0024, wrong sign), high-|qb_gap| games are BETTER calibrated (at both the 0.10 and top-quartile cuts), the interaction's QB-mismatch cell has the LOWEST logloss, and the in-sample ceiling (retrospective actual starters + as-of EPA gap) moves logloss by only -0.0008..-0.0009 — far below the 0.004 GO bar. QB features will not clear a stratified gate on this universe. Do NOT build the binary QB feature pipeline now."
+  },
+  "pointers": {
+    "recorded": [
+      "the binary's hi-conf over-prediction lives in LOW-QB-mismatch games — consistent with the e3aeece/ fc4f4bd map-shape diagnosis (Platt over-stretch on moderate-confidence aggregate-quality games), NOT with a missing-QB signal",
+      "the small qb_gap signal that exists is in the RIGHT direction (positive: home QB advantage under-priced) but ~0.001 logloss at n=1,376 — it becomes actionable only at materially larger decided samples",
+      "the higher-value audit threads remain the binary Platt sealed-tail stationarity and the over-recovery-vs-raw axis (fc4f4bd), plus the run-engine lever only if era-center lag shows the effect (it does not in any stratum here: mean_abs_binary_derived is uniform)"
+    ],
+    "revisit": "re-run this diagnostic after 2026 in-season decided rows exist (~272+/year — the diagnostic itself becomes stronger then, whichever verdict fires). The probe is reusable: same command, fresh artifacts + cached PBP."
+  },
+  "acceptance_evidence": {
+    "probe_determinism": "probe_qb_strata.py double-run byte-identical",
+    "suites": [
+      "test_qb_strata: 14/14 OK (synthetic backup-flag week-1 + rookie-takeover pins, as-of EPA rolling pins, high-gap threshold, real-universe strata partition + STOP-ALL + direction pins, determinism)",
+      "test_master_pipeline: 41/41 OK (nfl_qb_ prefix scope-exact pin)",
+      "test_binary_calibration_fix + test_binary_calibration_hinge: 32/32 OK (prior calibration suites untouched)",
+      "no production code changed; FEATURE_COLUMNS byte-untouched"
+    ]
+  },
+  "evidence_sources": [
+    "nfl_run_engine_markets_20260904.csv + nfl_predictions_history_20260904.csv (the 1,376-game shared OOF lookup)",
+    "nflreadpy PBP season parquets 2020-2025 (cached; passer/qb_epa/qb_dropback)",
+    "nfl_margin_audit_3e8c8a510f04.json (c1a7c12), nfl_binary_calibration_3e8c8a510f04.json (e3aeece), nfl_binary_calibration_hinge_3e8c8a510f04.json (fc4f4bd)",
+    "probe_qb_strata.py (read-only harness)"
+  ],
+  "guardrails_met": [
+    "decided OOF rows ONLY (1,376); no slate/serve rows used as evidence",
+    "retrospective actual-starter facts used ONLY for this ceiling diagnostic and labeled as such; a production build would use serve-time-expected starters (train/serve skew recorded as the risk)",
+    "as-of QB quality is strictly-prior (no look-ahead) even in the retrospective setting",
+    "no production code change; the ceiling models are in-sample explanatory, never an out-of-sample gain claim",
+    "verdict thresholds pre-registered in the harness; the runner computes, it does not narrate around the result"
+  ]
+}
