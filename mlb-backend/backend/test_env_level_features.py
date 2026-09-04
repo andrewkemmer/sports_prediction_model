@@ -107,7 +107,7 @@ def _patched_add(df):
     if "air_density_level" not in df.columns:
         df["air_density_level"] = np.nan
     
-    cache_path = Path("{cache_path}")
+    cache_path = Path(r"{cache_path}")
     if cache_path.exists():
         wx_cache = pd.read_parquet(cache_path)
         if "game_pk" in df.columns and "game_pk" in wx_cache.columns:

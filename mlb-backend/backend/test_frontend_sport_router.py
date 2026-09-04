@@ -208,7 +208,10 @@ class TestValidDates(unittest.TestCase):
         src = (_ROOT / "frontend" / "todays_games.py").read_text(encoding="utf-8")
         self.assertIn("utils.valid_dates(", src)
         self.assertIn("streamlit_calendar as sl_cal", src)
-        self.assertIn("callbacks=[\"select\"]", src)
+        # both callbacks subscribed since the Android/touch tap fix (a plain
+        # tap can fire dateClick without select) — pin-synced from the old
+        # select-only literal
+        self.assertIn("callbacks=[\"select\", \"dateClick\"]", src)
         self.assertNotIn("utils.arrow_nav(", src)
 
 
@@ -330,8 +333,14 @@ class TestArtifactResolver(unittest.TestCase):
     def test_nfl_moneyline_resolves_real_artifact(self):
         u = _utils_with_sport({})
         # Per-game moneyline slate (step 3) is the newest moneyline artifact.
-        self.assertEqual(u["latest_artifact_date"]("nfl", "moneyline_json"),
-                         "20260903")
+        # Resolved dynamically — the NFL side prunes dated artifacts to ~5,
+        # so a hard date pin drifts every NFL run (was pinned to 20260903).
+        got = u["latest_artifact_date"]("nfl", "moneyline_json")
+        newest = sorted((_ROOT / "nfl-backend" / "data_delivery").glob(
+            "nfl_moneyline_v1_*.json"))
+        self.assertTrue(newest, "no NFL moneyline artifact on disk")
+        stamp = newest[-1].name[len("nfl_moneyline_v1_"):-len(".json")]
+        self.assertEqual(got, stamp)
 
     def test_nfl_feature_resolves(self):
         u = _utils_with_sport({})
@@ -366,16 +375,32 @@ class TestNflAdapter(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.u = _utils_with_sport({})
-        cls.real = json.loads(
-            (_ROOT / "nfl-backend" / "data_delivery" /
-             "nfl_moneyline_v1_20260829.json").read_text())
+        # The 08-29 fixture was pruned (NFL keeps ~5 dated artifacts); load
+        # the NEWEST moneyline record. Post dashboard-rebuild artifacts carry
+        # a per-game games[] list, so the empty-record contract below is
+        # exercised on a games-less copy of the live record.
+        paths = sorted((_ROOT / "nfl-backend" / "data_delivery").glob(
+            "nfl_moneyline_v1_*.json"))
+        if not paths:
+            raise unittest.SkipTest("no NFL moneyline artifact available")
+        cls.real = json.loads(paths[-1].read_text())
 
     def test_schema_pinned_on_empty_record(self):
-        """The current v1 moneyline JSON is aggregate-only → the adapter emits
-        an EMPTY frame WITH the exact card column schema (never KeyErrors)."""
-        f = self.u["nfl_moneyline_to_frame"](self.real)
+        """Without a per-game list the adapter emits an EMPTY frame WITH the
+        exact card column schema (never KeyErrors)."""
+        no_games = {k: v for k, v in self.real.items()
+                    if k not in ("games", "predictions")}
+        f = self.u["nfl_moneyline_to_frame"](no_games)
         self.assertTrue(f.empty)
         self.assertEqual(list(f.columns), self.u["NFL_CARD_COLUMNS"])
+
+    def test_real_record_maps_to_card_contract(self):
+        """The NEWEST record (per-game games[] post rebuild) adapts to the
+        exact card schema without KeyErrors and surfaces real rows."""
+        f = self.u["nfl_moneyline_to_frame"](self.real)
+        self.assertEqual(list(f.columns), self.u["NFL_CARD_COLUMNS"])
+        if self.real.get("games"):
+            self.assertGreater(len(f), 0)
 
     def test_per_game_fixture_maps_to_card_contract(self):
         data = {"games": [
@@ -488,7 +513,13 @@ class TestNflAppTestSmoke(unittest.TestCase):
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
         self.assertIn("NFL_OK", self._run(script))
 
-    def test_nfl_calibration_shows_notice(self):
+    def test_nfl_calibration_renders_real_record(self):
+        """NFL calibration page renders the REAL shipped NFL record (post
+        dashboard-rebuild the NFL side ships pooled OOF/sealed calibration,
+        so the old aggregate-only st.info notice is gone — the page now draws
+        real KPIs). The AUC-ROC KPI card only renders when the NFL calibration
+        artifact actually loaded; a missing artifact stops the page with a
+        warning, never fabricates."""
         script = (
             "import sys; sys.path.insert(0, %r);\n"
             "from streamlit.testing.v1 import AppTest;\n"
@@ -496,8 +527,8 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "at.session_state['sport'] = 'nfl';\n"
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
-            "notices = ' '.join(i.value for i in at.info);\n"
-            "assert 'NFL Calibration' in notices, notices[:500];\n"
+            "marks = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "assert 'AUC-ROC' in marks, marks[:500];\n"
             "print('NFL_CAL_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "model_calibration.py"))
         self.assertIn("NFL_CAL_OK", self._run(script))
@@ -578,7 +609,14 @@ class TestNflAppTestSmoke(unittest.TestCase):
     def test_mlb_aug29_board_renders_without_duplicate_keys(self):
         """Regression: the Aug 29 board crashed with StreamlitDuplicateElementKey
         because normalize_games' scores merge exploded a duplicated game_id into
-        two rows (identical keyed selectboxes). It must render fully."""
+        two rows (identical keyed selectboxes). It must render fully. The
+        property — normalize_games never emits duplicate game_ids — is
+        date-independent, so it runs against the NEWEST committed board (the
+        08-29 snapshot is pruned: MLB keeps ~3 dated CSVs)."""
+        csvs = sorted((_ROOT / "mlb-backend" / "data_delivery").glob(
+            "todays_games_*.csv"))
+        if not csvs:
+            self.skipTest("no committed todays_games CSV")
         script = (
             "import sys; sys.path.insert(0, %r);\n"
             "import pandas as pd;\n"
@@ -588,8 +626,7 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "assert len(ids) == len(set(ids)), 'duplicate game_id reached board';\n"
             "assert len(ids) > 1;\n"
             "print('AUG29_FRAME_OK', len(ids))\n"
-        ) % (str(_FRONTEND),
-             str(_ROOT / "mlb-backend/data_delivery/todays_games_20260829.csv"))
+        ) % (str(_FRONTEND), str(csvs[-1]))
         self.assertIn("AUG29_FRAME_OK", self._run(script))
 
     def test_mlb_calendar_opens_no_exception(self):

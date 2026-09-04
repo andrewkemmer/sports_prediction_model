@@ -386,14 +386,18 @@ class TestRunEngineModelMonitor(unittest.TestCase):
                 self.assertIsNotNone(row.get(key),
                                      f"{name} missing {key}")
             self.assertGreater(row["n"], 0, name)
-        # walk-forward geometry: 81 cadence splits (final val 08-23 -> 08-28),
-        # 74 scored folds / 6,812 games in the monitor's phase1 block
-        self.assertEqual(data["phase1"]["n_folds"], 74)
-        self.assertEqual(data["phase1"]["n_games"], 6812)
+        # walk-forward geometry: 82 cadence splits (frame advanced daily),
+        # 75 scored folds / 6,885 games in the 09-03 monitor's phase1 block
+        # (pin-synced from 74/6,812 when the frame extended past 08-28)
+        self.assertEqual(data["phase1"]["n_folds"], 75)
+        self.assertEqual(data["phase1"]["n_games"], 6885)
 
     def test_drift_artifact_real_frame_finite(self):
         d = pd.read_csv(_latest_artifact(self._ROOT / "data_delivery", "run_engine_feature_drift_*.csv"))
-        self.assertEqual(len(d), 29)
+        # 53 = the post-feature-restore view (24 restored diffs + 29 kept);
+        # pin-synced from 29 when the pipeline shipped the full 53-feature
+        # drift artifact (see test_drift_monitor_covers_all_53_active_features)
+        self.assertEqual(len(d), 53)
         self.assertNotIn("run_margin_diff", set(d["feature"]))
         self.assertTrue(d["psi"].notna().all())
         self.assertTrue((d["psi"] >= 0).all())

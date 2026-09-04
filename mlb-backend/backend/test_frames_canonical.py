@@ -10,6 +10,7 @@ Property tests on the real 6,953-game frame + synthetic edge cases:
     divergence (dropped row); fold GEOMETRY is order-robust while the full
     signature pins row order (LGBM margin builds are order-sensitive).
 """
+import math
 import unittest
 from pathlib import Path
 
@@ -136,17 +137,31 @@ class TestFoldSignature(unittest.TestCase):
         self.assertEqual(sig_accessor, sig_re)
 
     def test_geometry_is_order_robust_sequence_is_not(self):
-        """The drift margin build historically consumed a quicksort-sorted
-        view of the same rows (equal fold GEOMETRY, different within-day
-        order). The geometry signature must agree across orders; the full
-        signature must NOT (order feeds LGBM subsampling — max |Δmargin|
-        ≈ 1.49 measured between the two orders on the real frame)."""
+        """Fold GEOMETRY is order-robust; the full signature pins row order
+        (order feeds LGBM subsampling — max |Δmargin| ≈ 1.49 measured
+        between the two orders on the real frame).  Historical mechanism:
+        the drift margin build consumed a quicksort-sorted view of the same
+        rows, which scrambled within-day ties.  pandas 3.0's quicksort no
+        longer permutes equal keys (sort_values(acc) == sort_values(qs) on
+        the 7,048-frame), so the scramble is constructed explicitly: each
+        game-day's rows reversed — same multiset, different sequence."""
         f = _real_frame()
         acc = get_decided_frame(f)
-        qs = f[f["home_win"].notna()].sort_values("game_date")
+        d = pd.to_datetime(acc["game_date"]).dt.normalize()
+        n_per_day = acc.groupby(d)["game_pk"].transform("size")
+        rev_pos = n_per_day - 1 - acc.groupby(d).cumcount()
+        scrambled = (acc.assign(_d=d, _rev=rev_pos)
+                        .sort_values(["_d", "_rev"], kind="mergesort")
+                        .drop(columns=["_d", "_rev"])
+                        .reset_index(drop=True))
+        # same rows (multiset), only within-day order permuted
+        self.assertEqual(sorted(map(str, scrambled["game_pk"])),
+                         sorted(map(str, acc["game_pk"])))
+        self.assertNotEqual(scrambled["game_pk"].tolist(),
+                            acc["game_pk"].tolist())
         self.assertEqual(fold_geometry_signature(acc),
-                         fold_geometry_signature(qs))
-        self.assertNotEqual(fold_signature(acc), fold_signature(qs))
+                         fold_geometry_signature(scrambled))
+        self.assertNotEqual(fold_signature(acc), fold_signature(scrambled))
 
     def test_slate_invariance_extends_to_signature(self):
         f = _real_frame()
@@ -174,8 +189,15 @@ class TestFoldSignature(unittest.TestCase):
                          fold_geometry_signature(decided))
         # full signature repeatable
         self.assertEqual(fold_signature(decided), fold_signature(decided))
-        # fold count sanity on the expansion frame
-        self.assertEqual(len(splits), 81)
+        # fold count sanity on the expansion frame: the walker emits one
+        # 7-day window per cadence step starting at unique-date index 7,
+        # i.e. ceil((n_unique − cadence) / cadence) on the frame's own
+        # dates.  Derived rather than pinned (81/82 drift every frame bump):
+        # the committed frame advances with daily auto-commits.
+        n_dates = len(pd.unique(
+            pd.to_datetime(decided["game_date"]).dt.normalize()))
+        expected = math.ceil((n_dates - 7) / 7) if n_dates > 7 else 0
+        self.assertEqual(len(splits), expected)
 
     def test_require_matching_signatures_names_both_sides(self):
         with self.assertRaises(AssertionError) as cm:

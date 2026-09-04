@@ -394,7 +394,7 @@ class TestRenderSmokeSourceInspection(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(FRONTEND / "markets.py") as f:
+        with open(FRONTEND / "markets.py", encoding="utf-8") as f:
             cls.src = f.read()
 
     def test_both_tables_present(self):
@@ -750,7 +750,7 @@ class TestCutAndMonitor(unittest.TestCase):
         """The card labels the metric 'Model predicted' (2-way basis) and
         the footer states BOTH predicted and win rate are 2-way re-
         normalized — no raw cover label remains."""
-        src = (FRONTEND / "markets.py").read_text()
+        src = (FRONTEND / "markets.py").read_text(encoding="utf-8")
         self.assertIn('"Model predicted"', src,
                       "metric label must be 'Model predicted'")
         self.assertNotIn('"Favored cover P"', src,

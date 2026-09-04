@@ -16,6 +16,14 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pandas as pd
 
+# backend/ is a package under mlb-backend/ — put its parent on sys.path so
+# the `backend.*` imports below resolve regardless of the runner's cwd
+# (same idiom as test_ablation_defense.py; without it this module only
+# imports when an earlier test module happens to have added the root).
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
 from backend.explainability import run_engine_feature_cols
 from backend.run_engine import RUN_RESTORED_DIFF_FEATURES
 
@@ -204,21 +212,21 @@ class TestFitPanel(TestCase):
         fit = self._fit()
         rows = self.diag.fit_panel_rows(fit)
         # chi2/df straight from dispersion_chi2_per_df
-        self.assertAlmostEqual(rows["chi2_home"], 2.141, places=3)
-        self.assertAlmostEqual(rows["chi2_away"], 2.368, places=3)
-        # alpha = count-weighted bin mean (home ~0.261, away ~0.313 on the
-        # 6,960-frame artifact)
-        self.assertAlmostEqual(rows["alpha_home"], 0.261, places=3)
-        self.assertAlmostEqual(rows["alpha_away"], 0.313, places=3)
+        self.assertAlmostEqual(rows["chi2_home"], 2.142, places=3)
+        self.assertAlmostEqual(rows["chi2_away"], 2.366, places=3)
+        # alpha = count-weighted bin mean (home ~0.258, away ~0.316 on the
+        # 09-03 monitor artifact, post-P1 projection adoption 8cb4efc)
+        self.assertAlmostEqual(rows["alpha_home"], 0.258, places=3)
+        self.assertAlmostEqual(rows["alpha_away"], 0.316, places=3)
         self.assertEqual(rows["alpha_home_form"], "piecewise")
-        self.assertEqual(rows["alpha_away_form"], "power")
+        self.assertEqual(rows["alpha_away_form"], "piecewise")
         # variance check: implied vs observed per side
         vh = rows["variance_home"]
-        self.assertAlmostEqual(vh[0], 9.517, places=3)
-        self.assertAlmostEqual(vh[1], 9.559, places=3)
+        self.assertAlmostEqual(vh[0], 9.442, places=3)
+        self.assertAlmostEqual(vh[1], 9.624, places=3)
         va = rows["variance_away"]
-        self.assertAlmostEqual(va[0], 10.521, places=3)
-        self.assertAlmostEqual(va[1], 10.689, places=3)
+        self.assertAlmostEqual(va[0], 10.457, places=3)
+        self.assertAlmostEqual(va[1], 10.682, places=3)
         # MC metadata: numeric n_draws with separators
         self.assertIn("10,000 draws", rows["mc_caption"])
         # tails: real k labels (unicode ≥/≤) with observed_p/modeled_p keys
@@ -245,7 +253,9 @@ class TestFitPanel(TestCase):
         fit = self._fit()
         edge = self.diag.lambda_edge(fit)
         self.assertIsNotNone(edge)
-        self.assertAlmostEqual(edge, 0.0110, places=4)  # fit-curve bin means
+        self.assertAlmostEqual(edge, 0.0127, places=4)  # fit-curve bin means
+        # (pin-synced to the 09-03 monitor artifact: the P1 projection
+        # adoption 8cb4efc changed the lambda basis -> refit edge moved)
         self.assertIsNone(self.diag.lambda_edge({}))
         self.assertIsNone(self.diag.lambda_edge(None))
 
@@ -260,6 +270,15 @@ class TestRunEngineModelMonitorRender(TestCase):
         import unittest.mock as _mock
         cls._backup = _sys.modules.get("streamlit")
         _sys.modules["streamlit"] = _mock.MagicMock()
+        # If real streamlit was imported earlier in the suite (any frontend
+        # test that ran before this one), `utils` is already cached with its
+        # real `st` binding and markets.py's MODULE-LEVEL utils.inject_css()
+        # executes against real streamlit outside a runtime (config/logger
+        # crash).  Drop the streamlit-bound frontend modules so the stub is
+        # in place BEFORE markets.py runs — same canonical end-state the
+        # suite documents (utils.st left on the stub).
+        for _mod in ("utils", "markets"):
+            _sys.modules.pop(_mod, None)
         cls.markets = __import__("markets")
         # backend/ and data_delivery/ stay siblings under mlb-backend/
         cls.root = Path(__file__).resolve().parents[1]
@@ -271,6 +290,13 @@ class TestRunEngineModelMonitorRender(TestCase):
             _sys.modules["streamlit"] = cls._backup
         else:
             _sys.modules.pop("streamlit", None)
+        # cls.markets keeps its stub-bound utils reference (its module-level
+        # render code cannot run outside a runtime), but LATER suite modules
+        # (e.g. test_frontend_nfl_slate loaders) must import utils under the
+        # REAL streamlit — re-import it now so the stub copy cached by
+        # setUpClass does not poison the rest of the process.
+        _sys.modules.pop("utils", None)
+        import utils as _real_utils  # noqa: F401  (re-import under real st)
 
     def test_model_card_renders_real_artifact(self):
         import json
@@ -327,10 +353,10 @@ class TestRunEngineModelMonitorRender(TestCase):
 
     def test_drift_and_coverage_render_real_artifacts(self):
         d = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_drift_*.csv"))
-        self.assertEqual(len(d), 29)
+        self.assertEqual(len(d), 53)  # post-restore: all 53 active features
         self.markets._render_run_engine_drift(d)
         c = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_coverage_*.csv"))
-        self.assertEqual(len(c), 58)  # 29 features x 2 windows
+        self.assertEqual(len(c), 106)  # 53 features x 2 windows
         self.markets._render_run_engine_coverage(c)
 
     def test_empty_states_never_crash(self):
@@ -386,7 +412,7 @@ class TestRunEngineModelMonitorRender(TestCase):
         """The derived-ML footer dropped the stale 'underweights the home
         edge' claim (calibrated post-fix) and the card renders holdout AUC."""
         src = (Path(__file__).resolve().parents[2]
-               / "frontend" / "markets.py").read_text()
+               / "frontend" / "markets.py").read_text(encoding="utf-8")
         self.assertIn("Holdout AUC", src,
                       "renderer must show the holdout AUC metric")
         self.assertIn("calibrated post-fix", src,
@@ -400,7 +426,7 @@ class TestRunEngineModelMonitorRender(TestCase):
         lines, one shared code path. The old 'Totals picks' tab is deleted;
         per-game own-ROUNDED pricing is gone entirely."""
         src = (Path(__file__).resolve().parents[2]
-               / "frontend" / "markets.py").read_text()
+               / "frontend" / "markets.py").read_text(encoding="utf-8")
         self.assertIn('"Game Total Lines"', src,
                       "tab renamed to Game Total Lines")
         self.assertIn('["All"] + [str(l) for l in diag.TOTAL_GRID]', src,
@@ -460,7 +486,7 @@ class TestRunEngineModelMonitorRender(TestCase):
         diagonal = perfect calibration, and the non-independence honesty
         note (27,248 pairs = 4 per game, effective sample ~6,812)."""
         src = (Path(__file__).resolve().parents[2]
-               / "frontend" / "markets.py").read_text()
+               / "frontend" / "markets.py").read_text(encoding="utf-8")
         # Sub-heading unchanged
         self.assertIn("Games pooled across 7.5 / 8.5 / 9.5 / 10.5", src)
         # Chart path unchanged (same four lines, same helpers)
@@ -488,7 +514,7 @@ class TestRelativizedDeepOverCallout(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.src = (_frontend / "markets.py").read_text()
+        cls.src = (_frontend / "markets.py").read_text(encoding="utf-8")
 
     def test_stale_20260824_numbers_gone(self):
         for stale in ("0.66 vs actual ≈ 0.60", "≈ 0.06 shortfall, n ≈ 4,156",
@@ -522,7 +548,7 @@ class TestMarketsAlwaysLatestArtifact(TestCase):
     def test_source_always_uses_dates_0(self):
         """markets.py must resolve date_str from dates[0], not from
         st.session_state["selected_date"]."""
-        src = (_frontend / "markets.py").read_text()
+        src = (_frontend / "markets.py").read_text(encoding="utf-8")
         # The assignment must reference dates[0], not selected_date
         self.assertIn("dates[0]", src,
                       "markets.py must always use dates[0] (latest run)")
@@ -550,7 +576,7 @@ class TestMarketsAlwaysLatestArtifact(TestCase):
                       "Current artifact must have the kind column (Phase 3+)")
         # Verify the _load_markets function accepts date_str as its arg
         # by reading the source directly (no Streamlit import needed)
-        src = (_frontend / "markets.py").read_text()
+        src = (_frontend / "markets.py").read_text(encoding="utf-8")
         self.assertIn("def _load_markets(ds):", src,
                       "_load_markets must accept a date string parameter")
 
@@ -573,7 +599,7 @@ class TestRunlinePicksChart(TestCase):
         """The 'Run-line picks' tab is renamed 'Run Lines' and replaced by
         the favorite-side calibration view (run_line_calibration + the same
         chart_game_total_curve builder + utils.show_chart as Distribution)."""
-        src = (_frontend / "markets.py").read_text()
+        src = (_frontend / "markets.py").read_text(encoding="utf-8")
         self.assertIn('"Run Lines"', src,
                       "tabs list must contain the renamed 'Run Lines' tab")
         self.assertNotIn('"Run-line picks"', src,
@@ -651,7 +677,7 @@ class TestRunlinePicksChart(TestCase):
         """The renamed 'Run Lines' tab's caption describes the favorite-side
         2-way cover calibration (P(cover) band on the x-axis, favorite
         cover rate on the y-axis, the 'V' pick convention)."""
-        src = (_frontend / "markets.py").read_text()
+        src = (_frontend / "markets.py").read_text(encoding="utf-8")
         self.assertIn("predicted P(cover) band", src,
                       "caption must describe the x-axis as a P(cover) band")
         self.assertIn("the favorite side covered, on the 2-way no-push basis",

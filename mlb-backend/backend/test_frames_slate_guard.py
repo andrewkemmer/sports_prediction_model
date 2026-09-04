@@ -214,11 +214,13 @@ class TestSlateGuard(unittest.TestCase):
         self.assertEqual(len(post_decided), len(pre))
         self.assertEqual(post_decided["game_pk"].tolist(), pre["game_pk"].tolist())
         self.assertEqual(fold_signature(post_decided), fold_signature(pre))
-        # Frame-identity pin: the committed 6,975-frame's canonical
-        # signature (the training side of the historical run).  The 08-28
-        # drift side was 5fb218bfd8d9af91 BEFORE the dtype fix — the float
-        # coercion hash of this same row set (replicated below).
-        self.assertEqual(fold_signature(pre), "a01bd743495456c1")
+        # Frame-identity pin: the committed 7,048-frame's canonical
+        # signature (the training side of the historical run).  Pin-synced
+        # from the 6,975-frame's a01bd743495456c1 when the auto-committed
+        # game_level_features.csv advanced (same convention as 3b259b2).
+        # The 08-28 drift side was 5fb218bfd8d9af91 BEFORE the dtype fix —
+        # the float coercion hash of this same row set (replicated below).
+        self.assertEqual(fold_signature(pre), "d68a0d81b8d29f69")
         # Before/after proof: the PRE-fix signature of the float64-coerced
         # frame (str(game_pk) without canonicalization) DIFFERS from the
         # canonical one on the identical row set — the exact failure mode
@@ -244,7 +246,10 @@ class TestSlateGuard(unittest.TestCase):
         fl["game_pk"] = fl["game_pk"].astype("float64")
         self.assertEqual(fold_signature(fl), fold_signature(base))
         # A non-integer string pk stays untouched (no truncation games).
+        # (pandas 3.0 raises LossySetitemError writing a str into an int64
+        # column — widen to object first; the assertion is unchanged.)
         weird = base.copy()
+        weird["game_pk"] = weird["game_pk"].astype(object)
         weird.loc[0, "game_pk"] = "20260828_CIN@CHC"
         self.assertNotEqual(
             fold_signature(weird), fold_signature(base))

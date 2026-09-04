@@ -19,9 +19,13 @@ import gc
 import json
 import logging
 import os
-import resource
 import tempfile
 from pathlib import Path
+
+try:
+    import resource  # POSIX-only stdlib (ru_maxrss); absent on Windows
+except ImportError:  # pragma: no cover - Windows
+    resource = None  # type: ignore[assignment]
 
 import duckdb
 import numpy as np

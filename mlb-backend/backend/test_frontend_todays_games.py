@@ -207,7 +207,7 @@ class TestOUPushDisplay(unittest.TestCase):
 
     def test_html_push_for_whole_line_source_check(self):
         """todays_games.py must handle p_push in the O/U HTML line."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         # The function must reference p_push in the O/U span
         self.assertIn("p_push", src,
                       "todays_games.py must reference p_push for O/U display")
@@ -215,7 +215,7 @@ class TestOUPushDisplay(unittest.TestCase):
     def test_html_no_push_for_half_line_source_check(self):
         """For half-lines, p_push is None/0, so Push is not shown."""
         # This is a source-level check: the code must guard on p_push > 0.005
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertIn("0.005", src,
                       "Threshold guard for p_push display must exist")
 
@@ -426,7 +426,7 @@ class TestLineSelector(unittest.TestCase):
         """The selector's session_state key is scoped per game_pk
         (ou_line_<game_id>) and resolve_totals_line validates against the
         grid — so selections persist per card and never bleed between cards."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertIn("ou_line_", src,
                       "selector key must be scoped per game_pk")
         self.assertIn("st.session_state", src,
@@ -440,7 +440,7 @@ class TestLineSelector(unittest.TestCase):
         """The card strip no longer renders a '(line selected: …)' suffix on
         the O/U or run-line readouts — the active line is already shown in
         the card's own dropdowns, so the annotation was redundant."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertNotIn("line selected:", src,
                          "card strip must not annotate the selected line")
 
@@ -619,7 +619,7 @@ class TestRunLineSelector(unittest.TestCase):
     def test_selector_state_keyed_per_game(self):
         """Selector session_state keyed rl_line_<game_pk> via a named
         resolver validating against the full grid."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertIn("rl_line_", src)
         self.assertIn("resolve_rl_line", src)
         self.assertIn("RUN_LINE_GRID_FULL", src)
@@ -629,7 +629,7 @@ class TestRunLineSelector(unittest.TestCase):
         already in the card's own dropdown) and still references the
         re-scaled home/away + push handling; the ±0.5 stop renders the
         per-side derived-ML parentheticals."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertNotIn("line selected:", src,
                          "run-line strip must not annotate the line")
         self.assertIn("rl_home", src)
@@ -782,13 +782,13 @@ class TestRunEngineStripSmoke(unittest.TestCase):
 
     def test_strip_html_includes_run_engine_label(self):
         """The run-engine strip must include the RUN ENGINE label."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         self.assertIn("RUN ENGINE", src,
                       "todays_games.py must render the RUN ENGINE strip")
 
     def test_strip_p_push_handled_in_source(self):
         """The O/U line in the strip must reference p_push."""
-        src = (FRONTEND / "todays_games.py").read_text()
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
         # Find the _runengine_html function
         start = src.index("def _runengine_html")
         rest = src[start:]
@@ -1007,7 +1007,7 @@ class TestResolveSlateAcrossArtifactsWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.src = (Path(__file__).resolve().parents[2] / "frontend"
-                   / "todays_games.py").read_text()
+                   / "todays_games.py").read_text(encoding="utf-8")
 
     def test_uses_cross_artifact_resolver(self):
         self.assertIn("_run_engine_dates", self.src,
