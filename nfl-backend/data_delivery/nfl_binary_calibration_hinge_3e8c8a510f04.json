@@ -1,0 +1,119 @@
+{
+  "record": "nfl_binary_calibration_hinge_3e8c8a510f04.json",
+  "title": "NFL binary moneyline serving axis — hinge-map arm test (Phase-1 diagnostic + Phase-2 gated arm selection)",
+  "date": "2026-09-05",
+  "follow_on": "e3aeece (nfl_binary_calibration_3e8c8a510f04.json, DO_NOT_REFIT for pchip)",
+  "gated": "verdict computed, not narrated; production Platt twin unchanged unless a candidate clears every blocking leg",
+  "scope": "nfl-backend + data_delivery ONLY; read-only over production code; FEATURE_COLUMNS byte-untouched; no master_pipeline change (the record inherits the protected nfl_binary_calibration_ prefix)",
+  "provenance": {
+    "universe": "nfl_predictions_history_20260904.csv — pooled pre-holdout OOF n=1107 (2021-24, incl. playoff weeks, 88 fold-weeks) + sealed 2025 n=285; raw = home_win_prob_model (the CSV adaptive blend the deployed map is fit on), published = home_win_prob_model_calibrated",
+    "protocol": "POOLED legs use nested per-fold maps fit on strictly-earlier folds only (never own/future rows; identity fallback when the pool cannot support a fit). SEALED legs use the deployed protocol (fit on ALL pooled rows -> score sealed-2025) — the production semantics; R0 reproduces the published map/sealed metrics exactly",
+    "harness": "probe_binary_calibration_hinge.py (read-only; double-run byte-identical)",
+    "published_map": "global logistic a=1.276336 b=0.121988 fit on pooled; sealed model_platt ll 0.6249 / ECE 0.0745 / AUC 0.7082"
+  },
+  "phase1_per_band_logloss": {
+    "in_band_raw_gt_0_70": {"n": 162, "raw_identity": 0.432, "platt_nested": 0.4176, "pchip_nested": 0.4864},
+    "out_of_band_raw_le_0_70": {"n": 945, "raw_identity": 0.6549, "platt_nested": 0.6539, "pchip_nested": 0.6572},
+    "pooled_total": {"n": 1107, "raw_identity": 0.6223, "platt_nested": 0.6193, "pchip_nested": 0.6322},
+    "finding": "the pchip +0.0129 pooled regression concentrates IN-BAND (raw>0.70, n=162): +0.069 vs platt there vs +0.003 out-of-band. In-band concentration + the fold-stability table below = per-fold top-tail variance (Jensen), NOT a smooth discrimination loss — the e3aeece overfit hypothesis is confirmed with mechanism."
+  },
+  "phase1_fold_stability": {
+    "fixed_inputs": [0.5, 0.68, 0.75, 0.85],
+    "platt_nested": {"input_0.50": {"n_fits": 87, "std": 0.0171, "max": 0.5367}, "input_0.68": {"std": 0.0246}, "input_0.75": {"std": 0.0257, "max": 0.8222}, "input_0.85": {"std": 0.0238, "mean": 0.8862, "max": 0.9131}},
+    "pchip_nested": {"input_0.50": {"n_fits": 86, "std": 0.0401}, "input_0.68": {"std": 0.0378}, "input_0.75": {"std": 0.0545, "max": 1.1255}, "input_0.85": {"std": 0.1183, "mean": 1.1496, "max": 1.5472}},
+    "finding": "pchip's per-fold spread at a CONSTANT raw input is 2-5x Platt's and its fits produce outputs ABOVE 1.0 (mean 1.15, max 1.55 at input 0.85 — un-clipped extrapolation). Logloss is convex: this fold-to-fold prediction variance is the direct mechanism of the pchip pooled-logloss regression. Platt's per-fold fits stay in [0,1] with std <= 0.026."
+  },
+  "phase1_raw_ece_direct": {
+    "pooled": {"n": 1107, "overall_ece": 0.0425, "band_70_80": {"n": 133, "band_ece": 0.0815}},
+    "sealed": {"n": 285, "overall_ece": 0.0593, "band_70_80": {"n": 42, "band_ece": 0.0366}},
+    "reference_platt_sealed": {"overall_ece": 0.0745, "band_70_80": {"n": 39, "band_ece": 0.1337}},
+    "finding": "raw identity's ECE measured directly (the gate never scored the raw axis): pooled 0.0425 (== the moneyline record's metrics_raw pooled ECE — axis-exact), sealed 0.0593. At the sealed 70-80 band raw (0.0366, n=42) is far better than the published Platt axis (0.1337, n=39) — the e3aeece Branch-B over-stretch is an OUT-OF-SAMPLE cost."
+  },
+  "phase1_hinge_scan": {
+    "h_surface_pooled_logloss": {"0.66": 0.6192, "0.67": 0.6192, "0.68": 0.6192, "0.69": 0.6192, "0.70": 0.62, "0.71": 0.6206, "0.72": 0.6219, "0.73": 0.6225, "0.74": 0.6225},
+    "h_surface_band_70_80_ece": {"0.66": 0.0346, "0.67": 0.0214, "0.68": 0.0387, "0.69": 0.0073, "0.70": 0.0226, "0.71": 0.0535, "0.72": 0.079, "0.73": 0.0719, "0.74": 0.0757},
+    "chosen_h": 0.66,
+    "finding": "the scan is FLAT on pooled nested logloss (range 0.6192-0.6225): the hinge cannot improve pooled sharpness over platt because platt is already near-optimal in-sample (see the pooled actual-rate table below). h=0.69 minimizes pooled band ECE (0.0073) but the pooled-ll surface does not reward any hinge."
+  },
+  "pooled_actual_rate_by_raw_zone": {
+    "below_0_66": {"n": 872, "raw_mean": 0.4626, "actual": 0.4828},
+    "0_66_to_0_70": {"n": 73, "raw_mean": 0.679, "actual": 0.6849},
+    "above_0_70": {"n": 162, "raw_mean": 0.7587, "actual": 0.8519},
+    "finding": "raw is dead-on ONLY in the 0.66-0.70 sliver (the Branch-B zone, delta 0.006); below 0.66 it is ~2pp UNDER (0.463 vs 0.483) and above 0.70 it is 9.3pp UNDER (0.759 vs 0.852). The global logistic stretch (a=1.276) is therefore genuinely justified IN-SAMPLE — the kink narrative holds only for the narrow 0.66-0.70 sliver, not as an identity-below-h serving rule."
+  },
+  "phase2_arm_table": {
+    "hinge_h": 0.66,
+    "pooled_nested": {
+      "R0_platt": {"logloss": 0.6193, "ece": 0.0402},
+      "R1_raw_identity": {"logloss": 0.6223, "ece": 0.0425},
+      "R2_hinge": {"logloss": 0.6192, "ece": 0.0358}
+    },
+    "pooled_auc": {"R0": 0.708314, "R1": 0.708258, "R2": 0.707792},
+    "sealed_deployed": {
+      "R0_platt": {"logloss": 0.6249, "ece": 0.0745, "bands": {"60-70": 0.0906, "70-80": 0.1337, "80+": 0.0094}},
+      "R1_raw_identity": {"logloss": 0.6218, "ece": 0.0593, "bands": {"60-70": 0.018, "70-80": 0.0366, "80+": 0.105}},
+      "R2_hinge": {"logloss": 0.6313, "ece": 0.0786, "bands": {"60-70": 0.0309, "70-80": 0.1866, "80+": 0.1029}}
+    },
+    "sealed_s1_s2": {
+      "S1_first": {"R0": {"ll": 0.611, "ece": 0.0674}, "R1": {"ll": 0.6105, "ece": 0.0821}, "R2": {"ll": 0.6302, "ece": 0.09}},
+      "S2_second": {"R0": {"ll": 0.6387, "ece": 0.1296}, "R1": {"ll": 0.6329, "ece": 0.0808}, "R2": {"ll": 0.6323, "ece": 0.092}}
+    },
+    "global_hinge_slope_at_h_0_66": 3.305
+  },
+  "phase2_gate_legs": {
+    "R1_raw_identity": {
+      "pooled_ll_no_regression_beyond_0_001": {"delta": 0.003, "pass": false, "note": "BINDING — raw is +0.0030 pooled nested vs platt; platt is genuinely better in-sample (pooled above-0.70 rows realize 0.852 vs raw 0.759). Not loosened."},
+      "pooled_ece_improves": {"r0": 0.0402, "arm": 0.0425, "pass": false},
+      "sealed_70_80_band_lt_0_03": {"arm": 0.0366, "n": 42, "pass": false, "note": "knife-edge vs the 0.03 bar (delta 0.0066 << band binomial SE ~0.067) but above it; raw's sealed 60-70 (0.018) and S2 (ece 0.0808 vs 0.1296) gains are real"},
+      "sealed_adjacent_no_regression_gt_0_01": {"delta_80_plus": 0.0956, "n_80_plus": 16, "pass": false, "note": "raw's sealed 80+ band (0.105, n=16) regresses vs platt (0.0094, n=46); small-n but the raw top tail is genuinely under-sharpened out-of-sample"},
+      "auc_flat_within_0_001": {"delta": 0.000056, "pass": true},
+      "sealed_s2_arbiter": {"pass": true, "note": "S2 (arbiter half): ll 0.6387 -> 0.6329, ece 0.1296 -> 0.0808 — a real out-of-sample gain"},
+      "worth_having": {"pass": true, "note": "sealed/S2 gains are real — but the pooled legs are binding"}
+    },
+    "R2_hinge": {
+      "pooled_ll_no_regression_beyond_0_001": {"delta": -0.0001, "pass": true, "note": "a TIE — the hinge's pooled gain is 0.0001, i.e. no sharpness recovered"},
+      "pooled_ece_improves": {"r0": 0.0402, "arm": 0.0358, "pass": true, "target_lt_0_02_reached": false},
+      "sealed_70_80_band_lt_0_03": {"arm": 0.1866, "n": 16, "pass": false, "note": "BINDING — the pooled-fitted slope a=3.3 over-sharpens sealed 0.66-0.75 rows (their sealed actuals are mild, unlike pooled), pushing them into the band at 0.187 band ECE"},
+      "sealed_adjacent_no_regression_gt_0_01": {"delta_80_plus": 0.0935, "pass": false},
+      "auc_flat_within_0_001": {"delta": 0.000466, "pass": true},
+      "sealed_s2_arbiter": {"pass": true, "note": "S2 ece 0.092 vs 0.1296 improves — but full-sealed and band legs fail"},
+      "worth_having": {"pass": false, "note": "no real improvement anywhere: pooled -0.0001 tie, sealed +0.0064 ll"}
+    },
+    "determinism": "probe double-run byte-identical (map params + metrics equal)"
+  },
+  "verdict": "KEEP_PLATT",
+  "verdict_reason": "Neither serving axis clears the full blocking leg set. R1 (raw identity) delivers REAL sealed/S2 gains (ll 0.6249->0.6218, S2 ece 0.1296->0.0808, sealed 70-80 band 0.1337->0.0366) but regresses pooled nested logloss +0.0030 beyond the +/-0.001 bar (platt is genuinely better in-sample: pooled above-0.70 raw is 9.3pp underconfident, and the logistic stretch corrects it), is worse on pooled ECE, and its sealed 80+ band regresses +0.0956 (n=16). R2 (hinge at h=0.66) is a pooled tie (-0.0001) and materially WORSE sealed (ll +0.0064, 70-80 band 0.1866) because the pooled-fitted slope a=3.3 cannot transfer to 2025's milder top tail. The serving-axis question is a genuine pooled-vs-sealed trade the repo's gated discipline (pooled +/-0.001 leg, sealed band/adjacent legs) resolves against changing. Production Platt twin UNCHANGED.",
+  "deeper_findings": [
+    "e3aeece overfit hypothesis CONFIRMED: pchip's regression concentrates in-band where per-fold fits explode (std 0.118, outputs >1.0 at 0.85) — fold variance (Jensen), not smooth discrimination loss. A future flexible-map candidate must clip outputs to [0,1] and bound fold spread.",
+    "kink narrative REFINED: raw is dead-on only in the 0.66-0.70 sliver; below 0.66 raw is 2pp under, above 0.70 pooled raw is 9.3pp under — the global logistic's stretch is justified in-sample. The Platt over-stretch cost (Branch B, e3aeece) is an OUT-OF-SAMPLE (sealed-2025) phenomenon: 2025's top tail is mild where 2021-24's was steep.",
+    "consequence: no map fit on pooled 2021-24 can fix a sealed-2025 axis without over/under-sharpening risk — the correct next lever is either more sealed data (2026 in-season decided rows), or a product decision to weight the pooled +/-0.001 leg against sealed/S2 honesty (explicitly NOT made here)."
+  ],
+  "follow_on_options_noted_not_taken": [
+    "revisit when 2026 in-season decided rows exist (the sealed arbiter grows past n=285; the 70-80/80+ knife-edge legs get real power)",
+    "a product decision to relax the pooled +/-0.001 ll leg in favor of raw's sealed/S2 gains (records the sharpness-vs-out-of-sample-honesty trade the gate currently blocks)",
+    "future flexible-map candidates: clip to [0,1] and regularize fold spread (the pchip failure mode measured here)"
+  ],
+  "acceptance_evidence": {
+    "probe_determinism": "probe_binary_calibration_hinge.py double-run byte-identical",
+    "r0_bit_consistency": "deployed R0 reproduces the published sealed axis exactly (ll 0.6249 / ECE 0.0745)",
+    "suites": [
+      "test_binary_calibration_hinge: 17/17 OK",
+      "test_binary_calibration_fix: 15/15 OK (e3aeece pins still green)",
+      "no other suite touched: no production code changed; FEATURE_COLUMNS byte-untouched"
+    ]
+  },
+  "evidence_sources": [
+    "nfl_predictions_history_20260904.csv (raw + published Platt axes + actuals)",
+    "nfl_moneyline_v1_20260904.json / nfl_calibration_20260904.json (published map + sealed metrics)",
+    "nfl_binary_calibration_3e8c8a510f04.json (e3aeece — the pchip DO_NOT_REFIT this task follows)",
+    "probe_binary_calibration_hinge.py (read-only harness)",
+    "probe_binary_calibration.py (e3aeece harness, shared helpers)"
+  ],
+  "guardrails_met": [
+    "Phase 1 read-only; no production file changed — KEEP_PLATT means the commit is record + harness + tests only",
+    "all maps fit per-fold nested strictly-earlier on pre-holdout rows for pooled legs; sealed legs use the deployed (fit-on-all-pooled -> score-sealed) protocol that reproduces the published map",
+    "no AUC-improvement claim — the AUC-flat leg is a contract (small cross-fold rank effects <= 0.001 observed, documented)",
+    "the +/-0.001 pooled-ll leg is NOT loosened: R1's +0.0030 regression is binding even though its sealed/S2 gains are real; the record states the trade explicitly",
+    "no engine/pricing/feature change; FEATURE_COLUMNS byte-untouched; explicit-path commit"
+  ]
+}
