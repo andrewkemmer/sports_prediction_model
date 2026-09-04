@@ -1,0 +1,3494 @@
+{
+  "schema": "mlb-sp-projection-arm/v1",
+  "frame": "7bec561aa0391920",
+  "frame_sha_source": "game_level_features.csv (sha256:16)",
+  "date": "20260903",
+  "geometry": {
+    "cadence_days": 7,
+    "min_val_games": 40,
+    "seed": 42
+  },
+  "projection": {
+    "components": {
+      "lower_better": [
+        "sp_fip",
+        "sp_xwoba",
+        "sp_whip",
+        "sp_bb9"
+      ],
+      "higher_better": [
+        "sp_k9_5g",
+        "sp_whiff_3g",
+        "sp_fbvelo_3g"
+      ]
+    },
+    "min_components": 3,
+    "scale": "ERA-equivalent: 1 unit ~= 1 ERA point of quality (higher = better); fit on pre-holdout",
+    "era_on_proj_slope": {
+      "home": -1.2213,
+      "away": -1.2138
+    },
+    "coverage_pre": {
+      "home": 0.9736,
+      "away": 0.9742
+    },
+    "coverage_sealed": {
+      "home": 0.9866,
+      "away": 0.9933
+    },
+    "note": "No pitches.parquet locally; composite built from the frame's PIT-safe Statcast-derived trailing columns (FIP/xwOBA/WHIP/BB9/K9-5g/whiff-3g/velo-3g) \u2014 the xFIP/SIERA-family fallback."
+  },
+  "arms": {
+    "C0": {
+      "k": {
+        "k_fitted_run": 1.4129,
+        "fit": "pre-holdout OOF only (per-run refit)",
+        "edge": "C2"
+      },
+      "n_pre": 6587,
+      "n_sealed": 298,
+      "margin_crps_pooled": 2.46847,
+      "margin_crps_sealed": 2.53856,
+      "run_line_minus_1_5": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "[0.16,0.30)",
+              "n": 657,
+              "pred": 0.2702,
+              "actual": 0.2588,
+              "delta": -0.0115
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 659,
+              "pred": 0.3086,
+              "actual": 0.3096,
+              "delta": 0.0009
+            },
+            {
+              "bin": "[0.32,0.33)",
+              "n": 655,
+              "pred": 0.3264,
+              "actual": 0.3145,
+              "delta": -0.0119
+            },
+            {
+              "bin": "[0.33,0.35)",
+              "n": 660,
+              "pred": 0.3401,
+              "actual": 0.3303,
+              "delta": -0.0098
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 657,
+              "pred": 0.3515,
+              "actual": 0.3577,
+              "delta": 0.0061
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 661,
+              "pred": 0.3614,
+              "actual": 0.3828,
+              "delta": 0.0213
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 660,
+              "pred": 0.3723,
+              "actual": 0.347,
+              "delta": -0.0254
+            },
+            {
+              "bin": "[0.38,0.40)",
+              "n": 656,
+              "pred": 0.3874,
+              "actual": 0.4085,
+              "delta": 0.0211
+            },
+            {
+              "bin": "[0.40,0.42)",
+              "n": 663,
+              "pred": 0.4093,
+              "actual": 0.4012,
+              "delta": -0.008
+            },
+            {
+              "bin": "[0.42,0.65)",
+              "n": 659,
+              "pred": 0.4602,
+              "actual": 0.4568,
+              "delta": -0.0035
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 1,
+              "pred": 0.6518,
+              "actual": 1.0,
+              "delta": 0.3482
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": -0.0021
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "[0.23,0.31)",
+              "n": 30,
+              "pred": 0.2907,
+              "actual": 0.3,
+              "delta": 0.0093
+            },
+            {
+              "bin": "[0.31,0.33)",
+              "n": 30,
+              "pred": 0.3221,
+              "actual": 0.3333,
+              "delta": 0.0113
+            },
+            {
+              "bin": "[0.33,0.34)",
+              "n": 30,
+              "pred": 0.3359,
+              "actual": 0.3667,
+              "delta": 0.0308
+            },
+            {
+              "bin": "[0.34,0.35)",
+              "n": 29,
+              "pred": 0.3462,
+              "actual": 0.5862,
+              "delta": 0.24
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 30,
+              "pred": 0.3555,
+              "actual": 0.3,
+              "delta": -0.0555
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 30,
+              "pred": 0.3659,
+              "actual": 0.3667,
+              "delta": 0.0008
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 29,
+              "pred": 0.3755,
+              "actual": 0.2414,
+              "delta": -0.1341
+            },
+            {
+              "bin": "[0.38,0.39)",
+              "n": 30,
+              "pred": 0.3838,
+              "actual": 0.3333,
+              "delta": -0.0505
+            },
+            {
+              "bin": "[0.39,0.41)",
+              "n": 30,
+              "pred": 0.3988,
+              "actual": 0.4667,
+              "delta": 0.0679
+            },
+            {
+              "bin": "[0.41,0.48)",
+              "n": 30,
+              "pred": 0.4297,
+              "actual": 0.4667,
+              "delta": 0.037
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": 0.0154
+        },
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.64439,
+          "auc": 0.56665,
+          "ece": 0.00467,
+          "win_rate": 0.6463,
+          "mean_p": 0.3588
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.65814,
+          "auc": 0.53672,
+          "ece": 0.02977,
+          "win_rate": 0.6242,
+          "mean_p": 0.3604
+        }
+      },
+      "run_line_edge_bins": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 658,
+              "pred": 0.357,
+              "actual": 0.3465,
+              "delta": -0.0105
+            },
+            {
+              "bin": "|edge| [0.04,0.08)",
+              "n": 660,
+              "pred": 0.357,
+              "actual": 0.3955,
+              "delta": 0.0384
+            },
+            {
+              "bin": "|edge| [0.08,0.13)",
+              "n": 658,
+              "pred": 0.3564,
+              "actual": 0.3222,
+              "delta": -0.0342
+            },
+            {
+              "bin": "|edge| [0.13,0.19)",
+              "n": 658,
+              "pred": 0.3563,
+              "actual": 0.3571,
+              "delta": 0.0009
+            },
+            {
+              "bin": "|edge| [0.19,0.25)",
+              "n": 658,
+              "pred": 0.3541,
+              "actual": 0.3419,
+              "delta": -0.0121
+            },
+            {
+              "bin": "|edge| [0.25,0.33)",
+              "n": 660,
+              "pred": 0.3542,
+              "actual": 0.3606,
+              "delta": 0.0064
+            },
+            {
+              "bin": "|edge| [0.33,0.43)",
+              "n": 659,
+              "pred": 0.359,
+              "actual": 0.3581,
+              "delta": -0.0009
+            },
+            {
+              "bin": "|edge| [0.43,0.56)",
+              "n": 658,
+              "pred": 0.3583,
+              "actual": 0.3678,
+              "delta": 0.0095
+            },
+            {
+              "bin": "|edge| [0.56,0.75)",
+              "n": 659,
+              "pred": 0.3556,
+              "actual": 0.3581,
+              "delta": 0.0025
+            },
+            {
+              "bin": "|edge| [0.75,2.52)",
+              "n": 659,
+              "pred": 0.3804,
+              "actual": 0.3596,
+              "delta": -0.0207
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 1595,
+              "pred": 0.3663,
+              "actual": 0.3586,
+              "delta": -0.0077
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 791,
+              "pred": 0.3774,
+              "actual": 0.3679,
+              "delta": -0.0095
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 392,
+              "pred": 0.3811,
+              "actual": 0.3776,
+              "delta": -0.0036
+            }
+          ],
+          "overall_delta": -0.0021
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.03)",
+              "n": 30,
+              "pred": 0.357,
+              "actual": 0.5,
+              "delta": 0.143
+            },
+            {
+              "bin": "|edge| [0.03,0.07)",
+              "n": 30,
+              "pred": 0.3596,
+              "actual": 0.3333,
+              "delta": -0.0263
+            },
+            {
+              "bin": "|edge| [0.07,0.12)",
+              "n": 30,
+              "pred": 0.3593,
+              "actual": 0.4,
+              "delta": 0.0407
+            },
+            {
+              "bin": "|edge| [0.12,0.16)",
+              "n": 29,
+              "pred": 0.3597,
+              "actual": 0.3448,
+              "delta": -0.0149
+            },
+            {
+              "bin": "|edge| [0.16,0.20)",
+              "n": 30,
+              "pred": 0.3559,
+              "actual": 0.2667,
+              "delta": -0.0892
+            },
+            {
+              "bin": "|edge| [0.20,0.26)",
+              "n": 30,
+              "pred": 0.3577,
+              "actual": 0.4,
+              "delta": 0.0423
+            },
+            {
+              "bin": "|edge| [0.26,0.30)",
+              "n": 29,
+              "pred": 0.3581,
+              "actual": 0.3103,
+              "delta": -0.0478
+            },
+            {
+              "bin": "|edge| [0.30,0.38)",
+              "n": 30,
+              "pred": 0.3615,
+              "actual": 0.4667,
+              "delta": 0.1052
+            },
+            {
+              "bin": "|edge| [0.38,0.51)",
+              "n": 30,
+              "pred": 0.3728,
+              "actual": 0.4667,
+              "delta": 0.0938
+            },
+            {
+              "bin": "|edge| [0.51,1.17)",
+              "n": 30,
+              "pred": 0.3621,
+              "actual": 0.2667,
+              "delta": -0.0955
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 33,
+              "pred": 0.3675,
+              "actual": 0.3333,
+              "delta": -0.0342
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 13,
+              "pred": 0.3356,
+              "actual": 0.2308,
+              "delta": -0.1048
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 4,
+              "pred": 0.3062,
+              "actual": 0.0,
+              "delta": -0.3062
+            }
+          ],
+          "overall_delta": 0.0154
+        }
+      },
+      "totals": {
+        "metrics_pooled": {
+          "n": 6247,
+          "logloss": 0.68903,
+          "auc": 0.5215,
+          "ece": 0.02474,
+          "win_rate": 0.5497,
+          "mean_p": 0.4256
+        },
+        "metrics_sealed": {
+          "n": 281,
+          "logloss": 0.69375,
+          "auc": 0.46738,
+          "ece": 0.02859,
+          "win_rate": 0.5552,
+          "mean_p": 0.4228
+        },
+        "crps_pooled": 2.45196,
+        "crps_sealed": 2.55314,
+        "by_line_pooled": {
+          "by_line": [
+            {
+              "line": 7.5,
+              "n": 39,
+              "pred": 0.4575,
+              "actual": 0.359,
+              "delta": 0.0986
+            },
+            {
+              "line": 8.0,
+              "n": 404,
+              "pred": 0.4087,
+              "actual": 0.401,
+              "delta": 0.0077
+            },
+            {
+              "line": 8.5,
+              "n": 2516,
+              "pred": 0.4526,
+              "actual": 0.4575,
+              "delta": -0.0049
+            },
+            {
+              "line": 9.0,
+              "n": 2517,
+              "pred": 0.3991,
+              "actual": 0.4438,
+              "delta": -0.0447
+            },
+            {
+              "line": 9.5,
+              "n": 522,
+              "pred": 0.4417,
+              "actual": 0.4866,
+              "delta": -0.0448
+            },
+            {
+              "line": 10.0,
+              "n": 186,
+              "pred": 0.4025,
+              "actual": 0.4409,
+              "delta": -0.0383
+            },
+            {
+              "line": 10.5,
+              "n": 38,
+              "pred": 0.443,
+              "actual": 0.5789,
+              "delta": -0.1359
+            },
+            {
+              "line": 11.0,
+              "n": 16,
+              "pred": 0.4019,
+              "actual": 0.6875,
+              "delta": -0.2856
+            }
+          ],
+          "overall_delta": -0.0247
+        },
+        "by_line_sealed": {
+          "by_line": [
+            {
+              "line": 8.5,
+              "n": 106,
+              "pred": 0.4551,
+              "actual": 0.4057,
+              "delta": 0.0495
+            },
+            {
+              "line": 9.0,
+              "n": 151,
+              "pred": 0.3996,
+              "actual": 0.4834,
+              "delta": -0.0839
+            },
+            {
+              "line": 9.5,
+              "n": 13,
+              "pred": 0.4366,
+              "actual": 0.4615,
+              "delta": -0.025
+            }
+          ],
+          "overall_delta": -0.022
+        }
+      },
+      "derived_ml": {
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.68387,
+          "auc": 0.56215,
+          "ece": 0.0054,
+          "win_rate": 0.5488,
+          "mean_p": 0.5322
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.67926,
+          "auc": 0.58743,
+          "ece": 0.03754,
+          "win_rate": 0.5805,
+          "mean_p": 0.5334
+        },
+        "pwin_sd_pooled": 0.0567,
+        "pwin_sd_sealed": 0.0409,
+        "bucket_55_60_pooled": {
+          "bin": "[0.55,0.60)",
+          "n": 1468,
+          "pred": 0.5712,
+          "actual": 0.5681,
+          "gap": -0.0031
+        },
+        "bucket_55_60_sealed": {
+          "bin": "[0.55,0.60)",
+          "n": 90,
+          "pred": 0.5688,
+          "actual": 0.5667,
+          "gap": -0.0021
+        }
+      },
+      "n_oof_games": 6885,
+      "n_folds": 75,
+      "lambda_mean": {
+        "home": 4.4086,
+        "away": 4.4027,
+        "edge_sd": 0.4576
+      },
+      "sextile_spread_ratio": {
+        "actual_margin_sextile_spread": 0.83,
+        "model_ledge_sextile_spread": 0.296,
+        "ratio": 0.357
+      },
+      "season_sp_band_gaps": [
+        {
+          "season": "2024",
+          "band": "home SP better >= 1.5",
+          "n": 447,
+          "actual_home_win": 0.5526,
+          "derived_ml": 0.535,
+          "gap": -0.0176
+        },
+        {
+          "season": "2024",
+          "band": "away SP better >= 1.5",
+          "n": 468,
+          "actual_home_win": 0.4509,
+          "derived_ml": 0.5128,
+          "gap": 0.0619
+        },
+        {
+          "season": "2024",
+          "band": "even |diff| < 1.5",
+          "n": 1329,
+          "actual_home_win": 0.5448,
+          "derived_ml": 0.5326,
+          "gap": -0.0122
+        },
+        {
+          "season": "2025",
+          "band": "home SP better >= 1.5",
+          "n": 485,
+          "actual_home_win": 0.5897,
+          "derived_ml": 0.5579,
+          "gap": -0.0318
+        },
+        {
+          "season": "2025",
+          "band": "away SP better >= 1.5",
+          "n": 529,
+          "actual_home_win": 0.5066,
+          "derived_ml": 0.5133,
+          "gap": 0.0066
+        },
+        {
+          "season": "2025",
+          "band": "even |diff| < 1.5",
+          "n": 1224,
+          "actual_home_win": 0.5278,
+          "derived_ml": 0.5366,
+          "gap": 0.0088
+        },
+        {
+          "season": "2026",
+          "band": "home SP better >= 1.5",
+          "n": 454,
+          "actual_home_win": 0.5617,
+          "derived_ml": 0.5476,
+          "gap": -0.0141
+        },
+        {
+          "season": "2026",
+          "band": "away SP better >= 1.5",
+          "n": 457,
+          "actual_home_win": 0.4836,
+          "derived_ml": 0.516,
+          "gap": 0.0325
+        },
+        {
+          "season": "2026",
+          "band": "even |diff| < 1.5",
+          "n": 1033,
+          "actual_home_win": 0.5247,
+          "derived_ml": 0.534,
+          "gap": 0.0093
+        },
+        {
+          "season": "all",
+          "k_fitted": 1.4129
+        }
+      ],
+      "model_pd": {
+        "lambda_home": -0.002,
+        "lambda_away": 0.0076,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": null,
+        "lambda_away_opp_proj": null
+      }
+    },
+    "C1": {
+      "k": {
+        "k_fitted_run": 1.4073,
+        "fit": "pre-holdout OOF only (per-run refit)",
+        "edge": "C2"
+      },
+      "n_pre": 6587,
+      "n_sealed": 298,
+      "margin_crps_pooled": 2.46921,
+      "margin_crps_sealed": 2.54014,
+      "run_line_minus_1_5": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "[0.15,0.30)",
+              "n": 659,
+              "pred": 0.2724,
+              "actual": 0.2458,
+              "delta": -0.0265
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 659,
+              "pred": 0.3095,
+              "actual": 0.3354,
+              "delta": 0.0259
+            },
+            {
+              "bin": "[0.32,0.33)",
+              "n": 657,
+              "pred": 0.3274,
+              "actual": 0.3105,
+              "delta": -0.0169
+            },
+            {
+              "bin": "[0.33,0.35)",
+              "n": 657,
+              "pred": 0.3406,
+              "actual": 0.3333,
+              "delta": -0.0073
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 659,
+              "pred": 0.3517,
+              "actual": 0.3323,
+              "delta": -0.0194
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 653,
+              "pred": 0.3607,
+              "actual": 0.3461,
+              "delta": -0.0146
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 663,
+              "pred": 0.3703,
+              "actual": 0.4012,
+              "delta": 0.0309
+            },
+            {
+              "bin": "[0.38,0.39)",
+              "n": 662,
+              "pred": 0.3847,
+              "actual": 0.3761,
+              "delta": -0.0086
+            },
+            {
+              "bin": "[0.39,0.43)",
+              "n": 659,
+              "pred": 0.4083,
+              "actual": 0.4234,
+              "delta": 0.015
+            },
+            {
+              "bin": "[0.43,0.71)",
+              "n": 659,
+              "pred": 0.4651,
+              "actual": 0.4628,
+              "delta": -0.0023
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 1,
+              "pred": 0.7094,
+              "actual": 1.0,
+              "delta": 0.2906
+            },
+            {
+              "bin": ">=0.70",
+              "n": 1,
+              "pred": 0.7094,
+              "actual": 1.0,
+              "delta": 0.2906
+            }
+          ],
+          "overall_delta": -0.0023
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "[0.21,0.31)",
+              "n": 30,
+              "pred": 0.2909,
+              "actual": 0.3,
+              "delta": 0.0091
+            },
+            {
+              "bin": "[0.31,0.33)",
+              "n": 30,
+              "pred": 0.3184,
+              "actual": 0.2,
+              "delta": -0.1184
+            },
+            {
+              "bin": "[0.33,0.34)",
+              "n": 30,
+              "pred": 0.3337,
+              "actual": 0.4,
+              "delta": 0.0663
+            },
+            {
+              "bin": "[0.34,0.35)",
+              "n": 29,
+              "pred": 0.3455,
+              "actual": 0.5862,
+              "delta": 0.2407
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 30,
+              "pred": 0.3557,
+              "actual": 0.4667,
+              "delta": 0.111
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 30,
+              "pred": 0.3641,
+              "actual": 0.2667,
+              "delta": -0.0974
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 29,
+              "pred": 0.3748,
+              "actual": 0.3103,
+              "delta": -0.0645
+            },
+            {
+              "bin": "[0.38,0.39)",
+              "n": 30,
+              "pred": 0.384,
+              "actual": 0.4667,
+              "delta": 0.0826
+            },
+            {
+              "bin": "[0.39,0.41)",
+              "n": 30,
+              "pred": 0.4001,
+              "actual": 0.3333,
+              "delta": -0.0668
+            },
+            {
+              "bin": "[0.41,0.49)",
+              "n": 30,
+              "pred": 0.4357,
+              "actual": 0.4333,
+              "delta": -0.0023
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": 0.0156
+        },
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.64414,
+          "auc": 0.56902,
+          "ece": 0.00757,
+          "win_rate": 0.6448,
+          "mean_p": 0.3591
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.65767,
+          "auc": 0.53891,
+          "ece": 0.0392,
+          "win_rate": 0.6242,
+          "mean_p": 0.3603
+        }
+      },
+      "run_line_edge_bins": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 659,
+              "pred": 0.3557,
+              "actual": 0.3217,
+              "delta": -0.034
+            },
+            {
+              "bin": "|edge| [0.04,0.08)",
+              "n": 658,
+              "pred": 0.3562,
+              "actual": 0.383,
+              "delta": 0.0268
+            },
+            {
+              "bin": "|edge| [0.08,0.13)",
+              "n": 659,
+              "pred": 0.356,
+              "actual": 0.3581,
+              "delta": 0.0021
+            },
+            {
+              "bin": "|edge| [0.13,0.18)",
+              "n": 659,
+              "pred": 0.356,
+              "actual": 0.3824,
+              "delta": 0.0264
+            },
+            {
+              "bin": "|edge| [0.18,0.24)",
+              "n": 658,
+              "pred": 0.3552,
+              "actual": 0.3237,
+              "delta": -0.0315
+            },
+            {
+              "bin": "|edge| [0.24,0.32)",
+              "n": 658,
+              "pred": 0.3525,
+              "actual": 0.345,
+              "delta": -0.0075
+            },
+            {
+              "bin": "|edge| [0.32,0.42)",
+              "n": 660,
+              "pred": 0.3602,
+              "actual": 0.3545,
+              "delta": -0.0057
+            },
+            {
+              "bin": "|edge| [0.42,0.56)",
+              "n": 658,
+              "pred": 0.3554,
+              "actual": 0.3632,
+              "delta": 0.0078
+            },
+            {
+              "bin": "|edge| [0.56,0.75)",
+              "n": 659,
+              "pred": 0.3574,
+              "actual": 0.3718,
+              "delta": 0.0143
+            },
+            {
+              "bin": "|edge| [0.75,2.71)",
+              "n": 659,
+              "pred": 0.3864,
+              "actual": 0.3642,
+              "delta": -0.0222
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 1579,
+              "pred": 0.3689,
+              "actual": 0.3705,
+              "delta": 0.0015
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 787,
+              "pred": 0.3852,
+              "actual": 0.3698,
+              "delta": -0.0154
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 399,
+              "pred": 0.3929,
+              "actual": 0.3659,
+              "delta": -0.027
+            }
+          ],
+          "overall_delta": -0.0023
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 30,
+              "pred": 0.3538,
+              "actual": 0.4333,
+              "delta": 0.0795
+            },
+            {
+              "bin": "|edge| [0.04,0.08)",
+              "n": 30,
+              "pred": 0.3564,
+              "actual": 0.3667,
+              "delta": 0.0103
+            },
+            {
+              "bin": "|edge| [0.08,0.13)",
+              "n": 30,
+              "pred": 0.3587,
+              "actual": 0.5667,
+              "delta": 0.208
+            },
+            {
+              "bin": "|edge| [0.13,0.15)",
+              "n": 29,
+              "pred": 0.3537,
+              "actual": 0.2069,
+              "delta": -0.1468
+            },
+            {
+              "bin": "|edge| [0.15,0.20)",
+              "n": 29,
+              "pred": 0.3612,
+              "actual": 0.4138,
+              "delta": 0.0526
+            },
+            {
+              "bin": "|edge| [0.20,0.26)",
+              "n": 31,
+              "pred": 0.3574,
+              "actual": 0.3548,
+              "delta": -0.0025
+            },
+            {
+              "bin": "|edge| [0.26,0.32)",
+              "n": 29,
+              "pred": 0.3611,
+              "actual": 0.3103,
+              "delta": -0.0508
+            },
+            {
+              "bin": "|edge| [0.32,0.45)",
+              "n": 30,
+              "pred": 0.3589,
+              "actual": 0.3333,
+              "delta": -0.0256
+            },
+            {
+              "bin": "|edge| [0.45,0.57)",
+              "n": 30,
+              "pred": 0.3722,
+              "actual": 0.4,
+              "delta": 0.0278
+            },
+            {
+              "bin": "|edge| [0.57,1.32)",
+              "n": 30,
+              "pred": 0.3694,
+              "actual": 0.3667,
+              "delta": -0.0027
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 41,
+              "pred": 0.3742,
+              "actual": 0.3659,
+              "delta": -0.0083
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 15,
+              "pred": 0.3685,
+              "actual": 0.4,
+              "delta": 0.0315
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 5,
+              "pred": 0.3309,
+              "actual": 0.0,
+              "delta": -0.3309
+            }
+          ],
+          "overall_delta": 0.0156
+        }
+      },
+      "totals": {
+        "metrics_pooled": {
+          "n": 6262,
+          "logloss": 0.68972,
+          "auc": 0.51582,
+          "ece": 0.02504,
+          "win_rate": 0.5495,
+          "mean_p": 0.4255
+        },
+        "metrics_sealed": {
+          "n": 280,
+          "logloss": 0.69602,
+          "auc": 0.46183,
+          "ece": 0.02625,
+          "win_rate": 0.5536,
+          "mean_p": 0.4222
+        },
+        "crps_pooled": 2.45048,
+        "crps_sealed": 2.55082,
+        "by_line_pooled": {
+          "by_line": [
+            {
+              "line": 7.5,
+              "n": 33,
+              "pred": 0.4544,
+              "actual": 0.303,
+              "delta": 0.1514
+            },
+            {
+              "line": 8.0,
+              "n": 378,
+              "pred": 0.4075,
+              "actual": 0.4153,
+              "delta": -0.0079
+            },
+            {
+              "line": 8.5,
+              "n": 2506,
+              "pred": 0.4531,
+              "actual": 0.4489,
+              "delta": 0.0042
+            },
+            {
+              "line": 9.0,
+              "n": 2567,
+              "pred": 0.3993,
+              "actual": 0.4476,
+              "delta": -0.0483
+            },
+            {
+              "line": 9.5,
+              "n": 521,
+              "pred": 0.4415,
+              "actual": 0.4952,
+              "delta": -0.0537
+            },
+            {
+              "line": 10.0,
+              "n": 215,
+              "pred": 0.4013,
+              "actual": 0.4651,
+              "delta": -0.0638
+            },
+            {
+              "line": 10.5,
+              "n": 26,
+              "pred": 0.4444,
+              "actual": 0.6923,
+              "delta": -0.248
+            }
+          ],
+          "overall_delta": -0.025
+        },
+        "by_line_sealed": {
+          "by_line": [
+            {
+              "line": 8.5,
+              "n": 93,
+              "pred": 0.456,
+              "actual": 0.3656,
+              "delta": 0.0904
+            },
+            {
+              "line": 9.0,
+              "n": 157,
+              "pred": 0.3994,
+              "actual": 0.5159,
+              "delta": -0.1166
+            },
+            {
+              "line": 9.5,
+              "n": 19,
+              "pred": 0.4488,
+              "actual": 0.2632,
+              "delta": 0.1856
+            }
+          ],
+          "overall_delta": -0.0243
+        }
+      },
+      "derived_ml": {
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.68418,
+          "auc": 0.56372,
+          "ece": 0.00435,
+          "win_rate": 0.5493,
+          "mean_p": 0.5323
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.67758,
+          "auc": 0.60514,
+          "ece": 0.04631,
+          "win_rate": 0.5906,
+          "mean_p": 0.5333
+        },
+        "pwin_sd_pooled": 0.0571,
+        "pwin_sd_sealed": 0.0435,
+        "bucket_55_60_pooled": {
+          "bin": "[0.55,0.60)",
+          "n": 1410,
+          "pred": 0.5706,
+          "actual": 0.5638,
+          "gap": -0.0068
+        },
+        "bucket_55_60_sealed": {
+          "bin": "[0.55,0.60)",
+          "n": 87,
+          "pred": 0.5688,
+          "actual": 0.5977,
+          "gap": 0.0289
+        }
+      },
+      "n_oof_games": 6885,
+      "n_folds": 75,
+      "lambda_mean": {
+        "home": 4.4142,
+        "away": 4.4042,
+        "edge_sd": 0.4574
+      },
+      "sextile_spread_ratio": {
+        "actual_margin_sextile_spread": 0.83,
+        "model_ledge_sextile_spread": 0.347,
+        "ratio": 0.418
+      },
+      "season_sp_band_gaps": [
+        {
+          "season": "2024",
+          "band": "home SP better >= 1.5",
+          "n": 447,
+          "actual_home_win": 0.5526,
+          "derived_ml": 0.5397,
+          "gap": -0.0129
+        },
+        {
+          "season": "2024",
+          "band": "away SP better >= 1.5",
+          "n": 468,
+          "actual_home_win": 0.4509,
+          "derived_ml": 0.5115,
+          "gap": 0.0606
+        },
+        {
+          "season": "2024",
+          "band": "even |diff| < 1.5",
+          "n": 1329,
+          "actual_home_win": 0.5448,
+          "derived_ml": 0.5345,
+          "gap": -0.0102
+        },
+        {
+          "season": "2025",
+          "band": "home SP better >= 1.5",
+          "n": 485,
+          "actual_home_win": 0.5897,
+          "derived_ml": 0.5611,
+          "gap": -0.0286
+        },
+        {
+          "season": "2025",
+          "band": "away SP better >= 1.5",
+          "n": 529,
+          "actual_home_win": 0.5066,
+          "derived_ml": 0.507,
+          "gap": 0.0004
+        },
+        {
+          "season": "2025",
+          "band": "even |diff| < 1.5",
+          "n": 1224,
+          "actual_home_win": 0.5278,
+          "derived_ml": 0.5368,
+          "gap": 0.009
+        },
+        {
+          "season": "2026",
+          "band": "home SP better >= 1.5",
+          "n": 454,
+          "actual_home_win": 0.5617,
+          "derived_ml": 0.5501,
+          "gap": -0.0116
+        },
+        {
+          "season": "2026",
+          "band": "away SP better >= 1.5",
+          "n": 457,
+          "actual_home_win": 0.4836,
+          "derived_ml": 0.5134,
+          "gap": 0.0298
+        },
+        {
+          "season": "2026",
+          "band": "even |diff| < 1.5",
+          "n": 1033,
+          "actual_home_win": 0.5247,
+          "derived_ml": 0.5347,
+          "gap": 0.01
+        },
+        {
+          "season": "all",
+          "k_fitted": 1.4073
+        }
+      ],
+      "model_pd": {
+        "lambda_home": -0.0002,
+        "lambda_away": 0.0024,
+        "lambda_home_opp_era": 0.0041,
+        "lambda_away_opp_era": 0.0318,
+        "lambda_home_opp_proj": null,
+        "lambda_away_opp_proj": null
+      }
+    },
+    "P1": {
+      "k": {
+        "k_fitted_run": 1.458,
+        "fit": "pre-holdout OOF only (per-run refit)",
+        "edge": "C2"
+      },
+      "n_pre": 6587,
+      "n_sealed": 298,
+      "margin_crps_pooled": 2.46701,
+      "margin_crps_sealed": 2.51736,
+      "run_line_minus_1_5": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "[0.13,0.30)",
+              "n": 659,
+              "pred": 0.2649,
+              "actual": 0.2656,
+              "delta": 0.0007
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 657,
+              "pred": 0.3062,
+              "actual": 0.3044,
+              "delta": -0.0018
+            },
+            {
+              "bin": "[0.32,0.33)",
+              "n": 660,
+              "pred": 0.3255,
+              "actual": 0.3197,
+              "delta": -0.0058
+            },
+            {
+              "bin": "[0.33,0.35)",
+              "n": 656,
+              "pred": 0.34,
+              "actual": 0.3232,
+              "delta": -0.0168
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 653,
+              "pred": 0.3517,
+              "actual": 0.3798,
+              "delta": 0.0281
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 664,
+              "pred": 0.3611,
+              "actual": 0.3464,
+              "delta": -0.0147
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 662,
+              "pred": 0.371,
+              "actual": 0.3625,
+              "delta": -0.0084
+            },
+            {
+              "bin": "[0.38,0.40)",
+              "n": 658,
+              "pred": 0.3864,
+              "actual": 0.3663,
+              "delta": -0.0202
+            },
+            {
+              "bin": "[0.40,0.43)",
+              "n": 658,
+              "pred": 0.4107,
+              "actual": 0.421,
+              "delta": 0.0103
+            },
+            {
+              "bin": "[0.43,0.63)",
+              "n": 660,
+              "pred": 0.4669,
+              "actual": 0.4788,
+              "delta": 0.0119
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": -0.0017
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "[0.21,0.30)",
+              "n": 30,
+              "pred": 0.2752,
+              "actual": 0.2333,
+              "delta": -0.0419
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 30,
+              "pred": 0.3125,
+              "actual": 0.3667,
+              "delta": 0.0542
+            },
+            {
+              "bin": "[0.32,0.34)",
+              "n": 30,
+              "pred": 0.3315,
+              "actual": 0.1333,
+              "delta": -0.1981
+            },
+            {
+              "bin": "[0.34,0.35)",
+              "n": 29,
+              "pred": 0.3473,
+              "actual": 0.4483,
+              "delta": 0.101
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 30,
+              "pred": 0.3579,
+              "actual": 0.4333,
+              "delta": 0.0755
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 30,
+              "pred": 0.364,
+              "actual": 0.4333,
+              "delta": 0.0694
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 29,
+              "pred": 0.3749,
+              "actual": 0.4138,
+              "delta": 0.0389
+            },
+            {
+              "bin": "[0.38,0.40)",
+              "n": 30,
+              "pred": 0.3895,
+              "actual": 0.4,
+              "delta": 0.0105
+            },
+            {
+              "bin": "[0.40,0.42)",
+              "n": 30,
+              "pred": 0.4068,
+              "actual": 0.4,
+              "delta": -0.0068
+            },
+            {
+              "bin": "[0.42,0.59)",
+              "n": 30,
+              "pred": 0.4602,
+              "actual": 0.5,
+              "delta": 0.0398
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": 0.0139
+        },
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.64367,
+          "auc": 0.56788,
+          "ece": 0.00585,
+          "win_rate": 0.6458,
+          "mean_p": 0.3585
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.65126,
+          "auc": 0.58816,
+          "ece": 0.03168,
+          "win_rate": 0.6309,
+          "mean_p": 0.362
+        }
+      },
+      "run_line_edge_bins": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.03)",
+              "n": 658,
+              "pred": 0.3562,
+              "actual": 0.3739,
+              "delta": 0.0177
+            },
+            {
+              "bin": "|edge| [0.03,0.07)",
+              "n": 660,
+              "pred": 0.3572,
+              "actual": 0.3621,
+              "delta": 0.005
+            },
+            {
+              "bin": "|edge| [0.07,0.12)",
+              "n": 658,
+              "pred": 0.3573,
+              "actual": 0.3404,
+              "delta": -0.0168
+            },
+            {
+              "bin": "|edge| [0.12,0.18)",
+              "n": 659,
+              "pred": 0.3558,
+              "actual": 0.3566,
+              "delta": 0.0008
+            },
+            {
+              "bin": "|edge| [0.18,0.25)",
+              "n": 658,
+              "pred": 0.3533,
+              "actual": 0.3359,
+              "delta": -0.0174
+            },
+            {
+              "bin": "|edge| [0.25,0.33)",
+              "n": 659,
+              "pred": 0.3561,
+              "actual": 0.3445,
+              "delta": -0.0116
+            },
+            {
+              "bin": "|edge| [0.33,0.43)",
+              "n": 659,
+              "pred": 0.3542,
+              "actual": 0.3551,
+              "delta": 0.0008
+            },
+            {
+              "bin": "|edge| [0.43,0.56)",
+              "n": 658,
+              "pred": 0.362,
+              "actual": 0.3495,
+              "delta": -0.0124
+            },
+            {
+              "bin": "|edge| [0.56,0.77)",
+              "n": 659,
+              "pred": 0.3561,
+              "actual": 0.3809,
+              "delta": 0.0248
+            },
+            {
+              "bin": "|edge| [0.77,3.04)",
+              "n": 659,
+              "pred": 0.3766,
+              "actual": 0.3687,
+              "delta": -0.0078
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 1615,
+              "pred": 0.366,
+              "actual": 0.3684,
+              "delta": 0.0025
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 806,
+              "pred": 0.3756,
+              "actual": 0.3809,
+              "delta": 0.0053
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 418,
+              "pred": 0.3867,
+              "actual": 0.3995,
+              "delta": 0.0128
+            }
+          ],
+          "overall_delta": -0.0017
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.03)",
+              "n": 30,
+              "pred": 0.3568,
+              "actual": 0.4333,
+              "delta": 0.0766
+            },
+            {
+              "bin": "|edge| [0.03,0.06)",
+              "n": 30,
+              "pred": 0.359,
+              "actual": 0.4,
+              "delta": 0.041
+            },
+            {
+              "bin": "|edge| [0.06,0.10)",
+              "n": 30,
+              "pred": 0.3554,
+              "actual": 0.4667,
+              "delta": 0.1113
+            },
+            {
+              "bin": "|edge| [0.10,0.17)",
+              "n": 29,
+              "pred": 0.3628,
+              "actual": 0.3448,
+              "delta": -0.018
+            },
+            {
+              "bin": "|edge| [0.17,0.24)",
+              "n": 30,
+              "pred": 0.3556,
+              "actual": 0.2667,
+              "delta": -0.089
+            },
+            {
+              "bin": "|edge| [0.24,0.31)",
+              "n": 30,
+              "pred": 0.3574,
+              "actual": 0.2667,
+              "delta": -0.0907
+            },
+            {
+              "bin": "|edge| [0.31,0.37)",
+              "n": 29,
+              "pred": 0.3695,
+              "actual": 0.3793,
+              "delta": 0.0098
+            },
+            {
+              "bin": "|edge| [0.37,0.49)",
+              "n": 30,
+              "pred": 0.3549,
+              "actual": 0.4333,
+              "delta": 0.0784
+            },
+            {
+              "bin": "|edge| [0.49,0.77)",
+              "n": 30,
+              "pred": 0.3722,
+              "actual": 0.4333,
+              "delta": 0.0611
+            },
+            {
+              "bin": "|edge| [0.77,1.75)",
+              "n": 30,
+              "pred": 0.3765,
+              "actual": 0.3333,
+              "delta": -0.0431
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 59,
+              "pred": 0.3753,
+              "actual": 0.3729,
+              "delta": -0.0024
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 32,
+              "pred": 0.376,
+              "actual": 0.3438,
+              "delta": -0.0323
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 15,
+              "pred": 0.3669,
+              "actual": 0.2667,
+              "delta": -0.1003
+            }
+          ],
+          "overall_delta": 0.0139
+        }
+      },
+      "totals": {
+        "metrics_pooled": {
+          "n": 6254,
+          "logloss": 0.68981,
+          "auc": 0.51739,
+          "ece": 0.02639,
+          "win_rate": 0.5486,
+          "mean_p": 0.425
+        },
+        "metrics_sealed": {
+          "n": 280,
+          "logloss": 0.6953,
+          "auc": 0.46681,
+          "ece": 0.02965,
+          "win_rate": 0.55,
+          "mean_p": 0.4203
+        },
+        "crps_pooled": 2.44956,
+        "crps_sealed": 2.54137,
+        "by_line_pooled": {
+          "by_line": [
+            {
+              "line": 7.5,
+              "n": 45,
+              "pred": 0.4548,
+              "actual": 0.3333,
+              "delta": 0.1215
+            },
+            {
+              "line": 8.0,
+              "n": 414,
+              "pred": 0.4077,
+              "actual": 0.3889,
+              "delta": 0.0189
+            },
+            {
+              "line": 8.5,
+              "n": 2456,
+              "pred": 0.4522,
+              "actual": 0.4532,
+              "delta": -0.001
+            },
+            {
+              "line": 9.0,
+              "n": 2539,
+              "pred": 0.3991,
+              "actual": 0.4569,
+              "delta": -0.0578
+            },
+            {
+              "line": 9.5,
+              "n": 526,
+              "pred": 0.4421,
+              "actual": 0.4848,
+              "delta": -0.0427
+            },
+            {
+              "line": 10.0,
+              "n": 198,
+              "pred": 0.402,
+              "actual": 0.4192,
+              "delta": -0.0172
+            },
+            {
+              "line": 10.5,
+              "n": 48,
+              "pred": 0.4402,
+              "actual": 0.5625,
+              "delta": -0.1223
+            },
+            {
+              "line": 11.0,
+              "n": 11,
+              "pred": 0.4051,
+              "actual": 0.3636,
+              "delta": 0.0415
+            }
+          ],
+          "overall_delta": -0.0264
+        },
+        "by_line_sealed": {
+          "by_line": [
+            {
+              "line": 8.0,
+              "n": 10,
+              "pred": 0.4115,
+              "actual": 0.7,
+              "delta": -0.2885
+            },
+            {
+              "line": 8.5,
+              "n": 79,
+              "pred": 0.4521,
+              "actual": 0.3671,
+              "delta": 0.085
+            },
+            {
+              "line": 9.0,
+              "n": 150,
+              "pred": 0.4001,
+              "actual": 0.4867,
+              "delta": -0.0866
+            },
+            {
+              "line": 9.5,
+              "n": 30,
+              "pred": 0.4442,
+              "actual": 0.4667,
+              "delta": -0.0225
+            }
+          ],
+          "overall_delta": -0.0297
+        }
+      },
+      "derived_ml": {
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.68389,
+          "auc": 0.56206,
+          "ece": 0.00539,
+          "win_rate": 0.5487,
+          "mean_p": 0.5317
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.67139,
+          "auc": 0.61661,
+          "ece": 0.04269,
+          "win_rate": 0.594,
+          "mean_p": 0.5348
+        },
+        "pwin_sd_pooled": 0.0599,
+        "pwin_sd_sealed": 0.0546,
+        "bucket_55_60_pooled": {
+          "bin": "[0.55,0.60)",
+          "n": 1389,
+          "pred": 0.5717,
+          "actual": 0.5695,
+          "gap": -0.0022
+        },
+        "bucket_55_60_sealed": {
+          "bin": "[0.55,0.60)",
+          "n": 75,
+          "pred": 0.5696,
+          "actual": 0.5733,
+          "gap": 0.0038
+        }
+      },
+      "n_oof_games": 6885,
+      "n_folds": 75,
+      "lambda_mean": {
+        "home": 4.4095,
+        "away": 4.4058,
+        "edge_sd": 0.4652
+      },
+      "sextile_spread_ratio": {
+        "actual_margin_sextile_spread": 0.83,
+        "model_ledge_sextile_spread": 0.313,
+        "ratio": 0.377
+      },
+      "season_sp_band_gaps": [
+        {
+          "season": "2024",
+          "band": "home SP better >= 1.5",
+          "n": 447,
+          "actual_home_win": 0.5526,
+          "derived_ml": 0.5364,
+          "gap": -0.0161
+        },
+        {
+          "season": "2024",
+          "band": "away SP better >= 1.5",
+          "n": 468,
+          "actual_home_win": 0.4509,
+          "derived_ml": 0.512,
+          "gap": 0.0612
+        },
+        {
+          "season": "2024",
+          "band": "even |diff| < 1.5",
+          "n": 1329,
+          "actual_home_win": 0.5448,
+          "derived_ml": 0.5318,
+          "gap": -0.013
+        },
+        {
+          "season": "2025",
+          "band": "home SP better >= 1.5",
+          "n": 485,
+          "actual_home_win": 0.5897,
+          "derived_ml": 0.5602,
+          "gap": -0.0295
+        },
+        {
+          "season": "2025",
+          "band": "away SP better >= 1.5",
+          "n": 529,
+          "actual_home_win": 0.5066,
+          "derived_ml": 0.5106,
+          "gap": 0.004
+        },
+        {
+          "season": "2025",
+          "band": "even |diff| < 1.5",
+          "n": 1224,
+          "actual_home_win": 0.5278,
+          "derived_ml": 0.5363,
+          "gap": 0.0085
+        },
+        {
+          "season": "2026",
+          "band": "home SP better >= 1.5",
+          "n": 454,
+          "actual_home_win": 0.5617,
+          "derived_ml": 0.5493,
+          "gap": -0.0124
+        },
+        {
+          "season": "2026",
+          "band": "away SP better >= 1.5",
+          "n": 457,
+          "actual_home_win": 0.4836,
+          "derived_ml": 0.5132,
+          "gap": 0.0296
+        },
+        {
+          "season": "2026",
+          "band": "even |diff| < 1.5",
+          "n": 1033,
+          "actual_home_win": 0.5247,
+          "derived_ml": 0.5345,
+          "gap": 0.0098
+        },
+        {
+          "season": "all",
+          "k_fitted": 1.458
+        }
+      ],
+      "model_pd": {
+        "lambda_home": -0.0006,
+        "lambda_away": 0.0044,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": -0.1565,
+        "lambda_away_opp_proj": -0.1071
+      }
+    },
+    "P2": {
+      "k": {
+        "k_fitted_run": 1.4701,
+        "fit": "pre-holdout OOF only (per-run refit)",
+        "edge": "C2"
+      },
+      "n_pre": 6587,
+      "n_sealed": 298,
+      "margin_crps_pooled": 2.46782,
+      "margin_crps_sealed": 2.53543,
+      "run_line_minus_1_5": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "[0.15,0.30)",
+              "n": 656,
+              "pred": 0.2687,
+              "actual": 0.2622,
+              "delta": -0.0065
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 655,
+              "pred": 0.3071,
+              "actual": 0.3069,
+              "delta": -0.0003
+            },
+            {
+              "bin": "[0.32,0.33)",
+              "n": 660,
+              "pred": 0.3251,
+              "actual": 0.3061,
+              "delta": -0.019
+            },
+            {
+              "bin": "[0.33,0.34)",
+              "n": 664,
+              "pred": 0.3385,
+              "actual": 0.3328,
+              "delta": -0.0057
+            },
+            {
+              "bin": "[0.34,0.35)",
+              "n": 652,
+              "pred": 0.35,
+              "actual": 0.342,
+              "delta": -0.0079
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 664,
+              "pred": 0.3594,
+              "actual": 0.3599,
+              "delta": 0.0005
+            },
+            {
+              "bin": "[0.36,0.38)",
+              "n": 660,
+              "pred": 0.3707,
+              "actual": 0.3909,
+              "delta": 0.0202
+            },
+            {
+              "bin": "[0.38,0.40)",
+              "n": 655,
+              "pred": 0.3864,
+              "actual": 0.3634,
+              "delta": -0.023
+            },
+            {
+              "bin": "[0.40,0.43)",
+              "n": 662,
+              "pred": 0.41,
+              "actual": 0.4471,
+              "delta": 0.0371
+            },
+            {
+              "bin": "[0.43,0.62)",
+              "n": 659,
+              "pred": 0.4655,
+              "actual": 0.4552,
+              "delta": -0.0102
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": -0.0014
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "[0.24,0.31)",
+              "n": 30,
+              "pred": 0.2882,
+              "actual": 0.3,
+              "delta": 0.0118
+            },
+            {
+              "bin": "[0.31,0.33)",
+              "n": 30,
+              "pred": 0.3202,
+              "actual": 0.2667,
+              "delta": -0.0535
+            },
+            {
+              "bin": "[0.33,0.34)",
+              "n": 30,
+              "pred": 0.3371,
+              "actual": 0.4,
+              "delta": 0.0629
+            },
+            {
+              "bin": "[0.34,0.35)",
+              "n": 29,
+              "pred": 0.3473,
+              "actual": 0.3793,
+              "delta": 0.0321
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 30,
+              "pred": 0.3564,
+              "actual": 0.4333,
+              "delta": 0.0769
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 30,
+              "pred": 0.363,
+              "actual": 0.3333,
+              "delta": -0.0297
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 29,
+              "pred": 0.3719,
+              "actual": 0.3448,
+              "delta": -0.0271
+            },
+            {
+              "bin": "[0.38,0.39)",
+              "n": 30,
+              "pred": 0.3844,
+              "actual": 0.4667,
+              "delta": 0.0823
+            },
+            {
+              "bin": "[0.39,0.41)",
+              "n": 30,
+              "pred": 0.4016,
+              "actual": 0.3667,
+              "delta": -0.0349
+            },
+            {
+              "bin": "[0.41,0.48)",
+              "n": 30,
+              "pred": 0.4361,
+              "actual": 0.4667,
+              "delta": 0.0305
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": 0.0152
+        },
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.64377,
+          "auc": 0.57151,
+          "ece": 0.00757,
+          "win_rate": 0.6458,
+          "mean_p": 0.3582
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.65656,
+          "auc": 0.5534,
+          "ece": 0.01958,
+          "win_rate": 0.6242,
+          "mean_p": 0.3606
+        }
+      },
+      "run_line_edge_bins": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 659,
+              "pred": 0.3543,
+              "actual": 0.3445,
+              "delta": -0.0098
+            },
+            {
+              "bin": "|edge| [0.04,0.08)",
+              "n": 659,
+              "pred": 0.3552,
+              "actual": 0.3672,
+              "delta": 0.012
+            },
+            {
+              "bin": "|edge| [0.08,0.13)",
+              "n": 656,
+              "pred": 0.3557,
+              "actual": 0.3506,
+              "delta": -0.0051
+            },
+            {
+              "bin": "|edge| [0.13,0.19)",
+              "n": 660,
+              "pred": 0.3539,
+              "actual": 0.3636,
+              "delta": 0.0098
+            },
+            {
+              "bin": "|edge| [0.19,0.24)",
+              "n": 659,
+              "pred": 0.3528,
+              "actual": 0.3551,
+              "delta": 0.0023
+            },
+            {
+              "bin": "|edge| [0.24,0.32)",
+              "n": 658,
+              "pred": 0.3538,
+              "actual": 0.3131,
+              "delta": -0.0407
+            },
+            {
+              "bin": "|edge| [0.32,0.42)",
+              "n": 660,
+              "pred": 0.358,
+              "actual": 0.3606,
+              "delta": 0.0026
+            },
+            {
+              "bin": "|edge| [0.42,0.55)",
+              "n": 658,
+              "pred": 0.3607,
+              "actual": 0.3936,
+              "delta": 0.0329
+            },
+            {
+              "bin": "|edge| [0.55,0.74)",
+              "n": 659,
+              "pred": 0.3569,
+              "actual": 0.3429,
+              "delta": -0.014
+            },
+            {
+              "bin": "|edge| [0.74,2.66)",
+              "n": 659,
+              "pred": 0.3808,
+              "actual": 0.3763,
+              "delta": -0.0045
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 1513,
+              "pred": 0.3677,
+              "actual": 0.3662,
+              "delta": -0.0015
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 746,
+              "pred": 0.3801,
+              "actual": 0.3834,
+              "delta": 0.0033
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 394,
+              "pred": 0.3829,
+              "actual": 0.4061,
+              "delta": 0.0232
+            }
+          ],
+          "overall_delta": -0.0014
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 30,
+              "pred": 0.3566,
+              "actual": 0.4,
+              "delta": 0.0434
+            },
+            {
+              "bin": "|edge| [0.04,0.06)",
+              "n": 30,
+              "pred": 0.3567,
+              "actual": 0.3,
+              "delta": -0.0567
+            },
+            {
+              "bin": "|edge| [0.06,0.09)",
+              "n": 30,
+              "pred": 0.355,
+              "actual": 0.4333,
+              "delta": 0.0783
+            },
+            {
+              "bin": "|edge| [0.09,0.13)",
+              "n": 29,
+              "pred": 0.3515,
+              "actual": 0.4138,
+              "delta": 0.0623
+            },
+            {
+              "bin": "|edge| [0.13,0.18)",
+              "n": 30,
+              "pred": 0.357,
+              "actual": 0.3,
+              "delta": -0.057
+            },
+            {
+              "bin": "|edge| [0.18,0.24)",
+              "n": 30,
+              "pred": 0.3614,
+              "actual": 0.5,
+              "delta": 0.1386
+            },
+            {
+              "bin": "|edge| [0.24,0.32)",
+              "n": 29,
+              "pred": 0.3601,
+              "actual": 0.2759,
+              "delta": -0.0843
+            },
+            {
+              "bin": "|edge| [0.32,0.43)",
+              "n": 30,
+              "pred": 0.3689,
+              "actual": 0.4333,
+              "delta": 0.0644
+            },
+            {
+              "bin": "|edge| [0.43,0.56)",
+              "n": 30,
+              "pred": 0.373,
+              "actual": 0.4,
+              "delta": 0.027
+            },
+            {
+              "bin": "|edge| [0.56,1.23)",
+              "n": 30,
+              "pred": 0.3658,
+              "actual": 0.3,
+              "delta": -0.0658
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 42,
+              "pred": 0.3767,
+              "actual": 0.381,
+              "delta": 0.0042
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 16,
+              "pred": 0.3569,
+              "actual": 0.3125,
+              "delta": -0.0444
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 5,
+              "pred": 0.3349,
+              "actual": 0.2,
+              "delta": -0.1349
+            }
+          ],
+          "overall_delta": 0.0152
+        }
+      },
+      "totals": {
+        "metrics_pooled": {
+          "n": 6261,
+          "logloss": 0.6888,
+          "auc": 0.52398,
+          "ece": 0.0249,
+          "win_rate": 0.5498,
+          "mean_p": 0.4254
+        },
+        "metrics_sealed": {
+          "n": 281,
+          "logloss": 0.69487,
+          "auc": 0.47104,
+          "ece": 0.02663,
+          "win_rate": 0.5516,
+          "mean_p": 0.4218
+        },
+        "crps_pooled": 2.45011,
+        "crps_sealed": 2.54331,
+        "by_line_pooled": {
+          "by_line": [
+            {
+              "line": 7.5,
+              "n": 32,
+              "pred": 0.4542,
+              "actual": 0.375,
+              "delta": 0.0792
+            },
+            {
+              "line": 8.0,
+              "n": 368,
+              "pred": 0.4076,
+              "actual": 0.3777,
+              "delta": 0.0299
+            },
+            {
+              "line": 8.5,
+              "n": 2547,
+              "pred": 0.4522,
+              "actual": 0.4562,
+              "delta": -0.004
+            },
+            {
+              "line": 9.0,
+              "n": 2556,
+              "pred": 0.3991,
+              "actual": 0.4468,
+              "delta": -0.0477
+            },
+            {
+              "line": 9.5,
+              "n": 509,
+              "pred": 0.4419,
+              "actual": 0.4853,
+              "delta": -0.0434
+            },
+            {
+              "line": 10.0,
+              "n": 197,
+              "pred": 0.4019,
+              "actual": 0.4721,
+              "delta": -0.0701
+            },
+            {
+              "line": 10.5,
+              "n": 35,
+              "pred": 0.4429,
+              "actual": 0.4857,
+              "delta": -0.0428
+            }
+          ],
+          "overall_delta": -0.0249
+        },
+        "by_line_sealed": {
+          "by_line": [
+            {
+              "line": 8.5,
+              "n": 92,
+              "pred": 0.455,
+              "actual": 0.413,
+              "delta": 0.042
+            },
+            {
+              "line": 9.0,
+              "n": 161,
+              "pred": 0.3999,
+              "actual": 0.4783,
+              "delta": -0.0784
+            },
+            {
+              "line": 9.5,
+              "n": 19,
+              "pred": 0.4412,
+              "actual": 0.4211,
+              "delta": 0.0201
+            }
+          ],
+          "overall_delta": -0.0266
+        }
+      },
+      "derived_ml": {
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.68386,
+          "auc": 0.56654,
+          "ece": 0.00464,
+          "win_rate": 0.5534,
+          "mean_p": 0.5313
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.67795,
+          "auc": 0.59078,
+          "ece": 0.03675,
+          "win_rate": 0.5705,
+          "mean_p": 0.5338
+        },
+        "pwin_sd_pooled": 0.0587,
+        "pwin_sd_sealed": 0.0439,
+        "bucket_55_60_pooled": {
+          "bin": "[0.55,0.60)",
+          "n": 1406,
+          "pred": 0.5711,
+          "actual": 0.5782,
+          "gap": 0.0071
+        },
+        "bucket_55_60_sealed": {
+          "bin": "[0.55,0.60)",
+          "n": 77,
+          "pred": 0.5717,
+          "actual": 0.5584,
+          "gap": -0.0132
+        }
+      },
+      "n_oof_games": 6885,
+      "n_folds": 75,
+      "lambda_mean": {
+        "home": 4.41,
+        "away": 4.4045,
+        "edge_sd": 0.4504
+      },
+      "sextile_spread_ratio": {
+        "actual_margin_sextile_spread": 0.83,
+        "model_ledge_sextile_spread": 0.346,
+        "ratio": 0.417
+      },
+      "season_sp_band_gaps": [
+        {
+          "season": "2024",
+          "band": "home SP better >= 1.5",
+          "n": 447,
+          "actual_home_win": 0.5526,
+          "derived_ml": 0.5353,
+          "gap": -0.0172
+        },
+        {
+          "season": "2024",
+          "band": "away SP better >= 1.5",
+          "n": 468,
+          "actual_home_win": 0.4509,
+          "derived_ml": 0.5094,
+          "gap": 0.0585
+        },
+        {
+          "season": "2024",
+          "band": "even |diff| < 1.5",
+          "n": 1329,
+          "actual_home_win": 0.5448,
+          "derived_ml": 0.5306,
+          "gap": -0.0141
+        },
+        {
+          "season": "2025",
+          "band": "home SP better >= 1.5",
+          "n": 485,
+          "actual_home_win": 0.5897,
+          "derived_ml": 0.5643,
+          "gap": -0.0254
+        },
+        {
+          "season": "2025",
+          "band": "away SP better >= 1.5",
+          "n": 529,
+          "actual_home_win": 0.5066,
+          "derived_ml": 0.5068,
+          "gap": 0.0002
+        },
+        {
+          "season": "2025",
+          "band": "even |diff| < 1.5",
+          "n": 1224,
+          "actual_home_win": 0.5278,
+          "derived_ml": 0.5369,
+          "gap": 0.0092
+        },
+        {
+          "season": "2026",
+          "band": "home SP better >= 1.5",
+          "n": 454,
+          "actual_home_win": 0.5617,
+          "derived_ml": 0.5508,
+          "gap": -0.0109
+        },
+        {
+          "season": "2026",
+          "band": "away SP better >= 1.5",
+          "n": 457,
+          "actual_home_win": 0.4836,
+          "derived_ml": 0.5096,
+          "gap": 0.026
+        },
+        {
+          "season": "2026",
+          "band": "even |diff| < 1.5",
+          "n": 1033,
+          "actual_home_win": 0.5247,
+          "derived_ml": 0.5352,
+          "gap": 0.0105
+        },
+        {
+          "season": "all",
+          "k_fitted": 1.4701
+        }
+      ],
+      "model_pd": {
+        "lambda_home": -0.0002,
+        "lambda_away": 0.0027,
+        "lambda_home_opp_era": 0.0012,
+        "lambda_away_opp_era": 0.0196,
+        "lambda_home_opp_proj": -0.1458,
+        "lambda_away_opp_proj": -0.0995
+      }
+    },
+    "P3": {
+      "k": {
+        "k_fitted_run": 1.3621,
+        "fit": "pre-holdout OOF only (per-run refit)",
+        "edge": "C2"
+      },
+      "n_pre": 6587,
+      "n_sealed": 298,
+      "margin_crps_pooled": 2.46851,
+      "margin_crps_sealed": 2.52929,
+      "run_line_minus_1_5": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "[0.16,0.30)",
+              "n": 657,
+              "pred": 0.2688,
+              "actual": 0.2374,
+              "delta": -0.0314
+            },
+            {
+              "bin": "[0.30,0.32)",
+              "n": 658,
+              "pred": 0.3084,
+              "actual": 0.3237,
+              "delta": 0.0153
+            },
+            {
+              "bin": "[0.32,0.33)",
+              "n": 661,
+              "pred": 0.3267,
+              "actual": 0.3253,
+              "delta": -0.0014
+            },
+            {
+              "bin": "[0.33,0.35)",
+              "n": 656,
+              "pred": 0.3394,
+              "actual": 0.3155,
+              "delta": -0.0239
+            },
+            {
+              "bin": "[0.35,0.36)",
+              "n": 660,
+              "pred": 0.3514,
+              "actual": 0.3667,
+              "delta": 0.0153
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 649,
+              "pred": 0.361,
+              "actual": 0.3636,
+              "delta": 0.0027
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 670,
+              "pred": 0.3716,
+              "actual": 0.3821,
+              "delta": 0.0105
+            },
+            {
+              "bin": "[0.38,0.40)",
+              "n": 656,
+              "pred": 0.3872,
+              "actual": 0.3933,
+              "delta": 0.0061
+            },
+            {
+              "bin": "[0.40,0.43)",
+              "n": 660,
+              "pred": 0.4094,
+              "actual": 0.4045,
+              "delta": -0.0049
+            },
+            {
+              "bin": "[0.43,0.58)",
+              "n": 660,
+              "pred": 0.4642,
+              "actual": 0.4545,
+              "delta": -0.0097
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": -0.0021
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "[0.17,0.31)",
+              "n": 30,
+              "pred": 0.286,
+              "actual": 0.2,
+              "delta": -0.086
+            },
+            {
+              "bin": "[0.31,0.33)",
+              "n": 30,
+              "pred": 0.318,
+              "actual": 0.4333,
+              "delta": 0.1154
+            },
+            {
+              "bin": "[0.33,0.34)",
+              "n": 29,
+              "pred": 0.3353,
+              "actual": 0.2414,
+              "delta": -0.0939
+            },
+            {
+              "bin": "[0.34,0.36)",
+              "n": 30,
+              "pred": 0.3471,
+              "actual": 0.5,
+              "delta": 0.1529
+            },
+            {
+              "bin": "[0.36,0.36)",
+              "n": 29,
+              "pred": 0.3588,
+              "actual": 0.2759,
+              "delta": -0.083
+            },
+            {
+              "bin": "[0.36,0.37)",
+              "n": 31,
+              "pred": 0.3661,
+              "actual": 0.4516,
+              "delta": 0.0856
+            },
+            {
+              "bin": "[0.37,0.38)",
+              "n": 29,
+              "pred": 0.3749,
+              "actual": 0.3448,
+              "delta": -0.0301
+            },
+            {
+              "bin": "[0.38,0.39)",
+              "n": 30,
+              "pred": 0.3877,
+              "actual": 0.5,
+              "delta": 0.1123
+            },
+            {
+              "bin": "[0.39,0.42)",
+              "n": 30,
+              "pred": 0.4076,
+              "actual": 0.4,
+              "delta": -0.0076
+            },
+            {
+              "bin": "[0.42,0.50)",
+              "n": 30,
+              "pred": 0.445,
+              "actual": 0.4,
+              "delta": -0.045
+            }
+          ],
+          "extreme": [
+            {
+              "bin": ">=0.65",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            },
+            {
+              "bin": ">=0.70",
+              "n": 0,
+              "pred": null,
+              "actual": null,
+              "delta": null
+            }
+          ],
+          "overall_delta": 0.0131
+        },
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.64403,
+          "auc": 0.56817,
+          "ece": 0.00474,
+          "win_rate": 0.646,
+          "mean_p": 0.3589
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.65677,
+          "auc": 0.55969,
+          "ece": 0.05501,
+          "win_rate": 0.6242,
+          "mean_p": 0.3627
+        }
+      },
+      "run_line_edge_bins": {
+        "pooled": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 658,
+              "pred": 0.3566,
+              "actual": 0.348,
+              "delta": -0.0086
+            },
+            {
+              "bin": "|edge| [0.04,0.09)",
+              "n": 660,
+              "pred": 0.3566,
+              "actual": 0.3652,
+              "delta": 0.0085
+            },
+            {
+              "bin": "|edge| [0.09,0.14)",
+              "n": 658,
+              "pred": 0.3564,
+              "actual": 0.3602,
+              "delta": 0.0038
+            },
+            {
+              "bin": "|edge| [0.14,0.20)",
+              "n": 658,
+              "pred": 0.3552,
+              "actual": 0.3511,
+              "delta": -0.0041
+            },
+            {
+              "bin": "|edge| [0.20,0.26)",
+              "n": 658,
+              "pred": 0.3527,
+              "actual": 0.3617,
+              "delta": 0.009
+            },
+            {
+              "bin": "|edge| [0.26,0.34)",
+              "n": 660,
+              "pred": 0.3552,
+              "actual": 0.3591,
+              "delta": 0.0039
+            },
+            {
+              "bin": "|edge| [0.34,0.44)",
+              "n": 659,
+              "pred": 0.3596,
+              "actual": 0.3627,
+              "delta": 0.003
+            },
+            {
+              "bin": "|edge| [0.44,0.59)",
+              "n": 658,
+              "pred": 0.3588,
+              "actual": 0.3647,
+              "delta": 0.0059
+            },
+            {
+              "bin": "|edge| [0.59,0.79)",
+              "n": 659,
+              "pred": 0.3572,
+              "actual": 0.3126,
+              "delta": -0.0446
+            },
+            {
+              "bin": "|edge| [0.79,2.46)",
+              "n": 659,
+              "pred": 0.3805,
+              "actual": 0.3824,
+              "delta": 0.0019
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 1682,
+              "pred": 0.3672,
+              "actual": 0.3549,
+              "delta": -0.0122
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 869,
+              "pred": 0.3774,
+              "actual": 0.3579,
+              "delta": -0.0195
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 475,
+              "pred": 0.3853,
+              "actual": 0.3916,
+              "delta": 0.0062
+            }
+          ],
+          "overall_delta": -0.0021
+        },
+        "sealed": {
+          "deciles": [
+            {
+              "bin": "|edge| [0.00,0.04)",
+              "n": 30,
+              "pred": 0.3585,
+              "actual": 0.4,
+              "delta": 0.0415
+            },
+            {
+              "bin": "|edge| [0.04,0.07)",
+              "n": 29,
+              "pred": 0.3599,
+              "actual": 0.4138,
+              "delta": 0.0539
+            },
+            {
+              "bin": "|edge| [0.07,0.11)",
+              "n": 31,
+              "pred": 0.3573,
+              "actual": 0.2903,
+              "delta": -0.067
+            },
+            {
+              "bin": "|edge| [0.11,0.17)",
+              "n": 29,
+              "pred": 0.3536,
+              "actual": 0.5517,
+              "delta": 0.1981
+            },
+            {
+              "bin": "|edge| [0.17,0.23)",
+              "n": 29,
+              "pred": 0.3666,
+              "actual": 0.3103,
+              "delta": -0.0563
+            },
+            {
+              "bin": "|edge| [0.23,0.29)",
+              "n": 31,
+              "pred": 0.3634,
+              "actual": 0.3871,
+              "delta": 0.0237
+            },
+            {
+              "bin": "|edge| [0.29,0.38)",
+              "n": 29,
+              "pred": 0.3561,
+              "actual": 0.4138,
+              "delta": 0.0577
+            },
+            {
+              "bin": "|edge| [0.38,0.49)",
+              "n": 30,
+              "pred": 0.3505,
+              "actual": 0.3667,
+              "delta": 0.0162
+            },
+            {
+              "bin": "|edge| [0.49,0.62)",
+              "n": 30,
+              "pred": 0.3666,
+              "actual": 0.2333,
+              "delta": -0.1332
+            },
+            {
+              "bin": "|edge| [0.62,1.42)",
+              "n": 30,
+              "pred": 0.3945,
+              "actual": 0.4,
+              "delta": 0.0055
+            }
+          ],
+          "extreme": [
+            {
+              "bin": "|edge|>=0.50",
+              "n": 58,
+              "pred": 0.3796,
+              "actual": 0.3103,
+              "delta": -0.0693
+            },
+            {
+              "bin": "|edge|>=0.70",
+              "n": 23,
+              "pred": 0.3956,
+              "actual": 0.3478,
+              "delta": -0.0478
+            },
+            {
+              "bin": "|edge|>=0.90",
+              "n": 9,
+              "pred": 0.3924,
+              "actual": 0.2222,
+              "delta": -0.1702
+            }
+          ],
+          "overall_delta": 0.0131
+        }
+      },
+      "totals": {
+        "metrics_pooled": {
+          "n": 6253,
+          "logloss": 0.68964,
+          "auc": 0.51641,
+          "ece": 0.02497,
+          "win_rate": 0.5495,
+          "mean_p": 0.4255
+        },
+        "metrics_sealed": {
+          "n": 281,
+          "logloss": 0.69315,
+          "auc": 0.49393,
+          "ece": 0.02842,
+          "win_rate": 0.5516,
+          "mean_p": 0.42
+        },
+        "crps_pooled": 2.44957,
+        "crps_sealed": 2.53872,
+        "by_line_pooled": {
+          "by_line": [
+            {
+              "line": 7.5,
+              "n": 39,
+              "pred": 0.452,
+              "actual": 0.2821,
+              "delta": 0.17
+            },
+            {
+              "line": 8.0,
+              "n": 443,
+              "pred": 0.4077,
+              "actual": 0.4244,
+              "delta": -0.0166
+            },
+            {
+              "line": 8.5,
+              "n": 2481,
+              "pred": 0.4517,
+              "actual": 0.4506,
+              "delta": 0.0011
+            },
+            {
+              "line": 9.0,
+              "n": 2493,
+              "pred": 0.4002,
+              "actual": 0.4529,
+              "delta": -0.0527
+            },
+            {
+              "line": 9.5,
+              "n": 517,
+              "pred": 0.443,
+              "actual": 0.4681,
+              "delta": -0.0251
+            },
+            {
+              "line": 10.0,
+              "n": 214,
+              "pred": 0.4032,
+              "actual": 0.472,
+              "delta": -0.0688
+            },
+            {
+              "line": 10.5,
+              "n": 41,
+              "pred": 0.4469,
+              "actual": 0.4878,
+              "delta": -0.0409
+            },
+            {
+              "line": 11.0,
+              "n": 12,
+              "pred": 0.4166,
+              "actual": 0.5,
+              "delta": -0.0834
+            }
+          ],
+          "overall_delta": -0.025
+        },
+        "by_line_sealed": {
+          "by_line": [
+            {
+              "line": 8.5,
+              "n": 82,
+              "pred": 0.4527,
+              "actual": 0.3902,
+              "delta": 0.0625
+            },
+            {
+              "line": 9.0,
+              "n": 155,
+              "pred": 0.4008,
+              "actual": 0.4774,
+              "delta": -0.0766
+            },
+            {
+              "line": 9.5,
+              "n": 25,
+              "pred": 0.4402,
+              "actual": 0.44,
+              "delta": 0.0002
+            }
+          ],
+          "overall_delta": -0.0284
+        }
+      },
+      "derived_ml": {
+        "metrics_pooled": {
+          "n": 6587,
+          "logloss": 0.68413,
+          "auc": 0.56257,
+          "ece": 0.0057,
+          "win_rate": 0.547,
+          "mean_p": 0.532
+        },
+        "metrics_sealed": {
+          "n": 298,
+          "logloss": 0.67638,
+          "auc": 0.61404,
+          "ece": 0.03312,
+          "win_rate": 0.5638,
+          "mean_p": 0.5353
+        },
+        "pwin_sd_pooled": 0.0584,
+        "pwin_sd_sealed": 0.0462,
+        "bucket_55_60_pooled": {
+          "bin": "[0.55,0.60)",
+          "n": 1441,
+          "pred": 0.5713,
+          "actual": 0.5711,
+          "gap": -0.0001
+        },
+        "bucket_55_60_sealed": {
+          "bin": "[0.55,0.60)",
+          "n": 78,
+          "pred": 0.568,
+          "actual": 0.6026,
+          "gap": 0.0345
+        }
+      },
+      "n_oof_games": 6885,
+      "n_folds": 75,
+      "lambda_mean": {
+        "home": 4.4126,
+        "away": 4.4045,
+        "edge_sd": 0.4788
+      },
+      "sextile_spread_ratio": {
+        "actual_margin_sextile_spread": 0.83,
+        "model_ledge_sextile_spread": 0.33,
+        "ratio": 0.397
+      },
+      "season_sp_band_gaps": [
+        {
+          "season": "2024",
+          "band": "home SP better >= 1.5",
+          "n": 447,
+          "actual_home_win": 0.5526,
+          "derived_ml": 0.5377,
+          "gap": -0.0148
+        },
+        {
+          "season": "2024",
+          "band": "away SP better >= 1.5",
+          "n": 468,
+          "actual_home_win": 0.4509,
+          "derived_ml": 0.5114,
+          "gap": 0.0605
+        },
+        {
+          "season": "2024",
+          "band": "even |diff| < 1.5",
+          "n": 1329,
+          "actual_home_win": 0.5448,
+          "derived_ml": 0.5313,
+          "gap": -0.0134
+        },
+        {
+          "season": "2025",
+          "band": "home SP better >= 1.5",
+          "n": 485,
+          "actual_home_win": 0.5897,
+          "derived_ml": 0.5612,
+          "gap": -0.0285
+        },
+        {
+          "season": "2025",
+          "band": "away SP better >= 1.5",
+          "n": 529,
+          "actual_home_win": 0.5066,
+          "derived_ml": 0.5096,
+          "gap": 0.003
+        },
+        {
+          "season": "2025",
+          "band": "even |diff| < 1.5",
+          "n": 1224,
+          "actual_home_win": 0.5278,
+          "derived_ml": 0.5368,
+          "gap": 0.009
+        },
+        {
+          "season": "2026",
+          "band": "home SP better >= 1.5",
+          "n": 454,
+          "actual_home_win": 0.5617,
+          "derived_ml": 0.5466,
+          "gap": -0.0151
+        },
+        {
+          "season": "2026",
+          "band": "away SP better >= 1.5",
+          "n": 457,
+          "actual_home_win": 0.4836,
+          "derived_ml": 0.5145,
+          "gap": 0.0309
+        },
+        {
+          "season": "2026",
+          "band": "even |diff| < 1.5",
+          "n": 1033,
+          "actual_home_win": 0.5247,
+          "derived_ml": 0.5354,
+          "gap": 0.0107
+        },
+        {
+          "season": "all",
+          "k_fitted": 1.3621
+        }
+      ],
+      "model_pd": {
+        "lambda_home": -0.0006,
+        "lambda_away": 0.005,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": -0.1632,
+        "lambda_away_opp_proj": -0.1148
+      }
+    }
+  },
+  "measurements": {
+    "empirical": {
+      "home_runs_per_opp_era_unit": {
+        "slope": 0.0748,
+        "r2": 0.0017
+      },
+      "away_runs_per_opp_era_unit": {
+        "slope": 0.1282,
+        "r2": 0.0045
+      },
+      "margin_per_sp_era_diff_unit": {
+        "slope": -0.1145,
+        "r2": 0.0038
+      },
+      "home_runs_per_opp_proj_era_unit": {
+        "slope": -0.561,
+        "r2": 0.0095
+      },
+      "away_runs_per_opp_proj_era_unit": {
+        "slope": -0.6036,
+        "r2": 0.0093
+      }
+    },
+    "sextiles": [
+      {
+        "bin": "sextile 1",
+        "n": 1065,
+        "sp_era_diff_mean": -3.471,
+        "actual_margin_mean": 0.422,
+        "actual_home_win": 0.5728,
+        "model_ledge_mean": 0.134
+      },
+      {
+        "bin": "sextile 2",
+        "n": 1064,
+        "sp_era_diff_mean": -1.287,
+        "actual_margin_mean": 0.287,
+        "actual_home_win": 0.5526,
+        "model_ledge_mean": 0.11
+      },
+      {
+        "bin": "sextile 3",
+        "n": 1064,
+        "sp_era_diff_mean": -0.378,
+        "actual_margin_mean": 0.32,
+        "actual_home_win": 0.5526,
+        "model_ledge_mean": 0.039
+      },
+      {
+        "bin": "sextile 4",
+        "n": 1064,
+        "sp_era_diff_mean": 0.426,
+        "actual_margin_mean": -0.108,
+        "actual_home_win": 0.5094,
+        "model_ledge_mean": -0.002
+      },
+      {
+        "bin": "sextile 5",
+        "n": 1064,
+        "sp_era_diff_mean": 1.338,
+        "actual_margin_mean": -0.375,
+        "actual_home_win": 0.4925,
+        "model_ledge_mean": -0.07
+      },
+      {
+        "bin": "sextile 6",
+        "n": 1065,
+        "sp_era_diff_mean": 3.598,
+        "actual_margin_mean": -0.392,
+        "actual_home_win": 0.4977,
+        "model_ledge_mean": -0.165
+      }
+    ],
+    "model_pd": {
+      "lambda_home": -0.002,
+      "lambda_away": 0.0076,
+      "lambda_home_opp_era": null,
+      "lambda_away_opp_era": null,
+      "lambda_home_opp_proj": null,
+      "lambda_away_opp_proj": null
+    }
+  },
+  "summary_table": [
+    {
+      "arm": "C0",
+      "sealed_margin_crps": 2.53856,
+      "pooled_margin_crps": 2.46847,
+      "totals_ece_sealed": 0.02859,
+      "totals_ece_pooled": 0.02474,
+      "pwin_sd_sealed": 0.0409,
+      "derived_ml_logloss_sealed": 0.67926,
+      "derived_ml_auc_sealed": 0.58743,
+      "derived_ml_ece_sealed": 0.03754,
+      "sextile_ratio": 0.357,
+      "home_sp_band_gap_pooled": -0.0214,
+      "away_sp_band_gap_pooled": 0.0325,
+      "model_pd": {
+        "lambda_home": -0.002,
+        "lambda_away": 0.0076,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": null,
+        "lambda_away_opp_proj": null
+      }
+    },
+    {
+      "arm": "C1",
+      "sealed_margin_crps": 2.54014,
+      "pooled_margin_crps": 2.46921,
+      "totals_ece_sealed": 0.02625,
+      "totals_ece_pooled": 0.02504,
+      "pwin_sd_sealed": 0.0435,
+      "derived_ml_logloss_sealed": 0.67758,
+      "derived_ml_auc_sealed": 0.60514,
+      "derived_ml_ece_sealed": 0.04631,
+      "sextile_ratio": 0.418,
+      "home_sp_band_gap_pooled": -0.018,
+      "away_sp_band_gap_pooled": 0.029,
+      "model_pd": {
+        "lambda_home": -0.0002,
+        "lambda_away": 0.0024,
+        "lambda_home_opp_era": 0.0041,
+        "lambda_away_opp_era": 0.0318,
+        "lambda_home_opp_proj": null,
+        "lambda_away_opp_proj": null
+      }
+    },
+    {
+      "arm": "P1",
+      "sealed_margin_crps": 2.51736,
+      "pooled_margin_crps": 2.46701,
+      "totals_ece_sealed": 0.02965,
+      "totals_ece_pooled": 0.02639,
+      "pwin_sd_sealed": 0.0546,
+      "derived_ml_logloss_sealed": 0.67139,
+      "derived_ml_auc_sealed": 0.61661,
+      "derived_ml_ece_sealed": 0.04269,
+      "sextile_ratio": 0.377,
+      "home_sp_band_gap_pooled": -0.0196,
+      "away_sp_band_gap_pooled": 0.0305,
+      "model_pd": {
+        "lambda_home": -0.0006,
+        "lambda_away": 0.0044,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": -0.1565,
+        "lambda_away_opp_proj": -0.1071
+      }
+    },
+    {
+      "arm": "P2",
+      "sealed_margin_crps": 2.53543,
+      "pooled_margin_crps": 2.46782,
+      "totals_ece_sealed": 0.02663,
+      "totals_ece_pooled": 0.0249,
+      "pwin_sd_sealed": 0.0439,
+      "derived_ml_logloss_sealed": 0.67795,
+      "derived_ml_auc_sealed": 0.59078,
+      "derived_ml_ece_sealed": 0.03675,
+      "sextile_ratio": 0.417,
+      "home_sp_band_gap_pooled": -0.018,
+      "away_sp_band_gap_pooled": 0.0271,
+      "model_pd": {
+        "lambda_home": -0.0002,
+        "lambda_away": 0.0027,
+        "lambda_home_opp_era": 0.0012,
+        "lambda_away_opp_era": 0.0196,
+        "lambda_home_opp_proj": -0.1458,
+        "lambda_away_opp_proj": -0.0995
+      }
+    },
+    {
+      "arm": "P3",
+      "sealed_margin_crps": 2.52929,
+      "pooled_margin_crps": 2.46851,
+      "totals_ece_sealed": 0.02842,
+      "totals_ece_pooled": 0.02497,
+      "pwin_sd_sealed": 0.0462,
+      "derived_ml_logloss_sealed": 0.67638,
+      "derived_ml_auc_sealed": 0.61404,
+      "derived_ml_ece_sealed": 0.03312,
+      "sextile_ratio": 0.397,
+      "home_sp_band_gap_pooled": -0.0197,
+      "away_sp_band_gap_pooled": 0.0303,
+      "model_pd": {
+        "lambda_home": -0.0006,
+        "lambda_away": 0.005,
+        "lambda_home_opp_era": null,
+        "lambda_away_opp_era": null,
+        "lambda_home_opp_proj": -0.1632,
+        "lambda_away_opp_proj": -0.1148
+      }
+    }
+  ],
+  "verdict": {
+    "verdict": "PARTIAL (SP-sensitivity: clean negative; margin-quality: directional positive)",
+    "gate_result": {
+      "sextile_ratio_toward_1": "NO \u2014 C0 0.357 vs best projection arm 0.377 (P1); raw-level C1 0.418 no better; all arms far from 1.0",
+      "away_model_pd_approaches_empirical": "NO \u2014 P1 away-PD -0.107/proj-unit = 17.7% of proj-space empirical -0.604; C1 raw-ERA away-PD 0.0318 = 24.8% of 0.128. Absolute response up 3.4x, relative fraction DOWN.",
+      "sp_band_gaps_narrow": "WEAK \u2014 P1 away-fav pooled +0.0305 (C0 +0.0325, unchanged); P2 best at +0.0271 (-0.0054, all 3 seasons improve modestly)",
+      "crps_ec_degrades": "MIXED \u2014 P1 sealed margin CRPS -0.021 (beyond noise) and derived-ML AUC +0.029 / logloss -0.008 on sealed, but pooled CRPS flat (-0.0015) and totals ECE +0.0011 worse; P2 ECE -0.002 better, CRPS in-noise"
+    },
+    "text": "The projection composite is a genuinely stronger input (5.6x home / 2.1x away variance explained vs raw ERA; ERA~proj slope -1.22, r2 0.20; ~97-99% OOF coverage). P1 (projection replaces raw ERA as opponent level) delivers the best sealed margin CRPS of all arms (2.51736 vs C0 2.53856, -0.021 beyond the audit noise band) with derived-ML AUC +0.029 and P(win) SD 0.0409->0.0546 (less compression), and the projection is additive to raw ERA (P2 has the best SP bands and totals ECE). BUT the specific defect this arm-test was built to fix \u2014 the lambda-edge SP compression \u2014 is NOT closed: the sextile spread ratio stays ~0.38 across every arm including the projection arms (target 1.0), the away-side model still uses only ~18% of the projection signal (vs 24.8% of the raw-ERA signal in C1), and the away-fav derived-ML band gap is essentially unchanged (+3.1pp pooled). The mechanism from 39c865e holds: per-game SP quality (even projection-grade) explains <1% of single-game run variance (R2 0.009), and the regularized Poisson fit still shrinks lambda levels at SP extremes regardless of feature strength. The lambda-compression is not recoverable with derivable SP inputs within the current Poisson-tree architecture.",
+    "next_action": "PARTIAL: (1) SP-mismatch pricing stays flag-and-route \u2014 the binary moneyline owns it; the derived ML remains a totals-context tool. (2) P1/P2 are a separate margin-quality candidate worth a follow-up gate (sealed CRPS/AUC gains are beyond noise but pooled flat, ECE mixed, sealed n=298): run the full ensemble-style margin walk before any engine adoption. (3) The projection is additive to raw ERA (P2), not redundant \u2014 if a future engine change happens, feed both levels.",
+    "empirical_targets": {
+      "lambda_home": -0.002,
+      "lambda_away": 0.0076,
+      "lambda_home_opp_era": null,
+      "lambda_away_opp_era": null,
+      "lambda_home_opp_proj": null,
+      "lambda_away_opp_proj": null
+    },
+    "c0_pins": {
+      "sealed_margin_crps": 2.53856,
+      "sextile_ratio": 0.357,
+      "c1_away_pd_fraction_of_0_128": 0.248
+    }
+  }
+}

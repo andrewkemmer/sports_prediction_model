@@ -26,6 +26,19 @@ Arms (75-fold walk-forward, cadence 7, min-val 40, seed 42, 6,885 OOF rows):
   C2R = C0 view, relaxed regularization (num_leaves 31, min_child_samples 10,
         min_gain 0.0, subsample/colsample 1.0) — poisson objective, lr, and
         early stopping unchanged.
+  P1  = C0 view + the OPPONENT's PROJECTION-QUALITY SP level
+        (sp_proj_era_away into the home-scoring model and vice versa) — the
+        C1 generalization with a stronger input: a z-composite of the frame's
+        Statcast-derived trailing components (FIP, xwOBA, WHIP, BB9, K9-5g,
+        whiff-3g, velo-3g), scaled to ERA-equivalent units (1 unit ~= 1 ERA
+        point of quality). Replaces raw ERA as the opponent signal.
+  P2  = P1 + the raw opponent ERA LEVEL too (sp_proj_era_opp + sp_era_opp):
+        is the projection additive to raw ERA or redundant with it? (The raw
+        sp_era_diff GAP remains in the shared env of every arm — it is one of
+        the 24 restored diffs.)
+  P3  = C0 view + opponent projection level AND OWN-side projection level
+        (sp_proj_era_opp + sp_proj_era_own): projection as both own-side
+        context and opponent signal.
 
 Pricing reuses the run-line expansion harness's C2 layer verbatim
 (ke.fit_k_edge/apply_k_edge on pre-holdout OOF; select_alpha_curve/alpha_of
@@ -92,6 +105,15 @@ OPP_PITCH_COLS = [
     "bullpen_whip_10g", "bullpen_whip_3g", "closer_available",
 ]
 
+# Projection composite components (all PIT-safe trailing windows in the
+# frame): lower-is-better and higher-is-better sets. The composite is the
+# mean of z-scored components (higher = better pitching), z-stats fit on the
+# PRE-HOLDOUT rows only, then scaled to ERA-equivalent units via the
+# ERA~composite OLS slope so +1 unit ~= 1 ERA point of quality.
+PROJ_LO_BETTER = ["sp_fip", "sp_xwoba", "sp_whip", "sp_bb9"]
+PROJ_HI_BETTER = ["sp_k9_5g", "sp_whiff_3g", "sp_fbvelo_3g"]
+MIN_PROJ_COMPONENTS = 3
+
 RELAXED_PARAMS = dict(RUN_LGBM_PARAMS)
 RELAXED_PARAMS.update({
     "num_leaves": 31,
@@ -122,8 +144,49 @@ def _ols(y: np.ndarray, x: np.ndarray) -> tuple[float, float]:
     return float(beta[1]), 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
 
+def _side_base_cols(games: pd.DataFrame, side: str) -> list[str]:
+    feats, _ = derive_run_features(list(FEATURE_COLS))
+    return build_side_frame(games, side, run_features=list(feats),
+                            dropped=[])[1]
+
+
+def build_projection_cols(games: pd.DataFrame,
+                          pre_mask: np.ndarray) -> tuple[pd.DataFrame, dict]:
+    """Add sp_proj_era_{home,away} (projection composite in ERA-equivalent
+    units) to a copy of the frame, fit on pre-holdout rows only. Returns
+    (frame_with_cols, meta). +1 unit ~= 1 ERA point of quality; higher is
+    better pitching. Coverage = fraction of OOF rows with a valid projection."""
+    df = games.copy()
+    meta: dict = {}
+    for side in ("home", "away"):
+        lo = [f"{c}_{side}" for c in PROJ_LO_BETTER]
+        hi = [f"{c}_{side}" for c in PROJ_HI_BETTER]
+        z = pd.DataFrame(index=df.index)
+        for c in lo + hi:
+            mu, sd = df.loc[pre_mask, c].mean(), df.loc[pre_mask, c].std()
+            z[c] = (df[c] - mu) / sd
+        n_comp = z[lo + hi].notna().sum(axis=1)
+        comp = (-z[lo].sum(axis=1, min_count=1)
+                + z[hi].sum(axis=1, min_count=1))
+        comp = comp.where(n_comp >= MIN_PROJ_COMPONENTS)
+        comp = comp / n_comp.where(n_comp >= MIN_PROJ_COMPONENTS)
+        df[f"sp_proj_{side}"] = comp
+        # ERA-equivalent scale: OLS sp_era ~ comp on pre-holdout, junk out.
+        era = f"sp_era_{side}"
+        cal = df.loc[pre_mask & comp.notna() & df[era].notna()
+                     & (df[era].abs() <= SP_JUNK_ERA)]
+        X = np.column_stack([np.ones(len(cal)), cal[f"sp_proj_{side}"].to_numpy()])
+        beta, *_ = np.linalg.lstsq(X, cal[era].to_numpy(), rcond=None)
+        slope = float(beta[1])
+        df[f"sp_proj_era_{side}"] = comp / abs(slope) if slope else comp
+        meta[side] = {"era_on_proj_slope": round(slope, 4),
+                      "coverage_pre": round(float(comp[pre_mask].notna().mean()), 4),
+                      "coverage_sealed": round(float(comp[~pre_mask].notna().mean()), 4)}
+    return df, meta
+
+
 def arm_params_and_frames(name: str, games: pd.DataFrame):
-    """Return (params, per_side_cols | None) for an arm. per_side maps side ->
+    """Return (params, per_side | None) for an arm. per_side maps side ->
     full column list (production side cols + any arm extras)."""
     feats, _ = derive_run_features(list(FEATURE_COLS))
     if name == "C0":
@@ -137,6 +200,19 @@ def arm_params_and_frames(name: str, games: pd.DataFrame):
                                     dropped=[])[1]
             opp = "away" if side == "home" else "home"
             extras = [c.rsplit("_", 1)[0] + f"_{opp}" for c in OPP_PITCH_COLS]
+            extras = [c for c in extras if c in games.columns and c not in cols]
+            per_side[side] = list(cols) + extras
+        return dict(RUN_LGBM_PARAMS), per_side
+    if name in ("P1", "P2", "P3"):
+        per_side = {}
+        for side in ("home", "away"):
+            cols = _side_base_cols(games, side)
+            opp = "away" if side == "home" else "home"
+            extras = [f"sp_proj_era_{opp}"]
+            if name == "P2":
+                extras.append(f"sp_era_{opp}")
+            if name == "P3":
+                extras.append(f"sp_proj_era_{side}")
             extras = [c for c in extras if c in games.columns and c not in cols]
             per_side[side] = list(cols) + extras
         return dict(RUN_LGBM_PARAMS), per_side
@@ -179,7 +255,8 @@ def walk_arm(name: str, decided: pd.DataFrame, params: dict,
             rec[f"{side}_expected_runs"] = np.round(lam, 4)
             opp = "away" if side == "home" else "home"
             targets = {"sp_era_diff": "sp_era_diff",
-                       f"sp_era_{opp}": f"sp_era_{opp}"}
+                       f"sp_era_{opp}": f"sp_era_{opp}",
+                       f"sp_proj_era_{opp}": f"sp_proj_era_{opp}"}
             for col in targets:
                 if col not in cols:
                     rec[f"pd_{col}_{side}"] = np.full(len(va), np.nan)
@@ -202,7 +279,8 @@ def sp_measurements(oof: pd.DataFrame, gl: pd.DataFrame) -> dict:
     model per-unit responses for the arm."""
     d = oof[["game_pk", "game_date", "home_expected_runs",
              "away_expected_runs", "home_score", "away_score"]].merge(
-        gl[["game_pk", "sp_era_diff", "sp_era_home", "sp_era_away"]],
+        gl[["game_pk", "sp_era_diff", "sp_era_home", "sp_era_away",
+            "sp_proj_era_home", "sp_proj_era_away"]],
         on="game_pk", how="left")
     d = d.dropna(subset=["sp_era_home", "sp_era_away"])
     d = d[(d["sp_era_home"].abs() <= SP_JUNK_ERA) &
@@ -235,11 +313,20 @@ def sp_measurements(oof: pd.DataFrame, gl: pd.DataFrame) -> dict:
                 "actual_home_win": round(float(g["home_won"].mean()), 4),
                 "model_ledge_mean": round(float(g["ledge"].mean()), 3),
             })
+    # Projection-space empirical targets (the bar the P-arms must approach,
+    # in the SAME feature units the model sees: ERA-equivalent projection).
+    b, r2 = _ols(d["home_score"].values, d["sp_proj_era_away"].values)
+    emp["home_runs_per_opp_proj_era_unit"] = {"slope": round(b, 4), "r2": round(r2, 4)}
+    b, r2 = _ols(d["away_score"].values, d["sp_proj_era_home"].values)
+    emp["away_runs_per_opp_proj_era_unit"] = {"slope": round(b, 4), "r2": round(r2, 4)}
+
     model = {}
     for pdcol, lbl in (("pd_sp_era_diff_home", "lambda_home"),
                        ("pd_sp_era_diff_away", "lambda_away"),
                        ("pd_sp_era_away_home", "lambda_home_opp_era"),
-                       ("pd_sp_era_home_away", "lambda_away_opp_era")):
+                       ("pd_sp_era_home_away", "lambda_away_opp_era"),
+                       ("pd_sp_proj_era_away_home", "lambda_home_opp_proj"),
+                       ("pd_sp_proj_era_home_away", "lambda_away_opp_proj")):
         if pdcol in oof.columns:
             v = oof[pdcol]
             v = v[v.notna()]
@@ -249,9 +336,68 @@ def sp_measurements(oof: pd.DataFrame, gl: pd.DataFrame) -> dict:
     return {"empirical": emp, "sextiles": sext, "model_pd": model}
 
 
+def sextile_spread_ratio(oof: pd.DataFrame, gl: pd.DataFrame) -> dict | None:
+    """Structural compression per arm: sextile-mean spread of the model's
+    lambda edge vs the actual margin spread on sp_era_diff sextiles.
+    Ratio toward 1.0 = the model's edge tracks reality's spread."""
+    d = oof[["game_pk", "home_expected_runs", "away_expected_runs",
+             "home_score", "away_score"]].merge(
+        gl[["game_pk", "sp_era_diff"]], on="game_pk", how="left")
+    d = d.dropna(subset=["sp_era_diff"])
+    d["margin"] = d["home_score"] - d["away_score"]
+    d["ledge"] = d["home_expected_runs"] - d["away_expected_runs"]
+    try:
+        q = pd.qcut(d["sp_era_diff"], 6, duplicates="drop")
+    except ValueError:
+        return None
+    grp = d.groupby(q, observed=True)
+    act = grp["margin"].mean()
+    mod = grp["ledge"].mean()
+    act_spread = float(act.max() - act.min())
+    mod_spread = float(mod.max() - mod.min())
+    return {
+        "actual_margin_sextile_spread": round(act_spread, 3),
+        "model_ledge_sextile_spread": round(mod_spread, 3),
+        "ratio": round(mod_spread / act_spread, 3) if act_spread else None,
+    }
+
+
+def season_sp_band_gaps(oof: pd.DataFrame, gl: pd.DataFrame) -> list[dict]:
+    """Per-season derived-ML vs actual home win in the directional SP bands
+    (home SP >= 1.5 better / away SP >= 1.5 better), pooled AND per
+    season-partial — the Leg-2 "reality wobbles" discipline (a9cd6af):
+    compare against each season's actuals, never a fixed 2-3pp gap.
+    Uses the SAME C2 pricing as price_arm (k refit on pre-holdout OOF,
+    alpha curves, NB MC) via probe_sp_arm_tables.arm_pwin."""
+    from probe_sp_arm_tables import arm_pwin
+    pwin, _ledge2, k = arm_pwin(oof)
+    d = oof[["game_pk", "game_date", "home_score", "away_score"]].copy()
+    d["pwin"] = pwin
+    d["season"] = pd.to_datetime(d["game_date"]).dt.year.astype(str)
+    d = d.merge(gl[["game_pk", "sp_era_diff"]], on="game_pk", how="left")
+    d = d.dropna(subset=["sp_era_diff"])
+    d["home_won"] = (d["home_score"] > d["away_score"]).astype(float)
+    rows = []
+    for season, g in d.groupby("season"):
+        for lo, hi, lbl in ((-99, -1.5, "home SP better >= 1.5"),
+                            (1.5, 99, "away SP better >= 1.5"),
+                            (-1.5, 1.5, "even |diff| < 1.5")):
+            sub = g[(g["sp_era_diff"] >= lo) & (g["sp_era_diff"] < hi)]
+            if len(sub) >= 10:
+                rows.append({
+                    "season": season, "band": lbl, "n": int(len(sub)),
+                    "actual_home_win": round(float(sub["home_won"].mean()), 4),
+                    "derived_ml": round(float(sub["pwin"].mean()), 4),
+                    "gap": round(float(sub["pwin"].mean()
+                                        - sub["home_won"].mean()), 4),
+                })
+    rows.append({"season": "all", "k_fitted": round(float(k), 4)})
+    return rows
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--arms", type=str, default="C0,C1,C2R")
+    ap.add_argument("--arms", type=str, default="C0,C1,P1,P2,P3")
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--limit-folds", type=int, default=0)
     ap.add_argument("--out", type=Path, default=None)
@@ -263,16 +409,44 @@ def main() -> None:
     frame_sha = sha256_file(data_path)[:16]
     gl = pd.read_csv(data_path)
     gl["game_pk"] = gl["game_pk"].astype(str)
-    print(f"frame={frame_sha} decided={len(decided)}", flush=True)
 
-    out = args.out or (DATA_DELIVERY_DIR / f"mlb_sp_sensitivity_{frame_sha}.json")
+    # Projection composite columns (P-arms): z-stats + ERA-scale fit on the
+    # PRE-HOLDOUT rows only (strictly prior to the sealed window).
+    dates = pd.to_datetime(decided["game_date"])
+    pre_mask = (dates < dates.max() - pd.Timedelta(days=HOLDOUT_DAYS)).to_numpy()
+    decided, proj_meta = build_projection_cols(decided, pre_mask)
+    print(f"frame={frame_sha} decided={len(decided)} | proj meta "
+          f"{proj_meta}", flush=True)
+    # Attach projection columns to gl for the measurement merge.
+    pm = decided[["game_pk", "sp_proj_era_home", "sp_proj_era_away"]].copy()
+    pm["game_pk"] = pm["game_pk"].astype(str)
+    gl = gl.merge(pm, on="game_pk", how="left")
+
+    out = args.out or (DATA_DELIVERY_DIR
+                       / f"mlb_sp_projection_arm_{frame_sha}.json")
     record = (json.loads(out.read_text()) if out.exists() else
-              {"schema": "mlb-sp-sensitivity/v1", "frame": frame_sha,
+              {"schema": "mlb-sp-projection-arm/v1", "frame": frame_sha,
                "frame_sha_source": "game_level_features.csv (sha256:16)",
                "date": DATE,
                "geometry": {"cadence_days": RETRAIN_CADENCE_DAYS,
                             "min_val_games": MIN_VAL_FOLD_GAMES,
                             "seed": RANDOM_SEED},
+               "projection": {
+                   "components": {"lower_better": PROJ_LO_BETTER,
+                                   "higher_better": PROJ_HI_BETTER},
+                   "min_components": MIN_PROJ_COMPONENTS,
+                   "scale": "ERA-equivalent: 1 unit ~= 1 ERA point of "
+                             "quality (higher = better); fit on pre-holdout",
+                   "era_on_proj_slope": {k: v["era_on_proj_slope"]
+                                          for k, v in proj_meta.items()},
+                   "coverage_pre": {k: v["coverage_pre"]
+                                     for k, v in proj_meta.items()},
+                   "coverage_sealed": {k: v["coverage_sealed"]
+                                        for k, v in proj_meta.items()},
+                   "note": "No pitches.parquet locally; composite built from "
+                           "the frame's PIT-safe Statcast-derived trailing "
+                           "columns (FIP/xwOBA/WHIP/BB9/K9-5g/whiff-3g/velo-3g) "
+                           "— the xFIP/SIERA-family fallback."},
                "arms": {}})
 
     oofs: dict[str, pd.DataFrame] = {}
@@ -321,12 +495,17 @@ def main() -> None:
             "edge_sd": round(float((oof["home_expected_runs"] -
                                     oof["away_expected_runs"]).std()), 4),
         }
+        res["sextile_spread_ratio"] = sextile_spread_ratio(oof, gl)
+        res["season_sp_band_gaps"] = season_sp_band_gaps(oof, gl)
+        res["model_pd"] = sp_measurements(oof, gl)["model_pd"]
         record["arms"][name] = res
         out.write_text(json.dumps(record, indent=2) + "\n")
         print(f"    sealed margin CRPS {res['margin_crps_sealed']} | "
               f"totals sealed ECE {res['totals']['metrics_sealed']['ece']} | "
               f"P(win) SD {res['derived_ml']['pwin_sd_sealed']} | "
-              f"edge sd {res['lambda_mean']['edge_sd']}", flush=True)
+              f"edge sd {res['lambda_mean']['edge_sd']} | "
+              f"sextile ratio {res['sextile_spread_ratio']['ratio'] if res['sextile_spread_ratio'] else None}",
+              flush=True)
 
     # Empirical targets + C0 model response (single measurement block).
     if "C0" in oofs and not args.smoke:
