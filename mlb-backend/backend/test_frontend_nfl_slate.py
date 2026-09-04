@@ -2,23 +2,26 @@
 MLB frontend test conventions (test_frontend_markets / test_frontend_todays
 _games) over the committed NFL slate-serve artifact:
 
-  1. Loader date resolution — utils resolves the newest
+  1. STRUCTURAL PARITY with the MLB markets page — the NFL page renders the
+     SAME sections in the SAME order with the SAME tab labels, section
+     headers, history-table schema, empty-state wording and honesty-note
+     convention (source-derived from frontend/markets.py); no per-game
+     "Scheduled Games" hero (MLB renders no per-game content on this page).
+  2. Loader date resolution — utils resolves the newest
      nfl_run_engine_markets_*.csv / nfl_run_engine_monitor_*.json locally.
-  2. Schema round-trip vs the mapping table — every fair-line / grid /
+  3. Schema round-trip vs the mapping table — every fair-line / grid /
      derived column family the helpers read exists on the real artifact,
-     and the spread/totals 3-way identities hold on every row (grid columns
-     are mutually consistent model probabilities, never fabricated).
-  3. Rendering — the run-engine strip prices FAIR lines only (default +
+     and the spread/totals 3-way identities hold on every row.
+  4. Rendering — the run-engine strip prices FAIR lines only (default +
      price-at-line), shows the integer push note, and the ±0.5 stop renders
-     the per-side RAW cover as the main number WITH the grey-italic
-     (ML X%) derived pair; the two diverge by the tie rate on NFL (raw -0.5
-     excludes ties, raw +0.5 includes them) and are never conflated.
-  4. Market-free invariants — no offered/book line value, no shrink column,
-     no market-derived edge is rendered by any NFL strip.
-  5. Empty-state honesty — with no artifact / no decided slate rows the
-     page shows honest notices (research-pinned baseline or nothing), never
-     fabricated slate calibration.
-  6. Sport dispatch — markets.py delegates the NFL branch to the NFL page
+     the per-side RAW cover WITH the grey-italic (ML X%) derived pair
+     (they diverge by the tie rate on NFL — never conflated).
+  5. Market-free invariants — no offered/book line, no shrink column, no
+     market-derived edge is rendered by any NFL strip or page.
+  6. Empty-state honesty — no artifact / no decided slate rows render
+     MLB-shaped honest notices (research-pinned baseline with provenance or
+     nothing); never fabricated slate calibration.
+  7. Sport dispatch — markets.py delegates the NFL branch to the NFL page
      and stops before the MLB content; the MLB branch never touches it.
 
 All pure Python (no Streamlit page context); artifact-dependent tests skip
@@ -28,6 +31,7 @@ runner). Nothing is written to the repo.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import types
 import unittest
@@ -45,6 +49,13 @@ if str(FRONTEND) not in sys.path:
 import nfl_slate_view as sv  # noqa: E402
 
 NFL_DD = ROOT / "nfl-backend" / "data_delivery"
+
+MLB_MARKETS_SRC = (FRONTEND / "markets.py").read_text(encoding="utf-8")
+NFL_MARKETS_SRC = (FRONTEND / "nfl_markets_page.py").read_text(encoding="utf-8")
+
+
+def _norm(src: str) -> str:
+    return re.sub(r"\s+", "", src)
 
 
 def _artifact(glob_pattern: str) -> Path:
@@ -80,6 +91,83 @@ def _synthetic_row(*, fair_spread=5, fair_total=45, mu_h=24.9, mu_a=20.4,
         row[f"p_home_cover_{tag}"] = 0.5 - L * 0.01
         row[f"p_push_{tag}"] = 0.02
     return row
+
+
+class TestMlbStructuralParity(unittest.TestCase):
+    """The NFL page is a STRUCTURAL 1:1 mirror of the MLB markets page:
+    same sections, same order, same tab labels, same history-table schema,
+    same empty-state wording and honesty convention. Source-derived from
+    frontend/markets.py (ground truth), never guessed."""
+
+    def test_tab_labels_identical_and_ordered(self):
+        import nfl_markets_page as page
+        self.assertEqual(page.DIAG_TABS,
+                         ["Distribution", "Relativized", "Pooled lines",
+                          "Game Total Lines", "Run Lines"])
+        mlb_norm = _norm(MLB_MARKETS_SRC)
+        self.assertIn(
+            'st.tabs(["Distribution","Relativized","Pooledlines",'
+            '"GameTotalLines","RunLines",])', mlb_norm,
+            "MLB's diagnostics tabs must be the ground-truth set")
+        nfl_norm = _norm(NFL_MARKETS_SRC)
+        self.assertIn('"Distribution","Relativized","Pooledlines",'
+                      '"GameTotalLines","RunLines"', nfl_norm,
+                      "NFL page must use the identical tab-label set/order")
+
+    def test_section_order_identical(self):
+        headers = ("### Diagnostics",
+                   "### Prediction History — Totals & Run Lines",
+                   "### Run-Line & Totals Monitor")
+        for src, name in ((MLB_MARKETS_SRC, "MLB"), (NFL_MARKETS_SRC, "NFL")):
+            idx = [src.index(h) for h in headers]
+            self.assertEqual(idx, sorted(idx),
+                             f"{name} section order must be Diagnostics → "
+                             "Prediction History → Monitor")
+
+    def test_title_wording_identical(self):
+        self.assertIn("Today's Totals &amp; Run Lines", MLB_MARKETS_SRC)
+        self.assertIn("Today's Totals &amp; Run Lines", NFL_MARKETS_SRC)
+
+    def test_history_table_schema_identical(self):
+        """The fb-table header schema is byte-identical (whitespace-
+        normalized) between the two pages."""
+        import nfl_markets_page as page
+        mlb_run = ("<th>DATE</th><th>MATCHUP</th><th>SCORE (A–H)</th>"
+                   "<th>LINE</th><th>MODEL PICK</th><th>WINNER</th>"
+                   "<th>RESULT</th>")
+        self.assertIn(_norm(mlb_run), _norm(MLB_MARKETS_SRC))
+        self.assertEqual(_norm("<th>" + page.HISTORY_HEADERS + "</th>"),
+                         _norm(mlb_run))
+
+    def test_empty_state_wording_matches_mlb(self):
+        for phrase in ("diagnostics need outcomes",
+                       "Nothing is fabricated in the meantime."):
+            self.assertIn(phrase, MLB_MARKETS_SRC)
+            self.assertIn(phrase, NFL_MARKETS_SRC)
+
+    def test_honesty_note_convention(self):
+        for phrase in ("**Honesty note:**", "no styling hides it"):
+            self.assertIn(phrase, MLB_MARKETS_SRC)
+            self.assertIn(phrase, NFL_MARKETS_SRC)
+
+    def test_no_per_game_hero(self):
+        """MLB renders NO per-game content on the markets page (its
+        docstring: the per-game slate board is UN-RENDERED), so the NFL
+        mirror must not carry the week-selector / 'Scheduled Games'
+        drill-down either."""
+        self.assertNotIn("Scheduled Games", NFL_MARKETS_SRC)
+        self.assertNotIn("nfl_markets_week", NFL_MARKETS_SRC)
+
+    def test_market_free_page_source(self):
+        """The page never reads the offered/shrink column families (the
+        artifact keeps them; the model product does not) and never renders
+        offered-line values. ('edge' wording appears only in the policy
+        notes; the rendered-strip tests assert no market tokens in HTML.)"""
+        for token in ("p_cover_offered", "p_push_offered", "p_over_offered",
+                      "shrink_applied", "spread_line", "total_line"):
+            self.assertNotIn(token, NFL_MARKETS_SRC,
+                             f"page source must not read market token "
+                             f"{token!r}")
 
 
 class TestLoaderResolution(unittest.TestCase):
@@ -325,8 +413,8 @@ class TestHalfStopRawVsDerived(unittest.TestCase):
 
 class TestEmptyStatesHonesty(unittest.TestCase):
     """Streamlit-stubbed page run: no artifact / no decided slate rows
-    renders honest notices (research-pinned baseline with provenance or
-    nothing), never fabricated slate calibration."""
+    renders MLB-shaped honest notices (research-pinned baseline with
+    provenance or nothing), never fabricated slate calibration."""
 
     def _run_page(self, slate, monitor):
         """Run the page under a fake streamlit + fake utils (the page's own
@@ -336,21 +424,10 @@ class TestEmptyStatesHonesty(unittest.TestCase):
         with mock.patch.dict(sys.modules):
             sys.modules.pop("nfl_markets_page", None)
             st = mock.MagicMock()
-            # Widgets return real-ish defaults: the Week selector returns the
-            # frame's first week (so the per-game section renders), and
-            # columns(n) unpacks into n column objects (the page splits its
-            # line pickers across columns like the MLB page).
-            week_val = None
-            if slate is not None and len(slate) and "week" in slate.columns:
-                wk = pd.Series(slate["week"]).dropna()
-                if len(wk):
-                    week_val = wk.iloc[0]
-            st.selectbox.return_value = week_val
-            # Columns unpack into 2 column objects whose selectboxes return a
-            # plain int (the pricing helpers render '—' off-grid — no crash).
-            st.columns.side_effect = lambda n: [
-                mock.MagicMock(**{"selectbox.return_value": 7})
-                for _ in range(n)]
+            st.tabs.side_effect = lambda labels: [mock.MagicMock()
+                                                  for _ in labels]
+            st.columns.side_effect = lambda n: [mock.MagicMock()
+                                                for _ in range(n)]
             utils_fake = types.ModuleType("utils")
             utils_fake.inject_css = lambda *a, **k: None
             utils_fake.format_date_long = lambda d=None, **k: (str(d) if d
@@ -377,11 +454,11 @@ class TestEmptyStatesHonesty(unittest.TestCase):
     def test_no_artifact_shows_honest_states(self):
         st = self._run_page(pd.DataFrame(), None)
         text = self._text(st, "warning", "info", "markdown")
-        self.assertIn("No NFL run-engine markets artifact", text)
-        self.assertIn("No diagnostics baseline", text)
-        self.assertIn("No NFL run-engine monitor artifact", text)
-        # No fabricated calibration: with an empty baseline the metric grid
-        # (Covers ECE / totals ECE / derived-ML) never renders.
+        self.assertIn("No run-engine markets artifact for", text)
+        self.assertIn("No decided OOF rows in nfl_run_engine_markets", text)
+        self.assertIn("No run-engine monitor artifact for", text)
+        # No fabricated calibration: with an empty baseline the tabs render
+        # the honest info, never a metric grid with zeroed numbers.
         self.assertNotIn("Covers ECE", text)
 
     def test_artifact_without_decided_rows_shows_honest_states(self):
@@ -389,14 +466,21 @@ class TestEmptyStatesHonesty(unittest.TestCase):
         has_scores = {"home_score", "away_score"}.issubset(df.columns)
         if has_scores and df[["home_score", "away_score"]].notna().any().any():
             self.skipTest("artifact already carries decided rows")
-        # Light slice (one week) — same honest no-decided-rows branch.
-        df = df[df["week"] == df["week"].iloc[0]].reset_index(drop=True)
         mon = json.loads(_artifact("nfl_run_engine_monitor_*.json").read_text())
         st = self._run_page(df, mon)
-        text = self._text(st, "warning", "info", "markdown", "caption")
-        self.assertIn("No decided slate rows", text)
-        # The research-pinned OOF baseline is labeled with provenance.
+        text = self._text(st, "warning", "info", "markdown", "caption",
+                          "metric")
+        # MLB-shaped decided-empty warnings + research-pinned stand-in.
+        self.assertIn("No decided OOF rows in nfl_run_engine_markets", text)
+        self.assertIn("No decided OOF rows in the run-engine markets "
+                      "artifact", text)
+        # Baseline metrics + provenance render (never fabricated slate
+        # calibration).
+        self.assertIn("Covers ECE (pooled OOF)", text)
         self.assertIn("research-pinned", text.lower())
+        self.assertIn("Provenance:", text)
+        self.assertIn("No slate history yet (first build starts empty).",
+                      text)
         baseline = mon.get("oof_baseline_research_pinned") or {}
         self.assertTrue(baseline, "monitor baseline missing")
 
@@ -421,7 +505,7 @@ class TestSportDispatch(unittest.TestCase):
     DISPATCH_MARKER = 'if utils.get_sport() == "nfl":'
 
     def test_dispatch_precedes_mlb_content(self):
-        src = (FRONTEND / "markets.py").read_text(encoding="utf-8")
+        src = MLB_MARKETS_SRC
         self.assertIn(self.DISPATCH_MARKER, src)
         self.assertIn("nfl_markets_page.run()", src)
         self.assertIn("st.stop()", src)
@@ -432,7 +516,7 @@ class TestSportDispatch(unittest.TestCase):
     def _exec_dispatch_head(self, sport: str):
         """Exec only the module statements up to (excluding) the MLB content
         (the utils.inject_css() line), with utils.get_sport fixed to sport."""
-        src = (FRONTEND / "markets.py").read_text(encoding="utf-8")
+        src = MLB_MARKETS_SRC
         head = src[:src.index("utils.inject_css()")]
         utils_fake = types.ModuleType("utils")
         utils_fake.get_sport = lambda: sport
