@@ -1,0 +1,88 @@
+{
+  "record": "nfl_run_engine_diagnostics_v2",
+  "target": "NFL run-engine drift/coverage parity (MODEL WEIGHT column + MLB-exact coverage render) and the Spread Lines diagnostics rework (rename, negative favorite-anchored selector, -0.5 stop, deep grid to -24.0)",
+  "frame_sha256": "3e8c8a510f04",
+  "wired": "2026-09-04",
+  "scope": "frontend (markets pages, both sports) + NFL backend emitters (nfl_explainability.py, nfl_slate_engine.py grid) + tests + records. No engine/pricing/feature-schema change (FEATURE_COLUMNS byte-untouched); the -0.5 stop stays excluded from the committed record grid (unchanged convention). MLB changes limited to the tab rename + negative sign convention.",
+
+  "ground_truth_weight_source": {
+    "mlb_mechanism": "MLB's run_engine_feature_drift_*.csv ships weight_pct EMPTY — the emitter passes model_weights=None. The MODEL WEIGHT column is joined by the FRONTEND at render time: markets.py _render_run_engine_drift reads model_monitor_*.json -> feature_drift[] -> weight_pct per feature name (the moneyline blend's per-feature weight, e.g. win_pct_diff 2.37%, elo_diff 2.69%). The caption says it is 'blend-weighted feature importance from the shared feature-drift analysis'.",
+    "nfl_source": "the NFL moneyline monitor (nfl_model_monitor_YYYYMMDD.json -> feature_drift[] -> weight_pct) — already shipped by the daily moneyline phase with real values (elo_diff 17.279, win_pct_diff 10.157, ewm_ypp_diff 13.041, ewm_net_pts_diff 12.889, ...). nfl_explainability.py reads it by target_date; weight_pct is None only where the source has no entry (null-only-where-absent, never hardcoded).",
+    "emitted_values_20260904": {
+      "elo_diff": 17.279, "win_pct_diff": 10.157, "rest_days_diff": 5.119,
+      "is_dome_home": 5.371, "ewm_net_pts_diff": 12.889, "ewm_ypp_diff": 13.041,
+      "pace_plays_min_diff": 7.994, "rest_short_diff": 3.338, "div_game": 4.156,
+      "travel_miles_diff": 8.992, "altitude_home": 5.787, "prime_time": 5.877
+    }
+  },
+
+  "ground_truth_coverage_render": {
+    "mlb_caption": "Same windows as the moneyline drift; statuses on noise-adjusted PSI",
+    "mlb_sub_label": "Share of games in each drift window with a measured value — 0 starved · 1 low",
+    "mlb_columns": "FEATURE | WINDOW | GAMES | %MEASURED | %NON-NULL | STATUS",
+    "mlb_annotations": "under %NON-NULL a '55 default-zero' style sub-annotation (n_default_zero count) when > 0; status pills OK/LOW/STARVED at 80%/25% measured thresholds",
+    "nfl_mirror": "nfl_market_diagnostics.render_run_engine_coverage emits the identical caption strings, sub-label, columns, and the n_default_zero sub-annotation (0 on NFL — no weather-default-signature feature; the annotation renders only when non-zero, matching MLB)"
+  },
+
+  "spread_lines_rework": {
+    "rename": "'Run Lines' -> 'Spread Lines' — ONE shared constant market_diagnostics.DIAG_TABS = ['Distribution', 'Relativized', 'Pooled lines', 'Game Total Lines', 'Spread Lines'] rendered by BOTH sports' markets pages (structural-parity tests pin the constant, not per-page literals)",
+    "selector": "favorite-anchored NEGATIVE values (leading minus: -0.5, -1.0, -1.5, ...) in 0.5 steps; MLB keeps its current depth (-0.5 .. -4.0, RUN_LINE_CHOICES already negative), NFL = 48 lines -0.5 .. -24.0 plus 'All = own fair line' default",
+    "minus_half_stop": "-0.5 has no p_home_cover_m0_5 grid column — it prices from the P(margin > 0.5) = win-probability identity (p_home_win_derived), the same identity the card's ±0.5 stop uses. View-only; the committed record grid excludes it (unchanged convention). Its calibration curve IS the derived moneyline curve.",
+    "deep_grid_backend": "nfl_slate_engine.SPREAD_COVER_MAGS = 0.5..24.0 in 0.5 steps (48 magnitudes); additive to SPREAD_INT_LINES: half-integers (0.5..23.5) + integers 15..24 get both-sign p_home_cover_<±L> (and p_push_<±L> for the new integers); integers 1..14 already exist via SPREAD_INT_LINES (identical values, never re-written). Naming: '-' -> 'm', '.' -> '_' (p_home_cover_m15, p_home_cover_m15_5, ..., p_home_cover_m24).",
+    "deep_line_honesty_caption": "NFL tab shows an honesty caption for lines deeper than -20.0: sealed n < ~20 at those depths (the 2025 sealed set is 285 games; only a handful of games have such deep offers) — mirrors the repo's honest-state philosophy"
+  },
+
+  "spread_depth_delta_math": {
+    "nfl_margin_sigma": 13.2,
+    "mlb_margin_sigma": 4.5,
+    "rationale": "NFL margin σ ≈ 13.2 vs MLB ≈ 4.5 — a -8.0 run line on MLB already reaches ~3-4% cover probability (its ±8 depth), so the NFL equivalent needs far deeper lines to cover the same probability range. The NFL grid extends to -24.0 (48 stops).",
+    "nfl_cover_rate_table_20260904": {
+      "mean_p_cover_m8": 0.7434, "mean_p_cover_m14": 0.8608,
+      "mean_p_cover_m20": 0.9346, "mean_p_cover_m24": 0.9637
+    },
+    "delta_documented_not_flattened": "MLB depth is NOT extended — the delta is documented here, not flattened"
+  },
+
+  "wiring": {
+    "nfl_explainability.py": "compute_run_engine_feature_drift gains the weight_pct join from nfl_model_monitor_{date}.json -> feature_drift[] -> weight_pct (by feature name); module docstring documents the source chain so no implementer re-invents it",
+    "nfl_slate_engine.py": "SPREAD_COVER_MAGS + both-sign emission (grid columns are additive; fair-line columns untouched)",
+    "run_nfl_markets_backfill.py": "g5 gate's grid_cols extended to the new deep columns; Step 4 drift call passes the monitor weight source",
+    "frontend/market_diagnostics.py": "DIAG_TABS shared constant (rename lives in ONE place)",
+    "frontend/markets.py": "MLB page renders st.tabs(diag.DIAG_TABS) — MLB behavior otherwise unchanged",
+    "frontend/nfl_market_diagnostics.py": "negative selector constants (DEFAULT_RUN_MAG = -3.0, NFL_RUN_MAGS 48 stops, MLB_RUN_MAGS preserved), _col naming fix for away favorites (artifact 'm' prefix — latent p_home_cover_-3 bug fixed), _favorite_cover/runline_monitor_stats magnitude parsing with the 0.5 branch, drift renderer MODEL WEIGHT column, coverage renderer MLB-exact captions/annotations, fold_slate_history helper (Task 2)",
+    "frontend/nfl_markets_page.py": "Spread Lines tab (negative selector + deep honesty caption), run-line calibration card selector (Monitor) negative, fit-panel mirror (Task 2), rolling-history fold (Task 2)",
+    "frontend/utils.py": "load_nfl_run_engine_monitor_series (rolling-history source, Task 2)"
+  },
+
+  "tests": [
+    "test_frontend_markets.py — shared-constant pins updated: 'Game Total Lines' asserted in market_diagnostics.py source (labels moved to DIAG_TABS); 'Run Lines' absent from the DIAG_TABS VALUE (module source legitimately mentions it in comments)",
+    "test_market_diagnostics.py — subprocess AppTest pins the renamed 'Spread Lines' tab label",
+    "test_frontend_nfl_slate.py — Spread Lines rename pins, -0.5 presence + 48 NFL stops + negative signs + 0.5 spacing, -0.5 cover == derived-ML identity (4dp pooled rounding), drift MODEL WEIGHT populated from the moneyline monitor (non-null values, e.g. elo_diff 17.279), coverage render caption/sub-label parity, deep-line columns present + monotone, fit-panel anatomy + rolling-history empty/folded states (Task 2)",
+    "nfl-backend/backend/test_nfl_explainability.py — weight_pct populated from the monitor source; null only where absent"
+  ],
+
+  "acceptance_evidence": {
+    "emission": "run_nfl_markets_backfill.py, 482s, EXIT=0 — all 6 gates pass (g1 actuals+coverage, g2 determinism, g3 record pins, g4 leakage, g5 schema, g6 pool untouched)",
+    "pins_reproduced": "rounds {'home': 20, 'away': 23}, away|bias|21-23 = 0.4083, pooled derived-ML ll/auc/ece/brier = 0.6365/0.695/0.0435/0.2221, sealed = 0.6535/0.6782/0.1009/0.2299 — identical to the record",
+    "emitted_family_20260904": [
+      "nfl_run_engine_markets_20260904.csv (272 slate + 1376 oof rows, 337 cols — 48 deep cover columns added: p_home_cover_m15..m24 + half-integers + both signs)",
+      "run_engine_feature_drift_20260904.csv (12 features, weight_pct populated from the moneyline monitor; all statuses INSUFFICIENT — playoff current window n=11 < 30, MLB's own guard)",
+      "run_engine_feature_coverage_20260904.csv (24 rows, all OK, exact MLB columns + n_default_zero)",
+      "nfl_run_engine_markets_20260904.meta.json / nfl_run_engine_monitor_20260904.json / nfl_slate_serve_20260904.json"
+    ],
+    "deep_line_monotone": "p_home_cover_m1 .. p_home_cover_m24 non-decreasing on every OOF row (P(margin > -L) rises toward 1 as the favorite line deepens; sample 0.5456 -> 0.9710)",
+    "suites": {
+      "test_frontend_nfl_slate": "56/56 OK",
+      "test_frontend_markets+test_market_diagnostics": "279 frontend tests: only the 2 pre-existing TestFitPanel real-artifact chi2-drift failures (proven failing at clean HEAD via worktree baseline) + 6 skips; test_market_diagnostics 123 OK (2 skips)",
+      "full_nfl_backend_suite": "441 tests — failure set BYTE-IDENTICAL to the clean-HEAD worktree baseline (2 failures + 20 errors, 19 unique names, zero only-in-current) — zero new; my +20 v2 tests all green"
+    }
+  },
+
+  "judgment_calls": [
+    "1_weight_source — the NFL moneyline monitor's feature_drift[] weight_pct is the real, shipped source (the exact analog of what MLB's renderer joins). No hardcoded values, ever.",
+    "2_deep_grid_depth — NFL extends to -24.0 (48 stops) because margin σ ≈ 13.2 (vs MLB 4.5); the cover-rate table documents the equivalence. MLB depth is NOT extended — documented delta, not flattened.",
+    "3_minus_half_stop — the -0.5 stop prices from the P(margin > 0.5) = win-probability identity (same as the card); view-only, excluded from the committed record grid.",
+    "4_rename_scope — MLB changes are exactly the rename + the shared-constant plumbing; no MLB grid/depth change.",
+    "5_feature_cache_recovery — the canonical /tmp feature cache (nfl_features_fb0a01b655ee.parquet) was swept by a temp cleaner; recovered byte-exact from the Recycle Bin to reproduce the record pins (rounds 20/23, derived-ML). Documented so future runs know the cache is load-bearing."
+  ]
+}

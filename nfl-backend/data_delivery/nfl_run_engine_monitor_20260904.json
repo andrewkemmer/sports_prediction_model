@@ -1,7 +1,7 @@
 {
   "artifact": "nfl_run_engine_monitor_20260904.json",
   "target_date": "20260904",
-  "as_of_utc": "2026-09-04T15:17:59.035308+00:00",
+  "as_of_utc": "2026-09-04T17:22:10.150725+00:00",
   "oof_baseline_research_pinned": {
     "covers_ece_pooled": 0.078,
     "totals_ece_pooled_own": 0.087,
@@ -121,7 +121,9 @@
       "n_features": 12,
       "n_warn": 0,
       "n_alert": 0,
-      "n_insufficient": 12
+      "n_insufficient": 12,
+      "n_with_weight": 12,
+      "weight_source": "nfl_model_monitor_20260904.json -> feature_drift[] -> weight_pct (moneyline blend weights, percent; null only where the source has no weight)"
     },
     "coverage": {
       "file": "run_engine_feature_coverage_20260904.csv",

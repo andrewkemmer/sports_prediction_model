@@ -3,11 +3,13 @@ over the NFL decided OOF store (``kind == "oof"`` rows of
 ``nfl_run_engine_markets_YYYYMMDD.csv``).
 
 The NFL artifact carries per game: the mu pair, fair spread/total (integer
-medians of the margin/total PMFs), FULL integer grids (``p_home_cover_<±L>``
-/ ``p_push_<±L>`` over −14…+14, ``p_over_<U>`` / ``p_under_<U>`` /
-``p_push_<U>`` over 24…66), the derived-ML pair, the raw ±0.5 pair, shrink
-columns (flagged), and ACTUALS (home/away score, total, margin) + honest
-outcomes (``y_over_fair`` / ``y_cover_fair`` / ``y_home_win`` …).
+medians of the margin/total PMFs), FULL grids (``p_home_cover_<±L>`` /
+``p_push_<±L>`` over −14…+14 PLUS the extended favorite-magnitude grid
+0.5…24.0 in 0.5 steps — 48 magnitudes, both signs; ``p_over_<U>`` /
+``p_under_<U>`` / ``p_push_<U>`` over 24…66), the derived-ML pair, the raw
+±0.5 pair, shrink columns (flagged), and ACTUALS (home/away score, total,
+margin) + honest outcomes (``y_over_fair`` / ``y_cover_fair`` /
+``y_home_win`` …).
 
 This module mirrors MLB's diagnostics API — same dict schemas, same table
 conventions, same captions — on the NFL grids. The chart builders
@@ -23,7 +25,10 @@ NFL-specific semantics (documented deltas, not approximations):
     same convention MLB uses for its own whole-number lines).
   * The favorite side of a run line resolves from the derived-ML pair
     (P(H>A)/(1−P(tie)) ≥ 0.5 ⇒ home favorite); cover = P(margin > m) when
-    the favorite is home, P(margin < −m) when away, at magnitude m.
+    the favorite is home, P(margin < −m) when away, at magnitude m. The
+    −0.5 stop prices from the P(margin > 0.5) = win-probability identity
+    (ties are dead mass excluded from both sides), so its 2-way curve IS
+    the derived-ML curve.
   * Fair lines come from the artifact's ``fair_total`` / ``fair_spread``
     columns (model medians — never the offered lines).
 """
@@ -38,18 +43,31 @@ import pandas as pd
 import streamlit as st
 
 import utils
-from market_diagnostics import (LOW_N, OWN_LINE_EDGES, OWN_LINE_LABELS,  # noqa: F401
+from market_diagnostics import (DIAG_TABS, LOW_N,  # noqa: F401
+                                OWN_LINE_EDGES, OWN_LINE_LABELS,
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 calibration_curve, chart_calibration,
                                 chart_distribution, chart_game_total_curve)
 
 # Integer-support grids (mirror of the slate engine's TOTAL_INT_LINES /
-# SPREAD_INT_LINES — the artifact's own column families).
+# SPREAD_INT_LINES + the extended SPREAD_COVER_MAGS — the artifact's own
+# column families). SPREAD_GRID stays the integer grid (the artifact's
+# p_home_cover_<±L>/p_push_<±L> integer columns); the Spread Lines tab
+# selector prices ANY magnitude in SPREAD_LINE_CHOICES below.
 TOTAL_GRID = list(range(24, 67))          # 24 … 66 (points totals)
 SPREAD_GRID = list(range(-14, 15))        # −14 … +14 (margin thresholds)
-RUN_LINE_MAGS = [1, 2, 3, 4, 5, 6, 7, 8]  # favorite magnitude selectbox
-DEFAULT_RUN_MAG = 3
+# Favorite-side line choices for the Spread Lines tab + the run-line
+# calibration card: favorite-anchored NEGATIVE values, 0.5 steps, -0.5 …
+# -24.0 (48 lines — the NFL equivalent of MLB's -0.5 … -4.0 at the
+# NFL's ~3x larger margin σ; see the diagnostics-v2 record for the
+# cover-rate table). The -0.5 stop prices from the P(margin > 0.5) =
+# win-probability identity (its 2-way curve IS the derived-ML curve).
+SPREAD_LINE_CHOICES = [round(-0.5 - 0.5 * i, 1) for i in range(48)]
+DEFAULT_RUN_MAG = -3.0   # default selector line (favorite −3)
 DEFAULT_TOTAL = 46
+# Deep-line honesty threshold: beyond −20 the sealed evidence is n < ~20
+# (see the diagnostics-v2 record) — the page adds an honesty caption.
+DEEP_LINE_CAPTION_MAG = 20.0
 
 # Relativized offsets (integers — NFL totals are integer-support).
 OFFSET_EDGES = [-3, -2, -1, 0, 1, 2, 3]
@@ -62,7 +80,15 @@ OWN_LINE_LABELS_ = OWN_LINE_LABELS
 
 
 def _col(base: str, x: float) -> str:
-    return f"{base}_{int(x)}"
+    """Artifact grid column tag — MLB-style (mirror of the slate engine's
+    ``_fname``): '-' -> 'm', '.' -> '_', and an integral line drops its
+    trailing '.0' (integer grids). ``p_home_cover_m3`` = P(margin > -3);
+    ``p_home_cover_0_5`` = P(margin > 0.5); ``p_home_cover_3`` =
+    P(margin > 3)."""
+    s = str(float(x))
+    if s.endswith(".0"):
+        s = s[:-2]
+    return f"{base}_{s.replace('-', 'm').replace('.', '_')}"
 
 
 def decided_rows(markets: Optional[pd.DataFrame]) -> pd.DataFrame:
@@ -325,32 +351,65 @@ def _favorite_cover(decided: pd.DataFrame, mag: float
                     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """(cover_prob, dog_prob, push_prob, is_home_fav) at favorite magnitude
     mag — the favorite's 2-way P(cover) denominator = cover + dog (pushes
-    folded out). Favorite = derived-ML side (≥ 0.5 home, else away)."""
+    folded out). Favorite = derived-ML side (≥ 0.5 home, else away).
+
+    mag may be a half-integer (0.5 … 23.5): the -0.5 stop prices from the
+    P(margin > 0.5) = win-probability identity — cover = P(favored wins
+    outright), dog = P(other side wins outright), and the TIE (margin == 0)
+    is dead mass excluded from both, so the 2-way predicted
+    cover/(cover+dog) = P(H>A)/(P(H>A)+P(A>H)) = the derived ML by
+    construction. Integer magnitudes keep the push-band semantics
+    (push = P(margin == ±m))."""
     hw = decided["derived_ml"].to_numpy(float)
     is_home = np.isfinite(hw) & (hw >= 0.5)
-    m = int(mag)
+    m = float(mag)
     cov = np.full(len(decided), np.nan)
     dog = np.full(len(decided), np.nan)
     psh = np.zeros(len(decided))
+    whole = float(m).is_integer()
     for i in range(len(decided)):
         if not np.isfinite(hw[i]):
             continue
+        if m == 0.5:
+            # -0.5 stop: ties (margin == 0) are dead mass — exclude from
+            # both sides so the 2-way equals the derived ML.
+            if is_home[i]:
+                hc = _col("p_home_cover", 0.5)
+                if hc not in decided.columns:
+                    continue
+                cov[i] = float(decided[hc].iloc[i])   # P(margin > 0.5)
+                ma = _col("p_home_cover", -0.5)
+                if ma not in decided.columns:
+                    continue
+                dog[i] = 1.0 - float(decided[ma].iloc[i])  # P(margin < -0.5)
+            else:
+                ma = _col("p_home_cover", -0.5)
+                if ma not in decided.columns:
+                    continue
+                cov[i] = 1.0 - float(decided[ma].iloc[i])  # P(margin < -0.5)
+                hc = _col("p_home_cover", 0.5)
+                if hc not in decided.columns:
+                    continue
+                dog[i] = float(decided[hc].iloc[i])       # P(margin > 0.5)
+            continue
         if is_home[i]:
             hc = _col("p_home_cover", m)
-            hp = _col("p_push", m)
-            if hc not in decided.columns or hp not in decided.columns:
+            hp = _col("p_push", m) if whole else None
+            if hc not in decided.columns or (whole and hp not in decided.columns):
                 continue
             cov[i] = float(decided[hc].iloc[i])
-            dog[i] = 1.0 - cov[i] - float(decided[hp].iloc[i])
-            psh[i] = float(decided[hp].iloc[i])
+            push_v = float(decided[hp].iloc[i]) if whole else 0.0
+            psh[i] = push_v
+            dog[i] = 1.0 - cov[i] - push_v
         else:
             hc = _col("p_home_cover", -m)
-            hp = _col("p_push", -m)
-            if hc not in decided.columns or hp not in decided.columns:
+            hp = _col("p_push", -m) if whole else None
+            if hc not in decided.columns or (whole and hp not in decided.columns):
                 continue
             ph = float(decided[hc].iloc[i])
-            psh[i] = float(decided[hp].iloc[i])
-            cov[i] = 1.0 - ph - psh[i]     # away covers: margin < −m
+            push_v = float(decided[hp].iloc[i]) if whole else 0.0
+            psh[i] = push_v
+            cov[i] = 1.0 - ph - push_v     # away covers: margin < −m
             dog[i] = ph
     return cov, dog, psh, is_home
 
@@ -708,10 +767,17 @@ def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
 
 def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
     """Run-engine feature drift — same PSI table as the MLB monitor over
-    the NFL run engine's own 12-pool features. No MODEL WEIGHT column
-    (the NFL run engine has no per-model blend weight artifact); when the
-    CSV is absent the MLB empty-state wording renders (nothing
-    fabricated)."""
+    the NFL run engine's own 12-pool features, WITH the MODEL WEIGHT
+    column (layout parity with the Model Monitor's Feature Drift Analysis
+    table). MODEL WEIGHT = per-feature blend-weighted importance from the
+    shared moneyline feature-drift analysis (``nfl_model_monitor_*.json``
+    -> ``feature_drift`` -> ``weight_pct``), which the daily emitter now
+    writes into the drift CSV's ``weight_pct`` column (MLB renders the
+    same join at render time; the NFL emitter resolves it at emission —
+    same source, never hardcoded). A feature with no weight renders '—';
+    the column is omitted entirely when no weight data is available
+    (parity with the monitor's ``has_weights`` gate). When the CSV is
+    absent the MLB empty-state wording renders (nothing fabricated)."""
     st.markdown("### Run-Engine Feature Drift (PSI)")
     if drift is None or drift.empty:
         st.info("No run-engine drift data for this date "
@@ -719,8 +785,25 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
                 "run).")
         return
     records = drift.to_dict("records")
+    # MODEL WEIGHT per row — every cell is formatted by the SAME helper the
+    # Model Monitor uses (utils.feature_weight_pct), so the column is
+    # byte-identical to MLB's. Source: the CSV's own weight_pct column,
+    # populated by the emitter from the moneyline monitor. CSV empties parse
+    # as NaN (NOT None) — treat any non-finite value as absent so a
+    # pre-weight artifact renders without the column (MLB's has_weights
+    # gate), never as "nan%".
+    def _weight(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if np.isfinite(f) else None
+
+    weight_pcts = [_weight(r.get("weight_pct")) for r in records]
+    has_weights = any(w is not None for w in weight_pcts)
+    weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
-    for r in records:
+    for r, w in zip(records, weight_pcts):
         psi = r.get("psi", 0.0)
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
@@ -732,6 +815,8 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
                    if n_base is not None and n_cur is not None else "")
         label = utils.describe_feature(r.get("feature", ""), sport="nfl") \
             or r.get("feature", "")
+        weight_cell = (f"<td>{utils.feature_weight_pct({'weight_pct': w})}</td>"
+                       if has_weights else "")
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
@@ -740,6 +825,7 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
             f"{samples}</span></td></tr>")
@@ -748,14 +834,16 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
-            <th>PSI</th><th>STATUS</th></tr></thead>
+            <th>PSI</th>{weight_header}<th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the decided-store calibration; statuses on
-          noise-adjusted PSI.
+          Same windows as the moneyline drift; statuses on noise-adjusted PSI.
           INSUFFICIENT = window too small to judge drift.
+          MODEL WEIGHT = blend-weighted feature importance from the shared
+          feature-drift analysis (run engine has no per-model weight; '—' = no
+          weight for this feature).
         </div>
         """,
         unsafe_allow_html=True,
@@ -764,9 +852,11 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
 
 def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
     """Run-engine feature coverage — the same measured/non-null table as
-    the MLB monitor over the NFL run engine's 12-pool features. When the
-    CSV is absent the MLB empty-state wording renders (nothing
-    fabricated)."""
+    the MLB monitor over the NFL run engine's 12-pool features, with MLB's
+    EXACT caption strings, column headers (FEATURE | WINDOW | GAMES |
+    % MEASURED | % NON-NULL | STATUS), sub-annotations (default-zero count
+    under % NON-NULL) and status pills. When the CSV is absent the MLB
+    empty-state wording renders (nothing fabricated)."""
     st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
     if cov is None or cov.empty:
         st.info("No run-engine coverage data for this date "
@@ -792,60 +882,91 @@ def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
         unsafe_allow_html=True)
     show_starved_only = n_starved + n_low > 0
     rows = []
+    shown = 0
     for r in cov_sorted:
-        if show_starved_only and r.get("status") == "OK":
-            continue
         status = r.get("status", "OK")
+        if show_starved_only and status == "OK" and shown >= 12:
+            continue
+        pct_m = float(r.get("pct_measured", 0.0))
+        pct_n = float(r.get("pct_nonnull", 0.0))
+        n_def = int(r.get("n_default_zero", 0) or 0)
+        color = utils.RED if status == "STARVED" else (
+            utils.AMBER if status == "LOW_COVERAGE" else utils.TEXT)
         pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn",
                     "STARVED": "alert"}.get(status, "ok")
-        pct = r.get("pct_measured", 0.0)
-        color = (utils.RED if pct < 25 else
-                 utils.AMBER if pct < 80 else "#4ADE80")
-        label = utils.describe_feature(r.get("feature", ""), sport="nfl") \
-            or r.get("feature", "")
+        default_cell = (
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
+            f"margin-top:1px;'>{n_def} default-zero</div>" if n_def else "")
         rows.append(
             f"<tr>"
-            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
-            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
-            f"margin-top:1px;'>{label}</div></td>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}</td>"
             f"<td>{r.get('window','')}</td>"
             f"<td>{r.get('n_games','—')}</td>"
-            f"<td>{r.get('n_nonnull','—')}</td>"
-            f"<td style='color:{color};font-weight:700;'>{pct}%</td>"
-            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
-            f"</td></tr>")
-    caption = ("Highlighting only low-coverage windows." if show_starved_only
-               else "All windows fully measured.")
+            f"<td style='color:{color};font-weight:700;'>{pct_m:.0f}%</td>"
+            f"<td>{pct_n:.0f}%{default_cell}</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span></td>"
+            f"</tr>")
+        shown += 1
+    n_hidden = len(cov_sorted) - shown
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <table class="fb-table">
             <thead><tr><th>FEATURE</th><th>WINDOW</th><th>GAMES</th>
-            <th>NON-NULL</th><th>MEASURED</th><th>STATUS</th></tr></thead>
+            <th>% MEASURED</th><th>% NON-NULL</th><th>STATUS</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          {caption} n_default_zero is always 0 on NFL (no default-signature
-          feature exists; MLB's weather-default special case has no NFL
-          counterpart).
+          % MEASURED = real observations only (default-filled values excluded);
+          % NON-NULL includes them. STARVED &lt;25% measured, LOW_COVERAGE &lt;80%.
+          {f"{n_hidden} healthy feature-window pairs hidden." if n_hidden > 0 else ""}
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
+def fold_slate_history(monitors: list[dict]) -> dict[str, list[dict]]:
+    """Fold the dated monitors' accumulating slate-history into per-card
+    series (the MLB ``rolling`` dict shape: ``{card_key: [points]}``).
+
+    Each dated ``nfl_run_engine_monitor_<date>.json`` ships its own
+    ``slate_history`` list (accumulating across runs — each entry is a
+    per-card summary point carrying ``card`` (one of the winner-card keys:
+    ``over_under`` / ``run_line`` / ``derived_ml``) plus the metric fields
+    ``date``, ``ece_calibrated``, ``brier``, ``logloss``,
+    ``predicted_mean``, ``n`` — the MLB rolling-point shape). The fold
+    concatenates every dated file's entries newest-first and groups by
+    ``card``; entries without a ``card`` key are ignored (never fabricated,
+    never guessed). Empty input -> empty dict -> the page renders MLB's
+    first-build empty-state wording."""
+    out: dict[str, list[dict]] = {}
+    for mon in monitors or []:
+        for entry in mon.get("slate_history") or []:
+            card = entry.get("card") if isinstance(entry, dict) else None
+            if not card:
+                continue
+            out.setdefault(str(card), []).append(entry)
+    return out
+
+
 def runline_monitor_stats(decided: pd.DataFrame,
                           mag: float) -> dict[str, Any]:
     """Interactive Run Line card stats (MLB mirror): at favorite magnitude
     ``mag`` pick the DERIVED-ML favorite; win_rate = how often that side
-    covers at the line, 2-way no-push (margin == ±m pushes excluded)."""
+    covers at the line, 2-way no-push. ``mag`` may be a half-integer: the
+    -0.5 stop uses the win-probability identity (cover = P(favored wins
+    outright), dog = P(other side wins outright), ties are dead mass — the
+    2-way equals the derived ML); integer magnitudes keep the push-band
+    semantics (margin == ±m pushes excluded)."""
     out = {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
            "win_rate": None, "sides": {}}
     if not len(decided) or "margin" not in decided.columns \
             or "derived_ml" not in decided.columns:
         return out
-    m = int(mag)
+    m = float(mag)
+    whole = float(m).is_integer()
     sides = {"home": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0},
              "away": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0}}
     n_wins = n_losses = n_pushes = 0
@@ -856,14 +977,30 @@ def runline_monitor_stats(decided: pd.DataFrame,
             continue
         home_fav = hw >= 0.5
         side_name = "home" if home_fav else "away"
-        if home_fav:
-            cov = _fnum(r, f"p_home_cover_{m}")
-            push_p = _fnum(r, f"p_push_{m}")
+        if m == 0.5:
+            hc = _col("p_home_cover", 0.5)
+            ma = _col("p_home_cover", -0.5)
+            if hc not in decided.columns or ma not in decided.columns:
+                continue
+            cov_h = _fnum(r, hc)                 # P(margin > 0.5)
+            dog_h = 1.0 - _fnum(r, ma)           # P(margin < -0.5)
+            cov = cov_h if home_fav else dog_h
+            dog = dog_h if home_fav else cov_h
+            push_p = 0.0
         else:
-            ph = _fnum(r, f"p_home_cover_{-m}")
-            push_p = _fnum(r, f"p_push_{-m}")
-            cov = 1.0 - ph - push_p
-        dog = 1.0 - cov - push_p
+            hc = _col("p_home_cover", m)
+            ma = _col("p_home_cover", -m)
+            if hc not in decided.columns or ma not in decided.columns:
+                continue
+            if home_fav:
+                cov = _fnum(r, hc)
+                push_p = _fnum(r, _col("p_push", m)) if whole else 0.0
+                dog = 1.0 - cov - push_p
+            else:
+                ph = _fnum(r, ma)
+                push_p = _fnum(r, _col("p_push", -m)) if whole else 0.0
+                cov = 1.0 - ph - push_p
+                dog = ph
         if not (cov + dog) > 0:
             continue
         p2 = cov / (cov + dog)

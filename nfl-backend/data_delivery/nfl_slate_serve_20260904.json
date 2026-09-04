@@ -1,7 +1,7 @@
 {
   "record": "nfl_markets_backfill",
   "target_date": "20260904",
-  "written_utc": "2026-09-04T15:17:59.284485+00:00",
+  "written_utc": "2026-09-04T17:22:10.571245+00:00",
   "frame_sha256": "3e8c8a510f04",
   "scope": "run-engine decided-history connector: decided OOF store through the slate emitter's schema + actuals, one dated markets artifact (kinds slate + oof), MLB mirror. This shared core is wired into master_pipeline Phase 3b (daily emission); the CLI remains the standalone/backfill entrypoint. FEATURE_COLUMNS / served 12-pool untouched",
   "config": {
@@ -156,7 +156,9 @@
       "n_features": 12,
       "n_warn": 0,
       "n_alert": 0,
-      "n_insufficient": 12
+      "n_insufficient": 12,
+      "n_with_weight": 12,
+      "weight_source": "nfl_model_monitor_20260904.json -> feature_drift[] -> weight_pct (moneyline blend weights, percent; null only where the source has no weight)"
     },
     "coverage": {
       "file": "run_engine_feature_coverage_20260904.csv",

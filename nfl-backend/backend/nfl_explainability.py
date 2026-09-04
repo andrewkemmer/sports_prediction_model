@@ -24,6 +24,17 @@ column-for-column with MLB:
           pct_measured, n_default_zero, status
           (OK / LOW_COVERAGE / STARVED by measured share)
 
+``weight_pct`` (MODEL WEIGHT) comes from the NFL MONEYLINE monitor's
+per-feature blend weights (``nfl_model_monitor_YYYYMMDD.json`` ->
+``feature_drift[]`` -> ``weight_pct``) — the exact source MLB's drift
+renderer joins at render time (``model_monitor_*.json`` -> ``feature_drift``
+-> ``weight_pct``). The NFL run engine has no per-model blend-weight
+artifact either, so run-engine feature names map onto the shared moneyline
+weights; a feature absent from the monitor renders '—' / stays None. When
+the monitor file is missing at emission time, the column is all-None
+(MLB's own CSV carries it empty too — the NFL emitter is a documented
+superset, populated from a real source, never hardcoded).
+
 Windows (MLB mirror, sport-adjusted): drift compares an ADJACENT current
 vs baseline window over DECIDED games ONLY (never slate rows — pre-game
 rows carry forward-looking PIT state and would distort PSI; the NFL
@@ -39,11 +50,6 @@ instead of emitting an empty table. baseline = strictly-prior decided
 tail(max(3 * len(current), 250)), chronological. This divergence (anchor
 on newest decided gameday, 28-day window) is documented in the wiring
 record so the NHL->MLB lattice stays auditable.
-
-``weight_pct`` is always None (the run engine has no per-model blend
-weight artifact — MLB passes ``model_weights=None`` for its run-engine
-view too); the frontend renders a MODEL WEIGHT column only when a shared
-feature-drift weight map is available.
 
 Deterministic (no RNG): identical decided frame -> byte-identical CSVs.
 """
@@ -79,6 +85,36 @@ DRIFT_CURRENT_WINDOW_DAYS = 28
 BASELINE_MIN_GAMES = 250
 
 DATA_DELIVERY = Path(__file__).resolve().parent.parent / "data_delivery"
+
+
+def moneyline_weight_map(target_date_str: str,
+                         data_dir: Optional[Path] = None) -> dict:
+    """Per-feature moneyline blend weights for the MODEL WEIGHT column.
+
+    Source (Step-0 mapped, MLB ground truth): the NFL MONEYLINE monitor's
+    feature-drift cell — ``nfl_model_monitor_{date}.json`` ->
+    ``feature_drift[]`` -> ``weight_pct`` — the exact field the Model
+    Monitor's Feature Drift table renders (MLB's markets.py
+    ``_feature_weight_map`` joins the same family at render time). Values
+    are PERCENT (the moneyline monitor's blend-weighted importances, sum
+    ≈ 100). Empty dict when the monitor is missing/unparseable (the drift
+    CSV then ships weight_pct None — null only where the source has no
+    weight; never hardcoded)."""
+    ddir = data_dir if data_dir is not None else DATA_DELIVERY
+    mon_path = ddir / f"nfl_model_monitor_{target_date_str}.json"
+    if not mon_path.exists():
+        return {}
+    try:
+        import json
+        mon = json.loads(mon_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    w: dict = {}
+    for r in mon.get("feature_drift", []) or []:
+        f = r.get("feature")
+        if f:
+            w[str(f)] = r.get("weight_pct")
+    return w
 
 
 def compute_psi(
@@ -226,12 +262,16 @@ def compute_feature_drift(
     current_games: pd.DataFrame,
     target_date_str: str,
     feature_cols: Optional[list[str]] = None,
+    model_weights: Optional[dict] = None,
     out_dir: Optional[Path] = None,
     out_name: Optional[str] = None,
 ) -> pd.DataFrame:
     """PSI per numeric feature over the adjacent windows -> drift CSV
     (full MLB column schema). ``feature_cols`` defaults to the run-engine
-    view; ``out_dir`` defaults to data_delivery. Deterministic."""
+    view; ``model_weights`` (per-feature blend weights from the moneyline
+    monitor) populates ``weight_pct`` — MLB's exact semantics (None row
+    when absent, percent values when present); ``out_dir`` defaults to
+    data_delivery. Deterministic."""
     emit_dir = out_dir if out_dir is not None else DATA_DELIVERY
     emit_dir.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
@@ -257,7 +297,9 @@ def compute_feature_drift(
                                   if n_b else 0.0),
                 "psi": 0.0, "psi_adjusted": 0.0, "noise_floor": 0.0,
                 "mean_shift": 0.0, "shift_se": 0.0, "location_shift": False,
-                "status": "INSUFFICIENT", "weight_pct": None,
+                "status": "INSUFFICIENT",
+                "weight_pct": (round(float(model_weights.get(col, 0.0)), 3)
+                                if model_weights else None),
                 "n_baseline": int(n_b), "n_current": int(n_c),
             })
             continue
@@ -302,7 +344,8 @@ def compute_feature_drift(
             "shift_se": round(shift_se, 6),
             "location_shift": bool(location_shift),
             "status": status,
-            "weight_pct": None,
+            "weight_pct": (round(float(model_weights.get(col, 0.0)), 3)
+                            if model_weights else None),
             "n_baseline": int(n_b),
             "n_current": int(n_c),
         })
@@ -395,13 +438,17 @@ def compute_run_engine_feature_drift(
     current_games: pd.DataFrame,
     target_date_str: str,
     out_dir: Optional[Path] = None,
+    model_weights: Optional[dict] = None,
 ) -> pd.DataFrame:
     """PSI over the NFL run engine's OWN 12-pool view on the adjacent
-    decided windows, column-for-column with MLB. Writes
+    decided windows, column-for-column with MLB. ``model_weights`` (the
+    moneyline monitor's per-feature blend weights, percent) populates
+    ``weight_pct`` — the MODEL WEIGHT column's source. Writes
     data_delivery/run_engine_feature_drift_YYYYMMDD.csv (or ``out_dir``)."""
     return compute_feature_drift(
         baseline_games, current_games, target_date_str,
         feature_cols=run_engine_feature_cols(), out_dir=out_dir,
+        model_weights=model_weights,
         out_name=f"run_engine_feature_drift_{target_date_str}.csv")
 
 

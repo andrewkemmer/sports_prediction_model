@@ -11,10 +11,15 @@ parity tests pin the same order/labels/wording/table schemas):
   3. "### Diagnostics" — decided rows: empty → MLB's OWN no-data code path
      (a single warning, NO tabs — never a custom panel); decided rows →
      the SAME five tabs as MLB (Distribution / Relativized / Pooled lines /
-     Game Total Lines / Run Lines) fed by REAL per-game calibration from
-     the decided OOF store (``nfl_market_diagnostics`` mirrors MLB's
-     ``market_diagnostics`` API on the integer-support NFL grids). No
-     research-pinned stand-in tabs — that bespoke panel is REMOVED.
+     Game Total Lines / Spread Lines — the shared
+     ``market_diagnostics.DIAG_TABS`` constant, "Run Lines" renamed
+     "Spread Lines") fed by REAL per-game calibration from the decided OOF
+     store (``nfl_market_diagnostics`` mirrors MLB's ``market_diagnostics``
+     API on the integer-support NFL grids). The Spread Lines selector is
+     favorite-anchored NEGATIVE (−0.5 … −24.0, 0.5 steps — 48 lines; the
+     −0.5 stop's 2-way curve IS the derived-ML curve), with an honesty
+     caption beyond −20 (sealed n < ~20). No research-pinned stand-in tabs
+     — that bespoke panel is REMOVED.
   4. "### Prediction History — Totals & Run Lines" — empty → MLB's wording
      info; decided rows → the same date-range + side-filter widgets and
      the same fb-table schema (DATE | MATCHUP | SCORE (A–H) | LINE |
@@ -49,14 +54,22 @@ elsewhere):
     Games cards, not on this page.
   * Subtitle: the NFL run engine is the per-side era model + pinned 76×76
     joint (DN) — not MLB's NB(λ, α(λ)) sampler; the sentence shape is
-    identical.
-  * Monitor: MLB's fit panel / model card render from pipeline sections
-    the NFL pipeline does not yet produce — the NFL page mirrors MLB's own
-    "no data in this monitor artifact" wording for those (nothing
-    fabricated). The drift / coverage sections ARE emitted by the daily
-    run (run_engine_feature_drift/coverage_*.csv over the 12-pool view)
-    and render data-loaded; the winner cards + calibration cards +
-    rolling history render from the NFL decided store.
+    identical. The fit panel (the Distributional Fit expander) mirrors
+    MLB's fit-panel anatomy with the honest NFL mechanism: era fit (E2,
+    ewm_2w, median rounds 20/23) + the pinned DN joint (σ 9.663/9.0789,
+    ρ 0.0076, tie 0.275%) on the 76×76 grid, with an explicit "exact PMF
+    — no Monte Carlo sampler" note where MLB shows its MC configuration
+    (the exact-PMF-vs-MC decision is a deliberate, recorded divergence).
+  * Monitor: the fit panel renders the PINNED era/joint parameters (real
+    record values, MLB's anatomy) with the exact-PMF note; the model card
+    renders the same pinned description; the drift / coverage sections
+    ARE emitted by the daily run (run_engine_feature_drift/coverage_*.csv
+    over the 12-pool view — drift now carries the MODEL WEIGHT column
+    from the moneyline monitor's blend weights) and render data-loaded;
+    the winner cards + calibration cards render from the NFL decided
+    store; rolling history folds the dated monitors' accumulating
+    slate_history (empty today — "first build starts empty", MLB wording;
+    nothing fabricated).
 
 Import is side-effect-free (render happens only inside ``run()``), so
 tests can import the module without a Streamlit page context.
@@ -71,9 +84,10 @@ import nfl_market_diagnostics as nd
 import nfl_slate_view as sv
 import utils
 
-# MLB's exact tab labels + section headers (parity pins — see the tests).
-DIAG_TABS = ["Distribution", "Relativized", "Pooled lines",
-             "Game Total Lines", "Run Lines"]
+# The SHARED tab labels (market_diagnostics.DIAG_TABS — MLB markets.py
+# renders the same constant; "Run Lines" -> "Spread Lines" lives in one
+# place; parity pins — see the tests).
+DIAG_TABS = nd.DIAG_TABS
 
 # The most recent run, like the MLB page (never the date picked on Today's
 # Games). Fallback constant when no artifact resolves yet.
@@ -243,10 +257,14 @@ def _render_gtl_tab(decided: pd.DataFrame) -> None:
 
 
 def _render_rl_tab(decided: pd.DataFrame) -> None:
+    # Favorite-anchored NEGATIVE selector (MLB convention): -0.5 … -24.0 in
+    # 0.5 steps (48 lines) — the -0.5 stop's 2-way curve IS the derived-ML
+    # curve (win-probability identity). run_line_calibration takes the
+    # magnitude (abs of the line), so negative values price directly.
     _rl_sel = st.selectbox(
         "Line (favorite −L)",
-        ["All"] + [str(l) for l in nd.RUN_LINE_MAGS],
-        index=1 + nd.RUN_LINE_MAGS.index(nd.DEFAULT_RUN_MAG),
+        ["All"] + [str(l) for l in nd.SPREAD_LINE_CHOICES],
+        index=1 + nd.SPREAD_LINE_CHOICES.index(nd.DEFAULT_RUN_MAG),
         key="nfl_diag_run_line")
     _rl_line = None if _rl_sel == "All" else float(_rl_sel)
     rlc = nd.run_line_calibration(decided, _rl_line)
@@ -256,7 +274,7 @@ def _render_rl_tab(decided: pd.DataFrame) -> None:
     if _rl_line is None:
         _rl_title = "Calibration Curve — Favorite (All = own fair run line)"
     else:
-        _rl_title = f"Calibration Curve — Favorite −{_rl_line:g}"
+        _rl_title = f"Calibration Curve — Favorite −{abs(_rl_line):g}"
     built = nd.chart_game_total_curve(
         rlc, _rl_title, curve_bins=rlc.get("curve_bins"),
         x_tick_values=nd.X_1PCT_TICKS, show_win_rate=False,
@@ -266,7 +284,7 @@ def _render_rl_tab(decided: pd.DataFrame) -> None:
     st.table(built["table"])
     priced_txt = ("decided games priced at their own fair run lines"
                   if _rl_line is None else
-                  f"decided games priced at run line −{_rl_line:g}")
+                  f"decided games priced at run line −{abs(_rl_line):g}")
     st.caption(
         f"{rlc['n_games']:,} {priced_txt} · bar heights = games priced in "
         f"that predicted P(cover) band (LEFT 'Games' axis) · observed and "
@@ -301,6 +319,16 @@ def _render_rl_tab(decided: pd.DataFrame) -> None:
         "curve points mark buckets with n < 30 (low sample — not reliable "
         "calibration evidence)."
     )
+    # Deep-line honesty caption (NFL-only, documented delta): beyond −20 the
+    # sealed calibration evidence is n < ~20 (see the diagnostics-v2 record
+    # for the cover-rate table) — exploratory, not evidence.
+    if _rl_line is not None and abs(_rl_line) > nd.DEEP_LINE_CAPTION_MAG:
+        st.caption(
+            "Deep lines (beyond −20) rest on very few sealed events "
+            "(n < ~20) — calibration there is exploratory, not evidence. "
+            "The pinned 76×76 joint still prices them (mass conservation "
+            "holds), but treat the curve as a tail check."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +425,87 @@ def _render_history_table(df: pd.DataFrame, line_kind: str, start_d, end_d,
 # ---------------------------------------------------------------------------
 # Monitor
 # ---------------------------------------------------------------------------
+# Fit-panel parameters — the PINNED research values from the committed
+# records (nfl_era_3e8c8a510f04.json / nfl_market_3e8c8a510f04.json / the
+# adoption record), rendered in MLB's Distributional Fit Diagnostics
+# anatomy. These are the actual model constants (never fabricated); the
+# exact-PMF-vs-MC mechanism note is the documented NFL delta.
+_FIT_PARAMS = {
+    "sigma_home": 9.663,
+    "sigma_away": 9.0789,
+    "rho": 0.0076,
+    "p_tie": 0.00275,
+    "family": "DN",
+    "grid": "76×76 (cell k = score k)",
+    "era": "E2 · ewm_2w (era record halflife)",
+    "rounds": {"home": 20, "away": 23},
+    "provenance": ["nfl_era_3e8c8a510f04.json",
+                    "nfl_market_3e8c8a510f04.json",
+                    "nfl_adoption_decision_3e8c8a510f04.json"],
+}
+
+
+def _render_fit_panel() -> None:
+    """Distributional Fit Diagnostics — MLB markets.py anatomy (metric row
+    + parameter caption + mechanism note) with the NFL's honest pinned
+    content: the per-side era model (E2, ewm_2w, median rounds 20/23) and
+    the pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) on the
+    76×76 grid. Where MLB shows its Monte Carlo configuration, the NFL
+    panel states the exact-PMF decision explicitly — the NFL engine is an
+    analytic joint (no MC sampler; a deliberate, recorded divergence).
+    Nothing here is fabricated: every number is a pinned record constant."""
+    p = _FIT_PARAMS
+    st.markdown("#### Distributional Fit (exact 76×76 joint)")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("σ_home", f"{p['sigma_home']:.3f}")
+    c2.metric("σ_away", f"{p['sigma_away']:.4f}")
+    c3.metric("ρ (margin·total)", f"{p['rho']:.4f}")
+    c4.metric("Tie rate (final)", f"{p['p_tie']:.3%}")
+
+    st.caption(
+        f"Joint: {p['family']} family, const σ — fitted on pooled OOF "
+        f"({p['grid']}, tie-calibrated to the empirical final rate) · "
+        f"era: {p['era']} · median rounds home "
+        f"{p['rounds']['home']} / away {p['rounds']['away']}."
+    )
+    st.caption(
+        "Exact PMF — no Monte Carlo sampler (NFL decision, recorded): "
+        "per-game probabilities are computed analytically from the pinned "
+        "76×76 joint, not sampled — deterministic, no RNG, byte-identical "
+        "re-runs."
+    )
+    st.caption("Pinned parameters from " + ", ".join(p["provenance"]))
+
+
+def _render_rolling_history(rolling: dict) -> None:
+    """Per-card rolling history table — MLB markets.py
+    ``_render_rolling_history`` mirror: last 10 points per winner card
+    (Line | Date | ECE-cal | Brier | Logloss | Pred mean | n). Points
+    come from the dated monitors' accumulated slate_history (folded by
+    ``nd.fold_slate_history``) — never fabricated."""
+    rows = []
+    for key, label, _rule in _WINNER_CARDS:
+        series = rolling.get(key) or []
+        if not series:
+            continue
+        for pt in series[-10:]:
+            rows.append({
+                "Line": label,
+                "Date": pt.get("date", "--"),
+                "ECE-cal": _fmt(pt.get("ece_calibrated")),
+                "Brier": _fmt(pt.get("brier")),
+                "Logloss": _fmt(pt.get("logloss"), 4),
+                "Pred mean": _fmt(pt.get("predicted_mean")),
+                "n": pt.get("n", 0),
+            })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+    else:
+        st.info("No rolling history points yet.")
+
+
 def _render_winner_cards(cards: dict) -> None:
     items = [(k, label, rule) for k, label, rule in _WINNER_CARDS
              if k in cards]
@@ -482,11 +591,14 @@ def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
 
 def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
     st.markdown("**Run Line — favorite cover calibration card**")
+    # Same favorite-anchored NEGATIVE choices as the Spread Lines tab
+    # (-0.5 … -24.0, 0.5 steps); runline_monitor_stats takes the magnitude.
     line = st.selectbox("Line (favorite −L)",
-                        [str(m) for m in nd.RUN_LINE_MAGS],
-                        index=nd.RUN_LINE_MAGS.index(nd.DEFAULT_RUN_MAG),
+                        [str(l) for l in nd.SPREAD_LINE_CHOICES],
+                        index=nd.SPREAD_LINE_CHOICES.index(
+                            nd.DEFAULT_RUN_MAG),
                         key="nfl_runline_card_line")
-    mag = float(line)
+    mag = abs(float(line))
     s = nd.runline_monitor_stats(decided, mag)
     if not s["n"]:
         st.caption("No priced games at this line.")
@@ -666,10 +778,11 @@ def run() -> None:
                             unsafe_allow_html=True)
                 _render_runline_calibration_card(decided)
 
-        # Fit panel — the NFL pipeline does not yet produce this section;
-        # MLB's own empty-state wording (nothing fabricated).
+        # Fit panel — MLB markets.py anatomy, honest NFL content: the
+        # pinned era/joint parameters (record constants) + the exact-PMF
+        # note where MLB shows its MC configuration (nothing fabricated).
         with st.expander("Distributional Fit Diagnostics", expanded=False):
-            st.info("No fit diagnostics in the monitor artifact.")
+            _render_fit_panel()
 
         # Drift / coverage — MLB markets.py mirror: load the emitter CSVs
         # for this date (run_engine_feature_drift_{date}.csv /
@@ -690,16 +803,20 @@ def run() -> None:
         st.info("Per-line engine OOF metrics appear in the Diagnostics tabs "
                 "from the decided OOF store.")
 
-        # Rolling history (the MLB convention: first run is empty by design
-        # — nothing fabricated).
-        hist = monitor.get("slate_history") or []
+        # Rolling history — the MLB convention: first build starts empty by
+        # design (nothing fabricated). Once daily runs ship decided-slate
+        # outcomes, the dated monitors carry per-card slate_history entries
+        # and this panel folds ACROSS the dated monitor family (newest
+        # first) into per-card series, mirroring MLB's rolling history
+        # table (Line / Date / ECE-cal / Brier / Logloss / Pred mean / n).
+        rolling = nd.fold_slate_history(
+            utils.load_nfl_run_engine_monitor_series("nfl"))
         with st.expander("Rolling History (last 10 points per card)",
                          expanded=False):
-            if not hist:
+            if not rolling:
                 st.info("No rolling history yet (first build starts empty).")
             else:
-                st.dataframe(pd.DataFrame(hist), use_container_width=True,
-                             hide_index=True)
+                _render_rolling_history(rolling)
 
 
 if __name__ == "__main__":

@@ -107,15 +107,20 @@ class TestMlbStructuralParity(unittest.TestCase):
         import nfl_markets_page as page
         self.assertEqual(page.DIAG_TABS,
                          ["Distribution", "Relativized", "Pooled lines",
-                          "Game Total Lines", "Run Lines"])
+                          "Game Total Lines", "Spread Lines"])
+        # The single SHARED constant (market_diagnostics.DIAG_TABS) drives
+        # BOTH pages — the "Run Lines" -> "Spread Lines" rename lives in
+        # one place and both pages must render the identical set/order.
+        import market_diagnostics as diag
+        self.assertEqual(page.DIAG_TABS, diag.DIAG_TABS,
+                         "NFL page must use the shared tab constant")
         mlb_norm = _norm(MLB_MARKETS_SRC)
-        self.assertIn(
-            'st.tabs(["Distribution","Relativized","Pooledlines",'
-            '"GameTotalLines","RunLines",])', mlb_norm,
-            "MLB's diagnostics tabs must be the ground-truth set")
+        self.assertIn("st.tabs(diag.DIAG_TABS)", mlb_norm,
+                      "MLB's diagnostics tabs must use the shared constant")
+        self.assertIn("SpreadLines", _norm(diag.DIAG_TABS[4]),
+                      "the shared constant must carry the renamed tab")
         nfl_norm = _norm(NFL_MARKETS_SRC)
-        self.assertIn('"Distribution","Relativized","Pooledlines",'
-                      '"GameTotalLines","RunLines"', nfl_norm,
+        self.assertIn("DIAG_TABS=nd.DIAG_TABS", nfl_norm,
                       "NFL page must use the identical tab-label set/order")
 
     def test_section_order_identical(self):
@@ -169,10 +174,14 @@ class TestMlbStructuralParity(unittest.TestCase):
         test_run_engine_drift_coverage_owned_by_markets_page. The two
         drift/coverage sections are INCLUDED because MLB's markets page
         renders them (they are not Model Monitor sections)."""
+        # Slice from the RENDER heading (rindex — the NFL page docstring
+        # QUOTES the heading in its anatomy checklist, so the first
+        # occurrence would start the scan inside the docstring and pick up
+        # helper definitions instead of the render flow).
         mlb_tail = MLB_MARKETS_SRC[
-            MLB_MARKETS_SRC.index("### Run-Line & Totals Monitor"):]
+            MLB_MARKETS_SRC.rindex("### Run-Line & Totals Monitor"):]
         nfl_tail = NFL_MARKETS_SRC[
-            NFL_MARKETS_SRC.index("### Run-Line & Totals Monitor"):]
+            NFL_MARKETS_SRC.rindex("### Run-Line & Totals Monitor"):]
         mlb_seq = ("### Run-Line & Totals Monitor", "_render_winner_cards(",
                    "Calibration Cards — Totals & Run Line",
                    "Distributional Fit Diagnostics",
@@ -524,6 +533,8 @@ class TestEmptyStatesHonesty(unittest.TestCase):
                 lambda sport=None: (slate, None)
             utils_fake.load_nfl_run_engine_monitor = \
                 lambda sport=None: monitor
+            utils_fake.load_nfl_run_engine_monitor_series = \
+                lambda sport=None, max_files=30: []
             # The drift/coverage loader resolves through get_source_config /
             # _fetch_bytes; in the stub path the files are absent so the MLB
             # empty-state wording renders (nothing fetched, no network).
@@ -629,6 +640,11 @@ class TestDataLoadedRender(unittest.TestCase):
                 lambda sport=None: (self.df, None)
             utils_fake.load_nfl_run_engine_monitor = \
                 lambda sport=None: self.mon
+            # Rolling history folds the dated monitors via the series loader
+            # — empty under the stub (deterministic; the fold unit test
+            # covers populated fixtures).
+            utils_fake.load_nfl_run_engine_monitor_series = \
+                lambda sport=None, max_files=30: []
             # Drift/coverage loader — resolve LOCAL emitter CSVs (empty cfg
             # falls back to the checkout), so the data-loaded page renders
             # the real drift/coverage tables when the files are committed.
@@ -664,7 +680,7 @@ class TestDataLoadedRender(unittest.TestCase):
         self.assertTrue(calls, "st.tabs never called — data-loaded path dead")
         self.assertEqual(list(calls[0][0][0]),
                          ["Distribution", "Relativized", "Pooled lines",
-                          "Game Total Lines", "Run Lines"])
+                          "Game Total Lines", "Spread Lines"])
 
     def test_no_emptystate_and_real_calibration_text(self):
         st = self._run()
@@ -723,6 +739,23 @@ class TestDataLoadedRender(unittest.TestCase):
             self.assertNotIn(tok, text,
                              f"market token {tok!r} rendered in data-loaded "
                              "page")
+
+    def test_fit_panel_renders_pinned_metrics_data_loaded(self):
+        """The fit panel renders MLB's metric-row anatomy fed by the
+        PINNED parameters (record constants — real, not fabricated) with
+        the exact-PMF note, in the data-loaded page."""
+        st = self._run()
+        labels = [c[0][0] for c in st.metric.call_args_list
+                  if c[0] and isinstance(c[0][0], str)]
+        joined = "|".join(labels)
+        for want in ("σ_home", "σ_away", "ρ (margin·total)",
+                     "Tie rate (final)"):
+            self.assertIn(want, joined,
+                          f"fit panel must render {want!r} (MLB metric-row "
+                          "anatomy)")
+        text = self._text(st, "caption") + self._text(st, "markdown")
+        self.assertIn("Exact PMF — no Monte Carlo sampler", text)
+        self.assertNotIn("No fit diagnostics in the monitor artifact", text)
 
     def test_monitor_section_empty_history_state(self):
         mon = json.loads(_artifact("nfl_run_engine_monitor_*.json").read_text())
@@ -800,7 +833,9 @@ class TestRunEngineDiagnostics(unittest.TestCase):
             utils_fake.RED = "#EF4444"
             utils_fake.TEXT = "#E2E8F0"
             utils_fake.describe_feature = lambda name, sport=None: name
-            utils_fake.feature_weight_pct = lambda row: "—"
+            utils_fake.feature_weight_pct = (
+                lambda row: (f"{float(row.get('weight_pct')):.2f}%"
+                             if row.get("weight_pct") is not None else "—"))
             utils_fake.get_source_config = lambda **k: {
                 "owner": "", "repo": "", "branch": "main"}
             utils_fake._fetch_bytes = lambda *a, **k: (None, "missing")
@@ -830,6 +865,48 @@ class TestRunEngineDiagnostics(unittest.TestCase):
         feats = set(df["feature"])
         self.assertTrue(feats)
 
+    def test_drift_model_weight_column_real(self):
+        """The MODEL WEIGHT column renders from the moneyline monitor's
+        blend weights (the emitter writes them into the CSV's weight_pct
+        column — MLB joins the same source at render time). Non-null where
+        the source has a weight; the column is omitted when the CSV predates
+        the weight emitter (MLB's own has_weights gate) — never fabricated."""
+        import nfl_market_diagnostics as nd
+        path = self._latest("run_engine_feature_drift_", ".csv")
+        if path is None:
+            self.skipTest("no run-engine drift CSV committed")
+        df = pd.read_csv(path)
+        self.assertIn("weight_pct", df.columns,
+                      "MLB schema keeps the weight_pct column")
+        has_w = df["weight_pct"].notna().any()
+        html = self._render_with_stub("render_run_engine_drift", df)
+        if not has_w:
+            # Pre-weight-emitter artifact: the has_weights gate omits the
+            # column (MLB parity) — the table still renders.
+            self.assertNotIn("<th>MODEL WEIGHT</th>", html)
+            return
+        self.assertIn("<th>MODEL WEIGHT</th>", html,
+                      "MODEL WEIGHT sits between PSI and STATUS (MLB "
+                      "layout)")
+        self.assertRegex(html, r"\d+\.\d\d%",
+                         "weight cells format as percents "
+                         "(utils.feature_weight_pct)")
+        # Source mapped from the moneyline monitor: the same feature names
+        # carry the same weights the Model Monitor's Feature Drift table
+        # renders (percent semantics, sum ≈ 100).
+        mon_path = self._latest("nfl_model_monitor_", ".json")
+        if mon_path is not None:
+            mon = json.loads(mon_path.read_text(encoding="utf-8"))
+            weights = {r["feature"]: r.get("weight_pct")
+                       for r in mon.get("feature_drift", [])}
+            for _, row in df.iterrows():
+                if row["feature"] in weights:
+                    self.assertAlmostEqual(
+                        float(row["weight_pct"]),
+                        float(weights[row["feature"]]), places=3,
+                        msg=f"weight_pct for {row['feature']} must match "
+                            "the moneyline monitor source")
+
     def test_coverage_render_data_loaded(self):
         import nfl_market_diagnostics as nd
         path = self._latest("run_engine_feature_coverage_", ".csv")
@@ -838,7 +915,14 @@ class TestRunEngineDiagnostics(unittest.TestCase):
         df = pd.read_csv(path)
         html = self._render_with_stub("render_run_engine_coverage", df)
         self.assertIn("### Run-Engine Feature Coverage", html)
-        self.assertIn("<th>MEASURED</th>", html)
+        # MLB's EXACT column set + captions (parity, not approximation).
+        self.assertIn("<th>% MEASURED</th>", html)
+        self.assertIn("<th>% NON-NULL</th>", html)
+        self.assertIn("<th>WINDOW</th>", html)
+        self.assertIn("<th>STATUS</th>", html)
+        self.assertIn("Share of games in each drift window", html)
+        self.assertIn("% MEASURED = real observations only", html)
+        self.assertIn("STARVED &lt;25% measured", html)
         self.assertNotIn("No run-engine coverage data", html)
 
     def test_render_absent_csv_uses_mlb_empty_state(self):
@@ -853,6 +937,189 @@ class TestRunEngineDiagnostics(unittest.TestCase):
         self.assertIn(
             _norm("run_engine_feature_drift_*.csv appears after a pipeline"),
             _norm(NFL_DIAGNOSTICS_SRC))
+
+
+class TestSpreadLinesDiagnostics(unittest.TestCase):
+    """The Spread Lines tab (renamed from Run Lines): favorite-anchored
+    NEGATIVE selector (-0.5 … -24.0, 0.5 steps — 48 NFL lines), the -0.5
+    stop's derived-ML identity, and the deep-line honesty caption."""
+
+    def test_selector_composition_nfl_48_lines(self):
+        import nfl_market_diagnostics as nd
+        self.assertEqual(len(nd.SPREAD_LINE_CHOICES), 48)
+        self.assertEqual(nd.SPREAD_LINE_CHOICES[0], -0.5,
+                         "the -0.5 stop must be present (first choice)")
+        self.assertEqual(nd.SPREAD_LINE_CHOICES[-1], -24.0,
+                         "the NFL grid extends to -24.0")
+        # Favorite-anchored NEGATIVE values, 0.5-step spacing throughout.
+        self.assertTrue(all(l < 0 for l in nd.SPREAD_LINE_CHOICES),
+                        "every selector line must be negative (leading "
+                        "minus)")
+        self.assertTrue(all(
+            abs(nd.SPREAD_LINE_CHOICES[i + 1]
+                - nd.SPREAD_LINE_CHOICES[i] + 0.5) < 1e-9
+            for i in range(len(nd.SPREAD_LINE_CHOICES) - 1)),
+            "0.5-step increments throughout (each step = -0.5)")
+        # MLB keeps its current depth (-0.5 … -4.0) as a documented sport
+        # delta — the shared-market constants are separate.
+        import market_diagnostics as diag
+        self.assertEqual(diag.RUN_LINE_CHOICES,
+                         [-0.5, -1.0, -1.5, -2.0, -2.5, -3.0, -3.5, -4.0])
+
+    def test_page_selector_uses_negative_choices(self):
+        import nfl_markets_page as page
+        import nfl_market_diagnostics as nd
+        self.assertIn("nd.SPREAD_LINE_CHOICES", NFL_MARKETS_SRC,
+                      "the Spread Lines tab must price ANY grid line from "
+                      "the negative choices")
+        self.assertIn('str(l) for l in nd.SPREAD_LINE_CHOICES',
+                      NFL_MARKETS_SRC)
+        self.assertNotIn("RUN_LINE_MAGS", NFL_MARKETS_SRC,
+                          "the old positive-magnitude list must be gone")
+        # The Monitor run-line card uses the same negative choices.
+        self.assertIn('str(l) for l in nd.SPREAD_LINE_CHOICES',
+                      NFL_MARKETS_SRC)
+
+    def test_minus_half_is_derived_ml_identity(self):
+        """At -0.5 the 2-way cover probability is the derived ML by
+        construction: cover = P(margin > 0.5) = P(favored wins outright),
+        dog = P(other side wins outright), and the TIE (margin == 0) is
+        dead mass excluded from both sides — so cover/(cover+dog) =
+        P(H>A)/(P(H>A)+P(A>H)) = P(H>A)/(1-P(tie)). The calibration curve
+        at -0.5 IS the derived-ML curve (favorite-anchored)."""
+        import nfl_market_diagnostics as nd
+        # Self-consistent fixture: P(H>A) = p_home_cover_0_5;
+        # p_home_cover_m0_5 = P(margin >= 0) = P(H>A) + P(tie); and
+        # derived_ml = P(H>A) / (P(H>A) + P(A>H)) with 1 - P(tie) =
+        # P(H>A) + P(A>H) = p_home_cover_0_5 + (1 - p_home_cover_m0_5).
+        h1 = {"game_id": "h1", "margin": 7,
+              "p_home_cover_0_5": 0.600, "p_home_cover_m0_5": 0.605}
+        a1 = {"game_id": "a1", "margin": -5,
+              "p_home_cover_0_5": 0.350, "p_home_cover_m0_5": 0.360}
+        for r in (h1, a1):
+            pha = r["p_home_cover_0_5"]
+            pa = 1.0 - r["p_home_cover_m0_5"]          # P(A>H)
+            r["derived_ml"] = round(pha / (pha + pa), 9)
+        decided = pd.DataFrame([h1, a1])
+        out = nd.run_line_calibration(decided, -0.5)
+        self.assertIsNone(out["warning"], out["warning"])
+        self.assertEqual(out["n_pushes"], 0,
+                         "the -0.5 stop never pushes (integer margins)")
+        self.assertIsNotNone(out["pooled_pred"])
+        # The identity is favorite-anchored: 2-way pred per game == the
+        # FAVORITE's derived ML (derived_ml for a home favorite, 1 - it for
+        # an away favorite) — never the home-anchored mean.
+        fav_derived = [r["derived_ml"] if r["derived_ml"] >= 0.5
+                       else 1.0 - r["derived_ml"] for r in (h1, a1)]
+        # pooled_pred is the module's own 4dp rounding of the mean.
+        self.assertAlmostEqual(out["pooled_pred"],
+                               float(np.mean(fav_derived)), places=4,
+                               msg="-0.5 2-way predicted == favorite-side "
+                                   "derived-ML mean (the curve IS the "
+                                   "derived ML)")
+        # Observed: favorite covers -0.5 iff it wins outright.
+        self.assertAlmostEqual(out["pooled_observed"], 1.0, places=6)
+
+    def test_minus_half_identity_holds_on_real_artifact(self):
+        """On the real decided store, the -0.5 predicted mean matches the
+        derived-ML winner-card predicted mean (the curve identity),
+        pricing BOTH favorite sides (home and away)."""
+        import nfl_market_diagnostics as nd
+        df = _real_frame()
+        decided = nd.decided_rows(df)
+        if not len(decided) or "p_home_cover_0_5" not in decided.columns:
+            self.skipTest("artifact predates the extended -0.5 grid")
+        out = nd.run_line_calibration(decided, -0.5)
+        self.assertIsNone(out["warning"], out["warning"])
+        self.assertGreater(out["n_games"], 1000,
+                           "the -0.5 view must price BOTH favorite sides "
+                           "(not only home favorites)")
+        self.assertIsNotNone(out["pooled_pred"])
+        derived = decided["derived_ml"].to_numpy(float)
+        fav = np.where(np.isfinite(derived) & (derived >= 0.5), derived,
+                       1.0 - derived)   # favorite-anchored identity
+        self.assertAlmostEqual(
+            out["pooled_pred"],
+            float(np.nanmean(fav[np.isfinite(fav)])), places=3,
+            msg="-0.5 pooled predicted == favorite-anchored derived-ML "
+                "mean on the real store")
+
+    def test_deep_line_honesty_caption_present(self):
+        self.assertIn("Deep lines (beyond −20)", NFL_MARKETS_SRC,
+                      "lines deeper than -20 must carry the honesty caption")
+        self.assertIn("n < ~20", NFL_MARKETS_SRC,
+                      "the caption must state the sealed-sample limit")
+
+
+class TestFitPanelAndRollingHistory(unittest.TestCase):
+    """The Distributional Fit Diagnostics expander mirrors MLB's anatomy
+    with the honest NFL mechanism (exact PMF — no MC sampler), and the
+    rolling history folds the dated monitors' accumulating slate_history
+    (first build starts empty — never fabricated)."""
+
+    def test_fit_panel_mlb_anatomy_with_exact_pmf_note(self):
+        # MLB's expander + header shape (ground truth from markets.py).
+        self.assertIn("Distributional Fit Diagnostics", MLB_MARKETS_SRC)
+        self.assertIn("Distributional Fit Diagnostics", NFL_MARKETS_SRC)
+        self.assertIn("#### Distributional Fit", MLB_MARKETS_SRC)
+        # The NFL honest equivalents: pinned joint params in MLB's metric-row
+        # anatomy + the explicit exact-PMF mechanism note where MLB shows
+        # its MC configuration.
+        self.assertIn("#### Distributional Fit (exact 76×76 joint)",
+                      NFL_MARKETS_SRC)
+        self.assertIn("σ_home", NFL_MARKETS_SRC)
+        self.assertIn("σ_away", NFL_MARKETS_SRC)
+        self.assertIn("Tie rate (final)", NFL_MARKETS_SRC)
+        self.assertIn("Exact PMF — no Monte Carlo sampler", NFL_MARKETS_SRC)
+        # The PINNED constants live in the page's _FIT_PARAMS record-source
+        # block (the rendered metric values are f-strings over that dict;
+        # the data-loaded test asserts the rendered numbers).
+        self.assertIn('"sigma_home": 9.663', NFL_MARKETS_SRC)
+        self.assertIn('"sigma_away": 9.0789', NFL_MARKETS_SRC)
+        self.assertIn('"rho": 0.0076', NFL_MARKETS_SRC)
+        self.assertIn('"p_tie": 0.00275', NFL_MARKETS_SRC)
+        self.assertIn('"home": 20, "away": 23', NFL_MARKETS_SRC)
+        self.assertIn('"grid": "76×76 (cell k = score k)"', NFL_MARKETS_SRC)
+        # No MC sampler is ever built for NFL (the recorded decision).
+        self.assertNotIn("10,000", NFL_MARKETS_SRC)
+
+    def test_fold_slate_history_across_dated_monitors(self):
+        """The fold concatenates every dated monitor's slate_history and
+        groups by card (MLB rolling-dict shape), newest first — with ≥2
+        dated monitor families the per-card series resolves. Entries
+        without a card key are ignored; nothing is fabricated."""
+        import nfl_market_diagnostics as nd
+        older = {"slate_history": [
+            {"card": "over_under", "date": "2026-09-01",
+             "ece_calibrated": 0.021},
+            {"card": "derived_ml", "date": "2026-09-01",
+             "ece_calibrated": 0.030},
+        ]}
+        newer = {"slate_history": [
+            {"card": "over_under", "date": "2026-09-02",
+             "ece_calibrated": 0.018},
+            {"no_card": True},   # ignored (no card key)
+        ]}
+        folded = nd.fold_slate_history([newer, older])
+        self.assertEqual(sorted(folded), ["derived_ml", "over_under"])
+        self.assertEqual([p["date"] for p in folded["over_under"]],
+                         ["2026-09-02", "2026-09-01"],
+                         "newest-first, both dated families folded")
+        self.assertEqual(len(folded["derived_ml"]), 1)
+        # Empty input -> empty dict (the page renders MLB's first-build
+        # empty-state wording).
+        self.assertEqual(nd.fold_slate_history([]), {})
+        self.assertEqual(nd.fold_slate_history([{"slate_history": []}]), {})
+
+    def test_rolling_history_empty_state_matches_mlb(self):
+        # MLB's exact first-build wording; the NFL page mirrors it.
+        self.assertIn("No rolling history yet (first build starts empty).",
+                      MLB_MARKETS_SRC)
+        self.assertIn("No rolling history yet (first build starts empty).",
+                      NFL_MARKETS_SRC)
+        self.assertIn("load_nfl_run_engine_monitor_series", NFL_MARKETS_SRC,
+                      "the page must fold across dated monitors")
+        self.assertIn("nd.fold_slate_history", NFL_MARKETS_SRC)
 
 
 class TestSportDispatch(unittest.TestCase):

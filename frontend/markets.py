@@ -131,10 +131,7 @@ if decided.empty:
         "decided games; nothing is fabricated in the meantime."
     )
 else:
-    _tabs = st.tabs([
-        "Distribution", "Relativized", "Pooled lines",
-        "Game Total Lines", "Run Lines",
-    ])
+    _tabs = st.tabs(diag.DIAG_TABS)
 
     with _tabs[0]:   # 1 — totals distribution fit-check
         dist = diag.total_distribution(decided)

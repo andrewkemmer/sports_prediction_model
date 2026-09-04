@@ -427,8 +427,14 @@ class TestRunEngineModelMonitorRender(TestCase):
         per-game own-ROUNDED pricing is gone entirely."""
         src = (Path(__file__).resolve().parents[2]
                / "frontend" / "markets.py").read_text(encoding="utf-8")
-        self.assertIn('"Game Total Lines"', src,
-                      "tab renamed to Game Total Lines")
+        # The tab labels live in the shared market_diagnostics.DIAG_TABS
+        # constant (both sports' pages render it), so the renamed label is
+        # pinned in that module's source, not the page's inline list.
+        diag_src = (Path(__file__).resolve().parents[2]
+                    / "frontend" / "market_diagnostics.py").read_text(
+                        encoding="utf-8")
+        self.assertIn('"Game Total Lines"', diag_src,
+                      "tab renamed to Game Total Lines (shared DIAG_TABS)")
         self.assertIn('["All"] + [str(l) for l in diag.TOTAL_GRID]', src,
                       "selector must offer All first, then the grid")
         self.assertIn("diag.game_total_calibration", src,
@@ -596,14 +602,24 @@ class TestRunlinePicksChart(TestCase):
     """
 
     def test_run_lines_tab_is_calibration_view(self):
-        """The 'Run-line picks' tab is renamed 'Run Lines' and replaced by
-        the favorite-side calibration view (run_line_calibration + the same
+        """The 'Run-line picks' tab is renamed 'Spread Lines' (2026-09-05;
+        shared market_diagnostics.DIAG_TABS constant) and replaced by the
+        favorite-side calibration view (run_line_calibration + the same
         chart_game_total_curve builder + utils.show_chart as Distribution)."""
         src = (_frontend / "markets.py").read_text(encoding="utf-8")
-        self.assertIn('"Run Lines"', src,
-                      "tabs list must contain the renamed 'Run Lines' tab")
-        self.assertNotIn('"Run-line picks"', src,
-                         "old tab label must be gone from the tabs list")
+        self.assertIn("diag.DIAG_TABS", src,
+                      "tabs must render the shared DIAG_TABS constant")
+        diag_src = (_frontend / "market_diagnostics.py").read_text(
+            encoding="utf-8")
+        self.assertIn('"Spread Lines"', diag_src,
+                      "the shared constant must carry the renamed tab")
+        # The constant VALUE is what must drop the old label — the module
+        # source legitimately references 'Run Lines' in docstrings/comments
+        # (e.g. the ±0.5 identity note), so pin the constant, not the file.
+        import market_diagnostics as _diag_mod
+        self.assertNotIn("Run Lines", _diag_mod.DIAG_TABS,
+                         "the old tab label must be gone from the shared "
+                         "constant")
         self.assertIn("diag.run_line_calibration(decided, _rl_line)", src,
                       "tab must build the run-line calibration table")
         self.assertIn("key=\"diag_run_line\"", src,
@@ -674,8 +690,8 @@ class TestRunlinePicksChart(TestCase):
                          "Bucket counts must sum to n_games")
 
     def test_run_lines_caption_describes_calibration(self):
-        """The renamed 'Run Lines' tab's caption describes the favorite-side
-        2-way cover calibration (P(cover) band on the x-axis, favorite
+        """The renamed 'Spread Lines' tab's caption describes the favorite-
+        side 2-way cover calibration (P(cover) band on the x-axis, favorite
         cover rate on the y-axis, the 'V' pick convention)."""
         src = (_frontend / "markets.py").read_text(encoding="utf-8")
         self.assertIn("predicted P(cover) band", src,

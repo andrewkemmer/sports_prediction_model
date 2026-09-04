@@ -67,6 +67,13 @@ def _auc(y_true, y_scores):
 TOTAL_GRID = [round(6.5 + 0.5 * i, 1) for i in range(13)]   # 6.5 … 12.5
 TOTAL_GRID_LO = TOTAL_GRID[0]
 TOTAL_GRID_HI = TOTAL_GRID[-1]
+# Diagnostics tab labels — the SINGLE shared constant both sports' markets
+# pages render (MLB markets.py + the NFL mirror), so a rename stays in one
+# place and the structural-parity tests keep passing. "Run Lines" was
+# renamed "Spread Lines" (2026-09-05) to match the market's own vocabulary;
+# the tab still calibrates the FAVORITE side of the run-line grid.
+DIAG_TABS = ["Distribution", "Relativized", "Pooled lines",
+             "Game Total Lines", "Spread Lines"]
 RUN_COVER_COL = "p_home_cover_1_5"
 # Per-line run-line grid: the backend RUN_LINE_GRID_FULL (1.0 … 4.0)
 # PLUS the innermost ±0.5 stop. Lines ≥ 1 price from the p_rl_<m>_* columns

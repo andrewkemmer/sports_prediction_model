@@ -1214,6 +1214,37 @@ def load_nfl_run_engine_monitor(sport: str | None = "nfl") -> dict | None:
     return None
 
 
+def load_nfl_run_engine_monitor_series(
+        sport: str | None = "nfl",
+        max_files: int = 30) -> list[dict]:
+    """All dated NFL run-engine monitor dicts, NEWEST first (bounded).
+
+    Walks the ``nfl_run_engine_monitor_*`` family dates (newest first)
+    and parses each JSON through the shared fetch fallback — the
+    accumulating slate-history fold (``nfl_market_diagnostics
+    .fold_slate_history``) needs EVERY dated monitor, not just the
+    newest. Returns [] when none parse (the page then renders MLB's
+    first-build empty-state wording — never fabricated). ``max_files``
+    bounds the walk so a long history stays cheap."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    out: list[dict] = []
+    for d in _nfl_run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _src = _fetch_bytes(f"nfl_run_engine_monitor_{d}.json",
+                                 **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            out.append(data)
+        if len(out) >= max_files:
+            break
+    return out
+
+
 def load_prediction_history(date_str: str,
                             sport: str | None = None) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table).

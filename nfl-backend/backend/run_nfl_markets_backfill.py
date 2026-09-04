@@ -89,7 +89,7 @@ from nfl_era_features import (attach_centers, compute_centers,  # noqa: E402
                               mean_resid_stats, oof_centered_per_side)
 from nfl_explainability import (  # noqa: E402
     build_drift_windows, compute_run_engine_feature_coverage,
-    compute_run_engine_feature_drift)
+    compute_run_engine_feature_drift, moneyline_weight_map)
 from nfl_features import DECIDED_FRAME  # noqa: E402
 from nfl_joint_engine import (build_joint_pmfs, cover_prob,  # noqa: E402
                               margin_pmf_from_joint, over_prob,
@@ -384,10 +384,27 @@ def _gates(oof: pd.DataFrame, board_out: pd.DataFrame, pins: dict[str, Any],
     # g5 schema: grid columns populated on every row; only offer-level +
     # decided-target columns may be NaN on board rows; OOF rows carry full
     # offers + actuals (stadium/gametime/records absent for OOF by design).
+    def _ext_mags() -> list[float]:
+        """The extended favorite-magnitude grid columns (0.5 … 24.0 by 0.5,
+        additive to SPREAD_INT_LINES — see nfl_slate_engine.price_board)."""
+        out: list[float] = []
+        for m in SE.SPREAD_COVER_MAGS:
+            if float(m).is_integer() and 1 <= int(m) <= 14:
+                continue  # already emitted via SPREAD_INT_LINES
+            out.append(m)
+        return out
+
+    ext_mags = _ext_mags()
     grid_cols = ([f"p_home_cover_{SE._fname(float(L))}"
                   for L in SE.SPREAD_INT_LINES]
                  + [f"p_push_{SE._fname(float(L))}"
                     for L in SE.SPREAD_INT_LINES]
+                 + [f"p_home_cover_{SE._fname(float(L))}" for L in ext_mags]
+                 + [f"p_home_cover_{SE._fname(-float(L))}" for L in ext_mags]
+                 + [f"p_push_{SE._fname(float(L))}" for L in ext_mags
+                    if float(L).is_integer()]
+                 + [f"p_push_{SE._fname(-float(L))}" for L in ext_mags
+                    if float(L).is_integer()]
                  + [f"p_over_{SE._fname(float(U))}"
                     for U in SE.TOTAL_INT_LINES]
                  + [f"p_under_{SE._fname(float(U))}"
@@ -658,8 +675,17 @@ def run_daily_markets(out_dir: Path | None = None,
         baseline, current, win_meta = build_drift_windows(feats)
         diagnostic_summary["windows"] = win_meta
         if baseline is not None and current is not None:
+            # MODEL WEIGHT source (Step-0 mapped, MLB ground truth): the
+            # MONEYLINE monitor's feature-drift weights
+            # (nfl_model_monitor_<date>.json -> feature_drift[] ->
+            # weight_pct) — the exact field MLB's drift renderer joins at
+            # render time. Null only where the source has no weight; never
+            # hardcoded. The monitor exists by Phase 3b (the moneyline
+            # phase emits it earlier in the same run); absent -> empty map.
+            weight_map = moneyline_weight_map(date_str, data_dir=emit_dir)
             drift_df = compute_run_engine_feature_drift(
-                baseline, current, date_str, out_dir=emit_dir)
+                baseline, current, date_str, out_dir=emit_dir,
+                model_weights=weight_map)
             cov_df = compute_run_engine_feature_coverage(
                 baseline, current, date_str, out_dir=emit_dir)
             diag_names = (f"run_engine_feature_drift_{date_str}.csv",
@@ -673,6 +699,13 @@ def run_daily_markets(out_dir: Path | None = None,
                     "n_alert": int((drift_df["status"] == "ALERT").sum()),
                     "n_insufficient": int(
                         (drift_df["status"] == "INSUFFICIENT").sum()),
+                    "n_with_weight": int(
+                        drift_df["weight_pct"].notna().sum()),
+                    "weight_source": ("nfl_model_monitor_"
+                                      f"{date_str}.json -> feature_drift[] "
+                                      "-> weight_pct (moneyline blend "
+                                      "weights, percent; null only where "
+                                      "the source has no weight)"),
                 },
                 "coverage": {
                     "file": diag_names[1],

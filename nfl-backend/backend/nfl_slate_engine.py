@@ -98,6 +98,14 @@ FEED_PRESENT = False            # no known-vintage feed yet -> own-line mode
 # Offered-line + grid quoting constants.
 SPREAD_INT_LINES = list(range(-14, 15))       # integer lines (P(margin > L))
 TOTAL_INT_LINES = list(range(24, 67))         # integer totals (P(total > U))
+# Favorite-magnitude cover grid (diagnostics "Spread Lines" tab): 0.5 … 24.0
+# in 0.5 steps — 48 magnitudes. ADDITIVE to SPREAD_INT_LINES: half-integers
+# (0.5 … 23.5) plus integers 15 … 24 are emitted as extra p_home_cover_<±L>
+# (and p_push_<±L> for the new integers); integers 1 … 14 already exist via
+# SPREAD_INT_LINES (identical values, so they are not re-written). The deep
+# end (−24.0) is the NFL equivalent of MLB's ±8 (margin σ ≈ 13.2 vs ≈ 4.5;
+# see nfl_run_engine_diagnostics_v2 record for the cover-rate table).
+SPREAD_COVER_MAGS = [round(0.5 + 0.5 * i, 1) for i in range(48)]
 
 
 def _fname(x: float) -> str:
@@ -330,6 +338,21 @@ def price_board(refit: pd.DataFrame, params: dict[str, Any], p_tie: float,
             round(cover_prob(m_, float(L)), 6) for m_ in marg]
         grid[f"p_push_{_fname(float(L))}"] = [
             round(m_[_margin_index(m_, float(L))], 6) for m_ in marg]
+    # Extended favorite-magnitude grid (0.5 … 24.0, 0.5 steps) — additive:
+    # half-integers + the integers 15 … 24 get BOTH signs of p_home_cover
+    # (and p_push for the new integer lines); integers 1 … 14 already exist
+    # from SPREAD_INT_LINES with identical values (never re-written).
+    for m_ in SPREAD_COVER_MAGS:
+        mi = int(m_)
+        if float(m_).is_integer() and 1 <= mi <= 14:
+            continue  # covered by SPREAD_INT_LINES
+        for sgn in (1.0, -1.0):
+            L = sgn * m_
+            grid[f"p_home_cover_{_fname(float(L))}"] = [
+                round(cover_prob(g_, float(L)), 6) for g_ in marg]
+            if float(m_).is_integer():
+                grid[f"p_push_{_fname(float(L))}"] = [
+                    round(g_[_margin_index(g_, float(L))], 6) for g_ in marg]
     for U in TOTAL_INT_LINES:
         grid[f"p_over_{_fname(float(U))}"] = [
             round(over_prob(t_, float(U)), 6) for t_ in tot]

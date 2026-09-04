@@ -183,14 +183,18 @@ def half_stop_pair(row) -> tuple[float | None, float | None,
 
 
 def grid_rows(df) -> tuple[list[int], list[int]]:
-    """Integer margin thresholds and totals ACTUALLY present on the artifact."""
+    """Integer margin thresholds and totals ACTUALLY present on the artifact,
+    filtered to the card's priced grid (SPREAD_GRID / TOTAL_GRID). The
+    artifact's extended favorite-magnitude columns (0.5 … 24.0 — additive
+    for the Diagnostics Spread Lines tab) are excluded here: the card
+    quotes the integer grid only; the extended grid is a diagnostics view."""
     spreads, totals = [], []
     for c in df.columns:
         L = parse_spread_line(c)
-        if L is not None and L not in spreads:
+        if L is not None and L in SPREAD_GRID and L not in spreads:
             spreads.append(L)
         U = parse_total_line(c)
-        if U is not None and U not in totals:
+        if U is not None and U in TOTAL_GRID and U not in totals:
             totals.append(U)
     return sorted(spreads), sorted(totals)
 

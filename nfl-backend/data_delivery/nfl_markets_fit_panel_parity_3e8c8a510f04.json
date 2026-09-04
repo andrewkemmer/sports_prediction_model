@@ -1,0 +1,43 @@
+{
+  "record": "nfl_markets_fit_panel_parity",
+  "target": "NFL Markets page fit-panel (Monte Carlo sampler region) parity + rolling-history status pin — frontend + record only, no engine change",
+  "frame_sha256": "3e8c8a510f04",
+  "wired": "2026-09-04",
+  "scope": "frontend (nfl_markets_page.py fit panel + rolling history, nfl_market_diagnostics.fold_slate_history, utils.load_nfl_run_engine_monitor_series) + tests + this record. NO engine/pricing/feature changes; FEATURE_COLUMNS untouched. The NFL engine stays an analytic 76×76 DN joint — no MC sampler is built (recorded decision).",
+
+  "mlb_ground_truth": {
+    "region": "frontend/markets.py — the 'Distributional Fit Diagnostics' expander (st.expander('Distributional Fit Diagnostics', expanded=False)) at the bottom of the Monitor section",
+    "anatomy": "metric row + parameter caption + mechanism note: fit params (α_home/α_away forms, dispersion χ²/df, variance check), the Monte Carlo configuration caption (n_draws, reason, totals MC se), the fit-check tables, and the model card — per-side fit tables with tail rows (k≤1, k≥10) and observed-vs-modeled probabilities",
+    "sampler_config": "MLB shows 'Monte Carlo: <n> draws · reason=... · totals MC se max ...' (mc_meta) where the NB(λ, α(λ)) sampler configuration is displayed",
+    "rolling_history": "MLB renders per-winner-card rolling history from the accumulated dated monitors (last N points: Line | Date | ECE-cal | Brier | Logloss | Pred mean | n)"
+  },
+
+  "nfl_mirror": {
+    "expander": "the SAME st.expander('Distributional Fit Diagnostics', expanded=False) in nfl_markets_page.py (structural parity)",
+    "metric_row": "4-column metric row — σ_home 9.663, σ_away 9.0789, ρ (margin·total) 0.0076, Tie rate (final) 0.275%",
+    "parameter_caption": "joint family (DN, const σ), fitted-on pooled OOF, 76×76 grid, tie-calibrated to the empirical final rate; era E2 · ewm_2w (era record halflife); median rounds home 20 / away 23",
+    "mechanism_note": "WHERE MLB shows its Monte Carlo configuration, the NFL panel states explicitly: 'Exact PMF — no Monte Carlo sampler (NFL decision, recorded): per-game probabilities are computed analytically from the pinned 76×76 joint, not sampled — deterministic, no RNG, byte-identical re-runs.' (the honest labeling of the recorded decision — the NFL engine is analytic, not a sampler)",
+    "provenance_caption": "Pinned parameters from nfl_era_3e8c8a510f04.json / nfl_market_3e8c8a510f04.json / nfl_adoption_decision_3e8c8a510f04.json",
+    "nothing_fabricated": "every number is a pinned record constant; the panel never invents fit values"
+  },
+
+  "rolling_history_status": {
+    "current_state": "'No rolling history points yet.' — CORRECT and pinned as expected, NOT a defect: no 2026 slate game has decided yet (the first decided 2026 slate rows are the trigger), so the folded series is honestly empty",
+    "trigger": "first decided 2026 slate rows shipped in a dated monitor's slate_history — the fold then resolves per-card series from ≥2 dated monitor families",
+    "fold": "frontend/nfl_market_diagnostics.fold_slate_history — folds the dated nfl_run_engine_monitor_*.json slate_history entries (oldest -> newest) into per-winner-card series via utils.load_nfl_run_engine_monitor_series; the page renders the last 10 points per card (MLB mirror); simulated with fixtures in tests — never fabricated history points"
+  },
+
+  "tests": [
+    "test_frontend_nfl_slate.py — fit-panel anatomy pin (expander title, metric labels σ_home/σ_away/ρ/Tie rate, exact-PMF mechanism note present), rolling-history empty-state pin ('first build starts empty' honesty), folded-series render test with ≥2 dated monitor fixtures (per-card rows resolve from the folded producer), no-fabrication assertion"
+  ],
+
+  "acceptance_evidence": {
+    "frontend_suite": "test_frontend_nfl_slate 56/56 OK; guarded MLB frontend suite 279 tests with only the 2 pre-existing HEAD-baseline TestFitPanel real-artifact failures (proven at clean HEAD via worktree) + 6 skips",
+    "page_anatomy": "the NFL Monitor renders the same expander + metric row + captions as MLB's markets page, with the NFL mechanism honestly labeled"
+  },
+
+  "judgment_calls": [
+    "1_no_sampler_built — the user asked the region to 'identically match' MLB's anatomy; the NFL engine is an analytic joint (a recorded decision). The mirror matches STRUCTURE and labels the mechanism honestly instead of faking an MC configuration.",
+    "2_rolling_empty_is_correct — zero decided 2026 slate rows means the honest empty state is the expected pinned state, not a bug; the fold + trigger are implemented so the panel fills automatically once decided rows ship."
+  ]
+}
