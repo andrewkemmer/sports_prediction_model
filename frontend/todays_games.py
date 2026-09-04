@@ -295,7 +295,10 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     _orient_rl_bits from the favorite's side of the run-engine ladder / NB
     margin distribution. Home-favored games render exactly the artifact's
     home-anchored pair; away-favored games mirror it (away −L is a
-    different bet than the ladder's away +L).
+    different bet than the ladder's away +L). At the ±0.5 stop the
+    per-side derived-ML notes are labeled 'run-ML' with a footnote under
+    the strip, so they cannot be mistaken for the binary moneyline at the
+    top of the card (labeling only — numbers untouched).
     """
     if bits is None:
         # No slate row for this game (run-engine artifacts missing for its
@@ -318,6 +321,10 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
     push_note = ""
     if (bits.get("p_push") or 0) > 0.005:
         push_note = f' <span class="re-na">({bits["p_push"]:.0%} push)</span>'
+    rl_span = _rl_html(bits, home_team, away_team)
+    # Only the ±0.5 stop renders per-side derived-ML notes; mirror the
+    # notes' presence so the footnote never dangles on other stops.
+    ml_caption = _re_ml_caption() if "(run-ML " in rl_span else ""
     return (
         f'<div class="fb-runengine">'
         f'<span class="re-label">RUN ENGINE</span>'
@@ -325,9 +332,22 @@ def _runengine_html(bits, home_team: str, away_team: str) -> str:
         f'{home_team} {bits["proj_home"]:.1f}</span>'
         f'<span>{ou_label}: Over {bits["p_over"]:.0%} / '
         f'Under {bits["p_under"]:.0%}{push_note}</span>'
-        f'{_rl_html(bits, home_team, away_team)}'
+        f'{rl_span}{ml_caption}'
         f'</div>'
     )
+
+
+def _re_ml_caption() -> str:
+    """Footnote under the run-line row at the ±0.5 stop, where the per-side
+    '(run-ML X%)' notes render. The derived moneyline comes from the
+    run-engine score distribution (p_home_win_derived = P(>=2) + P(+1) +
+    0.744*P(0) — it embeds the calibrated tie-resolution term) — NOT the
+    binary model at the top of the card. Labeling only: the numbers are
+    untouched, and at ±0.5 the derived ML equals the raw cover BY
+    CONSTRUCTION on MLB (expected, not a bug)."""
+    return ('<span class="re-na" style="flex-basis:100%;">'
+            'run-ML is derived from the run-engine score distribution — '
+            'the binary moneyline is at the top of the card</span>')
 
 
 def _rl_html(bits, home_team: str, away_team: str) -> str:
@@ -341,8 +361,10 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
     own dropdown, so the strip never repeats "(line selected …)". At the
     ±0.5 stop there is no push (integer margins never tie on decided MLB
     games), so the vacated push slot is replaced by PER-SIDE grey-italic
-    derived-ML parentheticals '(ML X%)' — equal to the cover number by
-    construction on MLB (cover −0.5 ≡ winning outright); integer stops keep
+    derived-ML parentheticals '(run-ML X%)' — labeled so they cannot be
+    mistaken for the binary moneyline at the top of the card (equal to the
+    cover number by construction on MLB — cover −0.5 ≡ winning outright);
+    integer stops keep
     the shared push note and no ML notes. Alternate lines the artifact
     cannot price render as 'unverified' (never fabricated)."""
     rl_line = bits.get("rl_line")
@@ -372,7 +394,7 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
         # Half-point ±0.5: half-lines never push, so each side carries its
         # derived-ML parenthetical (grey-italic, like the totals push
         # note). At ±0.5 the −0.5 side covers exactly when it WINS outright,
-        # so on MLB each (ML X%) equals that side's cover number by
+        # so on MLB each (run-ML X%) equals that side's cover number by
         # construction (the expected placeholder identity — the future NFL
         # port's tie-adjusted ML will differ). Covers come from whichever
         # pair the orientation resolved (favorite-anchored) or the
@@ -386,8 +408,8 @@ def _rl_html(bits, home_team: str, away_team: str) -> str:
         else:
             fav_team, dog_team = home_team, away_team
             fav_cov, dog_cov = bits["rl_home"], bits["rl_away"]
-        fav_note = f' <span class="re-na">(ML {fav_cov:.0%})</span>'
-        dog_note = f' <span class="re-na">(ML {dog_cov:.0%})</span>'
+        fav_note = f' <span class="re-na">(run-ML {fav_cov:.0%})</span>'
+        dog_note = f' <span class="re-na">(run-ML {dog_cov:.0%})</span>'
         return (f'<span>RL: {fav_team} −0.5 {fav_cov:.0%}{fav_note} · '
                 f'{dog_team} +0.5 {dog_cov:.0%}{dog_note}</span>')
     push_src = bits.get("rl_fav_push") if oriented else bits.get("rl_push")
@@ -506,7 +528,7 @@ def _card_html(g: pd.Series, re_bits=None) -> str:
 
     pregame = f'<div class="fb-pregame">Pre-game: {home_team} {p_home:.0%} vs {away_team} {p_away:.0%}</div>'
 
-    # --- pitchers / venue / odds ---
+    # --- pitchers / venue ---
     pitchers = (
         f'<div class="fb-pitchers">'
         f'{_pitcher_box(_val(g, "starting_pitcher_home", "sp_name_home"), _val(g, "sp_home_era", "sp_era_home"), _val(g, "sp_home_k9", "sp_k9_home"))}'
@@ -516,15 +538,6 @@ def _card_html(g: pd.Series, re_bits=None) -> str:
     start_et = utils.start_time_et(g.get("start_time_utc", ""))
     venue = f'<div class="fb-venue">📍 {g.get("venue", "")}{f" · {start_et}" if start_et else ""}</div>'
 
-    edge = g.get("edge_home", 0.0) if pick == home_team else (
-        g.get("edge_away", 0.0) if pick == away_team else 0.0
-    )
-    odds = (
-        f'<div class="fb-odds"><span>ML: {home_team} {utils.american(g.get("moneyline_home"))}'
-        f'&nbsp;&nbsp;{away_team} {utils.american(g.get("moneyline_away"))}</span>'
-        f'<span class="edge" style="color:{utils.edge_color(edge)};">Edge: {utils.edge_str(edge)}</span></div>'
-    )
-
     banner = _banner_html(status, is_final, is_live, winner, pick, correct, is_coin_flip,
                           is_upset, home_team, away_team, g)
 
@@ -532,7 +545,7 @@ def _card_html(g: pd.Series, re_bits=None) -> str:
 
     return (
         f'<div class="fb-card"><div class="fb-top">{top}</div>{score}{home_row}{away_row}'
-        f'{pregame}{pitchers}{venue}{odds}{runengine}{banner}</div>'
+        f'{pregame}{pitchers}{venue}{runengine}{banner}</div>'
     )
 
 
@@ -680,7 +693,7 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
     """Compact NFL moneyline card (teams + win prob) from the adapted frame.
 
     Honors the shared card look (fb-card / fb-team / fb-bar) but omits the
-    MLB-only sections (pitchers, ML odds/edge). Win prob renders as '—' when
+    MLB-only sections (pitchers). Win prob renders as '—' when
     the artifact carries none. When a run-engine slate row resolves for this
     game (``slate_row``), a market-free run-engine box is appended:
     projected scores, the O/U at the fair/selected total with a push note at

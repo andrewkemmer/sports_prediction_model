@@ -635,8 +635,8 @@ class TestRunLineSelector(unittest.TestCase):
         self.assertIn("rl_home", src)
         self.assertIn("rl_push", src)
         self.assertIn("unverified", src)
-        self.assertIn("(ML ", src,
-                      "±0.5 render must carry per-side derived-ML notes")
+        self.assertIn("(run-ML ", src,
+                      "±0.5 render must carry per-side run-ML notes")
 
 
 class TestRunLineCalibrationRecord(unittest.TestCase):
@@ -852,8 +852,10 @@ class TestRunEngineStripSmoke(unittest.TestCase):
 
     def test_rl_half_point_render_shows_per_side_ml(self):
         """At the ±0.5 stop (no push possible) each side renders its
-        derived-ML in a grey-italic parenthetical '(ML X%)' — on MLB equal
-        to the cover number by construction (the expected placeholder)."""
+        derived-ML in a grey-italic parenthetical '(run-ML X%)' — labeled
+        so it cannot be mistaken for the binary model at the top of the
+        card; on MLB equal to the cover number by construction (the
+        expected placeholder)."""
         todays = self._todays()
         bits = {"rl_line": 0.5, "rl_home": 0.51, "rl_away": 0.49,
                 "rl_ml_home": 0.51, "rl_ml_away": 0.49, "rl_push": 0.0,
@@ -861,8 +863,12 @@ class TestRunEngineStripSmoke(unittest.TestCase):
         out = todays._rl_html(bits, "BOS", "NYY")
         self.assertEqual(
             out,
-            '<span>RL: BOS −0.5 51% <span class="re-na">(ML 51%)</span> · '
-            'NYY +0.5 49% <span class="re-na">(ML 49%)</span></span>')
+            '<span>RL: BOS −0.5 51% <span class="re-na">(run-ML 51%)</span> · '
+            'NYY +0.5 49% <span class="re-na">(run-ML 49%)</span></span>')
+        # The ±0.5 cover == derived-ML identity survives (d2c85ff): each
+        # (run-ML X%) note sits right after an identical cover number.
+        self.assertIn(
+            '51% <span class="re-na">(run-ML 51%)</span>', out)
         self.assertNotIn("push", out)
         self.assertNotIn("line selected:", out)
 
@@ -888,6 +894,150 @@ class TestRunEngineStripSmoke(unittest.TestCase):
         self.assertEqual(out,
                          '<span>RL: −2.0 — unverified on this artifact</span>')
         self.assertNotIn("line selected:", out)
+
+
+class TestDeadMoneylineEdgeRowRemoved(unittest.TestCase):
+    """The moneyline/Edge row on the MLB card was a dead placeholder: the
+    product is market-free by permanent decision (no paid/rate-limited
+    odds feed will ever populate moneyline_home/away or edge_home/away),
+    and the binary moneyline is already displayed as the win-probability
+    bars at the top of the card. The row and its serving code path are
+    removed — the artifact columns themselves are untouched (backend-owned
+    schema)."""
+
+    def _card_html_for(self, status: str):
+        import streamlit as st  # noqa: F401
+        import todays_games as todays
+        g = pd.Series({
+            "home_team": "BOS", "away_team": "NYY",
+            "home_team_name": "Red Sox", "away_team_name": "Yankees",
+            "game_status": status,
+            "home_win_prob_model": 0.55, "away_win_prob_model": 0.45,
+            "model_pick": "BOS",
+        })
+        return todays._card_html(g, None)
+
+    def test_card_renders_without_moneyline_edge_row(self):
+        """The dead row is absent in every card state and the surrounding
+        card sections stay intact (no dangling layout regression)."""
+        for status in ("Scheduled", "Live", "Final"):
+            out = self._card_html_for(status)
+            self.assertNotIn("ML: ", out,
+                             f"{status}: dead moneyline row must be gone")
+            self.assertNotIn("Edge:", out,
+                             f"{status}: dead edge value must be gone")
+            self.assertNotIn("fb-odds", out,
+                             f"{status}: odds row container must be gone")
+            self.assertIn("fb-card", out)
+            self.assertIn("fb-pitchers", out,
+                          "pitcher boxes must survive the row removal")
+            self.assertIn("fb-runengine", out)
+            self.assertIn("fb-banner", out)
+
+    def test_binary_top_of_card_unchanged(self):
+        """The binary win-probability bars (the only moneyline display)
+        are untouched by the row removal."""
+        out = self._card_html_for("Scheduled")
+        self.assertIn("Pre-game: BOS 55% vs NYY 45%", out)
+        self.assertIn(">55%</span>", out)
+        self.assertIn(">45%</span>", out)
+
+    def test_renderer_no_longer_reads_odds_columns(self):
+        """Source pin: the card renderer must not reach for the moneyline/
+        edge columns (schema stays backend-owned — only the read is
+        removed, nothing is deleted from any artifact)."""
+        src = (FRONTEND / "todays_games.py").read_text(encoding="utf-8")
+        self.assertNotIn("moneyline_home", src)
+        self.assertNotIn("moneyline_away", src)
+        self.assertNotIn("edge_home", src)
+        self.assertNotIn("edge_away", src)
+        self.assertNotIn("fb-odds", src)
+        self.assertNotIn("Edge:", src)
+
+
+class TestRunMLLabelAndCaption(unittest.TestCase):
+    """The per-side '(run-ML X%)' notes on the run-line row are the
+    RUN-ENGINE-DERIVED moneyline (p_home_win_derived = P(>=2) + P(+1) +
+    0.744*P(0) — it embeds the calibrated tie-resolution term), NOT the
+    binary model at the top of the card. Per the 87f4808 diagnostic the
+    derived ML is totals-context and the binary owns SP-mismatch pricing —
+    the fix is labeling, not removal: notes relabeled 'run-ML' plus a
+    footnote under the strip. The numbers are untouched, and the ±0.5
+    cover == derived-ML identity must survive."""
+
+    def _todays(self):
+        import streamlit as st  # noqa: F401
+        import todays_games as todays
+        return todays
+
+    def _bits(self, rl_line=None):
+        return {
+            "has_grid": True, "total_line": 9.0, "clamped": False,
+            "proj_away": 4.2, "proj_home": 4.8,
+            "p_over": 0.43, "p_under": 0.57, "p_push": 0.0,
+            "rl_line": rl_line, "rl_unverified": False,
+            "rl_home": 0.51, "rl_away": 0.49,
+            "rl_ml_home": 0.51, "rl_ml_away": 0.49, "rl_push": 0.0,
+        }
+
+    def test_half_point_labels_derived_ml_and_footnotes_it(self):
+        """At ±0.5 the notes are labeled 'run-ML' (numbers unchanged) and
+        a footnote under the strip disambiguates them from the binary
+        moneyline at the top of the card."""
+        todays = self._todays()
+        out = todays._runengine_html(self._bits(rl_line=0.5), "BOS", "NYY")
+        self.assertIn("RL: BOS −0.5 51%", out)
+        self.assertIn("(run-ML 51%)", out)
+        self.assertIn("(run-ML 49%)", out)
+        # d2c85ff identity survives the relabel: derived ML == raw cover.
+        self.assertIn('51% <span class="re-na">(run-ML 51%)</span>', out)
+        self.assertNotIn("(ML 51%)", out,
+                         "old unlabeled note must be gone")
+        self.assertIn(
+            "run-ML is derived from the run-engine score distribution", out)
+        self.assertIn("the binary moneyline is at the top of the card", out)
+
+    def test_integer_stop_has_no_ml_notes_or_footnote(self):
+        """Integer stops keep the shared push note and add neither per-side
+        run-ML notes nor the footnote."""
+        todays = self._todays()
+        bits = self._bits(rl_line=1.0)
+        bits.update({"rl_home": 0.48, "rl_away": 0.52, "rl_push": 0.10})
+        out = todays._runengine_html(bits, "BOS", "NYY")
+        self.assertIn("RL: BOS −1.0 48% · NYY +1.0 52% (10% push)", out)
+        self.assertNotIn("run-ML", out)
+        self.assertNotIn("binary moneyline is at the top of the card", out)
+
+    def test_default_stop_has_no_ml_notes_or_footnote(self):
+        """The default ±1.5 pair (complement) carries no run-ML notes and
+        no footnote — byte-identity of the normal render is preserved."""
+        todays = self._todays()
+        bits = self._bits(rl_line=None)
+        bits.update({"p_home_cover": 0.55, "p_away_cover": 0.45})
+        out = todays._runengine_html(bits, "BOS", "NYY")
+        self.assertIn("RL: BOS −1.5 55% · NYY +1.5 45% (complement)", out)
+        self.assertNotIn("run-ML", out)
+
+    def test_label_and_caption_present_across_card_states(self):
+        """The relabeled notes + footnote render in every card state
+        (pre-game / live / final) and the binary top-of-card percentages
+        are unchanged."""
+        todays = self._todays()
+        for status in ("Scheduled", "Live", "Final"):
+            g = pd.Series({
+                "home_team": "BOS", "away_team": "NYY",
+                "home_team_name": "Red Sox", "away_team_name": "Yankees",
+                "game_status": status,
+                "home_win_prob_model": 0.55, "away_win_prob_model": 0.45,
+                "model_pick": "BOS",
+            })
+            out = todays._card_html(g, self._bits(rl_line=0.5))
+            self.assertIn("(run-ML 51%)", out, status)
+            self.assertIn(
+                "run-ML is derived from the run-engine score distribution",
+                out, status)
+            self.assertIn("Pre-game: BOS 55% vs NYY 45%", out,
+                          f"{status}: binary top-of-card must be unchanged")
 
 
 class TestResolveTotalsLineGridBinding(unittest.TestCase):

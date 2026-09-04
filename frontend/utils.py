@@ -1661,8 +1661,6 @@ def inject_css() -> None:
         .fb-pitcher .pname {{ font-weight: 700; color: {TEXT}; font-size: 0.86rem; }}
         .fb-pitcher .pstats {{ color: {SLATE}; font-size: 0.76rem; margin-top: 2px; }}
         .fb-venue {{ color: {SLATE}; font-size: 0.8rem; margin: 6px 0 2px; }}
-        .fb-odds {{ display: flex; justify-content: space-between; align-items: center; margin: 4px 0 8px; color: {TEXT}; font-size: 0.85rem; }}
-        .fb-odds .edge {{ font-weight: 700; }}
         .fb-runengine {{ display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; background: #0F172A; border: 1px solid {BORDER}; border-radius: 9px; padding: 7px 10px; margin: 2px 0 8px; color: {TEXT}; font-size: 0.8rem; }}
         .fb-runengine .re-label {{ color: {AMBER}; font-size: 0.68rem; font-weight: 800; letter-spacing: 1px; }}
         .fb-runengine .re-na {{ color: {SLATE}; font-style: italic; }}
