@@ -1,0 +1,143 @@
+{
+  "record": "nfl_margin_audit",
+  "target": "decide which lever is real for the run-engine-vs-binary margin disagreement (SEA@NE 2026-09-09: run-engine derived ML 63.5% / ~4.5-pt fav vs binary Platt 78.0% / ~7.5-10.2-pt fav)",
+  "frame_sha256": "3e8c8a510f04",
+  "wired": "2026-09-04",
+  "scope": "READ-ONLY audit — no engine/pricing/feature/frontend change. Evidence = decided OOF rows only (1,376 games; slate/serve-time rows never used as calibration evidence). Harness: nfl-backend/backend/probe_margin_disagreement.py (pure reads over committed artifacts + the canonical feature cache). Record is tracked-only (the tracked-file guard protects it per the audit guardrail; it does not ride a protected prefix — the targeted retention-prefix fix covered nfl_run_engine_diagnostics_/nfl_markets_fit_panel_parity_ only).",
+
+  "part_a_mechanism": {
+    "a1_features": {
+      "run_engine_per_side": "SIDE_FEATURES = FEATURE_COLUMNS minus the is_home anchor = the 12-pool HOME-MINUS-AWAY DIFFS ONLY (elo_diff, win_pct_diff, rest_days_diff, is_dome_home, ewm_net_pts_diff, ewm_ypp_diff, pace_plays_min_diff, rest_short_diff, div_game, travel_miles_diff, altitude_home, prime_time). NO per-side levels, NO opponent-quality LEVEL input anywhere in the λ fit. The ONLY per-side level signal is the era center (ewm_2w, 14-day halflife) — fit targets are (score - center), the center is added back at predict (oof_centered_per_side / refit_centered_per_side).",
+      "binary_served_set": "nfl_moneyline_v1_*.json config.features = the SAME 12 diffs (is_home excluded as a model column, handled by a team-orientation mask; the '13-feature served set' counts FEATURE_COLUMNS including the is_home anchor, which neither model feeds as a column). Both models consume the SAME build_slate_features board for 2026 rows and the same decided-train-median imputation concept (binary: bundle impute_median; run engine: decided_f medians).",
+      "structural_difference": "run engine = per-side SCORE regressors + era center + pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) -> derived ML P(H>A)/(1-P_tie); binary = direct P(win) 5-member ensemble (XGB/LGB/Logit/RF/MLP + adaptive AUC blend) + pre-holdout-OOF Platt twin. The binary has NO era anchor and NO margin step."
+    },
+    "a2_regularization": {
+      "model": "LightGBM regressor, objective mae, lr 0.05, num_leaves 31, min_child_samples 20, feature_fraction 0.8, bagging 0.8/5, early stopping 50 on the fold's own val, MAX_ROUNDS 2000; era walk median rounds HOME 20 / AWAY 23 (pinned in nfl_era_3e8c8a510f04.json).",
+      "sextile_response_oof": {
+        "method": "MLB 39c865e mirror — mean margin per sextile of each quality feature over the 1,376 OOF rows; recovery % = (predicted sextile-5-minus-0 spread) / (actual spread).",
+        "elo_diff": {"actual_spread": 14.81, "run_engine_pred_spread": 9.45, "recovery_pct": 63.8, "binary_implied_spread": 17.55, "binary_recovery_pct": 118.5},
+        "ewm_net_pts_diff": {"actual_spread": 14.52, "run_engine_pred_spread": 8.57, "recovery_pct": 59.0, "binary_implied_spread": 15.27, "binary_recovery_pct": 105.2},
+        "win_pct_diff": {"actual_spread": 14.72, "run_engine_pred_spread": 9.56, "recovery_pct": 64.9, "binary_implied_spread": 16.43, "binary_recovery_pct": 111.6},
+        "ewm_ypp_diff": {"actual_spread": 11.81, "run_engine_pred_spread": 7.86, "recovery_pct": 66.5, "binary_implied_spread": 13.16, "binary_recovery_pct": 111.4},
+        "finding": "the run engine is STRUCTURALLY COMPRESSED toward the mean (recovers only 59-67% of the true quality-margin spread); the binary OVER-recovers (105-119%). Both extremes are wrong in opposite directions."
+      }
+    },
+    "a3_serve_time_anchoring": {
+      "sea_at_ne_20260909": {
+        "run_engine_row": "fair_spread 5 (home SEA), fair_total 45, p_home_win_derived 0.6351, p_home_cover_0_5 0.6333; mu pair SEA 24.9 / NE 20.4 -> margin 4.5 (internally consistent: Phi(4.5/13.2)=0.6335).",
+        "era_centers": "era_center_home 22.62 / era_center_away 21.56 — a 213-day ewm_2w decay (last decided game 2026-02-08) collapses every weight to ~1e-5; the ratio converges to the final-weeks scoring mean, so the centers sit near the league mean with a residual +1.06 home gap. The center contributes only ~1.06 of the 4.5-pt margin at season start.",
+        "served_features": "elo_diff 110.49 (decided median 4.06 — ~27x), ewm_net_pts_diff 11.15, ewm_ypp_diff 0.233, win_pct_diff 0.0833, travel_miles_diff -2484.6, altitude_home 46, prime_time 1; imputed only where the board is NaN (pace 76.5%, is_dome 15.8%, travel/altitude 19.9% — decided-train medians, identical in concept for both models).",
+        "decomposition": "margin 4.5 = center gap 1.06 + LGBM diff response ~3.44. The historical ACTUAL mean margin at the top elo sextile is +10.5 — the run engine prices this extreme-quality game at 43% of the realized level; the binary's 0.7805 implies ~10.2 under the pinned DN sigma.",
+        "anchoring_verdict": "season-transition anchoring is REAL but not the root cause: at week 1 the centers carry ~1 pt instead of in-season level, AMPLIFYING the compression; the compression itself is measured in-season on the 1,376 OOF games (where centers carry real level) and persists."
+      }
+    },
+    "a4_binary_comparison": {
+      "same_inputs": "same 12 diffs, same board features, same median-imputation concept, same serve-time NaN handling (both fill with train medians).",
+      "divergence_points": ["direct P(win) vs per-side-score+joint", "Platt-calibrated probability vs pinned-DN probability conversion", "no era anchor in the binary", "5-member blend response (105-119% over-recovery) vs 20/23-round LGBM response (59-67% under-recovery)"]
+    }
+  },
+
+  "part_b_disagreement_diagnostic": {
+    "b5_shared_universe": {
+      "run_engine_oof_rows": 1376,
+      "oof_with_binary_platt": 1376,
+      "coverage_pct": 100.0,
+      "binary_history_rows": 1392,
+      "binary_rows_not_in_oof": 16,
+      "not_in_oof_explained": "the 16 are 2021-24 playoff games (weeks 19-22) — outside the 88-fold regular-season walk geometry; the shared universe is exactly the 1,376 regular-season pooled/sealed games.",
+      "actuals": "carried on every joined row (home_score/away_score from both artifacts; 4 final ties present and excluded from win-rate denominators via home_score > away_score)"
+    },
+    "b6_disagreement_distribution": {
+      "mean_binary_minus_derived": -0.0061,
+      "median": -0.0033,
+      "q05_q95": [-0.2213, 0.1997],
+      "mean_abs_gap": 0.1041,
+      "pct_abs_gap_gt_5pt": 0.7028,
+      "pct_abs_gap_gt_10pt": 0.4411,
+      "binary_higher_pct": 0.4876,
+      "run_engine_mean_margin": 1.977,
+      "binary_implied_mean_margin": 1.98,
+      "key_finding": "the models AGREE ON AVERAGE (mean gap ~0, identical mean margin) but diverge ±10.4 pts per game (70% of games >5 pts apart) — the SEA@NE case is a per-game divergence, not a systematic bias."
+    },
+    "b6_concentration": {
+      "by_derived_band": {
+        "0%-30%": {"n": 48, "mean_gap": 0.1464},
+        "30%-40%": {"n": 119, "mean_gap": 0.0022},
+        "40%-50%": {"n": 284, "mean_gap": -0.0359},
+        "50%-60%": {"n": 414, "mean_gap": -0.0261},
+        "60%-70%": {"n": 291, "mean_gap": 0.0174},
+        "70%-80%": {"n": 158, "mean_gap": 0.0153},
+        "80%-101%": {"n": 62, "mean_gap": -0.0341}
+      },
+      "favorite_side": {"home_fav_n": 925, "home_fav_mean_gap": -0.0059, "road_fav_n": 451, "road_fav_mean_gap": -0.0064},
+      "by_total_band": {"0-40": {"n": 489, "mean_gap": -0.0063}, "40-46": {"n": 256, "mean_gap": -0.0035}, "46-52": {"n": 240, "mean_gap": -0.015}, "52+": {"n": 391, "mean_gap": -0.002}},
+      "finding": "U-shaped in confidence (binary >> derived on extreme underdogs; binary < derived in the 40-60% middle; binary > derived at 60-80%; binary < derived at 80%+); NO road-favorite or totals-band asymmetry."
+    },
+    "b7_calibration_by_actuals": {
+      "binary_platt": {
+        "50%-60%": {"n": 220, "pred": 0.5509, "actual": 0.5409, "band_ece": 0.0100},
+        "60%-70%": {"n": 217, "pred": 0.6473, "actual": 0.6359, "band_ece": 0.0114},
+        "70%-80%": {"n": 191, "pred": 0.7485, "actual": 0.6754, "band_ece": 0.0731},
+        "80%+": {"n": 165, "pred": 0.8480, "actual": 0.8788, "band_ece": 0.0308}
+      },
+      "binary_raw": {
+        "50%-60%": {"n": 290, "pred": 0.5491, "actual": 0.5621, "band_ece": 0.0130},
+        "60%-70%": {"n": 224, "pred": 0.6491, "actual": 0.6875, "band_ece": 0.0384},
+        "70%-80%": {"n": 175, "pred": 0.7469, "actual": 0.8000, "band_ece": 0.0531},
+        "80%+": {"n": 45, "pred": 0.8234, "actual": 0.9556, "band_ece": 0.1321}
+      },
+      "run_engine_derived": {
+        "50%-60%": {"n": 414, "pred": 0.5506, "actual": 0.5386, "band_ece": 0.0119},
+        "60%-70%": {"n": 291, "pred": 0.6465, "actual": 0.6701, "band_ece": 0.0236},
+        "70%-80%": {"n": 158, "pred": 0.7440, "actual": 0.8038, "band_ece": 0.0598},
+        "80%+": {"n": 62, "pred": 0.8421, "actual": 0.7742, "band_ece": 0.0679}
+      },
+      "key_finding": "the binary DOES produce 78% on real decided history (n=191 in its 70-80% Platt band) and is MIS-CALIBRATED there: pred 0.7485 vs actual 0.6754 (ECE 0.073). The run engine's 63.5% sits in its WELL-CALIBRATED 60-70% band (pred 0.6465 vs actual 0.6701). The two bands' realized win rates nearly coincide (~67.0 vs ~67.5) — the truth at SEA@NE is ~67%, and the run engine is closer (63.5 vs 67) than the binary (78 vs 67). The binary RAW axis is well-calibrated at 70-80% (0.747 vs 0.800) — the overconfidence is introduced/aggravated by the Platt map at that band."
+    },
+    "b8_gap_attribution": {
+      "method": "standardized OLS of (binary - derived) on the 12-pool, 1,376 rows",
+      "r2": 0.3488,
+      "intercept": -0.0061,
+      "top_coefs": {"elo_diff": 0.0517, "ewm_ypp_diff": 0.0224, "pace_plays_min_diff": 0.0098, "ewm_net_pts_diff": 0.0093, "travel_miles_diff": 0.0075},
+      "finding": "the 12-pool explains ~35% of the per-game gap, dominated by elo_diff — the models diverge SYSTEMATICALLY where the quality level is extreme (both the run-engine compression and the binary over-recovery grow with quality)."
+    },
+    "b9_internal_card_wobble": {
+      "numbers": "same value 0.635096 displayed two ways on the SEA@NE card: the ML row renders _pct(dh, 1) -> '63.5%'; the run-line ±0.5 stop's per-side note renders _pct(v, 0) -> '(ML 64%)'. The 'wobble' is DISPLAY PRECISION ONLY — one decimal vs integer rounding of the identical p_home_win_derived value. No model inconsistency; both come from p_home_win_derived."
+    }
+  },
+
+  "part_c_verdict": {
+    "classification": "MIXED — primary mechanisms (b) run-engine sigma-compression/shrinkage AND (d) binary overconfidence at high bands; (c) season-transition anchoring amplifies at week 1 but is not the root cause; (a) missing opposing-quality LEVEL is secondary on the run-engine side (the model under-moves on elo_diff it ALREADY has).",
+    "evidence_table": [
+      {"lever": "(a) information asymmetry — run engine missing opposing-quality LEVEL", "evidence": "SIDE_FEATURES are 12 home-minus-away diffs only; no per-side/opponent level. BUT the sextile table shows under-movement on elo_diff/ewm_ypp_diff (features present), so the missing input is not the primary driver of the RESPONSE deficit.", "verdict": "secondary — relevant to the LEVEL/anchoring dimension, not the response dimension"},
+      {"lever": "(b) sigma-compression/shrinkage", "evidence": "run engine recovers 59-67% of the true quality-margin spread (sextile); gap regression R2 0.35 with elo_diff dominant; LGBM early-stopped at median 20/23 rounds; mirrors MLB 39c865e (margin model recovered ~37%).", "verdict": "PRIMARY run-engine mechanism"},
+      {"lever": "(c) season-transition anchoring", "evidence": "2026-09-09 centers 22.62/21.56 (213-day decay -> near-league, residual +1.06 home gap); center contributes ~1 of the 4.5-pt margin at week 1; compression measured IN-SEASON on OOF persists with real centers.", "verdict": "amplifier at season start, not the root cause"},
+      {"lever": "(d) binary overconfidence", "evidence": "Platt 70-80% band pred 0.7485 vs actual 0.6754 (ECE 0.073); SEA@NE 78% sits at the top of that band; binary implied margin over-recovers (105-119% of true spread); raw axis is fine at 70-80% (0.747 vs 0.800) — the Platt map aggravates it.", "verdict": "PRIMARY other-side mechanism — a binary calibration item, not a run-engine problem"}
+    ],
+    "recommendation": {
+      "primary_lever": "(a) NFL-P1 opposing-quality-LEVEL input arm — the ONLY lever with a successful MLB precedent (8cb4efc: opposing LEVELS with a real prior improved sealed margin CRPS; 39c865e/b7eed32: bare feature/view/regularization arms failed). Recommend the gated next spec with P1 semantics: per-side/opponent LEVEL inputs (e.g. elo/ewm level + opponent level) WITH a real prior, NOT a bare feature addition.",
+      "complementary": "(c) season-start prior/anchoring fix — cheap, small (center gap ~1 pt at week 1); a season-start prior on the era center would restore level carryover. Second arm if the P1 arm is built.",
+      "flag_product_decision": "(b) margin-level reconciliation with the binary is NOT recommended unilaterally — it trades run-engine independence (a product decision; the audit shows both models are wrong in opposite directions at the extremes, so reconciliation is not obviously toward truth).",
+      "binary_side": "(d) is a binary calibration item: the published Platt axis's 70-80% band overconfidence (ECE 0.073) should be tracked/re-calibrated on the binary side — out of run-engine scope, flagged here so it is not mis-attributed to the run engine.",
+      "not_recommended": "(d-as-in-no-change) no run-engine change is NOT supported — the 59-67% response compression is measured and structural."
+    },
+    "step0_answer": "the lever is REAL: the run engine is structurally compressed in its quality response (b), the binary is overconfident at high bands (d), and the week-1 anchor amplifies (c). The next gated spec should be the NFL-P1 opposing-quality-level arm (a) with a real prior, plus the season-start anchor fix (c) as a secondary arm; the binary's Platt 70-80 band is a separate calibration item."
+  },
+
+  "evidence_sources": [
+    "nfl_run_engine_markets_20260904.csv (kind==oof, 1,376 rows: pred_home/pred_away, p_home_win_derived, actuals)",
+    "nfl_predictions_history_20260904.csv (home_win_prob_model raw + home_win_prob_model_calibrated Platt)",
+    "nfl_moneyline_v1_20260904.json (config.features 12; slate games[] home_win_prob 0.7805)",
+    "nfl_slate_serve_20260904.json (emission gates/record)",
+    "nfl_features.py FEATURE_COLUMNS; nfl_per_side_engine.py SIDE_FEATURES + LGB_PARAMS; nfl_era_features.py oof_centered_per_side/refit_centered_per_side; run_nfl_slate.py build_board_inputs/price_board_rows",
+    "canonical decided feature frame via load_features (12-pool columns joined by game_id)",
+    "frontend/nfl_slate_view.py _pct precision (ML row 1dp vs ±0.5 note 0dp)"
+  ],
+
+  "guardrails_met": {
+    "1_decided_oof_only": "every calibration/disagreement number is over the 1,376 decided OOF rows; the SEA@NE slate row is used ONLY as the motivating example (features + both models' pricing), never as calibration evidence",
+    "2_platt_primary": "binary-vs-derived comparisons use home_win_prob_model_calibrated (published Platt axis) as primary; the raw axis is carried and labeled (binary_raw tables)",
+    "3_no_production_change": "no engine/pricing/feature/frontend file changed; only the record + a read-only probe harness are committed",
+    "4_record_protection": "nfl_margin_audit_3e8c8a510f04.json is tracked-only (tracked-file guard protects it from the phase5 sweep; it does not ride a protected prefix — the targeted-prefix fix covered the two cb4036f records only). If a future record inherits this name family, add nfl_margin_audit_ to _PROTECTED_DELIVERY_PREFIXES or rename to a protected family."
+  }
+}
