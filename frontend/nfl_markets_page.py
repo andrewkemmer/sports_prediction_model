@@ -22,10 +22,13 @@ parity tests pin the same order/labels/wording/table schemas):
   5. "---" + "### Run-Line & Totals Monitor" + the honesty caption →
      winner cards (computed from the decided OOF store, the NFL monitor's
      card-equivalent data), the Calibration Cards expander (Totals +
-     Run Line, MLB widget set), the fit/drift/coverage/model-card sections
-     (MLB's own empty-state wording where the NFL artifact does not yet
-     carry those pipeline sections), and the rolling-history expander
-     (first-run empty state, MLB wording).
+     Run Line, MLB widget set), the fit panel + the run-engine drift /
+     coverage sections (MLB markets.py mirror — drift/coverage load the
+     emitter CSVs emitted by the daily run and render MLB's own empty-state
+     wording when absent; the fit panel stays on the monitor-artifact
+     empty-state path the NFL pipeline does not yet feed), the model-card
+     section, and the rolling-history expander (first-run empty state,
+     MLB wording).
   6. NO per-game projections hero on this page — MLB does not render
      per-game content on the markets page; per-game pricing lives in the
      artifact and on the Today's Games cards.
@@ -47,11 +50,13 @@ elsewhere):
   * Subtitle: the NFL run engine is the per-side era model + pinned 76×76
     joint (DN) — not MLB's NB(λ, α(λ)) sampler; the sentence shape is
     identical.
-  * Monitor: MLB's fit panel / drift / coverage / model card render from
-    pipeline sections the NFL pipeline does not yet emit — the NFL page
-    mirrors MLB's own "no data in this monitor artifact" wording for those
-    sections (nothing fabricated), while the winner cards + calibration
-    cards + rolling history render from the NFL decided store.
+  * Monitor: MLB's fit panel / model card render from pipeline sections
+    the NFL pipeline does not yet produce — the NFL page mirrors MLB's own
+    "no data in this monitor artifact" wording for those (nothing
+    fabricated). The drift / coverage sections ARE emitted by the daily
+    run (run_engine_feature_drift/coverage_*.csv over the 12-pool view)
+    and render data-loaded; the winner cards + calibration cards +
+    rolling history render from the NFL decided store.
 
 Import is side-effect-free (render happens only inside ``run()``), so
 tests can import the module without a Streamlit page context.
@@ -661,21 +666,22 @@ def run() -> None:
                             unsafe_allow_html=True)
                 _render_runline_calibration_card(decided)
 
-        # Fit panel — the NFL pipeline does not yet emit this section;
+        # Fit panel — the NFL pipeline does not yet produce this section;
         # MLB's own empty-state wording (nothing fabricated).
         with st.expander("Distributional Fit Diagnostics", expanded=False):
             st.info("No fit diagnostics in the monitor artifact.")
 
-        # Drift / coverage / model card — absent until the NFL pipeline
-        # emits those sections; MLB's own empty-state wording.
-        st.markdown("### Run-Engine Feature Drift (PSI)")
-        st.info("No run-engine drift data for this date — the NFL "
-                "slate-serve runner does not yet emit run_engine_feature_"
-                "drift files.")
-        st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
-        st.info("No run-engine coverage data for this date — the NFL "
-                "slate-serve runner does not yet emit run_engine_feature_"
-                "coverage files.")
+        # Drift / coverage — MLB markets.py mirror: load the emitter CSVs
+        # for this date (run_engine_feature_drift_{date}.csv /
+        # run_engine_feature_coverage_{date}.csv); the renderers emit the
+        # section headings and MLB's own empty-state wording when the
+        # files are absent (nothing fabricated).
+        re_drift = nd.load_run_engine_csv(date_str,
+                                          "run_engine_feature_drift")
+        nd.render_run_engine_drift(re_drift)
+        re_cov = nd.load_run_engine_csv(date_str,
+                                        "run_engine_feature_coverage")
+        nd.render_run_engine_coverage(re_cov)
         st.markdown("### Run-Engine Model (per-side era + 76×76 joint)")
         st.caption("Per-side era model (E2, ewm_2w, median rounds 20/23) + "
                    "pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) "

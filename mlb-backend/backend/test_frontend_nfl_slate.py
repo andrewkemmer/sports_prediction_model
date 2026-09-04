@@ -52,6 +52,8 @@ NFL_DD = ROOT / "nfl-backend" / "data_delivery"
 
 MLB_MARKETS_SRC = (FRONTEND / "markets.py").read_text(encoding="utf-8")
 NFL_MARKETS_SRC = (FRONTEND / "nfl_markets_page.py").read_text(encoding="utf-8")
+NFL_DIAGNOSTICS_SRC = (FRONTEND / "nfl_market_diagnostics.py").read_text(
+    encoding="utf-8")
 MODEL_MONITOR_SRC = (FRONTEND / "model_monitor.py").read_text(
     encoding="utf-8")
 
@@ -160,8 +162,10 @@ class TestMlbStructuralParity(unittest.TestCase):
         expander -> run-engine drift -> run-engine coverage -> run-engine
         model card -> rolling-history expander. MLB's helper defs sit above
         the render block, so the MLB tail scan uses the render-call names;
-        the NFL page inlines its headings inside run() — each scan pins its
-        own page's flow, and presence on BOTH pages is pinned by
+        the NFL page calls the drift/coverage renderers on its diagnostics
+        module (MLB markets.py mirror — the same CSV-driven path), so its
+        tail scan uses those call names — each scan pins its own page's
+        flow, and presence on BOTH pages is pinned by
         test_run_engine_drift_coverage_owned_by_markets_page. The two
         drift/coverage sections are INCLUDED because MLB's markets page
         renders them (they are not Model Monitor sections)."""
@@ -176,11 +180,15 @@ class TestMlbStructuralParity(unittest.TestCase):
                    "_render_run_engine_coverage(",
                    "_render_run_engine_model_card(",
                    "Rolling History (last 10 points per card)")
+        # The two nd.load_run_engine_csv calls (drift + coverage) precede
+        # their render calls; the render calls are the unique flow markers
+        # here (list.index would otherwise resolve both loads to the first
+        # occurrence). Loader presence is pinned by the ownership test.
         nfl_seq = ("### Run-Line & Totals Monitor", "_render_winner_cards(",
                    "Calibration Cards — Totals & Run Line",
                    "Distributional Fit Diagnostics",
-                   "### Run-Engine Feature Drift (PSI)",
-                   "### Run-Engine Feature Coverage (non-null / measured)",
+                   "nd.render_run_engine_drift(",
+                   "nd.render_run_engine_coverage(",
                    "### Run-Engine Model (per-side era + 76×76 joint)",
                    "Rolling History (last 10 points per card)")
         for seq, tail, name in ((mlb_seq, mlb_tail, "MLB"),
@@ -198,14 +206,23 @@ class TestMlbStructuralParity(unittest.TestCase):
         (frontend/markets.py Monitor bottom), NOT of the Model Monitor
         page — model_monitor.py owns the separate MONEYLINE-ensemble
         family ('Feature Drift Analysis (PSI Scores)' / 'Feature
-        Coverage'). The NFL mirror keeps them with MLB's own empty-state
-        path until the NFL pipeline emits the underlying artifacts."""
+        Coverage'). The NFL mirror renders the same headings from its
+        diagnostics module's drift/coverage renderers (MLB markets.py
+        mirror), driven by the emitter CSVs; the page's own Monitor flow
+        loads the CSVs and calls the renderers (the populated path)."""
         for h in ("### Run-Engine Feature Drift (PSI)",
                   "### Run-Engine Feature Coverage (non-null / measured)"):
             self.assertIn(h, MLB_MARKETS_SRC,
                           f"MLB markets page must render {h!r}")
-            self.assertIn(h, NFL_MARKETS_SRC,
-                          f"NFL mirror must render {h!r} (MLB parity)")
+            self.assertIn(h, NFL_DIAGNOSTICS_SRC,
+                          f"NFL mirror renderers must render {h!r}")
+        # The NFL page Monitor flow now drives the sections from the emitter
+        # CSVs (the populated path) — the old hardcoded empty-state wording
+        # is gone.
+        self.assertIn("nd.load_run_engine_csv(date_str,", NFL_MARKETS_SRC)
+        self.assertIn("run_engine_feature_drift", NFL_DIAGNOSTICS_SRC)
+        self.assertIn("run_engine_feature_coverage", NFL_DIAGNOSTICS_SRC)
+        self.assertNotIn("does not yet emit", NFL_MARKETS_SRC)
         self.assertNotIn("Run-Engine Feature Drift", MODEL_MONITOR_SRC,
                          "run-engine drift is NOT a Model Monitor section")
         self.assertNotIn("Run-Engine Feature Coverage", MODEL_MONITOR_SRC,
@@ -493,6 +510,7 @@ class TestEmptyStatesHonesty(unittest.TestCase):
         the MagicMock 'streamlit' — cannot happen)."""
         with mock.patch.dict(sys.modules):
             sys.modules.pop("nfl_markets_page", None)
+            sys.modules.pop("nfl_market_diagnostics", None)
             st = mock.MagicMock()
             st.tabs.side_effect = lambda labels: [mock.MagicMock()
                                                   for _ in labels]
@@ -506,6 +524,12 @@ class TestEmptyStatesHonesty(unittest.TestCase):
                 lambda sport=None: (slate, None)
             utils_fake.load_nfl_run_engine_monitor = \
                 lambda sport=None: monitor
+            # The drift/coverage loader resolves through get_source_config /
+            # _fetch_bytes; in the stub path the files are absent so the MLB
+            # empty-state wording renders (nothing fetched, no network).
+            utils_fake.get_source_config = lambda **k: {
+                "owner": "", "repo": "", "branch": "main"}
+            utils_fake._fetch_bytes = lambda *a, **k: (None, "missing")
             sys.modules["utils"] = utils_fake
             sys.modules["streamlit"] = st
             import nfl_markets_page as page
@@ -559,6 +583,7 @@ class TestDataLoadedRender(unittest.TestCase):
         data-loaded paths must execute, not blow up on MagicMock values)."""
         with mock.patch.dict(sys.modules):
             sys.modules.pop("nfl_markets_page", None)
+            sys.modules.pop("nfl_market_diagnostics", None)
             st = mock.MagicMock()
             st.tabs.side_effect = lambda labels: [mock.MagicMock()
                                                   for _ in labels]
@@ -604,6 +629,20 @@ class TestDataLoadedRender(unittest.TestCase):
                 lambda sport=None: (self.df, None)
             utils_fake.load_nfl_run_engine_monitor = \
                 lambda sport=None: self.mon
+            # Drift/coverage loader — resolve LOCAL emitter CSVs (empty cfg
+            # falls back to the checkout), so the data-loaded page renders
+            # the real drift/coverage tables when the files are committed.
+            utils_fake.get_source_config = lambda **k: {
+                "owner": "", "repo": "", "branch": "main"}
+
+            def _local_fetch(relpath, owner="", repo="", branch="main",
+                             sport=None):
+                p = FRONTEND.parent / "nfl-backend" / "data_delivery" / relpath
+                if p.exists():
+                    return p.read_bytes(), "local"
+                return None, "missing"
+
+            utils_fake._fetch_bytes = _local_fetch
             sys.modules["utils"] = utils_fake
             sys.modules["streamlit"] = st
             import nfl_markets_page as page
@@ -697,6 +736,123 @@ class TestDataLoadedRender(unittest.TestCase):
         self.assertAlmostEqual(dm["logloss"], 0.6365, places=4)
         self.assertAlmostEqual(dm["auc"], 0.695, places=3)
         self.assertAlmostEqual(dm["ece"], 0.0435, places=4)
+
+
+class TestRunEngineDiagnostics(unittest.TestCase):
+    """The Monitor's drift/coverage sections (MLB markets.py mirror) —
+    loader resolves the emitter CSVs for the newest date, and the
+    renderers produce the drift/coverage tables from that data."""
+
+    MLB_DRIFT_COLS = [
+        "feature", "current_mean", "baseline_mean", "psi", "psi_adjusted",
+        "noise_floor", "mean_shift", "shift_se", "location_shift",
+        "status", "weight_pct", "n_baseline", "n_current",
+    ]
+    MLB_COVERAGE_COLS = [
+        "feature", "window", "n_games", "n_nonnull", "pct_nonnull",
+        "n_measured", "pct_measured", "n_default_zero", "status",
+    ]
+
+    def _latest(self, prefix: str, ext: str) -> Path | None:
+        cands = sorted(NFL_DD.glob(f"{prefix}*{ext}"))
+        return cands[-1] if cands else None
+
+    def test_loader_resolves_newest_drift_csv(self):
+        import nfl_market_diagnostics as nd
+        path = self._latest("run_engine_feature_drift_", ".csv")
+        if path is None:
+            self.skipTest("no run-engine drift CSV committed")
+        ds = path.name[len("run_engine_feature_drift_"):-len(".csv")]
+        with mock.patch.object(nd.utils, "get_source_config",
+                               return_value={"owner": "", "repo": "",
+                                             "branch": "main"}):
+            df = nd.load_run_engine_csv(ds, "run_engine_feature_drift")
+        self.assertIsNotNone(df, "loader must resolve the committed CSV")
+        self.assertEqual(list(df.columns), self.MLB_DRIFT_COLS)
+        self.assertEqual(len(df), 12, "all 12-pool features in the view")
+
+    def test_loader_resolves_newest_coverage_csv(self):
+        import nfl_market_diagnostics as nd
+        path = self._latest("run_engine_feature_coverage_", ".csv")
+        if path is None:
+            self.skipTest("no run-engine coverage CSV committed")
+        ds = path.name[len("run_engine_feature_coverage_"):-len(".csv")]
+        with mock.patch.object(nd.utils, "get_source_config",
+                               return_value={"owner": "", "repo": "",
+                                             "branch": "main"}):
+            df = nd.load_run_engine_csv(ds, "run_engine_feature_coverage")
+        self.assertIsNotNone(df, "loader must resolve the committed CSV")
+        self.assertEqual(list(df.columns), self.MLB_COVERAGE_COLS)
+        self.assertTrue({"current", "baseline"}.issubset(set(df["window"])))
+
+    @staticmethod
+    def _render_with_stub(fn_name, frame):
+        """Call a renderer under a stubbed streamlit + a minimal fake utils
+        (a REAL utils/streamlit outside the stub would execute the real
+        streamlit path, which crashes without a script-run context). The
+        renderer is resolved INSIDE the patched context so it binds the
+        MagicMock st. Returns the concatenated markdown/info strings."""
+        with mock.patch.dict(sys.modules):
+            sys.modules.pop("nfl_market_diagnostics", None)
+            st = mock.MagicMock()
+            utils_fake = types.ModuleType("utils")
+            utils_fake.AMBER = "#F59E0B"
+            utils_fake.RED = "#EF4444"
+            utils_fake.TEXT = "#E2E8F0"
+            utils_fake.describe_feature = lambda name, sport=None: name
+            utils_fake.feature_weight_pct = lambda row: "—"
+            utils_fake.get_source_config = lambda **k: {
+                "owner": "", "repo": "", "branch": "main"}
+            utils_fake._fetch_bytes = lambda *a, **k: (None, "missing")
+            sys.modules["utils"] = utils_fake
+            sys.modules["streamlit"] = st
+            import nfl_market_diagnostics as nd
+            getattr(nd, fn_name)(frame)
+            outs = []
+            for a in ("markdown", "info"):
+                for call in getattr(st, a).call_args_list:
+                    if call[0] and isinstance(call[0][0], str):
+                        outs.append(call[0][0])
+        return "\n".join(outs)
+
+    def test_drift_render_data_loaded(self):
+        import nfl_market_diagnostics as nd
+        path = self._latest("run_engine_feature_drift_", ".csv")
+        if path is None:
+            self.skipTest("no run-engine drift CSV committed")
+        df = pd.read_csv(path)
+        html = self._render_with_stub("render_run_engine_drift", df)
+        self.assertIn("### Run-Engine Feature Drift (PSI)", html)
+        self.assertIn("<th>FEATURE</th>", html)
+        self.assertIn("<th>PSI</th>", html)
+        # real feature rows render (never the empty-state info)
+        self.assertNotIn("No run-engine drift data", html)
+        feats = set(df["feature"])
+        self.assertTrue(feats)
+
+    def test_coverage_render_data_loaded(self):
+        import nfl_market_diagnostics as nd
+        path = self._latest("run_engine_feature_coverage_", ".csv")
+        if path is None:
+            self.skipTest("no run-engine coverage CSV committed")
+        df = pd.read_csv(path)
+        html = self._render_with_stub("render_run_engine_coverage", df)
+        self.assertIn("### Run-Engine Feature Coverage", html)
+        self.assertIn("<th>MEASURED</th>", html)
+        self.assertNotIn("No run-engine coverage data", html)
+
+    def test_render_absent_csv_uses_mlb_empty_state(self):
+        """The empty path mirrors MLB's own wording (not a bespoke
+        notice): absent CSV -> the renderers' st.info."""
+        self.assertIn(
+            "No run-engine drift data for this date", NFL_DIAGNOSTICS_SRC)
+        self.assertIn(
+            "No run-engine coverage data for this date", NFL_DIAGNOSTICS_SRC)
+        # Adjacent string literals split a phrase across source lines —
+        # normalize whitespace before matching the joined sentence.
+        self.assertIn(
+            _norm("run_engine_feature_drift_*.csv appears after a pipeline"),
+            _norm(NFL_DIAGNOSTICS_SRC))
 
 
 class TestSportDispatch(unittest.TestCase):

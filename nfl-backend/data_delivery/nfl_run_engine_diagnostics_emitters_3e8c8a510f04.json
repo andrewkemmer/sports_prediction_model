@@ -1,0 +1,76 @@
+{
+  "record": "nfl_run_engine_diagnostics_emitters",
+  "target": "fills the Totals & Run Lines Monitor's drift/coverage sections from honest empty states",
+  "frame_sha256": "3e8c8a510f04",
+  "wired": "2026-09-04",
+  "scope": "NFL backend + data_delivery + minimal frontend wiring (page already renders these sections — but with hardcoded empty states; the frontend edit wires them to the emitter CSVs). MLB untouched. No .gitattributes change. FEATURE_COLUMNS / served 12-pool untouched.",
+
+  "ground_truth_mlb": {
+    "emitter": "mlb-backend/backend/explainability.py — compute_run_engine_feature_drift / compute_run_engine_feature_coverage (run-engine view of the moneyline drift/coverage machinery; called from pipeline.py after the run-engine emission, lines ~2079-2086)",
+    "files": "run_engine_feature_drift_YYYYMMDD.csv / run_engine_feature_coverage_YYYYMMDD.csv in data_delivery/",
+    "drift_cols": ["feature", "current_mean", "baseline_mean", "psi", "psi_adjusted", "noise_floor", "mean_shift", "shift_se", "location_shift", "status", "weight_pct", "n_baseline", "n_current"],
+    "coverage_cols": ["feature", "window", "n_games", "n_nonnull", "pct_nonnull", "n_measured", "pct_measured", "n_default_zero", "status"],
+    "psi_algorithm": "quantile bin edges on the COMBINED sample (deduplicated), right edge nudged, add-one-half smoothing; PSI = sum((c-b)*ln(c/b)); status on NOISE-ADJUSTED PSI (PSI - noise_floor) + a location gate (mean shift > 2*SE with clustering factor 1.5); INSUFFICIENT below n_baseline<100 or n_current<30",
+    "windows": "decided games ONLY (never slate rows — pre-game rows carry forward PIT state), current = last 7 days from target_date, baseline = strictly-prior tail(max(3*len(current), 250)), chronological",
+    "loader": "frontend/markets.py _load_run_engine_csv(date_str, prefix) — fetches {prefix}_{date}.csv by the page's resolved date",
+    "renderers": "frontend/markets.py _render_run_engine_drift/_render_run_engine_coverage — the Monitor's drift/coverage sections (MLB markets page ADOPTS them; they are NOT Model Monitor sections)",
+    "psl_thresholds": "PSI_WARN 0.10 / PSI_ALERT 0.25 (config.py)"
+  },
+
+  "nfl_emitters": {
+    "module": "nfl-backend/backend/nfl_explainability.py",
+    "view": "SIDE_FEATURES = FEATURE_COLUMNS minus the is_home moneyline anchor = the 12-pool market-free per-side feature set (the run-engine's own inputs)",
+    "mirror": "column-for-column with MLB (drift + coverage schemas above); weight_pct always None (the run engine has no per-model blend-weight artifact — MLB passes model_weights=None for its run-engine view too)",
+    "coverage_special_case": "n_measured == n_nonnull, n_default_zero == 0 (MLB's weather-default-signature special case has no NFL counterpart — columns kept for schema parity)",
+    "windows": {
+      "source": "decided feature frame (load_features(None), canonical frame sha 3e8c8a510f04, 2019-2025 decided games)",
+      "current": "decided games in [anchor - 28d, anchor]",
+      "baseline": "strictly-prior decided tail(max(3*len(current), 250))",
+      "anchor": "NEWEST DECIDED GAMEDAY of the frame (sport-adjusted rule — documented divergence from MLB's run-date anchor, see below)",
+      "leakage": "strictly-prior baseline asserted; as-of anchor excludes rows after it"
+    },
+    "sport_adjustment_documented": {
+      "why": "MLB anchors the current window at target_date - 7 days because its season is daily/continuous; NFL is seasonal with a ~6-month off-season — a run-date anchor off-season would produce an empty current window (nothing to compare).",
+      "rule": "anchor = newest decided gameday; current = last 28 days of decided games (a 4-week month; NFL's normal cadence is 7-9 games per team per month). In-season this is ~identical to the run-date rule (the newest decided games are the prior weekend); off-season it still compares the latest decided period against its prior instead of emitting an empty table.",
+      "in_season_note": "the currently committed frame's newest decided game is 2026-02-08 (Super Bowl LX), so today's emission intentionally compares the last ~month of the 2025 season vs its prior — the latest available decided period."
+    }
+  },
+
+  "wiring": {
+    "run_nfl_markets_backfill.run_daily_markets": "Step 4 emitters — after the markets CSV, build_drift_windows(feats) then compute_run_engine_feature_drift/coverage into the emit dir (default data_delivery) when a current window exists; summary recorded in meta['run_engine_diagnostics'], monitor['run_engine_diagnostics'] and the serve record",
+    "master_pipeline": "_PROTECTED_DELIVERY_PREFIXES extended with run_engine_feature_drift_ / run_engine_feature_coverage_ (retention: protected, tracked-and-accumulating; a daily run can never sweep them)",
+    "existing": "Phase 3b already force-adds (index.add(force=True)) the gitignored dated CSVs — the two new families commit via the same sync",
+    "frontend": "nfl-markets-page (frontend/nfl_markets_page.py) replaces the hardcoded 'does not yet emit' empty-state blocks with nd.load_run_engine_csv(date_str, ...) + nd.render_run_engine_drift/_coverage (added to frontend/nfl_market_diagnostics.py, MLB markets.py mirror). No other page changes."
+  },
+
+  "tests": [
+    "nfl-backend/backend/test_nfl_explainability.py — PSI/status/noise-floor, 12-pool view, window construction (strictly-prior, as-of anchor), drift+coverage schema parity vs MLB columns, INSUFFICIENT small-window, coverage statuses, byte-identical double emit; real-artifact schema tests",
+    "mlb-backend/backend/test_frontend_nfl_slate.py — Monitor sub-section order parity (drift -> coverage, MLB sequence), drift/coverage ownership (markets page adopts them; absent from model_monitor.py), page drives sections from emitter CSVs (old 'does not yet emit' wording gone), loader resolves the newest drift/coverage CSVs locally, data-loaded drift/coverage render (real tables, not the empty state), absent-CSV MLB empty-state wording",
+    "nfl-backend/backend/test_master_pipeline.py — run_engine_feature_drift_/coverage_ families added to the protected set (never stale, survive an untracked sweep)"
+  ],
+
+  "acceptance_evidence": {
+    "run": "run_nfl_markets_backfill.py (the exact CLI wrapping the shared core Phase 3b calls), 321s, all 6 gates pass (g1 actuals+coverage, g2 determinism, g3 record pins, g4 leakage, g5 schema, g6 pool untouched)",
+    "emitted_family_20260904": [
+      "nfl_run_engine_markets_20260904.csv (272 slate + 1376 oof rows)", "nfl_run_engine_markets_20260904.meta.json", "nfl_run_engine_monitor_20260904.json", "nfl_slate_serve_20260904.json", "run_engine_feature_drift_20260904.csv (12 features, 0 warn / 0 alert)", "run_engine_feature_coverage_20260904.csv (24 feature-window rows)"
+    ],
+    "drift_window": "anchor 2026-02-08 (newest decided gameday), cutoff 2026-01-11, current_n 11, baseline_n 250 (strictly prior; baseline_max 2026-01-10 < current_min 2026-01-11)",
+    "statuses_honest": "all 12 drift rows INSUFFICIENT (current_n 11 < 30 — MLB's own small-sample guard; the 2025 playoff month is the frame's latest decided period), coverage all OK (100% measured both windows)",
+    "pins_reproduced": "totals ECE offered 0.087/0.1547, covers ECE offered 0.078/0.1145, derived-ML ll/auc/ece/brier 0.6365/0.695/0.0435/0.2221 and 0.6535/0.6782/0.1009/0.2299 — identical to the market record",
+    "determinism": "emitter functions are pure over the deterministic decided frame (no RNG); unit tests assert byte-identical double emit; the core's g2 determinism gate passed in this run",
+    "frontend": "nfl_run_engine_markets date resolution unchanged; the Monitor's drift/coverage renderers resolve the 20260904 CSVs locally (data-loaded render verified by tests)",
+    "suites": {
+      "test_frontend_nfl_slate": "46/46 OK (incl. 4 data-loaded real-artifact drift/coverage tests)",
+      "guarded_frontend_suite": "269 tests, all green (5 skips) on the current tree",
+      "test_nfl_explainability+test_master_pipeline": "58 OK (2 skips = real-artifact tests that fill once committed)",
+      "full_nfl_backend_suite": "441 tests (421 HEAD baseline + 20 new; my +20 green), failure set BYTE-IDENTICAL to the HEAD worktree baseline (22 pre-existing env/drift: pandas-3.0.1 string-dtype ablations, engine-sha pin drift, Windows unwritable-path, pytest-not-installed) — zero new"
+    }
+  },
+
+  "judgment_calls": [
+    "1_sport-adjusted_window_anchor — newest-decided-gameday anchor + 28-day current window (documented divergence; MLB's run-date/7-day rule assumes a continuous season). In-season equivalence holds; off-season the table still compares the latest decided period instead of emitting nothing.",
+    "2_no_weight_column — the NFL run engine has no per-model blend-weight artifact; MLB's own 'has_weights' gate renders the same drift table without the MODEL WEIGHT column. Keeping weight_pct=None in the CSV preserves schema parity.",
+    "3_frontend_wiring_included — the task stated no frontend edits, but the page's drift/coverage sections were HARDCODED empty states that never read the CSV family, so emitting the files alone would not populate them. User approved the minimal wiring (one page + one diagnostics module).",
+    "4_no_fit_panel_model_card — only drift/coverage are emitted here; the fit panel and model-card sections remain on MLB's own empty-state path (separate artifacts, out of scope)."
+  ]
+}

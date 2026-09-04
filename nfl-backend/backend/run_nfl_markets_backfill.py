@@ -44,6 +44,12 @@ Emitted for target_date = run date (America/New_York):
                                           (no served-slate outcomes exist
                                           yet — nothing fabricated)
   nfl_slate_serve_{date}.json              run gates + mapping table (record)
+  run_engine_feature_drift_{date}.csv     PSI per 12-pool feature over the
+                                          adjacent decided windows (MLB
+                                          explainability mirror; fills the
+                                          Monitor's drift section)
+  run_engine_feature_coverage_{date}.csv  measured/non-null coverage per
+                                          feature x window (MLB mirror)
 
 Retention: dated artifacts are TRACKED-AND-ACCUMULATING (MLB mirror).
 
@@ -81,6 +87,9 @@ import nfl_market_engine as M  # noqa: E402
 import nfl_slate_engine as SE  # noqa: E402
 from nfl_era_features import (attach_centers, compute_centers,  # noqa: E402
                               mean_resid_stats, oof_centered_per_side)
+from nfl_explainability import (  # noqa: E402
+    build_drift_windows, compute_run_engine_feature_coverage,
+    compute_run_engine_feature_drift)
 from nfl_features import DECIDED_FRAME  # noqa: E402
 from nfl_joint_engine import (build_joint_pmfs, cover_prob,  # noqa: E402
                               margin_pmf_from_joint, over_prob,
@@ -633,6 +642,56 @@ def run_daily_markets(out_dir: Path | None = None,
         out.to_csv(tmp, index=False)
         tmp.replace(csv_path)
         written.append(csv_path.name)
+
+        # Run-engine feature drift + coverage (MLB explainability mirror) —
+        # fills the Monitor's drift/coverage sections, which previously
+        # rendered honest empty states. Computed over the DECIDED feature
+        # frame's adjacent windows (decided-only, sport-adjusted anchor —
+        # see nfl_explainability.build_drift_windows) and written
+        # column-for-column with MLB. Deterministic like the rest of the
+        # core: identical pull -> byte-identical CSVs.
+        diagnostic_summary: dict[str, Any] = {
+            "view": "12-pool SIDE_FEATURES (run-engine per-side feature "
+                    "set)",
+            "n_features": len(SIDE_FEATURES),
+            "status": "no current window (no decided games in lookback)"}
+        baseline, current, win_meta = build_drift_windows(feats)
+        diagnostic_summary["windows"] = win_meta
+        if baseline is not None and current is not None:
+            drift_df = compute_run_engine_feature_drift(
+                baseline, current, date_str, out_dir=emit_dir)
+            cov_df = compute_run_engine_feature_coverage(
+                baseline, current, date_str, out_dir=emit_dir)
+            diag_names = (f"run_engine_feature_drift_{date_str}.csv",
+                          f"run_engine_feature_coverage_{date_str}.csv")
+            diagnostic_summary.update({
+                "status": "emitted",
+                "drift": {
+                    "file": diag_names[0],
+                    "n_features": int(len(drift_df)),
+                    "n_warn": int((drift_df["status"] == "WARN").sum()),
+                    "n_alert": int((drift_df["status"] == "ALERT").sum()),
+                    "n_insufficient": int(
+                        (drift_df["status"] == "INSUFFICIENT").sum()),
+                },
+                "coverage": {
+                    "file": diag_names[1],
+                    "n_rows": int(len(cov_df)),
+                    "n_low": int(
+                        (cov_df["status"] == "LOW_COVERAGE").sum()),
+                    "n_starved": int(
+                        (cov_df["status"] == "STARVED").sum()),
+                }})
+            written.extend(diag_names)
+            print(f"  wrote {diag_names[0]} ({len(drift_df)} features, "
+                  f"{diagnostic_summary['drift']['n_warn']} warn / "
+                  f"{diagnostic_summary['drift']['n_alert']} alert)")
+            print(f"  wrote {diag_names[1]} "
+                  f"({len(cov_df)} feature-window rows)")
+        else:
+            print(f"  [diagnostics] no current drift window: {win_meta}")
+        meta["run_engine_diagnostics"] = diagnostic_summary
+        monitor["run_engine_diagnostics"] = diagnostic_summary
         meta_path = emit_dir / f"nfl_run_engine_markets_{date_str}.meta.json"
         tmp = meta_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(meta, indent=2, default=str))
@@ -703,6 +762,7 @@ def run_daily_markets(out_dir: Path | None = None,
                                                 "history"),
             },
         }
+        rec["run_engine_diagnostics"] = diagnostic_summary
         rec_path = emit_dir / f"nfl_slate_serve_{date_str}.json"
         tmp = rec_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(rec, indent=2, default=str))

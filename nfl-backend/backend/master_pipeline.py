@@ -516,6 +516,8 @@ _PROTECTED_DELIVERY_PREFIXES = (
     "nfl_run_engine_markets_", "nfl_run_engine_monitor_",
     "nfl_slate_serve_", "nfl_era_", "nfl_market_",
     "nfl_adoption_decision_",
+    # Run-engine drift/coverage families (diagnostics emitters, 2026-09-04)
+    "run_engine_feature_drift_", "run_engine_feature_coverage_",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

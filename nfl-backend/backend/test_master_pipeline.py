@@ -433,6 +433,9 @@ class TestRunEngineAndResearchProtection(unittest.TestCase):
         "nfl_era_3e8c8a510f04.json",
         "nfl_market_3e8c8a510f04.json",
         "nfl_adoption_decision_3e8c8a510f04.json",
+        # Run-engine drift/coverage emitters (diagnostics wiring, 2026-09-04)
+        "run_engine_feature_drift_20260830.csv",
+        "run_engine_feature_coverage_20260830.csv",
     ]
 
     def test_run_engine_and_research_families_never_stale(self):

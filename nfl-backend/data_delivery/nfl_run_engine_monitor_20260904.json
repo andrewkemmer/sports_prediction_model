@@ -1,7 +1,7 @@
 {
   "artifact": "nfl_run_engine_monitor_20260904.json",
   "target_date": "20260904",
-  "as_of_utc": "2026-09-04T12:37:06.414275+00:00",
+  "as_of_utc": "2026-09-04T15:17:59.035308+00:00",
   "oof_baseline_research_pinned": {
     "covers_ece_pooled": 0.078,
     "totals_ece_pooled_own": 0.087,
@@ -100,6 +100,34 @@
     "g6_pool_untouched": {
       "pass": true,
       "rule": "FEATURE_COLUMNS untouched (12 market-free + is_home anchor), market-free"
+    }
+  },
+  "run_engine_diagnostics": {
+    "view": "12-pool SIDE_FEATURES (run-engine per-side feature set)",
+    "n_features": 12,
+    "status": "emitted",
+    "windows": {
+      "anchor": "2026-02-08",
+      "cutoff": "2026-01-11",
+      "current_n": 11,
+      "baseline_n": 250,
+      "current_min_day": "2026-01-11",
+      "current_max_day": "2026-02-08",
+      "baseline_max_day": "2026-01-10",
+      "max_decided_day": "2026-02-08"
+    },
+    "drift": {
+      "file": "run_engine_feature_drift_20260904.csv",
+      "n_features": 12,
+      "n_warn": 0,
+      "n_alert": 0,
+      "n_insufficient": 12
+    },
+    "coverage": {
+      "file": "run_engine_feature_coverage_20260904.csv",
+      "n_rows": 24,
+      "n_low": 0,
+      "n_starved": 0
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "record": "nfl_markets_backfill",
   "target_date": "20260904",
-  "written_utc": "2026-09-04T12:37:06.607267+00:00",
+  "written_utc": "2026-09-04T15:17:59.284485+00:00",
   "frame_sha256": "3e8c8a510f04",
   "scope": "run-engine decided-history connector: decided OOF store through the slate emitter's schema + actuals, one dated markets artifact (kinds slate + oof), MLB mirror. This shared core is wired into master_pipeline Phase 3b (daily emission); the CLI remains the standalone/backfill entrypoint. FEATURE_COLUMNS / served 12-pool untouched",
   "config": {
@@ -136,5 +136,33 @@
     "2_one_file_both_kinds": "MLB mirror: the dated markets CSV carries kind==oof (decided, with actuals) AND kind==slate (2026 board) rows so the newest dated file is the complete store",
     "3_fair_vs_offered": "fair-line probabilities computed directly from the rebuilt PMFs; offered-line quotes carry the line-vintage caveat; never conflated",
     "4_slate_history_still_empty": "no served-slate outcomes exist yet \u2014 the monitor's slate_history stays empty; the backfill-computed OOF calibration is labeled as such, not as slate history"
+  },
+  "run_engine_diagnostics": {
+    "view": "12-pool SIDE_FEATURES (run-engine per-side feature set)",
+    "n_features": 12,
+    "status": "emitted",
+    "windows": {
+      "anchor": "2026-02-08",
+      "cutoff": "2026-01-11",
+      "current_n": 11,
+      "baseline_n": 250,
+      "current_min_day": "2026-01-11",
+      "current_max_day": "2026-02-08",
+      "baseline_max_day": "2026-01-10",
+      "max_decided_day": "2026-02-08"
+    },
+    "drift": {
+      "file": "run_engine_feature_drift_20260904.csv",
+      "n_features": 12,
+      "n_warn": 0,
+      "n_alert": 0,
+      "n_insufficient": 12
+    },
+    "coverage": {
+      "file": "run_engine_feature_coverage_20260904.csv",
+      "n_rows": 24,
+      "n_low": 0,
+      "n_starved": 0
+    }
   }
 }

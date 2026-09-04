@@ -1,7 +1,7 @@
 {
   "artifact": "nfl_run_engine_markets_20260904.csv",
   "target_date": "20260904",
-  "as_of_utc": "2026-09-04T12:37:06.414275+00:00",
+  "as_of_utc": "2026-09-04T15:17:59.035308+00:00",
   "frame_sha256": "3e8c8a510f04",
   "board": {
     "season": 2026,
@@ -132,5 +132,33 @@
     "nfl_adoption_decision_3e8c8a510f04.json"
   ],
   "engines_modified": false,
-  "moneyline_pool_untouched": true
+  "moneyline_pool_untouched": true,
+  "run_engine_diagnostics": {
+    "view": "12-pool SIDE_FEATURES (run-engine per-side feature set)",
+    "n_features": 12,
+    "status": "emitted",
+    "windows": {
+      "anchor": "2026-02-08",
+      "cutoff": "2026-01-11",
+      "current_n": 11,
+      "baseline_n": 250,
+      "current_min_day": "2026-01-11",
+      "current_max_day": "2026-02-08",
+      "baseline_max_day": "2026-01-10",
+      "max_decided_day": "2026-02-08"
+    },
+    "drift": {
+      "file": "run_engine_feature_drift_20260904.csv",
+      "n_features": 12,
+      "n_warn": 0,
+      "n_alert": 0,
+      "n_insufficient": 12
+    },
+    "coverage": {
+      "file": "run_engine_feature_coverage_20260904.csv",
+      "n_rows": 24,
+      "n_low": 0,
+      "n_starved": 0
+    }
+  }
 }

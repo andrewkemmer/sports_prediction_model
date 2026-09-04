@@ -30,11 +30,14 @@ NFL-specific semantics (documented deltas, not approximations):
 
 from __future__ import annotations
 
+import io
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 
+import utils
 from market_diagnostics import (LOW_N, OWN_LINE_EDGES, OWN_LINE_LABELS,  # noqa: F401
                                 X_1PCT_TICKS, _auc, _bucket_calibration,
                                 calibration_curve, chart_calibration,
@@ -670,6 +673,166 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
         s["win_rate"] = (round(sw / (sw + sl), 4) if (sw + sl) else None)
     out["sides"] = sides
     return out
+
+
+# ---------------------------------------------------------------------------
+# Run-engine feature drift + coverage (MLB markets.py mirror) — the Monitor's
+# drift/coverage sections over the emitter CSVs
+# (run_engine_feature_drift_YYYYMMDD.csv / run_engine_feature_coverage_
+# YYYYMMDD.csv, written by nfl_explainability). Identical structure/wording to
+# MLB's _render_run_engine_drift / _render_run_engine_coverage; the NFL run
+# engine has no per-model blend-weight artifact, so the MODEL WEIGHT column is
+# omitted (MLB's own 'has_weights' gate renders the same table without it).
+# ---------------------------------------------------------------------------
+
+def load_run_engine_csv(ds: str, prefix: str) -> pd.DataFrame | None:
+    """Fetch run_engine_feature_{drift,coverage}_YYYYMMDD.csv for a date
+    (the run engine's own drift/coverage artifacts over its 12-pool
+    feature view, emitted by the daily run). None when absent/unreadable.
+    Mirror of markets._load_run_engine_csv, with the NFL sport pinned
+    explicitly — this page ALWAYS loads NFL artifacts regardless of the
+    app's active-sport default (which outside the app context is MLB)."""
+    fname = f"{prefix}_{ds}.csv"
+    cfg = utils.get_source_config()
+    try:
+        raw, _src = utils._fetch_bytes(fname, sport="nfl", **cfg)
+    except Exception:
+        raw = None
+    if raw is None:
+        return None
+    try:
+        return pd.read_csv(io.BytesIO(raw))
+    except Exception:
+        return None
+
+
+def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
+    """Run-engine feature drift — same PSI table as the MLB monitor over
+    the NFL run engine's own 12-pool features. No MODEL WEIGHT column
+    (the NFL run engine has no per-model blend weight artifact); when the
+    CSV is absent the MLB empty-state wording renders (nothing
+    fabricated)."""
+    st.markdown("### Run-Engine Feature Drift (PSI)")
+    if drift is None or drift.empty:
+        st.info("No run-engine drift data for this date "
+                "(run_engine_feature_drift_*.csv appears after a pipeline "
+                "run).")
+        return
+    records = drift.to_dict("records")
+    rows = []
+    for r in records:
+        psi = r.get("psi", 0.0)
+        status = r.get("status", "OK")
+        psi_color = utils.AMBER if status == "WARN" else (
+            utils.RED if status == "ALERT" else utils.TEXT)
+        pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
+                    "INSUFFICIENT": "ok"}.get(status, "ok")
+        n_base, n_cur = r.get("n_baseline"), r.get("n_current")
+        samples = (f" ({n_base}/{n_cur})"
+                   if n_base is not None and n_cur is not None else "")
+        label = utils.describe_feature(r.get("feature", ""), sport="nfl") \
+            or r.get("feature", "")
+        rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
+            f"margin-top:1px;'>{label}</div></td>"
+            f"<td>{r.get('current_mean', '—')}</td>"
+            f"<td>{r.get('baseline_mean', '—')}</td>"
+            f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"
+            f"{samples}</span></td></tr>")
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>FEATURE</th><th>CURRENT MEAN</th><th>BASELINE MEAN</th>
+            <th>PSI</th><th>STATUS</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          Same windows as the decided-store calibration; statuses on
+          noise-adjusted PSI.
+          INSUFFICIENT = window too small to judge drift.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_run_engine_coverage(cov: pd.DataFrame | None) -> None:
+    """Run-engine feature coverage — the same measured/non-null table as
+    the MLB monitor over the NFL run engine's 12-pool features. When the
+    CSV is absent the MLB empty-state wording renders (nothing
+    fabricated)."""
+    st.markdown("### Run-Engine Feature Coverage (non-null / measured)")
+    if cov is None or cov.empty:
+        st.info("No run-engine coverage data for this date "
+                "(run_engine_feature_coverage_*.csv appears after a "
+                "pipeline run).")
+        return
+    cov_sorted = sorted(
+        cov.to_dict("records"),
+        key=lambda r: (r.get("pct_measured", 0.0), r.get("feature", "")),
+    )
+    n_starved = sum(1 for r in cov_sorted if r.get("status") == "STARVED")
+    n_low = sum(1 for r in cov_sorted if r.get("status") == "LOW_COVERAGE")
+    sub = (
+        f"<span style='color:{utils.RED};font-weight:700;'>{n_starved} "
+        f"starved</span> · <span style='color:{utils.AMBER};font-weight:700;'>"
+        f"{n_low} low</span>"
+        if (n_starved or n_low) else
+        "<span style='color:#4ADE80;font-weight:700;'>all windows healthy</span>")
+    st.markdown(
+        f"<div style='color:#94A3B8;font-size:0.8rem;margin:-6px 0 10px;'>"
+        f"Share of games in each drift window with a real observation per "
+        f"feature — {sub}</div>",
+        unsafe_allow_html=True)
+    show_starved_only = n_starved + n_low > 0
+    rows = []
+    for r in cov_sorted:
+        if show_starved_only and r.get("status") == "OK":
+            continue
+        status = r.get("status", "OK")
+        pill_cls = {"OK": "ok", "LOW_COVERAGE": "warn",
+                    "STARVED": "alert"}.get(status, "ok")
+        pct = r.get("pct_measured", 0.0)
+        color = (utils.RED if pct < 25 else
+                 utils.AMBER if pct < 80 else "#4ADE80")
+        label = utils.describe_feature(r.get("feature", ""), sport="nfl") \
+            or r.get("feature", "")
+        rows.append(
+            f"<tr>"
+            f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
+            f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
+            f"margin-top:1px;'>{label}</div></td>"
+            f"<td>{r.get('window','')}</td>"
+            f"<td>{r.get('n_games','—')}</td>"
+            f"<td>{r.get('n_nonnull','—')}</td>"
+            f"<td style='color:{color};font-weight:700;'>{pct}%</td>"
+            f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
+            f"</td></tr>")
+    caption = ("Highlighting only low-coverage windows." if show_starved_only
+               else "All windows fully measured.")
+    st.markdown(
+        f"""
+        <div class="fb-box" style="padding:6px 8px;">
+          <table class="fb-table">
+            <thead><tr><th>FEATURE</th><th>WINDOW</th><th>GAMES</th>
+            <th>NON-NULL</th><th>MEASURED</th><th>STATUS</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+        <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+          {caption} n_default_zero is always 0 on NFL (no default-signature
+          feature exists; MLB's weather-default special case has no NFL
+          counterpart).
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def runline_monitor_stats(decided: pd.DataFrame,
