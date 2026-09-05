@@ -535,6 +535,12 @@ _PROTECTED_DELIVERY_PREFIXES = (
     # without the trailing underscore: the record is plural
     # (nfl_pbp_cohorts_3e8c8a510f04.json) and the family stays narrow.
     "nfl_pbp_cohort",
+    # Wide-pool validation rearchitecture record (2026-09-05): dateless
+    # sha-named; re-baselines BOTH engines on the RS-only 2018-2025 pool
+    # (week-ID folds, 300-game identity seed, no sealed gate). Production
+    # serving path UNTOUCHED — validation harness only. Targeted prefix
+    # (never a broad nfl_).
+    "nfl_wide_pool_",
 )
 
 # Dated record families whose survival is BOARD-BACKED: kept while their

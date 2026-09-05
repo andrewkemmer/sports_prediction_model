@@ -1,0 +1,1479 @@
+{
+  "record": "nfl_wide_pool_rearchitecture",
+  "frame_sha256": "3e8c8a510f04",
+  "committed_frame_note": "The PRODUCTION canonical decided frame (nfl_game_level_features.csv, sha 3e8c8a510f04, 2019-2025 with playoffs, 1,960 rows) is UNTOUCHED by this rearchitecture \u2014 per the 'NO production prediction change' + 'production full-history refit/serving path untouched' guardrails. This harness builds its OWN committed RS-only 2018-2025 store (nfl_decided_store_rs_2018_2025.csv) and produces the wide-pool re-baseline below. The production moneyline 88-fold geometry (2021-2024 pooled n=1,107 + sealed 2025 n=285) + sealed 2025 gate + markets emission + 2026 slate serve are all unchanged; their legacy pins are archived in the legacy fixture.",
+  "step1_rs_decided_store": {
+    "total": 2127,
+    "scored": 1871,
+    "warmup": 256,
+    "per_season": {
+      "2018": 256,
+      "2019": 256,
+      "2020": 256,
+      "2021": 272,
+      "2022": 271,
+      "2023": 272,
+      "2024": 272,
+      "2025": 272
+    },
+    "sha256": "9e2deb57341d",
+    "path": "nfl-backend\\data_delivery\\nfl_decided_store_rs_2018_2025.csv",
+    "2018_source": "schedule-only (no PBP \u2014 spec: box-score/schedule-derivable)",
+    "playoffs_stripped": true,
+    "note_2022": "2022 has 271 REG decided games in nflreadpy (1-game discrepancy vs the spec's rounded 272 figure; verified against the committed frame's REG counts). Scored total = 1,871 (spec said 1,872)."
+  },
+  "step2_fold_builder": {
+    "method": "week-ID folds (season + NFL week), 2019 GW1 first scored, train = all RS weeks < W (expanding strictly-prior by gameday), offseason weeks skipped, no playoff weeks",
+    "n_folds": 124,
+    "n_folds_full": 124,
+    "first_scored": {
+      "season": 2019,
+      "week": 1
+    },
+    "last_scored": {
+      "season": 2025,
+      "week": 18
+    },
+    "weeks_per_season": {
+      "2019": 17,
+      "2020": 17,
+      "2021": 18,
+      "2022": 18,
+      "2023": 18,
+      "2024": 18,
+      "2025": 18
+    }
+  },
+  "step3_calibration": {
+    "method": "nested Platt with 300-game identity seed (identity map until strictly-prior scored pool reaches 300 games; Platt refit-on-growth per fold from game 301). Single sourced constant = 300 (MLB verified floor).",
+    "seed": 300,
+    "raw_segment": {
+      "first_300_scored_games": "scored raw (identity map); AUC valid (axis-invariant); excluded from headline calibrated logloss/ECE gates",
+      "2019_per_season_label": "raw"
+    },
+    "calibrated_pool": {
+      "from_game_301": "Platt refit on growing strictly-earlier OOF pool",
+      "approx_start": "2020 GW3 \u2192 end 2025"
+    }
+  },
+  "step4_binary_baseline": {
+    "pooled": {
+      "raw": {
+        "logloss": 0.6282,
+        "auc": 0.6977,
+        "ece": 0.0326,
+        "brier": 0.2195
+      },
+      "calibrated": {
+        "logloss": 0.6294,
+        "auc": 0.6964,
+        "ece": 0.0273,
+        "brier": 0.22
+      },
+      "n_oof": 1871,
+      "n_folds": 124,
+      "platt_a": 1.081463,
+      "platt_b": -0.032539,
+      "calib_seed": 300
+    },
+    "per_season": [
+      {
+        "season": 2019,
+        "n": 256,
+        "segment": "raw",
+        "raw": {
+          "logloss": 0.6339,
+          "auc": 0.7,
+          "ece": 0.0936,
+          "brier": 0.2221
+        },
+        "calibrated": {
+          "logloss": 0.6339,
+          "auc": 0.7,
+          "ece": 0.0936,
+          "brier": 0.2221
+        }
+      },
+      {
+        "season": 2020,
+        "n": 256,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6099,
+          "auc": 0.7278,
+          "ece": 0.0535,
+          "brier": 0.211
+        },
+        "calibrated": {
+          "logloss": 0.6083,
+          "auc": 0.7268,
+          "ece": 0.0624,
+          "brier": 0.2108
+        }
+      },
+      {
+        "season": 2021,
+        "n": 272,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6377,
+          "auc": 0.6891,
+          "ece": 0.0912,
+          "brier": 0.2237
+        },
+        "calibrated": {
+          "logloss": 0.6412,
+          "auc": 0.689,
+          "ece": 0.0789,
+          "brier": 0.2243
+        }
+      },
+      {
+        "season": 2022,
+        "n": 271,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6536,
+          "auc": 0.6531,
+          "ece": 0.0573,
+          "brier": 0.2308
+        },
+        "calibrated": {
+          "logloss": 0.6589,
+          "auc": 0.6512,
+          "ece": 0.0721,
+          "brier": 0.2333
+        }
+      },
+      {
+        "season": 2023,
+        "n": 272,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6375,
+          "auc": 0.6745,
+          "ece": 0.0373,
+          "brier": 0.2239
+        },
+        "calibrated": {
+          "logloss": 0.6392,
+          "auc": 0.6745,
+          "ece": 0.0367,
+          "brier": 0.2246
+        }
+      },
+      {
+        "season": 2024,
+        "n": 272,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6089,
+          "auc": 0.7315,
+          "ece": 0.0704,
+          "brier": 0.2106
+        },
+        "calibrated": {
+          "logloss": 0.6088,
+          "auc": 0.7303,
+          "ece": 0.0495,
+          "brier": 0.2106
+        }
+      },
+      {
+        "season": 2025,
+        "n": 272,
+        "segment": "cal",
+        "raw": {
+          "logloss": 0.6153,
+          "auc": 0.7192,
+          "ece": 0.0723,
+          "brier": 0.2139
+        },
+        "calibrated": {
+          "logloss": 0.6148,
+          "auc": 0.7185,
+          "ece": 0.0588,
+          "brier": 0.2139
+        }
+      }
+    ],
+    "rolling_brier": [
+      {
+        "season": 2019,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2164,
+        "segment": "raw",
+        "date": "2019-09-05"
+      },
+      {
+        "season": 2019,
+        "week": 2,
+        "n": 16,
+        "brier": 0.2323,
+        "segment": "raw",
+        "date": "2019-09-12"
+      },
+      {
+        "season": 2019,
+        "week": 3,
+        "n": 16,
+        "brier": 0.1989,
+        "segment": "raw",
+        "date": "2019-09-19"
+      },
+      {
+        "season": 2019,
+        "week": 4,
+        "n": 15,
+        "brier": 0.2906,
+        "segment": "raw",
+        "date": "2019-09-26"
+      },
+      {
+        "season": 2019,
+        "week": 5,
+        "n": 15,
+        "brier": 0.2688,
+        "segment": "raw",
+        "date": "2019-10-03"
+      },
+      {
+        "season": 2019,
+        "week": 6,
+        "n": 14,
+        "brier": 0.2485,
+        "segment": "raw",
+        "date": "2019-10-10"
+      },
+      {
+        "season": 2019,
+        "week": 7,
+        "n": 14,
+        "brier": 0.1818,
+        "segment": "raw",
+        "date": "2019-10-17"
+      },
+      {
+        "season": 2019,
+        "week": 8,
+        "n": 15,
+        "brier": 0.1347,
+        "segment": "raw",
+        "date": "2019-10-24"
+      },
+      {
+        "season": 2019,
+        "week": 9,
+        "n": 14,
+        "brier": 0.1935,
+        "segment": "raw",
+        "date": "2019-10-31"
+      },
+      {
+        "season": 2019,
+        "week": 10,
+        "n": 13,
+        "brier": 0.3008,
+        "segment": "raw",
+        "date": "2019-11-07"
+      },
+      {
+        "season": 2019,
+        "week": 11,
+        "n": 14,
+        "brier": 0.1814,
+        "segment": "raw",
+        "date": "2019-11-14"
+      },
+      {
+        "season": 2019,
+        "week": 12,
+        "n": 14,
+        "brier": 0.1669,
+        "segment": "raw",
+        "date": "2019-11-21"
+      },
+      {
+        "season": 2019,
+        "week": 13,
+        "n": 16,
+        "brier": 0.2284,
+        "segment": "raw",
+        "date": "2019-11-28"
+      },
+      {
+        "season": 2019,
+        "week": 14,
+        "n": 16,
+        "brier": 0.2041,
+        "segment": "raw",
+        "date": "2019-12-05"
+      },
+      {
+        "season": 2019,
+        "week": 15,
+        "n": 16,
+        "brier": 0.2468,
+        "segment": "raw",
+        "date": "2019-12-12"
+      },
+      {
+        "season": 2019,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2317,
+        "segment": "raw",
+        "date": "2019-12-21"
+      },
+      {
+        "season": 2019,
+        "week": 17,
+        "n": 16,
+        "brier": 0.2498,
+        "segment": "raw",
+        "date": "2019-12-29"
+      },
+      {
+        "season": 2020,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2005,
+        "segment": "cal",
+        "date": "2020-09-10"
+      },
+      {
+        "season": 2020,
+        "week": 2,
+        "n": 16,
+        "brier": 0.1453,
+        "segment": "cal",
+        "date": "2020-09-17"
+      },
+      {
+        "season": 2020,
+        "week": 3,
+        "n": 16,
+        "brier": 0.2668,
+        "segment": "cal",
+        "date": "2020-09-24"
+      },
+      {
+        "season": 2020,
+        "week": 4,
+        "n": 15,
+        "brier": 0.2144,
+        "segment": "cal",
+        "date": "2020-10-01"
+      },
+      {
+        "season": 2020,
+        "week": 5,
+        "n": 14,
+        "brier": 0.1722,
+        "segment": "cal",
+        "date": "2020-10-08"
+      },
+      {
+        "season": 2020,
+        "week": 6,
+        "n": 14,
+        "brier": 0.244,
+        "segment": "cal",
+        "date": "2020-10-18"
+      },
+      {
+        "season": 2020,
+        "week": 7,
+        "n": 14,
+        "brier": 0.2189,
+        "segment": "cal",
+        "date": "2020-10-22"
+      },
+      {
+        "season": 2020,
+        "week": 8,
+        "n": 14,
+        "brier": 0.2591,
+        "segment": "cal",
+        "date": "2020-10-29"
+      },
+      {
+        "season": 2020,
+        "week": 9,
+        "n": 14,
+        "brier": 0.1719,
+        "segment": "cal",
+        "date": "2020-11-05"
+      },
+      {
+        "season": 2020,
+        "week": 10,
+        "n": 14,
+        "brier": 0.2372,
+        "segment": "cal",
+        "date": "2020-11-12"
+      },
+      {
+        "season": 2020,
+        "week": 11,
+        "n": 14,
+        "brier": 0.2249,
+        "segment": "cal",
+        "date": "2020-11-19"
+      },
+      {
+        "season": 2020,
+        "week": 12,
+        "n": 16,
+        "brier": 0.2003,
+        "segment": "cal",
+        "date": "2020-11-26"
+      },
+      {
+        "season": 2020,
+        "week": 13,
+        "n": 15,
+        "brier": 0.2085,
+        "segment": "cal",
+        "date": "2020-12-06"
+      },
+      {
+        "season": 2020,
+        "week": 14,
+        "n": 16,
+        "brier": 0.2559,
+        "segment": "cal",
+        "date": "2020-12-10"
+      },
+      {
+        "season": 2020,
+        "week": 15,
+        "n": 16,
+        "brier": 0.2101,
+        "segment": "cal",
+        "date": "2020-12-17"
+      },
+      {
+        "season": 2020,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2077,
+        "segment": "cal",
+        "date": "2020-12-25"
+      },
+      {
+        "season": 2020,
+        "week": 17,
+        "n": 16,
+        "brier": 0.1567,
+        "segment": "cal",
+        "date": "2021-01-03"
+      },
+      {
+        "season": 2021,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2587,
+        "segment": "cal",
+        "date": "2021-09-09"
+      },
+      {
+        "season": 2021,
+        "week": 2,
+        "n": 16,
+        "brier": 0.2333,
+        "segment": "cal",
+        "date": "2021-09-16"
+      },
+      {
+        "season": 2021,
+        "week": 3,
+        "n": 16,
+        "brier": 0.2265,
+        "segment": "cal",
+        "date": "2021-09-23"
+      },
+      {
+        "season": 2021,
+        "week": 4,
+        "n": 16,
+        "brier": 0.2437,
+        "segment": "cal",
+        "date": "2021-09-30"
+      },
+      {
+        "season": 2021,
+        "week": 5,
+        "n": 16,
+        "brier": 0.1756,
+        "segment": "cal",
+        "date": "2021-10-07"
+      },
+      {
+        "season": 2021,
+        "week": 6,
+        "n": 14,
+        "brier": 0.206,
+        "segment": "cal",
+        "date": "2021-10-14"
+      },
+      {
+        "season": 2021,
+        "week": 7,
+        "n": 13,
+        "brier": 0.1925,
+        "segment": "cal",
+        "date": "2021-10-21"
+      },
+      {
+        "season": 2021,
+        "week": 8,
+        "n": 15,
+        "brier": 0.1914,
+        "segment": "cal",
+        "date": "2021-10-28"
+      },
+      {
+        "season": 2021,
+        "week": 9,
+        "n": 14,
+        "brier": 0.2744,
+        "segment": "cal",
+        "date": "2021-11-04"
+      },
+      {
+        "season": 2021,
+        "week": 10,
+        "n": 14,
+        "brier": 0.2756,
+        "segment": "cal",
+        "date": "2021-11-11"
+      },
+      {
+        "season": 2021,
+        "week": 11,
+        "n": 15,
+        "brier": 0.2599,
+        "segment": "cal",
+        "date": "2021-11-18"
+      },
+      {
+        "season": 2021,
+        "week": 12,
+        "n": 15,
+        "brier": 0.2603,
+        "segment": "cal",
+        "date": "2021-11-25"
+      },
+      {
+        "season": 2021,
+        "week": 13,
+        "n": 14,
+        "brier": 0.2261,
+        "segment": "cal",
+        "date": "2021-12-02"
+      },
+      {
+        "season": 2021,
+        "week": 14,
+        "n": 14,
+        "brier": 0.1446,
+        "segment": "cal",
+        "date": "2021-12-09"
+      },
+      {
+        "season": 2021,
+        "week": 15,
+        "n": 16,
+        "brier": 0.2183,
+        "segment": "cal",
+        "date": "2021-12-16"
+      },
+      {
+        "season": 2021,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2274,
+        "segment": "cal",
+        "date": "2021-12-23"
+      },
+      {
+        "season": 2021,
+        "week": 17,
+        "n": 16,
+        "brier": 0.1656,
+        "segment": "cal",
+        "date": "2022-01-02"
+      },
+      {
+        "season": 2021,
+        "week": 18,
+        "n": 16,
+        "brier": 0.2444,
+        "segment": "cal",
+        "date": "2022-01-08"
+      },
+      {
+        "season": 2022,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2238,
+        "segment": "cal",
+        "date": "2022-09-08"
+      },
+      {
+        "season": 2022,
+        "week": 2,
+        "n": 16,
+        "brier": 0.2586,
+        "segment": "cal",
+        "date": "2022-09-15"
+      },
+      {
+        "season": 2022,
+        "week": 3,
+        "n": 16,
+        "brier": 0.2728,
+        "segment": "cal",
+        "date": "2022-09-22"
+      },
+      {
+        "season": 2022,
+        "week": 4,
+        "n": 16,
+        "brier": 0.2279,
+        "segment": "cal",
+        "date": "2022-09-29"
+      },
+      {
+        "season": 2022,
+        "week": 5,
+        "n": 16,
+        "brier": 0.2073,
+        "segment": "cal",
+        "date": "2022-10-06"
+      },
+      {
+        "season": 2022,
+        "week": 6,
+        "n": 14,
+        "brier": 0.3065,
+        "segment": "cal",
+        "date": "2022-10-13"
+      },
+      {
+        "season": 2022,
+        "week": 7,
+        "n": 14,
+        "brier": 0.2489,
+        "segment": "cal",
+        "date": "2022-10-20"
+      },
+      {
+        "season": 2022,
+        "week": 8,
+        "n": 15,
+        "brier": 0.1955,
+        "segment": "cal",
+        "date": "2022-10-27"
+      },
+      {
+        "season": 2022,
+        "week": 9,
+        "n": 13,
+        "brier": 0.2442,
+        "segment": "cal",
+        "date": "2022-11-03"
+      },
+      {
+        "season": 2022,
+        "week": 10,
+        "n": 14,
+        "brier": 0.2687,
+        "segment": "cal",
+        "date": "2022-11-10"
+      },
+      {
+        "season": 2022,
+        "week": 11,
+        "n": 14,
+        "brier": 0.199,
+        "segment": "cal",
+        "date": "2022-11-17"
+      },
+      {
+        "season": 2022,
+        "week": 12,
+        "n": 16,
+        "brier": 0.2201,
+        "segment": "cal",
+        "date": "2022-11-24"
+      },
+      {
+        "season": 2022,
+        "week": 13,
+        "n": 15,
+        "brier": 0.1877,
+        "segment": "cal",
+        "date": "2022-12-01"
+      },
+      {
+        "season": 2022,
+        "week": 14,
+        "n": 13,
+        "brier": 0.2276,
+        "segment": "cal",
+        "date": "2022-12-08"
+      },
+      {
+        "season": 2022,
+        "week": 15,
+        "n": 16,
+        "brier": 0.2358,
+        "segment": "cal",
+        "date": "2022-12-15"
+      },
+      {
+        "season": 2022,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2008,
+        "segment": "cal",
+        "date": "2022-12-22"
+      },
+      {
+        "season": 2022,
+        "week": 17,
+        "n": 15,
+        "brier": 0.2009,
+        "segment": "cal",
+        "date": "2022-12-29"
+      },
+      {
+        "season": 2022,
+        "week": 18,
+        "n": 16,
+        "brier": 0.2352,
+        "segment": "cal",
+        "date": "2023-01-07"
+      },
+      {
+        "season": 2023,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2574,
+        "segment": "cal",
+        "date": "2023-09-07"
+      },
+      {
+        "season": 2023,
+        "week": 2,
+        "n": 16,
+        "brier": 0.175,
+        "segment": "cal",
+        "date": "2023-09-14"
+      },
+      {
+        "season": 2023,
+        "week": 3,
+        "n": 16,
+        "brier": 0.2068,
+        "segment": "cal",
+        "date": "2023-09-21"
+      },
+      {
+        "season": 2023,
+        "week": 4,
+        "n": 16,
+        "brier": 0.1956,
+        "segment": "cal",
+        "date": "2023-09-28"
+      },
+      {
+        "season": 2023,
+        "week": 5,
+        "n": 14,
+        "brier": 0.2433,
+        "segment": "cal",
+        "date": "2023-10-05"
+      },
+      {
+        "season": 2023,
+        "week": 6,
+        "n": 15,
+        "brier": 0.2294,
+        "segment": "cal",
+        "date": "2023-10-12"
+      },
+      {
+        "season": 2023,
+        "week": 7,
+        "n": 13,
+        "brier": 0.2871,
+        "segment": "cal",
+        "date": "2023-10-19"
+      },
+      {
+        "season": 2023,
+        "week": 8,
+        "n": 16,
+        "brier": 0.2196,
+        "segment": "cal",
+        "date": "2023-10-26"
+      },
+      {
+        "season": 2023,
+        "week": 9,
+        "n": 14,
+        "brier": 0.172,
+        "segment": "cal",
+        "date": "2023-11-02"
+      },
+      {
+        "season": 2023,
+        "week": 10,
+        "n": 14,
+        "brier": 0.2624,
+        "segment": "cal",
+        "date": "2023-11-09"
+      },
+      {
+        "season": 2023,
+        "week": 11,
+        "n": 14,
+        "brier": 0.2127,
+        "segment": "cal",
+        "date": "2023-11-16"
+      },
+      {
+        "season": 2023,
+        "week": 12,
+        "n": 16,
+        "brier": 0.2326,
+        "segment": "cal",
+        "date": "2023-11-23"
+      },
+      {
+        "season": 2023,
+        "week": 13,
+        "n": 13,
+        "brier": 0.225,
+        "segment": "cal",
+        "date": "2023-11-30"
+      },
+      {
+        "season": 2023,
+        "week": 14,
+        "n": 15,
+        "brier": 0.2652,
+        "segment": "cal",
+        "date": "2023-12-07"
+      },
+      {
+        "season": 2023,
+        "week": 15,
+        "n": 16,
+        "brier": 0.2228,
+        "segment": "cal",
+        "date": "2023-12-14"
+      },
+      {
+        "season": 2023,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2179,
+        "segment": "cal",
+        "date": "2023-12-21"
+      },
+      {
+        "season": 2023,
+        "week": 17,
+        "n": 16,
+        "brier": 0.1823,
+        "segment": "cal",
+        "date": "2023-12-28"
+      },
+      {
+        "season": 2023,
+        "week": 18,
+        "n": 16,
+        "brier": 0.2368,
+        "segment": "cal",
+        "date": "2024-01-06"
+      },
+      {
+        "season": 2024,
+        "week": 1,
+        "n": 16,
+        "brier": 0.2015,
+        "segment": "cal",
+        "date": "2024-09-05"
+      },
+      {
+        "season": 2024,
+        "week": 2,
+        "n": 16,
+        "brier": 0.281,
+        "segment": "cal",
+        "date": "2024-09-12"
+      },
+      {
+        "season": 2024,
+        "week": 3,
+        "n": 16,
+        "brier": 0.2952,
+        "segment": "cal",
+        "date": "2024-09-19"
+      },
+      {
+        "season": 2024,
+        "week": 4,
+        "n": 16,
+        "brier": 0.2539,
+        "segment": "cal",
+        "date": "2024-09-26"
+      },
+      {
+        "season": 2024,
+        "week": 5,
+        "n": 14,
+        "brier": 0.2641,
+        "segment": "cal",
+        "date": "2024-10-03"
+      },
+      {
+        "season": 2024,
+        "week": 6,
+        "n": 14,
+        "brier": 0.1668,
+        "segment": "cal",
+        "date": "2024-10-10"
+      },
+      {
+        "season": 2024,
+        "week": 7,
+        "n": 15,
+        "brier": 0.1702,
+        "segment": "cal",
+        "date": "2024-10-17"
+      },
+      {
+        "season": 2024,
+        "week": 8,
+        "n": 16,
+        "brier": 0.2149,
+        "segment": "cal",
+        "date": "2024-10-24"
+      },
+      {
+        "season": 2024,
+        "week": 9,
+        "n": 15,
+        "brier": 0.2058,
+        "segment": "cal",
+        "date": "2024-10-31"
+      },
+      {
+        "season": 2024,
+        "week": 10,
+        "n": 14,
+        "brier": 0.1964,
+        "segment": "cal",
+        "date": "2024-11-07"
+      },
+      {
+        "season": 2024,
+        "week": 11,
+        "n": 14,
+        "brier": 0.1931,
+        "segment": "cal",
+        "date": "2024-11-14"
+      },
+      {
+        "season": 2024,
+        "week": 12,
+        "n": 13,
+        "brier": 0.1975,
+        "segment": "cal",
+        "date": "2024-11-21"
+      },
+      {
+        "season": 2024,
+        "week": 13,
+        "n": 16,
+        "brier": 0.1404,
+        "segment": "cal",
+        "date": "2024-11-28"
+      },
+      {
+        "season": 2024,
+        "week": 14,
+        "n": 13,
+        "brier": 0.1667,
+        "segment": "cal",
+        "date": "2024-12-05"
+      },
+      {
+        "season": 2024,
+        "week": 15,
+        "n": 16,
+        "brier": 0.1909,
+        "segment": "cal",
+        "date": "2024-12-12"
+      },
+      {
+        "season": 2024,
+        "week": 16,
+        "n": 16,
+        "brier": 0.1938,
+        "segment": "cal",
+        "date": "2024-12-19"
+      },
+      {
+        "season": 2024,
+        "week": 17,
+        "n": 16,
+        "brier": 0.1629,
+        "segment": "cal",
+        "date": "2024-12-25"
+      },
+      {
+        "season": 2024,
+        "week": 18,
+        "n": 16,
+        "brier": 0.2799,
+        "segment": "cal",
+        "date": "2025-01-04"
+      },
+      {
+        "season": 2025,
+        "week": 1,
+        "n": 16,
+        "brier": 0.1861,
+        "segment": "cal",
+        "date": "2025-09-04"
+      },
+      {
+        "season": 2025,
+        "week": 2,
+        "n": 16,
+        "brier": 0.1664,
+        "segment": "cal",
+        "date": "2025-09-11"
+      },
+      {
+        "season": 2025,
+        "week": 3,
+        "n": 16,
+        "brier": 0.206,
+        "segment": "cal",
+        "date": "2025-09-18"
+      },
+      {
+        "season": 2025,
+        "week": 4,
+        "n": 16,
+        "brier": 0.2163,
+        "segment": "cal",
+        "date": "2025-09-25"
+      },
+      {
+        "season": 2025,
+        "week": 5,
+        "n": 14,
+        "brier": 0.3121,
+        "segment": "cal",
+        "date": "2025-10-02"
+      },
+      {
+        "season": 2025,
+        "week": 6,
+        "n": 15,
+        "brier": 0.2107,
+        "segment": "cal",
+        "date": "2025-10-09"
+      },
+      {
+        "season": 2025,
+        "week": 7,
+        "n": 15,
+        "brier": 0.1832,
+        "segment": "cal",
+        "date": "2025-10-16"
+      },
+      {
+        "season": 2025,
+        "week": 8,
+        "n": 13,
+        "brier": 0.2038,
+        "segment": "cal",
+        "date": "2025-10-23"
+      },
+      {
+        "season": 2025,
+        "week": 9,
+        "n": 14,
+        "brier": 0.2478,
+        "segment": "cal",
+        "date": "2025-10-30"
+      },
+      {
+        "season": 2025,
+        "week": 10,
+        "n": 14,
+        "brier": 0.1814,
+        "segment": "cal",
+        "date": "2025-11-06"
+      },
+      {
+        "season": 2025,
+        "week": 11,
+        "n": 15,
+        "brier": 0.2021,
+        "segment": "cal",
+        "date": "2025-11-13"
+      },
+      {
+        "season": 2025,
+        "week": 12,
+        "n": 14,
+        "brier": 0.1858,
+        "segment": "cal",
+        "date": "2025-11-20"
+      },
+      {
+        "season": 2025,
+        "week": 13,
+        "n": 16,
+        "brier": 0.2394,
+        "segment": "cal",
+        "date": "2025-11-27"
+      },
+      {
+        "season": 2025,
+        "week": 14,
+        "n": 14,
+        "brier": 0.2324,
+        "segment": "cal",
+        "date": "2025-12-04"
+      },
+      {
+        "season": 2025,
+        "week": 15,
+        "n": 16,
+        "brier": 0.1796,
+        "segment": "cal",
+        "date": "2025-12-11"
+      },
+      {
+        "season": 2025,
+        "week": 16,
+        "n": 16,
+        "brier": 0.2365,
+        "segment": "cal",
+        "date": "2025-12-18"
+      },
+      {
+        "season": 2025,
+        "week": 17,
+        "n": 16,
+        "brier": 0.2196,
+        "segment": "cal",
+        "date": "2025-12-25"
+      },
+      {
+        "season": 2025,
+        "week": 18,
+        "n": 16,
+        "brier": 0.2478,
+        "segment": "cal",
+        "date": "2026-01-03"
+      }
+    ],
+    "fold_geometry": {
+      "first_scored": {
+        "season": 2019,
+        "week": 1
+      },
+      "last_scored": {
+        "season": 2025,
+        "week": 18
+      },
+      "n_folds": 124,
+      "train_seasons": [
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "val_seasons": null,
+      "sealed_season": null,
+      "seed": 300
+    },
+    "feature_columns": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ]
+  },
+  "step4_run_engine_baseline": {
+    "pooled": {
+      "derived_ml": {
+        "logloss": 0.6364,
+        "auc": 0.6936,
+        "ece": 0.0292,
+        "brier": 0.2225
+      },
+      "totals_ece_offered": 0.0982,
+      "covers_ece_offered": 0.0817,
+      "totals_ece_fair": 0.0408,
+      "covers_ece_fair": 0.0282,
+      "n_oof": 1871,
+      "n_folds": 124,
+      "rounds": {
+        "home": 22,
+        "away": 25
+      },
+      "n_uncovered": 0
+    },
+    "per_season": [
+      {
+        "season": 2019,
+        "n": 256,
+        "derived_ml": {
+          "logloss": 0.6116,
+          "auc": 0.7336,
+          "ece": 0.0836,
+          "brier": 0.2119
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2020,
+        "n": 256,
+        "derived_ml": {
+          "logloss": 0.6336,
+          "auc": 0.6982,
+          "ece": 0.0385,
+          "brier": 0.2212
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2021,
+        "n": 272,
+        "derived_ml": {
+          "logloss": 0.6571,
+          "auc": 0.6501,
+          "ece": 0.0493,
+          "brier": 0.2331
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2022,
+        "n": 271,
+        "derived_ml": {
+          "logloss": 0.6617,
+          "auc": 0.6805,
+          "ece": 0.0751,
+          "brier": 0.2301
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2023,
+        "n": 272,
+        "derived_ml": {
+          "logloss": 0.6414,
+          "auc": 0.6717,
+          "ece": 0.0331,
+          "brier": 0.2255
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2024,
+        "n": 272,
+        "derived_ml": {
+          "logloss": 0.6061,
+          "auc": 0.7549,
+          "ece": 0.0773,
+          "brier": 0.2089
+        },
+        "segment": "cal"
+      },
+      {
+        "season": 2025,
+        "n": 272,
+        "derived_ml": {
+          "logloss": 0.6415,
+          "auc": 0.6896,
+          "ece": 0.0702,
+          "brier": 0.2262
+        },
+        "segment": "cal"
+      }
+    ],
+    "recovery_ratios": {
+      "elo_diff": {
+        "n": 1871,
+        "corr_quality_actual": 0.3535,
+        "corr_pred_actual": 0.3723,
+        "recovered_ratio": 1.0534
+      },
+      "ewm_net_pts_diff": {
+        "n": 1870,
+        "corr_quality_actual": 0.358,
+        "corr_pred_actual": 0.3728,
+        "recovered_ratio": 1.0415
+      },
+      "ewm_ypp_diff": {
+        "n": 1839,
+        "corr_quality_actual": 0.2872,
+        "corr_pred_actual": 0.3745,
+        "recovered_ratio": 1.3042
+      },
+      "win_pct_diff": {
+        "n": 1870,
+        "corr_quality_actual": 0.3507,
+        "corr_pred_actual": 0.3728,
+        "recovered_ratio": 1.0629
+      }
+    },
+    "fold_geometry": {
+      "first_scored": {
+        "season": 2019,
+        "week": 1
+      },
+      "last_scored": {
+        "season": 2025,
+        "week": 18
+      },
+      "n_folds": 124,
+      "seed": 300
+    },
+    "feature_columns": [
+      "elo_diff",
+      "win_pct_diff",
+      "rest_days_diff",
+      "is_dome_home",
+      "ewm_net_pts_diff",
+      "ewm_ypp_diff",
+      "pace_plays_min_diff",
+      "rest_short_diff",
+      "div_game",
+      "travel_miles_diff",
+      "altitude_home",
+      "prime_time"
+    ]
+  },
+  "step5_legacy_pins_fixture": {
+    "path": "nfl_wide_pool_legacy_pins_3e8c8a510f04.json",
+    "note": "Legacy 88-fold geometry pins archived here (historical records never edited/deleted). These are the OLD pool (2021-2024 pooled n=1,107 + sealed 2025 n=285, Platt a/b=1.276336/0.121988) pins that the wide-pool re-baseline replaces as the new reference.",
+    "pins": {
+      "old_pool": {
+        "geometry": "88 calendar-week folds over 2021-2024 (VAL_SEASONS), 2019+2020 warmup (never validated), sealed 2025 hold-out",
+        "pooled_oof_n": 1107,
+        "sealed_n": 285,
+        "fold_count": 88,
+        "binary": {
+          "platt_a": 1.276336,
+          "platt_b": 0.121988,
+          "pooled_raw": {
+            "logloss": 0.6201,
+            "auc": 0.695
+          },
+          "pooled_platt": {
+            "logloss": 0.6249,
+            "auc": 0.695,
+            "ece": 0.0745
+          },
+          "sealed_raw": {
+            "logloss": 0.6535,
+            "auc": 0.6782
+          },
+          "sealed_platt": {
+            "logloss": 0.6535,
+            "auc": 0.6782,
+            "ece": 0.1009
+          }
+        },
+        "run_engine": {
+          "pooled": {
+            "totals_ece_offered": 0.087,
+            "covers_ece_offered": 0.078,
+            "derived_ml": {
+              "logloss": 0.6365,
+              "auc": 0.695,
+              "ece": 0.0435,
+              "brier": 0.2221
+            }
+          },
+          "sealed": {
+            "totals_ece_offered": 0.1547,
+            "covers_ece_offered": 0.1145,
+            "derived_ml": {
+              "logloss": 0.6535,
+              "auc": 0.6782,
+              "ece": 0.1009,
+              "brier": 0.2299
+            }
+          }
+        },
+        "recovery_ratios": {
+          "elo_diff": 0.638,
+          "ewm_net_pts_diff": 0.59,
+          "win_pct_diff": 0.649,
+          "ewm_ypp_diff": 0.665
+        },
+        "source_records": [
+          "nfl_binary_calibration_3e8c8a510f04.json (e3aeece)",
+          "nfl_binary_calibration_hinge_3e8c8a510f04.json (fc4f4bd)",
+          "nfl_binary_calibration_quality_map_3e8c8a510f04.json (e659ba2)",
+          "nfl_margin_audit_3e8c8a510f04.json (c1a7c12)",
+          "nfl_run_engine_diagnostics_shape_ab_3e8c8a510f04.json (a5bd82d)",
+          "nfl_run_engine_diagnostics_v2_3e8c8a510f04.json"
+        ],
+        "note": "These pins are from the OLD 2021-2024 pool (1,107 pooled + 285 sealed, 88 calendar-week folds, sealed 2025 gate). They are ARCHIVED here (not edited into the historical records) and REPLACED as the new reference by the wide-pool re-baseline. Historical records are NEVER edited or deleted."
+      },
+      "shared_universe_1376": {
+        "note": "The 1,376-game shared OOF lookup (pooled 2021-24 n=1,091 + sealed 2025 n=285, RS-only, 88-fold geometry) is the OLD pool's universe. The wide-pool re-baseline's universe is the RS-only 2019-2025 scored pool (1,871 games, week-ID folds, no sealed gate).",
+        "old_universe": {
+          "pooled": 1091,
+          "sealed": 285,
+          "total": 1376,
+          "geometry": "88 calendar-week folds, 2021-2024 pooled + 2025 sealed"
+        }
+      }
+    }
+  },
+  "guardrails": {
+    "production_serving_untouched": true,
+    "no_production_prediction_change": true,
+    "production_canonical_frame_untouched": true,
+    "production_moneyline_geometry_untouched": true,
+    "production_markets_emission_untouched": true,
+    "historical_records_never_edited": true
+  },
+  "data_notes": [
+    "2022 has 271 REG decided games (not 272 as the spec's rounded figure states) \u2014 verified against nflreadpy + the committed frame. Scored total = 1,871 (spec said 1,872).",
+    "COVID-2020 (n=256 REG) KEPT in the scored pool per spec \u2014 one-line note rides in every gate record.",
+    "2018 warmup (n=256) trains unscored; 2018 features are box-score/schedule-derivable (no PBP pulled for 2018) \u2014 PBP-dependent features are NaN for 2018 rows, imputed by the ensemble's impute_median."
+  ],
+  "elapsed_s": null
+}
