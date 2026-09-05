@@ -1,0 +1,636 @@
+{
+  "record": "nfl_binary_calibration_quality_map_3e8c8a510f04.json",
+  "title": "NFL binary top-band over-confidence: quality-stratum LOCAL recalibration \u2014 probe -> adoption gate (arm #3 after e3aeece DO_NOT_REFIT and fc4f4bd KEEP_PLATT)",
+  "date": "2026-09-05",
+  "gated": "probe + tests + record ONLY unless GATE_PASS; on GATE_PASS a separate adoption commit wires the serve-time local map with the threshold from the recorded fit, never hardcoded",
+  "scope": "nfl-backend + data_delivery ONLY; READ-ONLY over production code (no engine/pricing/feature change; FEATURE_COLUMNS byte-untouched); production Platt twin unchanged",
+  "provenance": {
+    "audits": [
+      "nfl_binary_calibration_3e8c8a510f04.json (e3aeece): Branch B same-set cell \u2014 the n=191 Platt 70-80 band games carry raw mean 0.6815 vs actual 0.6754; the deployed global Platt (a=1.276, b=0.122) stretched them to 0.7485 (band ECE 0.0731)",
+      "nfl_binary_calibration_hinge_3e8c8a510f04.json (fc4f4bd): KEEP_PLATT \u2014 raw everywhere regresses pooled nested ll +0.0030 (above-0.70 raw rows realize 0.852 pooled vs raw 0.759: the logistic stretch is genuinely justified in-sample); per-fold pchip fits explode (std 0.118, outputs >1.0) = fold-variance overfit",
+      "nfl_margin_audit_3e8c8a510f04.json (c1a7c12): quality-extreme stratum \u2014 the binary over-recovers (105-119%) and the per-game divergence grows with quality level (gap R2 0.35, elo_diff dominant)"
+    ],
+    "universe": "shared 1,376-game decided OOF (markets kind==oof 20260904) joined to nfl_predictions_history_20260904.csv (raw = home_win_prob_model, published = home_win_prob_model_calibrated); production pool = 1,107 pooled pre-holdout rows incl. playoff weeks (88 fold-weeks) + 285 sealed-2025",
+    "harness": "probe_binary_calibration_quality_map.py (read-only; double-run byte-identical \u2014 cmp on the full payload)",
+    "protocol": "nested per-fold strictly-earlier fits for the scan; deployed protocol (fit on ALL pooled rows) for the sealed/S1/S2 leg table \u2014 the e3aeece/fc4f4bd conventions"
+  },
+  "mechanism": {
+    "stratum": "raw-axis confidence > h; h scanned 0.66..0.74 step 0.01 (pre-registered prior ~0.68); boundary PINNED by the selection rule",
+    "eligibility": "eligible serving families = the continuous monotone maps: L = slope-only logistic anchored at (h, Platt(h)) and P = anchored pchip (seam knot (h, Platt(h)) + isotonic knots, hard-clipped [0,1]). I_identity in-stratum is a REFERENCE row only: its seam vs Platt is discontinuous (Platt(h)~0.79 drops to raw~0.72), breaking global monotonicity and the AUC-flat contract BY CONSTRUCTION",
+    "serving": "raw <= h -> global Platt (untouched); raw > h -> local map (seam-continuous at (h, Platt(h)))",
+    "selection_rule": "among eligible (L/P) cells with nested 70-80 band ECE <= 0.03 on pre-holdout, pick min nested pooled logloss (tie-break band ECE); I_identity excluded"
+  },
+  "stratum_char": {
+    "raw_gt_0.68": {
+      "n": 257,
+      "mean_abs_binary_derived_gap": 0.1168,
+      "share_quality_extreme": 0.506
+    },
+    "raw_gt_0.70": {
+      "n": 220,
+      "mean_abs_binary_derived_gap": 0.1202,
+      "share_quality_extreme": 0.523
+    },
+    "raw_gt_0.72": {
+      "n": 183,
+      "mean_abs_binary_derived_gap": 0.127,
+      "share_quality_extreme": 0.568
+    },
+    "quality_extreme_n": 344,
+    "feature_frame": "canonical decided feature frame (load_features; read-only cache)",
+    "note": "quality-extreme = top-quartile |elo_diff| on the shared 1,376 universe (audit b8: the binary over-recovers exactly where quality level is extreme); overlap = share of in-stratum games in that set (null when the feature cache is unreachable)"
+  },
+  "nested_scan": {
+    "rows": 1107,
+    "fold_weeks": 88,
+    "protocol": "nested per-fold strictly-earlier fits (the production nested-Platt geometry); the global Platt part is h-independent and computed once per fold; local maps fit on in-stratum (raw>h) strictly-prior rows only; identity fallback below IN_STRAT_MIN_ROWS",
+    "surface": {
+      "h0.66_L_local_logistic": {
+        "h": 0.66,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.624,
+        "nested_pooled_ece": 0.0486,
+        "bands": {
+          "60%-70%": 0.0672,
+          "70%-80%": 0.1212,
+          "80%-101%": 0.0795
+        }
+      },
+      "h0.66_P_local_pchip": {
+        "h": 0.66,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.642,
+        "nested_pooled_ece": 0.0402,
+        "bands": {
+          "60%-70%": 0.0597,
+          "70%-80%": 0.0213,
+          "80%-101%": 0.0495
+        }
+      },
+      "h0.66_I_identity": {
+        "h": 0.66,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6212,
+        "nested_pooled_ece": 0.0408,
+        "bands": {
+          "60%-70%": 0.0462,
+          "70%-80%": 0.0564,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.67_L_local_logistic": {
+        "h": 0.67,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.624,
+        "nested_pooled_ece": 0.0484,
+        "bands": {
+          "60%-70%": 0.066,
+          "70%-80%": 0.1296,
+          "80%-101%": 0.0719
+        }
+      },
+      "h0.67_P_local_pchip": {
+        "h": 0.67,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6314,
+        "nested_pooled_ece": 0.0329,
+        "bands": {
+          "60%-70%": 0.055,
+          "70%-80%": 0.0032,
+          "80%-101%": 0.055
+        }
+      },
+      "h0.67_I_identity": {
+        "h": 0.67,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6214,
+        "nested_pooled_ece": 0.04,
+        "bands": {
+          "60%-70%": 0.053,
+          "70%-80%": 0.0396,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.68_L_local_logistic": {
+        "h": 0.68,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6239,
+        "nested_pooled_ece": 0.0472,
+        "bands": {
+          "60%-70%": 0.0652,
+          "70%-80%": 0.1141,
+          "80%-101%": 0.0685
+        }
+      },
+      "h0.68_P_local_pchip": {
+        "h": 0.68,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.629,
+        "nested_pooled_ece": 0.0348,
+        "bands": {
+          "60%-70%": 0.062,
+          "70%-80%": 0.0022,
+          "80%-101%": 0.044
+        }
+      },
+      "h0.68_I_identity": {
+        "h": 0.68,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6215,
+        "nested_pooled_ece": 0.0396,
+        "bands": {
+          "60%-70%": 0.0562,
+          "70%-80%": 0.0343,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.69_L_local_logistic": {
+        "h": 0.69,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.624,
+        "nested_pooled_ece": 0.0474,
+        "bands": {
+          "60%-70%": 0.0672,
+          "70%-80%": 0.0948,
+          "80%-101%": 0.074
+        }
+      },
+      "h0.69_P_local_pchip": {
+        "h": 0.69,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.633,
+        "nested_pooled_ece": 0.0395,
+        "bands": {
+          "60%-70%": 0.0706,
+          "70%-80%": 0.0364,
+          "80%-101%": 0.0196
+        }
+      },
+      "h0.69_I_identity": {
+        "h": 0.69,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6215,
+        "nested_pooled_ece": 0.0391,
+        "bands": {
+          "60%-70%": 0.0581,
+          "70%-80%": 0.0307,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.70_L_local_logistic": {
+        "h": 0.7,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6252,
+        "nested_pooled_ece": 0.0476,
+        "bands": {
+          "60%-70%": 0.0722,
+          "70%-80%": 0.0851,
+          "80%-101%": 0.0739
+        }
+      },
+      "h0.70_P_local_pchip": {
+        "h": 0.7,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6317,
+        "nested_pooled_ece": 0.0406,
+        "bands": {
+          "60%-70%": 0.0688,
+          "70%-80%": 0.0267,
+          "80%-101%": 0.0401
+        }
+      },
+      "h0.70_I_identity": {
+        "h": 0.7,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6214,
+        "nested_pooled_ece": 0.0386,
+        "bands": {
+          "60%-70%": 0.0653,
+          "70%-80%": 0.0225,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.71_L_local_logistic": {
+        "h": 0.71,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6261,
+        "nested_pooled_ece": 0.0478,
+        "bands": {
+          "60%-70%": 0.0731,
+          "70%-80%": 0.0979,
+          "80%-101%": 0.0554
+        }
+      },
+      "h0.71_P_local_pchip": {
+        "h": 0.71,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6303,
+        "nested_pooled_ece": 0.0378,
+        "bands": {
+          "60%-70%": 0.0713,
+          "70%-80%": 0.0201,
+          "80%-101%": 0.0492
+        }
+      },
+      "h0.71_I_identity": {
+        "h": 0.71,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6219,
+        "nested_pooled_ece": 0.0379,
+        "bands": {
+          "60%-70%": 0.0666,
+          "70%-80%": 0.0175,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.72_L_local_logistic": {
+        "h": 0.72,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6252,
+        "nested_pooled_ece": 0.0462,
+        "bands": {
+          "60%-70%": 0.0727,
+          "70%-80%": 0.0703,
+          "80%-101%": 0.0502
+        }
+      },
+      "h0.72_P_local_pchip": {
+        "h": 0.72,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6285,
+        "nested_pooled_ece": 0.0364,
+        "bands": {
+          "60%-70%": 0.0685,
+          "70%-80%": 0.0146,
+          "80%-101%": 0.0434
+        }
+      },
+      "h0.72_I_identity": {
+        "h": 0.72,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6219,
+        "nested_pooled_ece": 0.0374,
+        "bands": {
+          "60%-70%": 0.0679,
+          "70%-80%": 0.0131,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.73_L_local_logistic": {
+        "h": 0.73,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6258,
+        "nested_pooled_ece": 0.0439,
+        "bands": {
+          "60%-70%": 0.0725,
+          "70%-80%": 0.0441,
+          "80%-101%": 0.0648
+        }
+      },
+      "h0.73_P_local_pchip": {
+        "h": 0.73,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6503,
+        "nested_pooled_ece": 0.0359,
+        "bands": {
+          "60%-70%": 0.0669,
+          "70%-80%": 0.0004,
+          "80%-101%": 0.0671
+        }
+      },
+      "h0.73_I_identity": {
+        "h": 0.73,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.6209,
+        "nested_pooled_ece": 0.0368,
+        "bands": {
+          "60%-70%": 0.0642,
+          "70%-80%": 0.0129,
+          "80%-101%": 0.1471
+        }
+      },
+      "h0.74_L_local_logistic": {
+        "h": 0.74,
+        "family": "L_local_logistic",
+        "nested_pooled_logloss": 0.6263,
+        "nested_pooled_ece": 0.0445,
+        "bands": {
+          "60%-70%": 0.0711,
+          "70%-80%": 0.0368,
+          "80%-101%": 0.0622
+        }
+      },
+      "h0.74_P_local_pchip": {
+        "h": 0.74,
+        "family": "P_local_pchip",
+        "nested_pooled_logloss": 0.6381,
+        "nested_pooled_ece": 0.0402,
+        "bands": {
+          "60%-70%": 0.0723,
+          "70%-80%": 0.0311,
+          "80%-101%": 0.0156
+        }
+      },
+      "h0.74_I_identity": {
+        "h": 0.74,
+        "family": "I_identity",
+        "nested_pooled_logloss": 0.621,
+        "nested_pooled_ece": 0.0363,
+        "bands": {
+          "60%-70%": 0.0654,
+          "70%-80%": 0.0074,
+          "80%-101%": 0.1487
+        }
+      }
+    },
+    "reading": "identity-in-stratum is the best pooled-ll local correction (+0.0016..+0.0026 vs nested Platt 0.6193) and nearly fixes the nested 70-80 band (0.0074 at h=0.74) \u2014 but it is the discontinuous reference, not eligible for serving. The eligible L family pays +0.004..+0.007 and never reaches band <= 0.03; the eligible P family reaches the band (0.002 at h=0.68..0.015 at h=0.72) but pays +0.009..+0.023 nested pooled ll."
+  },
+  "selection": {
+    "rule": "among eligible (L/P) cells with nested 70-80 band ECE <= 0.03, pick min pooled logloss (tie-break: band ECE); I_identity excluded as the reference row (discontinuous seam)",
+    "h_star": 0.72,
+    "family_star": "P_local_pchip",
+    "best_row": {
+      "h": 0.72,
+      "family": "P_local_pchip",
+      "nested_pooled_logloss": 0.6285,
+      "nested_pooled_ece": 0.0364,
+      "bands": {
+        "60%-70%": 0.0685,
+        "70%-80%": 0.0146,
+        "80%-101%": 0.0434
+      }
+    }
+  },
+  "fold_stability": {
+    "h": 0.72,
+    "inputs": [
+      0.7,
+      0.75,
+      0.85
+    ],
+    "families": {
+      "L_local_logistic": {
+        "raw_0.70": {
+          "mean": 0.5808,
+          "min": 0.3834,
+          "max": 0.7332,
+          "std": 0.082
+        },
+        "raw_0.75": {
+          "mean": 0.9093,
+          "min": 0.6404,
+          "max": 0.9703,
+          "std": 0.0678
+        },
+        "raw_0.85": {
+          "mean": 0.975,
+          "min": 0.6404,
+          "max": 1.0,
+          "std": 0.084
+        },
+        "global_max_output": 1.0,
+        "forbidden_gt_1_0": false
+      },
+      "P_local_pchip": {
+        "raw_0.70": {
+          "mean": 0.6306,
+          "min": 0.0,
+          "max": 1.0,
+          "std": 0.4253
+        },
+        "raw_0.75": {
+          "mean": 0.8008,
+          "min": 0.7424,
+          "max": 0.8461,
+          "std": 0.0347
+        },
+        "raw_0.85": {
+          "mean": 0.9761,
+          "min": 0.85,
+          "max": 1.0,
+          "std": 0.0552
+        },
+        "global_max_output": 1.0,
+        "forbidden_gt_1_0": false
+      }
+    },
+    "note": "per-fold map output spread at a CONSTANT raw input across the 88 fold-weeks; >1.0 outputs = the fc4f4bd pchip extrapolation failure mode, forbidden here"
+  },
+  "deployed": {
+    "h_star": 0.72,
+    "family_star": "P_local_pchip",
+    "global_platt_a_b": {
+      "a": 1.276365,
+      "b": 0.121987
+    },
+    "pooled_in_sample": {
+      "platt": {
+        "n": 1107,
+        "logloss": 0.6174,
+        "ece": 0.036,
+        "auc": 0.7083,
+        "bands": {
+          "60%-70%": 0.0146,
+          "70%-80%": 0.0621,
+          "80%-101%": 0.0463
+        }
+      },
+      "served": {
+        "n": 1107,
+        "logloss": 0.6153,
+        "ece": 0.0339,
+        "auc": 0.7083,
+        "bands": {
+          "60%-70%": 0.0146,
+          "70%-80%": 0.075,
+          "80%-101%": 0.0066
+        }
+      }
+    },
+    "sealed": {
+      "platt": {
+        "n": 285,
+        "logloss": 0.6249,
+        "ece": 0.0745,
+        "auc": 0.7081,
+        "bands": {
+          "60%-70%": 0.0906,
+          "70%-80%": 0.1337,
+          "80%-101%": 0.0094
+        }
+      },
+      "served": {
+        "n": 285,
+        "logloss": 0.6249,
+        "ece": 0.0803,
+        "auc": 0.7081,
+        "bands": {
+          "60%-70%": 0.0906,
+          "70%-80%": 0.1251,
+          "80%-101%": 0.0752
+        }
+      }
+    },
+    "sealed_s1": {
+      "platt": {
+        "n": 142,
+        "logloss": 0.6176,
+        "ece": 0.0649,
+        "auc": 0.7169,
+        "bands": {
+          "60%-70%": 0.01,
+          "70%-80%": 0.0793,
+          "80%-101%": 0.0813
+        }
+      },
+      "served": {
+        "n": 142,
+        "logloss": 0.6222,
+        "ece": 0.0698,
+        "auc": 0.7169,
+        "bands": {
+          "60%-70%": 0.01,
+          "70%-80%": 0.0793,
+          "80%-101%": 0.134
+        }
+      }
+    },
+    "sealed_s2": {
+      "platt": {
+        "n": 143,
+        "logloss": 0.6323,
+        "ece": 0.108,
+        "auc": 0.7011,
+        "bands": {
+          "60%-70%": 0.1492,
+          "70%-80%": 0.1804,
+          "80%-101%": 0.0928
+        }
+      },
+      "served": {
+        "n": 143,
+        "logloss": 0.6276,
+        "ece": 0.0987,
+        "auc": 0.7011,
+        "bands": {
+          "60%-70%": 0.1492,
+          "70%-80%": 0.1685,
+          "80%-101%": 0.0005
+        }
+      }
+    }
+  },
+  "gate_legs": {
+    "leg1_sealed_s2_70_80_band_ece_le_0_03": {
+      "served": 0.1685,
+      "platt": 0.1804,
+      "bar": "<= 0.03",
+      "pass": false
+    },
+    "leg2_pooled_cal_logloss_within_0_001": {
+      "nested_platt_ref": 0.6193,
+      "nested_served": 0.6285,
+      "delta": 0.0092,
+      "deployed_in_sample_platt": 0.6174,
+      "deployed_in_sample_served": 0.6153,
+      "deployed_in_sample_delta": -0.0021,
+      "bar": "within +/- 0.001 (nested primary)",
+      "pass": false
+    },
+    "leg3_sealed_adjacent_bands_no_regression": {
+      "60_70": {
+        "delta_served_minus_platt": 0.0,
+        "n": 38,
+        "bar": "no regression beyond +0.01"
+      },
+      "80_plus": {
+        "delta_served_minus_platt": 0.0658,
+        "n": 48,
+        "bar": "no regression beyond +0.01"
+      },
+      "pass": false
+    },
+    "leg4_auc_flat_within_0_001": {
+      "pooled_raw": 0.708258,
+      "pooled_served": 0.708258,
+      "sealed_raw": 0.708102,
+      "sealed_served": 0.708102,
+      "max_abs_delta": 0.0,
+      "bar": "<= 0.001 (rank-invariant contract)",
+      "pass": true
+    },
+    "leg5_worth_having": {
+      "sealed_band_gain_platt_minus_served": 0.0086,
+      "band_noise_se": 0.0815,
+      "mean_abs_change_in_stratum": 0.0518,
+      "n_in_stratum_sealed": 50,
+      "bar": "band gain > noise/3 AND mean |change| > 0.005",
+      "pass": false
+    },
+    "leg6_no_bleed_monotone": {
+      "served_min": 0.135656,
+      "served_max": 1.0,
+      "in_range_0_1": true,
+      "local_segment_monotone": true,
+      "seam_jump_served_minus_platt_at_h": 0.0,
+      "pass": true
+    }
+  },
+  "verdict": {
+    "result": "GATE_FAIL",
+    "summary": "GATE_FAIL \u2014 no quality-stratum local map clears the leg set. The chosen continuous map (P_local_pchip at h=0.72) holds the AUC-flat and no-bleed contracts EXACTLY (0.0 AUC delta, [0,1] clipped, seam-continuous) but: (1) S2 70-80 band ECE 0.1685 not < 0.03 \u2014 the anchored map vacates the band (in-stratum served >= Platt(0.72) ~ 0.795) leaving the over-stretched Platt sliver (raw 0.64-0.72) untouched on sealed; (2) nested pooled ll +0.0092 > +/-0.001 (the deployed single fit actually improves in-sample -0.0021 \u2014 the +0.0092 is per-fold pchip fold variance, Jensen, same as e3aeece); (3) sealed 80+ adjacent +0.0658 (n=48) \u2014 the pooled-fitted steep in-stratum tail over-predicts sealed 2025's mild top; (4) worth-having fails (band gain 0.0086 < noise/3).",
+    "finding": "THIRD independent confirmation of the structural finding: no map \u2014 global (e3aeece, fc4f4bd) or local (here) \u2014 can fix the Platt 70-80 band over-stretch without paying pooled logloss or the sealed 80+ tail, because the pooled in-sample top-tail steepness (actual 0.852 at raw 0.73-0.80) does not replicate on sealed 2025 (mild top). The discontinuity-free local families are contract-clean; they just cannot deliver the band fix at the pre-registered bars. The identity-in-stratum convention (raw above h, Platt below) DOES nearly fix the band (S2 0.0453 vs Platt 0.1804; sealed band 0.0366 on the raw axis) but fails pooled ll (+0.0016) and the 80+ adjacent leg (+0.0956) and is discontinuous \u2014 it remains a serve-time product convention decision, not a gate-passing map.",
+    "follow_ons": [
+      "relaxed pooled-ll bar by product decision: the identity-in-stratum convention is the only candidate within ~1.5x of the +/-0.001 bar with a real band fix \u2014 a serving-axis product call, not a model change (mirrors the e3aeece/fc4f4bd records)",
+      "revisit when more sealed-2025 data exists: the 80+ tail (n=16-48) and the S2 band (n~20) are the least certain legs; 2026 in-season decided rows (~272/yr) will sharpen both",
+      "the honest finding stands: the ensemble is well-calibrated on the disputed games (Branch B) \u2014 the defect is the global logistic's shape, and no post-hoc map recovers it at the pre-registered bars"
+    ]
+  },
+  "evidence_sources": [
+    "nfl_predictions_history_20260904.csv (raw + published Platt axes + actuals)",
+    "nfl_run_engine_markets_20260904.csv (kind==oof rows; shared-universe anchor + p_home_win_derived)",
+    "nfl_moneyline_v1_20260904.json (deployed map pins a=1.276336/b=0.121988; sealed model_platt 0.6249/0.0745)",
+    "canonical decided feature frame via load_features (quality-extreme overlap; read-only cache; degrades to null when unreachable)",
+    "nfl_binary_calibration_3e8c8a510f04.json / nfl_binary_calibration_hinge_3e8c8a510f04.json / nfl_margin_audit_3e8c8a510f04.json (prior arms)",
+    "probe_binary_calibration_quality_map.py (read-only harness; byte-identical double run)"
+  ],
+  "guardrails_met": {
+    "1_local_only": "the global Platt map is untouched outside the stratum in every candidate; the serving rule is seam-continuous with it",
+    "2_no_hardcoded_boundary": "no production change made (GATE_FAIL); any future adoption reads h*/family from the recorded fit",
+    "3_read_only_until_gate": "probe/tests/record only; nfl_moneyline.py, artifacts, FEATURE_COLUMNS byte-unchanged",
+    "4_auc_flat_contract": "held EXACTLY (0.0 delta) for the continuous families \u2014 rank-invariance verified, no AUC-improvement claim",
+    "5_determinism": "double run byte-identical (cmp); the probe payload is timing-free"
+  },
+  "acceptance_evidence": {
+    "probe_determinism": {
+      "run1_bytes": 15490,
+      "run2_bytes": 15490,
+      "raw_byte_identical": true,
+      "banner_bytes_stripped_run1": 0,
+      "banner_bytes_stripped_run2": 0,
+      "note": "raw JSON-part byte equality across two full probe invocations; the payload is timing-free (no elapsed fields)"
+    },
+    "r0_gate": {
+      "a_fit": 1.276365,
+      "b_fit": 0.121987,
+      "pin_a_b": {
+        "a": 1.276336,
+        "b": 0.121988
+      },
+      "a_err": 2.9453920934452427e-05,
+      "b_err": 1.3106030108261946e-06,
+      "sealed_ll": 0.6249,
+      "pin_sealed_ll": 0.6249,
+      "sealed_ece": 0.0745,
+      "pin_sealed_ece": 0.0745,
+      "pass": true
+    },
+    "suites": [
+      "test_binary_calibration_quality_map: 15/15 OK (R0 bit-consistency; stratum pins; selection excludes identity; all 6 gate legs; verdict GATE_FAIL; determinism; synthetic map-property pins)",
+      "test_run_engine_shape_ab: 8/8 OK (the companion arm record)",
+      "full NFL backend suite: 562 tests, 1 failure + 19 errors \u2014 failure set identical to the documented env baseline (joint/raw_ablation/tier4/xgb_reg/unified/market modules); zero new failures",
+      "no other suite touched: no production code changed"
+    ]
+  },
+  "record_protection": "inherits the protected nfl_binary_calibration_ prefix (_PROTECTED_DELIVERY_PREFIXES, added at e3aeece) \u2014 verified against _is_protected_name; no master_pipeline change needed"
+}
