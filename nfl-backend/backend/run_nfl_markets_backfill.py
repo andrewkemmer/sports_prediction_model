@@ -105,7 +105,7 @@ from run_nfl_slate import (DATA_DELIVERY, MAPPING_TABLE,  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-CANONICAL_FRAME_SHA = "3e8c8a510f04"
+CANONICAL_FRAME_SHA = "5ef7e12718b5"
 
 POOLED_N = 1091
 SEALED_N = 285

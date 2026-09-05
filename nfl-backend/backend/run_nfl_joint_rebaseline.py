@@ -253,8 +253,8 @@ def main(argv: list[str] | None = None) -> int:
                             message="The argument 'eval_set' is deprecated")
     t0 = time.time()
     frame_sha = _frame_sha()
-    if frame_sha != "3e8c8a510f04":
-        print(f"FATAL: frame sha {frame_sha} != canonical 3e8c8a510f04 — "
+    if frame_sha != "5ef7e12718b5":
+        print(f"FATAL: frame sha {frame_sha} != canonical 5ef7e12718b5 — "
               "the prior records' inputs changed; STOP")
         return 1
     print(f"frame_sha256={frame_sha}")

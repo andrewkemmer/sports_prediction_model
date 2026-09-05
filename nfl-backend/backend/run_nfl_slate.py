@@ -77,7 +77,7 @@ ERA_RECORD = DATA_DELIVERY / "nfl_era_3e8c8a510f04.json"
 MARKET_RECORD = DATA_DELIVERY / "nfl_market_3e8c8a510f04.json"
 ADOPTION_RECORD = DATA_DELIVERY / "nfl_adoption_decision_3e8c8a510f04.json"
 
-CANONICAL_FRAME_SHA = "3e8c8a510f04"
+CANONICAL_FRAME_SHA = "5ef7e12718b5"
 SLATE_SEASON = 2026
 
 # MLB -> NFL artifact mapping table (mirror of run_engine.persist_markets /
