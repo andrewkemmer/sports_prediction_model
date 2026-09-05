@@ -182,7 +182,7 @@ class TestWindowWalkForward(unittest.TestCase):
 
     def test_warmup_larger_than_production_matches_production_geometry(self):
         """W2019 (production window) uses the SAME val/sealed split as prod."""
-        from nfl_moneyline import TRAIN_SEASONS
+        from nfl_run_engine_legacy_windows import TRAIN_SEASONS
         feats = self._synth_window_feats()
         res = w.run_walk_forward_window(feats, w.DEPLOYED_12, TRAIN_SEASONS)
         self.assertEqual(res["fold_geometry"]["train_seasons"], TRAIN_SEASONS)

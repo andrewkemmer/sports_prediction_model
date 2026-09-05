@@ -64,8 +64,9 @@ from nfl_era_features import (
 )
 from nfl_joint_engine import build_joint_pmfs, fit_joint_params, \
     load_residual_artifact
-from nfl_moneyline import (SEALED_SEASON, TRAIN_SEASONS, _valid_rows,
-                           compute_metrics, generate_weekly_folds)
+from nfl_run_engine_legacy_windows import (SEALED_SEASON, TRAIN_SEASONS,
+                                           generate_weekly_folds)
+from nfl_moneyline import (_valid_rows, compute_metrics)
 from nfl_per_side_engine import SIDE_FEATURES, oof_per_side
 from run_nfl_joint import (C0_ANCHOR, _crps_vs_climatology, _seam_check,
                            _sealed_predictions)

@@ -80,9 +80,11 @@ from nfl_joint_engine import (  # noqa: E402
     fit_joint_params, joint_pmf_copula, marginal_breakpoints, marginal_pmf,
     margin_pmf_from_joint, sigma_callable, total_pmf_from_joint,
 )
+from nfl_run_engine_legacy_windows import (  # noqa: E402
+    SEALED_SEASON, TRAIN_SEASONS, generate_weekly_folds,
+)
 from nfl_moneyline import (  # noqa: E402
-    SEALED_SEASON, TRAIN_SEASONS, _valid_rows, compute_metrics,
-    generate_weekly_folds,
+    _valid_rows, compute_metrics,
 )
 from nfl_per_side_engine import SIDE_FEATURES  # noqa: E402
 from run_nfl_joint import C0_ANCHOR, _crps_vs_climatology, _seam_check  # noqa: E402

@@ -226,10 +226,11 @@ def run_walk_forward_gate(feats: pd.DataFrame,
     production loader) is a DIAGNOSTIC cross-check only — never a verdict
     baseline; there is no advisory verdict mode.
     """
+    from nfl_run_engine_legacy_windows import generate_weekly_folds
     from nfl_moneyline import (TARGET, _adaptive_blend, _elo_logistic_p,
                                _score_member_table, _valid_rows, adopt_decision,
                                auc, compute_adaptive_weights, compute_metrics,
-                               ece, ensemble_predict, generate_weekly_folds,
+                               ece, ensemble_predict,
                                load_ensemble, logloss, platt_fit,
                                platt_predict, train_ensemble)
 

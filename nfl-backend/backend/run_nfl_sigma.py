@@ -74,9 +74,11 @@ from nfl_era_features import (  # noqa: E402
 from nfl_joint_engine import (  # noqa: E402
     build_joint_pmfs, fit_joint_params, marginal_pmf,
 )
+from nfl_run_engine_legacy_windows import (  # noqa: E402
+    SEALED_SEASON, TRAIN_SEASONS, generate_weekly_folds,
+)
 from nfl_moneyline import (  # noqa: E402
-    SEALED_SEASON, TRAIN_SEASONS, _valid_rows, compute_metrics,
-    generate_weekly_folds,
+    _valid_rows, compute_metrics,
 )
 from nfl_per_side_engine import SIDE_FEATURES  # noqa: E402
 from run_nfl_joint import (  # noqa: E402

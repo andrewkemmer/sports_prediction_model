@@ -247,11 +247,12 @@ def run_walk_forward_window(feats: pd.DataFrame,
     shape. The ONLY difference from production is that ``train_seasons`` and
     ``sealed_season`` are arguments instead of module constants.
     """
+    from nfl_run_engine_legacy_windows import generate_weekly_folds
     from nfl_moneyline import (TARGET, META_COLS, _adaptive_blend,
                                _elo_logistic_p, _member_weights,
                                _score_member_table, _valid_rows, auc, ece,
                                compute_adaptive_weights, compute_metrics,
-                               ensemble_predict, generate_weekly_folds,
+                               ensemble_predict,
                                logloss, platt_fit, platt_predict,
                                train_ensemble)
 

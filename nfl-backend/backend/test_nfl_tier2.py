@@ -198,7 +198,8 @@ class TestHarnessSmoke(unittest.TestCase):
     def test_run_walk_forward_with_venue_columns(self):
         """The production walk-forward executes with the 16-column VENUE arm on
         synthetic data (network-free, ~30s)."""
-        from nfl_moneyline import TRAIN_SEASONS, SEALED_SEASON, run_walk_forward
+        from nfl_run_engine_legacy_windows import TRAIN_SEASONS, SEALED_SEASON
+        from nfl_moneyline import run_walk_forward
         from test_nfl_moneyline import _synth_fold_frame
         feats = _synth_fold_frame(seasons=TRAIN_SEASONS + [SEALED_SEASON])
         feats = feats[pd.notna(feats["elo_diff"])].copy()

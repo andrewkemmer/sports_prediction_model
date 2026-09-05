@@ -64,8 +64,9 @@ from nfl_joint_engine import (
     load_residual_artifact, marginal_pmf, over_prob, sigma_callable,
     margin_pmf_from_joint, total_pmf_from_joint,
 )
-from nfl_moneyline import (SEALED_SEASON, TRAIN_SEASONS, VAL_SEASONS,
-                           _valid_rows, compute_metrics)
+from nfl_run_engine_legacy_windows import (SEALED_SEASON, TRAIN_SEASONS,
+                                           VAL_SEASONS)
+from nfl_moneyline import (_valid_rows, compute_metrics)
 from nfl_per_side_engine import SIDE_FEATURES, refit_per_side
 from run_nfl_margin_ablation import _frame_sha256, load_features
 

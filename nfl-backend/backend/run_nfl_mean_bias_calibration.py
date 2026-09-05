@@ -66,7 +66,8 @@ from nfl_bias_calibration import (
 )
 from nfl_joint_engine import build_joint_pmfs, fit_joint_params, \
     load_residual_artifact
-from nfl_moneyline import SEALED_SEASON, TRAIN_SEASONS, compute_metrics
+from nfl_run_engine_legacy_windows import SEALED_SEASON, TRAIN_SEASONS
+from nfl_moneyline import compute_metrics
 from nfl_per_side_engine import SIDE_TARGETS
 from run_nfl_margin_ablation import _frame_sha256, load_features
 from run_nfl_joint import (C0_ANCHOR, _crps_vs_climatology, _sealed_predictions,

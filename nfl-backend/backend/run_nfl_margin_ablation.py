@@ -44,11 +44,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nfl_features import FEATURE_COLUMNS, build_features
 from nfl_margin_engine import MARGIN_COL, MARGIN_FEATURES, oof_margins, refit_margins
+from nfl_run_engine_legacy_windows import TRAIN_SEASONS, SEALED_SEASON, generate_weekly_folds
 from nfl_moneyline import (
     TARGET,
-    TRAIN_SEASONS,
-    SEALED_SEASON,
-    generate_weekly_folds,
     train_ensemble,
     ensemble_predict,
     platt_fit,

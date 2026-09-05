@@ -41,8 +41,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import nfl_market_engine as M  # noqa: E402
 from nfl_joint_engine import build_joint_pmfs, fit_joint_params  # noqa: E402
-from nfl_moneyline import (SEALED_SEASON, TRAIN_SEASONS,  # noqa: E402
-                           _valid_rows, compute_metrics, generate_weekly_folds)
+from nfl_run_engine_legacy_windows import (SEALED_SEASON, TRAIN_SEASONS,
+                                           generate_weekly_folds)  # noqa: E402
+from nfl_moneyline import (_valid_rows, compute_metrics)  # noqa: E402
 from nfl_per_side_engine import SIDE_FEATURES  # noqa: E402
 from run_nfl_margin_ablation import _frame_sha256, load_features  # noqa: E402
 

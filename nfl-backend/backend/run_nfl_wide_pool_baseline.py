@@ -64,8 +64,9 @@ from nfl_features import (CORE_SEASONS, DECIDED_FRAME, FEATURE_COLUMNS,
                           WARMUP_SEASONS, _load_raw, build_features)
 from nfl_joint_engine import (build_joint_pmfs, margin_pmf_from_joint,
                               total_pmf_from_joint)
-from nfl_moneyline import (VAL_SEASONS, platt_fit, platt_predict, compute_metrics,
-                           generate_weekly_folds, train_ensemble, ensemble_predict,
+from nfl_run_engine_legacy_windows import VAL_SEASONS, generate_weekly_folds
+from nfl_moneyline import (platt_fit, platt_predict, compute_metrics,
+                           train_ensemble, ensemble_predict,
                            _elo_logistic_p, _valid_rows)
 from nfl_per_side_engine import SIDE_FEATURES, oof_per_side
 from nfl_slate_engine import (ERA_SPEC, MEDIAN_ROUNDS, PINNED_P_TIE,

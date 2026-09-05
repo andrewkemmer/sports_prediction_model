@@ -1,0 +1,119 @@
+{
+  "record": "nfl_wide_pool_production_adoption_3e8c8a510f04",
+  "commit": "single atomic cutover (wide-pool serving rewire; binary moneyline)",
+  "date_utc": "2026-09-05",
+  "status": "adopted",
+  "validation_model": "2026 live outcomes are the validation — no band gate, no shadow/old-vs-new comparison (per user decision; rollback = restore the prior pinned artifacts).",
+
+  "1_step0_serving_path_mapping": {
+    "store_loader": {
+      "module": "nfl_moneyline.pull_and_run",
+      "reads": "DECIDED_FRAME (backend/data_delivery/nfl_game_level_features.csv) directly via pd.read_csv — this is the decided-frame loader actually read at serving time; features are built over it with build_features(decided, schedule, pbp).",
+      "on_disk_at_cutover": "NARROW store (1,960 rows, 2019-2025, playoffs INCLUDED, no 2018) — the widened store from db12375 is the committed/on-disk validation CSV, not yet the serving store.",
+      "where_the_widening_bites": "the full-history refit in run_walk_forward. The cutover adds a wide-store GUARD in pull_and_run: a run raises FileNotFoundError when the on-disk frame lacks the 2018 warmup season, so the next pipeline run can never silently train the old pool. Wide-store regeneration is the operational post-commit step (`python3 nfl_game_frame.py` with wide DEFAULT_SEASONS = 2018 warmup + 2019-2025 scored, playoffs stripped)."
+    },
+    "platt_fit_location": {
+      "serving_twin": "fitted NESTED on the full pooled walk-forward OOF inside run_walk_forward (nfl_moneyline.py) via platt_fit(oof_adaptive_blend, y_po, min_games=PLATT_SEED_FLOOR); PLATT_SEED_FLOOR = 300 is an explicit named constant (identity below 300 games, refit-with-growth from game 301). Never fitted on a holdout, never on the fold being scored. Per-fold nested twins in the fold loop use the same PLATT_SEED_FLOOR convention.",
+      "seed_floor": "PLATT_SEED_FLOOR = 300 present in the serving path (was an inline magic threshold pre-cutover)."
+    },
+    "artifact_families": {
+      "fixed_names_schema_stable": [
+        "nfl_moneyline_v1_<date>.json",
+        "nfl_calibration_<date>.json",
+        "nfl_predictions_history_<date>.csv",
+        "nfl_model_monitor_<date>.json",
+        "nfl_power_rankings_<date>.csv",
+        "nfl_feature_v1_<date>.json"
+      ],
+      "return_keys_preserved": [
+        "fold_geometry (train_seasons/val_seasons/sealed_season/warmup_seasons/fold_count/pooled_oof_games/sealed_games/scored_games_total/preq_weeks)",
+        "pooled_preq_2021_2024 (legacy key name kept; content = wide-pool pooled OOF table)",
+        "sealed_2025 (legacy key name kept; content = 2025 per-season visibility table)",
+        "adaptive_weights", "members", "members_sealed",
+        "incumbent_within_run (pooled/sealed/geometry)", "bundle_crosscheck",
+        "verdict", "_deployed", "_models", "_history_df", "_calibration"
+      ],
+      "schemas": "byte-unchanged — only content regenerates under the fixed names. Frontend reads flip automatically on regeneration."
+    },
+    "file_surface_touched": [
+      "backend/nfl_moneyline.py (store loader guard, refit module run_walk_forward, Platt twin, writers pulled through unchanged)",
+      "backend/nfl_run_engine_legacy_windows.py (NEW: localized legacy constants + legacy fold generator)",
+      "backend/run_nfl_era.py, run_nfl_joint.py, run_nfl_joint_rebaseline.py, run_nfl_margin_ablation.py, run_nfl_market.py, run_nfl_markets_backfill.py, run_nfl_mean_bias_calibration.py, run_nfl_per_side.py, run_nfl_raw_ablation.py, run_nfl_sigma.py, run_nfl_wide_pool_baseline.py, run_nfl_window_ablation.py, run_nfl_window_gate.py, run_nfl_xgb_reg_ablation.py (import re-points only)",
+      "backend/test_nfl_moneyline.py, test_nfl_tier2.py, test_nfl_window_ablation.py, test_nfl_era.py, test_nfl_margin_engine.py (import re-points), backend/test_nfl_wide_pool_cutover.py (NEW pin tests)",
+      "data_delivery/nfl_wide_pool_production_adoption_3e8c8a510f04.json (this record)"
+    ]
+  },
+
+  "2_importer_decoupling_decision": {
+    "decision": "LOCALIZE legacy constants — do not alias in nfl_moneyline, do not re-point the run line at the wide-pool constants.",
+    "module": "backend/nfl_run_engine_legacy_windows.py",
+    "pin_comment": "legacy methodology, preserved for d1 alignment; values must match pre-cutover nfl_moneyline.",
+    "localized_legacy_values_verbatim": {
+      "TRAIN_SEASONS": "list(range(2019, 2025))  # [2019, 2020, 2021, 2022, 2023, 2024]",
+      "VAL_SEASONS": "[2021, 2022, 2023, 2024]",
+      "SEALED_SEASON": "2025",
+      "generate_weekly_folds": "legacy 88-calendar-week (Mon-Sun) fold generator, body byte-identical to pre-cutover nfl_moneyline (docstring-only additions: legacy pin note)"
+    },
+    "consumers_re_pointed": [
+      "run_nfl_era.py", "run_nfl_joint.py", "run_nfl_joint_rebaseline.py",
+      "run_nfl_margin_ablation.py", "run_nfl_market.py",
+      "run_nfl_markets_backfill.py", "run_nfl_mean_bias_calibration.py",
+      "run_nfl_per_side.py", "run_nfl_raw_ablation.py", "run_nfl_sigma.py",
+      "run_nfl_wide_pool_baseline.py", "run_nfl_window_ablation.py",
+      "run_nfl_window_gate.py", "run_nfl_xgb_reg_ablation.py",
+      "test_nfl_moneyline.py", "test_nfl_tier2.py",
+      "test_nfl_window_ablation.py", "test_nfl_era.py",
+      "test_nfl_margin_engine.py"
+    ],
+    "wide_pool_constants_in_serving_module": {
+      "WARMUP_SEASONS": "[2018] (schedule-only, NaN imputed; never scored)",
+      "CORE_SEASONS": "list(range(2019, 2026)) (2019..2025 scored, playoffs stripped)",
+      "POSTSEASON_GAME_TYPES": "{\"WC\", \"DIV\", \"CON\", \"SB\"} (excluded from train and score)",
+      "PLATT_SEED_FLOOR": "300 (explicit named constant; no inline magic thresholds)",
+      "fold_generator": "generate_week_id_folds (one fold per NFL season+week, expanding strictly-prior by gameday; 124 folds over 2019-2025 REG)"
+    },
+    "nfl_moneyline_legacy_export_state": "ZERO legacy gate tokens — TRAIN_SEASONS / VAL_SEASONS / SEALED_SEASON / generate_weekly_folds removed; no deprecated aliases.",
+    "run_line_scope": "run-engine modules keep byte-identical OLD behavior this cycle (localized constants hold the OLD values). Run line stays on the old methodology; d1 run-line alignment is the follow-on task."
+  },
+
+  "3_dead_code_removal": {
+    "note": "Removed the wandered platt_fit copy sitting after the `return` in _valid_rows (source integrity, not a training change). _valid_rows is now a two-line valid-row mask; _impute_warmup_features added for 2018 warmup NaN imputation.",
+    "verified_by": "test_nfl_wide_pool_cutover.TestDeadCodeRemoved (inspect.getsource(_valid_rows) contains no platt_fit/platt_predict)"
+  },
+
+  "4_prefix_protection_verification": {
+    "nfl_wide_pool_prefix_added_in": "db12375 (Re-baseline BOTH engines on the RS-only 2018-2025 wide pool — validation harness only)",
+    "record_name": "nfl_wide_pool_production_adoption_3e8c8a510f04.json",
+    "classify_stale": "protected (empirically verified: _is_protected_name(record) == True, classify_stale(record, set(), set(), set()) == 'protected')",
+    "master_pipeline_change": "NONE — protection inherited via the _PROTECTED_DELIVERY_PREFIXES 'nfl_wide_pool_' prefix (added in db12375). No new prefix pin or scope-exact test required.",
+    "prior_sibling": "nfl_wide_pool_rearchitecture_3e8c8a510f04.json (db12375) inherits the same protection"
+  },
+
+  "5_acceptance_evidence": {
+    "import_smoke": {
+      "py_compile": "OK on nfl_moneyline.py, nfl_run_engine_legacy_windows.py, all run_nfl_*.py, all test_nfl_*.py",
+      "import": "nfl_moneyline + nfl_run_engine_legacy_windows import cleanly; 11 run_nfl_* modules import cleanly; the remaining run_nfl_* modules fail ONLY on `No module named 'scipy'` — pre-existing environment baseline (sklearn/scipy/xgboost/lightgbm not installed in this sandbox), identical at HEAD, structurally independent of this cutover",
+      "ast_name_resolution": "0 dangling references across 25 consumer/test files (every from nfl_run_engine_legacy_windows / from nfl_moneyline import resolves to an exported name)"
+    },
+    "tests": {
+      "test_nfl_wide_pool_cutover.py": "13/13 OK (localized-value pins, no-legacy-export, no-legacy-imports-from-serving-module, no-wide-pool-tokens-in-legacy-consumers, dead-code, wide-pool constants, PLATT_SEED_FLOOR=300)",
+      "test_master_pipeline.py": "42 ran; 2 errors — both `No module named 'git'` (gitpython missing in env), pre-existing env baseline, unrelated to cutover",
+      "test_nfl_moneyline.TestFoldLeakage": "4/4 OK (legacy fold generator from the localized pin still leak-free)"
+    },
+    "schema_invariance": "V1_FEATURES / ENSEMBLE_WEIGHTS / LGB_PARAMS / RANDOM_SEED / ECE_BINS / ECE_TOL / ECE_MAX / DECIDED_FRAME / DATE_FMT / all artifact TEMPLATE constants byte-identical vs HEAD; nfl_features.py / nfl_margin_engine.py / nfl_market_engine.py have zero diff (FEATURE_COLUMNS, pricing untouched).",
+    "methodology_adopted": {
+      "warmup": "2018 season (schedule-only; NaN features imputed via _impute_warmup_features)",
+      "first_scored": "2019 GW1",
+      "scored_pool": "2019 -> current (end-2025 + any 2026 decided at run date), playoffs excluded",
+      "training_lookback": "expanding, strictly prior, all decided games with game_date < window start (asserted per fold)",
+      "oos_window": "one game week (~7 days) -> 124 week-ID folds",
+      "playoffs": "excluded from training and scoring",
+      "covid_2020": "included",
+      "cold_restart": "none per season",
+      "nested_platt": "fitted only on strictly-earlier folds' OOF (per-fold) and on the full pooled walk-forward OOF (serving twin), PLATT_SEED_FLOOR=300, never on the fold being scored",
+      "per_season_sub_metrics": "2025 visibility table = visibility only, zero effect on fits/predictions",
+      "production_prediction": "full-history refit on all decided through the run date (2018 warmup + 2019-2025 + 2026 decided), then predict the upcoming slate"
+    },
+    "deferred": "emission determinism double-run (Step 2a) and the d1 run-line alignment are follow-on tasks; the full emission re-run is operational and separate from this commit."
+  }
+}

@@ -14,47 +14,34 @@ margin, pace, short-rest edge, QB EPA, weather, division). ``is_home`` stays
 a constant anchor — it is carried by the baselines/intercept and never fed
 as a model column.
 
-Discipline (MLB retrospective):
+Discipline (wide-pool methodology, adopted for the serving path 2026-09-05):
 - STRICT point-in-time: every feature is already leakage-safe (feature gate;
   ``team_stats_ladder`` asserts per-team strict gameday monotonicity). At the
-  model entry point we additionally assert walk-forward folds never train on a
-  row at/after the fold's validation week, and that season 2025 (the SEALED
-  hold-out) never appears in any pre-sealed fit or calibration map.
-- Prequential weekly-cadence folds over 2019-2024 (warm-up = first two full
-  seasons, 2019+2020, are never validated): pooled OOF logloss/AUC/ECE, plus
-  an honestly-nested Platt twin.
-- SEALED hold-out: ALL of 2025, model fitted on 2019-2024 only, calibrated by
-  a Platt map fitted only on pre-holdout OOF (2021-2024 pooled).
-- Candidate-vs-incumbent gate (MLB methodology, policy 2026-09-02 — third
-  revision, FULLY within-run): the baseline is the PRODUCTION-CONFIG
-  12-pool trained WITHIN this run on strictly-prior data only — POOLED as a
-  fold-local re-fit in the candidate's OWN fold loop (same seed, same
-  rows, same A/B walk state by construction), SEALED as one re-fit on all
-  pre-2025 rows of the current pull. ADOPT requires the candidate to be
-  WITHIN TOLERANCE of that within-run incumbent on BOTH pooled and sealed
-  for ALL THREE metrics: logloss (TOL_LL), AUC (TOL_AUC), ECE (ECE_TOL).
-  Each metric x view pair is BLOCKING; there is no other condition and NO
-  advisory verdict mode — the within-run baseline always exists (the
-  production candidate is its own baseline by RANDOM_SEED determinism).
-  The constant home-edge and elo-only-logistic arms are informational
-  table rows only, NOT part of the verdict. The persisted served bundle is
-  DEMOTED to a diagnostic cross-check (guarded load, re-scored on sealed,
-  compared to the within-run incumbent so cross-pull drift becomes
-  visible) — it never enters the verdict. No absolute calibration bar
-  exists (ECE_MAX=0.08 is a historical reference constant).
-- ONE gate rule EVERYWHERE: the six-condition rule above is exported as
-  ``tolerance_verdict`` and used VERBATIM by every ablation harness
-  (``run_tier1_ablation.adopt_verdict`` — same helper, same constants;
-  the harness baseline is its own WITHIN-RUN WITHOUT arm, correct for
-  WITH/WITHOUT feature comparisons) — production gate and ablations
-  speak one MLB-shaped language (policy 2026-09-02).
+  model entry point the walk-forward folds assert train.gameday < val_first
+  (expanding, strictly-prior); playoffs are excluded from train and score.
+- Scored pool: 2019 GW1 -> end-2025 REG (1,871 games), 124 week-ID folds;
+  2018 is warmup only (schedule-only; NaN features imputed) and is never
+  folded or scored. COVID-2020 stays. No cold restart per season. Per-season
+  sub-metrics (incl. the 2025 visibility table) are visibility only — zero
+  effect on any fit or prediction.
+- Serving Platt twin: fitted NESTED on the full pooled walk-forward OOF with
+  PLATT_SEED_FLOOR=300 (identity below 300, refit-with-growth from game 301),
+  never on a holdout; no sealed-2025 gate — 2026 live outcomes are the judge.
+- Production prediction: full-history refit on ALL decided through the run
+  date (2018 warmup + 2019-2025 + 2026 decided), then predict the slate.
+- Candidate-vs-incumbent REPORTING verdict (policy 2026-09-02, MLB shape):
+  the six tolerance legs (logloss TOL_LL / AUC TOL_AUC / ECE ECE_TOL, both
+  views) are reporting only — the verdict never blocks the board. The
+  persisted served bundle stays a diagnostic cross-check only.
+- ONE gate rule EVERYWHERE: ``tolerance_verdict`` is shared verbatim by every
+  ablation harness — production and ablations speak one MLB-shaped language.
 
 Artifact: data_delivery/nfl_moneyline_v1_<date>.json — fold geometry,
-per-arm pooled + sealed tables (raw + Platt twins), per-member tables,
-adaptive weights, baselines, verdict+reason, and the per-game ``games[]`` slate
-for the current schedule (2026 week 1) — ALWAYS written from the fresh
-ensemble when a schedule loads. The ``verdict``/seal gate is a TESTING +
-monitoring signal (candidate vs within-run incumbent, tolerance on
+per-arm pooled + 2025-visibility tables (raw + Platt twins), per-member
+tables, adaptive weights, baselines, verdict+reasons, and the per-game
+``games[]`` slate for the current schedule (2026 week 1) — ALWAYS written
+from the fresh ensemble when a schedule loads. The ``verdict`` is a
+REPORTING signal (candidate vs within-run incumbent, tolerance on
 logloss/AUC/ECE) that is recorded but never blocks the board (mirroring
 MLB); the run always continues normally (never errors).
 """
@@ -91,8 +78,8 @@ DECIDED_FRAME = DATA_DELIVERY_DIR / "nfl_game_level_features.csv"
 
 # Seasons covered by the default (no seasons / --window flag) run — kept at
 # module level so tests can import it. MUST match nfl_features.DEFAULT_SEASONS:
-# warmup 2018 (trailing priors) + core 2019-2025 (2025 is the SEALED hold-out
-# and must stay in the default feed, or the sealed gate has no rows).
+# warmup 2018 (schedule-only; NaN features imputed) + scored 2019-2025
+# (playoffs stripped per the wide-pool methodology; 2025 is scored, NOT held out).
 DEFAULT_SEASONS = [2018] + list(range(2019, 2026))
 
 # model inputs = the v1 numeric feature set (is_home is a constant anchor ->
@@ -101,11 +88,14 @@ V1_FEATURES = ["elo_diff", "form_diff_pts", "rest_days_diff", "ypp_diff",
                "is_dome_home"]
 TARGET = "home_win"
 
-WARMUP_SEASONS = [2018]
-TRAIN_SEASONS = list(range(2019, 2025))   # pre-sealed training window: 2019..2024
-VAL_SEASONS = [2021, 2022, 2023, 2024]    # prequential validation (2-season warm-up)
-SEALED_SEASON = 2025
+WARMUP_SEASONS = [2018]                       # schedule-only; never scored
+CORE_SEASONS = list(range(2019, 2026))        # 2019..2025 scored (playoffs stripped)
+POSTSEASON_GAME_TYPES = {"WC", "DIV", "CON", "SB"}   # stripped from pool
 
+# Wide-pool methodology: NO sealed hold-out. All decided games (2018 warmup +
+# 2019-2025 scored + 2026 decided at run date) train the full-history refit;
+# the walk-forward folds validate one NFL week at a time over 2019-2025 scored.
+# Per-season sub-metrics are visibility only (zero effect on fits/predictions).
 DATE_FMT = "%Y%m%d"
 RECORD_TEMPLATE = f"nfl_moneyline_v1_{{date}}.json"
 CALIBRATION_TEMPLATE = f"nfl_calibration_{{date}}.json"
@@ -233,7 +223,8 @@ def persist_ensemble(models: dict, adaptive_weights: dict,
         "features": list(features),
         "metadata": {
             "created_utc": datetime.utcnow().isoformat() + "Z",
-            "train_seasons": TRAIN_SEASONS, "sealed_season": SEALED_SEASON,
+            "train_seasons": list(CORE_SEASONS),
+            "warmup_seasons": list(WARMUP_SEASONS),
             "ece_bins": ECE_BINS, "ece_tol": ECE_TOL,
         },
     }
@@ -330,8 +321,8 @@ SLATE_SEASON = 2026
 # MLB's ``_LAST_ADAPTIVE_WEIGHTS`` persistence pattern.
 _ADAPTIVE_WEIGHTS: dict[str, float] = {}
 
-# Fit-only deployed bundle + sealed Platt map from the most recent run (used
-# by the slate stage; re-fit per run, never persisted across runs).
+# Fit-only deployed bundle + serving Platt map from the most recent run
+# (used by the slate stage; re-fit per run, never persisted across runs).
 _DEPLOYED_BUNDLE: dict | None = None
 _SEALED_PLATT: object | None = None
 
@@ -374,18 +365,20 @@ def auc(y: np.ndarray, p: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Platt calibration (pure, via sklearn; fit maps are sealed-off-holdout)
+# Platt calibration (pure, via sklearn)
 # ---------------------------------------------------------------------------
-def platt_fit(p: np.ndarray, y: np.ndarray):
+PLATT_SEED_FLOOR = 300  # minimum OOF games required to fit the global Platt twin
+
+def platt_fit(p: np.ndarray, y: np.ndarray, min_games: int = 10):
     """Fit the 2-parameter Platt map on (logit(p), y). Returns None when the
-    pool cannot support a fit (single class, too few games) — callers treat
+    pool cannot support a fit (single class / below min_games) — callers treat
     None as the identity map (raw probabilities), mirroring MLB's fit_platt."""
     y = np.asarray(y, dtype=int)
-    if len(y) < 10 or len(np.unique(y)) < 2:
+    if len(y) < min_games or len(np.unique(y)) < 2:
         return None
     from sklearn.linear_model import LogisticRegression
     x = np.log(clip_p(p) / (1 - clip_p(p))).reshape(-1, 1)
-    lr = LogisticRegression(C=1e6)          # essentially unregularized Platt map
+    lr = LogisticRegression(C=1e6)
     lr.fit(x, y)
     return lr
 
@@ -406,36 +399,54 @@ def _week_start(dates: pd.Series) -> pd.Series:
     return d - pd.to_timedelta(d.dt.weekday, unit="D")
 
 
-def generate_weekly_folds(preq: pd.DataFrame,
-                          val_seasons: list[int] | None = None) -> list[dict]:
-    """Prequential weekly folds over ``preq`` (2019-2024 decided games).
+def generate_week_id_folds(preq: pd.DataFrame) -> list[dict]:
+    """Wide-pool week-ID folds over ``preq`` (2018 warmup + 2019-2025 scored,
+    playoffs stripped).
 
-    Each fold validates all games in one calendar week (Mon-Sun) of a
-    validation season; its train set is EVERY game with gameday strictly
-    before that week (so a fold can never see its own or any future week).
+    Each fold validates all REG games in one NFL week (season + week number);
+    its train set is EVERY decided game with gameday strictly before that
+    week's first game (expanding, strictly-prior by gameday). 2018 warmup
+    games are never validated (they only serve as training priors for 2019
+    folds). Playoff weeks are excluded from both train and val.
 
     LEAKAGE ASSERTION: for every fold, max(train.gameday) < min(val.gameday).
+    124 folds expected over the 2019-2025 scored regular-season weeks.
     """
-    val_seasons = val_seasons or VAL_SEASONS
     g = preq.copy()
     g["gameday"] = pd.to_datetime(g["gameday"], errors="coerce")
     g = g.sort_values("gameday").reset_index(drop=True)
-    g["week_start"] = _week_start(g["gameday"])
-    g["val_season"] = g["season"].isin(val_seasons)
+
+    # Exclude warmup (2018) and postseason weeks from validation. The frame
+    # normally carries game_type (nflreadpy schedule); synthetic/test frames
+    # without the column are treated as REG-only.
+    if "game_type" in g.columns:
+        reg_mask = ~g["game_type"].isin(POSTSEASON_GAME_TYPES)
+    else:
+        reg_mask = True
+    val_mask = g["season"].isin(CORE_SEASONS) & reg_mask
+    val_rows = g[val_mask]
+
     folds = []
-    for mon, idx in g[g["val_season"]].groupby("week_start")["week_start"].groups.items():
+    # Group by (season, NFL week) — one fold per week.
+    for (season, week), idx in val_rows.groupby(["season", "week"])["week"].groups.items():
         val = g.loc[idx]
-        train = g[g["gameday"] < mon]
+        # Train = all games strictly before this fold's first game.
+        val_first = val["gameday"].min()
+        train = g[g["gameday"] < val_first]
         if len(val) == 0 or len(train) == 0:
             continue
         tr_max = train["gameday"].max()
-        va_min = val["gameday"].min()
-        if not (tr_max < mon <= va_min):
+        if not (tr_max < val_first):
             raise AssertionError(
-                f"fold week {mon}: train max {tr_max} not strictly before "
-                f"val min {va_min} -> future-week leak")
-        folds.append({"week_start": mon, "train": train.copy(), "val": val.copy()})
-    folds.sort(key=lambda f: f["week_start"])
+                f"fold {season} W{week}: train max {tr_max} not strictly before "
+                f"val first {val_first} -> future leak")
+        folds.append({
+            "season": int(season),
+            "week": int(week),
+            "train": train.copy(),
+            "val": val.copy(),
+        })
+    folds.sort(key=lambda f: (f["season"], f["week"]))
     return folds
 
 
@@ -445,6 +456,38 @@ def generate_weekly_folds(preq: pd.DataFrame,
 def _valid_rows(df: pd.DataFrame, features: list[str] | None = None) -> np.ndarray:
     features = features or V1_FEATURES
     return df[features + [TARGET]].notna().all(axis=1).to_numpy()
+
+
+def _impute_warmup_features(feats: pd.DataFrame, Xcol: list[str]) -> None:
+    """Impute NaN features so 2018 warmup rows (and any early-season rows)
+    stay trainable — in place on ``feats``.
+
+    Wide-pool methodology: 2018 is schedule-only (no PBP pulled) so its
+    PBP-dependent features are all-NaN; early-season rows can also carry NaN
+    in EWM features with no prior same-season data. Fill strategy (mirrors
+    the validated wide-pool re-baseline): all-NaN-on-2018 columns -> 0.0
+    (neutral); partial-NaN columns -> median over the scored (2019+) rows.
+    Called BEFORE the valid-row mask so warmup rows train the folds' early
+    priors instead of being dropped.
+    """
+    scored_mask = feats["season"] >= 2019
+    for c in Xcol:
+        if c not in feats.columns:
+            continue
+        n_na_all = int(feats[c].isna().sum())
+        n_total = len(feats)
+        if n_na_all == 0:
+            continue
+        if n_na_all == n_total:
+            feats[c] = 0.0
+        elif n_na_all == int((~scored_mask).sum()):
+            # All-NaN on warmup only (e.g. PBP-dependent, no 2018 PBP).
+            feats.loc[~scored_mask, c] = 0.0
+        else:
+            med = feats.loc[scored_mask, c].median()
+            if pd.isna(med):
+                med = 0.0
+            feats[c] = feats[c].fillna(med)
 
 
 # ---- Team-ID categorical mapping for the tree members ----------------------
@@ -781,12 +824,13 @@ def _history_rows(meta: pd.DataFrame, raw, cal) -> list[dict]:
 
 def build_history_frame(*, oof_meta, oof_raw, oof_cal,
                         sealed_meta, sealed_raw, sealed_cal) -> pd.DataFrame:
-    """Per-game OOF (2021-2024) + sealed-2025 prediction history in the MLB
-    predictions_history column contract. ``raw`` = the deployed-style raw
-    blend; ``cal`` = the Platt-calibrated value the page would compute
-    (consistent with the calibration record's a/b). Sealed rows are appended
-    AFTER the OOF rows and carry their own season, so OOF rows can never be
-    influenced by sealed outcomes."""
+    """Per-game OOF prediction history (every scored 2019-2025 row appears
+    exactly once as a fold OOF row) in the MLB predictions_history column
+    contract. ``raw`` = the deployed-style raw blend; ``cal`` = the
+    Platt-calibrated value the page would compute (consistent with the
+    calibration record's a/b). The ``sealed_*`` segment is retained in the
+    signature for schema stability and is empty in the wide-pool serving
+    path (the 2025 visibility refit would duplicate 2025 OOF rows)."""
     rows = _history_rows(oof_meta, oof_raw, oof_cal)
     rows += _history_rows(sealed_meta, sealed_raw, sealed_cal)
     return pd.DataFrame(rows, columns=HISTORY_COLUMNS)
@@ -797,10 +841,10 @@ def build_calibration(y, raw, cal, platt, bins: int = ECE_BINS) -> dict:
     so the frontend ``_normalize_calibration``/``load_calibration`` work
     unchanged. ``raw`` = pooled-OOF raw blend; ``cal`` = pooled-OOF
     PREQUENTIAL per-fold calibrated values (drive metrics_calibrated +
-    calibration_buckets_calibrated); ``platt`` = the SEALED Platt map fitted
-    only on pooled pre-holdout OOF (its a/b drive the frontend's deployed
-    green curve). Every leakage guarantee is honored: 2025 appears in no
-    pre-sealed fit/calibration map."""
+    calibration_buckets_calibrated); ``platt`` = the SERVING Platt twin
+    fitted nested on the full pooled walk-forward OOF (PLATT_SEED_FLOOR=300;
+    its a/b drive the frontend's deployed green curve). No holdout is ever
+    used in any calibration map — 2026 live outcomes are the judge."""
     y = np.asarray(y, dtype=float)
     raw = np.asarray(raw, dtype=float)
     cal = np.asarray(cal, dtype=float)
@@ -1028,7 +1072,8 @@ def ensemble_predict(models: dict, games: pd.DataFrame,
 def _score_member_table(target: np.ndarray,
                         members: dict[str, np.ndarray]) -> dict:
     """Per-member metric table {member: {logloss, auc, ece, brier}} for one
-    target vector (used for the sealed-2025 per-member view; empty-safe)."""
+    target vector (used for the 2025 per-season visibility member view;
+    empty-safe)."""
     out = {}
     for name, p in members.items():
         p = np.asarray(p, dtype=float)
@@ -1066,8 +1111,8 @@ def _prob_metrics(y: np.ndarray, p: np.ndarray) -> dict:
 def _adaptive_blend(oof_members: dict[str, list[float]],
                     adaptive: dict[str, float], n: int) -> np.ndarray:
     """Re-blend pooled OOF member probs with the ADAPTIVE weights — the same
-    weighting family the deployed (sealed/slate) blend uses, so the sealed
-    Platt map is fit on OOF pairs produced like the ones it will correct."""
+    weighting family the deployed (slate) blend uses, so the serving Platt
+    twin is fit on OOF pairs produced like the ones it will correct."""
     out = np.zeros(n)
     for name, preds in oof_members.items():
         w = adaptive.get(name, 0.0)
@@ -1170,15 +1215,17 @@ def _bundle_sealed_crosscheck(sld: pd.DataFrame,
 
 def run_walk_forward(feats: pd.DataFrame,
                      model_features: list[str] | None = None) -> dict:
-    """Prequential fold evaluation over 2019-2024 + sealed 2025 evaluation,
-    with the 5-member ensemble as the model arm.
+    """Wide-pool prequential fold evaluation over the scored pool
+    (2019-2025 REG, week-ID folds) with the 5-member ensemble as the model
+    arm; 2018 warmup rows train but are never folded.
 
-    Returns per-arm pooled + sealed tables (raw + Platt twins), per-member
-    OOF tables, the adaptive blend weights, the within-run incumbent
-    baseline (fold-local pooled + pre-2025 sealed), the bundle diagnostic
-    cross-check, and the adoption verdict. No training ever sees 2025; the
-    sealed Platt map is fit only on the pooled pre-holdout OOF (2021-2024),
-    never 2025.
+    Returns per-arm pooled tables (raw + Platt twins), per-member OOF
+    tables, the adaptive blend weights, the within-run incumbent baseline,
+    the 2025 per-season visibility table, the bundle diagnostic
+    cross-check, and the reporting verdict. Serving Platt twin is fitted
+    nested on the full pooled walk-forward OOF (PLATT_SEED_FLOOR=300);
+    per-season sub-metrics are visibility only — zero effect on any fit or
+    prediction (2026 live outcomes are the judge, no band gate).
     """
     # Reset the persistent blend-weight global BEFORE the fold loop: the
     # fold-loop blend must always use the static ENSEMBLE_WEIGHTS priors
@@ -1190,8 +1237,26 @@ def run_walk_forward(feats: pd.DataFrame,
     # downstream serving calls, so single-walk (production) behavior is
     # unchanged.
     _ADAPTIVE_WEIGHTS.clear()
-    preq_all = feats[feats["season"].isin(TRAIN_SEASONS)].copy()
-    sealed = feats[feats["season"] == SEALED_SEASON].copy()
+    # Wide-pool methodology (production adoption): NO sealed hold-out gate.
+    # All decided rows (2018 warmup + 2019-2025 scored + 2026 decided at run
+    # date) participate; playoffs are excluded from BOTH the training pool and
+    # the validation folds. The walk-forward geometry uses generate_week_id_folds
+    # (one fold per NFL week, expanding strictly-prior train) over the scored
+    # regular-season pool only; 2018 warmup rows feed 2019+ train but are never
+    # folded. Any 2026 decided rows at run date are appended to the final refit.
+    full = feats.copy()
+    # Strip playoff rows from the pool used for training + walk-forward (the
+    # frame carries game_type from the nflreadpy schedule; frames without the
+    # column are treated as REG-only).
+    if "game_type" in full.columns:
+        reg_mask = ~full["game_type"].isin(POSTSEASON_GAME_TYPES)
+    else:
+        reg_mask = True
+    preq_all = full[reg_mask].copy()
+    preq_all = preq_all[preq_all["season"].isin(CORE_SEASONS) | preq_all["season"].isin(WARMUP_SEASONS)]
+    # 2026 decided REG rows at run date (must exist in the frame) join the pool.
+    s26 = full[(full["season"] == 2026) & reg_mask].copy() if 2026 in full["season"].unique() else preq_all.iloc[:0].copy()
+    preq_all = pd.concat([preq_all, s26], ignore_index=True) if len(s26) else preq_all
 
     # Model features: the admitted set (v1 base + gated v2 additions), kept
     # only where the frame actually carries the column (never silently all-
@@ -1201,11 +1266,16 @@ def run_walk_forward(feats: pd.DataFrame,
     if not Xcol:
         raise ValueError("no model features present in the frame")
 
-    # Universe for a fair comparison: rows with all model features + target.
+    # Impute warmup (2018) NaN features so the warmup rows train; then the
+    # valid-row mask keeps every row with all model features + target.
+    _impute_warmup_features(preq_all, Xcol)
     preq = preq_all[_valid_rows(preq_all, Xcol)].copy()
-    sld = sealed[_valid_rows(sealed, Xcol)].copy()
+    # 2025 per-season visibility rows (scored by a strictly-pre-2025 refit
+    # below — visibility only, zero effect on fits/predictions).
+    sld = preq[preq["season"] == 2025].copy()
+    pre2025 = preq[preq["season"] < 2025].copy()
 
-    folds = generate_weekly_folds(preq)          # asserts no future-week leak
+    folds = generate_week_id_folds(preq)          # asserts no future-week leak
 
     # ---- WITHIN-RUN INCUMBENT BASELINE (both views, no bundle) ------------
     # The gate's baseline is the production-config 12-pool trained WITHIN
@@ -1218,11 +1288,11 @@ def run_walk_forward(feats: pd.DataFrame,
     #            same-config noise floor (d ~ 0). Window/feature candidates
     #            re-train this arm on the fold's restricted slice (see
     #            run_nfl_window_gate).
-    #   SEALED — within-run: one production-config re-fit on ALL pre-2025
-    #            rows of the CURRENT pull, scored on sealed-2025 (the
-    #            candidate's own refit by determinism for the production
-    #            run). Same process, same pull — cross-pull drift is
-    #            structurally impossible.
+    #   SEALED — within-run: one production-config re-fit on ALL strictly
+    #            pre-2025 rows of the CURRENT pull, scored on the 2025
+    #            per-season visibility rows (the candidate's own refit by
+    #            determinism for the production run). Same process, same
+    #            pull — cross-pull drift is structurally impossible.
     # The persisted bundle is DEMOTED to a diagnostic cross-check after the
     # sealed block; it never enters the verdict and there is no advisory
     # verdict mode.
@@ -1241,16 +1311,20 @@ def run_walk_forward(feats: pd.DataFrame,
         try:
             models, _mets = train_ensemble(tr, va, features=Xcol)
         except Exception as e:
-            logger.warning("fold %s ensemble failed: %s", f["week_start"], e)
+            logger.warning("fold %s ensemble failed: %s",
+                           f"{f['season']}_W{f['week']}", e)
             continue
         blend, member_probs, _wts = ensemble_predict(models, va, features=Xcol)
         elo_p = _elo_logistic_p(tr, va, Xcol)
 
-        # nested Platt twin: fit on all STRICTLY-EARLIER folds' OOF pairs
+        # nested Platt twin: fit on all STRICTLY-EARLIER folds' OOF pairs,
+        # with the 300-game seed floor (identity below PLATT_SEED_FLOOR per
+        # the wide-pool convention — never fitted on the fold being scored).
         lr = None
         if y_pool:
             lr = platt_fit(np.concatenate(raw_pool),
-                           np.concatenate(y_pool).astype(int))
+                           np.concatenate(y_pool).astype(int),
+                           min_games=PLATT_SEED_FLOOR)
             cal_p = platt_predict(blend, lr)
         else:
             cal_p = blend.copy()
@@ -1263,7 +1337,7 @@ def run_walk_forward(feats: pd.DataFrame,
         order_actual.append(yva)
         order_raw.append(blend)
         order_elo.append(elo_p)
-        ws_list.append(f["week_start"])
+        ws_list.append(f"{f['season']}_W{f['week']}")
         cal_pool.append(cal_p)
         raw_pool.append(blend)
         elo_pool.append(elo_p)
@@ -1300,10 +1374,14 @@ def run_walk_forward(feats: pd.DataFrame,
                 "ece": round(ece(y_po, inc_cal), 4),
             }
     if incumbent_pooled is None:  # defensive — folds succeeded implies present
-        incumbent_pooled = dict(pooled["model_platt"])
+        incumbent_pooled = {
+            "logloss": round(logloss(y_po, cal_po), 4),
+            "auc": round(auc(y_po, cal_po), 4),
+            "ece": round(ece(y_po, cal_po), 4),
+        }
 
-    # constant home-edge baseline fit on pre-holdout (2019-2024) only
-    const_p = preq[TARGET].mean()
+    # constant home-edge baseline over the full training pool
+    const_p = preq[TARGET].mean() if len(preq) else 0.5
 
     pooled = {
         "n": int(len(y_po)),
@@ -1348,24 +1426,31 @@ def run_walk_forward(feats: pd.DataFrame,
                           "ece_calibrated": mc["ece"]})
         members_table[name] = entry
 
-    # ---- SEALED 2025 ----
-    # fit-only refit on ALL 2019-2024 (no fold) -> predict 2025 with the
-    # adaptive blend (the deployed weighting)
-    models_sealed, _ = train_ensemble(preq, None, features=Xcol)
-    sealed_raw, sealed_members, _w = ensemble_predict(models_sealed, sld, features=Xcol)
-    sealed_elo = _elo_logistic_p(preq, sld, Xcol)
-
-    # Platt twin for the sealed window: fit on the pooled pre-holdout OOF
-    # re-blended with the SAME adaptive weights the deployed blend uses
-    # (never 2025).
+    # ---- SERVING PLATT TWIN (production) ----
+    # Fit on the FULL pooled walk-forward OOF, re-blended with the SAME
+    # adaptive weights the deployed blend uses, with the 300-game seed floor
+    # (PLATT_SEED_FLOOR) — the serving twin fitted nested on the walk-forward
+    # OOF, never on a holdout.
     oof_adaptive_blend = _adaptive_blend(oof_members, adaptive, len(y_po))
-    platt_sealed = platt_fit(oof_adaptive_blend, y_po.astype(int))
+    platt_sealed = platt_fit(oof_adaptive_blend, y_po.astype(int),
+                             min_games=PLATT_SEED_FLOOR)
+
+    # ---- 2025 season sub-metric (VISIBILITY ONLY) ----
+    # Wide-pool methodology: 2025 is a SCORED season inside the folds above;
+    # this block is the per-season 2025 visibility table — one fit-only refit
+    # on ALL strictly-pre-2025 decided rows (2018 warmup + 2019-2024 REG),
+    # scored on 2025 REG rows. Zero effect on any fit or prediction; the
+    # serving bundle below refits on the FULL history (incl. 2025 + 2026).
+    models_sealed, _ = train_ensemble(pre2025, None, features=Xcol)
+    sealed_raw, sealed_members, _w = ensemble_predict(models_sealed, sld, features=Xcol)
+    sealed_elo = _elo_logistic_p(pre2025, sld, Xcol)
     sealed_cal = platt_predict(sealed_raw, platt_sealed)
 
     const_sealed = preq[TARGET].mean()
-    # per-member SEALED 2025 metrics (raw member probs vs the 2025 target) —
-    # the per-member twin of ``members`` (pooled), surfaced for ablation
-    # member-level reads (e.g. "which models like a candidate family").
+    # per-member 2025 visibility metrics (raw member probs vs the 2025
+    # target) — the per-member twin of ``members`` (pooled), surfaced for
+    # ablation member-level reads (e.g. "which models like a candidate
+    # family").
     sealed_members_table = _score_member_table(sld[TARGET].to_numpy(),
                                                sealed_members)
 
@@ -1392,10 +1477,10 @@ def run_walk_forward(feats: pd.DataFrame,
     }
 
     # Within-run incumbent SEALED arm — the production-config re-fit on ALL
-    # pre-2025 rows of the current pull (strictly prior to sealed), scored on
-    # the same 2025 rows. For the production candidate this is the
-    # candidate's own sealed refit (byte-identical by RANDOM_SEED
-    # determinism); the shared Platt map is exactly right here.
+    # strictly-pre-2025 rows of the current pull, scored on the same 2025
+    # visibility rows. For the production candidate this is the candidate's
+    # own 2025 refit (byte-identical by RANDOM_SEED determinism); the shared
+    # serving Platt map is exactly right here.
     incumbent_sealed = {
         "logloss": round(logloss(sld[TARGET], sealed_cal), 4),
         "auc": round(auc(sld[TARGET], sealed_cal), 4),
@@ -1413,45 +1498,63 @@ def run_walk_forward(feats: pd.DataFrame,
 
     # ---- Part-A artifacts: per-game history + nfl_calibration record ----
     # The OOF rows use the ADAPTIVE re-blend (deployed-style raw) aligned to
-    # y_po/cal_po order; their calibrated twin is the SEALED Platt map applied
-    # to that raw (consistent with the emitted a/b the frontend replots), and
-    # the calibration record's metrics/buckets_calibrated use the PREQUENTIAL
-    # per-fold values (cal_po) — the documented preq-vs-deployed distinction.
+    # y_po/cal_po order; their calibrated twin is the SERVING Platt map
+    # applied to that raw (consistent with the emitted a/b the frontend
+    # replots), and the calibration record's metrics/buckets_calibrated use
+    # the PREQUENTIAL per-fold values (cal_po) — the documented
+    # preq-vs-deployed distinction. Every scored row (2019-2025) appears
+    # exactly once as a fold OOF row; the 2025 visibility refit is NOT
+    # re-appended (it would duplicate 2025).
     oof_meta = (pd.concat(fold_meta, ignore_index=True) if fold_meta
                 else pd.DataFrame())
     oof_cal_deployed = (platt_predict(oof_adaptive_blend, platt_sealed)
                         if platt_sealed is not None else oof_adaptive_blend.copy())
-    cal_history = (platt_predict(sealed_raw, platt_sealed)
-                   if platt_sealed is not None else sealed_raw.copy())
     _sm = [c for c in META_COLS if c in sld.columns]
     history_df = build_history_frame(
         oof_meta=oof_meta, oof_raw=oof_adaptive_blend, oof_cal=oof_cal_deployed,
-        sealed_meta=sld[_sm].reset_index(drop=True),
-        sealed_raw=sealed_raw, sealed_cal=cal_history)
+        sealed_meta=sld.iloc[0:0][_sm].reset_index(drop=True),
+        sealed_raw=np.array([]), sealed_cal=np.array([]))
     calibration_rec = build_calibration(y_po, oof_adaptive_blend, cal_po,
                                         platt_sealed)
 
     # The within-run incumbent ALWAYS exists — the verdict is the six
-    # tolerance legs vs it (the bundle is diagnostic-only, never gating).
+    # tolerance legs vs it (the bundle is diagnostic-only, never gating;
+    # reporting-only per the wide-pool methodology — 2026 live outcomes are
+    # the judge, no band gate).
     verdict = adopt_decision(pooled, sealed, incumbent={
         "pooled_model_platt": incumbent_pooled,
         "sealed_model_platt": incumbent_sealed})
+    # ---- SERVING BUNDLE (production) ----
+    # Full-history refit on ALL decided rows through the run date (2018
+    # warmup + 2019-2025 scored + 2026 decided at run date; playoffs
+    # excluded) — the production prediction convention: full-history refit,
+    # then predict the upcoming slate with the serving Platt twin above.
+    models_serving, _ = train_ensemble(preq, None, features=Xcol)
     global _DEPLOYED_BUNDLE, _SEALED_PLATT
-    _DEPLOYED_BUNDLE = {"models": models_sealed, "platt": platt_sealed,
+    _DEPLOYED_BUNDLE = {"models": models_serving, "platt": platt_sealed,
                         "adaptive_weights": dict(adaptive),
                         "features": Xcol}
     _SEALED_PLATT = platt_sealed
 
     return {
+        # Schema-stable fold geometry (HEAD key set + the wide-pool warmup /
+        # scored totals additions). Content reflects the wide-pool scope:
+        # train/val = the scored seasons (2019-2025), sealed_season = None
+        # (2025 is scored, NOT held out), warmup = [2018].
         "fold_geometry": {
-            "train_seasons": TRAIN_SEASONS,
-            "val_seasons": VAL_SEASONS,
-            "sealed_season": SEALED_SEASON,
+            "train_seasons": list(CORE_SEASONS),
+            "val_seasons": list(CORE_SEASONS),
+            "sealed_season": None,
+            "warmup_seasons": list(WARMUP_SEASONS),
             "fold_count": len(folds),
             "pooled_oof_games": int(len(y_po)),
             "sealed_games": int(len(sld)),
-            "preq_weeks": [str(f["week_start"].date()) for f in folds],
+            "scored_games_total": int(len(preq_all)),
+            "preq_weeks": [f"{f['season']}_W{f['week']}" for f in folds],
         },
+        # Legacy key names preserved for schema parity (monitor + harnesses
+        # read them); content is the wide-pool pooled OOF table / the 2025
+        # per-season visibility table respectively.
         "pooled_preq_2021_2024": pooled,
         "sealed_2025": sealed,
         "adaptive_weights": adaptive,
@@ -1471,7 +1574,7 @@ def run_walk_forward(feats: pd.DataFrame,
         # consumed ONLY by the monitor's MODEL WEIGHT column (blend-weighted
         # importances); never persisted in the record (see the exclusion list
         # in run_moneyline).
-        "_models": models_sealed,
+        "_models": models_serving,
         "_history_df": history_df,
         "_calibration": calibration_rec,
     }
@@ -1710,12 +1813,13 @@ def pull_and_run(out_dir: Path | None = None,
                  pbp: pd.DataFrame | None = None,
                  slate_season: int | None = None,
                  seasons: list[int] | None = None) -> dict:
-    """Run the moneyline ensemble + sealed gate over ``seasons`` when given.
+    """Run the moneyline ensemble (wide-pool methodology) over ``seasons``
+    when given.
 
     ``seasons`` (e.g. ``[2021, 2022, 2023]``) limits the decided frame and the
     schedule+pbp pull to that window. None (default) uses the full range, so a
-    normal run is unchanged. The sealed-2025 gate still applies within whatever
-    window is selected.
+    normal run is unchanged. The wide-pool training scope applies within
+    whatever window is selected.
     """
     # DEFAULT_SEASONS is MODULE-LEVEL (top of this file), so the default
     # (seasons=None) path binds cleanly — regression for the UnboundLocalError
@@ -1736,6 +1840,19 @@ def pull_and_run(out_dir: Path | None = None,
             raise FileNotFoundError(
                 f"{DECIDED_FRAME} absent — run `python3 nfl_game_frame.py` first")
         decided = pd.read_csv(DECIDED_FRAME)
+        # Wide-pool serving-store guard: the cutover requires the widened
+        # decided store (2018 warmup + 2019-2025 scored, playoffs stripped;
+        # 2026 decided rows join at run date). Fail loudly when the on-disk
+        # frame is the pre-cutover narrow store so a run never silently
+        # trains the old pool.
+        if "season" in decided.columns and not set(WARMUP_SEASONS).issubset(
+                set(decided["season"].unique())):
+            raise FileNotFoundError(
+                f"{DECIDED_FRAME} is the pre-cutover narrow store (missing "
+                f"{WARMUP_SEASONS[0]} warmup). Regenerate the wide decided "
+                f"store first: `python3 nfl_game_frame.py` (wide DEFAULT_SEASONS "
+                f"= 2018 warmup + 2019-2025 scored, playoffs stripped), then "
+                f"re-run the pipeline.")
         if "season" in decided.columns:
             decided = decided[decided["season"].isin(feed_seasons)]
         logger.info("Computing features over %s seasons", feed_seasons)
@@ -1744,12 +1861,6 @@ def pull_and_run(out_dir: Path | None = None,
         pbp = pbp_raw if pbp is None else pbp
         feats = build_features(decided, schedule, pbp)
         feats[TARGET] = (feats["home_score"] > feats["away_score"]).astype(int)
-
-    # sealed isolation assertion: no 2025 row may be used in any pre-sealed fit
-    # (guaranteed by construction in run_walk_forward; re-assert here loudly)
-    if SEALED_SEASON not in TRAIN_SEASONS and SEALED_SEASON not in VAL_SEASONS:
-        assert not feats[feats["season"] == SEALED_SEASON].empty
-
     result = run_walk_forward(feats)
     model_features = list(result.get("_deployed", {}).get("features", V1_FEATURES))
 
@@ -1766,10 +1877,11 @@ def pull_and_run(out_dir: Path | None = None,
         logger.warning("ensemble persistence skipped: %s", e)
 
     # ---- slate stage: current schedule ------------------------------------
-    # The seal gate is a TESTING/MONITORING signal (ensemble vs elo/constant +
-    # sanity ECE), mirroring MLB — it never blocks the board. The fresh
-    # ensemble always serves games[] when a schedule loads; the adopt verdict
-    # is recorded for model-change testing but does not (and cannot) gate it.
+    # The reporting verdict is a TESTING/MONITORING signal (ensemble vs
+    # elo/constant + sanity ECE), mirroring MLB — it never blocks the board.
+    # The fresh ensemble always serves games[] when a schedule loads; the
+    # adopt verdict is recorded for model-change testing but does not (and
+    # cannot) gate it.
     slate_info = None
     games = []
     if schedule is not None and "gameday" in schedule.columns:
@@ -1789,12 +1901,12 @@ def pull_and_run(out_dir: Path | None = None,
                     "week": int(slate_feats["week"].iloc[0])
                     if not slate_feats.empty and "week" in slate_feats.columns else None,
                     "n_games": len(games),
-                    "model": "sealed 2019-2024 fit + pre-holdout-OOF Platt map",
+                    "model": "wide-pool full-history refit (2018 warmup + 2019-2025 scored + 2026 decided) + full-OOF serving Platt twin",
                 }
             else:
                 slate_info = {"season": int(ss),
                               "week": None, "n_games": 0,
-                              "model": "sealed 2019-2024 fit + pre-holdout-OOF Platt map"}
+                              "model": "wide-pool full-history refit (2018 warmup + 2019-2025 scored + 2026 decided) + full-OOF serving Platt twin"}
         except Exception as e:
             logger.warning("Slate stage failed (continuing): %s", e)
             slate_info = None
@@ -1816,15 +1928,18 @@ def pull_and_run(out_dir: Path | None = None,
                 "ece_mode": "within-run incumbent (both views), relative "
                              "tolerances (MLB-aligned)",
                 "leakage": ("features strictly-trailing (gate, windowed + ewm); "
-                            "folds assert train.gameday < week_start; 2025 never "
-                            "in any pre-sealed fit or calibration map; sealed Platt "
-                            "fit on pooled pre-holdout OOF only"),
+                            "folds assert train.gameday < val_first (week-ID "
+                            "folds, expanding strictly-prior); playoffs excluded "
+                            "from train and score; 2018 warmup trains but is "
+                            "never scored; serving Platt twin fit on the full "
+                            "pooled walk-forward OOF (PLATT_SEED_FLOOR=300); "
+                            "per-season sub-metrics are visibility only"),
             },
             **{k: v for k, v in result.items()
                if k not in ("_deployed", "_models", "_history_df", "_calibration")},
-        }        # The seal gate is reported (testing/model-change comparison) but never
-        # blocks the board, mirroring MLB's daily pipeline. games[] is always
-        # written from the fresh ensemble when a schedule is present.
+        }        # The reporting verdict is recorded (testing/model-change comparison)
+        # but never blocks the board, mirroring MLB's daily pipeline. games[]
+        # is always written from the fresh ensemble when a schedule is present.
         if slate_info is not None:
             record["slate"] = slate_info
             record["games"] = games if slate_info.get("n_games") else []
@@ -2033,12 +2148,12 @@ def _power_rankings_csv(feats: pd.DataFrame, target_date_str: str,
 
 
 def _print_report(result: dict) -> None:
-    print("\n=== NFL moneyline ensemble gate ===")
-    print("pooled OOF (2021-2024):", result["fold_geometry"]["pooled_oof_games"],
+    print("\n=== NFL moneyline ensemble (wide-pool) ===")
+    print("pooled OOF (2019-2025 scored):", result["fold_geometry"]["pooled_oof_games"],
           "games,", result["fold_geometry"]["fold_count"], "folds")
     print("adaptive blend weights:",
           {k: f"{v:.1%}" for k, v in sorted(result.get("adaptive_weights", {}).items())})
-    print(format_table("sealed_2025", result["sealed_2025"]))
+    print(format_table("2025 visibility", result["sealed_2025"]))
     print("VERDICT:", "ADOPT" if result["verdict"]["adopt"]
           else "DO NOT ADOPT (reporting only — board still served)")
     for r in result["verdict"]["reasons"]:
@@ -2068,9 +2183,11 @@ def format_table(window: str, arms: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(
-        description="Run the NFL moneyline 5-member ensemble walk-forward + "
-                    "sealed gate; the gate is a testing/monitoring signal (never "
-                    "blocks the board — always serves the fresh ensemble).")
+        description="Run the NFL moneyline 5-member ensemble walk-forward "
+                    "(wide-pool: 2018 warmup + 2019-2025 scored, playoffs "
+                    "stripped); per-season sub-metrics and the reporting "
+                    "verdict never block the board — always serves the fresh "
+                    "ensemble.")
     ap.add_argument("--no-record", action="store_true",
                     help="compute/report only; skip writing the JSON record")
     ap.add_argument("--features-csv", type=Path, default=None,

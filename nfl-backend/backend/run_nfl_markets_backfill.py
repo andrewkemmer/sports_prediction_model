@@ -94,8 +94,8 @@ from nfl_features import DECIDED_FRAME  # noqa: E402
 from nfl_joint_engine import (build_joint_pmfs, cover_prob,  # noqa: E402
                               margin_pmf_from_joint, over_prob,
                               total_pmf_from_joint)
-from nfl_moneyline import (DEFAULT_SEASONS, SEALED_SEASON,  # noqa: E402
-                           TRAIN_SEASONS, compute_metrics)
+from nfl_run_engine_legacy_windows import SEALED_SEASON, TRAIN_SEASONS  # noqa: E402
+from nfl_moneyline import (DEFAULT_SEASONS, compute_metrics)  # noqa: E402
 from nfl_per_side_engine import SIDE_FEATURES  # noqa: E402
 from run_nfl_era import _folds_for, _sealed_era_eval  # noqa: E402
 from run_nfl_margin_ablation import load_features  # noqa: E402

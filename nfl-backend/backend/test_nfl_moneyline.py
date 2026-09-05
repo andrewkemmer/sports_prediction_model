@@ -30,11 +30,14 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nfl_run_engine_legacy_windows import (  # noqa: E402
+    SEALED_SEASON,
+    TRAIN_SEASONS,
+    generate_weekly_folds,
+)
 from nfl_moneyline import (  # noqa: E402
     ECE_BINS,
     ECE_MAX,
-    SEALED_SEASON,
-    TRAIN_SEASONS,
     V1_FEATURES,
     UNK_TEAM_ID,
     _ADAPTIVE_WEIGHTS,
@@ -47,7 +50,6 @@ from nfl_moneyline import (  # noqa: E402
     ece,
     ensemble_predict,
     format_table,
-    generate_weekly_folds,
     logloss,
     platt_fit,
     platt_predict,
@@ -713,7 +715,7 @@ class TestUnifiedGateRule(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestIncumbentGate(unittest.TestCase):
     def _synth_v1(self):
-        from nfl_moneyline import SEALED_SEASON, TRAIN_SEASONS
+        from nfl_run_engine_legacy_windows import SEALED_SEASON, TRAIN_SEASONS
         feats = _synth_fold_frame(seasons=TRAIN_SEASONS + [SEALED_SEASON])
         return feats[_valid_cols(feats)].copy()
 

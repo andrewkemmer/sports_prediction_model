@@ -144,11 +144,12 @@ def run_walk_forward_reg(feats: pd.DataFrame,
     train on ``tree_cols``; the logistic member trains on ``logistic_cols``
     (diffs + flags only, i.e. C0, in both arms).
     """
-    from nfl_moneyline import (TARGET, TRAIN_SEASONS, SEALED_SEASON, META_COLS,
+    from nfl_run_engine_legacy_windows import TRAIN_SEASONS, SEALED_SEASON, generate_weekly_folds
+    from nfl_moneyline import (TARGET, META_COLS,
                                _adaptive_blend, _elo_logistic_p, _member_weights,
                                _score_member_table, _valid_rows, auc, ece,
                                compute_adaptive_weights, compute_metrics,
-                               ensemble_predict, generate_weekly_folds,
+                               ensemble_predict,
                                logloss, platt_fit, platt_predict)
 
     preq_all = feats[feats["season"].isin(TRAIN_SEASONS)].copy()

@@ -27,6 +27,7 @@ import pandas as pd
 import nfl_features as nf
 import nfl_margin_engine as me
 import nfl_moneyline as ml
+import nfl_run_engine_legacy_windows as le
 from run_nfl_margin_ablation import attach_margins
 
 # Small-model test overrides (module globals read at call time).
@@ -77,7 +78,7 @@ def _val_folds(games: pd.DataFrame,
                val_seasons: list[int] | None = None) -> list[dict]:
     """The moneyline's own weekly folds (the folds the margin engine must use)."""
     val_seasons = val_seasons or [2021, 2022]
-    return ml.generate_weekly_folds(games, val_seasons=val_seasons)
+    return le.generate_weekly_folds(games, val_seasons=val_seasons)
 
 
 class TestMarginEngineAttach(unittest.TestCase):

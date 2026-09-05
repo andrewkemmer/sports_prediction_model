@@ -47,7 +47,8 @@ from nfl_per_side_engine import (
     RESID_AWAY, RESID_COLS, RESID_HOME, SIDE_FEATURES, SIDE_TARGETS,
     oof_per_side, persist_residuals, refit_per_side,
 )
-from nfl_moneyline import SEALED_SEASON, TRAIN_SEASONS, _valid_rows, generate_weekly_folds
+from nfl_run_engine_legacy_windows import SEALED_SEASON, TRAIN_SEASONS, generate_weekly_folds
+from nfl_moneyline import _valid_rows
 from run_nfl_margin_ablation import _frame_sha256, load_features
 
 logger = logging.getLogger(__name__)
