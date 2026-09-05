@@ -76,10 +76,17 @@ ROOT_DIR = Path(__file__).resolve().parent.parent          # nfl-backend/
 BACKEND_DIR = ROOT_DIR / "backend"
 DATA_DELIVERY_DIR = ROOT_DIR / "data_delivery"
 
-# Season range. 2019-2024 was validated by the ingestion spike; 2025 is fully
-# decided (it is 2026) and becomes the sealed holdout for the moneyline model
-# (feature v1 admission: game_frame + nfl_features). 2026 and later are ignored.
-DEFAULT_SEASONS = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
+# Season range. 2018 is the warmup season (schedule-only; no PBP pulled —
+# box-score/schedule-derivable features only; PBP-dependent columns come back
+# NaN and are imputed by the ensemble's train-fold median). 2019-2025 are the
+# scored pool (RS-only: playoffs stripped per the wide-pool methodology). 2026
+# and later are ignored by default but the frame can be rebuilt for any range.
+DEFAULT_SEASONS = [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025
+                   ]  # warmup 2018 + scored 2019-2025, playoffs stripped
+
+# Postseason game_type values stripped from the scored pool per the wide-pool
+# methodology (playoffs excluded from training and scoring). REG games only.
+POSTSEASON_GAME_TYPES = {"WC", "DIV", "CON", "SB"}
 
 # The exact game-level contract columns, in order (spike schema).
 GAME_LEVEL_COLUMNS = [
@@ -204,6 +211,13 @@ def pull_and_build(seasons: list[int] | None = None,
     game = aggregate_game_frame(schedule, pbp)
     decided = canonical_decided_frame(game)
 
+    # ---- wide-pool methodology: strip playoffs from the scored pool ------------
+    # Playoffs (WC/DIV/CON/SB) are excluded from training and scoring per the
+    # agreed methodology. The warmup 2018 rows are schedule-only (no PBP) — their
+    # PBP-dependent columns are NaN, imputed by the ensemble at train time.
+    if "game_type" in decided.columns:
+        decided = decided[~decided["game_type"].isin(POSTSEASON_GAME_TYPES)].copy()
+
     # ---- validation (the spike's go/no-go criteria, re-checked each build) ----
     n_game = len(decided)
     missing_score = int(decided[["away_score", "home_score"]].isna().any(axis=1).sum())
@@ -264,7 +278,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Build the NFL game-level frame from nflreadpy "
                     "(schedule + pbp) and write data_delivery artifacts.")
     ap.add_argument("--seasons", nargs="+", type=int, default=DEFAULT_SEASONS,
-                    help="Season years to pull (default: 2019-2025)")
+                    help="Season years to pull (default: 2018-2025 warmup+scored, playoffs stripped)")
     return ap.parse_args(argv)
 
 
