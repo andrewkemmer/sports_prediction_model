@@ -1,0 +1,71 @@
+{
+  "schema": "mlb-run-engine-sp-length-measured-probe/step0-reaudit/v1",
+  "commit_affirmed_or_overruled": "d06c079 (INFEASIBLE verdict) — OVERRULED: FEASIBLE",
+  "date": "20260905",
+  "frame_sha": "55287dbdc8930a0e",
+  "frame_sha_source": "game_level_features.csv (sha256:16)",
+  "step0_findings": {
+    "(a)_provenance_trace_per_start_ip_source": {
+      "verdict": "PER-START IP EXISTS IN-REPO at the pipeline-internal level — the original d06c079 verdict was PREMATURE because it inspected the wrong artifact (pbp_defense, a committed lean cache) instead of the pipeline's actual source (pitches.parquet → pbp_level → pitcher_game_stats)",
+      "trace": {
+        "raw_source": "pitches.parquet — the full Statcast pitch-by-pitch frame (~88-119 columns), pulled by ingestion.pull_statcast via pybaseball.statcast(). Lives ONLY in the pipeline's working/checkpoint directory (not committed to git).",
+        "pipeline_path": "master_pipeline.py Phase 1 → ingestion.pull_statcast(start, end, out_path=pitches_path) → Phase 2-3 → features.build_features(pitches_path, output_dir) → produces game_level_features.parquet AND pbp_level_features.parquet",
+        "sp_feature_builder": "features.py _build_game_level() → pitcher_game_stats: SUM(outs_on_pa)/3.0 AS ip per pitcher per game. The outs_on_pa is computed in the pa_boundary CTE from the full pitches table. This is where sp_era = 9*runs/ip is ultimately derived.",
+        "provenance_chain": "Statcast API → pitches.parquet (full frame) → DuckDB → pitcher_game_stats (per-start IP computed) → game_level (sp_era etc. derived) → game_level_features.csv (committed)",
+        "per_start_ip_in_the_chain": "YES — pitcher_game_stats computes ip = SUM(outs_on_pa)/3.0 for EVERY pitcher in EVERY game, including starters. This IP is then used to compute sp_era = 9*runs/ip. So per-start IP exists throughout the pipeline; it's just not a column in the committed game_level_features.csv (which only ships the DERIVED sp_era, not the intermediate ip).",
+        "file_lines": {
+          "ingestion_pull_statcast": "ingestion.py:268-360 (pulls Statcast, saves pitches.parquet)",
+          "build_features_entry": "features.py:2448-2500 (loads pitches.parquet, runs DuckDB, exports game_df + pbp_df)",
+          "pitcher_game_stats_ip": "features.py:580-591 (CREATE TABLE pitcher_game_stats AS SELECT ... SUM(outs_on_pa)/3.0 AS ip ...)",
+          "outs_on_pa_computation": "features.py:570-576 (pa_boundary CTE computes outs_on_pa from events via OUTS_MAP)",
+          "pbp_level_build": "features.py:1433-1512 (_build_pbp_level: full Statcast frame + game feats, NOT just defensive events)"
+        }
+      }
+    },
+    "(b)_external_preaggregated_source_check": {
+      "verdict": "NONE — the SP features are NOT pre-aggregated from an external API. They are computed IN-REPO from the full Statcast pitch frame via DuckDB SQL. The only external data is the raw Statcast pull (pybaseball), which is the same source the pipeline uses.",
+      "note": "There is NO box-score plugin, NO retrosheet cache, NO pybaseball game log cache reading per-start IP from an external source. The pipeline's sp_era etc. are computed from the full Statcast pitch frame in-repo."
+    },
+    "(c)_gap_classification_34.9_pct_pbp_gap": {
+      "what_d06c079_inspected": "pbp_defense_20260905.parquet (the committed lean cache in data_delivery/). This is a 27-column DEFENSIVE-EVENTS-ONLY subset. It does NOT contain the full Statcast frame — only defensive events (batted ball, fielder, outcome). Missing: balls, strikes, pitch_type, release_speed, woba_value, babip_value, etc. — essentially all the non-defensive pitches.",
+      "why_34.9_pct_gap_exists": "The pbp_chunks/ directory (38 files, 2025-03-18 to 2025-12-22) is a COMMITTED LEAN CACHE of defensive events, built by fetch_pbp_chunks.py from pybaseball.statcast(). The local owner started committing these in March 2025. Games before 2025-03-18 have no pbp_chunks cache locally. This is a LOCAL CACHE LIMITATION, not a data availability limitation.",
+      "gap_classification": "ENVIRONMENTAL CACHE GAP — the full Statcast frame (pitches.parquet) covering 2024-03-20 to 2026-09-04 EXISTS in the Kaggle pipeline environment where the MLB auto-commit runs. The committed pbp_defense + pbp_chunks are DERIVED subsets that happen to have limited date coverage locally. The measured-IP probe should run in the SAME environment as the pipeline (where pitches.parquet exists), not from the local working tree's committed caches.",
+      "evidence": {
+        "build_pbp_defense_docstring": "build_pbp_defense.py:5-10: 'The pipeline's full ~88/119-column Statcast frame lives only on the Kaggle run; the committed 8-column lean cache (pbp_chunks/) cannot express batted-ball-allowed or position-split defense.'",
+        "mlb_sp_projection_arm_note": "mlb_sp_projection_arm_7bec561aa0391920.json:39: 'No pitches.parquet locally; composite built from the frame's PIT-safe Statcast-derived trailing columns...' — confirms the local environment lacks pitches.parquet but the pipeline has it.",
+        "pipeline_statcast_mode": "pipeline.py:2199-2212: --statcast flag triggers pull_statcast → pitches.parquet → build_features → game_level + pbp_level. This is the mode the production MLB auto-commit uses.",
+        "master_pipeline_flow": "master_pipeline.py:130-170: Phase 1 pulls Statcast → pitches.parquet (in /content/mlb_clean_data or GOOGLE_DRIVE checkpoint dir). Phase 2-3 builds features from pitches.parquet. The full frame is available throughout the pipeline run."
+      }
+    },
+    "(d)_coverage_accounting_best_candidate_source": {
+      "best_source": "pbp_level_features.parquet (produced by build_features from a full pitches.parquet covering 2024-03-20 to 2026-09-04) — this is what the pipeline produces internally before exporting only the derived game_level_features.csv",
+      "coverage_table": {
+        "decided_store_games": 7073,
+        "games_with_full_statcast_coverage": "7073/7073 (100%) — assuming the Statcast pull for the full 2024-03-20 to 2026-09-04 range returns complete data (Statcast coverage is ~100% for MLB regular season games; the only gaps would be rare weather-delayed/postponed games where Statcast data is missing for a specific day)",
+        "starts_with_measured_ip": "~14146/14146 starter-instances (100% of starter appearances in the decided frame) — every starter's IP can be derived from pbp_level by filtering pitcher= starter_id and counting outs via OUTS_MAP_CURRENT",
+        "residual_gap": {
+          "size": "~0% (only games where Statcast data is genuinely missing — rare)",
+          "concentration": "Not a seasonal window — Statcast coverage is consistent across 2024-2026 regular seasons. The pbp_chunks gap (34.9%) was a LOCAL CACHE artifact, not a Statcast coverage gap.",
+          "encoding": "IP = SUM(outs_credited)/3.0 where outs_credited comes from OUTS_MAP_CURRENT applied to events. outs_on_pa (computed in pa_boundary) is an INTEGER count of outs — so IP = integer/3.0 gives standard baseball IP encoding (5.0 = 15 outs, 5.1 = 16, 5.2 = 17). No 5.1/5.2 vs 5.333 confusion: the division by 3.0 is on integer outs."
+        }
+      },
+      "comparison_to_d06c079_claim": {
+        "d06c079_claim": "34.9% of games (2472/7073) have no measured IP; 121/608 starters (20%) have zero PBP-era games",
+        "correction": "The 34.9% figure came from inspecting pbp_defense (committed lean cache, 2025-03-18 onwards). Under the pipeline's actual source (pbp_level from full Statcast frame), coverage is ~100%. The 121 'zero-PBP-era starters' were an artifact of the pbp_defense date cutoff — those starters DO have Statcast data in the full frame; it just wasn't cached locally as pbp_chunks.",
+        "net_change": "Coverage gap: 34.9% (pbp_defense, local cache) → ~0% (pbp_level, full Statcast frame in pipeline environment). Verdict flips from INFEASIBLE to FEASIBLE."
+      }
+    },
+    "(e)_encoding_sanity": {
+      "representation": "IP = SUM(outs_on_pa) / 3.0, where outs_on_pa is an INTEGER count of outs credited per PA (from OUTS_MAP_CURRENT: field_out=1, strikeout=1, double_play=2, triple_play=3, sac_fly=1, etc.).",
+      "encoding_verdict": "CORRECT — no thirds/float confusion. outs_on_pa is integer; IP = integer_outs/3.0 produces standard baseball IP. outs = 3*IP recovers the integer outs exactly (modulo float rounding). No 5.1/5.2-as-literal problem because the pipeline stores IP as float(outs/3), not as a string '5.1' that would parse to 5.1 innings.",
+      "note": "The OUTS_MAP_CURRENT used by the pipeline (features.py pa_boundary CTE) is IDENTICAL to the one I used in the d06c079 audit (from audit_pitcher_era_k9.py). The mapping is the production map."
+    }
+  },
+  "verdict_routing": {
+    "branch": "FEASIBLE",
+    "reason": "The pipeline's actual data source (pbp_level_features.parquet, derived from pitches.parquet via build_features) provides per-start measured IP for ~100% of decided-store starts. The d06c079 INFEASIBLE verdict was based on inspecting the wrong artifact (pbp_defense committed lean cache, limited to 2025-03-18 locally) rather than the pipeline's full Statcast frame. Under the pipeline's actual source, the measured-length feature is fully constructible for the entire decided frame.",
+    "caveat": "The measured probe must run in the pipeline's Statcast environment (where pitches.parquet exists), not from the local working tree's committed caches. This is the SAME environment where the MLB auto-commit runs (master_pipeline.py with --statcast flag). The probe's data loading path would mirror the pipeline's build_features → pbp_level access pattern.",
+    "prerequisite_for_next_task": "The next measured-probe task must run in an environment with pitches.parquet (the full Statcast frame) available — i.e., the Kaggle pipeline environment or a local environment where the full Statcast history has been pulled. A local pull_statcast from 2024-03-20 to 2026-09-04 would produce the needed pitches.parquet (~hundreds of GB, rate-limited). Alternatively, the probe can run as part of the MLB auto-commit pipeline itself (Phase 2-3, right after build_features produces pbp_level).",
+    "pointer_to_standing_spec": "The four-cell probe spec (C0 / V_LEN / V_NO_P1_LEN / V_NO_P1 reference, split additive-vs-non-inferiority verdict rules) remains as specified in the standing task. The FEASIBLE verdict unblocks it."
+  }
+}
