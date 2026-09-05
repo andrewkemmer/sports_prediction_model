@@ -709,15 +709,32 @@ def compute_feature_coverage(
 # ---------------------------------------------------------------------------
 
 def run_engine_feature_cols() -> list[str]:
-    """The run engine's kept feature view: 29 of the 65 FEATURE_COLS — the
-    36 dropped (diff/momentum/moneyline-only, incl. run_margin_diff) are
-    excluded so the run-engine drift/coverage tables show its own inputs.
-    Mirrors run_engine.derive_run_features; deferred import avoids a cycle.
+    """The run engine's full input view for drift/coverage monitoring.
+
+    Base: derive_run_features(FEATURE_COLS) kept features (53 post-restore).
+    Plus: sp_proj_era_home and sp_proj_era_away — the P1 projection level
+    (adopted 2026-09-05, gate 7e4c529 ADOPT) that build_side_frame appends
+    per side at runtime (home view gets sp_proj_era_away, away view gets
+    sp_proj_era_home). These are model inputs but are NOT in FEATURE_COLS
+    (they are runtime-attached, not raw features), so derive_run_features
+    never sees them. Added here explicitly so the drift/coverage tables
+    monitor every model-input column — the gap that existed before this
+    fix is documented in mlb_run_engine_proj_drift_monitoring_*.json.
+
+    Deferred import avoids a cycle.
     """
     from run_engine import derive_run_features
     feats, dropped = derive_run_features(list(FEATURE_COLS))
-    logger.info("Run-engine drift view: %d/%d features kept; dropped %d",
-                len(feats), len(FEATURE_COLS), len(dropped))
+    # P1 projection level inputs (runtime-attached by build_side_frame /
+    # attach_projection_levels). Both sides' models consume one opponent
+    # projection each, so both columns are model inputs and belong in the
+    # monitored set.
+    proj_cols = ["sp_proj_era_home", "sp_proj_era_away"]
+    feats = list(feats) + [c for c in proj_cols if c not in feats]
+    logger.info(
+        "Run-engine drift view: %d/%d features kept (incl. %d P1 proj); "
+        "dropped %d", len(feats), len(FEATURE_COLS), len(proj_cols),
+        len(dropped))
     return feats
 
 

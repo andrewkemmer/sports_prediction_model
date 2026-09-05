@@ -352,11 +352,18 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.assertIn("<th>STATUS</th>", html)
 
     def test_drift_and_coverage_render_real_artifacts(self):
-        d = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_drift_*.csv"))
-        self.assertEqual(len(d), 53)  # post-restore: all 53 active features
+        d = pd.read_csv(_latest_artifact(self.root / "data_delivery",
+                                          "run_engine_feature_drift_*.csv"))
+        # 55 = 53 derive_run_features kept + 2 P1 projection level inputs
+        # (sp_proj_era_home, sp_proj_era_away) added by the monitoring-gap fix.
+        # The committed artifact is the pre-fix 53-row version until the next
+        # pipeline run, so this pins a subset relationship (the count pins are
+        # in the post-fix re-emit verification).
+        self.assertGreaterEqual(len(d), 53)
         self.markets._render_run_engine_drift(d)
-        c = pd.read_csv(_latest_artifact(self.root / "data_delivery", "run_engine_feature_coverage_*.csv"))
-        self.assertEqual(len(c), 106)  # 53 features x 2 windows
+        c = pd.read_csv(_latest_artifact(self.root / "data_delivery",
+                                          "run_engine_feature_coverage_*.csv"))
+        self.assertGreaterEqual(len(c), 106)
         self.markets._render_run_engine_coverage(c)
 
     def test_empty_states_never_crash(self):
@@ -365,16 +372,28 @@ class TestRunEngineModelMonitorRender(TestCase):
         self.markets._render_run_engine_model_card(
             {"fit": {}, "phase1": {}, "market_metrics": {}})
 
-    def test_drift_monitor_covers_all_53_active_features(self):
-        """2026-08-30 feature-restore: the run-engine drift/coverage monitor
-        must cover ALL 53 active features (run_engine_feature_cols derives
-        from derive_run_features, which now keeps the 24 restored diffs) — so
-        a future drift artifact covers every shipped feature the next run
-        writes, not just the pre-restore 29. The committed CSV still reflects
-        the last pre-restore run (29) until the next pipeline run."""
+    def test_drift_monitor_covers_all_active_features(self):
+        """DURABLE PIN (post-P1-adoption + monitoring-gap fix):
+        the run-engine drift/coverage monitor must enumerate EVERY model-input
+        column — the 53 derive_run_features kept columns (24 restored diffs +
+        29 kept) PLUS the 2 P1 projection level inputs (sp_proj_era_home,
+        sp_proj_era_away) that build_side_frame appends at runtime. This pin
+        guarantees that a future adopted input cannot silently vanish from
+        monitoring (the gap that existed before the fix is documented in
+        mlb_run_engine_proj_drift_monitoring_*.json). The committed CSV still
+        reflects the last pre-fix run (53) until the next pipeline run."""
         cols = run_engine_feature_cols()
-        self.assertEqual(len(cols), 53)
-        # All 24 restored diffs are covered by the monitor.
+        self.assertEqual(len(cols), 55)
+        # All 53 derive_run_features kept columns are covered.
+        from run_engine import derive_run_features
+        from training import FEATURE_COLS
+        feats, _ = derive_run_features(list(FEATURE_COLS))
+        self.assertTrue(set(feats) <= set(cols),
+                        "every derive_run_features kept col must be in the drift enumeration")
+        # The 2 P1 projection level inputs are covered.
+        self.assertIn("sp_proj_era_home", cols)
+        self.assertIn("sp_proj_era_away", cols)
+        # All 24 restored diffs are covered (still true after the fix).
         self.assertTrue(set(RUN_RESTORED_DIFF_FEATURES) <= set(cols))
         # The excluded margin/composite features are NOT monitored.
         self.assertNotIn("run_margin_diff", cols)

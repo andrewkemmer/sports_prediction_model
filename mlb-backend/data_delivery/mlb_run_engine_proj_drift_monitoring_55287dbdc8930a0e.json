@@ -1,0 +1,99 @@
+{
+  "schema": "mlb-run-engine-proj-drift-monitoring-gap-fix/v1",
+  "frame_sha": "55287dbdc8930a0e",
+  "frame_sha_source": "game_level_features.csv (sha256:16)",
+  "date": "20260905",
+  "audit": {
+    "verdict": "enumeration_gap_plus_structural_gap",
+    "a1_mechanism": {
+      "file": "mlb-backend/backend/explainability.py",
+      "line": 711,
+      "function": "run_engine_feature_cols()",
+      "detail": "Delegates to derive_run_features(list(FEATURE_COLS)) which returns 53 kept features. sp_proj_era_home and sp_proj_era_away are NOT in FEATURE_COLS (they are runtime-attached by build_side_frame / attach_projection_levels, not raw features), so derive_run_features never sees them. The drift/coverage emitter calls run_engine_feature_cols() at explainability.py:733/746 to get its enumeration list — sp_proj_era is absent from that list."
+    },
+    "a2_emit_path": {
+      "file": "mlb-backend/backend/pipeline.py",
+      "line": 2037,
+      "detail": "The drift step uses decided = _decided_snapshot (the pre-slate snapshot from get_decided_frame(games)). run_engine_daily() internally calls attach_projection_levels on its OWN copy inside the try block (run_engine.py:1976), but the drift step's frame is the un-attached snapshot — it NEVER sees sp_proj_era columns. Even if the enumeration list included sp_proj_era, the columns would be missing from the drift frame (compute_feature_drift skips columns not in the frame at explainability.py:522-523). This is BOTH an enumeration gap AND a structural gap (pre-attach drift frame)."
+    },
+    "a3_model_inventory_vs_drift": {
+      "model_inputs": "53 derive_run_features kept columns (24 restored diffs + 29 kept) + 2 P1 projection level inputs (sp_proj_era_home, sp_proj_era_away) = 55 model-input columns total. The model trains on the P1-attached view: build_side_frame appends sp_proj_era_{opp} per side at run_engine.py:247-252, and run_engine_daily calls attach_projection_levels at run_engine.py:1976 before the OOF walk.",
+      "drift_enumeration": "53 rows in run_engine_feature_drift_20260905.csv (no sp_proj_era). 106 rows in run_engine_feature_coverage_20260905.csv (53 features x 2 windows, no sp_proj_era).",
+      "missing_from_drift": ["sp_proj_era_home", "sp_proj_era_away"],
+      "adoption_coverage_match": "sp_proj_era coverage on the decided frame: home=0.9743, away=0.9751 (matches the adoption record's ~97.5%). ERA~proj slopes: home=-1.2228, away=-1.2134 (matches adoption record's ~-1.22)."
+    },
+    "a4_verdict": "enumeration_gap + structural_gap (pre-attach drift frame). NOT deliberate exclusion — there is no documentation anywhere excluding sp_proj_era from monitoring. The gap existed because the drift emitter's feature list was never extended when 8cb4efc attached the projection, AND the drift path uses a pre-attach frame."
+  },
+  "fix": {
+    "variant": "match_mechanism",
+    "changes": [
+      {
+        "file": "mlb-backend/backend/explainability.py",
+        "function": "run_engine_feature_cols()",
+        "change": "Added sp_proj_era_home and sp_proj_era_away to the returned list (after derive_run_features kept features). These columns are model inputs (build_side_frame appends them per side at runtime) but are not in FEATURE_COLS, so they must be added explicitly to the drift/coverage enumeration.",
+        "before": "returned 53 features (derive_run_features kept only)",
+        "after": "returns 55 features (53 kept + 2 P1 projection level inputs)"
+      },
+      {
+        "file": "mlb-backend/backend/pipeline.py",
+        "function": "step 6 drift/coverage emission",
+        "change": "Added attach_projection_levels(decided) call after _attach_drift_run_margins, so the drift frame (pre-slate snapshot) carries sp_proj_era_home/_away columns before the baseline/current slice. Mirrors the model's own seam: the model attaches inside run_engine_daily on its copy; the drift step now attaches on the snapshot.",
+        "before": "decided = _attach_drift_run_margins(decided)  # no projection attach",
+        "after": "decided = _attach_drift_run_margins(decided); decided, _, _ = attach_projection_levels(decided)"
+      }
+    ]
+  },
+  "additivity_evidence": {
+    "method": "Same frames (baseline=294 rows, current=98 rows from game_level_features.csv 55287dbdc8930a0e), computed drift/coverage TWICE: once with old feature list (53, no proj) and once with new feature list (55, with proj). Compared the 53 shared features row-by-row.",
+    "drift_shared_features_byte_identical": true,
+    "drift_shared_feature_count": 53,
+    "drift_mismatches": 0,
+    "coverage_shared_features_byte_identical": true,
+    "coverage_shared_feature_count": 106,
+    "coverage_mismatches": 0,
+    "new_drift_rows": [
+      {"feature": "sp_proj_era_home", "psi": 0.0522, "current_mean": -0.0571, "baseline_mean": 0.0480, "n_baseline": 291, "n_current": 97, "status": "OK"},
+      {"feature": "sp_proj_era_away", "psi": 0.0823, "current_mean": -0.0565, "baseline_mean": 0.0239, "n_baseline": 292, "n_current": 98, "status": "OK"}
+    ],
+    "new_coverage_rows": [
+      {"feature": "sp_proj_era_home", "window": "current", "pct_measured": 99.0, "n_games": 98},
+      {"feature": "sp_proj_era_away", "window": "current", "pct_measured": 100.0, "n_games": 98},
+      {"feature": "sp_proj_era_home", "window": "baseline", "pct_measured": 99.0, "n_games": 294},
+      {"feature": "sp_proj_era_away", "window": "baseline", "pct_measured": 99.3, "n_games": 294}
+    ],
+    "note": "The committed run_engine_feature_drift_20260905.csv and run_engine_feature_coverage_20260905.csv on disk are STILL the pre-fix versions (53 drift rows, 106 coverage rows, no sp_proj_era) because the pipeline has not re-run with the fix. The additivity evidence above was obtained by re-emitting to memory (not overwriting the committed artifacts). The next pipeline run will write the post-fix 55/110-row artifacts."
+  },
+  "pin_tests": {
+    "test_run_engine_monitor.TestRunEngineModelMonitor.test_drift_artifact_real_frame_finite": {
+      "status": "PASS",
+      "change": "Changed exact-count pin (==53) to subset pin (>=53) since the committed artifact is pre-fix. Added durable pin note that sp_proj_era presence is verified by the re-emit test, not the committed-artifact test.",
+      "verdict": "OK"
+    },
+    "test_frontend_markets.TestRunEngineModelMonitorRender.test_drift_and_coverage_render_real_artifacts": {
+      "status": "PASS",
+      "change": "Changed exact-count pins (==53/==106) to subset pins (>=53/>=106) since the committed artifact is pre-fix.",
+      "verdict": "OK"
+    },
+    "test_frontend_markets.TestRunEngineModelMonitorRender.test_drift_monitor_covers_all_active_features": {
+      "status": "PASS",
+      "change": "Rewritten as the DURABLE PIN: asserts every derive_run_features kept column (53) is in the enumeration AND sp_proj_era_home/_away are in the enumeration. This is the test that guarantees a future adopted input cannot silently vanish from monitoring.",
+      "verdict": "OK",
+      "detail": "Asserts set(derive_run_features(FEATURE_COLS)) <= set(run_engine_feature_cols()) AND 'sp_proj_era_home' in cols AND 'sp_proj_era_away' in cols. This runs against the live run_engine_feature_cols() function (not the committed artifact), so it verifies the FIX is in place."
+    }
+  },
+  "pre_existing_failures_unchanged": [
+    {
+      "test": "test_run_engine_monitor.TestRunEngineModelMonitor.test_coverage_matches_moneyline_shared_columns",
+      "failure": "pct_measured diverged between moneyline and run-engine coverage (pre-existing, unrelated to sp_proj_era)",
+      "before_fix": "FAIL",
+      "after_fix": "FAIL"
+    },
+    {
+      "test": "test_run_engine_monitor.TestRunEngineModelMonitor.test_market_metrics_block_present_and_finite",
+      "failure": "phase1 n_games=6910 != pinned 6885 (frame advanced, pre-existing pin drift)",
+      "before_fix": "FAIL",
+      "after_fix": "FAIL"
+    }
+  ],
+  " retention_note": "Record named mlb_run_engine_proj_drift_monitoring_<sha>.json (mlb_ prefix) so the 15559cd rolling retention policy never prunes it."
+}

@@ -2058,9 +2058,20 @@ def run_daily_pipeline(
         # executed folds stay NaN (imputed at training) and are excluded
         # from the distribution with honest coverage counts.
         decided = _attach_drift_run_margins(decided)
+        # P1 projection level (sp_proj_era_{home,away}, adopted 2026-09-05):
+        # attach to the drift frame so the run-engine drift/coverage tables
+        # monitor this input just like the model trains on it. The model
+        # attaches inside run_engine_daily on its own copy; the drift step
+        # uses the pre-slate snapshot, which never saw the attach — close
+        # that gap here. gpraz (no-op when components absent / cold-start).
+        from run_engine import attach_projection_levels
+        decided, _, _proj_meta = attach_projection_levels(decided)
         _post_pks = decided["game_pk"].tolist() if "game_pk" in decided.columns else []
         _post_hash = _hb.sha256("|".join(str(p) for p in _post_pks).encode()).hexdigest()[:12]
-        logger.info("Drift post-margin-attach: %d games, hash=%s", len(decided), _post_hash)
+        logger.info("Drift post-margin+proj-attach: %d games, hash=%s%s",
+                    len(decided), _post_hash,
+                    f", proj coverage {dict(_proj_meta.get('coverage', {}))}"
+                    if _proj_meta.get('attached') else ", proj NOT attached")
         current = decided[gd >= cutoff]
         prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
