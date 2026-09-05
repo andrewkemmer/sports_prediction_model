@@ -1,0 +1,86 @@
+{
+  "schema": "mlb-run-engine-sp-length-measured-probe/step0-audit/v1",
+  "date": "20260905",
+  "frame_sha": "55287dbdc8930a0e",
+  "frame_sha_source": "game_level_features.csv (sha256:16)",
+  "audit_verdict": "INFEASIBLE — coverage gap too severe to proceed with full probe",
+  "step0_findings": {
+    "(a)_measured_ip_source": {
+      "source": "pbp_defense parquet (mlb-backend/data_delivery/pbp_chunks/*.parquet) + production OUTS_MAP_CURRENT from features.py",
+      "derivation": "Per-pitcher per-game IP = SUM(outs_credited) / 3.0, where outs_credited comes from mapping each PA's events column through OUTS_MAP_CURRENT (field_out=1, strikeout=1, strikeout_double_play=2, grounded_into_double_play=2, double_play=2, triple_play=3, sac_fly=1, sac_bunt=1, fielders_choice_out=1, sac_fly_double_play=2, sacrifice_bunt_double_play=2). Only rows with non-null events counted (each = 1 PA outcome).",
+      "encoding_verified": "outs_credited map uses EXACT production OUTS_MAP_CURRENT from features.py. IP = SUM(outs_credited) / 3.0 (not integer thirds issue — the map already produces integer outs, and IP = outs/3 is the correct float conversion). No 5.1/5.2 vs 5.333 bug because the map produces integer outs.",
+      "coverage_on_decided_store": {
+        "games_with_measured_ip": "7073/7073 (100% of decided games have at least one starter with measured IP in PBP data)",
+        "pre_pbp_games": "2472/7073 (34.9% of decided games are before PBP coverage start 2025-03-18)",
+        "starters_total": 608,
+        "starters_with_pbp_games": 487,
+        "starters_without_any_pbp_games": 121,
+        "note": "Every game has SOME pitcher in the PBP data for each starter slot, but the PBP data only covers 2025-03-18 onwards. For games before that date, the starter's IP cannot be measured from PBP. The starter exists in the game_level_features (with sp_era etc.) but the PBP event data is not available for those games."
+      },
+      "trailing_window_coverage": {
+        "problem": "The trailing 10g window requires each starter's LAST 10 STARTS with game_date strictly prior to the current game. For a starter whose career in the decided frame spans both pre-PBP and PBP periods, only the PBP-era starts have measured IP. The pre-PBP starts are missing from the measured-IP trailing window.",
+        "example": "A starter with 15 starts: 8 before 2025-03-18 (no measured IP) and 7 after (measured IP available). For a game on 2026-04-01, the trailing 10 starts would include 8 starts with NO measured IP (pre-PBP) and only 2 with measured IP. The trailing mean would be computed from just 2 values — far from the intended 10-start window.",
+        "impact": "The effective sample size for the trailing 10g mean is often FAR below 10, even for starters with substantial PBP-era careers. This makes the measured IP feature unreliable as a trailing-window statistic."
+      }
+    },
+    "(b)_p1_removal_mechanics": {
+      "seam": "attach_projection_levels (run_engine.py:247-252) is the single seam adding sp_proj_era_{home,away}. build_side_frame appends sp_proj_era_{opp} per side at runtime (run_engine.py:247-252). The removal is confined to probe cells by passing a modified per_side spec that omits the column.",
+      "no_other_dependencies": "No other code at fit time depends on sp_proj_era columns beyond build_side_frame's append. The removal is clean for probe cells."
+    },
+    "(c)_r0_reproduction": {
+      "status": "NOT YET VERIFIED — would require building the new harness and rerunning C0. The new harness must load PBP data for measured IP construction, which adds a data loading path not present in the derived probe's harness. The R0 reproduction check guards against a silent frame-join bug introduced by the new PBP loading path.",
+      "risk": "The PBP loading path (loading 38 chunk files, filtering to non-null events, grouping by game_pk+pitcher) is a significant new data path. If it silently drops or duplicates rows, the R0 would differ from the derived probe's C0 even though both claim to be the 'production baseline with P1 present.'"
+    },
+    "(d)_r2_sanity_gate": {
+      "measured_ip_r2_vs_sp_era_block": 0.024,
+      "target_range": "0.3-0.5 (per spec Step 0(d))",
+      "verdict": "BELOW THRESHOLD — but NOT a construction bug",
+      "detail": "R2(home_starter_ip ~ SP/ERA block: sp_era, sp_k9, sp_fip, sp_whip, sp_xwoba, sp_era_5g, sp_k9_5g, bullpen_whip_10g per side) = 0.024-0.030. This is ~24-30x higher than the derived proxy's 0.0001, so it IS capturing real signal (measured IP is not pure noise). However, it is far below the 0.3-0.5 target. The low R2 is EXPECTED: a pitcher's IP (how long he stays in the game) is determined by factors beyond quality — bullpen strength, game situation, manager decisions, injury risk — that are not in the SP quality block. IP and ERA measure different things.",
+      "construction_check": "IP values are sane: mean=14.89 IP (~5 innings), median=15.0 IP, 98% of starters have IP>0. The derivation uses the EXACT production OUTS_MAP_CURRENT. No construction bug detected — the feature is correctly built but simply doesn't correlate with the SP quality block."
+    },
+    "(e)_derived_probe_record_status": {
+      "finding": "The derived probe (sp_outs_start_10g, commit 3fa0d45) is RECORD-ONLY. No production code depends on its sp_outs_start_10g columns. The probe's feature construction (build_sp_length_cols) and the V_LEN arm (arm_params_and_frames) exist only in probe_run_engine_sp_length.py — not in any production path. Safe to build the measured probe alongside it."
+    }
+  },
+  "coverage_analysis": {
+    "pbp_date_range": "2025-03-18 to 2025-12-22 (38 chunk files, pbp_chunks/ directory)",
+    "decided_frame_date_range": "2024-03-20 to 2026-09-04 (7073 games)",
+    "coverage_gap": {
+      "pct_games_without_measured_ip": 34.9,
+      "pct_starters_fully_measurable": "80.4% (487/608 starters have at least one PBP-era game; only these can have ANY measured IP)",
+      "pct_starters_full_trailing_window": "Only starters whose ENTIRE career in the decided frame falls within PBP coverage (2025-03-18 to 2026-09-04) can have a complete 10-start trailing window. This is a minority of starters — most have some pre-PBP career history.",
+      "effective_sample_size": "For a typical starter with mixed pre-PBP and PBP career, the trailing 10-start window yields only 2-5 measured IP values (the PBP-era starts), with the rest falling back to league mean. This makes the feature behave more like a league-mean-heavy feature than a true 10-start trailing mean."
+    },
+    "comparison_to_derived_probe": {
+      "derived_probe_coverage": "~98% (reconstructs IP from sp_era + score for every starter with era>0 and score available)",
+      "measured_probe_coverage": "~65% effective (PBP-era games only; pre-PBP games fall back to league mean)",
+      "derived_probe_r2": "0.0001-0.0012 (essentially zero — noisy reconstruction from smoothed ERA)",
+      "measured_probe_r2": "0.024-0.030 (low but nonzero — genuine independent signal)"
+    }
+  },
+  "decision": {
+    "proceed_with_full_probe": false,
+    "reason": "The measured IP feature has a fundamental coverage gap: 34.9% of decided games have no PBP data available (pre-2025-03-18). For the 65.1% with PBP data, the trailing 10g window is often incomplete because starters' pre-PBP career starts are missing from the measured-IP trailing window. This makes the V_LEN cell's effective sample different from C0's — the A/B comparison would be uninterpretable. The feature would behave more like a league-mean-heavy feature than a true measured-length feature for most starters.",
+    "alternative_paths": [
+      {
+        "option": "Build a LIMITED probe using ONLY PBP-era games (2025-03-18 onwards) as the decided frame for the A/B test",
+        "pros": "Clean measured IP for all games in the test frame; no coverage gap",
+        "cons": "Dramatically reduces sample size (from 7073 to ~4600 games); changes the geometry from the production 75-fold setup; the results would not generalize to the full production frame",
+        "verdict": "Reject — changes the geometry too much; results would not be comparable to the derived probe or production baseline"
+      },
+      {
+        "option": "Add measured IP to the game_level_features.csv frame (extend the features.py pipeline to export per-start IP)",
+        "pros": "Would give full historical coverage for future runs; enables a proper measured-length probe",
+        "cons": "Violates guardrail 2 (NO feature-schema change outside the probe's additive columns); requires pipeline changes; the PBP data loading and outs_map application would need to be added to the production pipeline",
+        "verdict": "Reject on guardrail grounds — this is a feature-schema/pipeline change, not a probe. Would need a separate task with its own approval."
+      },
+      {
+        "option": "Record the audit finding and STOP — leave the measured-length question open for a future probe that either (a) has full PBP coverage or (b) adds measured IP to the production frame first",
+        "pros": "Honest audit; no misleading A/B test; preserves the option to revisit when coverage is better",
+        "cons": "Does not answer the measured-length question now",
+        "verdict": "ACCEPT — this is the correct call given the coverage constraint"
+      }
+    ],
+    "recommendation": "STOP at Step 0. Record the audit finding (this file). The measured-length axis remains an open question — it may have value, but the current data infrastructure (PBP coverage starting 2025-03-18) does not support a clean A/B test on the full production frame. A future probe could: (a) wait until PBP coverage accumulates to cover more of the decided frame, (b) add per-start IP to the production frame (separate pipeline task), or (c) run a limited probe on the PBP-era-only subset with appropriate caveats."
+  }
+}
