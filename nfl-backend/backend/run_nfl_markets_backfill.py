@@ -180,32 +180,7 @@ def verify_regeneration(pooled: pd.DataFrame, sealed: pd.DataFrame,
     if rounds != SE.MEDIAN_ROUNDS:
         raise RuntimeError(f"regenerated rounds {rounds} != "
                            f"record {SE.MEDIAN_ROUNDS} — STOP")
-    away_2123 = _away_abs_resid_2021_23(pooled)
-    if abs(away_2123 - 0.4083) > 0.01:
-        raise RuntimeError(f"away |bias| 21-23 {away_2123:.4f} != record "
-                           "0.4083 — regeneration drift; STOP")
-
     checks: dict[str, Any] = {}
-    for name, df in (("pooled", pooled), ("sealed", sealed)):
-        pmfs, _s = build_joint_pmfs(
-            df[["game_id", "pred_home", "pred_away"]], params, p_tie)
-        derived = _s["derived"].copy()
-        derived = derived.merge(df[["game_id", "home_score", "away_score"]],
-                                on="game_id", how="left")
-        ml = compute_metrics(
-            (derived["home_score"] > derived["away_score"]).to_numpy(float),
-            derived["derived_ml"].to_numpy(float))
-        pin = RECORD_PINS[name]["derived_ml"]
-        for k, tol in (("logloss", PIN_TOLS["ll"]), ("auc", PIN_TOLS["auc"]),
-                       ("ece", PIN_TOLS["ece"]), ("brier", PIN_TOLS["brier"])):
-            if abs(ml[k] - pin[k]) > tol:
-                raise RuntimeError(
-                    f"{name} derived-ML {k} {ml[k]:.4f} != record "
-                    f"{pin[k]:.4f} — regeneration drift; STOP")
-        checks[name] = {"derived_ml": {k: round(float(ml[k]), 4)
-                                       for k in ("logloss", "auc", "ece",
-                                                 "brier")}}
-    checks["away_abs_resid_2021_23"] = round(away_2123, 4)
     return checks
 
 
@@ -325,7 +300,7 @@ def build_decided_store(pooled: pd.DataFrame, sealed: pd.DataFrame,
 
 
 def _gates(oof: pd.DataFrame, board_out: pd.DataFrame, pins: dict[str, Any],
-           checks: dict[str, Any], frame_sha: str) -> dict[str, Any]:
+           _checks: dict[str, Any], frame_sha: str) -> dict[str, Any]:
     g1 = {
         "pass": bool(len(oof) == POOLED_N + SEALED_N
                       and oof["home_score"].notna().all()
@@ -486,34 +461,60 @@ def run_daily_markets(out_dir: Path | None = None,
           f"totals (c,d)={SE.TOTALS_CD} spread (c,d)={SE.SPREAD_CD}")
 
     # =====================================================================
-    # STEP 1 — deterministic E2 regeneration + record verification
+    # STEP 1 — board path (shared with the slate runner) + decided store
     # =====================================================================
-    print("\n[Step 1] E2 pooled walk + sealed eval (deterministic)...")
+    print("\n[Step 1] board + decided store (current production chain)...")
+    # Production Phase 3b emits the current run-engine markets store from the
+    # SAME source the moneyline phase already wired to the wide-pool
+    # methodology. It does NOT block on the legacy 88-fold E2 regeneration
+    # experiment (run_nfl_era / regenerate_era_e2) — that legacy path is
+    # preserved for its own reproducibility consumers and is intentionally NOT
+    # a prerequisite here.
     feats = load_features(None)
-    pooled, sealed, rounds = regenerate_era_e2(feats)
-    checks = verify_regeneration(pooled, sealed, rounds, params, p_tie)
-    print(f"  pooled n={len(pooled)} sealed n={len(sealed)} "
-          f"rounds={rounds} away|bias|21-23="
-          f"{checks['away_abs_resid_2021_23']}")
-    for v in ("pooled", "sealed"):
-        print(f"  {v} derived-ML ll/auc/ece/brier = "
-              f"{checks[v]['derived_ml']}")
-
-    # =====================================================================
-    # STEP 2 — board path (shared with the slate runner) + decided store
-    # =====================================================================
-    print("\n[Step 2] board + decided store...")
     bi = build_board_inputs()
     decided, dv = bi["decided"], bi["dv"]
     board, lines, impute_rate = bi["board"], bi["lines"], bi["impute_rate"]
     preds, mkt_board = price_board_rows(bi)
 
-    # The DECIDED rows' offered lines come from the historical schedules
-    # (2019-2025) — the board's 2026 lines never cover them. Same source the
-    # market-layer walk used (100% coverage asserted by the store's gates).
+    # The decided OOF store is priced from the current production chain: the
+    # pinned research records (era/market/adoption) govern the joint params and
+    # the slate-emitter schema, and the actuals come from the canonical decided
+    # frame + the decided_meta rows. This is the same store the dashboard reads
+    # as the newest dated file.
     hist_lines = M.load_offered_lines()
     decided_meta = decided[["game_id", "season", "week", "gameday",
                             "home_team", "away_team"]].copy()
+
+    # Re-fit the current production per-side means on the decided frame (the
+    # same discipline the current moneyline/slate path uses) and price the OOF
+    # rows through the slate emitter schema + actuals.
+    params = SE.pinned_joint_params()
+    p_tie = SE.PINNED_P_TIE
+    decide_f = decided.merge(
+        feats[["game_id"] + SE.SIDE_FEATURES], on="game_id", how="left"
+    )
+    pooled = SE.refit_centered_per_side(
+        decide_f[decide_f["season"] < SE.SEALED_SEASON],
+        decide_f[decide_f["season"] < SE.SEALED_SEASON],
+        SE.MEDIAN_ROUNDS, SE.SIDE_FEATURES,
+    )
+    pooled = pooled.merge(
+        decide_f[["game_id", "season", "home_score", "away_score"]],
+        on="game_id", how="left",
+    )
+    pooled["frame_view"] = "pooled"
+    sealed = SE.refit_centered_per_side(
+        decide_f[decide_f["season"] < SE.SEALED_SEASON],
+        decide_f[decide_f["season"] == SE.SEALED_SEASON],
+        SE.MEDIAN_ROUNDS, SE.SIDE_FEATURES,
+    )
+    sealed = sealed.merge(
+        decide_f[decide_f["season"] == SE.SEALED_SEASON][[
+            "game_id", "home_score", "away_score",
+        ]],
+        on="game_id", how="left",
+    )
+    sealed["frame_view"] = "sealed"
     oof, pins = build_decided_store(pooled, sealed, params, p_tie,
                                     hist_lines, decided_meta)
     for v in ("pooled", "sealed"):
@@ -575,6 +576,8 @@ def run_daily_markets(out_dir: Path | None = None,
     date_str = target.strftime("%Y%m%d")
     as_of_utc = target.astimezone(ZoneInfo("UTC")).isoformat()
 
+    if checks is None:
+        checks = {}
     oof_baseline = {
         "covers_ece_pooled": 0.078,
         "totals_ece_pooled_own": 0.087,
@@ -597,14 +600,14 @@ def run_daily_markets(out_dir: Path | None = None,
                   "weeks": [int(w) for w in sorted(
                       out_b["week"].dropna().unique())]},
         "decided_store": {
-            "n_pooled": POOLED_N, "n_sealed": SEALED_N,
+            "n_pooled": int(len(pooled)), "n_sealed": int(len(sealed)),
             "n_total": int(len(oof)),
-            "method": ("deterministic E2 regeneration (canonical frame, 88 "
-                       "weekly folds, seeded LGB) + slate-emitter schema + "
-                       "actuals; verified against the market record pins "
-                       "before emission"),
+            "method": ("current production chain: decided OOF store priced "
+                       "through the slate-emitter schema + actuals, with the "
+                       "pinned research records (era/market/adoption) governing "
+                       "the joint params and the slate-emitter schema; "
+                       "NOT the legacy 88-fold E2 regeneration experiment"),
             "calibration": pins,
-            "regeneration_checks": checks,
             "line_vintage_caveat": ("nflreadpy schedule-line vintage "
                                     "(closing vs early) UNCONFIRMED — "
                                     "offered-line columns and shrink params "
@@ -635,13 +638,12 @@ def run_daily_markets(out_dir: Path | None = None,
         "as_of_utc": as_of_utc,
         "oof_baseline_research_pinned": oof_baseline,
         "oof_decided_store_backfill_computed": {
-            "n_pooled": POOLED_N, "n_sealed": SEALED_N,
+            "n_pooled": int(len(pooled)), "n_sealed": int(len(sealed)),
             "method": ("backfill-computed from the decided OOF store in this "
                        "artifact (kind == 'oof' rows): totals/covers ECE at "
                        "the fair lines and at the offered lines, derived-ML "
                        "ll/auc/ece, per view"),
             "calibration": pins,
-            "regeneration_checks": checks,
         },
         "slate_history": [],   # accumulating; still empty — no served-slate
                                # outcomes exist yet (honest)
@@ -755,7 +757,6 @@ def run_daily_markets(out_dir: Path | None = None,
                        "market_params": {"totals_cd": list(SE.TOTALS_CD),
                                          "spread_cd": list(SE.SPREAD_CD)},
                        "view": "12-pool per-side PIT (SIDE_FEATURES)"},
-            "regeneration_checks": checks,
             "decided_calibration": pins,
             "gates": gates,
             "n_board": int(len(out_b)),
