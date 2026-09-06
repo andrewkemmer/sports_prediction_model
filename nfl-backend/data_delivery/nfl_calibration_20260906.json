@@ -1,0 +1,151 @@
+{
+  "date": "20260906",
+  "n_games": 1871,
+  "trained_at": "2026-09-06T03:13:21.854693Z",
+  "metrics": {
+    "auc": 0.7113,
+    "brier": 0.2161,
+    "logloss": 0.6208,
+    "ece": 0.0284,
+    "brier_calibrated": 0.2198,
+    "logloss_calibrated": 0.6293,
+    "ece_calibrated": 0.0195
+  },
+  "calibration_buckets": [
+    {
+      "bucket": "50%-55%",
+      "mean_predicted": 0.5262,
+      "mean_actual": 0.526,
+      "count": 365,
+      "gap": 0.0002
+    },
+    {
+      "bucket": "55%-60%",
+      "mean_predicted": 0.5747,
+      "mean_actual": 0.5779,
+      "count": 398,
+      "gap": -0.0032
+    },
+    {
+      "bucket": "60%-65%",
+      "mean_predicted": 0.6245,
+      "mean_actual": 0.6075,
+      "count": 372,
+      "gap": 0.017
+    },
+    {
+      "bucket": "65%-70%",
+      "mean_predicted": 0.6749,
+      "mean_actual": 0.6941,
+      "count": 304,
+      "gap": -0.0191
+    },
+    {
+      "bucket": "70%-75%",
+      "mean_predicted": 0.7234,
+      "mean_actual": 0.7743,
+      "count": 226,
+      "gap": -0.051
+    },
+    {
+      "bucket": "75%-80%",
+      "mean_predicted": 0.774,
+      "mean_actual": 0.8472,
+      "count": 144,
+      "gap": -0.0732
+    },
+    {
+      "bucket": "80%-85%",
+      "mean_predicted": 0.8167,
+      "mean_actual": 0.9492,
+      "count": 59,
+      "gap": -0.1324
+    },
+    {
+      "bucket": "85%-90%",
+      "mean_predicted": 0.8571,
+      "mean_actual": 1.0,
+      "count": 3,
+      "gap": -0.1429
+    }
+  ],
+  "calibration": {
+    "method": "platt",
+    "params": {
+      "a": 1.25904,
+      "b": -0.053825,
+      "n": 1871
+    },
+    "metrics_raw": {
+      "logloss": 0.6208,
+      "auc": 0.7113,
+      "ece": 0.0284,
+      "brier": 0.2161
+    },
+    "metrics_calibrated": {
+      "logloss": 0.6293,
+      "auc": 0.6978,
+      "ece": 0.0195,
+      "brier": 0.2198
+    },
+    "calibration_buckets_calibrated": [
+      {
+        "bucket": "50%-55%",
+        "mean_predicted": 0.5158,
+        "mean_actual": 0.5328,
+        "count": 351,
+        "gap": -0.0169
+      },
+      {
+        "bucket": "55%-60%",
+        "mean_predicted": 0.5747,
+        "mean_actual": 0.5927,
+        "count": 329,
+        "gap": -0.018
+      },
+      {
+        "bucket": "60%-65%",
+        "mean_predicted": 0.6253,
+        "mean_actual": 0.6353,
+        "count": 351,
+        "gap": -0.01
+      },
+      {
+        "bucket": "65%-70%",
+        "mean_predicted": 0.675,
+        "mean_actual": 0.6512,
+        "count": 281,
+        "gap": 0.0237
+      },
+      {
+        "bucket": "70%-75%",
+        "mean_predicted": 0.7238,
+        "mean_actual": 0.6908,
+        "count": 249,
+        "gap": 0.0331
+      },
+      {
+        "bucket": "75%-80%",
+        "mean_predicted": 0.7746,
+        "mean_actual": 0.7923,
+        "count": 183,
+        "gap": -0.0178
+      },
+      {
+        "bucket": "80%-85%",
+        "mean_predicted": 0.8209,
+        "mean_actual": 0.8585,
+        "count": 106,
+        "gap": -0.0376
+      },
+      {
+        "bucket": "85%-90%",
+        "mean_predicted": 0.8647,
+        "mean_actual": 0.9048,
+        "count": 21,
+        "gap": -0.0401
+      }
+    ]
+  },
+  "daily": []
+}

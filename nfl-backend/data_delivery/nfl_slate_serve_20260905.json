@@ -1,0 +1,170 @@
+{
+  "record": "nfl_markets_backfill",
+  "target_date": "20260905",
+  "written_utc": "2026-09-06T03:23:08.570013+00:00",
+  "frame_sha256": "5ef7e12718b5",
+  "scope": "run-engine decided-history connector: decided OOF store through the slate emitter's schema + actuals, one dated markets artifact (kinds slate + oof), MLB mirror. This shared core is wired into master_pipeline Phase 3b (daily emission); the CLI remains the standalone/backfill entrypoint. FEATURE_COLUMNS / served 12-pool untouched",
+  "config": {
+    "era_spec": "ewm_2w",
+    "median_rounds": {
+      "home": 20,
+      "away": 34
+    },
+    "pinned_joint": {
+      "sigma_h": 9.663,
+      "sigma_a": 9.0789,
+      "rho": 0.0076,
+      "p_tie": 0.00275
+    },
+    "market_params": {
+      "totals_cd": [
+        -0.3599,
+        0.3472
+      ],
+      "spread_cd": [
+        0.446165,
+        0.307486
+      ]
+    },
+    "view": "12-pool per-side PIT (SIDE_FEATURES)"
+  },
+  "regeneration_checks": {
+    "pooled": {
+      "derived_ml": {
+        "logloss": 0.6443,
+        "auc": 0.683,
+        "ece": 0.0278,
+        "brier": 0.2252
+      }
+    },
+    "sealed": {
+      "derived_ml": {
+        "logloss": 0.647,
+        "auc": 0.6847,
+        "ece": 0.0833,
+        "brier": 0.2273
+      }
+    },
+    "away_abs_resid_2021_23": 0.4715
+  },
+  "decided_calibration": {
+    "pooled": {
+      "n": 1055,
+      "totals_ece_offered": 0.0857,
+      "covers_ece_offered": 0.0957,
+      "totals_ece_fair": 0.0432,
+      "covers_ece_fair": 0.0215,
+      "derived_ml": {
+        "logloss": 0.6443,
+        "auc": 0.683,
+        "ece": 0.0278,
+        "brier": 0.2252
+      }
+    },
+    "sealed": {
+      "n": 272,
+      "totals_ece_offered": 0.153,
+      "covers_ece_offered": 0.1249,
+      "totals_ece_fair": 0.0532,
+      "covers_ece_fair": 0.0736,
+      "derived_ml": {
+        "logloss": 0.647,
+        "auc": 0.6847,
+        "ece": 0.0833,
+        "brier": 0.2273
+      }
+    }
+  },
+  "gates": {
+    "g1_actuals_and_coverage": {
+      "pass": true,
+      "rule": "1,327 decided rows, actuals + 100% offered-line coverage"
+    },
+    "g2_determinism": {
+      "pass": true,
+      "rule": "byte-identical double pricing walk on the priced columns (no RNG)"
+    },
+    "g3_record_pins": {
+      "pass": true,
+      "mismatches": [],
+      "rule": "offered-line calibration + derived-ML reproduce the market record pins"
+    },
+    "g4_leakage": {
+      "pass": true,
+      "oof_max_day": "2026-01-04",
+      "oof_min_day": "2021-09-09",
+      "board_min_day": "2026-09-09",
+      "rule": "pooled 2021-24 + sealed 2025 rows only; the 2026 board is strictly later; fit windows prior by construction"
+    },
+    "g5_schema": {
+      "pass": true,
+      "rule": "grid populated everywhere; OOF rows carry offers; board rows carry no decided-targets"
+    },
+    "g6_pool_untouched": {
+      "pass": true,
+      "rule": "FEATURE_COLUMNS untouched (12 market-free + is_home anchor), market-free"
+    }
+  },
+  "n_board": 272,
+  "n_oof": 1327,
+  "mapping_table": {
+    "markets_csv": {
+      "mlb": "run_engine_markets_{YYYYMMDD}.csv",
+      "nfl": "nfl_run_engine_markets_{YYYYMMDD}.csv",
+      "rows": "per-game rows; MLB kind \u2208 {oof, slate}; NFL first-run rows all kind == 'slate' (no OOF rows \u2014 the OOF baseline is research-pinned in the monitor JSON)",
+      "identity": "game_pk (MLB, int) -> game_id (NFL, nflverse string)",
+      "offer_columns": "MLB p_over_<U>/p_push_<U>/p_under_<U> over the totals grid + p_home_cover_<L> over the run-line grid -> NFL p_over_<U>/p_under_<U>/p_push_<U> over TOTAL_INT_LINES 24..66 and p_home_cover_<L>/p_push_<L> over SPREAD_INT_LINES -14..+14 (integers; NFL margin PMF is integer-support)",
+      "derived_pair": "p_home_win_derived/p_away_win_derived (MLB derived from NB lambda layer) -> NFL same names from P(H>A)/(1-P_tie) of the calibrated 76x76 joint",
+      "raw_pair": "NFL-only additive pair a future \u00b10.5 toggle needs: p_home/away_cover_{minus,plus}_half at the offered spread line",
+      "fair_vs_offer": "fair_* columns = model medians (no market blending); offered line columns = nflreadpy schedule; never conflated",
+      "persist": "tmp-write + atomic replace + .meta.json sidecar \u2014 identical to MLB persist_markets"
+    },
+    "meta_json": {
+      "mlb": "run_engine_markets_{YYYYMMDD}.meta.json",
+      "nfl": "nfl_run_engine_markets_{YYYYMMDD}.meta.json",
+      "content": "treatment mode per side, line-vintage status, as-of date, provenance record list, OOF baseline figures"
+    },
+    "monitor_json": {
+      "mlb": "model_monitor_*.json run_engine block",
+      "nfl": "nfl_run_engine_monitor_{YYYYMMDD}.json",
+      "content": "research-pinned OOF baseline (covers ECE 0.078, seam totals ECE 0.087, derived-ML ll/auc/ece 0.6365/0.695/0.0435) + accumulating slate-history (empty on the first run)"
+    }
+  },
+  "retention_decision": "dated artifacts tracked-and-accumulating (MLB mirror); repo cleanup may never delete a committed file (tracked-file guard)",
+  "judgment_calls": {
+    "1_deterministic_regeneration": "the era E2 pooled walk + sealed eval are re-generated with the era runner's own entrypoints and pinned frame \u2014 no /tmp dump dependency, verified against the market record pins before emission",
+    "2_one_file_both_kinds": "MLB mirror: the dated markets CSV carries kind==oof (decided, with actuals) AND kind==slate (2026 board) rows so the newest dated file is the complete store",
+    "3_fair_vs_offered": "fair-line probabilities computed directly from the rebuilt PMFs; offered-line quotes carry the line-vintage caveat; never conflated",
+    "4_slate_history_still_empty": "no served-slate outcomes exist yet \u2014 the monitor's slate_history stays empty; the backfill-computed OOF calibration is labeled as such, not as slate history"
+  },
+  "run_engine_diagnostics": {
+    "view": "12-pool SIDE_FEATURES (run-engine per-side feature set)",
+    "n_features": 12,
+    "status": "emitted",
+    "windows": {
+      "anchor": "2026-01-04",
+      "cutoff": "2025-12-07",
+      "current_n": 77,
+      "baseline_n": 250,
+      "current_min_day": "2025-12-07",
+      "current_max_day": "2026-01-04",
+      "baseline_max_day": "2025-12-04",
+      "max_decided_day": "2026-01-04"
+    },
+    "drift": {
+      "file": "run_engine_feature_drift_20260905.csv",
+      "n_features": 12,
+      "n_warn": 0,
+      "n_alert": 0,
+      "n_insufficient": 0,
+      "n_with_weight": 0,
+      "weight_source": "nfl_model_monitor_20260905.json -> feature_drift[] -> weight_pct (moneyline blend weights, percent; null only where the source has no weight)"
+    },
+    "coverage": {
+      "file": "run_engine_feature_coverage_20260905.csv",
+      "n_rows": 24,
+      "n_low": 0,
+      "n_starved": 0
+    }
+  }
+}

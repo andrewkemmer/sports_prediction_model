@@ -1,0 +1,166 @@
+{
+  "artifact": "nfl_run_engine_markets_20260905.csv",
+  "target_date": "20260905",
+  "as_of_utc": "2026-09-06T03:23:07.971725+00:00",
+  "frame_sha256": "5ef7e12718b5",
+  "board": {
+    "season": 2026,
+    "n_games": 272,
+    "weeks": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18
+    ]
+  },
+  "decided_store": {
+    "n_pooled": 1055,
+    "n_sealed": 272,
+    "n_total": 1327,
+    "method": "deterministic E2 regeneration (canonical frame, 72 weekly folds, seeded LGB) + slate-emitter schema + actuals; verified against the market record pins before emission",
+    "calibration": {
+      "pooled": {
+        "n": 1055,
+        "totals_ece_offered": 0.0857,
+        "covers_ece_offered": 0.0957,
+        "totals_ece_fair": 0.0432,
+        "covers_ece_fair": 0.0215,
+        "derived_ml": {
+          "logloss": 0.6443,
+          "auc": 0.683,
+          "ece": 0.0278,
+          "brier": 0.2252
+        }
+      },
+      "sealed": {
+        "n": 272,
+        "totals_ece_offered": 0.153,
+        "covers_ece_offered": 0.1249,
+        "totals_ece_fair": 0.0532,
+        "covers_ece_fair": 0.0736,
+        "derived_ml": {
+          "logloss": 0.647,
+          "auc": 0.6847,
+          "ece": 0.0833,
+          "brier": 0.2273
+        }
+      }
+    },
+    "regeneration_checks": {
+      "pooled": {
+        "derived_ml": {
+          "logloss": 0.6443,
+          "auc": 0.683,
+          "ece": 0.0278,
+          "brier": 0.2252
+        }
+      },
+      "sealed": {
+        "derived_ml": {
+          "logloss": 0.647,
+          "auc": 0.6847,
+          "ece": 0.0833,
+          "brier": 0.2273
+        }
+      },
+      "away_abs_resid_2021_23": 0.4715
+    },
+    "line_vintage_caveat": "nflreadpy schedule-line vintage (closing vs early) UNCONFIRMED \u2014 offered-line columns and shrink params carry this caveat; fair-line quotes are model-only"
+  },
+  "line_vintage_status": "nflreadpy schedule-line vintage (closing vs early) UNCONFIRMED \u2014 shrink columns are computed and flagged shrink_applied=false; own-line quoting is the served mode",
+  "treatment": {
+    "mode": "own-line quoting both sides with honest ECE",
+    "shrink_applied": false,
+    "one_feed_governs_both_sides": true,
+    "shrink_params": {
+      "totals_cd": [
+        -0.3599,
+        0.3472
+      ],
+      "spread_cd": [
+        0.446165,
+        0.307486
+      ]
+    }
+  },
+  "impute_rates": {
+    "elo_diff": 0.0,
+    "win_pct_diff": 0.0,
+    "rest_days_diff": 0.0,
+    "is_dome_home": 0.1581,
+    "ewm_net_pts_diff": 0.0,
+    "ewm_ypp_diff": 0.0,
+    "pace_plays_min_diff": 0.7647,
+    "rest_short_diff": 0.0,
+    "div_game": 0.0,
+    "travel_miles_diff": 0.1985,
+    "altitude_home": 0.1985,
+    "prime_time": 0.0
+  },
+  "oof_baseline": {
+    "covers_ece_pooled": 0.078,
+    "totals_ece_pooled_own": 0.087,
+    "derived_ml": {
+      "logloss": 0.6443,
+      "auc": 0.683,
+      "ece": 0.0278
+    },
+    "provenance": [
+      "nfl_era_3e8c8a510f04.json (era record: seam covers ECE, G4)",
+      "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
+      "nfl_adoption_decision_3e8c8a510f04.json (spread adoption)"
+    ],
+    "note": "research-pinned pooled-OOF figures from the committed records \u2014 the backfill-computed store below verifies them deterministically on every run"
+  },
+  "provenance_records": [
+    "nfl_era_3e8c8a510f04.json",
+    "nfl_market_3e8c8a510f04.json",
+    "nfl_adoption_decision_3e8c8a510f04.json"
+  ],
+  "engines_modified": false,
+  "moneyline_pool_untouched": true,
+  "run_engine_diagnostics": {
+    "view": "12-pool SIDE_FEATURES (run-engine per-side feature set)",
+    "n_features": 12,
+    "status": "emitted",
+    "windows": {
+      "anchor": "2026-01-04",
+      "cutoff": "2025-12-07",
+      "current_n": 77,
+      "baseline_n": 250,
+      "current_min_day": "2025-12-07",
+      "current_max_day": "2026-01-04",
+      "baseline_max_day": "2025-12-04",
+      "max_decided_day": "2026-01-04"
+    },
+    "drift": {
+      "file": "run_engine_feature_drift_20260905.csv",
+      "n_features": 12,
+      "n_warn": 0,
+      "n_alert": 0,
+      "n_insufficient": 0,
+      "n_with_weight": 0,
+      "weight_source": "nfl_model_monitor_20260905.json -> feature_drift[] -> weight_pct (moneyline blend weights, percent; null only where the source has no weight)"
+    },
+    "coverage": {
+      "file": "run_engine_feature_coverage_20260905.csv",
+      "n_rows": 24,
+      "n_low": 0,
+      "n_starved": 0
+    }
+  }
+}
