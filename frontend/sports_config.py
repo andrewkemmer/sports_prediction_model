@@ -83,6 +83,7 @@ SPORTS = {
             "power_rankings_csv": "nfl_power_rankings_*.csv",
             "markets_csv": "nfl_run_engine_markets_*.csv",
             "markets_monitor_json": "nfl_run_engine_monitor_*.json",
+            "qb_matchup_json": "nfl_qb_matchup_*.json",
         },
     },
 }

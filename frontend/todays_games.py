@@ -1413,38 +1413,15 @@ def _render_date_nav(valid, current: str) -> None:
 
 
 def _run_nfl_main(valid, valid_set) -> None:
-    """NFL Today's Games: moneyline board filtered to the selected valid game
-    date. When the shipped record is aggregate-only (no per-game rows), a
-    clean notice renders and there is nothing to navigate."""
-    if not valid:
-        _render_nfl_board()
-        return
-    if (st.session_state.get("_nav_sport") != "nfl"
-            or "selected_date" not in st.session_state):
-        st.session_state["selected_date"] = (utils.nearest_valid_date(valid) or valid[0])
-        st.session_state["_nav_sport"] = "nfl"
-    date_str = st.session_state["selected_date"]
-    if date_str not in valid_set:
-        _render_nearest_valid_fallback(valid, date_str)
-        return
-    _render_date_nav(valid, date_str)
-    try:
-        frame = utils.load_nfl_moneyline()
-    except Exception:
-        frame = pd.DataFrame()
-    if frame is None or frame.empty:
-        st.info("No NFL per-game moneyline rows available.")
-        return
-    frame = frame.dropna(subset=["home_team", "away_team"]) if not frame.empty else frame
-    day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
-    if day.empty:
-        _render_nearest_valid_fallback(valid, date_str)
-        return
-    try:
-        slate, _sdate = utils.load_nfl_run_engine_markets("nfl")
-    except Exception:
-        slate = pd.DataFrame()
-    _render_nfl_day_board_parity(day, date_str, slate)
+    """NFL Today's Games — the structural 1:1 mirror of the MLB board.
+
+    Delegates to the NFL page module (the nfl_markets_page precedent: one
+    dispatch line, MLB path byte-unchanged). The mirror renders the SAME
+    section order as the MLB board (header strip, shared date nav, filter
+    pills, two-per-row cards, per-card QB-matchup + run-engine) over the
+    NFL artifact families."""
+    import nfl_todays_page  # noqa: PLC0415 (page module, imported lazily)
+    nfl_todays_page.run()
 
 
 def main() -> None:

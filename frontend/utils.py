@@ -1192,6 +1192,80 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
     return pd.DataFrame(), None
 
 
+# The QB-matchup card contract (the NFL substitute for MLB's starting-pitcher
+# matchup card): one row per board game, twin per-side stat blocks. Stats the
+# emitter cannot resolve (no published QB1 / no prior starts) stay None —
+# the card renders those as '—', never fabricated.
+NFL_QB_MATCHUP_COLUMNS = [
+    "game_id", "gameday", "home_team", "away_team",
+    "qb_home_name", "qb_home_rating", "qb_home_td_per_game",
+    "qb_home_cmp_pct", "qb_home_yards_per_attempt", "qb_home_ints",
+    "qb_away_name", "qb_away_rating", "qb_away_td_per_game",
+    "qb_away_cmp_pct", "qb_away_yards_per_attempt", "qb_away_ints",
+]
+
+
+def _nfl_qb_matchup_family_dates(sport: str | None) -> list[str]:
+    """Available YYYYMMDD dates (newest first) for the ``nfl_qb_matchup_*``
+    family — same enumeration path as the NFL run-engine families."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix, ext = "nfl_qb_matchup_", ".json"
+    return _family_dated_dates(s, [(prefix, ext)])
+
+
+def load_nfl_qb_matchup(sport: str | None = "nfl") -> pd.DataFrame:
+    """Newest NFL starting-QB matchup record as a per-game frame.
+
+    Reads the newest ``nfl_qb_matchup_*.json`` through the shared fetch
+    fallback and flattens the twin per-side QB stat blocks into one row per
+    game (columns pinned by ``NFL_QB_MATCHUP_COLUMNS``). Missing/invalid →
+    empty frame WITH the full schema (never fabricated), exactly like the
+    moneyline adapter."""
+    cols = NFL_QB_MATCHUP_COLUMNS
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    for d in _nfl_qb_matchup_family_dates(s):
+        raw, _src = _fetch_bytes(f"nfl_qb_matchup_{d}.json", **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        games = rec.get("games") if isinstance(rec, dict) else None
+        if not isinstance(games, list):
+            continue
+        out = []
+        for g in games:
+            if not isinstance(g, dict):
+                continue
+            def _q(side: str, field: str):
+                block = g.get(side)
+                if not isinstance(block, dict):
+                    return None
+                return block.get(field)
+            out.append({
+                "game_id": str(g.get("game_id", "") or ""),
+                "gameday": str(g.get("gameday", "") or ""),
+                "home_team": str(g.get("home_team", "") or ""),
+                "away_team": str(g.get("away_team", "") or ""),
+                "qb_home_name": _q("qb_home", "name") or "",
+                "qb_home_rating": _q("qb_home", "passer_rating"),
+                "qb_home_td_per_game": _q("qb_home", "td_per_game"),
+                "qb_home_cmp_pct": _q("qb_home", "cmp_pct"),
+                "qb_home_yards_per_attempt": _q("qb_home", "yards_per_attempt"),
+                "qb_home_ints": _q("qb_home", "ints"),
+                "qb_away_name": _q("qb_away", "name") or "",
+                "qb_away_rating": _q("qb_away", "passer_rating"),
+                "qb_away_td_per_game": _q("qb_away", "td_per_game"),
+                "qb_away_cmp_pct": _q("qb_away", "cmp_pct"),
+                "qb_away_yards_per_attempt": _q("qb_away", "yards_per_attempt"),
+                "qb_away_ints": _q("qb_away", "ints"),
+            })
+        return pd.DataFrame(out, columns=cols)
+    return pd.DataFrame(columns=cols)
+
+
 def load_nfl_run_engine_monitor(sport: str | None = "nfl") -> dict | None:
     """Newest NFL run-engine monitor JSON (``nfl_run_engine_monitor_*.json``).
 

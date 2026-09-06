@@ -277,7 +277,8 @@ class TestSportRegistryAndRouting(unittest.TestCase):
              "predictions_history_csv": "nfl_predictions_history_*.csv",
              "power_rankings_csv": "nfl_power_rankings_*.csv",
              "markets_csv": "nfl_run_engine_markets_*.csv",
-             "markets_monitor_json": "nfl_run_engine_monitor_*.json"})
+             "markets_monitor_json": "nfl_run_engine_monitor_*.json",
+             "qb_matchup_json": "nfl_qb_matchup_*.json"})
         self.assertIn("todays_games_csv",
                       sports_config.artifact_patterns("mlb"))
 
@@ -508,7 +509,7 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
             "all_text = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
-            "assert 'NFL \\u2014 Moneyline' in all_text, all_text[:500];\n"
+            "assert 'games shown' in all_text, all_text[:500];\n"
             "print('NFL_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
         self.assertIn("NFL_OK", self._run(script))
@@ -658,7 +659,7 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
             "all_text = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
-            "assert 'NFL MONEYLINE' in all_text, all_text[:500];\n"
+            "assert 'games shown' in all_text, all_text[:500];\n"
             "assert at.session_state['selected_date'] == '20260913';\n"
             "print('NFL_DATE_BOARD_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
