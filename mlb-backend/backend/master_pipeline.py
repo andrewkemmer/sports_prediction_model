@@ -106,9 +106,21 @@ if repo_dir.exists():
     shutil.rmtree(repo_dir, ignore_errors=True)
 print(f"📥 Cloning {CONFIG['github_repo']}...")
 _run(f"git clone -q https://github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git /content/{CONFIG['github_repo']}")
+
+# Make the feature source deterministic. If MLB_FEATURES_COMMIT is set,
+# check out that exact commit so a Kaggle run always executes the intended
+# features.py (and fails loudly if the commit is absent from the clone).
+import subprocess as _subprocess
+_feats_commit = os.environ.get("MLB_FEATURES_COMMIT", "").strip()
+if _feats_commit:
+    print(f"🔒 Pinning features.py to commit { _feats_commit }")
+    _run(f"git -C /content/{CONFIG['github_repo']} fetch -q --unshallow 2>/dev/null || true")
+    _run(f"git -C /content/{CONFIG['github_repo']} checkout -q {_feats_commit}")
+    _run(f"git -C /content/{CONFIG['github_repo']} rev-parse --verify FETCH_HEAD")
+
 sys.path.insert(0, str(repo_dir / SPORT_DIR_NAME / "backend"))
 os.chdir(str(repo_dir / SPORT_DIR_NAME))
-print(f"  📁 {os.getcwd()}")
+print(f"  📁 {os.getcwd()}", flush=True)
 
 # Snapshot the artifacts already in the repo's data_delivery (relative path →
 # mtime in ns) BEFORE the pipeline writes anything. Phase 5 must stage only
@@ -154,6 +166,44 @@ print(f"  ✅ Raw pitches: {pitches_path}")
 
 # ── Phase 2-3: Feature Engineering ──────────────────────────────────────────
 _banner("PHASE 2-3", "DuckDB Feature Engineering (pure SQL)")
+import subprocess as _sp
+import sys as _sys
+from pathlib import Path as _P
+
+# Runtime self-check: confirm the features.py we are about to import does not
+# contain the known-corrupt fragment, and print exactly what Kaggle executed.
+_feats_mod_file = str(_P(__file__).resolve().parent / "features.py")
+print("\n=== REPOSITORY DIAGNOSTIC ===", flush=True)
+_print = _subprocess.run("git remote -v", shell=True, capture_output=True, text=True, cwd=os.getcwd())
+print("git remote -v:\n" + _print.stdout.strip(), flush=True)
+_rev = _subprocess.run("git rev-parse HEAD", shell=True, capture_output=True, text=True, cwd=os.getcwd())
+print("git rev-parse HEAD:", _rev.stdout.strip(), flush=True)
+_stat = _subprocess.run("git status --short", shell=True, capture_output=True, text=True, cwd=os.getcwd())
+print("git status --short:\n" + _stat.stdout.strip(), flush=True)
+_log = _subprocess.run("git log -1 --oneline", shell=True, capture_output=True, text=True, cwd=os.getcwd())
+print("git log -1 --oneline:", _log.stdout.strip(), flush=True)
+
+import features
+print("features module:", features.__file__, flush=True)
+
+_src = Path(features.__file__).read_text()
+lines = _src.splitlines()
+print("\n--- source around failing line (1635-1685) ---", flush=True)
+for i in range(1635, 1685):
+    if i < len(lines):
+        print(f"{i+1}: {lines[i]}", flush=True)
+
+if "CREATE TABLE batter_cat_shifted\n                         WHEN pitch_type" in _src:
+    raise SystemExit(
+        "STALE/CORRUPT features.py detected: the malformed fragment\n"
+        '  CREATE TABLE batter_cat_shifted\n             WHEN pitch_type\n'
+        "is still present in the features.py that Kaggle is about to execute.\n"
+        f"Path: {features.__file__}\n"
+        "Do NOT rerun DuckDB against this file. Refresh the repo checkout to a\n"
+        "commit that does not contain the duplicated/corrupted arsenal block."
+    )
+print("\nOK: imported features.py does NOT contain the malformed WHEN fragment.", flush=True)
+
 from features import build_features
 
 game_df, pbp_df = build_features(
