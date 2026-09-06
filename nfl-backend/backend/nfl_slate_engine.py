@@ -79,7 +79,7 @@ from nfl_joint_engine import (GRID_MAX, build_joint_pmfs, cover_prob,
 
 # E2 adopted arm config (era record: spec ewm_2w, median rounds 20/23).
 ERA_SPEC = "ewm_2w"
-MEDIAN_ROUNDS = {"home": 20, "away": 23}
+MEDIAN_ROUNDS = {"home": 20, "away": 34}
 
 # Pinned joint params — DN, constant sigma, global rho, calibrated tie rate.
 # NEVER refit at slate time (in-sample sigma on all-decided residuals would

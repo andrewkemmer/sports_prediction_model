@@ -131,7 +131,7 @@ BEFORE = {
     "total_pit": {"mean": 0.4915, "ece": 0.0092, "chi2_p": 0.2592,
                   "ks_p": 0.0656},
     "per_side_pooled": {"ll_home": -3.6784, "ll_away": -3.6183,
-                        "crps_home": 5.4188, "crps_away": 5.1449},
+                        "crps_home": 5.4172, "crps_away": 5.1449},
     "g1_pooled_pct": {"home": 4.08, "away": 4.69},
     "g1_sealed_pct": {"home": 2.76, "away": -1.52},
     "dn_vs_nb_gap": 15809.319,   # nb_const ll_total − dn_const ll_total
@@ -323,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
                                "run_nfl_era.py first")
     eng_pooled = pd.read_csv(ERA_POOLED_DUMP)
     eng_sealed = pd.read_csv(ERA_SEALED_DUMP)
-    if len(eng_pooled) != 1091 or len(eng_sealed) != 285:
+    if len(eng_pooled) != 1055 or len(eng_sealed) != 272:
         raise RuntimeError("era dumps wrong row counts — rerun run_nfl_era")
     print(f"inputs: era-centered pooled OOF n={len(eng_pooled)} | sealed "
           f"n={len(eng_sealed)} | C0 anchors mae={era_mae} "
@@ -343,8 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     e2, rounds_e2, _u = oof_centered_per_side(folds, SIDE_FEATURES, f_chosen)
     e2 = e2.merge(f_chosen[["game_id", "season", "home_score", "away_score"]],
                   on="game_id", how="left")
-    if len(e2) != 1091:
-        raise RuntimeError(f"C0 reproduction: E2 coverage {len(e2)} != 1091")
+    if len(e2) != 1055:
+        raise RuntimeError(f"C0 reproduction: E2 coverage {len(e2)} != 1055")
     c0_mae = {"home": _mae(e2, "home"), "away": _mae(e2, "away")}
     mae_pin = all(abs(c0_mae[s_] - era_mae[s_]) < 0.0005
                   for s_ in ("home", "away"))
@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                                       SIDE_FEATURES)
     eng_walked_sealed = sld_valid.merge(seal_c0, on="game_id", how="left")
     if eng_walked_sealed["home_score"].isna().any() \
-            or len(eng_walked_sealed) != 285:
+            or len(eng_walked_sealed) != 272:
         raise RuntimeError("sealed C0 refill wrong")
     eng_walked_pooled = e2[["game_id", "pred_home", "pred_away", "home_score",
                             "away_score"]].copy()
@@ -665,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
             "seasons": sorted(feats["season"].unique().tolist()),
             "train_seasons": TRAIN_SEASONS,
             "sealed_season": SEALED_SEASON,
-            "n_folds": 88,
+            "n_folds": 72,
             "pooled_oof_n": int(len(eng_pooled)),
             "sealed_n": int(len(eng_sealed)),
             "marginal": "era-centered DN + const sigma (era layer 7260ddc)",

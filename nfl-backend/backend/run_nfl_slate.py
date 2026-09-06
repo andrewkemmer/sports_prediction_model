@@ -179,8 +179,8 @@ def build_board_inputs() -> dict[str, Any]:
     from run_nfl_margin_ablation import load_features
     feats = load_features(None)
     feats = feats[feats["season"] >= 2019]
-    if len(feats) != 1960:
-        raise RuntimeError(f"decided feature frame {len(feats)} != 1960")
+    if len(feats) != 1871:
+        raise RuntimeError(f"decided feature frame {len(feats)} != 1871")
     decided_f = decided_c.merge(
         feats[["game_id"] + SIDE_FEATURES], on="game_id", how="left")
     n_full = int(decided_f[SIDE_FEATURES + CENTER_COLS].dropna().shape[0])

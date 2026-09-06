@@ -1,7 +1,7 @@
 """NFL per-side joint layer — step-1 runner (record-only).
 
 Builds the correlated per-game joint PMF over NFL final integer scores from
-the step-1 per-side outputs (commit 688d417): residual artifact
+the step-1 per-side outputs (commit 672d417): residual artifact
 (nfl_per_side_oof_residuals_<sha>.csv) + fit-only sealed predictions.
 Record-only — no wiring; FEATURE_COLUMNS / 12-pool / moneyline / daily
 pipeline untouched.
@@ -375,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
             "train_seasons": TRAIN_SEASONS,
             "val_seasons": VAL_SEASONS,
             "sealed_season": SEALED_SEASON,
-            "n_folds": 88,
+            "n_folds": 72,
             "grid": f"integer scores 0..{params['grid_max']} "
                     "(upper tail absorbed)",
             "targets": "full-game final scores incl. OT (how markets settle)",

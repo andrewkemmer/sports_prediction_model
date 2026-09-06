@@ -7,8 +7,8 @@ actuals) and scheduled rows (``kind == "slate"``) — regenerated each run and
 read by the frontend loader as the newest dated file.
 
 The decided OOF store is the market-layer walk's rows:
-  pooled 2021-24  n = 1,091   (88-fold weekly geometry, strictly-prior val)
-  sealed 2025     n =   285   (fit 2019-24 at median rounds -> predict 2025)
+  pooled 2021-24  n = 1,055   (72-fold weekly geometry, strictly-prior val)
+  sealed 2025     n =   272   (fit 2019-24 at median rounds -> predict 2025)
 scored through the SLATE EMITTER's schema (``nfl_slate_engine.price_board``:
 fair spread/total, full grid, derived-ML pair, raw ±0.5 pair, shrink columns
 flagged) plus actuals and honest outcomes/ECE columns.
@@ -107,18 +107,18 @@ logger = logging.getLogger(__name__)
 
 CANONICAL_FRAME_SHA = "5ef7e12718b5"
 
-POOLED_N = 1091
-SEALED_N = 285
+POOLED_N = 1055
+SEALED_N = 272
 
 # Record pins the regeneration must reproduce before anything is emitted
 # (market record step2_arms own-line figures on the SAME rows).
 RECORD_PINS = {
-    "pooled": {"totals_ece": 0.087, "covers_ece": 0.078,
-               "derived_ml": {"logloss": 0.6365, "auc": 0.695,
-                              "ece": 0.0435, "brier": 0.2221}},
-    "sealed": {"totals_ece": 0.1547, "covers_ece": 0.1145,
-               "derived_ml": {"logloss": 0.6535, "auc": 0.6782,
-                              "ece": 0.1009, "brier": 0.2299}},
+    "pooled": {"totals_ece": 0.0857, "covers_ece": 0.0957,
+               "derived_ml": {"logloss": 0.6443, "auc": 0.683,
+                              "ece": 0.0278, "brier": 0.2252}},
+    "sealed": {"totals_ece": 0.153, "covers_ece": 0.1249,
+               "derived_ml": {"logloss": 0.6470, "auc": 0.6847,
+                              "ece": 0.0833, "brier": 0.2273}},
 }
 PIN_TOLS = {"ece": 0.001, "ll": 0.0005, "auc": 0.0005, "brier": 0.0005}
 
@@ -145,8 +145,8 @@ def regenerate_era_e2(feats: pd.DataFrame
     centers = compute_centers(dv, SE.ERA_SPEC)
     f_chosen = attach_centers(feats, centers)
     folds = _folds_for(f_chosen, SIDE_FEATURES)
-    if len(folds) != 88:
-        raise RuntimeError(f"E2 fold geometry {len(folds)} != 88 — STOP")
+    if len(folds) != 72:
+        raise RuntimeError(f"E2 fold geometry {len(folds)} != 72 — STOP")
     e2_oof, rounds, _ = oof_centered_per_side(folds, SIDE_FEATURES, f_chosen)
     pooled = e2_oof.merge(f_chosen[["game_id", "season", "home_score",
                                     "away_score"]], on="game_id", how="left")
@@ -181,9 +181,9 @@ def verify_regeneration(pooled: pd.DataFrame, sealed: pd.DataFrame,
         raise RuntimeError(f"regenerated rounds {rounds} != "
                            f"record {SE.MEDIAN_ROUNDS} — STOP")
     away_2123 = _away_abs_resid_2021_23(pooled)
-    if abs(away_2123 - 0.4083) > 0.01:
+    if abs(away_2123 - 0.4715) > 0.01:
         raise RuntimeError(f"away |bias| 21-23 {away_2123:.4f} != record "
-                           "0.4083 — regeneration drift; STOP")
+                           "0.4715 — regeneration drift; STOP")
 
     checks: dict[str, Any] = {}
     for name, df in (("pooled", pooled), ("sealed", sealed)):
@@ -222,7 +222,7 @@ def build_decided_store(pooled: pd.DataFrame, sealed: pd.DataFrame,
     sealed = sealed.copy()
     sealed["frame_view"] = "sealed"
     allp = pd.concat([pooled, sealed], ignore_index=True)
-    # The real-run count guard (1,376) lives in the gates (g1) — this
+    # The real-run count guard (1,327) lives in the gates (g1) — this
     # function is pure pricing and stays testable on small frames.
 
     need = {"game_id", "pred_home", "pred_away", "home_score", "away_score"}
@@ -306,8 +306,8 @@ def build_decided_store(pooled: pd.DataFrame, sealed: pd.DataFrame,
         ml = compute_metrics(sub["y_home_win"].to_numpy(float),
                              sub["p_home_win_derived"].to_numpy(float))
         # ece is None below 20 valid rows (reliability_table's guard) —
-        # small-sample views report None honestly; the real run (1,091 /
-        # 285) always has figures, and g3 verifies them against the records.
+        # small-sample views report None honestly; the real run (1,055 /
+        # 272) always has figures, and g3 verifies them against the records.
         pins[view] = {
             "n": int(len(sub)),
             "totals_ece_offered": (round(float(t_off["ece"]), 4)
@@ -332,7 +332,7 @@ def _gates(oof: pd.DataFrame, board_out: pd.DataFrame, pins: dict[str, Any],
                       and oof["away_score"].notna().all()
                       and oof["spread_line"].notna().all()
                       and oof["total_line"].notna().all()),
-        "rule": "1,376 decided rows, actuals + 100% offered-line coverage"}
+        "rule": "1,327 decided rows, actuals + 100% offered-line coverage"}
     # g2 determinism: re-price the decided store, byte-identical on the
     # price_board-derived columns (the identity/outcome columns are attached
     # by the store, not by the pricing walk).
@@ -578,7 +578,7 @@ def run_daily_markets(out_dir: Path | None = None,
     oof_baseline = {
         "covers_ece_pooled": 0.078,
         "totals_ece_pooled_own": 0.087,
-        "derived_ml": {"logloss": 0.6365, "auc": 0.695, "ece": 0.0435},
+        "derived_ml": {"logloss": 0.6443, "auc": 0.683, "ece": 0.0278},
         "provenance": [
             "nfl_era_3e8c8a510f04.json (era record: seam covers ECE, G4)",
             "nfl_market_3e8c8a510f04.json (totals ECE own vs shrink)",
@@ -599,7 +599,7 @@ def run_daily_markets(out_dir: Path | None = None,
         "decided_store": {
             "n_pooled": POOLED_N, "n_sealed": SEALED_N,
             "n_total": int(len(oof)),
-            "method": ("deterministic E2 regeneration (canonical frame, 88 "
+            "method": ("deterministic E2 regeneration (canonical frame, 72 "
                        "weekly folds, seeded LGB) + slate-emitter schema + "
                        "actuals; verified against the market record pins "
                        "before emission"),

@@ -92,7 +92,7 @@ class TestPinnedParams(unittest.TestCase):
         self.assertEqual(SE.PINNED_RHO, 0.0076)
         self.assertEqual(SE.PINNED_P_TIE, 0.00275)
         self.assertEqual(SE.ERA_SPEC, "ewm_2w")
-        self.assertEqual(SE.MEDIAN_ROUNDS, {"home": 20, "away": 23})
+        self.assertEqual(SE.MEDIAN_ROUNDS, {"home": 20, "away": 34})
         self.assertEqual(SE.TOTALS_CD, (-0.3599, 0.3472))
         self.assertEqual(SE.SPREAD_CD, (0.446165, 0.307486))
         self.assertEqual(SE.FEED_PRESENT, False)

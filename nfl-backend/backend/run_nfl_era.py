@@ -11,8 +11,8 @@ nfl_per_side_engine.py and nfl_joint_engine.py are NOT modified — the
 centered-target code path lives in nfl_era_features.py and the joint chain
 re-run calls the EXISTING engine entrypoints.
 
-Pipeline (identical geometry to every prior record — same 88 folds, pooled
-OOF 2021-24 n=1,091, sealed 2025 n=285):
+Pipeline (identical geometry to every prior record — same 72 folds, pooled
+OOF 2021-24 n=1,055, sealed 2025 n=272):
   Step 0 (falsification gate, diagnostics ONLY — no model change):
     0a season fact table 2019-2025; 0b per-season OOF + sealed bias;
     0c week-half away-bias split (weeks 1-5 vs 6+); 0d model-free ceiling
@@ -313,9 +313,9 @@ def main(argv: list[str] | None = None) -> int:
             oof_sp = oof_sp.merge(f_sp[["game_id", "season", "home_score",
                                         "away_score"]], on="game_id",
                                   how="left")
-            if len(oof_sp) != 1091:
+            if len(oof_sp) != 1055:
                 raise RuntimeError(f"spec {spec}: E2 coverage {len(oof_sp)} "
-                                   "!= 1091 — geometry drift")
+                                   "!= 1055 — geometry drift")
             cv[spec] = {
                 "away_mean_abs_resid_2021_23": _mean_abs_resid_2021_23(
                     oof_sp, "away"),
@@ -600,7 +600,7 @@ def main(argv: list[str] | None = None) -> int:
             "seasons": sorted(feats["season"].unique().tolist()),
             "train_seasons": TRAIN_SEASONS,
             "sealed_season": SEALED_SEASON,
-            "n_folds": 88,
+            "n_folds": 72,
             "pooled_oof_n": int(len(art)),
             "sealed_n": int(len(sealed_c0)),
             "view": "12-pool per-side PIT (SIDE_FEATURES) — E1 adds era "

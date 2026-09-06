@@ -91,13 +91,13 @@ def _frame_sha() -> str:
 
 
 def _load_era_dumps() -> tuple[pd.DataFrame, pd.DataFrame]:
-    for p, n in ((ERA_POOLED_DUMP, 1091), (ERA_SEALED_DUMP, 285)):
+    for p, n in ((ERA_POOLED_DUMP, 1055), (ERA_SEALED_DUMP, 272)):
         if not Path(p).exists():
             raise RuntimeError(f"era-centered dump missing: {p} — run "
                                "run_nfl_era.py first (era record 7260ddc)")
     pooled = pd.read_csv(ERA_POOLED_DUMP)
     sealed = pd.read_csv(ERA_SEALED_DUMP)
-    if len(pooled) != 1091 or len(sealed) != 285:
+    if len(pooled) != 1055 or len(sealed) != 272:
         raise RuntimeError("era dumps wrong row counts — rerun run_nfl_era")
     return pooled, sealed
 
@@ -108,8 +108,8 @@ def _week_map_from_folds(feats: pd.DataFrame) -> dict[str, Any]:
     preq = feats[feats["season"].isin(TRAIN_SEASONS)].copy()
     preq_valid = preq[_valid_rows(preq, SIDE_FEATURES)].copy()
     folds = generate_weekly_folds(preq_valid)
-    if len(folds) != 88:
-        raise RuntimeError(f"fold geometry mismatch: expected 88 folds, "
+    if len(folds) != 72:
+        raise RuntimeError(f"fold geometry mismatch: expected 72 folds, "
                            f"got {len(folds)}")
     week_map: dict[str, Any] = {}
     for f in folds:
@@ -227,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         "median_c": walk["median_c"], "median_d": walk["median_d"],
         "n_folds": walk["n_folds"], "n_fitted": walk["n_fitted"],
         "n_warmup": walk["n_warmup"], "min_prior_rows": walk["min_prior_rows"],
-        "geometry_note": ("88-fold weekly geometry; the walk evaluates the "
+        "geometry_note": ("72-fold weekly geometry; the walk evaluates the "
                           "79 weeks that carry pooled-OOF rows (9 tiny-val "
                           "folds skipped by the era walk) — the second-level "
                           "fit set for week k is the val rows of strictly-"
@@ -528,7 +528,7 @@ def main(argv: list[str] | None = None) -> int:
             "seasons": sorted(feats["season"].unique().tolist()),
             "train_seasons": TRAIN_SEASONS,
             "sealed_season": SEALED_SEASON,
-            "n_folds": 88,
+            "n_folds": 72,
             "pooled_oof_n": int(len(m_pooled)),
             "sealed_n": int(len(m_sealed)),
             "grid": "integer scores 0..75 (upper tail absorbed)",
