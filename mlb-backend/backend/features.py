@@ -950,7 +950,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             SELECT CAST(game_date AS DATE) AS game_date, game_pk,
                    CASE WHEN inning_topbot = 'Top' THEN away_team ELSE home_team END AS batting_team,
                    events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            FROM pitches             WHERE events IN ({PA_END_EVENTS})
         ),
         game_agg AS (
             SELECT game_date, game_pk, batting_team,
@@ -1263,7 +1263,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    CASE WHEN inning_topbot = 'Top' THEN away_team
                         ELSE home_team END AS batting_team,
                    stand
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            FROM pitches             WHERE events IN ({PA_END_EVENTS})
         )
         SELECT game_date, game_pk, batting_team,
                AVG(CASE WHEN stand = 'L' THEN 1.0 ELSE 0.0 END) AS lefty_share
@@ -1296,7 +1296,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    CASE WHEN inning_topbot = 'Top' THEN away_team
                         ELSE home_team END AS batting_team,
                    batter, events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            FROM pitches             WHERE events IN ({PA_END_EVENTS})
         )
         SELECT game_date, game_pk, batting_team, batter,
                COUNT(*) AS pa,
@@ -1410,7 +1410,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                    CASE WHEN inning_topbot = 'Top' THEN away_team
                         ELSE home_team END AS batting_team,
                    batter, p_throws, events
-            FROM pitches WHERE events IN ({PA_END_EVENTS})
+            FROM pitches             WHERE events IN ({PA_END_EVENTS})
         )
         SELECT game_date, game_pk, batting_team, batter, p_throws,
                COUNT(*) AS pa_n,
@@ -1564,6 +1564,403 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
           ON f.batter = o.batter AND f.pitcher = o.sp_id
          AND f.game_date < o.game_date
         GROUP BY o.game_pk, o.batting_team
+    """)
+
+    # 7l. Arsenal × projected-lineup matchup — CANDIDATE features (NOT in
+    # FEATURE_COLS until the OOS ablation gate passes). Captures how well the
+    # opposing projected lineup matches TONIGHT'S starter's pitch-category
+    # mix — the interaction the marginals (SP K9/xwOBA/whiff, lineup wOBA)
+    # do not represent.
+    #
+    # Pitch categories reuse the pbp_level mapping EXACTLY (same CASE, same
+    # types): fastball FF/FT/SI/FC/FS/FO, breaking SL/CU/KC/CS/SV/WR,
+    # offspeed CH/EP/SC/KN/UN/PO. Unknown/missing pitch_type drops out of
+    # category aggregates (documented behavior — no renormalization).
+    #
+    # Batter side: per (batter, category) trailing-30-GAME pooled K% and
+    # xwOBA-on-contact (estimated_woba_using_speedangle mean over PAs that
+    # put the ball in play — the same xwOBA semantic as sp_xwoba_*), LAG-
+    # shifted so the current game never enters its own feature. Shrinkage:
+    # credibility = n / (n + 40) toward the strictly-prior league category
+    # value (trailing-30g pooled across hitters); n = 0 → pure league prior.
+    # A PA's category is the pitch_type of its FINAL pitch (the pitch the
+    # outcome happened on); K = strikeout / strikeout_double_play.
+    # Zero-count grid rows keep every (batter, game, category) cell present
+    # so a hitter with no prior history in a category still resolves (to the
+    # league prior) instead of silently dropping from the average.
+    con.execute(f"""
+        CREATE TABLE batter_cat_game2 AS
+        SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher, batter,
+               events,
+               CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 'fastball'
+                    WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
+                    WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
+                    ELSE NULL END AS pitch_cat,
+               CASE WHEN events IN ('strikeout', 'strikeout_double_play')
+                   THEN 1.0 ELSE 0.0 END AS k_flag,
+              estimated_woba_using_speedangle AS xwoba_val,
+              ROW_NUMBER() OVER (
+                  PARTITION BY game_pk, inning, inning_topbot, at_bat_number
+                  ORDER BY pitch_number DESC) AS rn
+        FROM pitches         WHERE events IN ({PA_END_EVENTS})
+    """)
+    con.execute("""
+        CREATE TABLE batter_cat_game AS
+        WITH lastp AS (SELECT * FROM batter_cat_game2 WHERE rn = 1),
+        agg AS (
+            SELECT game_date, game_pk, batter, pitch_cat,
+               COUNT(*) AS pa_n,
+               SUM(k_flag) AS k_n,
+               SUM(COALESCE(xwoba_val, 0)) AS xwo_num,
+               SUM(CASE WHEN xwoba_val IS NOT NULL THEN 1.0 ELSE 0.0 END) AS xwo_den
+            FROM lastp WHERE pitch_cat IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ),
+        grid AS (
+            SELECT x.game_date, x.game_pk, x.batter, c.cat AS pitch_cat
+            FROM (SELECT DISTINCT game_date, game_pk, batter FROM lastp) x
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed')) AS c(cat)
+        )
+        SELECT g.game_date, g.game_pk, g.batter, g.pitch_cat,
+               COALESCE(a.pa_n, 0) AS pa_n,
+               COALESCE(a.k_n, 0) AS k_n,
+               COALESCE(a.xwo_num, 0) AS xwo_num,                COALESCE(a.xwo_den, 0) AS xwo_den
+        FROM grid g
+        LEFT JOIN agg a USING (game_date, game_pk, batter, pitch_cat)
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_shifted AS
+        SELECT *,
+            LAG(pa_n, 1) OVER w AS _pa_n,
+            LAG(k_n, 1) OVER w AS _k_n,
+            LAG(xwo_num, 1) OVER w AS _xwo_num,
+            LAG(xwo_den, 1) OVER w AS _xwo_den
+        FROM batter_cat_game
+        WINDOW w AS (PARTITION BY batter, pitch_cat ORDER BY game_date)
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_rolling AS
+        SELECT game_date, game_pk, batter, pitch_cat,
+            COALESCE(SUM(_k_n) OVER w30, 0) AS k_num,
+            COALESCE(SUM(_pa_n) OVER w30, 0) AS pa_n,
+            COALESCE(SUM(_xwo_num) OVER w30, 0) AS xwo_num,
+            COALESCE(SUM(_xwo_den) OVER w30, 0) AS xwo_den
+        FROM batter_cat_shifted
+        WINDOW w30 AS (PARTITION BY batter, pitch_cat ORDER BY game_date
+                      ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_league AS
+        SELECT game_date, pitch_cat,
+            SUM(k_num) / NULLIF(SUM(pa_n), 0) AS lg_k_rate,
+            SUM(xwo_num) / NULLIF(SUM(xwo_den), 0) AS lg_xwoba
+        FROM batter_cat_rolling
+        GROUP BY game_date, pitch_cat
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_shifted
+                         WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
+                         WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
+                         ELSE NULL END AS pitch_cat,
+                    CASE WHEN events IN ('strikeout', 'strikeout_double_play')
+                        THEN 1.0 ELSE 0.0 END AS k_flag,
+                   estimated_woba_using_speedangle AS xwoba_val,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY game_pk, inning, inning_topbot, at_bat_number
+                       ORDER BY pitch_number DESC) AS rn
+            FROM pitches
+            WHERE events IN ({PA_END_EVENTS})
+        ),
+        lastp AS (SELECT * FROM pa WHERE rn = 1),
+        agg AS (
+            SELECT game_date, game_pk, batter, pitch_cat,
+                   COUNT(*) AS pa_n,
+                   SUM(k_flag) AS k_n,
+                   SUM(COALESCE(xwoba_val, 0)) AS xwo_num,
+                   SUM(CASE WHEN xwoba_val IS NOT NULL THEN 1.0 ELSE 0.0 END) AS xwo_den
+            FROM lastp WHERE pitch_cat IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ),
+        grid AS (
+            SELECT x.game_date, x.game_pk, x.batter, c.cat AS pitch_cat
+            FROM (SELECT DISTINCT game_date, game_pk, batter FROM lastp) x
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed')) AS c(cat)
+        )
+        SELECT g.game_date, g.game_pk, g.batter, g.pitch_cat,
+               COALESCE(a.pa_n, 0) AS pa_n,
+               COALESCE(a.k_n, 0) AS k_n,
+               COALESCE(a.xwo_num, 0) AS xwo_num,
+               COALESCE(a.xwo_den, 0) AS xwo_den
+        FROM grid g
+        LEFT JOIN agg a USING (game_date, game_pk, batter, pitch_cat)
+    """)
+    con.execute("""
+        CREATE TABLE batter_cat_game2 AS
+        SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher, batter,
+               events,
+               CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 'fastball'
+                    WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
+                    WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
+                    ELSE NULL END AS pitch_cat,
+               CASE WHEN events IN ('strikeout', 'strikeout_double_play')
+                   THEN 1.0 ELSE 0.0 END AS k_flag,
+              estimated_woba_using_speedangle AS xwoba_val,
+              ROW_NUMBER() OVER (
+                  PARTITION BY game_pk, inning, inning_topbot, at_bat_number
+                  ORDER BY pitch_number DESC) AS rn
+        FROM pitches
+        WHERE events IN ({PA_END_EVENTS})
+    """)
+    con.execute("""
+        CREATE TABLE batter_cat_game AS
+        WITH lastp AS (SELECT * FROM batter_cat_game2 WHERE rn = 1),
+        agg AS (
+            SELECT game_date, game_pk, batter, pitch_cat,
+                   COUNT(*) AS pa_n,
+                   SUM(k_flag) AS k_n,
+                   SUM(COALESCE(xwoba_val, 0)) AS xwo_num,
+                   SUM(CASE WHEN xwoba_val IS NOT NULL THEN 1.0 ELSE 0.0 END) AS xwo_den
+            FROM lastp WHERE pitch_cat IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ),
+        grid AS (
+            SELECT x.game_date, x.game_pk, x.batter, c.cat AS pitch_cat
+            FROM (SELECT DISTINCT game_date, game_pk, batter FROM lastp) x
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed')) AS c(cat)
+        )
+        SELECT g.game_date, g.game_pk, g.batter, g.pitch_cat,
+               COALESCE(a.pa_n, 0) AS pa_n,
+               COALESCE(a.k_n, 0) AS k_n,
+               COALESCE(a.xwo_num, 0) AS xwo_num,
+               COALESCE(a.xwo_den, 0) AS xwo_den
+        FROM grid g
+        LEFT JOIN agg a USING (game_date, game_pk, batter, pitch_cat)
+    """)
+    con.execute("""
+        CREATE TABLE batter_cat_shifted AS
+        SELECT *,
+            LAG(pa_n, 1) OVER w AS _pa_n,
+            LAG(k_n, 1) OVER w AS _k_n,
+            LAG(xwo_num, 1) OVER w AS _xwo_num,
+            LAG(xwo_den, 1) OVER w AS _xwo_den
+        FROM batter_cat_game
+        WINDOW w AS (PARTITION BY batter, pitch_cat ORDER BY game_date)
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_rolling AS
+        SELECT game_date, game_pk, batter, pitch_cat,
+            COALESCE(SUM(_k_n) OVER w30, 0) AS k_num,
+            COALESCE(SUM(_pa_n) OVER w30, 0) AS pa_n,
+            COALESCE(SUM(_xwo_num) OVER w30, 0) AS xwo_num,
+            COALESCE(SUM(_xwo_den) OVER w30, 0) AS xwo_den
+        FROM batter_cat_shifted
+        WINDOW w30 AS (PARTITION BY batter, pitch_cat ORDER BY game_date
+                      ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("""
+        CREATE TABLE batter_cat_league AS
+        SELECT game_date, pitch_cat,
+            SUM(k_num) / NULLIF(SUM(pa_n), 0) AS lg_k_rate,
+            SUM(xwo_num) / NULLIF(SUM(xwo_den), 0) AS lg_xwoba
+        FROM batter_cat_rolling
+        GROUP BY game_date, pitch_cat
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    # League category priors per date: trailing-30g pooled across ALL hitters
+    # from already-shifted rows (each PA counted once within a hitter's
+    # trailing row; zero-count grid cells add nothing). NULL until the first
+    con.execute("""
+        CREATE TABLE batter_cat_league2 AS
+        SELECT game_date, pitch_cat,
+            SUM(k_num) / NULLIF(SUM(pa_n), 0) AS lg_k_rate,
+            SUM(xwo_num) / NULLIF(SUM(xwo_den), 0) AS lg_xwoba
+        FROM batter_cat_rolling
+        GROUP BY game_date, pitch_cat
+    """)
+    con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+    con.execute("DROP TABLE IF EXISTS batter_cat_league2")
+    # prior PA exists in that category — never fabricated.
+    con.execute("""
+        CREATE TABLE batter_cat_league AS
+        SELECT game_date, pitch_cat,
+            SUM(k_num)::DOUBLE / NULLIF(SUM(pa_n), 0) AS lg_k_rate,
+            SUM(xwo_num)::DOUBLE / NULLIF(SUM(xwo_den), 0) AS lg_xwoba
+        FROM batter_cat_rolling
+        GROUP BY game_date, pitch_cat
+    """)
+
+    # Pitcher side: per-start category usage counts over ALL pitches (a
+    # starter's mix includes every pitch he throws, not just PA enders),
+    # LAG-shifted, trailing 6 starts (the sp_xwoba window — one window, no
+    # overlapping duplicates). New-pitcher fallback: the strictly-prior
+    # league usage shares at the game date (pitcher-date AVG first so
+    # doubleheader legs don't double-count the same trailing window).
+    con.execute("""
+        CREATE TABLE arsenal_usage_game AS
+        SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
+            SUM(CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 1 ELSE 0 END) AS n_fb,
+            SUM(CASE WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 1 ELSE 0 END) AS n_brk,
+            SUM(CASE WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 1 ELSE 0 END) AS n_off,
+            COUNT(*) AS n_tot
+        FROM pitches
+        GROUP BY 1, 2, 3
+    """)
+    con.execute("""
+        CREATE TABLE arsenal_usage_shifted AS
+        SELECT *,
+            LAG(n_fb, 1) OVER w AS _n_fb,
+            LAG(n_brk, 1) OVER w AS _n_brk,
+            LAG(n_off, 1) OVER w AS _n_off,
+            LAG(n_tot, 1) OVER w AS _n_tot
+        FROM arsenal_usage_game
+        WINDOW w AS (PARTITION BY pitcher ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE arsenal_usage_roll AS
+        SELECT game_date, game_pk, pitcher,
+            COALESCE(SUM(_n_fb) OVER w6, 0) AS fb_n,
+            COALESCE(SUM(_n_brk) OVER w6, 0) AS brk_n,
+            COALESCE(SUM(_n_off) OVER w6, 0) AS off_n,
+            COALESCE(SUM(_n_tot) OVER w6, 0) AS tot_n
+        FROM arsenal_usage_shifted
+        WINDOW w6 AS (PARTITION BY pitcher ORDER BY game_date
+                      ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("""
+        CREATE TABLE arsenal_usage_league AS
+        SELECT game_date,
+            SUM(fb_n)::DOUBLE / NULLIF(SUM(tot_n), 0) AS lg_fb_usage,
+            SUM(brk_n)::DOUBLE / NULLIF(SUM(tot_n), 0) AS lg_brk_usage,
+            SUM(off_n)::DOUBLE / NULLIF(SUM(tot_n), 0) AS lg_off_usage
+        FROM (
+            SELECT game_date, pitcher,
+                   AVG(fb_n) AS fb_n, AVG(brk_n) AS brk_n,
+                   AVG(off_n) AS off_n, AVG(tot_n) AS tot_n
+            FROM arsenal_usage_roll GROUP BY game_date, pitcher
+        )
+        GROUP BY game_date
+    """)
+
+    # Lineup × category table: the SAME projected top-9 selection as
+    # lineup_woba_* / lineup_familiarity_sp (batter_ratings ranked by
+    # _pa30 within (game_pk, batting_team)), crossed with the category grid
+    # so every projected hitter contributes all three categories (no prior
+    # history → the league prior via shrinkage; missing league prior →
+    # NULL, never fabricated).
+    con.execute("""
+        CREATE TABLE arsenal_lineup AS
+        WITH proj AS (
+            SELECT game_date, game_pk, batting_team, batter,
+                ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
+                                   ORDER BY _pa30 DESC) AS rn
+            FROM batter_ratings WHERE shrunk_woba IS NOT NULL
+        ),
+        proj9 AS (SELECT * FROM proj WHERE rn <= 9),
+        grid AS (
+            SELECT p9.game_date, p9.game_pk, p9.batting_team, p9.batter, c.cat AS pitch_cat
+            FROM proj9 p9
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed')) AS c(cat)
+        ),
+        j AS (
+            SELECT g.game_pk, g.batting_team, g.pitch_cat,
+                r.k_num, r.pa_n, r.xwo_num, r.xwo_den,
+                l.lg_k_rate, l.lg_xwoba,
+                (COALESCE(r.k_num, 0) + l.lg_k_rate * 40)
+                    / (COALESCE(r.pa_n, 0) + 40) AS shrunk_k,
+                (COALESCE(r.xwo_num, 0) + l.lg_xwoba * 40)
+                    / (COALESCE(r.xwo_den, 0) + 40) AS shrunk_xwoba
+            FROM grid g
+            LEFT JOIN batter_cat_rolling r
+              ON r.game_pk = g.game_pk AND r.batter = g.batter
+             AND r.pitch_cat = g.pitch_cat
+            LEFT JOIN batter_cat_league l
+              ON l.game_date = g.game_date AND l.pitch_cat = g.pitch_cat
+        )
+        SELECT game_pk, batting_team,
+            AVG(CASE WHEN pitch_cat = 'fastball' THEN shrunk_k END) AS lineup_k_fb,
+            AVG(CASE WHEN pitch_cat = 'breaking' THEN shrunk_k END) AS lineup_k_brk,
+            AVG(CASE WHEN pitch_cat = 'offspeed' THEN shrunk_k END) AS lineup_k_off,
+            AVG(CASE WHEN pitch_cat = 'fastball' THEN shrunk_xwoba END) AS lineup_xwoba_fb,
+            AVG(CASE WHEN pitch_cat = 'breaking' THEN shrunk_xwoba END) AS lineup_xwoba_brk,
+            AVG(CASE WHEN pitch_cat = 'offspeed' THEN shrunk_xwoba END) AS lineup_xwoba_off
+        FROM j
+        GROUP BY game_pk, batting_team
+    """)
+
+    # Per-side matchup: home side = HOME lineup vs AWAY starter; away side =
+    # AWAY lineup vs HOME starter. Usage shares fall back to the league
+    # shares when the starter has no prior starts; a zero share contributes
+    # exactly 0 (no renormalization). A NULL weight × NULL value pair must    # not poison the sum: zero weights short-circuit to 0.0, positive
+    # weights with a missing lineup value keep NULL (honest missing).
+    con.execute("""
+        CREATE TABLE arsenal_side AS
+        WITH sides AS (
+            -- side='home' = the HOME lineup's view of the AWAY starter
+            -- (spec: home = home lineup vs away starting pitcher; diff =
+            -- home minus away, the batting-side convention of
+            -- lineup_ops_vs_starter_hand).
+            SELECT game_pk, game_date, home_team AS lineup_team,
+                   away_starter_id AS sp_id, 'home' AS side
+            FROM starters
+            UNION ALL
+            SELECT game_pk, game_date, away_team AS lineup_team,
+                   home_starter_id AS sp_id, 'away' AS side
+            FROM starters
+        ),
+        usage AS (
+            SELECT r.game_pk, r.pitcher, r.fb_n, r.brk_n, r.off_n, r.tot_n,
+                   l.lg_fb_usage, l.lg_brk_usage, l.lg_off_usage
+            FROM arsenal_usage_roll r
+            LEFT JOIN arsenal_usage_league l USING (game_date)
+        ),
+        matched AS (
+            SELECT si.side, si.game_pk,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_k_fb END AS lineup_k_fb,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_k_brk END AS lineup_k_brk,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_k_off END AS lineup_k_off,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_xwoba_fb END AS lineup_xwoba_fb,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_xwoba_brk END AS lineup_xwoba_brk,
+                CASE WHEN si.sp_id IS NULL THEN NULL
+                     ELSE la.lineup_xwoba_off END AS lineup_xwoba_off,
+                CASE WHEN u.tot_n > 0 THEN u.fb_n::DOUBLE / u.tot_n
+                     ELSE u.lg_fb_usage END AS fb_usage,
+                CASE WHEN u.tot_n > 0 THEN u.brk_n::DOUBLE / u.tot_n
+                     ELSE u.lg_brk_usage END AS brk_usage,
+                CASE WHEN u.tot_n > 0 THEN u.off_n::DOUBLE / u.tot_n
+                     ELSE u.lg_off_usage END AS off_usage
+            FROM sides si
+            LEFT JOIN arsenal_lineup la
+              ON la.game_pk = si.game_pk AND la.batting_team = si.lineup_team
+            LEFT JOIN usage u
+              ON u.game_pk = si.game_pk AND u.pitcher = si.sp_id
+        )
+        SELECT side, game_pk,
+            CASE WHEN COALESCE(fb_usage, 0) = 0 THEN 0.0
+                 ELSE fb_usage * lineup_k_fb END
+          + CASE WHEN COALESCE(brk_usage, 0) = 0 THEN 0.0
+                 ELSE brk_usage * lineup_k_brk END
+          + CASE WHEN COALESCE(off_usage, 0) = 0 THEN 0.0
+                 ELSE off_usage * lineup_k_off END
+            AS arsenal_x_lineup_k,
+            CASE WHEN COALESCE(fb_usage, 0) = 0 THEN 0.0
+                 ELSE fb_usage * lineup_xwoba_fb END
+          + CASE WHEN COALESCE(brk_usage, 0) = 0 THEN 0.0
+                 ELSE brk_usage * lineup_xwoba_brk END
+          + CASE WHEN COALESCE(off_usage, 0) = 0 THEN 0.0
+                 ELSE off_usage * lineup_xwoba_off END
+            AS arsenal_x_lineup_xwoba
+        FROM matched
     """)
 
     # 7g/7h — travel fatigue + closer availability (helpers above).
@@ -1833,7 +2230,19 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             re.reliever_exposure_index_home,
             re.reliever_exposure_index_away,
             re.reliever_exposure_index_home - re.reliever_exposure_index_away
-                AS reliever_exposure_index_diff
+                AS reliever_exposure_index_diff,
+            -- Arsenal × projected-lineup matchup (CANDIDATE — not in
+            -- FEATURE_COLS until the ablation gate passes). side='home' is
+            -- the home lineup vs the away starter, so the home column reads
+            -- the side='home' row directly and diff = home − away per the
+            -- batting-side convention.
+            ash.arsenal_x_lineup_k AS arsenal_x_lineup_k_home,
+            asa.arsenal_x_lineup_k AS arsenal_x_lineup_k_away,
+            ash.arsenal_x_lineup_k - asa.arsenal_x_lineup_k AS arsenal_x_lineup_k_diff,
+            ash.arsenal_x_lineup_xwoba AS arsenal_x_lineup_xwoba_home,
+            asa.arsenal_x_lineup_xwoba AS arsenal_x_lineup_xwoba_away,
+            ash.arsenal_x_lineup_xwoba - asa.arsenal_x_lineup_xwoba
+                AS arsenal_x_lineup_xwoba_diff
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -1887,6 +2296,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN team_def_babip dbh ON w.game_pk = dbh.game_pk AND w.home_team = dbh.def_team
         LEFT JOIN team_def_babip dba ON w.game_pk = dba.game_pk AND w.away_team = dba.def_team
         LEFT JOIN reliever_exposure re ON w.game_pk = re.game_pk
+        LEFT JOIN arsenal_side ash ON w.game_pk = ash.game_pk AND ash.side = 'home'
+        LEFT JOIN arsenal_side asa ON w.game_pk = asa.game_pk AND asa.side = 'away'
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -1917,6 +2328,9 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "starter_start_outs_rolling", "starter_outs_league", "sp_outs_meas",
         "starter_pitch_counts", "sp_tto_start", "sp_tto_shifted", "sp_tto_rolling",
         "sp_pitch_league", "sp_tto_features",
+        "batter_cat_game", "batter_cat_shifted", "batter_cat_rolling",
+        "batter_cat_league", "arsenal_usage_game", "arsenal_usage_shifted",
+        "arsenal_usage_roll", "arsenal_usage_league", "arsenal_lineup", "arsenal_side",
         "lineup_tto_game", "lineup_tto_shifted", "lineup_tto_rolling",
         "lineup_fam_daily", "lineup_fam",
         "reliever_pa", "reliever_team", "bridge_window",
@@ -1954,7 +2368,9 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
                    lineup_familiarity_sp_home, lineup_familiarity_sp_away, lineup_familiarity_sp_diff,
                    bp_bridge_quality_home, bp_bridge_quality_away, bp_bridge_quality_diff,
                    team_def_babip_proxy_home, team_def_babip_proxy_away, team_def_babip_proxy_diff,
-                   reliever_exposure_index_home, reliever_exposure_index_away, reliever_exposure_index_diff
+                   reliever_exposure_index_home, reliever_exposure_index_away, reliever_exposure_index_diff,
+                   arsenal_x_lineup_k_home, arsenal_x_lineup_k_away, arsenal_x_lineup_k_diff,
+                   arsenal_x_lineup_xwoba_home, arsenal_x_lineup_xwoba_away, arsenal_x_lineup_xwoba_diff
             FROM game_level
         )
         SELECT
@@ -2013,7 +2429,9 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             gf.lineup_familiarity_sp_home, gf.lineup_familiarity_sp_away, gf.lineup_familiarity_sp_diff,
             gf.bp_bridge_quality_home, gf.bp_bridge_quality_away, gf.bp_bridge_quality_diff,
             gf.team_def_babip_proxy_home, gf.team_def_babip_proxy_away, gf.team_def_babip_proxy_diff,
-            gf.reliever_exposure_index_home, gf.reliever_exposure_index_away, gf.reliever_exposure_index_diff
+            gf.reliever_exposure_index_home, gf.reliever_exposure_index_away, gf.reliever_exposure_index_diff,
+            gf.arsenal_x_lineup_k_home, gf.arsenal_x_lineup_k_away, gf.arsenal_x_lineup_k_diff,
+            gf.arsenal_x_lineup_xwoba_home, gf.arsenal_x_lineup_xwoba_away, gf.arsenal_x_lineup_xwoba_diff
         FROM pitches p
         LEFT JOIN game_feats gf ON p.game_pk = gf.game_pk
         ORDER BY p.game_date, p.game_pk, p.inning, p.at_bat_number, p.pitch_number
