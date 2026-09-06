@@ -528,7 +528,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         WITH lastp AS (
             SELECT CAST(game_date AS DATE) AS game_date,
                    game_pk, inning, inning_topbot, at_bat_number,
-                   pitcher, events,
+                   pitcher, batter, events,
                    launch_speed, launch_angle,
                    COALESCE(home_score, 0) + COALESCE(away_score, 0) AS tot_score,
                    estimated_woba_using_speedangle AS xwoba_val,
@@ -555,7 +555,8 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                 ) AS prev_tot
             FROM lp
         )
-        SELECT game_date, game_pk, pitcher, events,
+        SELECT game_date, game_pk, inning_topbot, at_bat_number,
+               pitcher, batter, events,
                -- First PA of the game: score starts 0-0, so its runs = tot_score.
                CASE WHEN prev_tot IS NULL THEN tot_score
                     ELSE GREATEST(tot_score - prev_tot, 0) END AS runs_on_pa,
@@ -583,6 +584,24 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                     THEN 1.0 ELSE 0.0 END AS barrel_flag,
                CASE WHEN launch_speed >= 95 THEN 1.0 ELSE 0.0 END AS hard_flag
         FROM seq
+    """)
+
+    # ── TTO (times-through-order) ordinal — SHARED helper ──────────────
+    # One definition, reused by every tto-split feature below:
+    # within each (game_pk, pitcher), PAs are ordered by the sequence field
+    # pa_boundary provides (at_bat_number, the same monotone ordering the
+    # seq CTE uses for the score progression). tto = 1 + (pa_ordinal − 1) // 9
+    # capped at 3: TTO 1 = PAs 1-9, TTO 2 = 10-18, TTO 3 = PAs 19+.
+    # LAG-shifted rollups built on this table are point-in-time: a game's
+    # own rows are shifted out of its windows via LAG on game_date.
+    con.execute("""
+        CREATE TABLE pa_tto AS
+        SELECT game_date, game_pk, inning_topbot, pitcher, batter, events,
+            outs_on_pa, runs_on_pa, xwoba_val,
+            1 + LEAST((ROW_NUMBER() OVER (
+                    PARTITION BY game_pk, pitcher
+                    ORDER BY at_bat_number) - 1) // 9, 2) AS tto
+        FROM pa_boundary
     """)
     con.execute(f"""
         CREATE TABLE pitcher_game_stats AS
@@ -729,6 +748,199 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
                 / NULLIF(_roll_ip, 0) AS sp_fip_30g,
             _roll_xwoba AS sp_xwoba_30g
         FROM pitcher_rolling
+    """)
+
+    # Measured starter length — trailing last-10 starts. Per-start IP comes
+    # from the SAME pa_boundary outs map as pitcher_game_stats.ip (no proxy).
+    # 10-start (not 30-game) window: a starter's roster slot rolls ~every 5
+    # days, so a 10-start window ≈ 5 weeks of form and stays robust to the
+    # one-off short leash. LAG-shifted: the current start never enters its
+    # own window. League-mean floor/shrink convention (matches the
+    # sp_outs_start_10g / sp_outs_meas_10g probes): a per-start IP < 5 is
+    # not a length signal (recovered / scratched / data artifact) — the
+    # start is EXCLUDED from the window and the level falls back to the
+    # as-of league mean (a season-partitioned, LAG-shifted expanding mean
+    # so it stays point-in-time). Debut rows (no prior starts) also take
+    # the as-of league mean; rows with a valid window take
+    # 0.75*avg_10g + 0.25*league_mean (0.75/0.25 shrink convention).
+    con.execute("""
+        CREATE TABLE starter_start_outs AS
+        SELECT psg.game_date, psg.game_pk, psg.pitcher,
+               -- ip_sig: NULL for a <5-IP start. The start is EXCLUDED from
+               -- the trailing window (not a length signal), but the ROW still
+               -- ships so every start gets a feature value built from its
+               -- prior window.
+               CASE WHEN psg.ip >= 5.0 THEN psg.ip END AS ip_sig,
+               s.home_starter_id, s.away_starter_id
+        FROM pitcher_game_stats psg
+        JOIN starters s ON psg.game_pk = s.game_pk
+           AND (psg.pitcher = s.home_starter_id OR psg.pitcher = s.away_starter_id)
+    """)
+    con.execute("""
+        CREATE TABLE starter_start_outs_shifted AS
+        SELECT game_date, game_pk, pitcher,
+            CASE WHEN pitcher = home_starter_id THEN 'home'
+                 ELSE 'away' END AS side,
+            LAG(ip_sig, 1) OVER (PARTITION BY pitcher ORDER BY game_date) AS _s_ip
+        FROM starter_start_outs
+    """)
+    con.execute("""
+        CREATE TABLE starter_start_outs_rolling AS
+        SELECT game_date, game_pk, pitcher, side,
+            AVG(_s_ip) OVER w10 AS sp_ip_avg_10g,
+            COUNT(_s_ip) OVER w10 AS _n10
+        FROM starter_start_outs_shifted
+        WINDOW w10 AS (PARTITION BY pitcher ORDER BY game_date
+                       ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
+    """)
+    # As-of league mean of per-start IP: season-partitioned expanding POOLED
+    # mean of the SHIFTED (prior-start) series from starter_start_outs_shifted
+    # — same convention as batter_league.lg_woba (prior-game stats only, no
+    # second LAG needed). Aggregated to ONE ROW PER DATE first (batter_league
+    # pattern): a per-date join against a per-start table would fan out.
+    # The 5.4 constant only covers the first date in the frame (no prior
+    # start anywhere); 5.4 IP = 16.2 outs, the modern league SP-length anchor.
+    con.execute("""
+        CREATE TABLE starter_outs_league AS
+        WITH daily AS (
+            SELECT game_date, SUM(_s_ip) AS s, COUNT(_s_ip) AS n
+            FROM starter_start_outs_shifted GROUP BY game_date
+        )
+        SELECT game_date,
+            SUM(s) OVER w / NULLIF(SUM(n) OVER w, 0) AS lg_sp_outs
+        FROM daily
+        WINDOW w AS (PARTITION BY EXTRACT(YEAR FROM game_date) ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("""
+        CREATE TABLE sp_outs_meas AS
+        SELECT r.game_date, r.game_pk, r.pitcher, r.side,
+            CASE
+                WHEN r._n10 >= 5 AND r.sp_ip_avg_10g IS NOT NULL
+                    THEN 0.75 * r.sp_ip_avg_10g + 0.25 * COALESCE(l.lg_sp_outs, 5.4)
+                ELSE COALESCE(l.lg_sp_outs, 5.4)
+            END AS sp_outs_meas_10g
+        FROM starter_start_outs_rolling r
+        LEFT JOIN starter_outs_league l USING (game_date)
+    """)
+
+    # ── SP TTO-split rollups (features 2–3) ───────────────────────────
+    # Per starter per start: wOBA allowed and (K−BB) rate among 1st-TTO PAs
+    # and 3rd-TTO PAs, using the SHARED pa_tto ordinal. Pooling the raw PAs
+    # (not averaging per-game rates) matches the wOBA definition and keeps
+    # light starts light.
+    # Real per-start pitch counts (all pitches the pitcher threw in his own
+    # game — relievers bill their pitches to their own rows).
+    con.execute("""
+        CREATE TABLE starter_pitch_counts AS
+        SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
+               COUNT(*) AS n_pitches
+        FROM pitches
+        GROUP BY 1, 2, 3
+    """)
+    con.execute("""
+        CREATE TABLE sp_tto_start AS
+        SELECT t.game_date, t.game_pk, t.pitcher, pc.n_pitches,
+            SUM(CASE WHEN tto = 1 THEN woba_num ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN tto = 1 THEN 1.0 ELSE 0 END), 0)
+                AS woba_t1,
+            SUM(CASE WHEN tto = 3 THEN woba_num ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN tto = 3 THEN 1.0 ELSE 0 END), 0)
+                AS woba_t3,
+            SUM(CASE WHEN tto = 1 THEN ks ELSE 0 END)
+                - SUM(CASE WHEN tto = 1 THEN bbs ELSE 0 END) AS kbb_num_t1,
+            SUM(CASE WHEN tto = 1 THEN 1.0 ELSE 0 END) AS n_t1,
+            SUM(CASE WHEN tto = 3 THEN ks ELSE 0 END)
+                - SUM(CASE WHEN tto = 3 THEN bbs ELSE 0 END) AS kbb_num_t3,
+            SUM(CASE WHEN tto = 3 THEN 1.0 ELSE 0 END) AS n_t3
+        FROM (
+            SELECT game_date, game_pk, pitcher, tto,
+                CASE events
+                    WHEN 'single' THEN 0.878 + 0.240
+                    WHEN 'double' THEN 1.242 + 0.240
+                    WHEN 'triple' THEN 1.568 + 0.240
+                    WHEN 'home_run' THEN 2.007 + 0.240
+                    WHEN 'walk' THEN 0.690 + 0.240
+                    WHEN 'hit_by_pitch' THEN 0.722 + 0.240
+                    ELSE 0.0
+                END AS woba_num,
+                CASE WHEN events IN ('strikeout', 'strikeout_double_play')
+                     THEN 1 ELSE 0 END AS ks,
+                CASE WHEN events = 'walk' THEN 1 ELSE 0 END AS bbs
+            FROM pa_tto
+        ) t
+        JOIN starter_pitch_counts pc USING (game_date, game_pk, pitcher)
+        -- Starters ONLY: the league pitch-count anchor must pool starts,
+        -- not reliever outings (same restriction as starter_start_outs).
+        JOIN starters st ON t.game_pk = st.game_pk
+           AND (t.pitcher = st.home_starter_id OR t.pitcher = st.away_starter_id)
+        GROUP BY t.game_date, t.game_pk, t.pitcher, pc.n_pitches
+    """)
+    con.execute("""
+        CREATE TABLE sp_tto_shifted AS
+        SELECT *,
+            LAG(woba_t3, 1) OVER wp AS _s_woba_t3,
+            LAG(n_t3, 1) OVER wp AS _s_n_t3,
+            LAG(kbb_num_t3, 1) OVER wp AS _s_kbb3_num,
+            LAG(woba_t1, 1) OVER wp AS _s_woba_t1,
+            LAG(n_t1, 1) OVER wp AS _s_n_t1,
+            LAG(kbb_num_t1, 1) OVER wp AS _s_kbb1_num,
+            LAG(n_pitches, 1) OVER wp AS _s_pitches
+        FROM sp_tto_start
+        WINDOW wp AS (PARTITION BY pitcher ORDER BY game_date)
+    """)
+    # Trailing ≤10 prior starts: pooled numerator/denominator so a 2-PA
+    # start doesn't swing the pooled rate, then the diff-of-rates feature.
+    con.execute("""
+        CREATE TABLE sp_tto_rolling AS
+        SELECT game_date, game_pk, pitcher,
+            (SUM(_s_woba_t3 * _s_n_t3) OVER w10 - SUM(_s_woba_t1 * _s_n_t1) OVER w10)
+                / NULLIF(SUM(_s_n_t3) OVER w10 + SUM(_s_n_t1) OVER w10, 0)
+                AS sp_tto_woba_pen_10g,
+            (SUM(_s_kbb3_num) OVER w10 / NULLIF(SUM(_s_n_t3) OVER w10, 0))
+              - (SUM(_s_kbb1_num) OVER w10 / NULLIF(SUM(_s_n_t1) OVER w10, 0))
+                AS sp_tto_kbb_shift_10g,
+            SUM(_s_pitches) OVER w10 / NULLIF(COUNT(_s_pitches) OVER w10, 0)
+                AS sp_pitch_count_10g,
+            COUNT(_s_woba_t1) OVER w10 AS _n_starts
+        FROM sp_tto_shifted
+        WINDOW w10 AS (PARTITION BY pitcher ORDER BY game_date
+                       ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)
+    """)
+    # As-of league means for the <5-floor fallback (the TTO-penalty league
+    # mean is 0 by construction; pitch count falls back to the as-of league
+    # mean pitches/start). Season-partitioned expanding POOLED mean of the
+    # SHIFTED per-start series, aggregated ONE ROW PER DATE (batter_league
+    # pattern — a per-date join against a per-start table would fan out).
+    con.execute("""
+        CREATE TABLE sp_pitch_league AS
+        WITH daily AS (
+            SELECT game_date, SUM(_s_pitches) AS s, COUNT(_s_pitches) AS n
+            FROM sp_tto_shifted GROUP BY game_date
+        )
+        SELECT game_date,
+            SUM(s) OVER w / NULLIF(SUM(n) OVER w, 0) AS lg_sp_pitches
+        FROM daily
+        WINDOW w AS (PARTITION BY EXTRACT(YEAR FROM game_date) ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    # <5 valid starts -> as-of league mean (0 for the two TTO deltas), then
+    # the 0.75/0.25 shrink toward the as-of league mean. The TTO-delta league
+    # mean is 0, so the shrink reduces the observed delta by 25% on rows with
+    # ≥5 starts; sub-floor rows and debuts take the league mean outright.
+    con.execute("""
+        CREATE TABLE sp_tto_features AS
+        SELECT r.game_date, r.game_pk, r.pitcher,
+            CASE WHEN r._n_starts >= 5 THEN 0.75 * r.sp_tto_woba_pen_10g
+                 ELSE 0.0 END AS sp_tto_woba_pen_10g,
+            CASE WHEN r._n_starts >= 5 THEN 0.75 * r.sp_tto_kbb_shift_10g
+                 ELSE 0.0 END AS sp_tto_kbb_shift_10g,
+            CASE WHEN r._n_starts >= 5
+                 THEN 0.75 * r.sp_pitch_count_10g
+                      + 0.25 * COALESCE(l.lg_sp_pitches, 92.0)
+                 ELSE COALESCE(l.lg_sp_pitches, 92.0) END AS sp_pitch_count_10g
+        FROM sp_tto_rolling r
+        LEFT JOIN sp_pitch_league l USING (game_date)
     """)
 
     # 6. Team offense rolling features
@@ -1255,9 +1467,241 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         GROUP BY game_pk, batting_team
     """)
 
+    # 7i. Lineup TTO gain — batting side. Over the team's trailing 30 games,
+    # pool every PA where their batter faced an opposing STARTER at 3rd TTO
+    # vs 1st TTO (SHARED pa_tto ordinal; starter PAs identified by joining
+    # starters). Feature = pooled team wOBA(3rd TTO) − wOBA(1st TTO):
+    # positive = the lineup hits starters better the third time through.
+    # LAG-shifted windows: the current game never enters its own feature.
+    con.execute(f"""
+        CREATE TABLE lineup_tto_game AS
+        WITH starter_pa AS (
+            SELECT t.game_date, t.game_pk,
+                   CASE WHEN t.inning_topbot = 'Top' THEN s.away_team
+                        ELSE s.home_team END AS batting_team,
+                   t.tto,
+                CASE t.events
+                    WHEN 'single' THEN 0.878 + 0.240
+                    WHEN 'double' THEN 1.242 + 0.240
+                    WHEN 'triple' THEN 1.568 + 0.240
+                    WHEN 'home_run' THEN 2.007 + 0.240
+                    WHEN 'walk' THEN 0.690 + 0.240
+                    WHEN 'hit_by_pitch' THEN 0.722 + 0.240
+                    ELSE 0.0
+                END AS woba_num
+            FROM pa_tto t
+            JOIN starters s ON t.game_pk = s.game_pk
+               AND (t.pitcher = s.home_starter_id OR t.pitcher = s.away_starter_id)
+        )
+        SELECT game_date, game_pk, batting_team,
+            SUM(CASE WHEN tto = 3 THEN woba_num ELSE 0 END) AS w3_num,
+            SUM(CASE WHEN tto = 3 THEN 1.0 ELSE 0 END) AS w3_n,
+            SUM(CASE WHEN tto = 1 THEN woba_num ELSE 0 END) AS w1_num,
+            SUM(CASE WHEN tto = 1 THEN 1.0 ELSE 0 END) AS w1_n
+        FROM starter_pa
+        GROUP BY game_date, game_pk, batting_team
+    """)
+    con.execute("""
+        CREATE TABLE lineup_tto_shifted AS
+        SELECT *,
+            LAG(w3_num, 1) OVER w AS _s_w3_num,
+            LAG(w3_n, 1) OVER w AS _s_w3_n,
+            LAG(w1_num, 1) OVER w AS _s_w1_num,
+            LAG(w1_n, 1) OVER w AS _s_w1_n
+        FROM lineup_tto_game
+        WINDOW w AS (PARTITION BY batting_team ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE lineup_tto_rolling AS
+        SELECT game_date, game_pk, batting_team,
+            (SUM(_s_w3_num) OVER w30 / NULLIF(SUM(_s_w3_n) OVER w30, 0))
+              - (SUM(_s_w1_num) OVER w30 / NULLIF(SUM(_s_w1_n) OVER w30, 0))
+                AS lineup_tto_gain_30g
+        FROM lineup_tto_shifted
+        WINDOW w30 AS (PARTITION BY batting_team ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7j. Lineup familiarity with the opposing starter — mean CAREER PA count
+    # of the opposing team's hitters vs tonight's starter. Projected lineup =
+    # the SAME top-9-by-playing-time source that powers lineup_woba_*
+    # (batter_ratings ranked by _pa30, i.e. lineup_agg's ranked CTE), so
+    # board rows work identically. Career-vs-SP counts are restricted to
+    # pa_tto rows STRICTLY BEFORE the game date (point-in-time; tonight's
+    # PAs never enter tonight's feature). A lineup is keyed by its OWN team;
+    # at assembly the home column reads the AWAY team's row (the lineup the
+    # home starter faces) — same convention as opp_lefty_share_*.
+    con.execute("""
+        CREATE TABLE lineup_fam_daily AS
+        SELECT batter, pitcher, game_date, COUNT(*) AS n_pa
+        FROM pa_tto
+        GROUP BY batter, pitcher, game_date
+    """)
+    con.execute("""
+        CREATE TABLE lineup_fam AS
+        WITH proj AS (
+            SELECT game_date, game_pk, batting_team, batter,
+                ROW_NUMBER() OVER (PARTITION BY game_pk, batting_team
+                                   ORDER BY _pa30 DESC) AS rn
+            FROM batter_ratings WHERE shrunk_woba IS NOT NULL
+        ),
+        proj9 AS (SELECT * FROM proj WHERE rn <= 9),
+        opp AS (
+            SELECT p9.game_pk, p9.game_date, p9.batting_team, p9.batter,
+                CASE WHEN p9.batting_team = s.home_team THEN s.away_starter_id
+                     ELSE s.home_starter_id END AS sp_id
+            FROM proj9 p9
+            JOIN starters s ON s.game_pk = p9.game_pk
+        )
+        SELECT o.game_pk, o.batting_team,
+            -- A hitter with no prior PAs vs this SP is a true 0 (measured
+            -- absence, included in the mean); a missing starter id (no
+            -- starter row for the game) stays NULL — never fabricated.
+            AVG(CASE WHEN o.sp_id IS NULL THEN NULL
+                     ELSE COALESCE(f.n_pa, 0) END) AS lineup_familiarity_sp
+        FROM opp o
+        LEFT JOIN lineup_fam_daily f
+          ON f.batter = o.batter AND f.pitcher = o.sp_id
+         AND f.game_date < o.game_date
+        GROUP BY o.game_pk, o.batting_team
+    """)
+
     # 7g/7h — travel fatigue + closer availability (helpers above).
     _build_travel_features(con)
     _build_closer_features(con)
+
+    # 7k. Bridge-arm quality — per team, trailing 10 games, wOBA allowed by
+    # the bridge arms: the 2 most-used NON-closer relievers in the window.
+    # Roles follow the existing bullpen definitions: relievers = the
+    # established bullpen exclusions (both starters removed, same WHERE as
+    # bullpen_raw) and the closer is the team's late-inning (8th+) BF leader
+    # as of the target game (team_closer_pit from _build_closer_features).
+    # The window is built strictly-prior by construction (pairs = target
+    # game x its last ≤10 PRIOR team games), so no extra LAG is needed.
+    # Pooled PA-weighted wOBA (per-game wOBA x BF); empty window -> NULL.
+    con.execute("""
+        CREATE TABLE reliever_pa AS
+        SELECT p.game_date, p.game_pk, p.pitcher,
+               COUNT(*) AS n_batters_faced,
+               AVG(p.xwoba_val) AS xwoba,
+               MAX(p.inning_topbot) AS half
+        FROM pa_boundary p
+        JOIN starters s ON p.game_pk = s.game_pk
+        WHERE (s.home_starter_id IS NULL OR p.pitcher != s.home_starter_id)
+          AND (s.away_starter_id IS NULL OR p.pitcher != s.away_starter_id)
+        GROUP BY p.game_date, p.game_pk, p.pitcher
+    """)
+    con.execute("""
+        CREATE TABLE reliever_team AS
+        SELECT r.game_date, r.game_pk, r.pitcher, r.n_batters_faced, r.xwoba,
+               CASE WHEN r.half = 'Top' THEN w.home_team
+                    ELSE w.away_team END AS team
+        FROM reliever_pa r
+        JOIN game_winners w ON r.game_pk = w.game_pk
+    """)
+    con.execute("""
+        CREATE TABLE bridge_window AS
+        WITH team_game_list AS (
+            SELECT game_pk, CAST(game_date AS DATE) AS gd,
+                   home_team AS team FROM game_winners
+            UNION
+            SELECT game_pk, CAST(game_date AS DATE), away_team FROM game_winners
+        ),
+        team_seq AS (
+            SELECT game_pk, gd, team,
+                   ROW_NUMBER() OVER (PARTITION BY team ORDER BY gd, game_pk) AS seq_no
+            FROM team_game_list
+        ),
+        pairs AS (
+            SELECT t.game_pk, t.team, p.game_pk AS prior_gpk
+            FROM team_seq t
+            JOIN team_seq p
+              ON p.team = t.team
+             AND p.seq_no >= t.seq_no - 10 AND p.seq_no < t.seq_no
+        ),
+        bridge_rel AS (
+            SELECT pr.game_pk, pr.team, r.pitcher,
+                   SUM(r.n_batters_faced) AS bf_sum,
+                   SUM(r.xwoba * r.n_batters_faced) AS woba_wsum
+            FROM pairs pr
+            LEFT JOIN team_closer_pit cp
+              ON cp.game_pk = pr.game_pk AND cp.team = pr.team
+            JOIN reliever_team r
+              ON r.game_pk = pr.prior_gpk AND r.team = pr.team
+             AND (cp.pitcher IS NULL OR r.pitcher != cp.pitcher)
+            GROUP BY pr.game_pk, pr.team, r.pitcher
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (
+                       PARTITION BY game_pk, team
+                       ORDER BY bf_sum DESC, pitcher) AS rn
+            FROM bridge_rel
+        )
+        SELECT game_pk, team,
+               SUM(woba_wsum) / NULLIF(SUM(bf_sum), 0) AS bp_bridge_quality
+        FROM ranked WHERE rn <= 2
+        GROUP BY game_pk, team
+    """)
+
+    # 7l. Team defense proxy — trailing 30 games BABIP against on balls in
+    # play (HR excluded: a ball that left the park says nothing about the
+    # defense). BIP = in-play PA-end events minus HR; hits = 1B/2B/3B
+    # (HR excluded from the numerator AND denominator). LAG-shifted then
+    # rolled over the trailing 30 team-games.
+    con.execute(f"""
+        CREATE TABLE team_def_raw AS
+        WITH bip AS (
+            SELECT CAST(game_date AS DATE) AS game_date, game_pk,
+                   CASE WHEN inning_topbot = 'Top' THEN home_team
+                        ELSE away_team END AS def_team,
+                   CASE WHEN events IN ('single', 'double', 'triple')
+                        THEN 1.0 ELSE 0.0 END AS hit_flag
+            FROM pitches
+            WHERE events IN ('single', 'double', 'triple', 'home_run',
+                             'field_out', 'field_error', 'fielders_choice',
+                             'fielders_choice_out',
+                             'grounded_into_double_play', 'double_play',
+                             'triple_play', 'force_out', 'sac_fly',
+                             'sac_fly_double_play')
+        )
+        SELECT game_date, game_pk, def_team,
+               SUM(hit_flag) AS bip_hits, COUNT(*) AS bip_total
+        FROM bip GROUP BY 1, 2, 3
+    """)
+    con.execute("""
+        CREATE TABLE team_def_shifted AS
+        SELECT *,
+            LAG(bip_hits, 1) OVER w AS _s_hits,
+            LAG(bip_total, 1) OVER w AS _s_total
+        FROM team_def_raw
+        WINDOW w AS (PARTITION BY def_team ORDER BY game_date)
+    """)
+    con.execute("""
+        CREATE TABLE team_def_babip AS
+        SELECT game_date, game_pk, def_team,
+            SUM(_s_hits) OVER w30 / NULLIF(SUM(_s_total) OVER w30, 0)
+                AS team_def_babip_proxy
+        FROM team_def_shifted
+        WINDOW w30 AS (PARTITION BY def_team ORDER BY game_date
+                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    """)
+
+    # 7m. Expected reliever exposure inside the F5 window (built LAST — it
+    # depends on sp_outs_meas_10g): max(0, 15 outs − SP projected outs) / 3.
+    # 15 outs = 5 IP; when the starter projects to cover the 5th, exposure
+    # is 0. A missing projection falls back to a full 15-out F5 (no start
+    # is shorter than 5 IP on average — exposure stays conservative).
+    con.execute("""
+        CREATE TABLE reliever_exposure AS
+        SELECT w.game_pk,
+            GREATEST(15.0 - COALESCE(hom.sp_outs_meas_10g, 15.0), 0.0) / 3.0
+                AS reliever_exposure_index_home,
+            GREATEST(15.0 - COALESCE(awa.sp_outs_meas_10g, 15.0), 0.0) / 3.0
+                AS reliever_exposure_index_away
+        FROM game_winners w
+        LEFT JOIN sp_outs_meas hom ON w.game_pk = hom.game_pk AND hom.side = 'home'
+        LEFT JOIN sp_outs_meas awa ON w.game_pk = awa.game_pk AND awa.side = 'away'
+    """)
 
     # 8. Assemble game_level via LEFT JOINs
     con.execute("""
@@ -1360,7 +1804,36 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ba.bullpen_whip_10g - bpsa.bullpen_whip_std AS bullpen_whip_delta_away,
             ba.bullpen_era_10g - bpsa.bullpen_era_std AS bullpen_era_delta_away,
             la.lineup_woba_mean - lsa.lineup_woba_mean_std AS lineup_woba_mean_delta_away,
-            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away
+            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away,
+            -- Measured SP length + TTO-split block (per-side + diffs)
+            omh.sp_outs_meas_10g AS sp_outs_meas_10g_home,
+            oma.sp_outs_meas_10g AS sp_outs_meas_10g_away,
+            omh.sp_outs_meas_10g - oma.sp_outs_meas_10g AS sp_outs_meas_10g_diff,
+            tth.sp_tto_woba_pen_10g AS sp_tto_woba_pen_10g_home,
+            tta.sp_tto_woba_pen_10g AS sp_tto_woba_pen_10g_away,
+            tth.sp_tto_woba_pen_10g - tta.sp_tto_woba_pen_10g AS sp_tto_woba_pen_10g_diff,
+            tkh.sp_tto_kbb_shift_10g AS sp_tto_kbb_shift_10g_home,
+            tka.sp_tto_kbb_shift_10g AS sp_tto_kbb_shift_10g_away,
+            tkh.sp_tto_kbb_shift_10g - tka.sp_tto_kbb_shift_10g AS sp_tto_kbb_shift_10g_diff,
+            pch.sp_pitch_count_10g AS sp_pitch_count_10g_home,
+            pca.sp_pitch_count_10g AS sp_pitch_count_10g_away,
+            pch.sp_pitch_count_10g - pca.sp_pitch_count_10g AS sp_pitch_count_10g_diff,
+            ltg.lineup_tto_gain_30g AS lineup_tto_gain_30g_home,
+            lta.lineup_tto_gain_30g AS lineup_tto_gain_30g_away,
+            ltg.lineup_tto_gain_30g - lta.lineup_tto_gain_30g AS lineup_tto_gain_30g_diff,
+            lfam.lineup_familiarity_sp AS lineup_familiarity_sp_home,
+            lfama.lineup_familiarity_sp AS lineup_familiarity_sp_away,
+            lfam.lineup_familiarity_sp - lfama.lineup_familiarity_sp AS lineup_familiarity_sp_diff,
+            brh.bp_bridge_quality AS bp_bridge_quality_home,
+            bra.bp_bridge_quality AS bp_bridge_quality_away,
+            brh.bp_bridge_quality - bra.bp_bridge_quality AS bp_bridge_quality_diff,
+            dbh.team_def_babip_proxy AS team_def_babip_proxy_home,
+            dba.team_def_babip_proxy AS team_def_babip_proxy_away,
+            dbh.team_def_babip_proxy - dba.team_def_babip_proxy AS team_def_babip_proxy_diff,
+            re.reliever_exposure_index_home,
+            re.reliever_exposure_index_away,
+            re.reliever_exposure_index_home - re.reliever_exposure_index_away
+                AS reliever_exposure_index_diff
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -1397,6 +1870,23 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN lineup_season lsa ON w.game_pk = lsa.game_pk AND w.away_team = lsa.batting_team
         LEFT JOIN lineup_ops_agg loh ON w.game_pk = loh.game_pk AND w.home_team = loh.batting_team
         LEFT JOIN lineup_ops_agg loa ON w.game_pk = loa.game_pk AND w.away_team = loa.batting_team
+        LEFT JOIN sp_outs_meas omh ON w.game_pk = omh.game_pk AND omh.side = 'home'
+        LEFT JOIN sp_outs_meas oma ON w.game_pk = oma.game_pk AND oma.side = 'away'
+        LEFT JOIN sp_tto_features tth ON w.game_pk = tth.game_pk AND tth.pitcher = s.home_starter_id
+        LEFT JOIN sp_tto_features tta ON w.game_pk = tta.game_pk AND tta.pitcher = s.away_starter_id
+        LEFT JOIN sp_tto_features tkh ON w.game_pk = tkh.game_pk AND tkh.pitcher = s.home_starter_id
+        LEFT JOIN sp_tto_features tka ON w.game_pk = tka.game_pk AND tka.pitcher = s.away_starter_id
+        LEFT JOIN sp_tto_features pch ON w.game_pk = pch.game_pk AND pch.pitcher = s.home_starter_id
+        LEFT JOIN sp_tto_features pca ON w.game_pk = pca.game_pk AND pca.pitcher = s.away_starter_id
+        LEFT JOIN lineup_tto_rolling ltg ON w.game_pk = ltg.game_pk AND w.home_team = ltg.batting_team
+        LEFT JOIN lineup_tto_rolling lta ON w.game_pk = lta.game_pk AND w.away_team = lta.batting_team
+        LEFT JOIN lineup_fam lfam ON w.game_pk = lfam.game_pk AND w.away_team = lfam.batting_team
+        LEFT JOIN lineup_fam lfama ON w.game_pk = lfama.game_pk AND w.home_team = lfama.batting_team
+        LEFT JOIN bridge_window brh ON w.game_pk = brh.game_pk AND w.home_team = brh.team
+        LEFT JOIN bridge_window bra ON w.game_pk = bra.game_pk AND w.away_team = bra.team
+        LEFT JOIN team_def_babip dbh ON w.game_pk = dbh.game_pk AND w.home_team = dbh.def_team
+        LEFT JOIN team_def_babip dba ON w.game_pk = dba.game_pk AND w.away_team = dba.def_team
+        LEFT JOIN reliever_exposure re ON w.game_pk = re.game_pk
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -1423,6 +1913,15 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "game_venue_tz", "team_travel_raw", "travel_seq", "travel_cross", "travel_fatigue",
         "late_relief", "rel_daily", "rel_cum", "rel_team", "team_closer_pit",
         "closer_avail",
+        "pa_tto", "starter_start_outs", "starter_start_outs_shifted",
+        "starter_start_outs_rolling", "starter_outs_league", "sp_outs_meas",
+        "starter_pitch_counts", "sp_tto_start", "sp_tto_shifted", "sp_tto_rolling",
+        "sp_pitch_league", "sp_tto_features",
+        "lineup_tto_game", "lineup_tto_shifted", "lineup_tto_rolling",
+        "lineup_fam_daily", "lineup_fam",
+        "reliever_pa", "reliever_team", "bridge_window",
+        "team_def_raw", "team_def_shifted", "team_def_babip",
+        "reliever_exposure",
     ):
         con.execute(f"DROP TABLE IF EXISTS {tbl}")
     gc.collect()
@@ -1446,7 +1945,16 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
                    team_woba_30g_home, team_iso_30g_home, team_k_rate_30g_home, team_bb_rate_30g_home,
                    team_woba_30g_away, team_iso_30g_away, team_k_rate_30g_away, team_bb_rate_30g_away,
                    bullpen_whip_10g_home, bullpen_era_10g_home,
-                   bullpen_whip_10g_away, bullpen_era_10g_away
+                   bullpen_whip_10g_away, bullpen_era_10g_away,
+                   sp_outs_meas_10g_home, sp_outs_meas_10g_away, sp_outs_meas_10g_diff,
+                   sp_tto_woba_pen_10g_home, sp_tto_woba_pen_10g_away, sp_tto_woba_pen_10g_diff,
+                   sp_tto_kbb_shift_10g_home, sp_tto_kbb_shift_10g_away, sp_tto_kbb_shift_10g_diff,
+                   sp_pitch_count_10g_home, sp_pitch_count_10g_away, sp_pitch_count_10g_diff,
+                   lineup_tto_gain_30g_home, lineup_tto_gain_30g_away, lineup_tto_gain_30g_diff,
+                   lineup_familiarity_sp_home, lineup_familiarity_sp_away, lineup_familiarity_sp_diff,
+                   bp_bridge_quality_home, bp_bridge_quality_away, bp_bridge_quality_diff,
+                   team_def_babip_proxy_home, team_def_babip_proxy_away, team_def_babip_proxy_diff,
+                   reliever_exposure_index_home, reliever_exposure_index_away, reliever_exposure_index_diff
             FROM game_level
         )
         SELECT
@@ -1496,7 +2004,16 @@ def _build_pbp_level(con: duckdb.DuckDBPyConnection) -> None:
             gf.team_woba_30g_home, gf.team_iso_30g_home, gf.team_k_rate_30g_home, gf.team_bb_rate_30g_home,
             gf.team_woba_30g_away, gf.team_iso_30g_away, gf.team_k_rate_30g_away, gf.team_bb_rate_30g_away,
             gf.bullpen_whip_10g_home, gf.bullpen_era_10g_home,
-            gf.bullpen_whip_10g_away, gf.bullpen_era_10g_away
+            gf.bullpen_whip_10g_away, gf.bullpen_era_10g_away,
+            gf.sp_outs_meas_10g_home, gf.sp_outs_meas_10g_away, gf.sp_outs_meas_10g_diff,
+            gf.sp_tto_woba_pen_10g_home, gf.sp_tto_woba_pen_10g_away, gf.sp_tto_woba_pen_10g_diff,
+            gf.sp_tto_kbb_shift_10g_home, gf.sp_tto_kbb_shift_10g_away, gf.sp_tto_kbb_shift_10g_diff,
+            gf.sp_pitch_count_10g_home, gf.sp_pitch_count_10g_away, gf.sp_pitch_count_10g_diff,
+            gf.lineup_tto_gain_30g_home, gf.lineup_tto_gain_30g_away, gf.lineup_tto_gain_30g_diff,
+            gf.lineup_familiarity_sp_home, gf.lineup_familiarity_sp_away, gf.lineup_familiarity_sp_diff,
+            gf.bp_bridge_quality_home, gf.bp_bridge_quality_away, gf.bp_bridge_quality_diff,
+            gf.team_def_babip_proxy_home, gf.team_def_babip_proxy_away, gf.team_def_babip_proxy_diff,
+            gf.reliever_exposure_index_home, gf.reliever_exposure_index_away, gf.reliever_exposure_index_diff
         FROM pitches p
         LEFT JOIN game_feats gf ON p.game_pk = gf.game_pk
         ORDER BY p.game_date, p.game_pk, p.inning, p.at_bat_number, p.pitch_number
