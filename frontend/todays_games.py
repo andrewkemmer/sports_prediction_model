@@ -707,19 +707,48 @@ def _nfl_widget_key(r) -> str:
     return f"{d}_{r.get('away_team', '')}@{r.get('home_team', '')}"
 
 
+def _nfl_banner_html(status, is_final, is_live, winner, pick, correct,
+                     coin, upset, home_team, away_team, r) -> str:
+    """NFL twin of ``_banner_html`` — identical banner classes/colors and
+    wording, with the scheduled state phrased for kickoff instead of first
+    pitch. Decided games reuse the exact MLB outcome wording."""
+    winner_name = (str(r.get("home_team_name", "") or "") or home_team) \
+        if winner == home_team else (
+        (str(r.get("away_team_name", "") or "") or away_team)
+        if winner == away_team else "")
+    if status == "Scheduled":
+        kickoff = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
+        suffix = f" — {kickoff}" if kickoff else ""
+        return (f'<div class="fb-banner blue">⏳ Pre-game{suffix} · '
+                'prediction locked at kickoff</div>')
+    if is_live:
+        leader = winner or "—"
+        suffix = f" · {leader} leading" if leader != "—" else ""
+        return f'<div class="fb-banner blue">● LIVE — In progress{suffix}</div>'
+    if coin:
+        return f'<div class="fb-banner amber">🪙 {winner_name} Won — Coin Flip Game (50/50)</div>'
+    if correct:
+        return f'<div class="fb-banner green">✓ {winner_name} Won — Model Correct</div>'
+    if upset:
+        return f'<div class="fb-banner red">X {winner_name} Won — Upset! Model picked {pick}</div>'
+    return f'<div class="fb-banner red">X {winner_name} Won — Model picked {pick}</div>'
+
+
 def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
                    half_stop=False) -> str:
-    """Compact NFL moneyline card (teams + win prob) from the adapted frame.
+    """NFL moneyline card, structurally identical to the MLB ``_card_html``:
+    same top-strip pills (coin flip / upset / live / pick result / FINAL),
+    shared scoreboard, shared team rows (HOME tag, PICK badge, 🏆), pre-game
+    line, venue line, run-engine box, and outcome banner — using the shared
+    ``_team_row`` / ``_accent`` / ``_pct_color`` / ``_bar_color`` helpers.
 
-    Honors the shared card look (fb-card / fb-team / fb-bar) but omits the
-    MLB-only sections (pitchers). Win prob renders as '—' when
-    the artifact carries none. When a run-engine slate row resolves for this
-    game (``slate_row``), a market-free run-engine box is appended:
-    projected scores, the O/U at the fair/selected total with a push note at
-    integer totals, the run-line pair at the fair/selected home spread (or
-    the ±0.5 stop's raw + derived pair), and the derived-ML pair
-    (P(H>A)/(1−P(tie))) — offered lines, shrink columns and edges are never
-    rendered (NFL dashboard policy).
+    NFL-specific differences are data-only: no pitchers, run-engine box
+    comes from ``nfl_slate_view`` (model-fair lines; offered lines, shrink
+    columns and edges are never rendered — NFL dashboard policy), and the
+    banner says kickoff. Win prob renders as '—' when the artifact carries
+    none. When a run-engine slate row resolves for this game
+    (``slate_row``), the box prices the fair/selected total and the
+    fair/selected home spread (or the ±0.5 stop's raw + derived pair).
     """
     import nfl_slate_view as nfl_sv
 
@@ -727,30 +756,114 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
     away = str(r.get("away_team", "") or "")
     home_name = str(r.get("home_team_name", "") or "") or home
     away_name = str(r.get("away_team_name", "") or "") or away
-    ph = r.get("home_win_prob_model")
-    pa = None if ph is None else 1.0 - float(ph)
+    status = str(r.get("game_status", "") or "Scheduled")
+    is_final = status == "Final"
+    is_live = status == "Live"
+    is_scheduled = status == "Scheduled"
 
-    def _row(name, team, p):
-        if p is None:
-            pct = "—"
-            width = 0
-            color = "#334155"
-        else:
-            pct = f"{p:.0%}"
-            width = int(round(p * 100))
-            color = utils.PRIMARY if p >= 0.5 else "#38BDF8"
-        return (
-            f'<div class="fb-team"><span class="fb-accent" style="background:{color};"></span>'
-            f'<div><span class="name">{name}</span> <span class="sub">{team}</span></div>'
-            f'<span class="pct" style="color:{color};">{pct}</span></div>'
-            f'<div class="fb-bar"><div class="fill" style="width:{width}%;background:{color};"></div></div>'
+    hs = r.get("home_score")
+    as_ = r.get("away_score")
+    h_score_n = None if pd.isna(hs) else int(hs)
+    a_score_n = None if pd.isna(as_) else int(as_)
+    h_disp = "" if h_score_n is None else h_score_n
+    a_disp = "" if a_score_n is None else a_score_n
+
+    ph = r.get("home_win_prob_model")
+    ph = None if ph is None or pd.isna(ph) else float(ph)
+    pa = None if ph is None else 1.0 - ph
+    pick = str(r.get("model_pick", "") or "")
+    is_coin_flip = bool(ph is not None and abs(ph - 0.5) < 0.005) or pick == ""
+    is_upset = bool(is_final and pick and winner_ok(h_score_n, a_score_n,
+                                                    home, away)
+                    and winner_of(h_score_n, a_score_n, home, away) == pick
+                    and ph is not None
+                    and ((ph if winner_of(h_score_n, a_score_n, home, away) == home
+                          else 1.0 - ph) <= 0.5))
+
+    winner = ("" if (h_score_n is None or a_score_n is None
+                     or h_score_n == a_score_n)
+              else (home if h_score_n > a_score_n else away))
+    correct = bool(winner and pick and winner == pick) if is_final else False
+
+    # --- top badge strip (same pill classes/geometry as MLB) ---
+    center_pill, right_pills = "", ""
+    if is_coin_flip and is_final:
+        center_pill = '<span class="fb-pill coinflip">🪙 COIN FLIP</span>'
+    elif is_upset and is_final:
+        center_pill = '<span class="fb-pill upset">⚡ UPSET</span>'
+    if is_live:
+        right_pills = '<span class="fb-pill live">● LIVE</span>'
+    elif is_scheduled:
+        right_pills = '<span class="fb-pill final">PRE-GAME</span>'
+    elif is_final:
+        correct_pill = "" if is_coin_flip else (
+            '<span class="fb-pill correct">✓ CORRECT PICK</span>' if correct
+            else '<span class="fb-pill miss">X MISS</span>')
+        right_pills = correct_pill + '<span class="fb-pill final">FINAL</span>'
+    top = (
+        f'<span class="fb-tag">🏈 NFL</span>{center_pill}'
+        f'<span class="spacer"></span>{right_pills}'
+    )
+
+    # --- scoreboard (shared structure/classes) ---
+    if is_scheduled:
+        mid = utils.start_time_et(str(r.get("start_time_utc", "") or "")) or "PREGAME"
+    else:
+        mid = "F" if is_final else "LIVE"
+    score = (
+        f'<div class="fb-score">'
+        f'{_score_side(a_disp, away, is_winner=(winner == away))}'
+        f'<span class="mid">{mid}</span>'
+        f'{_score_side(h_disp, home, is_winner=(winner == home))}'
+        f'</div>'
+    )
+
+    # --- team rows + probability bars (shared helpers) ---
+    if ph is None:
+        # No probability in the artifact: degrade the two rows to the quiet
+        # '—' variant instead of fabricating 50/50 (never rendered today —
+        # the artifact always carries probs — kept for schema safety).
+        def _row(name, team, p):
+            return (
+                f'<div class="fb-team"><span class="fb-accent" '
+                f'style="background:#334155;"></span>'
+                f'<div><span class="name">{name}</span> '
+                f'<span class="sub">{team}</span></div>'
+                f'<span class="pct" style="color:#334155;">—</span></div>'
+                f'<div class="fb-bar"><div class="fill" '
+                f'style="width:0%;background:#334155;"></div></div>'
+            )
+        home_row, away_row = _row(home_name, home, None), _row(away_name, away, None)
+    else:
+        home_row = _team_row(
+            home_name, home, str(r.get("home_record", "") or ""), ph,
+            _accent(home, winner, is_coin_flip, pick, is_live),
+            _pct_color(home, winner, pick, is_coin_flip),
+            _bar_color(home, winner, pick, is_coin_flip),
+            picked=(pick == home), trophy=(winner == home and is_final), is_home=True,
+        )
+        away_row = _team_row(
+            away_name, away, str(r.get("away_record", "") or ""), pa,
+            _accent(away, winner, is_coin_flip, pick, is_live),
+            _pct_color(away, winner, pick, is_coin_flip),
+            _bar_color(away, winner, pick, is_coin_flip),
+            picked=(pick == away), trophy=(winner == away and is_final), is_home=False,
         )
 
-    start = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
-    meta = str(r.get("game_date", "") or "")
-    meta += f" · {start}" if start else ""
-    meta_html = (f'<div class="fb-venue">📅 {meta}</div>' if meta
-                 else '<div class="fb-venue">&nbsp;</div>')
+    pregame = ""
+    if ph is not None:
+        pregame = (f'<div class="fb-pregame">Pre-game: {home} {ph:.0%} vs '
+                   f'{away} {pa:.0%}</div>')
+
+    # --- venue (pitchers are MLB-only and intentionally absent) ---
+    start_et = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
+    venue_txt = str(r.get("venue", "") or "")
+    venue = f'<div class="fb-venue">📍 {venue_txt}{f" · {start_et}" if start_et else ""}</div>' \
+        if (venue_txt or start_et) else '<div class="fb-venue">&nbsp;</div>'
+
+    banner = _nfl_banner_html(status, is_final, is_live, winner, pick, correct,
+                              is_coin_flip, is_upset, home, away, r)
+
     runengine = ""
     if slate_row is not None:
         try:
@@ -760,12 +873,23 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
         except Exception:
             runengine = ('<div class="fb-runengine"><span class="re-label">'
                          'RUN ENGINE</span><span class="re-na">n/a</span></div>')
+
     return (
-        f'<div class="fb-card"><div class="fb-top">'
-        f'<span class="fb-tag">NFL MONEYLINE</span><span class="spacer"></span></div>'
-        f'{_row(home_name, home, ph)}{_row(away_name, away, pa)}{meta_html}'
-        f'{runengine}</div>'
+        f'<div class="fb-card"><div class="fb-top">{top}</div>{score}'
+        f'{home_row}{away_row}{pregame}{venue}{runengine}{banner}</div>'
     )
+
+
+def winner_of(h_score, a_score, home: str, away: str) -> str:
+    """Winner abbreviation from final scores, '' when undecided/tied."""
+    if h_score is None or a_score is None or h_score == a_score:
+        return ""
+    return home if h_score > a_score else away
+
+
+def winner_ok(h_score, a_score, home: str, away: str) -> bool:
+    """True when the game is decided (both scores present, no tie)."""
+    return bool(winner_of(h_score, a_score, home, away))
 
 
 def _match_slate_row(r, slate: pd.DataFrame):
@@ -862,8 +986,111 @@ def _render_nfl_cards(frame, slate: pd.DataFrame | None = None) -> None:
                           "half_stop": sel[2]}
                 st.markdown(_nfl_card_html(r, srow, **kw),
                             unsafe_allow_html=True)
+                _nfl_shap_expander(r)
     st.caption("NFL moneyline probabilities are point-in-time model outputs; "
                "run-engine lines are the model's fair values.")
+
+
+def _nfl_shap_expander(r) -> None:
+    """NFL SHAP accordion — same expander/chart/caption as the MLB card's
+    ``_shap_expander``, keyed by the NFL game id. The moneyline record does
+    not ship per-game SHAP files yet, so this quietly renders the MLB
+    expander's 'no file' empty state until the backend emits them."""
+    gid = _nfl_widget_key(r)
+    date_str = str(r.get("game_date", "") or "").replace("-", "")
+    with st.expander(f"📈 SHAP Features — {gid}", expanded=False):
+        shap_df = utils.load_shap(gid, date_str)
+        if shap_df.empty:
+            st.caption("No SHAP file found for this game.")
+            return
+        chart = utils.shap_chart(shap_df)
+        if chart is not None:
+            utils.show_chart(chart)
+        st.caption("Positive values increase the favored team's win probability; "
+                   "negative decrease it. Averaged across the XGBoost / LightGBM / "
+                   "Logistic Regression ensemble.")
+
+
+def _nfl_header_strip(frame, date_str: str) -> None:
+    """NFL twin of the MLB 'games shown / evening / accuracy' header strip,
+    fed from the sport-dispatched calibration record (today_record via the
+    decided OOF/sealed history on NFL)."""
+    cal = utils.load_calibration(date_str, sport="nfl")
+    record = cal.get("today_record", {}) or {}
+    wins, losses = record.get("wins", 0), record.get("losses", 0)
+    completed = record.get("completed", wins + losses)
+    acc = (wins / completed * 100) if completed else 0.0
+    league_total = cal.get("league_total", len(frame))
+    n_evening = 0
+    if "start_time_utc" in frame.columns and len(frame):
+        hrs = pd.to_numeric(frame["start_time_utc"].astype(str)
+                            .str.slice(11, 13), errors="coerce")
+        n_evening = int(hrs.ge(23).fillna(False).sum())
+    st.markdown(
+        f"""
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:2px;">
+          <div style="color:#94A3B8;font-size:0.9rem;">· {len(frame)} of {league_total} games shown</div>
+          <span style="background:rgba(59,130,246,.18);color:#93C5FD;border-radius:999px;padding:2px 10px;font-size:0.78rem;font-weight:700;">
+            {n_evening} evening games begin 7 PM ET+
+          </span>
+          <span style="margin-left:auto;background:rgba(16,185,129,.18);color:#34D399;border-radius:999px;padding:2px 10px;font-size:0.8rem;font-weight:700;">
+            ✓ {wins}-{losses} Today · {acc:.1f}% accuracy
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _nfl_filter_pills(frame):
+    """NFL twin of the MLB Final/Live filter pills (identical control,
+    nfl-namespaced widget key). Returns the filtered frame."""
+    counts = {
+        "All Games": len(frame),
+        "Final": int((frame["game_status"] == "Final").sum()),
+        "Live": int((frame["game_status"] == "Live").sum()),
+    }
+    options = ["All Games", "Final", "Live"]
+    fmt = {o: f"{o} ({counts[o]})" for o in options}
+    if "nfl_game_filter" not in st.session_state:
+        st.session_state["nfl_game_filter"] = "All Games"
+    if hasattr(st, "pills"):
+        selected = st.pills(
+            "Filter", options, format_func=lambda o: fmt[o],
+            key="nfl_game_filter", selection_mode="single",
+            label_visibility="collapsed",
+        )
+    else:
+        selected = st.segmented_control(
+            "Filter", options, format_func=lambda o: fmt[o],
+            key="nfl_game_filter", label_visibility="collapsed",
+        )
+    if selected == "Final":
+        return frame[frame["game_status"] == "Final"]
+    if selected == "Live":
+        return frame[frame["game_status"] == "Live"]
+    return frame
+
+
+def _render_nfl_day_board_parity(frame, date_str: str,
+                                  slate=None) -> None:
+    """NFL day board with full MLB parity: title, accuracy strip, artifact
+    line, filter pills, divider, then the two-column card grid with
+    run-engine boxes and SHAP accordions. (Date nav is rendered by the
+    caller, as on MLB.)"""
+    st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
+                unsafe_allow_html=True)
+    _nfl_header_strip(frame, date_str)
+    fdate = utils.latest_artifact_date("nfl", "moneyline_json")
+    tag = f"v1_{fdate}" if fdate else "—"
+    st.markdown(
+        f"<div style='color:#94A3B8;margin:2px 0 14px;'>NFL moneyline board · "
+        f"{utils.format_date_long(date_str)} · artifact {tag}</div>",
+        unsafe_allow_html=True,
+    )
+    shown = _nfl_filter_pills(frame)
+    st.divider()
+    _render_nfl_cards(shown, slate)
 
 
 def _render_nfl_board() -> None:
@@ -1185,22 +1412,6 @@ def _render_date_nav(valid, current: str) -> None:
             st.rerun()
 
 
-def _render_nfl_day_board(frame, date_str: str,
-                          slate: pd.DataFrame | None = None) -> None:
-    """Per-date NFL moneyline board for the selected valid game date,
-    enriched with the run-engine box from the slate-serve artifact."""
-    st.markdown("<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>🏈 NFL — Moneyline</div>",
-                unsafe_allow_html=True)
-    fdate = utils.latest_artifact_date("nfl", "moneyline_json")
-    tag = f"v1_{fdate}" if fdate else "—"
-    st.markdown(
-        f"<div style='color:#94A3B8;margin:2px 0 14px;'>NFL moneyline board · "
-        f"{utils.format_date_long(date_str)} · artifact {tag}</div>",
-        unsafe_allow_html=True,
-    )
-    _render_nfl_cards(frame, slate)
-
-
 def _run_nfl_main(valid, valid_set) -> None:
     """NFL Today's Games: moneyline board filtered to the selected valid game
     date. When the shipped record is aggregate-only (no per-game rows), a
@@ -1233,7 +1444,7 @@ def _run_nfl_main(valid, valid_set) -> None:
         slate, _sdate = utils.load_nfl_run_engine_markets("nfl")
     except Exception:
         slate = pd.DataFrame()
-    _render_nfl_day_board(day, date_str, slate)
+    _render_nfl_day_board_parity(day, date_str, slate)
 
 
 def main() -> None:
