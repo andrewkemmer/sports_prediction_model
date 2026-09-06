@@ -1,0 +1,1681 @@
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 426.1/426.1 kB 7.0 MB/s eta 0:00:00a 0:00:01
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 455.6/455.6 kB 20.2 MB/s eta 0:00:00
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.4/1.4 MB 38.9 MB/s eta 0:00:00:00:01
+setup done
+run options set
+🔑 GitHub token loaded from environment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 0 — Environment Setup
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 Installing dependencies...
+  ✅ Done
+📥 Cloning sports_prediction_model...
+  📁 /content/sports_prediction_model/mlb-backend
+  INFO Pulling Statcast: 2024-01-01 → 2026-09-06 (chunk_days=60)
+  INFO   Chunk: 2024-01-01 → 2024-02-29
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2024-01-01 → 2024-02-29 (attempt 2/3, backoff 1.0s)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 1 — Statcast Data Ingestion
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📅 2024-01-01 → 2026-09-06
+  ♻️  MLB_FULL_REPULL set — discarding cache and re-pulling full history
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2024-01-01 → 2024-02-29 (attempt 3/3, backoff 2.0s)
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO   Chunk: 2024-03-01 → 2024-04-29
+  0%|          | 0/46 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|██████████| 46/46 [00:53<00:00,  1.16s/it]
+  INFO     → 164216 pitches
+  INFO   Chunk: 2024-04-30 → 2024-06-28
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:19<00:00,  1.33s/it]
+  INFO     → 230719 pitches
+  INFO   Chunk: 2024-06-29 → 2024-08-27
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:17<00:00,  1.29s/it]
+  INFO     → 222680 pitches
+  INFO   Chunk: 2024-08-28 → 2024-10-26
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [00:48<00:00,  1.23it/s]
+  INFO     → 141645 pitches
+  INFO   Chunk: 2024-10-27 → 2024-12-25
+ 10%|█         | 2/20 [00:00<00:01, 15.06it/s]
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|██████████| 20/20 [00:00<00:00, 24.26it/s]
+  INFO     → 989 pitches
+  INFO   Chunk: 2024-12-26 → 2025-02-23
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2024-12-26 → 2025-02-23 (attempt 2/3, backoff 1.0s)
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2024-12-26 → 2025-02-23 (attempt 3/3, backoff 2.0s)
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO   Chunk: 2025-02-24 → 2025-04-24
+  0%|          | 0/41 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|██████████| 41/41 [00:53<00:00,  1.30s/it]
+  INFO     → 154157 pitches
+  INFO   Chunk: 2025-04-25 → 2025-06-23
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:25<00:00,  1.42s/it]
+  INFO     → 233471 pitches
+  INFO   Chunk: 2025-06-24 → 2025-08-22
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:31<00:00,  1.52s/it]
+  INFO     → 221858 pitches
+  INFO   Chunk: 2025-08-23 → 2025-10-21
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [00:59<00:00,  1.00it/s]
+  INFO     → 158880 pitches
+  INFO   Chunk: 2025-10-22 → 2025-12-20
+  4%|▍         | 1/25 [00:00<00:02,  9.75it/s]
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|██████████| 25/25 [00:01<00:00, 21.93it/s]
+  INFO     → 2429 pitches
+  INFO   Chunk: 2025-12-21 → 2026-02-18
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2025-12-21 → 2026-02-18 (attempt 2/3, backoff 1.0s)
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO     ↻ retrying 2025-12-21 → 2026-02-18 (attempt 3/3, backoff 2.0s)
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+0it [00:00, ?it/s]
+  INFO   Chunk: 2026-02-19 → 2026-04-19
+  0%|          | 0/36 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+Skipping offseason dates
+100%|██████████| 36/36 [00:49<00:00,  1.38s/it]
+  INFO     → 136267 pitches
+  INFO   Chunk: 2026-04-20 → 2026-06-18
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:27<00:00,  1.47s/it]
+  INFO     → 231114 pitches
+  INFO   Chunk: 2026-06-19 → 2026-08-17
+  0%|          | 0/60 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 60/60 [01:22<00:00,  1.38s/it]
+  INFO     → 224816 pitches
+  INFO   Chunk: 2026-08-18 → 2026-09-06
+  0%|          | 0/20 [00:00<?, ?it/s]
+This is a large query, it may take a moment to complete
+100%|██████████| 20/20 [00:26<00:00,  1.30s/it]
+  INFO     → 77204 pitches
+  INFO Total raw pitches: 2200445
+  INFO Dropped 117501 non-regular-season pitches (game_type S/E)
+  INFO Saved 2082944 pitches → /content/mlb_clean_data/pitches.parquet (209.0 MB)
+  ✅ Raw pitches: /content/mlb_clean_data/pitches.parquet
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 2-3 — DuckDB Feature Engineering (pure SQL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+=== REPOSITORY DIAGNOSTIC ===
+git remote -v:
+origin	https://github.com/andrewkemmer/sports_prediction_model.git (fetch)
+origin	https://github.com/andrewkemmer/sports_prediction_model.git (push)
+git rev-parse HEAD: 7a4e72453806d8e776bc510dbbda950e3a4b8922
+git status --short:
+
+git log -1 --oneline: 7a4e724 feat(mlb): add standalone pre-flight check for the Kaggle feature source
+features module: /content/sports_prediction_model/mlb-backend/backend/features.py
+
+--- source around failing line (1635-1685) ---
+1636:             LAG(k_n, 1) OVER w AS _k_n,
+1637:             LAG(xwo_num, 1) OVER w AS _xwo_num,
+1638:             LAG(xwo_den, 1) OVER w AS _xwo_den
+1639:         FROM batter_cat_game
+1640:         WINDOW w AS (PARTITION BY batter, pitch_cat ORDER BY game_date)
+1641:     """)
+1642:     con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+1643:     con.execute("""
+1644:         CREATE TABLE batter_cat_rolling AS
+1645:         SELECT game_date, game_pk, batter, pitch_cat,
+1646:             COALESCE(SUM(_k_n) OVER w30, 0) AS k_num,
+1647:             COALESCE(SUM(_pa_n) OVER w30, 0) AS pa_n,
+1648:             COALESCE(SUM(_xwo_num) OVER w30, 0) AS xwo_num,
+1649:             COALESCE(SUM(_xwo_den) OVER w30, 0) AS xwo_den
+1650:         FROM batter_cat_shifted
+1651:         WINDOW w30 AS (PARTITION BY batter, pitch_cat ORDER BY game_date
+1652:                       ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+1653:     """)
+1654:     con.execute("DROP TABLE IF EXISTS batter_cat_game2")
+1655:     con.execute("""
+1656:         CREATE TABLE batter_cat_league AS
+1657:         SELECT game_date, pitch_cat,
+1658:             SUM(k_num) / NULLIF(SUM(pa_n), 0) AS lg_k_rate,
+1659:             SUM(xwo_num) / NULLIF(SUM(xwo_den), 0) AS lg_xwoba
+1660:         FROM batter_cat_rolling
+1661:         GROUP BY game_date, pitch_cat
+1662:     """)
+1663:     # Pitcher side: per-start category usage counts over ALL pitches (a
+1664:     # starter's mix includes every pitch he throws, not just PA enders),
+1665:     # LAG-shifted, trailing 6 starts (the sp_xwoba window — one window, no
+1666:     # overlapping duplicates). New-pitcher fallback: the strictly-prior
+1667:     # league usage shares at the game date (pitcher-date AVG first so
+1668:     # doubleheader legs don't double-count the same trailing window).
+1669:     con.execute("""
+1670:         CREATE TABLE arsenal_usage_game AS
+1671:         SELECT CAST(game_date AS DATE) AS game_date, game_pk, pitcher,
+1672:             SUM(CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 1 ELSE 0 END) AS n_fb,
+1673:             SUM(CASE WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 1 ELSE 0 END) AS n_brk,
+1674:             SUM(CASE WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 1 ELSE 0 END) AS n_off,
+1675:             COUNT(*) AS n_tot
+1676:         FROM pitches
+1677:         GROUP BY 1, 2, 3
+1678:     """)
+1679:     con.execute("""
+1680:         CREATE TABLE arsenal_usage_shifted AS
+1681:         SELECT *,
+1682:             LAG(n_fb, 1) OVER w AS _n_fb,
+1683:             LAG(n_brk, 1) OVER w AS _n_brk,
+1684:             LAG(n_off, 1) OVER w AS _n_off,
+1685:             LAG(n_tot, 1) OVER w AS _n_tot
+
+OK: imported features.py does NOT contain the malformed WHEN fragment.
+  INFO === DuckDB Feature Engineering ===
+  INFO [MEM] Start: 5750 MB
+  INFO [MEM] After DuckDB load: 5750 MB
+  INFO Building game-level features (corrected_outs=False)...
+  INFO game_level built: 7088 games
+  INFO [MEM] After game_level: 5750 MB
+  INFO Exported game_level: 7.0 MB
+  INFO Building PBP-level features...
+  INFO pbp_level built: 2082944 pitches
+  INFO [MEM] After pbp_level: 5750 MB
+  INFO Exported pbp_level: 52.8 MB
+  INFO [MEM] After DuckDB close: 5750 MB
+  INFO Official results applied: 7088 games verified/corrected
+  INFO [MEM] After pandas load: 5750 MB
+  INFO Computing 35 diff features for 7088 games...
+  INFO Diff features complete: 35 columns added
+  INFO === Complete: 7088 games, 2082944 pitches ===
+  INFO Computing 35 diff features for 7088 games...
+  INFO Diff features complete: 35 columns added
+  INFO Loaded 7088 games from game_level_features.csv (columns: ['game_pk', 'game_date', 'home_team', 'away_team', 'home_score', 'away_score', 'home_win', 'total_runs', 'home_starter_id', 'away_starter_id', 'venue', 'rest_days_home', 'rest_days_away', 'sp_era_home', 'sp_k9_home', 'sp_bb9_home', 'sp_whip_home', 'sp_fip_home', 'sp_xwoba_home', 'sp_era_away', 'sp_k9_away', 'sp_bb9_away', 'sp_whip_away', 'sp_fip_away', 'sp_xwoba_away', 'sp_era_5g_home', 'sp_k9_5g_home', 'sp_era_5g_away', 'sp_k9_5g_away', 'woba_30g_home', 'team_iso_30g_home', 'team_k_rate_30g_home', 'team_bb_rate_30g_home', 'woba_30g_away', 'team_iso_30g_away', 'team_k_rate_30g_away', 'team_bb_rate_30g_away', 'bullpen_whip_10g_home', 'bullpen_era_10g_home', 'bullpen_whip_10g_away', 'bullpen_era_10g_away', 'bullpen_whip_3g_home', 'bullpen_whip_3g_away', 'sp_fbvelo_3g_home', 'sp_fbpct_3g_home', 'sp_whiff_3g_home', 'sp_xwoba_vs_l_home', 'sp_xwoba_vs_r_home', 'sp_fbvelo_3g_away', 'sp_fbpct_3g_away', 'sp_whiff_3g_away', 'sp_xwoba_vs_l_away', 'sp_xwoba_vs_r_away', 'team_barrel_15g_home', 'team_hardhit_15g_home', 'team_exitvelo_15g_home', 'team_barrel_15g_away', 'team_hardhit_15g_away', 'team_exitvelo_15g_away', 'opp_lefty_share_home', 'opp_lefty_share_away', 'bullpen_pitches_3d_home', 'bullpen_ip_3d_home', 'bullpen_pitches_3d_away', 'bullpen_ip_3d_away', 'lineup_ops_vs_l_home', 'lineup_ops_vs_r_home', 'lineup_ops_vs_l_away', 'lineup_ops_vs_r_away', 'lineup_ops_vs_starter_hand_home', 'lineup_ops_vs_starter_hand_away', 'time_zones_crossed_last_3d_home', 'time_zones_crossed_last_3d_away', 'closer_available_home', 'closer_available_away', 'lineup_woba_mean_home', 'lineup_woba_top3_home', 'lineup_woba_std_home', 'lineup_woba_mean_away', 'lineup_woba_top3_away', 'lineup_woba_std_away', 'sp_era_delta_home', 'sp_k9_delta_home', 'sp_bb9_delta_home', 'sp_whip_delta_home', 'sp_xwoba_delta_home', 'sp_fbvelo_delta_home', 'sp_fbpct_delta_home', 'sp_whiff_delta_home', 'woba_delta_home', 'team_iso_delta_home', 'team_k_rate_delta_home', 'team_bb_rate_delta_home', 'team_barrel_delta_home', 'team_hardhit_delta_home', 'team_exitvelo_delta_home', 'bullpen_whip_delta_home', 'bullpen_era_delta_home', 'lineup_woba_mean_delta_home', 'lineup_woba_top3_delta_home', 'sp_era_delta_away', 'sp_k9_delta_away', 'sp_bb9_delta_away', 'sp_whip_delta_away', 'sp_xwoba_delta_away', 'sp_fbvelo_delta_away', 'sp_fbpct_delta_away', 'sp_whiff_delta_away', 'woba_delta_away', 'team_iso_delta_away', 'team_k_rate_delta_away', 'team_bb_rate_delta_away', 'team_barrel_delta_away', 'team_hardhit_delta_away', 'team_exitvelo_delta_away', 'bullpen_whip_delta_away', 'bullpen_era_delta_away', 'lineup_woba_mean_delta_away', 'lineup_woba_top3_delta_away', 'sp_outs_meas_10g_home', 'sp_outs_meas_10g_away', 'sp_outs_meas_10g_diff', 'sp_tto_woba_pen_10g_home', 'sp_tto_woba_pen_10g_away', 'sp_tto_woba_pen_10g_diff', 'sp_tto_kbb_shift_10g_home', 'sp_tto_kbb_shift_10g_away', 'sp_tto_kbb_shift_10g_diff', 'sp_pitch_count_10g_home', 'sp_pitch_count_10g_away', 'sp_pitch_count_10g_diff', 'lineup_tto_gain_30g_home', 'lineup_tto_gain_30g_away', 'lineup_tto_gain_30g_diff', 'lineup_familiarity_sp_home', 'lineup_familiarity_sp_away', 'lineup_familiarity_sp_diff', 'bp_bridge_quality_home', 'bp_bridge_quality_away', 'bp_bridge_quality_diff', 'team_def_babip_proxy_home', 'team_def_babip_proxy_away', 'team_def_babip_proxy_diff', 'reliever_exposure_index_home', 'reliever_exposure_index_away', 'reliever_exposure_index_diff', 'arsenal_x_lineup_k_home', 'arsenal_x_lineup_k_away', 'arsenal_x_lineup_k_diff', 'arsenal_x_lineup_xwoba_home', 'arsenal_x_lineup_xwoba_away', 'arsenal_x_lineup_xwoba_diff', 'is_home', 'win_pct_diff', 'elo_diff', 'rest_days_diff', 'sp_era_diff', 'sp_era_5g_diff', 'sp_k9_diff', 'sp_k9_5g_diff', 'sp_fbvelo_diff', 'sp_fbpct_diff', 'sp_whiff_diff', 'sp_xwoba_diff', 'sp_xwoba_vs_l_diff', 'lineup_woba_mean_diff', 'lineup_woba_top3_diff', 'lineup_woba_std_diff', 'woba_30g_diff', 'bullpen_whip_diff', 'bullpen_whip_3g_diff', 'bullpen_pitches_diff', 'bullpen_ip_diff', 'team_barrel_diff', 'team_hardhit_diff', 'team_exitvelo_diff', 'lineup_handedness_matchup_advantage', 'travel_fatigue_diff', 'closer_availability_diff', 'dome_is_neutral', 'park_factor_slug_diff', 'wind_advantage_flyball_factor', 'air_density_velocity_boost', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'home_elo', 'away_elo', 'home_wins', 'home_losses', 'away_wins', 'away_losses', 'home_win_pct', 'away_win_pct', 'home_run_diff', 'away_run_diff', 'home_record', 'away_record'])
+  INFO Feature mapping complete: 7088 games, columns: ['game_pk', 'game_date', 'home_team', 'away_team', 'home_score', 'away_score', 'home_win', 'total_runs', 'home_starter_id', 'away_starter_id', 'venue', 'rest_days_home', 'rest_days_away', 'sp_era_home', 'sp_k9_home', 'sp_bb9_home', 'sp_whip_home', 'sp_fip_home', 'sp_xwoba_home', 'sp_era_away', 'sp_k9_away', 'sp_bb9_away', 'sp_whip_away', 'sp_fip_away', 'sp_xwoba_away', 'sp_era_5g_home', 'sp_k9_5g_home', 'sp_era_5g_away', 'sp_k9_5g_away', 'woba_30g_home', 'team_iso_30g_home', 'team_k_rate_30g_home', 'team_bb_rate_30g_home', 'woba_30g_away', 'team_iso_30g_away', 'team_k_rate_30g_away', 'team_bb_rate_30g_away', 'bullpen_whip_10g_home', 'bullpen_era_10g_home', 'bullpen_whip_10g_away', 'bullpen_era_10g_away', 'bullpen_whip_3g_home', 'bullpen_whip_3g_away', 'sp_fbvelo_3g_home', 'sp_fbpct_3g_home', 'sp_whiff_3g_home', 'sp_xwoba_vs_l_home', 'sp_xwoba_vs_r_home', 'sp_fbvelo_3g_away', 'sp_fbpct_3g_away', 'sp_whiff_3g_away', 'sp_xwoba_vs_l_away', 'sp_xwoba_vs_r_away', 'team_barrel_15g_home', 'team_hardhit_15g_home', 'team_exitvelo_15g_home', 'team_barrel_15g_away', 'team_hardhit_15g_away', 'team_exitvelo_15g_away', 'opp_lefty_share_home', 'opp_lefty_share_away', 'bullpen_pitches_3d_home', 'bullpen_ip_3d_home', 'bullpen_pitches_3d_away', 'bullpen_ip_3d_away', 'lineup_ops_vs_l_home', 'lineup_ops_vs_r_home', 'lineup_ops_vs_l_away', 'lineup_ops_vs_r_away', 'lineup_ops_vs_starter_hand_home', 'lineup_ops_vs_starter_hand_away', 'time_zones_crossed_last_3d_home', 'time_zones_crossed_last_3d_away', 'closer_available_home', 'closer_available_away', 'lineup_woba_mean_home', 'lineup_woba_top3_home', 'lineup_woba_std_home', 'lineup_woba_mean_away', 'lineup_woba_top3_away', 'lineup_woba_std_away', 'sp_era_delta_home', 'sp_k9_delta_home', 'sp_bb9_delta_home', 'sp_whip_delta_home', 'sp_xwoba_delta_home', 'sp_fbvelo_delta_home', 'sp_fbpct_delta_home', 'sp_whiff_delta_home', 'woba_delta_home', 'team_iso_delta_home', 'team_k_rate_delta_home', 'team_bb_rate_delta_home', 'team_barrel_delta_home', 'team_hardhit_delta_home', 'team_exitvelo_delta_home', 'bullpen_whip_delta_home', 'bullpen_era_delta_home', 'lineup_woba_mean_delta_home', 'lineup_woba_top3_delta_home', 'sp_era_delta_away', 'sp_k9_delta_away', 'sp_bb9_delta_away', 'sp_whip_delta_away', 'sp_xwoba_delta_away', 'sp_fbvelo_delta_away', 'sp_fbpct_delta_away', 'sp_whiff_delta_away', 'woba_delta_away', 'team_iso_delta_away', 'team_k_rate_delta_away', 'team_bb_rate_delta_away', 'team_barrel_delta_away', 'team_hardhit_delta_away', 'team_exitvelo_delta_away', 'bullpen_whip_delta_away', 'bullpen_era_delta_away', 'lineup_woba_mean_delta_away', 'lineup_woba_top3_delta_away', 'sp_outs_meas_10g_home', 'sp_outs_meas_10g_away', 'sp_outs_meas_10g_diff', 'sp_tto_woba_pen_10g_home', 'sp_tto_woba_pen_10g_away', 'sp_tto_woba_pen_10g_diff', 'sp_tto_kbb_shift_10g_home', 'sp_tto_kbb_shift_10g_away', 'sp_tto_kbb_shift_10g_diff', 'sp_pitch_count_10g_home', 'sp_pitch_count_10g_away', 'sp_pitch_count_10g_diff', 'lineup_tto_gain_30g_home', 'lineup_tto_gain_30g_away', 'lineup_tto_gain_30g_diff', 'lineup_familiarity_sp_home', 'lineup_familiarity_sp_away', 'lineup_familiarity_sp_diff', 'bp_bridge_quality_home', 'bp_bridge_quality_away', 'bp_bridge_quality_diff', 'team_def_babip_proxy_home', 'team_def_babip_proxy_away', 'team_def_babip_proxy_diff', 'reliever_exposure_index_home', 'reliever_exposure_index_away', 'reliever_exposure_index_diff', 'arsenal_x_lineup_k_home', 'arsenal_x_lineup_k_away', 'arsenal_x_lineup_k_diff', 'arsenal_x_lineup_xwoba_home', 'arsenal_x_lineup_xwoba_away', 'arsenal_x_lineup_xwoba_diff', 'is_home', 'win_pct_diff', 'elo_diff', 'rest_days_diff', 'sp_era_diff', 'sp_era_5g_diff', 'sp_k9_diff', 'sp_k9_5g_diff', 'sp_fbvelo_diff', 'sp_fbpct_diff', 'sp_whiff_diff', 'sp_xwoba_diff', 'sp_xwoba_vs_l_diff', 'lineup_woba_mean_diff', 'lineup_woba_top3_diff', 'lineup_woba_std_diff', 'woba_30g_diff', 'bullpen_whip_diff', 'bullpen_whip_3g_diff', 'bullpen_pitches_diff', 'bullpen_ip_diff', 'team_barrel_diff', 'team_hardhit_diff', 'team_exitvelo_diff', 'lineup_handedness_matchup_advantage', 'travel_fatigue_diff', 'closer_availability_diff', 'dome_is_neutral', 'park_factor_slug_diff', 'wind_advantage_flyball_factor', 'air_density_velocity_boost', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'home_elo', 'away_elo', 'home_wins', 'home_losses', 'away_wins', 'away_losses', 'home_win_pct', 'away_win_pct', 'home_run_diff', 'away_run_diff', 'home_record', 'away_record', 'game_id', 'start_time_utc', 'start_time_observed']
+  INFO === Daily pipeline for 20260906 (model v2026.09.06) ===
+  INFO Step 1: Using pre-built game features (7088 games)
+  INFO Loaded 7088 games
+  INFO Official results applied: 7088 games verified/corrected
+  INFO Recomputing all diff features from raw home/away columns
+  INFO Computing 35 diff features for 7088 games...
+  INFO Diff features complete: 35 columns added
+  INFO add_lineup_delta_features: computed 6 column(s) for 7088 games
+  INFO StatsAPI schedule 2024-03-20→2024-05-18: 806 games (795 new)
+  INFO StatsAPI schedule 2024-05-19→2024-07-17: 772 games (762 new)
+  INFO StatsAPI schedule 2024-07-18→2024-09-15: 803 games (789 new)
+  INFO StatsAPI schedule 2024-09-16→2024-11-14: 232 games (228 new)
+  INFO StatsAPI schedule 2024-11-15→2025-01-13: 0 games (0 new)
+  INFO StatsAPI schedule 2025-01-14→2025-03-14: 322 games (322 new)
+  INFO StatsAPI schedule 2025-03-15→2025-05-13: 806 games (796 new)
+  INFO StatsAPI schedule 2025-05-14→2025-07-12: 817 games (801 new)
+  INFO StatsAPI schedule 2025-07-13→2025-09-10: 763 games (757 new)
+  INFO StatsAPI schedule 2025-09-11→2025-11-09: 287 games (285 new)
+  INFO StatsAPI schedule 2025-11-10→2026-01-08: 0 games (0 new)
+  INFO StatsAPI schedule 2026-01-09→2026-03-09: 277 games (277 new)
+  INFO StatsAPI schedule 2026-03-10→2026-05-08: 798 games (791 new)
+  INFO StatsAPI schedule 2026-05-09→2026-07-07: 806 games (801 new)
+  INFO StatsAPI schedule 2026-07-08→2026-09-05: 776 games (761 new)
+  INFO Weather history: start times 2024: 2472/2472 (100%)
+  INFO Weather history: start times 2025: 2477/2477 (100%)
+  INFO Weather history: start times 2026: 2139/2139 (100%)
+  INFO Weather batches: skipped 18 gameless window(s) (2024-03-19→2026-09-05 span) — no Open-Meteo requests sent for them
+  INFO Weather fetched: 7081/7088 games from batched observations
+  INFO Weather cache saved: 7081 games → /content/mlb_clean_data/weather_history.parquet
+  INFO Weather history: fetched 7081 new games (cache now 7081)
+  INFO StatsAPI game-feed weather: 3/3 games reported conditions (0 unusable)
+  INFO StatsAPI weather filler: 1/3 gap games recovered from official park observations
+  INFO Weather cache saved: 7082 games → /content/mlb_clean_data/weather_history.parquet
+  INFO Weather features applied to 7082/7088 games
+  INFO Weather history: 7082/7088 games with observed weather (cache)
+  INFO Roof top-up: 1659/1663 retractable games cached, 4 missing
+  INFO Roof top-up: 4 new entries (cache now 1663)
+  WARNING Dome refinement: 7088/7088 games resolved; 0 retractable games have UNKNOWN roof state (teams: {}) - venue fallback applied, never silently treated as closed
+  INFO Dome refinement: 5759 games play under real weather after refinement
+  INFO Env-level features (raw-derived): park_wind_factor 7086/7088, air_density_level 7081/7088, park_factor_slug 7088/7088
+  INFO Pipeline snapshot: 7088 decided games, hash=338eadc0b7a1
+  INFO Re-exporting features CSV with applied weather (wind coverage 6556/7088, air-density 6795/7088)
+  INFO Refreshed game_level_features.csv with applied weather
+  INFO Umpire gap-fill 2026: appended 0, patched 362 (map 8893 rows)
+  INFO Umpire map: 8893 games, 139 umpires (fetched seasons none, gap-filled 2026, rows added 0)
+  INFO Step 2: Generating market lines
+  INFO Step 3: Walk-forward evaluation
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO run_margin_diff: OOF margins attached on the moneyline's own folds (run engine READ-ONLY, 29-feature view); coverage 93.0% of 7088 rows, 495 decided game(s) uncovered (NaN → imputation); median rounds {'home': 47, 'away': 43}
+  INFO Fold 0 [2024-04-25 → 2024-05-01]: train=371 val=96 auc=0.4559 brier=0.2604
+  INFO Fold 1 [2024-05-02 → 2024-05-08]: train=467 val=91 auc=0.5891 brier=0.2414
+  INFO Fold 2 [2024-05-09 → 2024-05-15]: train=558 val=95 auc=0.4535 brier=0.2608
+  INFO Fold 3 [2024-05-16 → 2024-05-22]: train=653 val=92 auc=0.6000 brier=0.2361
+  INFO Fold 4 [2024-05-23 → 2024-05-29]: train=745 val=93 auc=0.5916 brier=0.2465
+  INFO Calibration: Platt fitted on 374 OOF games (a=0.3813, b=0.1442)
+  INFO Fold 5 [2024-05-30 → 2024-06-05]: train=838 val=90 auc=0.6185 brier=0.2370
+  INFO Calibration: Platt fitted on 467 OOF games (a=0.4563, b=0.1061)
+  INFO Fold 6 [2024-06-06 → 2024-06-12]: train=928 val=91 auc=0.6169 brier=0.2416
+  INFO Calibration: Platt fitted on 557 OOF games (a=0.5961, b=0.0962)
+  INFO Fold 7 [2024-06-13 → 2024-06-19]: train=1019 val=95 auc=0.5600 brier=0.2402
+  INFO Calibration: Platt fitted on 648 OOF games (a=0.6883, b=0.0639)
+  INFO Fold 8 [2024-06-20 → 2024-06-26]: train=1114 val=94 auc=0.5564 brier=0.2441
+  INFO Calibration: Platt fitted on 743 OOF games (a=0.7084, b=0.1102)
+  INFO Fold 9 [2024-06-27 → 2024-07-03]: train=1208 val=87 auc=0.5005 brier=0.2576
+  INFO Calibration: Platt fitted on 837 OOF games (a=0.6961, b=0.1324)
+  INFO Fold 10 [2024-07-04 → 2024-07-10]: train=1295 val=97 auc=0.5038 brier=0.2531
+  INFO Calibration: Platt fitted on 924 OOF games (a=0.6161, b=0.1119)
+  INFO Fold 11 [2024-07-11 → 2024-07-21]: train=1392 val=102 auc=0.5318 brier=0.2465
+  INFO Calibration: Platt fitted on 1021 OOF games (a=0.5929, b=0.0935)
+  INFO Fold 12 [2024-07-22 → 2024-07-28]: train=1494 val=96 auc=0.5965 brier=0.2474
+  INFO Calibration: Platt fitted on 1123 OOF games (a=0.5985, b=0.0938)
+  INFO Fold 13 [2024-07-29 → 2024-08-04]: train=1590 val=91 auc=0.6446 brier=0.2348
+  INFO Calibration: Platt fitted on 1219 OOF games (a=0.6205, b=0.0670)
+  INFO Fold 14 [2024-08-05 → 2024-08-11]: train=1681 val=93 auc=0.6112 brier=0.2457
+  INFO Calibration: Platt fitted on 1310 OOF games (a=0.7029, b=0.0490)
+  INFO Fold 15 [2024-08-12 → 2024-08-18]: train=1774 val=92 auc=0.6091 brier=0.2386
+  INFO Calibration: Platt fitted on 1403 OOF games (a=0.7425, b=0.0186)
+  INFO Fold 16 [2024-08-19 → 2024-08-25]: train=1866 val=95 auc=0.6708 brier=0.2323
+  INFO Calibration: Platt fitted on 1495 OOF games (a=0.7684, b=0.0286)
+  INFO Fold 17 [2024-08-26 → 2024-09-01]: train=1961 val=98 auc=0.5770 brier=0.2484
+  INFO Calibration: Platt fitted on 1590 OOF games (a=0.8337, b=0.0224)
+  INFO Fold 18 [2024-09-02 → 2024-09-08]: train=2059 val=93 auc=0.5735 brier=0.2461
+  INFO Calibration: Platt fitted on 1688 OOF games (a=0.8444, b=0.0028)
+  INFO Fold 19 [2024-09-09 → 2024-09-15]: train=2152 val=92 auc=0.5921 brier=0.2405
+  INFO Calibration: Platt fitted on 1781 OOF games (a=0.8377, b=0.0054)
+  INFO Fold 20 [2024-09-16 → 2024-09-22]: train=2244 val=97 auc=0.6145 brier=0.2398
+  INFO Calibration: Platt fitted on 1873 OOF games (a=0.8542, b=0.0080)
+  INFO Fold 21 [2024-09-23 → 2024-09-29]: train=2341 val=86 auc=0.5729 brier=0.2551
+  INFO Calibration: Platt fitted on 1970 OOF games (a=0.8748, b=0.0091)
+  INFO Fold 26 [2025-03-28 → 2025-04-03]: train=2488 val=84 auc=0.5341 brier=0.2458
+  INFO Calibration: Platt fitted on 2056 OOF games (a=0.8594, b=-0.0049)
+  INFO Fold 27 [2025-04-04 → 2025-04-10]: train=2572 val=90 auc=0.5275 brier=0.2448
+  INFO Calibration: Platt fitted on 2140 OOF games (a=0.8525, b=0.0049)
+  INFO Fold 28 [2025-04-11 → 2025-04-17]: train=2662 val=94 auc=0.6312 brier=0.2326
+  INFO Calibration: Platt fitted on 2230 OOF games (a=0.8296, b=0.0287)
+  INFO Fold 29 [2025-04-18 → 2025-04-24]: train=2756 val=91 auc=0.5748 brier=0.2360
+  INFO Calibration: Platt fitted on 2324 OOF games (a=0.8556, b=0.0406)
+  INFO Fold 30 [2025-04-25 → 2025-05-01]: train=2847 val=94 auc=0.5973 brier=0.2423
+  INFO Calibration: Platt fitted on 2415 OOF games (a=0.8678, b=0.0498)
+  INFO Fold 31 [2025-05-02 → 2025-05-08]: train=2941 val=93 auc=0.6901 brier=0.2280
+  INFO Calibration: Platt fitted on 2509 OOF games (a=0.8743, b=0.0464)
+  INFO Fold 32 [2025-05-09 → 2025-05-15]: train=3034 val=92 auc=0.5882 brier=0.2482
+  INFO Calibration: Platt fitted on 2602 OOF games (a=0.9336, b=0.0335)
+  INFO Fold 33 [2025-05-16 → 2025-05-22]: train=3126 val=93 auc=0.5421 brier=0.2494
+  INFO Calibration: Platt fitted on 2694 OOF games (a=0.9197, b=0.0288)
+  INFO Fold 34 [2025-05-23 → 2025-05-29]: train=3219 val=92 auc=0.6303 brier=0.2319
+  INFO Calibration: Platt fitted on 2787 OOF games (a=0.9050, b=0.0266)
+  INFO Fold 35 [2025-05-30 → 2025-06-05]: train=3311 val=94 auc=0.5842 brier=0.2459
+  INFO Calibration: Platt fitted on 2879 OOF games (a=0.9295, b=0.0259)
+  INFO Fold 36 [2025-06-06 → 2025-06-12]: train=3405 val=92 auc=0.6595 brier=0.2332
+  INFO Calibration: Platt fitted on 2973 OOF games (a=0.9280, b=0.0189)
+  INFO Fold 37 [2025-06-13 → 2025-06-19]: train=3497 val=95 auc=0.5254 brier=0.2485
+  INFO Calibration: Platt fitted on 3065 OOF games (a=0.9494, b=0.0205)
+  INFO Fold 38 [2025-06-20 → 2025-06-26]: train=3592 val=93 auc=0.5935 brier=0.2430
+  INFO Calibration: Platt fitted on 3160 OOF games (a=0.9420, b=0.0196)
+  INFO Fold 39 [2025-06-27 → 2025-07-03]: train=3685 val=93 auc=0.4834 brier=0.2475
+  INFO Calibration: Platt fitted on 3253 OOF games (a=0.9540, b=0.0134)
+  INFO Fold 40 [2025-07-04 → 2025-07-10]: train=3778 val=94 auc=0.5668 brier=0.2430
+  INFO Calibration: Platt fitted on 3346 OOF games (a=0.9432, b=0.0206)
+  INFO Fold 41 [2025-07-11 → 2025-07-21]: train=3872 val=106 auc=0.5079 brier=0.2500
+  INFO Calibration: Platt fitted on 3440 OOF games (a=0.9458, b=0.0219)
+  INFO Fold 42 [2025-07-22 → 2025-07-28]: train=3978 val=95 auc=0.3729 brier=0.2639
+  INFO Calibration: Platt fitted on 3546 OOF games (a=0.9381, b=0.0218)
+  INFO Fold 43 [2025-07-29 → 2025-08-04]: train=4073 val=91 auc=0.4667 brier=0.2477
+  INFO Calibration: Platt fitted on 3641 OOF games (a=0.8970, b=0.0255)
+  INFO Fold 44 [2025-08-05 → 2025-08-11]: train=4164 val=91 auc=0.6647 brier=0.2324
+  INFO Calibration: Platt fitted on 3732 OOF games (a=0.8865, b=0.0317)
+  INFO Fold 45 [2025-08-12 → 2025-08-18]: train=4255 val=94 auc=0.4814 brier=0.2537
+  INFO Calibration: Platt fitted on 3823 OOF games (a=0.9164, b=0.0245)
+  INFO Fold 46 [2025-08-19 → 2025-08-25]: train=4349 val=96 auc=0.6145 brier=0.2380
+  INFO Calibration: Platt fitted on 3917 OOF games (a=0.9035, b=0.0240)
+  INFO Fold 47 [2025-08-26 → 2025-09-01]: train=4445 val=96 auc=0.5917 brier=0.2473
+  INFO Calibration: Platt fitted on 4013 OOF games (a=0.9119, b=0.0293)
+  INFO Fold 48 [2025-09-02 → 2025-09-08]: train=4541 val=91 auc=0.4971 brier=0.2521
+  INFO Calibration: Platt fitted on 4109 OOF games (a=0.9171, b=0.0219)
+  INFO Fold 49 [2025-09-09 → 2025-09-15]: train=4632 val=93 auc=0.6530 brier=0.2288
+  INFO Calibration: Platt fitted on 4200 OOF games (a=0.9080, b=0.0212)
+  INFO Fold 50 [2025-09-16 → 2025-09-22]: train=4725 val=90 auc=0.5850 brier=0.2461
+  INFO Calibration: Platt fitted on 4293 OOF games (a=0.9253, b=0.0272)
+  INFO Fold 51 [2025-09-23 → 2025-09-30]: train=4815 val=91 auc=0.5889 brier=0.2354
+  INFO Calibration: Platt fitted on 4383 OOF games (a=0.9368, b=0.0181)
+  INFO Fold 56 [2026-03-28 → 2026-04-03]: train=4969 val=88 auc=0.5423 brier=0.2400
+  INFO Calibration: Platt fitted on 4474 OOF games (a=0.9468, b=0.0189)
+  INFO Fold 57 [2026-04-04 → 2026-04-10]: train=5057 val=95 auc=0.5275 brier=0.2493
+  INFO Calibration: Platt fitted on 4562 OOF games (a=0.9474, b=0.0221)
+  INFO Fold 58 [2026-04-11 → 2026-04-17]: train=5152 val=95 auc=0.4852 brier=0.2478
+  INFO Calibration: Platt fitted on 4657 OOF games (a=0.9457, b=0.0209)
+  INFO Fold 59 [2026-04-18 → 2026-04-24]: train=5247 val=93 auc=0.5951 brier=0.2484
+  INFO Calibration: Platt fitted on 4752 OOF games (a=0.9414, b=0.0222)
+  INFO Fold 60 [2026-04-25 → 2026-05-01]: train=5340 val=92 auc=0.4577 brier=0.2520
+  INFO Calibration: Platt fitted on 4845 OOF games (a=0.9434, b=0.0181)
+  INFO Fold 61 [2026-05-02 → 2026-05-08]: train=5432 val=95 auc=0.6440 brier=0.2361
+  INFO Calibration: Platt fitted on 4937 OOF games (a=0.9385, b=0.0167)
+  INFO Fold 62 [2026-05-09 → 2026-05-15]: train=5527 val=91 auc=0.5571 brier=0.2436
+  INFO Calibration: Platt fitted on 5032 OOF games (a=0.9555, b=0.0142)
+  INFO Fold 63 [2026-05-16 → 2026-05-22]: train=5618 val=95 auc=0.5668 brier=0.2513
+  INFO Calibration: Platt fitted on 5123 OOF games (a=0.9537, b=0.0197)
+  INFO Fold 64 [2026-05-23 → 2026-05-29]: train=5713 val=93 auc=0.6078 brier=0.2373
+  INFO Calibration: Platt fitted on 5218 OOF games (a=0.9535, b=0.0122)
+  INFO Fold 65 [2026-05-30 → 2026-06-05]: train=5806 val=93 auc=0.5241 brier=0.2488
+  INFO Calibration: Platt fitted on 5311 OOF games (a=0.9681, b=0.0083)
+  INFO Fold 66 [2026-06-06 → 2026-06-12]: train=5899 val=89 auc=0.5722 brier=0.2417
+  INFO Calibration: Platt fitted on 5404 OOF games (a=0.9641, b=0.0075)
+  INFO Fold 67 [2026-06-13 → 2026-06-19]: train=5988 val=90 auc=0.5558 brier=0.2424
+  INFO Calibration: Platt fitted on 5493 OOF games (a=0.9656, b=0.0122)
+  INFO Fold 68 [2026-06-20 → 2026-06-26]: train=6078 val=94 auc=0.5005 brier=0.2537
+  INFO Calibration: Platt fitted on 5583 OOF games (a=0.9656, b=0.0151)
+  INFO Fold 69 [2026-06-27 → 2026-07-03]: train=6172 val=94 auc=0.6297 brier=0.2417
+  INFO Calibration: Platt fitted on 5677 OOF games (a=0.9642, b=0.0098)
+  INFO Fold 70 [2026-07-04 → 2026-07-10]: train=6266 val=96 auc=0.6488 brier=0.2421
+  INFO Calibration: Platt fitted on 5771 OOF games (a=0.9727, b=0.0068)
+  INFO Fold 71 [2026-07-11 → 2026-07-20]: train=6362 val=92 auc=0.5724 brier=0.2432
+  INFO Calibration: Platt fitted on 5867 OOF games (a=0.9853, b=0.0013)
+  INFO Fold 72 [2026-07-21 → 2026-07-27]: train=6454 val=91 auc=0.5155 brier=0.2514
+  INFO Calibration: Platt fitted on 5959 OOF games (a=0.9882, b=0.0020)
+  INFO Fold 73 [2026-07-28 → 2026-08-03]: train=6545 val=94 auc=0.5172 brier=0.2514
+  INFO Calibration: Platt fitted on 6050 OOF games (a=0.9847, b=0.0000)
+  INFO Fold 74 [2026-08-04 → 2026-08-10]: train=6639 val=96 auc=0.5304 brier=0.2447
+  INFO Calibration: Platt fitted on 6144 OOF games (a=0.9780, b=0.0002)
+  INFO Fold 75 [2026-08-11 → 2026-08-17]: train=6735 val=94 auc=0.5254 brier=0.2524
+  INFO Calibration: Platt fitted on 6240 OOF games (a=0.9755, b=0.0034)
+  INFO Fold 76 [2026-08-18 → 2026-08-24]: train=6829 val=94 auc=0.6496 brier=0.2301
+  INFO Calibration: Platt fitted on 6334 OOF games (a=0.9683, b=0.0038)
+  INFO Fold 77 [2026-08-25 → 2026-08-31]: train=6923 val=95 auc=0.5724 brier=0.2420
+  INFO Calibration: Platt fitted on 6428 OOF games (a=0.9849, b=0.0055)
+  INFO Fold 78 [2026-09-01 → 2026-09-05]: train=7018 val=70 auc=0.5417 brier=0.2556
+  INFO Calibration: Platt fitted on 6523 OOF games (a=0.9915, b=0.0048)
+  INFO Calibration: Platt fitted on 6593 OOF games (a=0.9877, b=0.0010)
+  INFO Calibration (OOF, prequential): ECE 0.0055 → 0.0070, log-loss 0.6818 → 0.6825
+  INFO Adaptive ensemble weights: {'lightgbm': '13.6%', 'logistic': '21.0%', 'mlp': '6.3%', 'randomforest': '14.1%', 'xgboost': '45.0%'}
+  INFO Walk-forward metrics: {'auc': 0.5712, 'brier': 0.2445, 'logloss': 0.6818, 'ece': 0.0055, 'brier_calibrated': 0.2448, 'logloss_calibrated': 0.6825, 'ece_calibrated': 0.007}
+  INFO Ensemble persisted to /content/sports_prediction_model/mlb-backend/data_delivery/models/ensemble_latest.joblib
+  INFO Version history: 14 versions recorded (v2026.09.06 latest)
+  INFO Step 4: Predicting games for 20260906
+  INFO Upcoming slate built: 15 games for 2026-09-06
+  INFO No completed games on 20260906 -- built 15-game upcoming slate (pre-game PIT features)
+  INFO Weather batches: skipped 1 gameless window(s) (2026-09-05→2026-09-05 span) — no Open-Meteo requests sent for them
+  INFO Weather fetched: 15/15 games from batched observations
+  INFO Computing 35 diff features for 15 games...
+  INFO Diff features complete: 35 columns added
+  INFO add_form_delta_features: computed 22 delta column(s) missing from the frame
+  WARNING add_lineup_delta_features: frame lacks game_pk/game_date/teams; columns stay NaN
+  INFO slate lineups: 0/15 ACTUAL (both sides posted), 15/15 projected (not yet posted → all 6 lineup-delta cols NULL, PIT-safe)
+  INFO Weather features applied to 15/15 games
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO run_margin_diff: slate margins attached (fit-only refit on 7088 decided games at median rounds {'home': 47, 'away': 43}); coverage 100.0% of 15 board rows
+  INFO Step 5: Writing artifacts
+  INFO Prediction history written: 6593 games -> predictions_history_20260906.csv
+  INFO Rolling Brier: 487 points (2024-04-25 → 2026-09-05), 6593 games, 8 sparse days excluded (<5 games/day), mean 0.2445
+  INFO Feature metadata: 59 features written -> features_metadata_20260906.json
+  WARNING Run engine: P1 projection input attached (opponent sp_proj_era per side) — decided coverage {'home': 0.9743, 'away': 0.9752}, ERA~proj slopes {'home': -1.2211, 'away': -1.2127}, pre pool 6788 rows
+  INFO Run engine: 75 walk-forward folds, 7088 decided games
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: home view += P1 projection opponent level sp_proj_era_away
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: away view += P1 projection opponent level sp_proj_era_home
+  WARNING Run engine daily (k-edge): fitted k=1.4680 (pre-holdout OOF, n=6625)
+  WARNING Run engine: P1 projection input attached (opponent sp_proj_era per side) — decided coverage {'home': 0.9743, 'away': 0.9752}, ERA~proj slopes {'home': -1.2211, 'away': -1.2127}, pre pool 6788 rows
+  INFO Run engine: 75 walk-forward folds, 7088 decided games
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: home view += P1 projection opponent level sp_proj_era_away
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: away view += P1 projection opponent level sp_proj_era_home
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.7218543777979337) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.2324, b=0.1215)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2172, b=0.0923)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.3643, b=0.1233)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3624, b=0.1183)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.6585, b=0.0911)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.7825, b=0.0761)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.0863, b=0.0851)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.0288, b=0.0986)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.9899, b=0.1026)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.9364, b=0.0741)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.8824, b=0.0768)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.9090, b=0.0534)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.8721, b=0.0427)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.9626, b=0.0120)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.9271, b=0.0208)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.9591, b=0.0263)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.9851, b=0.0030)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.9197, b=0.0110)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.9252, b=0.0073)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=0.9768, b=0.0104)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=0.9568, b=0.0082)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=0.9641, b=-0.0031)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=0.9597, b=0.0064)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=0.9308, b=0.0233)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=0.9166, b=0.0286)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=0.9275, b=0.0400)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=0.9616, b=0.0355)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=0.9366, b=0.0331)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=0.9513, b=0.0263)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=0.9580, b=0.0216)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=0.9901, b=0.0177)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=0.9950, b=0.0099)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.0114, b=0.0083)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.0372, b=0.0121)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.0484, b=0.0020)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.0430, b=0.0033)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.0690, b=0.0024)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.0626, b=0.0090)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.0506, b=0.0043)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0102, b=0.0158)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0236, b=0.0088)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.0242, b=0.0108)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0285, b=0.0094)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0433, b=0.0070)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0268, b=0.0064)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0283, b=0.0130)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0537, b=0.0030)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0509, b=0.0036)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.0514, b=0.0055)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0244, b=0.0064)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0261, b=0.0106)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0226, b=0.0056)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0230, b=0.0023)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0406, b=-0.0006)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0429, b=0.0028)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.0742, b=-0.0058)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0734, b=-0.0106)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0729, b=-0.0107)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0674, b=-0.0080)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.0567, b=-0.0048)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.0530, b=-0.0057)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.0617, b=-0.0088)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.0756, b=-0.0141)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.0732, b=-0.0151)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.0663, b=-0.0154)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.0404, b=-0.0119)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0211, b=-0.0068)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0139, b=-0.0061)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0369, b=-0.0061)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0449, b=-0.0069)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.7218543777979337) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.2324, b=0.1215)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2172, b=0.0923)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.3643, b=0.1233)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3624, b=0.1183)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.6585, b=0.0911)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.7825, b=0.0761)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.0863, b=0.0851)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.0288, b=0.0986)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.9899, b=0.1026)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.9364, b=0.0741)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.8824, b=0.0768)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.9090, b=0.0534)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.8721, b=0.0427)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.9626, b=0.0120)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.9271, b=0.0208)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.9591, b=0.0263)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.9851, b=0.0030)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.9197, b=0.0110)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.9252, b=0.0073)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=0.9768, b=0.0104)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=0.9568, b=0.0082)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=0.9641, b=-0.0031)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=0.9597, b=0.0064)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=0.9308, b=0.0233)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=0.9166, b=0.0286)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=0.9275, b=0.0400)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=0.9616, b=0.0355)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=0.9366, b=0.0331)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=0.9513, b=0.0263)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=0.9580, b=0.0216)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=0.9901, b=0.0177)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=0.9950, b=0.0099)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.0114, b=0.0083)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.0372, b=0.0121)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.0484, b=0.0020)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.0430, b=0.0033)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.0690, b=0.0024)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.0626, b=0.0090)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.0506, b=0.0043)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0102, b=0.0158)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0236, b=0.0088)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.0242, b=0.0108)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0285, b=0.0094)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0433, b=0.0070)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0268, b=0.0064)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0283, b=0.0130)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0537, b=0.0030)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0509, b=0.0036)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.0514, b=0.0055)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0244, b=0.0064)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0261, b=0.0106)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0226, b=0.0056)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0230, b=0.0023)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0406, b=-0.0006)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0429, b=0.0028)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.0742, b=-0.0058)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0734, b=-0.0106)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0729, b=-0.0107)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0674, b=-0.0080)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.0567, b=-0.0048)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.0530, b=-0.0057)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.0617, b=-0.0088)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.0756, b=-0.0141)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.0732, b=-0.0151)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.0663, b=-0.0154)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.0404, b=-0.0119)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0211, b=-0.0068)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0139, b=-0.0061)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0369, b=-0.0061)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0449, b=-0.0069)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.3030, b=0.0064)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.4163, b=-0.0636)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.3596, b=0.0190)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.3135, b=0.0499)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3464, b=0.0518)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.3753, b=0.0307)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.4427, b=0.0272)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.3754, b=0.0620)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.4542, b=0.0500)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.4135, b=0.0747)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.4116, b=0.0944)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.4660, b=0.0952)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.4177, b=0.0986)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.5392, b=0.1150)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.6421, b=0.1028)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.7834, b=0.0688)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.7089, b=0.0657)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.7890, b=0.0448)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.8413, b=0.0229)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.8463, b=0.0199)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=0.9129, b=-0.0084)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.0220, b=-0.0426)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.0124, b=-0.0424)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.0434, b=-0.0545)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2043, b=-0.0992)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.1981, b=-0.0939)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.1983, b=-0.0996)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.2678, b=-0.1147)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.2764, b=-0.1146)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.3702, b=-0.1455)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4279, b=-0.1707)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.4249, b=-0.1763)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.4464, b=-0.1829)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.4578, b=-0.1875)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4391, b=-0.1843)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.4017, b=-0.1644)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.4241, b=-0.1715)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.4265, b=-0.1678)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.4326, b=-0.1651)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.4453, b=-0.1680)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4620, b=-0.1685)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4632, b=-0.1639)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4555, b=-0.1587)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4674, b=-0.1517)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4684, b=-0.1562)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4834, b=-0.1577)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.5196, b=-0.1697)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.5328, b=-0.1725)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.5421, b=-0.1821)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.5204, b=-0.1752)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.5285, b=-0.1765)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.5354, b=-0.1707)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.5367, b=-0.1690)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.5386, b=-0.1670)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5512, b=-0.1695)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5527, b=-0.1770)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5820, b=-0.1807)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5825, b=-0.1866)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5806, b=-0.1785)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5983, b=-0.1783)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.6479, b=-0.1884)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.6120, b=-0.1862)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.6190, b=-0.1839)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.6161, b=-0.1827)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.6302, b=-0.1884)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.6292, b=-0.1920)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.6199, b=-0.1940)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6164, b=-0.1953)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6219, b=-0.1973)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6229, b=-0.2008)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.6196, b=-0.2002)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.3030, b=0.0064)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.4163, b=-0.0636)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.3596, b=0.0190)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.3135, b=0.0499)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3464, b=0.0518)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.3753, b=0.0307)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.4427, b=0.0272)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.3754, b=0.0620)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.4542, b=0.0500)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.4135, b=0.0747)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.4116, b=0.0944)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.4660, b=0.0952)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.4177, b=0.0986)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.5392, b=0.1150)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.6421, b=0.1028)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.7834, b=0.0688)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.7089, b=0.0657)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.7890, b=0.0448)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.8413, b=0.0229)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.8463, b=0.0199)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=0.9129, b=-0.0084)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.0220, b=-0.0426)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.0124, b=-0.0424)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.0434, b=-0.0545)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2043, b=-0.0992)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.1981, b=-0.0939)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.1983, b=-0.0996)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.2678, b=-0.1147)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.2764, b=-0.1146)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.3702, b=-0.1455)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4279, b=-0.1707)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.4249, b=-0.1763)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.4464, b=-0.1829)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.4578, b=-0.1875)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4391, b=-0.1843)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.4017, b=-0.1644)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.4241, b=-0.1715)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.4265, b=-0.1678)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.4326, b=-0.1651)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.4453, b=-0.1680)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4620, b=-0.1685)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4632, b=-0.1639)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4555, b=-0.1587)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4674, b=-0.1517)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4684, b=-0.1562)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4834, b=-0.1577)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.5196, b=-0.1697)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.5328, b=-0.1725)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.5421, b=-0.1821)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.5204, b=-0.1752)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.5285, b=-0.1765)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.5354, b=-0.1707)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.5367, b=-0.1690)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.5386, b=-0.1670)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5512, b=-0.1695)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5527, b=-0.1770)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5820, b=-0.1807)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5825, b=-0.1866)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5806, b=-0.1785)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5983, b=-0.1783)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.6479, b=-0.1884)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.6120, b=-0.1862)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.6190, b=-0.1839)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.6161, b=-0.1827)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.6302, b=-0.1884)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.6292, b=-0.1920)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.6199, b=-0.1940)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6164, b=-0.1953)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6219, b=-0.1973)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6229, b=-0.2008)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.6196, b=-0.2002)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.0818, b=-0.2373)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.5252, b=-0.2923)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2760, b=-0.2126)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.1937, b=-0.1877)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.1588, b=-0.1633)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.1945, b=-0.1678)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.2712, b=-0.1278)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.2610, b=-0.1172)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.3344, b=-0.1038)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.2900, b=-0.1059)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.2925, b=-0.0841)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.3402, b=-0.0665)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.2846, b=-0.0687)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.4499, b=-0.0127)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.5876, b=0.0158)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.7310, b=0.0399)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.7500, b=0.0220)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.8881, b=0.0417)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.9238, b=0.0360)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.9633, b=0.0328)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.0203, b=0.0242)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.0990, b=0.0272)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.1005, b=0.0241)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.1189, b=0.0281)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2424, b=0.0412)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.2878, b=0.0495)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.2926, b=0.0437)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.3505, b=0.0577)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.3535, b=0.0609)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.4180, b=0.0646)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4294, b=0.0558)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.4070, b=0.0500)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.4123, b=0.0529)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.4256, b=0.0565)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4342, b=0.0554)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.3868, b=0.0569)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.3992, b=0.0578)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.3588, b=0.0612)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.3658, b=0.0730)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.3927, b=0.0753)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4097, b=0.0828)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4057, b=0.0878)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4130, b=0.0876)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4158, b=0.0997)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4171, b=0.0983)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4315, b=0.1020)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.4509, b=0.1025)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.4672, b=0.1058)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.4749, b=0.0965)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.4588, b=0.0947)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.4891, b=0.0976)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.4963, b=0.1049)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.4868, b=0.1041)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.5045, b=0.1050)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5295, b=0.1093)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5267, b=0.1022)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5635, b=0.1109)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5750, b=0.1062)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5761, b=0.1136)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5760, b=0.1174)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.6121, b=0.1248)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.5933, b=0.1175)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.5939, b=0.1196)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.5941, b=0.1211)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.6123, b=0.1169)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.6107, b=0.1116)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.6030, b=0.1070)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6093, b=0.1066)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6186, b=0.1071)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6241, b=0.1045)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.6103, b=0.1004)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.0818, b=-0.2373)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.5252, b=-0.2923)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2760, b=-0.2126)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.1937, b=-0.1877)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.1588, b=-0.1633)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.1945, b=-0.1678)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.2712, b=-0.1278)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.2610, b=-0.1172)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.3344, b=-0.1038)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.2900, b=-0.1059)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.2925, b=-0.0841)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.3402, b=-0.0665)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.2846, b=-0.0687)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.4499, b=-0.0127)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.5876, b=0.0158)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.7310, b=0.0399)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.7500, b=0.0220)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=0.8881, b=0.0417)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=0.9238, b=0.0360)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=0.9633, b=0.0328)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.0203, b=0.0242)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.0990, b=0.0272)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.1005, b=0.0241)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.1189, b=0.0281)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2424, b=0.0412)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.2878, b=0.0495)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.2926, b=0.0437)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.3505, b=0.0577)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.3535, b=0.0609)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.4180, b=0.0646)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4294, b=0.0558)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.4070, b=0.0500)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.4123, b=0.0529)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.4256, b=0.0565)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4342, b=0.0554)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.3868, b=0.0569)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.3992, b=0.0578)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.3588, b=0.0612)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.3658, b=0.0730)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.3927, b=0.0753)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4097, b=0.0828)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4057, b=0.0878)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4130, b=0.0876)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4158, b=0.0997)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4171, b=0.0983)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4315, b=0.1020)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.4509, b=0.1025)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.4672, b=0.1058)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.4749, b=0.0965)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.4588, b=0.0947)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.4891, b=0.0976)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.4963, b=0.1049)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.4868, b=0.1041)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.5045, b=0.1050)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5295, b=0.1093)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5267, b=0.1022)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5635, b=0.1109)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5750, b=0.1062)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5761, b=0.1136)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5760, b=0.1174)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.6121, b=0.1248)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.5933, b=0.1175)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.5939, b=0.1196)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.5941, b=0.1211)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.6123, b=0.1169)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.6107, b=0.1116)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.6030, b=0.1070)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6093, b=0.1066)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6186, b=0.1071)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6241, b=0.1045)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.6103, b=0.1004)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.1210, b=-0.6210)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.6032, b=-0.4890)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.3833, b=-0.5143)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.4099, b=-0.4998)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3550, b=-0.4949)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.4624, b=-0.4682)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.3876, b=-0.4517)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.4310, b=-0.4151)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.5972, b=-0.3379)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.5498, b=-0.3421)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.5383, b=-0.3244)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.6096, b=-0.2843)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.5354, b=-0.3124)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.7304, b=-0.1893)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.8330, b=-0.1140)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.9102, b=-0.0672)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.8947, b=-0.0900)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.0019, b=-0.0388)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.0496, b=-0.0233)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.0754, b=-0.0192)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.1271, b=0.0010)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.2070, b=0.0264)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.2352, b=0.0349)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.2606, b=0.0441)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.3153, b=0.0700)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.3478, b=0.0844)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.3621, b=0.0892)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.3366, b=0.0897)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.3417, b=0.0922)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.4113, b=0.1246)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4385, b=0.1305)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.3913, b=0.1092)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.3850, b=0.1145)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.3903, b=0.1160)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4172, b=0.1267)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.3547, b=0.1090)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.3660, b=0.1163)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.3492, b=0.1191)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.3609, b=0.1329)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.3901, b=0.1443)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4041, b=0.1520)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4147, b=0.1610)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4182, b=0.1673)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4130, b=0.1723)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4064, b=0.1707)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4241, b=0.1829)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.4379, b=0.1868)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.4524, b=0.1971)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.4665, b=0.1971)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.4226, b=0.1805)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.4755, b=0.2051)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.4628, b=0.2042)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.4733, b=0.2127)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.4798, b=0.2108)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5145, b=0.2260)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5273, b=0.2280)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5460, b=0.2376)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5482, b=0.2334)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5370, b=0.2373)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5651, b=0.2538)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.5903, b=0.2698)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.5833, b=0.2648)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.5682, b=0.2584)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.5766, b=0.2660)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.5779, b=0.2635)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.5867, b=0.2652)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.5893, b=0.2660)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6031, b=0.2688)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6114, b=0.2728)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6156, b=0.2740)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.5872, b=0.2592)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 367 OOF games (a=0.1210, b=-0.6210)
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.6032, b=-0.4890)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.3833, b=-0.5143)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.4099, b=-0.4998)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.3550, b=-0.4949)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.4624, b=-0.4682)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.3876, b=-0.4517)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=0.4310, b=-0.4151)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=0.5972, b=-0.3379)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=0.5498, b=-0.3421)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=0.5383, b=-0.3244)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=0.6096, b=-0.2843)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=0.5354, b=-0.3124)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=0.7304, b=-0.1893)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=0.8330, b=-0.1140)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=0.9102, b=-0.0672)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=0.8947, b=-0.0900)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.0019, b=-0.0388)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.0496, b=-0.0233)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.0754, b=-0.0192)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.1271, b=0.0010)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.2070, b=0.0264)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.2352, b=0.0349)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.2606, b=0.0441)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.3153, b=0.0700)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.3478, b=0.0844)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.3621, b=0.0892)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.3366, b=0.0897)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.3417, b=0.0922)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.4113, b=0.1246)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.4385, b=0.1305)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.3913, b=0.1092)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.3850, b=0.1145)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.3903, b=0.1160)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.4172, b=0.1267)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.3547, b=0.1090)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.3660, b=0.1163)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.3492, b=0.1191)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.3609, b=0.1329)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.3901, b=0.1443)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.4041, b=0.1520)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.4147, b=0.1610)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.4182, b=0.1673)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.4130, b=0.1723)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.4064, b=0.1707)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.4241, b=0.1829)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.4379, b=0.1868)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.4524, b=0.1971)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.4665, b=0.1971)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.4226, b=0.1805)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.4755, b=0.2051)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.4628, b=0.2042)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.4733, b=0.2127)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.4798, b=0.2108)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.5145, b=0.2260)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.5273, b=0.2280)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.5460, b=0.2376)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.5482, b=0.2334)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.5370, b=0.2373)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.5651, b=0.2538)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.5903, b=0.2698)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.5833, b=0.2648)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.5682, b=0.2584)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.5766, b=0.2660)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.5779, b=0.2635)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.5867, b=0.2652)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.5893, b=0.2660)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.6031, b=0.2688)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.6114, b=0.2728)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.6156, b=0.2740)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.5872, b=0.2592)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.6775948339141973) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.1459, b=-0.5007)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.4390, b=-0.2865)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.6373, b=-0.0987)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.6027, b=-0.1529)
+  INFO Calibration: Platt fitted on 830 OOF games (a=1.0284, b=0.1219)
+  INFO Calibration: Platt fitted on 920 OOF games (a=1.2302, b=0.2459)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.3681, b=0.3547)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.3658, b=0.3423)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.3696, b=0.3511)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.3165, b=0.2944)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.2973, b=0.2774)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.2904, b=0.2394)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.2242, b=0.1882)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.2539, b=0.1801)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.1948, b=0.1374)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.2423, b=0.1753)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.2501, b=0.1671)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.2505, b=0.1696)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.2399, b=0.1671)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.2512, b=0.1713)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.2594, b=0.1651)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.2688, b=0.1641)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.2647, b=0.1728)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2319, b=0.1580)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.2248, b=0.1663)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.2024, b=0.1649)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.2040, b=0.1556)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.2360, b=0.1671)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.1919, b=0.1299)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.1953, b=0.1216)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.2030, b=0.1241)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.2075, b=0.1166)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.2061, b=0.1074)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.1989, b=0.1006)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.2023, b=0.1000)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.1962, b=0.1072)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.1888, b=0.1021)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.1805, b=0.0978)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.1660, b=0.0874)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.1423, b=0.0785)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.1615, b=0.0881)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.1710, b=0.0963)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.1744, b=0.0943)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.1693, b=0.0904)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.1643, b=0.0861)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.1819, b=0.0986)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.2012, b=0.1060)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.1930, b=0.1006)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.1917, b=0.1020)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.1607, b=0.0834)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.1665, b=0.0883)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.1597, b=0.0854)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.1556, b=0.0854)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.1517, b=0.0814)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.1519, b=0.0847)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.1680, b=0.0915)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.1701, b=0.0923)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.1631, b=0.0887)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.1560, b=0.0829)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.1551, b=0.0856)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.1648, b=0.0852)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.1716, b=0.0910)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.1733, b=0.0909)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.1715, b=0.0893)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.1710, b=0.0860)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.1466, b=0.0695)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.1246, b=0.0594)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.1116, b=0.0553)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.1232, b=0.0620)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.1267, b=0.0664)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.6775948339141973) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.1459, b=-0.5007)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.4390, b=-0.2865)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.6373, b=-0.0987)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.6027, b=-0.1529)
+  INFO Calibration: Platt fitted on 830 OOF games (a=1.0284, b=0.1219)
+  INFO Calibration: Platt fitted on 920 OOF games (a=1.2302, b=0.2459)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.3681, b=0.3547)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.3658, b=0.3423)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.3696, b=0.3511)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.3165, b=0.2944)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.2973, b=0.2774)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.2904, b=0.2394)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.2242, b=0.1882)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.2539, b=0.1801)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.1948, b=0.1374)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.2423, b=0.1753)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.2501, b=0.1671)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.2505, b=0.1696)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.2399, b=0.1671)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.2512, b=0.1713)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.2594, b=0.1651)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.2688, b=0.1641)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.2647, b=0.1728)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.2319, b=0.1580)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.2248, b=0.1663)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.2024, b=0.1649)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.2040, b=0.1556)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.2360, b=0.1671)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.1919, b=0.1299)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.1953, b=0.1216)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.2030, b=0.1241)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.2075, b=0.1166)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.2061, b=0.1074)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.1989, b=0.1006)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.2023, b=0.1000)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.1962, b=0.1072)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.1888, b=0.1021)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.1805, b=0.0978)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.1660, b=0.0874)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.1423, b=0.0785)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.1615, b=0.0881)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.1710, b=0.0963)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.1744, b=0.0943)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.1693, b=0.0904)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.1643, b=0.0861)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.1819, b=0.0986)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.2012, b=0.1060)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.1930, b=0.1006)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.1917, b=0.1020)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.1607, b=0.0834)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.1665, b=0.0883)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.1597, b=0.0854)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.1556, b=0.0854)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.1517, b=0.0814)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.1519, b=0.0847)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.1680, b=0.0915)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.1701, b=0.0923)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.1631, b=0.0887)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.1560, b=0.0829)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.1551, b=0.0856)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.1648, b=0.0852)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.1716, b=0.0910)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.1733, b=0.0909)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.1715, b=0.0893)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.1710, b=0.0860)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.1466, b=0.0695)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.1246, b=0.0594)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.1116, b=0.0553)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.1232, b=0.0620)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.1267, b=0.0664)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.9372959438171165) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.1092796314088845) — identity map
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2839, b=-0.7217)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.4850, b=-0.4334)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.5610, b=-0.3791)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.7049, b=-0.2609)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.9767, b=0.0408)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.1478, b=0.2488)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.2055, b=0.3030)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.2079, b=0.3033)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.1606, b=0.2303)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.2578, b=0.3318)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.3060, b=0.3571)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.2659, b=0.3150)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.2725, b=0.2953)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.2696, b=0.2953)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.2557, b=0.2796)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.1955, b=0.1983)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.1834, b=0.1901)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.2028, b=0.2100)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.1513, b=0.1465)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.1464, b=0.1400)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.1503, b=0.1340)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.1492, b=0.1420)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.1264, b=0.1236)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.0731, b=0.0820)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.0344, b=0.0404)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.0631, b=0.0592)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.1055, b=0.1018)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.0640, b=0.0526)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.0988, b=0.0815)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.0885, b=0.0594)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.0779, b=0.0344)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.0980, b=0.0452)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.0954, b=0.0437)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.1141, b=0.0648)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.1125, b=0.0774)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.1004, b=0.0660)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.0968, b=0.0633)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.0887, b=0.0540)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0704, b=0.0475)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0923, b=0.0689)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.1008, b=0.0807)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0976, b=0.0758)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0972, b=0.0799)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0903, b=0.0716)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0752, b=0.0538)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0980, b=0.0752)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0964, b=0.0762)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.1029, b=0.0829)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0688, b=0.0500)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0745, b=0.0566)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0708, b=0.0547)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0649, b=0.0508)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0590, b=0.0464)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0606, b=0.0479)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.0870, b=0.0741)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0876, b=0.0747)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0909, b=0.0775)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0631, b=0.0465)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.0597, b=0.0426)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.0709, b=0.0459)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.0719, b=0.0513)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.0790, b=0.0577)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.0845, b=0.0614)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.0857, b=0.0603)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.0671, b=0.0388)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0447, b=0.0201)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0370, b=0.0143)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0444, b=0.0168)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0440, b=0.0188)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.9372959438171165) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.1092796314088845) — identity map
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.2839, b=-0.7217)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.4850, b=-0.4334)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.5610, b=-0.3791)
+  INFO Calibration: Platt fitted on 830 OOF games (a=0.7049, b=-0.2609)
+  INFO Calibration: Platt fitted on 920 OOF games (a=0.9767, b=0.0408)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.1478, b=0.2488)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.2055, b=0.3030)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.2079, b=0.3033)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.1606, b=0.2303)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.2578, b=0.3318)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.3060, b=0.3571)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.2659, b=0.3150)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.2725, b=0.2953)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.2696, b=0.2953)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.2557, b=0.2796)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.1955, b=0.1983)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.1834, b=0.1901)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.2028, b=0.2100)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.1513, b=0.1465)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.1464, b=0.1400)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.1503, b=0.1340)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.1492, b=0.1420)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.1264, b=0.1236)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.0731, b=0.0820)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.0344, b=0.0404)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.0631, b=0.0592)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.1055, b=0.1018)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.0640, b=0.0526)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.0988, b=0.0815)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.0885, b=0.0594)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.0779, b=0.0344)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.0980, b=0.0452)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.0954, b=0.0437)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.1141, b=0.0648)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.1125, b=0.0774)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.1004, b=0.0660)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.0968, b=0.0633)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.0887, b=0.0540)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0704, b=0.0475)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0923, b=0.0689)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.1008, b=0.0807)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0976, b=0.0758)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0972, b=0.0799)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0903, b=0.0716)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0752, b=0.0538)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0980, b=0.0752)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0964, b=0.0762)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.1029, b=0.0829)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0688, b=0.0500)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0745, b=0.0566)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0708, b=0.0547)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0649, b=0.0508)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0590, b=0.0464)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0606, b=0.0479)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.0870, b=0.0741)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0876, b=0.0747)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0909, b=0.0775)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0631, b=0.0465)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.0597, b=0.0426)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.0709, b=0.0459)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.0719, b=0.0513)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.0790, b=0.0577)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.0845, b=0.0614)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.0857, b=0.0603)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.0671, b=0.0388)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0447, b=0.0201)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0370, b=0.0143)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0444, b=0.0168)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0440, b=0.0188)
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: home view += P1 projection opponent level sp_proj_era_away
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: away view += P1 projection opponent level sp_proj_era_home
+  INFO Run engine OOF: 6925 rows -> run_engine_oof_20260906.csv
+  INFO Run engine markets: 6940 rows -> run_engine_markets_20260906.csv (+ meta json)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 81 OOF games < 300 minimum — using identity map
+  INFO Calibration: 175 OOF games < 300 minimum — using identity map
+  INFO Calibration: 261 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 354 OOF games (a=5.6343, b=-0.1988)
+  INFO Calibration: Platt fitted on 442 OOF games (a=5.8433, b=-0.2572)
+  INFO Calibration: Platt fitted on 534 OOF games (a=1.8911, b=0.0364)
+  INFO Calibration: Platt fitted on 620 OOF games (a=0.0078, b=0.1353)
+  WARNING Calibration: degenerate Platt params (a=-1.0431830788034127) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.759939156068034) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.9202847546000534) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.8038244491416806) — identity map
+  INFO Calibration: Platt fitted on 1057 OOF games (a=0.0054, b=0.1077)
+  WARNING Calibration: degenerate Platt params (a=-0.5581100297893886) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.7862134273043865) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.4334701719925729) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.8025268243165868) — identity map
+  WARNING Calibration: degenerate Platt params (a=-2.0069812008395544) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.7028125276912827) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.688663788218763) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.9150145189475292) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.6018868276823213) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.200791032261988) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.3138484747229635) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.1741532477944039) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.1791466109766715) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.264124856532963) — identity map
+  WARNING Calibration: degenerate Platt params (a=-1.071808365173168) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.9230977178056662) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.5920084517970996) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.715941310536586) — identity map
+  WARNING Calibration: degenerate Platt params (a=-0.7488333247599158) — identity map
+  INFO Calibration: Platt fitted on 2781 OOF games (a=0.0063, b=0.1243)
+  INFO Calibration: Platt fitted on 2873 OOF games (a=0.0071, b=0.1300)
+  INFO Calibration: Platt fitted on 2964 OOF games (a=0.0063, b=0.1281)
+  INFO Calibration: Platt fitted on 3058 OOF games (a=0.0066, b=0.1306)
+  INFO Calibration: Platt fitted on 3142 OOF games (a=0.0060, b=0.1221)
+  INFO Calibration: Platt fitted on 3234 OOF games (a=0.0059, b=0.1136)
+  INFO Calibration: Platt fitted on 3319 OOF games (a=0.0061, b=0.1113)
+  INFO Calibration: Platt fitted on 3411 OOF games (a=0.0061, b=0.1177)
+  INFO Calibration: Platt fitted on 3499 OOF games (a=0.0067, b=0.1193)
+  INFO Calibration: Platt fitted on 3597 OOF games (a=0.0066, b=0.1149)
+  INFO Calibration: Platt fitted on 3696 OOF games (a=0.6001, b=0.0815)
+  INFO Calibration: Platt fitted on 3783 OOF games (a=0.0062, b=0.1071)
+  INFO Calibration: Platt fitted on 3873 OOF games (a=0.0057, b=0.1015)
+  INFO Calibration: Platt fitted on 3962 OOF games (a=0.0053, b=0.0977)
+  INFO Calibration: Platt fitted on 4051 OOF games (a=0.0057, b=0.1040)
+  INFO Calibration: Platt fitted on 4143 OOF games (a=0.0052, b=0.1026)
+  INFO Calibration: Platt fitted on 4237 OOF games (a=0.0049, b=0.0985)
+  INFO Calibration: Platt fitted on 4327 OOF games (a=0.0045, b=0.0918)
+  INFO Calibration: Platt fitted on 4420 OOF games (a=0.0047, b=0.0903)
+  INFO Calibration: Platt fitted on 4512 OOF games (a=0.0041, b=0.0867)
+  INFO Calibration: Platt fitted on 4598 OOF games (a=0.0039, b=0.0825)
+  INFO Calibration: Platt fitted on 4684 OOF games (a=0.0041, b=0.0852)
+  INFO Calibration: Platt fitted on 4770 OOF games (a=0.0039, b=0.0829)
+  INFO Calibration: Platt fitted on 4855 OOF games (a=0.0038, b=0.0785)
+  INFO Calibration: Platt fitted on 4945 OOF games (a=0.0039, b=0.0779)
+  INFO Calibration: Platt fitted on 5026 OOF games (a=0.0038, b=0.0778)
+  INFO Calibration: Platt fitted on 5117 OOF games (a=0.0040, b=0.0729)
+  INFO Calibration: Platt fitted on 5204 OOF games (a=0.0038, b=0.0736)
+  INFO Calibration: Platt fitted on 5303 OOF games (a=0.0037, b=0.0772)
+  INFO Calibration: Platt fitted on 5392 OOF games (a=0.0034, b=0.0726)
+  INFO Calibration: Platt fitted on 5478 OOF games (a=0.0036, b=0.0751)
+  INFO Calibration: Platt fitted on 5565 OOF games (a=0.0036, b=0.0778)
+  INFO Calibration: Platt fitted on 5655 OOF games (a=0.0036, b=0.0808)
+  INFO Calibration: Platt fitted on 5746 OOF games (a=0.0035, b=0.0792)
+  INFO Calibration: Platt fitted on 5836 OOF games (a=0.0034, b=0.0794)
+  INFO Calibration: Platt fitted on 5926 OOF games (a=0.0040, b=0.0822)
+  INFO Calibration: Platt fitted on 6010 OOF games (a=0.0041, b=0.0844)
+  INFO Calibration: Platt fitted on 6100 OOF games (a=0.0040, b=0.0864)
+  INFO Calibration: Platt fitted on 6195 OOF games (a=0.0042, b=0.0899)
+  INFO Calibration: Platt fitted on 6285 OOF games (a=0.0047, b=0.0956)
+  INFO Calibration: Platt fitted on 6375 OOF games (a=0.0044, b=0.0911)
+  INFO Calibration: Platt fitted on 6467 OOF games (a=0.0047, b=0.0960)
+  INFO Calibration: Platt fitted on 6555 OOF games (a=0.0049, b=0.0990)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.6775948339141946) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.1459, b=0.5007)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.4390, b=0.2865)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.6373, b=0.0987)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.6027, b=0.1529)
+  INFO Calibration: Platt fitted on 830 OOF games (a=1.0284, b=-0.1219)
+  INFO Calibration: Platt fitted on 920 OOF games (a=1.1873, b=-0.2147)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.3687, b=-0.3539)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.3039, b=-0.2974)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.2734, b=-0.2823)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.2191, b=-0.2256)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.2084, b=-0.2153)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.2056, b=-0.1811)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.0970, b=-0.1007)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.0913, b=-0.0680)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.0893, b=-0.0643)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.1456, b=-0.1081)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.1953, b=-0.1284)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.1771, b=-0.1181)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.1685, b=-0.1172)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.1908, b=-0.1288)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.2056, b=-0.1271)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.2159, b=-0.1268)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.1957, b=-0.1243)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.1645, b=-0.1108)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.1502, b=-0.1142)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.1290, b=-0.1137)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.0871, b=-0.0746)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.1131, b=-0.0819)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=1.1042, b=-0.0689)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=1.1518, b=-0.0906)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.1612, b=-0.0944)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.1655, b=-0.0869)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.1638, b=-0.0777)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.1448, b=-0.0630)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.1751, b=-0.0807)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.1694, b=-0.0881)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.1390, b=-0.0674)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.1303, b=-0.0630)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.1152, b=-0.0524)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0702, b=-0.0290)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0840, b=-0.0349)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.0770, b=-0.0318)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0807, b=-0.0301)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0880, b=-0.0348)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0833, b=-0.0308)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0723, b=-0.0238)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0966, b=-0.0344)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0885, b=-0.0293)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.1033, b=-0.0417)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0912, b=-0.0359)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0978, b=-0.0415)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0909, b=-0.0387)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0869, b=-0.0388)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0950, b=-0.0428)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0957, b=-0.0464)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.1169, b=-0.0566)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0975, b=-0.0431)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0900, b=-0.0394)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0920, b=-0.0395)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.0853, b=-0.0383)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.0960, b=-0.0386)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.1040, b=-0.0453)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.1223, b=-0.0562)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.1290, b=-0.0603)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.1282, b=-0.0570)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.1029, b=-0.0399)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0803, b=-0.0294)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0665, b=-0.0249)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0873, b=-0.0377)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0916, b=-0.0427)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 87 OOF games < 300 minimum — using identity map
+  INFO Calibration: 181 OOF games < 300 minimum — using identity map
+  INFO Calibration: 272 OOF games < 300 minimum — using identity map
+  WARNING Calibration: degenerate Platt params (a=-0.5923700692965935) — identity map
+  INFO Calibration: Platt fitted on 459 OOF games (a=0.7698, b=-0.1287)
+  INFO Calibration: Platt fitted on 554 OOF games (a=0.8541, b=-0.1363)
+  INFO Calibration: Platt fitted on 646 OOF games (a=0.7367, b=-0.0580)
+  INFO Calibration: Platt fitted on 738 OOF games (a=0.7702, b=-0.0502)
+  INFO Calibration: Platt fitted on 830 OOF games (a=1.1546, b=-0.0757)
+  INFO Calibration: Platt fitted on 920 OOF games (a=1.2181, b=-0.0812)
+  INFO Calibration: Platt fitted on 1015 OOF games (a=1.4709, b=-0.0813)
+  INFO Calibration: Platt fitted on 1109 OOF games (a=1.4106, b=-0.0767)
+  INFO Calibration: Platt fitted on 1196 OOF games (a=1.3001, b=-0.0560)
+  INFO Calibration: Platt fitted on 1293 OOF games (a=1.3548, b=-0.0957)
+  INFO Calibration: Platt fitted on 1394 OOF games (a=1.3013, b=-0.0922)
+  INFO Calibration: Platt fitted on 1490 OOF games (a=1.3235, b=-0.0991)
+  INFO Calibration: Platt fitted on 1582 OOF games (a=1.2849, b=-0.1099)
+  INFO Calibration: Platt fitted on 1676 OOF games (a=1.2604, b=-0.0927)
+  INFO Calibration: Platt fitted on 1767 OOF games (a=1.1714, b=-0.0727)
+  INFO Calibration: Platt fitted on 1862 OOF games (a=1.2027, b=-0.0693)
+  INFO Calibration: Platt fitted on 1960 OOF games (a=1.1149, b=-0.0437)
+  INFO Calibration: Platt fitted on 2052 OOF games (a=1.0802, b=-0.0509)
+  INFO Calibration: Platt fitted on 2145 OOF games (a=1.0178, b=-0.0287)
+  INFO Calibration: Platt fitted on 2242 OOF games (a=1.0830, b=-0.0321)
+  INFO Calibration: Platt fitted on 2329 OOF games (a=1.1107, b=-0.0501)
+  INFO Calibration: Platt fitted on 2373 OOF games (a=1.1137, b=-0.0545)
+  INFO Calibration: Platt fitted on 2452 OOF games (a=1.0565, b=-0.0308)
+  INFO Calibration: Platt fitted on 2541 OOF games (a=1.0658, b=-0.0355)
+  INFO Calibration: Platt fitted on 2631 OOF games (a=1.0582, b=-0.0358)
+  INFO Calibration: Platt fitted on 2724 OOF games (a=1.0340, b=-0.0162)
+  INFO Calibration: Platt fitted on 2814 OOF games (a=1.0660, b=-0.0186)
+  INFO Calibration: Platt fitted on 2910 OOF games (a=1.0291, b=-0.0159)
+  INFO Calibration: Platt fitted on 3003 OOF games (a=0.9919, b=-0.0006)
+  INFO Calibration: Platt fitted on 3097 OOF games (a=0.9732, b=0.0064)
+  INFO Calibration: Platt fitted on 3192 OOF games (a=1.0117, b=0.0019)
+  INFO Calibration: Platt fitted on 3278 OOF games (a=1.0472, b=-0.0140)
+  INFO Calibration: Platt fitted on 3374 OOF games (a=1.0308, b=-0.0026)
+  INFO Calibration: Platt fitted on 3464 OOF games (a=1.0385, b=0.0065)
+  INFO Calibration: Platt fitted on 3561 OOF games (a=1.0247, b=0.0100)
+  INFO Calibration: Platt fitted on 3650 OOF games (a=1.0205, b=0.0102)
+  INFO Calibration: Platt fitted on 3748 OOF games (a=1.0915, b=-0.0069)
+  INFO Calibration: Platt fitted on 3848 OOF games (a=1.0648, b=0.0044)
+  INFO Calibration: Platt fitted on 3943 OOF games (a=1.0528, b=0.0017)
+  INFO Calibration: Platt fitted on 4037 OOF games (a=1.0307, b=0.0016)
+  INFO Calibration: Platt fitted on 4129 OOF games (a=1.0196, b=0.0065)
+  INFO Calibration: Platt fitted on 4222 OOF games (a=1.0459, b=-0.0017)
+  INFO Calibration: Platt fitted on 4317 OOF games (a=1.0621, b=-0.0068)
+  INFO Calibration: Platt fitted on 4413 OOF games (a=1.0722, b=-0.0065)
+  INFO Calibration: Platt fitted on 4506 OOF games (a=1.0597, b=-0.0083)
+  INFO Calibration: Platt fitted on 4601 OOF games (a=1.0814, b=-0.0117)
+  INFO Calibration: Platt fitted on 4697 OOF games (a=1.0673, b=-0.0033)
+  INFO Calibration: Platt fitted on 4787 OOF games (a=1.0718, b=-0.0056)
+  INFO Calibration: Platt fitted on 4877 OOF games (a=1.0875, b=-0.0100)
+  INFO Calibration: Platt fitted on 4968 OOF games (a=1.0544, b=-0.0073)
+  INFO Calibration: Platt fitted on 5059 OOF games (a=1.0459, b=-0.0009)
+  INFO Calibration: Platt fitted on 5154 OOF games (a=1.0318, b=-0.0001)
+  INFO Calibration: Platt fitted on 5243 OOF games (a=1.0412, b=-0.0053)
+  INFO Calibration: Platt fitted on 5339 OOF games (a=1.0737, b=-0.0125)
+  INFO Calibration: Platt fitted on 5429 OOF games (a=1.0731, b=-0.0093)
+  INFO Calibration: Platt fitted on 5529 OOF games (a=1.0941, b=-0.0108)
+  INFO Calibration: Platt fitted on 5622 OOF games (a=1.0818, b=-0.0096)
+  INFO Calibration: Platt fitted on 5712 OOF games (a=1.0828, b=-0.0103)
+  INFO Calibration: Platt fitted on 5803 OOF games (a=1.0938, b=-0.0145)
+  INFO Calibration: Platt fitted on 5893 OOF games (a=1.1104, b=-0.0224)
+  INFO Calibration: Platt fitted on 5986 OOF games (a=1.1171, b=-0.0267)
+  INFO Calibration: Platt fitted on 6081 OOF games (a=1.1168, b=-0.0252)
+  INFO Calibration: Platt fitted on 6172 OOF games (a=1.1152, b=-0.0229)
+  INFO Calibration: Platt fitted on 6260 OOF games (a=1.1063, b=-0.0213)
+  INFO Calibration: Platt fitted on 6356 OOF games (a=1.0942, b=-0.0196)
+  INFO Calibration: Platt fitted on 6453 OOF games (a=1.0623, b=-0.0153)
+  INFO Calibration: Platt fitted on 6547 OOF games (a=1.0555, b=-0.0166)
+  INFO Calibration: Platt fitted on 6640 OOF games (a=1.0549, b=-0.0185)
+  INFO Calibration: Platt fitted on 6735 OOF games (a=1.0643, b=-0.0137)
+  INFO Calibration: Platt fitted on 6829 OOF games (a=1.0676, b=-0.0125)
+  INFO Calibration: 0 OOF games < 300 minimum — using identity map
+  INFO Calibration: 65 OOF games < 300 minimum — using identity map
+  INFO Calibration: 157 OOF games < 300 minimum — using identity map
+  INFO Calibration: 252 OOF games < 300 minimum — using identity map
+  INFO Calibration: Platt fitted on 344 OOF games (a=0.3051, b=0.0543)
+  INFO Calibration: Platt fitted on 436 OOF games (a=0.0794, b=0.1906)
+  INFO Calibration: Platt fitted on 528 OOF games (a=0.3053, b=0.1382)
+  INFO Calibration: Platt fitted on 618 OOF games (a=0.3350, b=0.1440)
+  INFO Calibration: Platt fitted on 713 OOF games (a=0.5314, b=0.1134)
+  INFO Calibration: Platt fitted on 807 OOF games (a=0.7166, b=0.0281)
+  INFO Calibration: Platt fitted on 894 OOF games (a=0.6744, b=0.0238)
+  INFO Calibration: Platt fitted on 991 OOF games (a=0.7789, b=-0.0359)
+  INFO Calibration: Platt fitted on 1092 OOF games (a=0.7146, b=-0.0190)
+  INFO Calibration: Platt fitted on 1188 OOF games (a=0.6802, b=0.0021)
+  INFO Calibration: Platt fitted on 1280 OOF games (a=0.7495, b=-0.0158)
+  INFO Calibration: Platt fitted on 1374 OOF games (a=0.8285, b=-0.0247)
+  INFO Calibration: Platt fitted on 1465 OOF games (a=0.8452, b=-0.0308)
+  INFO Calibration: Platt fitted on 1560 OOF games (a=0.8253, b=0.0038)
+  INFO Calibration: Platt fitted on 1658 OOF games (a=0.8248, b=0.0107)
+  INFO Calibration: Platt fitted on 1750 OOF games (a=0.8045, b=0.0156)
+  INFO Calibration: Platt fitted on 1843 OOF games (a=0.7926, b=0.0233)
+  INFO Calibration: Platt fitted on 1940 OOF games (a=0.7790, b=0.0384)
+  INFO Calibration: Platt fitted on 2027 OOF games (a=0.7571, b=0.0471)
+  INFO Calibration: Platt fitted on 2056 OOF games (a=0.7316, b=0.0451)
+  INFO Calibration: Platt fitted on 2120 OOF games (a=0.7067, b=0.0592)
+  INFO Calibration: Platt fitted on 2209 OOF games (a=0.7596, b=0.0336)
+  INFO Calibration: Platt fitted on 2299 OOF games (a=0.8023, b=0.0244)
+  INFO Calibration: Platt fitted on 2392 OOF games (a=0.8665, b=0.0201)
+  INFO Calibration: Platt fitted on 2482 OOF games (a=0.8586, b=0.0337)
+  INFO Calibration: Platt fitted on 2578 OOF games (a=0.8783, b=0.0244)
+  INFO Calibration: Platt fitted on 2671 OOF games (a=0.8623, b=0.0345)
+  INFO Calibration: Platt fitted on 2765 OOF games (a=0.8628, b=0.0285)
+  INFO Calibration: Platt fitted on 2860 OOF games (a=0.9565, b=0.0025)
+  INFO Calibration: Platt fitted on 2946 OOF games (a=0.9458, b=0.0009)
+  INFO Calibration: Platt fitted on 3042 OOF games (a=0.9259, b=0.0054)
+  INFO Calibration: Platt fitted on 3132 OOF games (a=0.9492, b=0.0017)
+  INFO Calibration: Platt fitted on 3229 OOF games (a=0.9573, b=-0.0051)
+  INFO Calibration: Platt fitted on 3318 OOF games (a=1.0012, b=-0.0249)
+  INFO Calibration: Platt fitted on 3416 OOF games (a=1.0224, b=-0.0243)
+  INFO Calibration: Platt fitted on 3516 OOF games (a=1.0115, b=-0.0262)
+  INFO Calibration: Platt fitted on 3611 OOF games (a=0.9964, b=-0.0309)
+  INFO Calibration: Platt fitted on 3705 OOF games (a=0.9707, b=-0.0248)
+  INFO Calibration: Platt fitted on 3797 OOF games (a=0.9873, b=-0.0261)
+  INFO Calibration: Platt fitted on 3890 OOF games (a=1.0155, b=-0.0342)
+  INFO Calibration: Platt fitted on 3985 OOF games (a=1.0169, b=-0.0323)
+  INFO Calibration: Platt fitted on 4081 OOF games (a=1.0112, b=-0.0276)
+  INFO Calibration: Platt fitted on 4174 OOF games (a=1.0068, b=-0.0323)
+  INFO Calibration: Platt fitted on 4269 OOF games (a=1.0192, b=-0.0315)
+  INFO Calibration: Platt fitted on 4365 OOF games (a=1.0241, b=-0.0256)
+  INFO Calibration: Platt fitted on 4455 OOF games (a=1.0482, b=-0.0392)
+  INFO Calibration: Platt fitted on 4526 OOF games (a=1.0467, b=-0.0378)
+  INFO Calibration: Platt fitted on 4617 OOF games (a=1.0189, b=-0.0238)
+  INFO Calibration: Platt fitted on 4708 OOF games (a=1.0083, b=-0.0186)
+  INFO Calibration: Platt fitted on 4803 OOF games (a=1.0078, b=-0.0227)
+  INFO Calibration: Platt fitted on 4892 OOF games (a=0.9895, b=-0.0189)
+  INFO Calibration: Platt fitted on 4988 OOF games (a=1.0016, b=-0.0160)
+  INFO Calibration: Platt fitted on 5078 OOF games (a=0.9806, b=-0.0088)
+  INFO Calibration: Platt fitted on 5178 OOF games (a=0.9836, b=-0.0079)
+  INFO Calibration: Platt fitted on 5271 OOF games (a=1.0086, b=-0.0212)
+  INFO Calibration: Platt fitted on 5361 OOF games (a=1.0098, b=-0.0205)
+  INFO Calibration: Platt fitted on 5452 OOF games (a=1.0101, b=-0.0193)
+  INFO Calibration: Platt fitted on 5542 OOF games (a=1.0093, b=-0.0171)
+  INFO Calibration: Platt fitted on 5635 OOF games (a=1.0043, b=-0.0173)
+  INFO Calibration: Platt fitted on 5730 OOF games (a=1.0150, b=-0.0215)
+  INFO Calibration: Platt fitted on 5821 OOF games (a=0.9984, b=-0.0105)
+  INFO Calibration: Platt fitted on 5909 OOF games (a=0.9836, b=-0.0035)
+  INFO Calibration: Platt fitted on 6005 OOF games (a=0.9825, b=-0.0038)
+  INFO Calibration: Platt fitted on 6102 OOF games (a=0.9846, b=-0.0055)
+  INFO Calibration: Platt fitted on 6196 OOF games (a=0.9706, b=-0.0014)
+  INFO Calibration: Platt fitted on 6289 OOF games (a=0.9560, b=0.0018)
+  INFO Calibration: Platt fitted on 6384 OOF games (a=0.9419, b=0.0123)
+  INFO Calibration: Platt fitted on 6478 OOF games (a=0.9592, b=0.0110)
+  INFO Run-engine monitor: 3 winner cards, rolling 12 days -> run_engine_monitor_20260906.json
+  INFO Step 6: Explainability
+  INFO SHAP stack in tested range (shap (0, 50), xgboost (3, 2))
+  WARNING TreeExplainer init failed for mlp: Model type not yet supported by TreeExplainer: <class 'sklearn.neural_network._multilayer_perceptron.MLPClassifier'>
+  WARNING TreeExplainer init failed for categorical_vocab: Model type not yet supported by TreeExplainer: <class 'dict'>
+  INFO SHAP additivity [xgboost via native_pred_contribs]: worst |Σφ + base − log-odds| = 3.05e-07 over 3 games
+  INFO SHAP additivity [lightgbm via ?]: worst |Σφ + base − log-odds| = 3.33e-16 over 3 games
+  INFO SHAP attributions written for 15 games
+  INFO Drift decided frame: 7088 games, hash=338eadc0b7a1
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO Run engine: 53/59 features kept; dropped 6: ['lineup_handedness_matchup_advantage', 'bullpen_meltdown_risk', 'pitcher_regression_indicator', 'lineup_depth_multiplier', 'ace_efficiency_factor', 'run_margin_diff']
+  INFO run_margin_diff: OOF margins attached on the moneyline's own folds (run engine READ-ONLY, 29-feature view); coverage 97.7% of 7088 rows, 163 decided game(s) uncovered (NaN → imputation); median rounds {'home': 25, 'away': 41}
+  WARNING Run engine: P1 projection input attached (opponent sp_proj_era per side) — decided coverage {'home': 0.9743, 'away': 0.9752}, ERA~proj slopes {'home': -1.2211, 'away': -1.2127}, pre pool 6788 rows
+  INFO Drift post-margin+proj-attach: 7088 games, hash=f7af39e133be, proj coverage {'home': 0.9743, 'away': 0.9752}
+  INFO Feature drift: 59 features, 2 warnings, 1 alerts (statuses on noise-adjusted PSI; mean noise floor 0.063)
+  WARNING Feature coverage gaps: wind_advantage_flyball_factor/current=76% measured; wind_advantage_flyball_factor/baseline=79% measured
+  INFO Run-engine drift view: 55/59 features kept (incl. 2 P1 proj); dropped 6
+  INFO Feature drift: 55 features, 2 warnings, 1 alerts (statuses on noise-adjusted PSI; mean noise floor 0.063)
+  INFO Run-engine drift view: 55/59 features kept (incl. 2 P1 proj); dropped 6
+  WARNING Feature coverage gaps: wind_advantage_flyball_factor/current=76% measured; wind_advantage_flyball_factor/baseline=79% measured
+  INFO Step 7: Skipping GitHub sync
+  INFO === Pipeline complete: ok ===
+Pipeline completed — artifacts pushed to GitHub by Phase 5 sync.
+Repo HEAD after run: 7a4e724 feat(mlb): add standalone pre-flight check for the Kaggle feature source
+Latest dated artifacts: ['nfl-backend/data_delivery/run_engine_feature_drift_20260904.csv', 'nfl-backend/data_delivery/run_engine_feature_drift_20260905.csv', 'nfl-backend/data_delivery/run_engine_feature_drift_20260906.csv']
