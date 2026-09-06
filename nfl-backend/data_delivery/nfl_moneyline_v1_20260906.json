@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-06T03:13:26.351231Z",
+  "created_utc": "2026-09-06T05:35:23.282441Z",
   "config": {
     "features": [
       "elo_diff",
@@ -365,9 +365,9 @@
   },
   "bundle_crosscheck": {
     "sealed": {
-      "logloss": 0.6255,
-      "auc": 0.6996,
-      "ece": 0.0659
+      "logloss": 0.4974,
+      "auc": 0.8515,
+      "ece": 0.0858
     },
     "within_run_sealed": {
       "logloss": 0.6323,
@@ -375,22 +375,25 @@
       "ece": 0.0711
     },
     "drift_vs_within_run": {
-      "logloss": -0.0068,
-      "auc": 0.0025,
-      "ece": -0.0052
+      "logloss": -0.1349,
+      "auc": 0.1544,
+      "ece": 0.0147
     },
     "note": "diagnostic cross-check only \u2014 the bundle is NOT the gate baseline; divergence here is cross-pull drift or config change",
     "metadata": {
-      "created_utc": "2026-09-04T02:40:27.672908Z",
+      "created_utc": "2026-09-06T03:13:23.183903Z",
       "train_seasons": [
         2019,
         2020,
         2021,
         2022,
         2023,
-        2024
+        2024,
+        2025
       ],
-      "sealed_season": 2025,
+      "warmup_seasons": [
+        2018
+      ],
       "ece_bins": 10,
       "ece_tol": 0.01
     },
