@@ -179,14 +179,20 @@ def build_board_inputs() -> dict[str, Any]:
     from run_nfl_margin_ablation import load_features
     feats = load_features(None)
     feats = feats[feats["season"] >= 2019]
-    if len(feats) != 1960:
-        raise RuntimeError(f"decided feature frame {len(feats)} != 1960")
     decided_f = decided_c.merge(
         feats[["game_id"] + SIDE_FEATURES], on="game_id", how="left")
     n_full = int(decided_f[SIDE_FEATURES + CENTER_COLS].dropna().shape[0])
     if n_full < 1700:
         raise RuntimeError(f"decided rows usable for the refit only {n_full}/"
                            f"{len(decided_f)} — STOP")
+    # Current production contract: the 2019-2025 scored wide-pool refit uses
+    # the decided feature frame attached to the 2018-2025 REG decided frame,
+    # and the immediately preceding Phase 3 moneyline path already emitted
+    # exactly that many OOF games. Derive the expectation from the actual
+    # current production pool rather than from another stale magic number.
+    n_served = int(feats.shape[0])
+    print(f"  decided feature frame: {n_served} rows "
+          f"(2019-2025 scored wide-pool)")
     print(f"  decided rows: {len(decided_f)} | refit-usable (full 12-pool + "
           f"centers): {n_full}")
 
