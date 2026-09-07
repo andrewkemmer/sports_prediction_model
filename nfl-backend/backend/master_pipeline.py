@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 import time
@@ -55,6 +56,22 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _env_season(name: str, fallback: int) -> int:
+    """Read an optional NFL_START_SEASON / NFL_END_SEASON override."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return fallback
+    try:
+        return int(raw)
+    except ValueError:
+        raise SystemExit(f"{name} must be an integer season, got {raw!r}") from None
+
+
+def _env_flag(name: str) -> bool:
+    """Truthy env flag (1/true/yes) — mirrors MLB_FULL_REPULL parsing."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="NFL production master pipeline")
     ap.add_argument("--skip-pull", action="store_true",
@@ -69,6 +86,19 @@ def main(argv: list[str] | None = None) -> int:
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
     run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     date_c = run_date.replace("-", "")
+
+    # MLB-style run options: env overrides are for one-off backfills only.
+    # Omit both = full configured history from config (2018..2026).
+    full_repull = _env_flag("NFL_FULL_REPULL")
+    start_season = _env_season("NFL_START_SEASON", min(config.ALL_SEASONS))
+    end_season = _env_season("NFL_END_SEASON", max(config.CORE_SEASONS))
+    if start_season > end_season:
+        raise SystemExit(f"invalid season window: {start_season} > {end_season}")
+    seasons = list(range(start_season, end_season + 1))
+    logger.info("nflverse season window: %d..%d", start_season, end_season)
+    if full_repull:
+        ingestion.clear_cache()
+        logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild")
     config_meta = {
         "feature_set_version": config.FEATURE_SET_VERSION,
         "warmup_seasons": config.WARMUP_SEASONS,
@@ -81,10 +111,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 2. Eligible game ingestion ────────────────────────────────────────
     _banner("PHASE 2", "nflverse ingestion")
-    schedule = ingestion.load_schedule(use_cache=not args.skip_pull and False)
+    # Fresh schedule each run unless --skip-pull; pbp uses per-season cache
+    # with incremental top-up (full repull above cleared it).
+    schedule = ingestion.load_schedule(
+        seasons=seasons,
+        use_cache=args.skip_pull and not full_repull,
+    )
     schedule = ingestion.eligible_games(schedule)
     logger.info("schedule rows (eligible seasons): %d", len(schedule))
-    pbp = ingestion.load_pbp(use_cache=True)
+    pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
 
     decided_all = schedule[schedule["home_score"].notna()
@@ -267,14 +302,21 @@ def main(argv: list[str] | None = None) -> int:
         slate["frame_view"] = "slate"
         slate["pred_home"] = slate["mu_h"]
         slate["pred_away"] = slate["mu_a"]
-        # QB enrichment (display only)
+        # QB enrichment (display only). The trailing window walks back
+        # through PRIOR seasons (a week-1 slate's last-10 window is the end
+        # of the previous season), so load the season before the slate too;
+        # a failed/absent season degrades to missing fields, never an error.
         qb_stats = {}
         try:
             from nflreadpy import load_player_stats
-            for s in sorted(set(int(x) for x in slate["season"].unique())):
-                ps = load_player_stats(s)
-                df = ps.to_pandas() if hasattr(ps, "to_pandas") else ps
-                qb_stats[s] = df
+            seasons = sorted(set(int(x) for x in slate["season"].unique()))
+            for s in [seasons[0] - 1] + seasons:
+                try:
+                    ps = load_player_stats(s)
+                    df = ps.to_pandas() if hasattr(ps, "to_pandas") else ps
+                    qb_stats[s] = df
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("player stats pull failed for %s: %s", s, exc)
         except Exception as exc:  # noqa: BLE001
             logger.warning("QB stats pull failed: %s", exc)
         qb_df = qb_enrichment.enrich_slate(slate, qb_stats)
@@ -325,6 +367,29 @@ def main(argv: list[str] | None = None) -> int:
     p = out_dir / config.MARKETS_CSV.format(date=date_c)
     mp = out_dir / config.MARKETS_META_JSON.format(date=date_c)
     serve_mod.write_markets_csv(p, mp, oof_market_rows, slate, config_meta)
+    artifacts.append(p.name)
+
+    # Run-Line & Totals Monitor — winner cards from this run's decided OOF
+    # store + today's slate_history point (the frontend folds the dated
+    # monitors' histories into the rolling table). ml_reference is the
+    # shared moneyline ensemble's pooled win rate (the derived-ML card's
+    # comparison anchor), computed from THIS run's moneyline OOF store.
+    ml_ref: dict = {}
+    if "p_ensemble" in oof_ml.columns and "home_win" in oof_ml.columns:
+        prob = pd.to_numeric(oof_ml["p_ensemble"], errors="coerce")
+        yv = pd.to_numeric(oof_ml["home_win"], errors="coerce")
+        ok = prob.notna() & yv.isin([0, 1])
+        prob, yv = prob[ok], yv[ok].astype(int)
+        if len(prob):
+            pick_home = prob > 0.5
+            win = float(((pick_home & (yv == 1))
+                         | (~pick_home & (yv == 0))).mean())
+            ml_ref = {"source": "ml_win_prob", "n": int(len(prob)),
+                      "win_rate": round(win, 4),
+                      "predicted_mean": round(float(prob.mean()), 4)}
+    p = out_dir / config.MARKETS_MONITOR_JSON.format(date=date_c)
+    monitoring.write_markets_monitor_json(p, date_c, oof_market_rows,
+                                          config_meta, ml_reference=ml_ref)
     artifacts.append(p.name)
 
     # OOF stores (model artifacts under data_delivery/models/)
@@ -564,6 +629,7 @@ def _prune_old_artifacts(out_dir: Path, date_c: str) -> None:
         config.MONEYLINE_JSON, config.CALIBRATION_JSON,
         config.PREDICTIONS_HISTORY_CSV, config.POWER_RANKINGS_CSV,
         config.MARKETS_CSV, config.MARKETS_META_JSON,
+        config.MARKETS_MONITOR_JSON,
         config.QB_MATCHUP_JSON, config.FEATURE_JSON,
         config.MODEL_MONITOR_JSON,
     ]

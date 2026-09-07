@@ -141,6 +141,27 @@ def _start_time_utc(g) -> str | None:
 # ---------------------------------------------------------------------------
 # Calibration JSON — metrics/daily contract the shared page renders
 # ---------------------------------------------------------------------------
+def _r4(v):
+    """Round a metric to 4 decimals (None/NaN passthrough) — MLB's stored
+    presentation precision (mlb-backend compute_metrics rounds every emitted
+    metric to 4 decimals, so the shared Calibration page renders both sports
+    from identically-precise artifacts)."""
+    try:
+        f = float(v)
+        return round(f, 4) if f == f else None  # NaN -> None
+    except (TypeError, ValueError):
+        return v
+
+
+def _r6(v):
+    """Round a Platt parameter to 6 decimals — MLB's fit_platt precision."""
+    try:
+        f = float(v)
+        return round(f, 6) if f == f else None
+    except (TypeError, ValueError):
+        return v
+
+
 def write_calibration_json(path, moneyline_metrics: dict,
                            calibrated_metrics: dict,
                            buckets: list[dict], daily: list[dict],
@@ -166,16 +187,17 @@ def write_calibration_json(path, moneyline_metrics: dict,
         n = int(platt.get("n") or n_games or 0)
         cal_sec = {
             "method": "platt",
-            "params": {"a": platt.get("a"), "b": platt.get("b"), "n": n},
+            "params": {"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
+                       "n": n},
             "metrics_raw": {
-                "brier": moneyline_metrics.get("brier"),
-                "logloss": moneyline_metrics.get("logloss"),
-                "ece": moneyline_metrics.get("ece"),
+                "brier": _r4(moneyline_metrics.get("brier")),
+                "logloss": _r4(moneyline_metrics.get("logloss")),
+                "ece": _r4(moneyline_metrics.get("ece")),
             },
             "metrics_calibrated": {
-                "brier": calibrated_metrics.get("brier"),
-                "logloss": calibrated_metrics.get("logloss"),
-                "ece": calibrated_metrics.get("ece"),
+                "brier": _r4(calibrated_metrics.get("brier")),
+                "logloss": _r4(calibrated_metrics.get("logloss")),
+                "ece": _r4(calibrated_metrics.get("ece")),
             },
         }
         if calibrated_buckets:
@@ -187,18 +209,24 @@ def write_calibration_json(path, moneyline_metrics: dict,
         "created_utc": _now_utc(),
         "config": config_meta,
         "metrics": {
-            "auc": moneyline_metrics.get("auc"),
-            "brier": moneyline_metrics.get("brier"),
-            "logloss": moneyline_metrics.get("logloss"),
-            "ece": moneyline_metrics.get("ece"),
-            "ece_calibrated": calibrated_metrics.get("ece"),
-            "auc_calibrated": calibrated_metrics.get("auc"),
-            "brier_calibrated": calibrated_metrics.get("brier"),
-            "logloss_calibrated": calibrated_metrics.get("logloss"),
+            "auc": _r4(moneyline_metrics.get("auc")),
+            "brier": _r4(moneyline_metrics.get("brier")),
+            "logloss": _r4(moneyline_metrics.get("logloss")),
+            "ece": _r4(moneyline_metrics.get("ece")),
+            "ece_calibrated": _r4(calibrated_metrics.get("ece")),
+            "auc_calibrated": _r4(calibrated_metrics.get("auc")),
+            "brier_calibrated": _r4(calibrated_metrics.get("brier")),
+            "logloss_calibrated": _r4(calibrated_metrics.get("logloss")),
         },
         "calibration": cal_sec,
         "calibration_buckets": buckets,
-        "daily": daily,
+        # Daily metrics at MLB's stored precision too (MLB's
+        # _daily_calibration_rows rounds every emitted daily metric to 4).
+        "daily": [
+            {**row, "metrics": {k: _r4(v)
+                                for k, v in (row.get("metrics") or {}).items()}}
+            for row in daily
+        ],
     }
     _dump_json(path, record)
     return record
@@ -325,7 +353,12 @@ def write_qb_matchup_json(path, qb_df: pd.DataFrame,
     base = slate_df.reset_index(drop=True)
     games = []
     for i, row in base.iterrows():
-        rec = {"game_id": row["game_id"]}
+        rec = {
+            "game_id": row["game_id"],
+            "gameday": str(row.get("gameday", row.get("game_date", "")) or ""),
+            "home_team": str(row.get("home_team", "") or ""),
+            "away_team": str(row.get("away_team", "") or ""),
+        }
         for f in config.QB_FIELDS:
             rec[f] = _clean(qb_df.iloc[i][f]) if f in qb_df.columns else None
         games.append(rec)

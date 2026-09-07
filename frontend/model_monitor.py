@@ -67,10 +67,12 @@ try:
 except (ValueError, TypeError):
     days_until = 0
 
-next_note = mon.get("next_retrain_note", "")
+# NFL artifacts ship explicit null notes (MLB's emitter ships none at all)
+# — an explicit null defeats dict.get's default, so coalesce with `or`.
+next_note = mon.get("next_retrain_note") or ""
 if "tonight" not in next_note and days_until <= 1:
     next_note = f"{next_note} — tonight" if next_note else "tonight"
-last_note = mon.get("last_retrained_note", "Model healthy")
+last_note = mon.get("last_retrained_note") or "Model healthy"
 # Subtext must never contradict the date: with a same-day persist, days_since
 # is 0 -> "today" (not "0 days ago"); a retrain-every-run pipeline persists
 # the served ensemble on every run, so last_retrained == the artifact date.
@@ -127,7 +129,7 @@ st.markdown(
     <div style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.06);border-radius:12px;
                 padding:12px 16px;margin:14px 0;">
       <div style="color:#FBBF24;font-weight:800;">Upset Monitoring Note — {utils.format_date_short(date_str)}</div>
-      <div style="color:#E2E8F0;font-size:0.92rem;margin-top:4px;">{mon.get('upset_note', 'No note available.')}</div>
+      <div style="color:#E2E8F0;font-size:0.92rem;margin-top:4px;">{mon.get('upset_note') or 'No note available.'}</div>
     </div>
     """,
     unsafe_allow_html=True,

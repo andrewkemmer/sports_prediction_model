@@ -174,6 +174,14 @@ def game_distribution(mu_h: float, mu_a: float,
     # fair spread / fair total: integer medians of the PMFs
     out["fair_spread"] = _pmf_median(pmf_m, MARGIN_SUPPORT)
     out["fair_total"] = _pmf_median(pmf_t, TOTAL_SUPPORT)
+    # fair-line probabilities (declared in the markets schema — the
+    # winner-card / pick-basis inputs): P(total > fair_total) and
+    # P(home covers fair_spread). fair_total is an integer median, so the
+    # grid lookup IS the fair line.
+    out["p_over_fair"] = total_probabilities(
+        pmf_t, TOTAL_SUPPORT, float(out["fair_total"]))[0]
+    out["p_cover_fair"] = margin_cdf_above(
+        pmf_m, MARGIN_SUPPORT, float(out["fair_spread"]))
     # spread grid: p_home_cover_L / p_push_L for L in -14..+14
     for L in config.SPREAD_GRID:
         out[f"p_home_cover_{L}"] = margin_cdf_above(pmf_m, MARGIN_SUPPORT, float(L))
