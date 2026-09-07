@@ -154,7 +154,10 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     (2026-08-30 restore); run_margin_diff, the 5 composites, and any other
     new _diff column are still dropped. Everything else flows in automatically
     (new level/env features included without touching this file). Returns both
-    lists so callers log the drops. Net active view: 53 features.
+    lists so callers log the drops. NOTE: since the 2026-09-07 exp2 E/F
+    replacement, the moneyline list is 61 cols and the rule over it yields 47
+    kept — the PRODUCTION view is the frozen 53-col RUN_LAMBDA_VIEW_FROZEN
+    (see below), not this derivation.
     """
     run_feats, dropped = [], []
     for f in feature_cols:
@@ -172,6 +175,48 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
         else:
             run_feats.append(f)
     return run_feats, dropped
+
+
+# FROZEN run-engine λ view (2026-09-07): the moneyline FEATURE_COLS correction
+# (Experiment #2 E/F replacement — the 6 baseline S-family features left the
+# moneyline list) must NOT shrink the run engine's model inputs. These two
+# tuples are byte-identical to derive_run_features(FEATURE_COLS) as of the
+# 2026-08-30 keep-list restore (53 kept / 14 dropped), captured before the
+# correction. build_side_frame defaults to this pinned view so NB pricing
+# behavior (alpha(lambda), Monte Carlo scoring, derive_markets_mc) is
+# invariant to moneyline feature-list changes. Ablation arms can still pass
+# run_features/dropped explicitly to exercise other views.
+RUN_LAMBDA_VIEW_FROZEN: tuple[str, ...] = (
+    "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
+    "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
+    "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
+    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
+    "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
+    "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
+    "closer_availability_diff", "dome_is_neutral", "park_factor_slug_diff",
+    "wind_advantage_flyball_factor", "air_density_velocity_boost",
+    "home_elo", "away_elo", "home_win_pct", "away_win_pct",
+    "sp_era_home", "sp_era_away", "sp_k9_home", "sp_k9_away",
+    "sp_xwoba_home", "sp_xwoba_away",
+    "lineup_woba_mean_home", "lineup_woba_mean_away",
+    "lineup_woba_top3_home", "lineup_woba_top3_away",
+    "woba_30g_home", "woba_30g_away",
+    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
+    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
+    "team_barrel_15g_home", "team_barrel_15g_away",
+    "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+)
+RUN_LAMBDA_DROPPED_FROZEN: tuple[str, ...] = (
+    "lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
+    "pitcher_regression_indicator", "lineup_depth_multiplier",
+    "ace_efficiency_factor", "run_margin_diff",
+    "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
+    "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
+    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
+    "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
+)
+assert len(RUN_LAMBDA_VIEW_FROZEN) == 53 and len(RUN_LAMBDA_DROPPED_FROZEN) == 14
 
 
 def split_side_view(run_features: list[str],
@@ -202,13 +247,15 @@ def build_side_frame(games: pd.DataFrame, side: str,
     ``include_level_env=False`` excludes the standalone env-LEVEL columns
     (ablation variant A); present-in-frame level features otherwise append
     automatically, with any missing source warned loudly."""
-    from training import FEATURE_COLS
-
     feats = list(run_features) if run_features is not None else None
     if feats is None or dropped is None:
-        feats, dropped = derive_run_features(list(FEATURE_COLS))
-        logger.info("Run engine: %d/%d features kept; dropped %d: %s",
-                    len(feats), len(FEATURE_COLS), len(dropped), dropped)
+        # Default: the FROZEN 2026-08-30 λ view (see RUN_LAMBDA_VIEW_FROZEN).
+        # NOT re-derived from the live FEATURE_COLS — the moneyline list may
+        # change (e.g. the exp2 E/F replacement) without run-engine sign-off.
+        feats = list(RUN_LAMBDA_VIEW_FROZEN)
+        dropped = list(RUN_LAMBDA_DROPPED_FROZEN)
+        logger.info("Run engine: %d frozen-view features kept; dropped %d: %s",
+                    len(feats), len(dropped), dropped)
     if include_level_env:
         present = [c for c in RUN_LEVEL_ENV_FEATURES if c in games.columns]
         missing = [c for c in RUN_LEVEL_ENV_FEATURES if c not in games.columns]

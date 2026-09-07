@@ -100,6 +100,8 @@ from run_engine import (  # noqa: E402
     MC_DRAWS,
     MARKET_SEED,
     HOLDOUT_DAYS,
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
     TOTAL_LINE_GRID,
     alpha_of,
     derive_markets_mc,
@@ -159,9 +161,12 @@ def head_sha() -> str:
 
 def arm_features() -> dict[str, list[str]]:
     """Arm feature lists: C0 = production 53-view; A1..A5 = +1 composite;
-    AALL = + all 5 (58). Derived from derive_run_features so C0 is exactly
-    the served pool today."""
-    kept, dropped = derive_run_features(list(FEATURE_COLS))
+    AALL = + all 5 (58). C0 is the FROZEN 2026-08-30 λ view
+    (RUN_LAMBDA_VIEW_FROZEN) — byte-identical to the pre-correction
+    derive_run_features(FEATURE_COLS) output, so the harness keeps comparing
+    against the actual production run-engine view even after the moneyline
+    FEATURE_COLS correction."""
+    kept = list(RUN_LAMBDA_VIEW_FROZEN)
     assert len(kept) == 53, f"production run view must be 53, got {len(kept)}"
     arms: dict[str, list[str]] = {"C0": list(kept)}
     for tag, f in CANDIDATES.items():
@@ -174,9 +179,13 @@ def arm_features() -> dict[str, list[str]]:
 
 def arm_drop_terms(arm_feats: list[str]) -> list[str]:
     """The 'dropped' list run_oof expects when run_features is given: every
-    FEATURE_COLS col not in the arm (the derivation would produce the same
-    for the base; keep it explicit for the override contract)."""
-    return [c for c in FEATURE_COLS if c not in arm_feats]
+    col of the run-view domain not in the arm. The domain is the FROZEN
+    pre-correction superset (RUN_LAMBDA_VIEW_FROZEN ∪ RUN_LAMBDA_DROPPED_FROZEN
+    = the 2026-08-30 67-col FEATURE_COLS), so the override contract stays
+    well-defined after the moneyline FEATURE_COLS correction (the harness
+    C0 keeps 6 features the moneyline list no longer carries)."""
+    domain = list(RUN_LAMBDA_VIEW_FROZEN) + list(RUN_LAMBDA_DROPPED_FROZEN)
+    return [c for c in domain if c not in arm_feats]
 
 
 def price_arm(oof: pd.DataFrame, holdout_days: int = HOLDOUT_DAYS,

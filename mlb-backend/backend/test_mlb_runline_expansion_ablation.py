@@ -31,7 +31,11 @@ import numpy as np
 import pandas as pd
 
 import run_mlb_runline_expansion_ablation as rexp
-from run_engine import derive_run_features
+from run_engine import (
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
+    derive_run_features,
+)
 from training import FEATURE_COLS
 
 
@@ -143,9 +147,8 @@ class TestArmConstruction(unittest.TestCase):
         feats = rexp.arm_features()
         self.assertEqual(len(feats["C0"]), 53,
                          "production run view is 53 columns")
-        kept, dropped = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(sorted(kept), sorted(feats["C0"]),
-                         "C0 must be exactly the served 53-feature view")
+        self.assertEqual(sorted(feats["C0"]), sorted(RUN_LAMBDA_VIEW_FROZEN),
+                         "C0 must be exactly the served (frozen) 53-feature view")
         for tag, f in rexp.CANDIDATES.items():
             self.assertEqual(sorted(set(feats[tag]) - set(feats["C0"])), [f],
                              f"{tag} must add exactly {f}")
@@ -156,12 +159,13 @@ class TestArmConstruction(unittest.TestCase):
 
     def test_override_contract_partitions_feature_cols(self):
         feats = rexp.arm_features()
+        domain = sorted(RUN_LAMBDA_VIEW_FROZEN) + sorted(RUN_LAMBDA_DROPPED_FROZEN)
         for name, arm_feats in feats.items():
             terms = rexp.arm_drop_terms(arm_feats)
             self.assertEqual(sorted(arm_feats + terms),
-                             sorted(FEATURE_COLS),
+                             sorted(domain),
                              f"{name}: run_features + dropped must partition "
-                             f"FEATURE_COLS")
+                             f"the frozen run-view domain")
 
     def test_feature_cols_untouched(self):
         before = list(FEATURE_COLS)

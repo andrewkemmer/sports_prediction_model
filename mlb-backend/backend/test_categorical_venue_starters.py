@@ -34,7 +34,11 @@ if str(_BACKEND.parent) not in sys.path:
 
 import training  # noqa: E402
 from config import DATA_DELIVERY_DIR  # noqa: E402
-from run_engine import RUN_EXTRA_EXCLUSIONS, derive_run_features  # noqa: E402
+from run_engine import (  # noqa: E402
+    RUN_LAMBDA_VIEW_FROZEN,
+    RUN_EXTRA_EXCLUSIONS,
+    derive_run_features,
+)
 from feature_metadata import generate_features_metadata  # noqa: E402
 
 _CAT_SOURCE_EXCLUSIONS = ("venue", "home_starter_id", "away_starter_id")
@@ -215,15 +219,16 @@ class TestRunEngineIsolation(unittest.TestCase):
                           f"{f} must be in the run-engine exclusion set")
 
     def test_kept_dropped_lists_byte_identical(self):
-        """Adding the 3 categorical-context names must NOT move the derived
-        KEPT list: the run engine's 53-feature view is byte-identical to the
+        """The run engine's 53-feature view must stay byte-identical to the
         2026-08-30 restore contract (53 = 29 original + 24 restored diffs).
-        After the 2026-09-07 exp2 expansion the dropped side grows by the 8
-        exp2 matchup diffs (kept view unchanged — they are moneyline/run-line
-        classifier-only)."""
+        After the 2026-09-07 exp2 E/F replacement correction the production
+        view is the FROZEN RUN_LAMBDA_VIEW_FROZEN constant — the moneyline
+        FEATURE_COLS list shrinking must not shrink the run engine's inputs.
+        (derive_run_features over the corrected 61-col list now returns 47;
+        that is the rule applied to the moneyline list, NOT the served view.)"""
+        self.assertEqual(list(RUN_LAMBDA_VIEW_FROZEN), self._EXPECTED_KEPT)
         keep, dropped = derive_run_features(list(training.FEATURE_COLS))
-        self.assertEqual(keep, self._EXPECTED_KEPT)
-        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(keep), 47)
         self.assertEqual(len(dropped), 14)
         exp2_dropped = [f for f in dropped if f.startswith("exp2_")]
         self.assertEqual(len(exp2_dropped), 8)

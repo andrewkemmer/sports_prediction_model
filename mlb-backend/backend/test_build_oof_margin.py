@@ -25,7 +25,11 @@ import numpy as np
 import pandas as pd
 
 import build_oof_margin as bom
-from run_engine import derive_run_features
+from run_engine import (
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
+    derive_run_features,
+)
 from training import FEATURE_COLS
 
 
@@ -170,23 +174,27 @@ class TestRefitMargins(unittest.TestCase):
 
 
 class TestConfigRegressions(unittest.TestCase):
-    def test_feature_cols_now_67_exp2_expansion(self):
-        """Post-expansion pin: the 8 Experiment #2 matchup candidates joined
-        FEATURE_COLS (2026-09-07 C+E/D+F frozen decision; 59 baseline + 8 =
-        67). The 6 lineup-delta features stay removed; margin still shipped."""
-        self.assertEqual(len(FEATURE_COLS), 67)
+    def test_feature_cols_now_61_exp2_replacement(self):
+        """Post-correction pin: the 8 Experiment #2 matchup candidates joined
+        FEATURE_COLS and the CORRECTED frozen decision removed the 6 unique
+        E/F baseline features (replacement, not expansion; 59 − 6 + 8 = 61).
+        The 6 lineup-delta features stay removed; margin still shipped."""
+        self.assertEqual(len(FEATURE_COLS), 61)
         self.assertIn(bom.MARGIN_COL, FEATURE_COLS)
 
     def test_run_engine_stays_read_only_wrt_margin(self):
         """The run view drops run_margin_diff and the 8 exp2 matchup diffs by
         the *_diff rule (the only survivor is park_factor_slug_diff) — the run
         engine cannot consume the margin, so the margin path cannot leak into
-        itself. The 53-col keep-list (2026-08-30 restore) is unchanged by the
-        2026-09-07 exp2 expansion."""
+        itself. The FROZEN 53-col λ view (2026-08-30 restore) is unchanged by
+        the 2026-09-07 exp2 correction; deriving over the corrected 61-col
+        moneyline list gives 47."""
         feats, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertNotIn(bom.MARGIN_COL, feats)
         self.assertIn(bom.MARGIN_COL, dropped)
-        self.assertEqual(len(feats), 53)
+        self.assertEqual(len(feats), 47)
+        self.assertNotIn(bom.MARGIN_COL, RUN_LAMBDA_VIEW_FROZEN)
+        self.assertIn(bom.MARGIN_COL, RUN_LAMBDA_DROPPED_FROZEN)
 
 
 class TestProductionWiring(unittest.TestCase):

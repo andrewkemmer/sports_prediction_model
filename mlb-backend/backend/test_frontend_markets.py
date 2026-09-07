@@ -384,12 +384,11 @@ class TestRunEngineModelMonitorRender(TestCase):
         reflects the last pre-fix run (53) until the next pipeline run."""
         cols = run_engine_feature_cols()
         self.assertEqual(len(cols), 55)
-        # All 53 derive_run_features kept columns are covered.
-        from run_engine import derive_run_features
-        from training import FEATURE_COLS
-        feats, _ = derive_run_features(list(FEATURE_COLS))
+        # All 53 frozen production λ-view columns are covered.
+        from run_engine import RUN_LAMBDA_VIEW_FROZEN
+        feats = list(RUN_LAMBDA_VIEW_FROZEN)
         self.assertTrue(set(feats) <= set(cols),
-                        "every derive_run_features kept col must be in the drift enumeration")
+                        "every frozen run-engine λ-view col must be in the drift enumeration")
         # The 2 P1 projection level inputs are covered.
         self.assertIn("sp_proj_era_home", cols)
         self.assertIn("sp_proj_era_away", cols)

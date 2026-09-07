@@ -314,16 +314,16 @@ class TestExp2GameLevelAssembly(unittest.TestCase):
 
 
 class TestFeatureSafety(unittest.TestCase):
-    """Feature-safety gate, UPDATED for the frozen implementation decision
-    (2026-09-07, C+E moneyline / D+F run line): the 8 exp2 candidate columns
-    are now PRODUCTION FEATURE_COLS members (59 → 67) and are computed by
-    features.add_exp2_features, while the RAW source columns remain
-    dataset-only and never enter the estimator."""
+    """Feature-safety gate, UPDATED for the CORRECTED implementation decision
+    (2026-09-07, replacement semantics): the 8 exp2 candidate columns are
+    PRODUCTION FEATURE_COLS members (59 − 6 E/F removals + 8 = 61) and are
+    computed by features.add_exp2_features, while the RAW source columns
+    remain dataset-only and never enter the estimator."""
 
-    def test_feature_cols_67_with_exp2_candidates(self):
+    def test_feature_cols_61_replacement_set(self):
         from features import EXP2_CANDIDATE_COLS
-        self.assertEqual(len(FEATURE_COLS), 67,
-                         "FEATURE_COLS must be the 59 baseline + 8 exp2 candidates")
+        self.assertEqual(len(FEATURE_COLS), 61,
+                         "FEATURE_COLS must be 59 baseline − 6 E/F removals + 8 exp2 candidates")
         for c in EXP2_CANDIDATE_COLS:
             self.assertIn(c, FEATURE_COLS, f"{c} missing from FEATURE_COLS")
 

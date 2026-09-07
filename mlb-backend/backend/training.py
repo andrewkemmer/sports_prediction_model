@@ -294,6 +294,31 @@ FEATURE_COLS = [
     "exp2_cat_xwoba_offspeed_diff",
     "exp2_cat_platoon_k_fastball_diff",
 ]
+
+# CORRECTED 2026-09-07: the intended Experiment #2 operation was a feature
+# REPLACEMENT, not a pure expansion — ADD C/D (the 8 exp2 candidates above)
+# and REMOVE the E/F targeted-removal families. The removal sets resolve
+# (from data_delivery/exp2_feature_test_20260907.json 's_families' +
+# 'candidate_s_map', the frozen experiment registry) to 6 UNIQUE baseline
+# features; sp_k9_diff / sp_k9_5g_diff appear in both S_K and S_PLATOON and
+# are counted once. Both models' removal unions are identical, so one list
+# serves moneyline and run line alike:
+#   S_K        = {sp_k9_diff, sp_k9_5g_diff}          (centered, platoon)
+#   S_FB_K     = {sp_fbpct_diff, sp_whiff_diff}       (category K ×3)
+#   S_XWOBA    = {sp_xwoba_diff, sp_xwoba_vs_l_diff}  (category xwOBA ×3)
+# sp_xwoba_vs_r_diff stays absent (never in the original baseline).
+# The raw per-side source columns and every OTHER baseline feature are
+# preserved; the run engine's λ view (run_engine.py RUN_FEATURE_COLS) is a
+# separate list and is untouched — NB pricing behavior unchanged.
+_EXP2_REMOVALS = [
+    "sp_k9_diff",
+    "sp_k9_5g_diff",
+    "sp_fbpct_diff",
+    "sp_whiff_diff",
+    "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff",
+]
+FEATURE_COLS = [c for c in FEATURE_COLS if c not in _EXP2_REMOVALS]
 # Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
 

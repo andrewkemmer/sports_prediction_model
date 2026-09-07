@@ -8,9 +8,10 @@ Covers the 2026-08-30 feature-restore decision:
 - Same folds → identical table (run_oof determinism).
 - Market-level scoring harness on a fixture: reference lines exist, base
   rates correct, ECE-cal computed with no holdout leakage.
-- Regressions: moneyline FEATURE_COLS is 59; run_margin_diff stays excluded
+- Regressions: moneyline FEATURE_COLS is 61 (exp2 E/F replacement);
+  run_margin_diff stays excluded
   from the run view (lambda-derived moneyline-side); run_oof default call
-  path (no explicit feature list) derives the 53-col rule; α(λ)/MC market
+  path (no explicit feature list) serves the frozen 53-col λ view; α(λ)/MC market
   path still derives.
 """
 from __future__ import annotations
@@ -25,6 +26,8 @@ from explainability import classify_drift_retention
 from run_engine import (
     RUN_DIFF_EXCEPTION,
     RUN_EXTRA_EXCLUSIONS,
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
     RUN_RESTORED_DIFF_FEATURES,
     derive_markets_v3,
     derive_run_features,
@@ -63,15 +66,23 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
     def test_restore_outcome_exact_sets(self):
         """Current rule (adopted: RESTORE) — exact kept/dropped sets.
 
-        The 24 matchup-gap _diff features are KEPT (RUN_RESTORED_DIFF_FEATURES);
-        run_margin_diff, the 8 exp2 matchup candidates (2026-09-07 C+E/D+F
-        decision — moneyline/run-line-only, deliberately NOT added to the run
-        engine's λ view) and the 5 composites are dropped. Active view: 53 cols.
-        """
+        The 24 matchup-gap _diff features are KEPT by the rule
+        (RUN_RESTORED_DIFF_FEATURES); run_margin_diff, the 8 exp2 matchup
+        candidates (2026-09-07 C+E/D+F decision — moneyline/run-line-only,
+        deliberately NOT added to the run engine's λ view) and the 5
+        composites are dropped. The PRODUCTION view is the FROZEN 53-col
+        RUN_LAMBDA_VIEW_FROZEN; deriving over the CORRECTED 61-col moneyline
+        list gives 47 (6 E/F-removed baseline features no longer flow through
+        FEATURE_COLS, but remain in the frozen run-engine view)."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         dropped_diffs = [d for d in dropped if d.endswith("_diff")]
         composites = [d for d in dropped if not d.endswith("_diff")]
-        self.assertEqual(len(keep), 53, "kept view must stay 53 cols")
+        # The FROZEN production view is byte-identical to the pre-correction
+        # derivation (53 kept / 14 dropped).
+        self.assertEqual(len(RUN_LAMBDA_VIEW_FROZEN), 53)
+        self.assertEqual(len(RUN_LAMBDA_DROPPED_FROZEN), 14)
+        # Rule over the corrected moneyline list: 47 kept / 14 dropped.
+        self.assertEqual(len(keep), 47, "kept rule view over corrected list")
         self.assertEqual(len(dropped), 14)
         self.assertEqual(
             dropped_diffs,
@@ -80,9 +91,12 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
             )],
             "run_margin_diff + the 8 exp2 matchup diffs are the only excluded _diffs")
         self.assertEqual(len(composites), 5)
-        # The restored 24 diffs + the park exception are the only _diff kept.
+        # The restored 24 diffs + the park exception are the only _diff the
+        # rule keeps (those still present in FEATURE_COLS; the frozen view
+        # additionally carries the 6 E/F-removed restored diffs).
         kept_diffs = {f for f in keep if f.endswith("_diff")}
-        self.assertEqual(kept_diffs,
+        frozen_diffs = {f for f in RUN_LAMBDA_VIEW_FROZEN if f.endswith("_diff")}
+        self.assertEqual(kept_diffs | frozen_diffs,
                          set(RUN_RESTORED_DIFF_FEATURES)
                          | {RUN_DIFF_EXCEPTION})
         self.assertIn(RUN_DIFF_EXCEPTION, keep)
@@ -110,18 +124,23 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
                          "restored set must not overlap the composite exclusions")
         self.assertNotIn("run_margin_diff", keep)
         ship = sorted(set(keep) | {"run_margin_diff"})
-        self.assertEqual(len(ship), 54, "ship variant is a distinct choice")
+        self.assertEqual(len(ship), 48, "ship variant is a distinct choice")
+        # The frozen production view with the margin added is the distinct
+        # 54-col choice it always was.
+        ship_frozen = sorted(set(RUN_LAMBDA_VIEW_FROZEN) | {"run_margin_diff"})
+        self.assertEqual(len(ship_frozen), 54)
 
 
 class TestSelectionPartitionInvariants(unittest.TestCase):
     def test_derive_run_features_partitions_feature_cols_exactly(self):
         """kept ∪ dropped == FEATURE_COLS, disjoint, deterministic — the
         rule is a pure function of the name list (no importance/drift input),
-        so the denominator/count invariants (67 = 53 kept + 14 dropped after
-        the 2026-09-07 exp2 expansion) are structural, not incidental."""
+        so the denominator/count invariants (61 = 47 kept + 14 dropped after
+        the 2026-09-07 exp2 E/F replacement correction) are structural, not
+        incidental."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(len(FEATURE_COLS), 67)
-        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(FEATURE_COLS), 61)
+        self.assertEqual(len(keep), 47)
         self.assertEqual(len(dropped), 14)
         self.assertEqual(len(keep) + len(dropped), len(FEATURE_COLS))
         self.assertEqual(set(keep) | set(dropped), set(FEATURE_COLS))
@@ -235,20 +254,26 @@ class TestMarketHarnessFixture(unittest.TestCase):
 
 
 class TestRegressions(unittest.TestCase):
-    def test_moneyline_feature_cols_now_67_exp2_expansion(self):
+    def test_moneyline_feature_cols_now_61_exp2_replacement(self):
         """The 6 lineup-delta features stay removed (train-serve skew fix,
-        2026-08-29); the 8 Experiment #2 candidates joined on 2026-09-07.
-        FEATURE_COLS is 67."""
-        self.assertEqual(len(FEATURE_COLS), 67)
+        2026-08-29); the 8 Experiment #2 candidates joined 2026-09-07 and the
+        CORRECTED replacement removed the 6 unique E/F baseline features the
+        same day. FEATURE_COLS is 61."""
+        self.assertEqual(len(FEATURE_COLS), 61)
         self.assertIn("run_margin_diff", FEATURE_COLS)
 
-    def test_default_run_oof_path_derives_53(self):
-        """run_features=None must derive the 53-col rule (2026-08-30 restored
-        view). Dropped is 14: run_margin_diff + the 8 exp2 matchup diffs +
-        the 5 composites."""
-        keep, dropped = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(len(keep), 53)
-        self.assertEqual(len(dropped), 14)
+    def test_default_run_view_is_frozen_53_lambda(self):
+        """run_features=None must serve the FROZEN 2026-08-30 53-col λ view —
+        the moneyline FEATURE_COLS correction (exp2 E/F replacement) must not
+        shrink the run engine's inputs. Dropped stays 14: run_margin_diff +
+        the 8 exp2 matchup diffs + the 5 composites."""
+        self.assertEqual(len(RUN_LAMBDA_VIEW_FROZEN), 53)
+        self.assertEqual(len(RUN_LAMBDA_DROPPED_FROZEN), 14)
+        # The 6 baseline features removed from the moneyline list remain in
+        # the run engine's view — NB pricing behavior unchanged.
+        for c in ("sp_k9_diff", "sp_k9_5g_diff", "sp_fbpct_diff",
+                  "sp_whiff_diff", "sp_xwoba_diff", "sp_xwoba_vs_l_diff"):
+            self.assertIn(c, RUN_LAMBDA_VIEW_FROZEN)
 
     def test_alpha_lambda_mc_path_still_derives(self):
         """derive_markets_v3 still produces α(λ) curves + full grid + holdout

@@ -6,7 +6,7 @@ Covers:
   * NaN propagation: missing source columns → all-NaN candidates, never 0;
   * the run-line target helper (true −1.5: home_runs − away_runs ≥ 2) keeps
     NULL alignment so fold geometry stays byte-identical;
-  * FEATURE_COLS width invariant (67 = 59 baseline + 8 candidates).
+  * FEATURE_COLS width invariant (61 = 59 baseline − 6 E/F removals + 8 candidates).
 """
 from __future__ import annotations
 
@@ -111,9 +111,16 @@ class TestRunLineTarget(unittest.TestCase):
 
 class TestFeatureColsInvariant(unittest.TestCase):
     def test_width_and_uniqueness(self):
-        self.assertEqual(len(FEATURE_COLS), 67)
-        self.assertEqual(len(set(FEATURE_COLS)), 67)
-        self.assertEqual(len(FEATURE_COLS), 59 + len(EXP2_CANDIDATE_COLS))
+        # CORRECTED frozen decision: replacement, not expansion —
+        # 59 baseline − 6 unique E/F removals + 8 exp2 candidates = 61.
+        removals = {"sp_k9_diff", "sp_k9_5g_diff", "sp_fbpct_diff",
+                    "sp_whiff_diff", "sp_xwoba_diff", "sp_xwoba_vs_l_diff"}
+        self.assertEqual(len(FEATURE_COLS), 61)
+        self.assertEqual(len(set(FEATURE_COLS)), 61)
+        self.assertEqual(len(FEATURE_COLS), 59 - len(removals) + len(EXP2_CANDIDATE_COLS))
+        self.assertEqual(removals & set(FEATURE_COLS), set(),
+                         "E/F removal families must be absent")
+        self.assertNotIn("sp_xwoba_vs_r_diff", FEATURE_COLS)
 
 
 if __name__ == "__main__":

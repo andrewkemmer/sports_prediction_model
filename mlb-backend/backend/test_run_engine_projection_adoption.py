@@ -37,6 +37,7 @@ import run_engine_k_edge as ke  # noqa: F401  (patches run_engine — wrapper-id
 from run_engine import (
     MARKET_COLUMNS_V3,
     NULLABLE_MARKET_COLUMNS,
+    RUN_LAMBDA_VIEW_FROZEN,
     attach_projection_levels,
     build_side_frame,
     derive_run_features,
@@ -112,9 +113,9 @@ class TestSideViewProjectionAppend(unittest.TestCase):
             self.assertNotIn("sp_proj_era_away", cols)
             _, cols2 = build_side_frame(self.raw_comps, side)
             self.assertEqual(cols, cols2)
-        # the derived keep-list is the 53-feature production view
-        keep, _ = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(len(keep), 53)
+        # the production view is the frozen 53-feature λ view (unchanged by
+        # the 2026-09-07 moneyline FEATURE_COLS correction)
+        self.assertEqual(len(RUN_LAMBDA_VIEW_FROZEN), 53)
 
     def test_p1_appends_opponent_level_only_when_present(self):
         c0_cols = {}
@@ -142,7 +143,9 @@ class TestSideViewProjectionAppend(unittest.TestCase):
         self.assertNotIn("sp_proj_era_away", FEATURE_COLS)
         self.assertNotIn("sp_proj_era_home", keep)
         self.assertNotIn("sp_proj_era_away", keep)
-        self.assertEqual(len(keep), 53)
+        self.assertEqual(len(keep), 47)
+        self.assertNotIn("sp_proj_era_home", RUN_LAMBDA_VIEW_FROZEN)
+        self.assertNotIn("sp_proj_era_away", RUN_LAMBDA_VIEW_FROZEN)
         # the projection columns must never ride into the moneyline's view
         self.assertNotIn("sp_proj_era_home", dropped + keep)
 

@@ -89,7 +89,12 @@ from config import (  # noqa: E402
 )
 from data_ingestion import load_game_features  # noqa: E402
 from frames import get_decided_frame  # noqa: E402
-from run_engine import derive_run_features, run_oof  # noqa: E402
+from run_engine import (  # noqa: E402
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
+    derive_run_features,
+    run_oof,
+)
 from training import FEATURE_COLS  # noqa: E402
 
 # Reuse the exact C2 pricing layer + gate helpers from the feature-expansion
@@ -175,9 +180,11 @@ def build_defense_ladders(decided: pd.DataFrame, wide: pd.DataFrame
 
 
 def arm_features() -> dict[str, list[str]]:
-    """Arm feature lists: C0 = the production 53-feature run view;
+    """Arm feature lists: C0 = the production 53-feature run view (the FROZEN
+    RUN_LAMBDA_VIEW_FROZEN — byte-identical to the pre-correction derivation,
+    unaffected by the moneyline FEATURE_COLS correction);
     F1..F4 = C0 + that family's per-side columns."""
-    kept, _dropped = derive_run_features(list(FEATURE_COLS))
+    kept = list(RUN_LAMBDA_VIEW_FROZEN)
     assert len(kept) == 53, f"production run view must be 53, got {len(kept)}"
     arms: dict[str, list[str]] = {"C0": list(kept)}
     for tag in ("F1", "F2", "F3", "F4"):
@@ -186,10 +193,11 @@ def arm_features() -> dict[str, list[str]]:
 
 
 def arm_drop_terms(arm_feats: list[str]) -> list[str]:
-    """The 'dropped' list run_oof expects: every FEATURE_COLS col not in the
-    arm (informational only; the derive is skipped when run_features is
-    given)."""
-    return [c for c in FEATURE_COLS if c not in arm_feats]
+    """The 'dropped' list run_oof expects: every col of the frozen run-view
+    domain (pre-correction 67-col superset) not in the arm (informational
+    only; the derive is skipped when run_features is given)."""
+    domain = list(RUN_LAMBDA_VIEW_FROZEN) + list(RUN_LAMBDA_DROPPED_FROZEN)
+    return [c for c in domain if c not in arm_feats]
 
 
 def main() -> None:

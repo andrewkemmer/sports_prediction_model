@@ -30,7 +30,11 @@ if "resource" not in sys.modules:  # POSIX-only module, stub on Windows
     sys.modules["resource"] = _res
 
 import run_mlb_runline_defense_ablation as m  # noqa: E402
-from run_engine import derive_run_features  # noqa: E402
+from run_engine import (  # noqa: E402
+    RUN_LAMBDA_DROPPED_FROZEN,
+    RUN_LAMBDA_VIEW_FROZEN,
+    derive_run_features,
+)
 from training import FEATURE_COLS  # noqa: E402
 
 
@@ -70,10 +74,9 @@ def _synthetic_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 class TestArmConstruction(unittest.TestCase):
     def test_c0_is_the_production_53_feature_view(self):
-        kept, _ = derive_run_features(list(FEATURE_COLS))
         arms = m.arm_features()
-        self.assertEqual(len(kept), 53)
-        self.assertEqual(set(arms["C0"]), set(kept))
+        self.assertEqual(len(RUN_LAMBDA_VIEW_FROZEN), 53)
+        self.assertEqual(set(arms["C0"]), set(RUN_LAMBDA_VIEW_FROZEN))
 
     def test_family_arms_add_only_their_per_side_columns(self):
         arms = m.arm_features()
@@ -97,11 +100,12 @@ class TestArmConstruction(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_drop_terms_never_include_defense_columns(self):
+        domain = set(RUN_LAMBDA_VIEW_FROZEN) | set(RUN_LAMBDA_DROPPED_FROZEN)
         arms = m.arm_features()
         for tag in ("C0", "F1", "F2", "F3", "F4"):
             dropped = set(m.arm_drop_terms(arms[tag]))
-            self.assertTrue(dropped.issubset(set(FEATURE_COLS)))
-        # Defense columns ride in run_features; dropped must stay FEATURE_COLS-only.
+            self.assertTrue(dropped.issubset(domain))
+        # Defense columns ride in run_features; dropped must stay domain-only.
         for tag in ("F1", "F2", "F3", "F4"):
             dropped = set(m.arm_drop_terms(arms[tag]))
             self.assertFalse(dropped & set(m.ARM_LABELS[tag]))

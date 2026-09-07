@@ -98,24 +98,12 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "ERA runs",
         "direction": "lower = home advantage",
     },
-    "sp_k9_diff": {
-        "summary": "Home SP season-to-date K/9 − away SP",
-        "definition": "Strikeout rate gap: strikeouts per 9 innings, season to date.",
-        "formula": "sp_k9_home − sp_k9_away",
-        "source": "Statcast pitching aggregates (season to date)",
-        "window": "season to date",
-        "units": "K/9",
-        "direction": "higher = home advantage",
-    },
-    "sp_k9_5g_diff": {
-        "summary": "Home SP last-5-start K/9 − away SP (recent form)",
-        "definition": "Strikeout-rate gap over each pitcher's last 5 starts.",
-        "formula": "sp_k9_5g_home − sp_k9_5g_away",
-        "source": "Statcast pitching aggregates (last-5-start window)",
-        "window": "5g",
-        "units": "K/9",
-        "direction": "higher = home advantage",
-    },
+    # RETIRED 2026-09-07 (Experiment #2 E/F replacement — the 6 baseline
+    # S-family features left FEATURE_COLS): sp_k9_diff, sp_k9_5g_diff,
+    # sp_fbpct_diff, sp_whiff_diff, sp_xwoba_diff, sp_xwoba_vs_l_diff.
+    # Their authored dashboard entries were removed (the dashboard only
+    # renders FEATURE_COLS members); the columns are still generated in the
+    # dataset and remain run-engine λ-view inputs (RUN_LAMBDA_VIEW_FROZEN).
     # ---- SP trailing-3 stuff diffs ----------------------------------------
     "sp_fbvelo_diff": {
         "summary": "Home SP fastball velo (last 3 starts) − away SP (mph)",
@@ -123,46 +111,11 @@ _RICH: dict[str, dict[str, str]] = {
         "formula": "sp_fbvelo_3g_home − sp_fbvelo_3g_away",
         "source": "Statcast pitch-level: mean fastball speed, last-3-start window",
         "window": "3g",
-        "units": "mph",
-        "direction": "higher = home advantage",
+        "units": "mph",        "direction": "higher = home advantage",
     },
-    "sp_fbpct_diff": {
-        "summary": "Home SP fastball usage (last 3 starts) − away SP",
-        "definition": "How heavily each pitcher is leaning on the fastball right now.",
-        "formula": "sp_fbpct_3g_home − sp_fbpct_3g_away",
-        "source": "Statcast pitch-level: fastball share of pitches, last-3-start window",
-        "window": "3g",
-        "units": "share (0–1)",
-        "direction": "n/a (mix signal)",
-    },
-    "sp_whiff_diff": {
-        "summary": "Home SP whiff rate (last 3 starts) − away SP",
-        "definition": "Swinging-strike rate generated per swing over the last 3 starts — raw stuff indicator.",
-        "formula": "sp_whiff_3g_home − sp_whiff_3g_away",
-        "source": "Statcast pitch-level: whiffs / swings, last-3-start window",
-        "window": "3g",
-        "units": "rate (0–1)",
-        "direction": "higher = home advantage",
-    },
+
+
     # ---- SP xwOBA allowed -------------------------------------------------
-    "sp_xwoba_diff": {
-        "summary": "Home SP last-6-start xwOBA allowed − away SP",
-        "definition": "Expected weighted-OBA conceded to opposing batters — contact-quality-based pitcher effectiveness.",
-        "formula": "sp_xwoba_home − sp_xwoba_away",
-        "source": "Statcast xwOBA on balls in play + K/BB, last-6-start window",
-        "window": "6g",
-        "units": "xwOBA",
-        "direction": "lower = home advantage",
-    },
-    "sp_xwoba_vs_l_diff": {
-        "summary": "Home SP xwOBA vs LHB (season to date) − away SP",
-        "definition": "Platoon exposure: expected production allowed specifically to left-handed batters.",
-        "formula": "sp_xwoba_vs_l_home − sp_xwoba_vs_l_away",
-        "source": "Statcast xwOBA split by batter handedness (season)",
-        "window": "season to date",
-        "units": "xwOBA",
-        "direction": "lower = home advantage",
-    },
     # ---- lineup wOBA ------------------------------------------------------
     "lineup_woba_mean_diff": {
         "summary": "Home lineup avg wOBA − away lineup avg wOBA",

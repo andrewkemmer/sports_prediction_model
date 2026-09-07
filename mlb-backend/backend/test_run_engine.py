@@ -63,9 +63,14 @@ class TestFeatureViewDerivation(unittest.TestCase):
     def test_restored_and_exception_diffs_in_kept_view(self):
         """2026-08-30 restore: the 24 matchup-gap _diff features and
         park_factor_slug_diff are in the kept view; run_margin_diff and any
-        other non-restored _diff column are dropped."""
+        other non-restored _diff column are dropped. After the 2026-09-07
+        exp2 E/F replacement correction, the PRODUCTION view is the frozen
+        RUN_LAMBDA_VIEW_FROZEN constant — byte-identical to the pre-correction
+        derivation — so the run engine is unaffected by moneyline-list
+        changes."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         restorable = set(re_.RUN_RESTORED_DIFF_FEATURES)
+        frozen = set(re_.RUN_LAMBDA_VIEW_FROZEN)
         kept_diffs = {f for f in keep if f.endswith("_diff")}
         # Every kept _diff is either a restored matchup-gap diff or the park
         # exception — no stray/non-restored diff leaks in.
@@ -75,10 +80,16 @@ class TestFeatureViewDerivation(unittest.TestCase):
         self.assertIn(re_.RUN_DIFF_EXCEPTION, FEATURE_COLS)
         # run_margin_diff stays excluded (lambda-derived moneyline-side).
         self.assertIn("run_margin_diff", dropped)
-        # All 24 restored diffs are kept.
-        self.assertTrue(restorable <= set(keep))
-        # Active view is 53 = 29 original + 24 restored.
-        self.assertEqual(len(keep), 53)
+        # The FROZEN production view keeps all 24 restored diffs and is
+        # exactly 53 = 29 original + 24 restored.
+        self.assertTrue(restorable <= frozen)
+        self.assertEqual(len(frozen), 53)
+        # The corrected moneyline list no longer carries the 6 E/F-removed
+        # baseline features — the run engine's frozen view still does.
+        for f in ("sp_k9_diff", "sp_k9_5g_diff", "sp_fbpct_diff",
+                  "sp_whiff_diff", "sp_xwoba_diff", "sp_xwoba_vs_l_diff"):
+            self.assertNotIn(f, FEATURE_COLS)
+            self.assertIn(f, frozen)
 
     def test_pure_matchup_and_diff_products_dropped(self):
         keep, _ = derive_run_features(list(FEATURE_COLS))
