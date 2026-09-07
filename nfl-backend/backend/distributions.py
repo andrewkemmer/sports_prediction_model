@@ -96,22 +96,27 @@ def _make_reg(name: str):
 
 
 class ScoreRegressor:
-    """mu_h / mu_a from a boosted-tree regression pair (tree view)."""
+    """mu_h / mu_a from a boosted-tree regression pair (tree view).
+
+    Representation contract (mirrors moneyline.member_fit_input): both
+    regressors are FIT and PREDICTED on the NAMED tree-view DataFrame.
+    scikit-learn >= 1.6 + LightGBM < 4.6 emits
+    "X does not have valid feature names ... fitted with feature names"
+    on ndarray predicts, so the named frame is pinned at both ends;
+    tree_view's reindex keeps column names/order identical everywhere.
+    """
 
     def __init__(self) -> None:
         self.home_model = _make_reg("xgboost")
         self.away_model = _make_reg("lightgbm")
 
-    @staticmethod
-    def _matrix(df: pd.DataFrame) -> np.ndarray:
-        """Single source of truth for the regression feature matrix — the
-        SAME ndarray construction at fit and predict time, so a model can
-        never be fitted with one representation and predicted with another
-        (the sklearn "does not have valid feature names" warning class)."""
-        X = feat_mod.tree_view(df).to_numpy(dtype=np.float64)
+    def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # NaN-safe: trees route NaN natively; guard all-NaN columns by
-        # filling with the training median.
-        return np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        # filling with the training median (fit-time only).
+        Xv = feat_mod.tree_view(df)
+        X = Xv.to_numpy(dtype=np.float64)
+        X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        return pd.DataFrame(X, columns=Xv.columns, index=Xv.index)
 
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
         X = self._matrix(df)
@@ -223,20 +228,12 @@ def apply_distribution(df: pd.DataFrame, sigma_margin: float,
 # Walk-forward OOF for the distribution model
 # ---------------------------------------------------------------------------
 def walk_forward_oof(game_df: pd.DataFrame,
-                     date_col: str = "gameday",
-                     fold_list: list | None = None) -> dict:
+                     date_col: str = "gameday") -> dict:
     """Expanding walk-forward OOF: per fold, fit mu regressions on strictly
     prior training games, predict validation, collect residuals for the
-    pooled sigma calibration. Returns {oof, fold_table}.
-
-    ``fold_list``: the authoritative Phase 4 Fold objects (from
-    folds.make_folds over the SAME frame/row order). When omitted, the same
-    authoritative generator is invoked here so the geometry is always
-    folds.make_folds — never a second implementation.
-    """
+    pooled sigma calibration. Returns {oof, fold_table}."""
     df = game_df.sort_values(date_col).reset_index(drop=True)
-    if fold_list is None:
-        fold_list = folds_mod.make_folds(df, date_col=date_col)
+    fold_list = folds_mod.make_folds(df, date_col=date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
     for fold in fold_list:

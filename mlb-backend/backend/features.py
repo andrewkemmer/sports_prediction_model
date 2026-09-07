@@ -1255,6 +1255,343 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         GROUP BY game_pk, batting_team
     """)
 
+    # 7i. Experiment #2 SOURCE layer — point-in-time pitch-category inputs
+    # (data-layer only; consumed by future research candidates, never by
+    # FEATURE_COLS). All windows are LAG-shifted so the current game never
+    # enters its own features; expanding season windows are season-partitioned
+    # like sp_era/sp_k9; league priors are per-date cumulative from already-
+    # shifted stats (same construction as batter_league.lg_woba).
+    #
+    # Taxonomy (production pitch_category, defined here and in pbp_level):
+    #   fastball: FF FT SI FC FS FO · breaking: SL CU KC CS SV WR ·
+    #   offspeed: CH EP SC KN UN PO · everything else → NULL (excluded).
+    # xwOBA cells average estimated_woba_using_speedangle over PA-ending
+    # pitches with a non-null value (Statcast-native; not all PAs carry a
+    # value — that is the production aggregation convention everywhere).
+    # League priors/usage/K% are pooled K-rate or wOBA-numerator ratios
+    # (SUM/SUM), NOT averages of rates — small-sample stable.
+    con.execute(f"""
+        CREATE TABLE exp2_pa AS
+        WITH lastp AS (
+            SELECT CAST(game_date AS DATE) AS game_date,
+                   game_pk, pitcher, batter, stand, p_throws,
+                   CASE WHEN pitch_type IN ('FF','FT','SI','FC','FS','FO') THEN 'fastball'
+                        WHEN pitch_type IN ('SL','CU','KC','CS','SV','WR') THEN 'breaking'
+                        WHEN pitch_type IN ('CH','EP','SC','KN','UN','PO') THEN 'offspeed'
+                        ELSE NULL END AS pitch_cat,
+                   CASE WHEN events IN ('strikeout','strikeout_double_play')
+                        THEN 1.0 ELSE 0.0 END AS k_flag,
+                   estimated_woba_using_speedangle AS xwoba_val
+            FROM pitches
+            WHERE events IN ({PA_END_EVENTS})
+        )
+        SELECT game_date, game_pk, pitcher, batter, stand, pitch_cat,
+               k_flag,
+               CASE WHEN pitch_cat IS NOT NULL THEN 1.0 ELSE 0.0 END AS n_flag,
+               CASE WHEN xwoba_val IS NOT NULL THEN 1.0 ELSE 0.0 END AS xwoba_n,
+               COALESCE(xwoba_val, 0.0) AS xwoba_summand
+        FROM lastp
+    """)
+
+    # League K% (all-category): per-date pooled K / PA. The published value
+    # for date D is the cumulative through the PREVIOUS date with data
+    # (outer LAG by date), so same-day games never enter — strictly prior.
+    con.execute(f"""
+        CREATE TABLE exp2_league_k AS
+        WITH daily AS (
+            SELECT game_date,
+                SUM(_k) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+                  / NULLIF(SUM(_pa) OVER (ORDER BY game_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0)
+                  AS k_pct_thru
+            FROM (
+                SELECT game_date, SUM(k_flag) AS _k, COUNT(*) AS _pa
+                FROM exp2_pa GROUP BY game_date
+            )
+        )
+        SELECT game_date,
+               LAG(k_pct_thru) OVER (ORDER BY game_date) AS league_k_pct
+        FROM daily
+    """)
+
+    # League K% and wOBA per pitch category (same per-date cumulative,
+    # published as-of the previous date; first observed date → NULL).
+    con.execute(f"""
+        CREATE TABLE exp2_league_cat AS
+        WITH daily AS (
+            SELECT game_date, pitch_cat,
+                SUM(_k) OVER w / NULLIF(SUM(_pa) OVER w, 0) AS k_thru,
+                SUM(_xwoba_num) OVER w / NULLIF(SUM(_xwoba_n) OVER w, 0) AS xwoba_thru
+            FROM (
+                SELECT game_date, pitch_cat, SUM(k_flag) AS _k, COUNT(*) AS _pa,
+                       SUM(xwoba_summand) AS _xwoba_num, SUM(xwoba_n) AS _xwoba_n
+                FROM exp2_pa WHERE pitch_cat IS NOT NULL
+                GROUP BY game_date, pitch_cat
+            )
+            WINDOW w AS (PARTITION BY pitch_cat ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+        )
+        SELECT game_date, pitch_cat,
+               LAG(k_thru) OVER wp AS league_k_pct_cat,
+               LAG(xwoba_thru) OVER wp AS league_xwoba_cat
+        FROM daily
+        WINDOW wp AS (PARTITION BY pitch_cat ORDER BY game_date)
+    """)
+
+    # Starter per-category raw per-game counts (PAs ending on each category).
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_game AS
+        SELECT game_date, game_pk, pitcher, pitch_cat,
+               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n,
+               SUM(xwoba_summand) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
+        FROM exp2_pa WHERE pitch_cat IS NOT NULL
+        GROUP BY game_date, game_pk, pitcher, pitch_cat
+    """)
+    # Starter fastball-by-opposing-batter-hand raw per-game counts.
+    con.execute(f"""
+        CREATE TABLE exp2_sp_fbhand_game AS
+        SELECT game_date, game_pk, pitcher, stand,
+               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n
+        FROM exp2_pa WHERE pitch_cat = 'fastball'
+        GROUP BY game_date, game_pk, pitcher, stand
+    """)
+    # Starter per-category — DATE-LEVEL season-to-date priors. Daily raw
+    # counts are aggregated per (pitcher, season, pitch_cat, DATE) — doubleheader
+    # same-date games merge, so a target game never sees its date's PAs — then
+    # a cumulative is carried and ASOF-joined so every pitching date gets the
+    # prior-total even when that date itself had no PAs of the category.
+    # Season-partitioned (prior October never leaks — sp_era/sp_k9 semantics).
+    # NULL until the pitcher has a prior in-season start.
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_daily AS
+        SELECT game_date, pitcher,
+               EXTRACT(YEAR FROM game_date) AS season, pitch_cat,
+               SUM(k_n) AS k_n, SUM(pa_n) AS pa_n,
+               SUM(xwoba_num) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
+        FROM exp2_sp_cat_game
+        GROUP BY game_date, pitcher, season, pitch_cat
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_cum AS
+        SELECT *,
+            SUM(k_n) OVER w AS k_thru,
+            SUM(pa_n) OVER w AS pa_thru,
+            SUM(xwoba_num) OVER w AS xwo_thru,
+            SUM(xwoba_n) OVER w AS xwon_thru
+        FROM exp2_sp_cat_daily
+        WINDOW w AS (PARTITION BY pitcher, season, pitch_cat ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_tot_daily AS
+        SELECT game_date, pitcher, season, SUM(pa_n) AS pa_n
+        FROM exp2_sp_cat_daily
+        GROUP BY game_date, pitcher, season
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_tot_cum AS
+        SELECT *, SUM(pa_n) OVER w AS pa_thru
+        FROM exp2_sp_cat_tot_daily
+        WINDOW w AS (PARTITION BY pitcher, season ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat_prelim AS
+        SELECT g.game_date, g.pitcher, g.season, g.pitch_cat,
+            c.k_thru / NULLIF(c.pa_thru, 0) AS sp_k_pct_cat,
+            c.xwo_thru / NULLIF(c.xwon_thru, 0) AS sp_xwoba_cat,
+            c.pa_thru AS sp_pa_cat_cum
+        FROM (
+            SELECT d.game_date, d.pitcher, d.season, cats.pitch_cat
+            FROM (SELECT DISTINCT game_date, pitcher, season
+                  FROM exp2_sp_cat_daily) d
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed'))
+                   AS cats(pitch_cat)
+        ) g
+        ASOF LEFT JOIN exp2_sp_cat_cum c
+          ON g.pitcher = c.pitcher AND g.season = c.season
+         AND g.pitch_cat = c.pitch_cat AND g.game_date > c.game_date
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_cat AS
+        SELECT g.game_date, g.pitcher, g.pitch_cat,
+            g.sp_k_pct_cat,
+            g.sp_xwoba_cat,
+            -- Usage: prior PAs of this category / prior PAs across all three
+            -- tracked categories (sums to 1 across categories, same as-of date).
+            g.sp_pa_cat_cum / NULLIF(t.pa_thru, 0) AS sp_usage_cat
+        FROM exp2_sp_cat_prelim g
+        ASOF LEFT JOIN exp2_sp_cat_tot_cum t
+          ON g.pitcher = t.pitcher AND g.season = t.season
+         AND g.game_date > t.game_date
+    """)
+
+    # Starter fastball K% by opposing-batter handedness — DATE-LEVEL
+    # season-to-date priors (same daily + ASOF construction as exp2_sp_cat).
+    con.execute(f"""
+        CREATE TABLE exp2_sp_fbhand_daily AS
+        SELECT game_date, pitcher,
+               EXTRACT(YEAR FROM game_date) AS season, stand,
+               SUM(k_n) AS k_n, SUM(pa_n) AS pa_n
+        FROM exp2_sp_fbhand_game
+        GROUP BY game_date, pitcher, season, stand
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_fbhand_cum AS
+        SELECT *,
+            SUM(k_n) OVER w AS k_thru,
+            SUM(pa_n) OVER w AS pa_thru
+        FROM exp2_sp_fbhand_daily
+        WINDOW w AS (PARTITION BY pitcher, season, stand ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_sp_fbhand AS
+        SELECT g.game_date, g.pitcher, g.stand,
+            c.k_thru / NULLIF(c.pa_thru, 0) AS sp_k_pct_fb_vs,
+            c.pa_thru AS sp_pa_fb_vs
+        FROM (
+            SELECT d.game_date, d.pitcher, d.season, h.st AS stand
+            FROM (SELECT DISTINCT game_date, pitcher, season
+                  FROM exp2_sp_fbhand_daily) d
+            CROSS JOIN (VALUES ('L'), ('R')) AS h(st)
+        ) g
+        ASOF LEFT JOIN exp2_sp_fbhand_cum c
+          ON g.pitcher = c.pitcher AND g.season = c.season
+         AND g.stand = c.stand AND g.game_date > c.game_date
+    """)
+
+    # Offense per-category raw per-game counts (team-aggregated).
+    con.execute(f"""
+        CREATE TABLE exp2_team_cat_game AS
+        WITH pa AS (
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                        ELSE p.home_team END AS batting_team,
+                   a.pitch_cat, a.k_flag, a.xwoba_summand, a.xwoba_n, a.n_flag
+            FROM exp2_pa a
+            JOIN (SELECT DISTINCT game_pk, game_date, home_team, away_team,
+                         inning_topbot
+                  FROM pitches) p USING (game_pk)
+            WHERE a.pitch_cat IS NOT NULL
+        )
+        SELECT game_date, game_pk, batting_team, pitch_cat,
+               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n,
+               SUM(xwoba_summand) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
+        FROM pa GROUP BY game_date, game_pk, batting_team, pitch_cat
+    """)
+    # Offense per-category K%/xwOBA — DATE-LEVEL season-to-date priors (same
+    # daily + ASOF construction), so a target game never sees its own date's
+    # PAs (doubleheader-safe) and every batting date carries the prior total
+    # even on a category-less day.
+    con.execute(f"""
+        CREATE TABLE exp2_team_cat_daily AS
+        SELECT game_date, batting_team,
+               EXTRACT(YEAR FROM game_date) AS season, pitch_cat,
+               SUM(k_n) AS k_n, SUM(pa_n) AS pa_n,
+               SUM(xwoba_num) AS xwoba_num, SUM(xwoba_n) AS xwoba_n
+        FROM exp2_team_cat_game
+        GROUP BY game_date, batting_team, season, pitch_cat
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_team_cat_cum AS
+        SELECT *,
+            SUM(k_n) OVER w AS k_thru,
+            SUM(pa_n) OVER w AS pa_thru,
+            SUM(xwoba_num) OVER w AS xwo_thru,
+            SUM(xwoba_n) OVER w AS xwon_thru
+        FROM exp2_team_cat_daily
+        WINDOW w AS (PARTITION BY batting_team, season, pitch_cat ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_team_cat AS
+        SELECT g.game_date, g.batting_team, g.pitch_cat,
+            c.k_thru / NULLIF(c.pa_thru, 0) AS team_k_pct_cat,
+            c.xwo_thru / NULLIF(c.xwon_thru, 0) AS team_xwoba_cat
+        FROM (
+            SELECT d.game_date, d.batting_team, d.season, cats.pitch_cat
+            FROM (SELECT DISTINCT game_date, batting_team, season
+                  FROM exp2_team_cat_daily) d
+            CROSS JOIN (VALUES ('fastball'), ('breaking'), ('offspeed'))
+                   AS cats(pitch_cat)
+        ) g
+        ASOF LEFT JOIN exp2_team_cat_cum c
+          ON g.batting_team = c.batting_team AND g.season = c.season
+         AND g.pitch_cat = c.pitch_cat AND g.game_date > c.game_date
+    """)
+
+    # Offense K% vs fastballs by the BATTER's handedness (season-to-date).
+    con.execute(f"""
+        CREATE TABLE exp2_team_fbhand_game AS
+        WITH pa AS (
+            SELECT CAST(p.game_date AS DATE) AS game_date, p.game_pk,
+                   CASE WHEN p.inning_topbot = 'Top' THEN p.away_team
+                        ELSE p.home_team END AS batting_team,
+                   a.stand, a.k_flag, a.n_flag
+            FROM exp2_pa a
+            JOIN (SELECT DISTINCT game_pk, game_date, home_team, away_team,
+                         inning_topbot
+                  FROM pitches) p USING (game_pk)
+            WHERE a.pitch_cat = 'fastball'
+        )
+        SELECT game_date, game_pk, batting_team, stand,
+               SUM(k_flag) AS k_n, SUM(n_flag) AS pa_n
+        FROM pa GROUP BY game_date, game_pk, batting_team, stand
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_team_fbhand_daily AS
+        SELECT game_date, batting_team,
+               EXTRACT(YEAR FROM game_date) AS season, stand,
+               SUM(k_n) AS k_n, SUM(pa_n) AS pa_n
+        FROM exp2_team_fbhand_game
+        GROUP BY game_date, batting_team, season, stand
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_team_fbhand_cum AS
+        SELECT *,
+            SUM(k_n) OVER w AS k_thru,
+            SUM(pa_n) OVER w AS pa_thru
+        FROM exp2_team_fbhand_daily
+        WINDOW w AS (PARTITION BY batting_team, season, stand ORDER BY game_date
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute(f"""
+        CREATE TABLE exp2_team_fbhand AS
+        SELECT g.game_date, g.batting_team, g.stand,
+            c.k_thru / NULLIF(c.pa_thru, 0) AS team_k_pct_fb_vs,
+            c.pa_thru AS team_pa_fb_vs
+        FROM (
+            SELECT d.game_date, d.batting_team, d.season, h.st AS stand
+            FROM (SELECT DISTINCT game_date, batting_team, season
+                  FROM exp2_team_fbhand_daily) d
+            CROSS JOIN (VALUES ('L'), ('R')) AS h(st)
+        ) g
+        ASOF LEFT JOIN exp2_team_fbhand_cum c
+          ON g.batting_team = c.batting_team AND g.season = c.season
+         AND g.stand = c.stand AND g.game_date > c.game_date
+    """)
+
+    # League fastball K% by batter handedness (per-date cumulative published
+    # as-of the previous date — strictly prior, same as exp2_league_k).
+    con.execute(f"""
+        CREATE TABLE exp2_league_fbhand AS
+        WITH daily AS (
+            SELECT game_date, stand,
+                SUM(_k) OVER w / NULLIF(SUM(_pa) OVER w, 0) AS k_thru
+            FROM (
+                SELECT game_date, stand, SUM(k_flag) AS _k, SUM(n_flag) AS _pa
+                FROM exp2_pa WHERE pitch_cat = 'fastball'
+                GROUP BY game_date, stand
+            )
+            WINDOW w AS (PARTITION BY stand ORDER BY game_date
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+        )
+        SELECT game_date, stand,
+               LAG(k_thru) OVER wp AS league_k_pct_fb_vs
+        FROM daily
+        WINDOW wp AS (PARTITION BY stand ORDER BY game_date)
+    """)
+
     # 7g/7h — travel fatigue + closer availability (helpers above).
     _build_travel_features(con)
     _build_closer_features(con)
@@ -1360,7 +1697,69 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
             ba.bullpen_whip_10g - bpsa.bullpen_whip_std AS bullpen_whip_delta_away,
             ba.bullpen_era_10g - bpsa.bullpen_era_std AS bullpen_era_delta_away,
             la.lineup_woba_mean - lsa.lineup_woba_mean_std AS lineup_woba_mean_delta_away,
-            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away
+            la.lineup_woba_top3 - lsa.lineup_woba_top3_std AS lineup_woba_top3_delta_away,
+            -- Experiment #2 source layer (see the exp2 block above). Side map:
+            -- *_home = the HOME starter's priors / the AWAY lineup's priors
+            -- (the batters the home starter faces), mirroring opp_lefty_share.
+            s.home_starter_hand,
+            s.away_starter_hand,
+            lgk.league_k_pct,
+            -- League per-category K% / xwOBA priors (date-level; identical
+            -- for both sides like league_k_pct itself).
+            lkcf.league_k_pct_cat AS league_k_pct_cat_fastball,
+            lkcb.league_k_pct_cat AS league_k_pct_cat_breaking,
+            lkco.league_k_pct_cat AS league_k_pct_cat_offspeed,
+            lxkf.league_xwoba_cat AS league_xwoba_cat_fastball,
+            lxkb.league_xwoba_cat AS league_xwoba_cat_breaking,
+            lxko.league_xwoba_cat AS league_xwoba_cat_offspeed,
+            lgl.league_k_pct_fb_vs AS league_k_pct_fb_vs_l,
+            lgr.league_k_pct_fb_vs AS league_k_pct_fb_vs_r,
+            hsc.sp_k_pct_cat AS sp_k_pct_cat_fastball_home,
+            asc_.sp_k_pct_cat AS sp_k_pct_cat_fastball_away,
+            bsc.sp_k_pct_cat AS sp_k_pct_cat_breaking_home,
+            bsa.sp_k_pct_cat AS sp_k_pct_cat_breaking_away,
+            osc.sp_k_pct_cat AS sp_k_pct_cat_offspeed_home,
+            osa.sp_k_pct_cat AS sp_k_pct_cat_offspeed_away,
+            hsu.sp_usage_cat AS sp_usage_cat_fastball_home,
+            asu.sp_usage_cat AS sp_usage_cat_fastball_away,
+            bsu.sp_usage_cat AS sp_usage_cat_breaking_home,
+            bsau.sp_usage_cat AS sp_usage_cat_breaking_away,
+            osu.sp_usage_cat AS sp_usage_cat_offspeed_home,
+            osau.sp_usage_cat AS sp_usage_cat_offspeed_away,
+            hsx.sp_xwoba_cat AS sp_xwoba_cat_fastball_home,
+            asx.sp_xwoba_cat AS sp_xwoba_cat_fastball_away,
+            bsx.sp_xwoba_cat AS sp_xwoba_cat_breaking_home,
+            bsax.sp_xwoba_cat AS sp_xwoba_cat_breaking_away,
+            osx.sp_xwoba_cat AS sp_xwoba_cat_offspeed_home,
+            osax.sp_xwoba_cat AS sp_xwoba_cat_offspeed_away,
+            tkc.team_k_pct_cat AS team_k_pct_cat_fastball_home,
+            akc.team_k_pct_cat AS team_k_pct_cat_fastball_away,
+            tkb.team_k_pct_cat AS team_k_pct_cat_breaking_home,
+            akb.team_k_pct_cat AS team_k_pct_cat_breaking_away,
+            tko.team_k_pct_cat AS team_k_pct_cat_offspeed_home,
+            ako.team_k_pct_cat AS team_k_pct_cat_offspeed_away,
+            txk.team_xwoba_cat AS team_xwoba_cat_fastball_home,
+            axk.team_xwoba_cat AS team_xwoba_cat_fastball_away,
+            txb.team_xwoba_cat AS team_xwoba_cat_breaking_home,
+            axb.team_xwoba_cat AS team_xwoba_cat_breaking_away,
+            txo.team_xwoba_cat AS team_xwoba_cat_offspeed_home,
+            axo.team_xwoba_cat AS team_xwoba_cat_offspeed_away,
+            hfb.sp_k_pct_fb_vs AS sp_k_pct_fb_vs_l_home,
+            afb.sp_k_pct_fb_vs AS sp_k_pct_fb_vs_l_away,
+            hfr.sp_k_pct_fb_vs AS sp_k_pct_fb_vs_r_home,
+            afr.sp_k_pct_fb_vs AS sp_k_pct_fb_vs_r_away,
+            hfb.sp_pa_fb_vs AS sp_pa_fb_vs_l_home,
+            afb.sp_pa_fb_vs AS sp_pa_fb_vs_l_away,
+            hfr.sp_pa_fb_vs AS sp_pa_fb_vs_r_home,
+            afr.sp_pa_fb_vs AS sp_pa_fb_vs_r_away,
+            tfb.team_k_pct_fb_vs AS team_k_pct_fb_vs_l_home,
+            atb.team_k_pct_fb_vs AS team_k_pct_fb_vs_l_away,
+            tfr.team_k_pct_fb_vs AS team_k_pct_fb_vs_r_home,
+            atr.team_k_pct_fb_vs AS team_k_pct_fb_vs_r_away,
+            tfb.team_pa_fb_vs AS team_pa_fb_vs_l_home,
+            atb.team_pa_fb_vs AS team_pa_fb_vs_l_away,
+            tfr.team_pa_fb_vs AS team_pa_fb_vs_r_home,
+            atr.team_pa_fb_vs AS team_pa_fb_vs_r_away
         FROM game_winners w
         LEFT JOIN starters s ON w.game_pk = s.game_pk
         LEFT JOIN venues v ON w.game_pk = v.game_pk
@@ -1397,6 +1796,53 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         LEFT JOIN lineup_season lsa ON w.game_pk = lsa.game_pk AND w.away_team = lsa.batting_team
         LEFT JOIN lineup_ops_agg loh ON w.game_pk = loh.game_pk AND w.home_team = loh.batting_team
         LEFT JOIN lineup_ops_agg loa ON w.game_pk = loa.game_pk AND w.away_team = loa.batting_team
+        LEFT JOIN exp2_league_k lgk ON w.game_date = lgk.game_date
+        LEFT JOIN exp2_league_cat lkcf ON w.game_date = lkcf.game_date AND lkcf.pitch_cat = 'fastball'
+        LEFT JOIN exp2_league_cat lkcb ON w.game_date = lkcb.game_date AND lkcb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_league_cat lkco ON w.game_date = lkco.game_date AND lkco.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_league_cat lxkf ON w.game_date = lxkf.game_date AND lxkf.pitch_cat = 'fastball'
+        LEFT JOIN exp2_league_cat lxkb ON w.game_date = lxkb.game_date AND lxkb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_league_cat lxko ON w.game_date = lxko.game_date AND lxko.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_league_fbhand lgl ON w.game_date = lgl.game_date AND lgl.stand = 'L'
+        LEFT JOIN exp2_league_fbhand lgr ON w.game_date = lgr.game_date AND lgr.stand = 'R'
+        LEFT JOIN exp2_sp_cat hsc ON w.game_date = hsc.game_date AND hsc.pitcher = s.home_starter_id AND hsc.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat asc_ ON w.game_date = asc_.game_date AND asc_.pitcher = s.away_starter_id AND asc_.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat bsc ON w.game_date = bsc.game_date AND bsc.pitcher = s.home_starter_id AND bsc.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat bsa ON w.game_date = bsa.game_date AND bsa.pitcher = s.away_starter_id AND bsa.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat osc ON w.game_date = osc.game_date AND osc.pitcher = s.home_starter_id AND osc.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_cat osa ON w.game_date = osa.game_date AND osa.pitcher = s.away_starter_id AND osa.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_cat hsu ON w.game_date = hsu.game_date AND hsu.pitcher = s.home_starter_id AND hsu.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat asu ON w.game_date = asu.game_date AND asu.pitcher = s.away_starter_id AND asu.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat bsu ON w.game_date = bsu.game_date AND bsu.pitcher = s.home_starter_id AND bsu.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat bsau ON w.game_date = bsau.game_date AND bsau.pitcher = s.away_starter_id AND bsau.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat osu ON w.game_date = osu.game_date AND osu.pitcher = s.home_starter_id AND osu.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_cat osau ON w.game_date = osau.game_date AND osau.pitcher = s.away_starter_id AND osau.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_cat hsx ON w.game_date = hsx.game_date AND hsx.pitcher = s.home_starter_id AND hsx.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat asx ON w.game_date = asx.game_date AND asx.pitcher = s.away_starter_id AND asx.pitch_cat = 'fastball'
+        LEFT JOIN exp2_sp_cat bsx ON w.game_date = bsx.game_date AND bsx.pitcher = s.home_starter_id AND bsx.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat bsax ON w.game_date = bsax.game_date AND bsax.pitcher = s.away_starter_id AND bsax.pitch_cat = 'breaking'
+        LEFT JOIN exp2_sp_cat osx ON w.game_date = osx.game_date AND osx.pitcher = s.home_starter_id AND osx.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_cat osax ON w.game_date = osax.game_date AND osax.pitcher = s.away_starter_id AND osax.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_team_cat tkc ON w.game_date = tkc.game_date AND w.away_team = tkc.batting_team AND tkc.pitch_cat = 'fastball'
+        LEFT JOIN exp2_team_cat akc ON w.game_date = akc.game_date AND w.home_team = akc.batting_team AND akc.pitch_cat = 'fastball'
+        LEFT JOIN exp2_team_cat tkb ON w.game_date = tkb.game_date AND w.away_team = tkb.batting_team AND tkb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_team_cat akb ON w.game_date = akb.game_date AND w.home_team = akb.batting_team AND akb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_team_cat tko ON w.game_date = tko.game_date AND w.away_team = tko.batting_team AND tko.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_team_cat ako ON w.game_date = ako.game_date AND w.home_team = ako.batting_team AND ako.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_team_cat txk ON w.game_date = txk.game_date AND w.away_team = txk.batting_team AND txk.pitch_cat = 'fastball'
+        LEFT JOIN exp2_team_cat axk ON w.game_date = axk.game_date AND w.home_team = axk.batting_team AND axk.pitch_cat = 'fastball'
+        LEFT JOIN exp2_team_cat txb ON w.game_date = txb.game_date AND w.away_team = txb.batting_team AND txb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_team_cat axb ON w.game_date = axb.game_date AND w.home_team = axb.batting_team AND axb.pitch_cat = 'breaking'
+        LEFT JOIN exp2_team_cat txo ON w.game_date = txo.game_date AND w.away_team = txo.batting_team AND txo.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_team_cat axo ON w.game_date = axo.game_date AND w.home_team = axo.batting_team AND axo.pitch_cat = 'offspeed'
+        LEFT JOIN exp2_sp_fbhand hfb ON w.game_date = hfb.game_date AND hfb.pitcher = s.home_starter_id AND hfb.stand = 'L'
+        LEFT JOIN exp2_sp_fbhand afb ON w.game_date = afb.game_date AND afb.pitcher = s.away_starter_id AND afb.stand = 'L'
+        LEFT JOIN exp2_sp_fbhand hfr ON w.game_date = hfr.game_date AND hfr.pitcher = s.home_starter_id AND hfr.stand = 'R'
+        LEFT JOIN exp2_sp_fbhand afr ON w.game_date = afr.game_date AND afr.pitcher = s.away_starter_id AND afr.stand = 'R'
+        LEFT JOIN exp2_team_fbhand tfb ON w.game_date = tfb.game_date AND w.away_team = tfb.batting_team AND tfb.stand = 'L'
+        LEFT JOIN exp2_team_fbhand atb ON w.game_date = atb.game_date AND w.home_team = atb.batting_team AND atb.stand = 'L'
+        LEFT JOIN exp2_team_fbhand tfr ON w.game_date = tfr.game_date AND w.away_team = tfr.batting_team AND tfr.stand = 'R'
+        LEFT JOIN exp2_team_fbhand atr ON w.game_date = atr.game_date AND w.home_team = atr.batting_team AND atr.stand = 'R'
     """)
 
     n = con.execute("SELECT COUNT(*) FROM game_level").fetchone()[0]
@@ -1420,6 +1866,14 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
         "batter_game_stats", "batter_shifted", "batter_rolling",
         "batter_league", "batter_ratings", "lineup_agg",
         "batter_hand_game", "batter_hand_shifted", "batter_hand_rolling", "lineup_ops_agg",
+        "exp2_pa", "exp2_league_k", "exp2_league_cat", "exp2_sp_cat_game",
+        "exp2_sp_fbhand_game", "exp2_sp_cat_daily", "exp2_sp_cat_cum",
+        "exp2_sp_cat_tot_daily", "exp2_sp_cat_tot_cum", "exp2_sp_cat_prelim",
+        "exp2_sp_cat", "exp2_sp_fbhand_daily", "exp2_sp_fbhand_cum",
+        "exp2_sp_fbhand", "exp2_team_cat_game", "exp2_team_cat_daily",
+        "exp2_team_cat_cum", "exp2_team_cat", "exp2_team_fbhand_game",
+        "exp2_team_fbhand_daily", "exp2_team_fbhand_cum", "exp2_team_fbhand",
+        "exp2_league_fbhand",
         "game_venue_tz", "team_travel_raw", "travel_seq", "travel_cross", "travel_fatigue",
         "late_relief", "rel_daily", "rel_cum", "rel_team", "team_closer_pit",
         "closer_avail",

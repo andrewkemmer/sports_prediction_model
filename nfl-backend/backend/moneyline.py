@@ -91,26 +91,31 @@ def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
     return feat_mod.linear_view(df) if name in LINEAR_MEMBERS else feat_mod.tree_view(df)
 
 
-def member_matrix_ndarray(name: str, df: pd.DataFrame,
-                          pre: TrainFoldPreprocessor | None) -> np.ndarray:
-    """The exact ndarray a member consumes, from the RAW game frame.
+def member_fit_input(name: str, X_raw: pd.DataFrame,
+                     pre: "TrainFoldPreprocessor | None"):
+    """The ONE authoritative representation handed to member.fit().
 
-    Single source of truth for BOTH fit and prediction: the member's model-
-    family view is built here and converted once — tree members get the raw
-    float64 matrix (NaN routed natively, no names), linear/MLP members get
-    the train-fitted impute+scale transform. Keeping one builder means a
-    model can never be fitted with one representation and predicted with
-    another (the sklearn "does not have valid feature names" warning class).
+    Representation contract (mirrors MLB's model-specific routing):
+      * linear members -> the fitted preprocessor's ndarray (imputed+scaled)
+      * tree members   -> the NAMED tree-view DataFrame, feature names
+        preserved. scikit-learn >= 1.6 + LightGBM < 4.6 warns
+        "X does not have valid feature names ... fitted with feature names"
+        on every ndarray predict (LightGBM auto-assigns Column_i names), so
+        the tree family is pinned to the named frame at BOTH fit and
+        predict. member_matrix()'s reindex guarantees identical column
+        names/order at every call site.
+
+    fit and predict MUST go through this pair of helpers — never convert to
+    a raw ndarray at one site only.
     """
-    X_view = member_matrix(name, df)
     if name in LINEAR_MEMBERS:
-        return pre.transform(X_view)
-    return X_view.to_numpy(dtype=np.float64)
+        return pre.transform(X_raw)
+    return X_raw
 
 
-def _member_predict_proba(model, name: str, df: pd.DataFrame,
+def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
                           pre: TrainFoldPreprocessor | None) -> np.ndarray:
-    X = member_matrix_ndarray(name, df, pre)
+    X = member_fit_input(name, X_raw, pre)
     p = model.predict_proba(X)[:, 1]
     return np.clip(p, CLIP, 1.0 - CLIP)
 
@@ -120,14 +125,8 @@ def _member_predict_proba(model, name: str, df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 def walk_forward_oof(game_df: pd.DataFrame,
                      date_col: str = "gameday",
-                     progress_every: int = 25,
-                     fold_list: list | None = None) -> dict:
+                     progress_every: int = 25) -> dict:
     """Expanding walk-forward OOF for every ensemble member + the ensemble.
-
-    ``fold_list``: the authoritative Phase 4 Fold objects (from
-    folds.make_folds over the SAME frame/row order). When omitted, the same
-    authoritative generator is invoked here so the geometry is always
-    folds.make_folds — never a second implementation.
 
     Returns a dict with:
       oof: DataFrame (game_id, gameday, fold_id, per-member p_home, ensemble)
@@ -135,8 +134,7 @@ def walk_forward_oof(game_df: pd.DataFrame,
       fold_table: per-fold diagnostics
     """
     df = game_df.sort_values(date_col).reset_index(drop=True)
-    if fold_list is None:
-        fold_list = folds_mod.make_folds(df, date_col=date_col)
+    fold_list = folds_mod.make_folds(df, date_col=date_col)
 
     oof_parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
@@ -148,14 +146,16 @@ def walk_forward_oof(game_df: pd.DataFrame,
 
         member_p: dict[str, np.ndarray] = {}
         for name in config.ENSEMBLE_MEMBERS:
+            X_tr_raw = member_matrix(name, train)
+            X_va_raw = member_matrix(name, val)
             if name in LINEAR_MEMBERS:
-                pre = TrainFoldPreprocessor().fit(member_matrix(name, train))
+                pre = TrainFoldPreprocessor().fit(X_tr_raw)
             else:
                 pre = None
             try:
                 model = _make_member(name)
-                model.fit(member_matrix_ndarray(name, train, pre), y_train)
-                member_p[name] = _member_predict_proba(model, name, val, pre)
+                model.fit(member_fit_input(name, X_tr_raw, pre), y_train)
+                member_p[name] = _member_predict_proba(model, name, X_va_raw, pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("fold %s member %s failed: %s",
                                fold.fold_id, name, exc)
@@ -263,11 +263,11 @@ def fit_final_models(game_df: pd.DataFrame) -> tuple[dict, TrainFoldPreprocessor
         if name in LINEAR_MEMBERS:
             member_pre = TrainFoldPreprocessor().fit(X_raw)
             model = _make_member(name)
-            model.fit(member_matrix_ndarray(name, X_raw, member_pre), y)
+            model.fit(member_fit_input(name, X_raw, member_pre), y)
             models[name] = {"model": model, "pre": member_pre}
         else:
             model = _make_member(name)
-            model.fit(member_matrix_ndarray(name, X_raw, None), y)
+            model.fit(member_fit_input(name, X_raw, None), y)
             models[name] = {"model": model, "pre": None}
     return models, pre
 
@@ -282,8 +282,9 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
         if entry is None:
             member_p[name] = None
             continue
-        member_p[name] = _member_predict_proba(entry["model"], name,
-                                               slate_df, entry["pre"])
+        X_raw = member_matrix(name, slate_df)
+        member_p[name] = _member_predict_proba(entry["model"], name, X_raw,
+                                               entry["pre"])
     cols = [n for n in config.ENSEMBLE_MEMBERS if member_p.get(n) is not None]
     if not cols:
         return np.full(len(slate_df), np.nan)
