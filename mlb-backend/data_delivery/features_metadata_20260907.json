@@ -1,6 +1,6 @@
 {
   "generated_for": "20260907",
-  "n_features": 59,
+  "n_features": 61,
   "warnings": [],
   "features": {
     "is_home": {
@@ -111,42 +111,6 @@
       ],
       "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     },
-    "sp_k9_diff": {
-      "name": "sp_k9_diff",
-      "summary": "Home SP season-to-date K/9 \u2212 away SP",
-      "definition": "Strikeout rate gap: strikeouts per 9 innings, season to date.",
-      "formula": "sp_k9_home \u2212 sp_k9_away",
-      "source": "Statcast pitching aggregates (season to date)",
-      "window": "season to date",
-      "units": "K/9",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: Strikeout rate gap: strikeouts per 9 innings, season to date.\nFormula: sp_k9_home \u2212 sp_k9_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
-    "sp_k9_5g_diff": {
-      "name": "sp_k9_5g_diff",
-      "summary": "Home SP last-5-start K/9 \u2212 away SP (recent form)",
-      "definition": "Strikeout-rate gap over each pitcher's last 5 starts.",
-      "formula": "sp_k9_5g_home \u2212 sp_k9_5g_away",
-      "source": "Statcast pitching aggregates (last-5-start window)",
-      "window": "5g",
-      "units": "K/9",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: Strikeout-rate gap over each pitcher's last 5 starts.\nFormula: sp_k9_5g_home \u2212 sp_k9_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: K/9\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
     "sp_fbvelo_diff": {
       "name": "sp_fbvelo_diff",
       "summary": "Home SP fastball velo (last 3 starts) \u2212 away SP (mph)",
@@ -164,78 +128,6 @@
         "logistic"
       ],
       "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
-    "sp_fbpct_diff": {
-      "name": "sp_fbpct_diff",
-      "summary": "Home SP fastball usage (last 3 starts) \u2212 away SP",
-      "definition": "How heavily each pitcher is leaning on the fastball right now.",
-      "formula": "sp_fbpct_3g_home \u2212 sp_fbpct_3g_away",
-      "source": "Statcast pitch-level: fastball share of pitches, last-3-start window",
-      "window": "3g",
-      "units": "share (0\u20131)",
-      "direction": "n/a (mix signal)",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: How heavily each pitcher is leaning on the fastball right now.\nFormula: sp_fbpct_3g_home \u2212 sp_fbpct_3g_away\nSource: Statcast pitch-level: fastball share of pitches, last-3-start window\nWindow: 3g \u00b7 Units: share (0\u20131)\nDirection: n/a (mix signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
-    "sp_whiff_diff": {
-      "name": "sp_whiff_diff",
-      "summary": "Home SP whiff rate (last 3 starts) \u2212 away SP",
-      "definition": "Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.",
-      "formula": "sp_whiff_3g_home \u2212 sp_whiff_3g_away",
-      "source": "Statcast pitch-level: whiffs / swings, last-3-start window",
-      "window": "3g",
-      "units": "rate (0\u20131)",
-      "direction": "higher = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: Swinging-strike rate generated per swing over the last 3 starts \u2014 raw stuff indicator.\nFormula: sp_whiff_3g_home \u2212 sp_whiff_3g_away\nSource: Statcast pitch-level: whiffs / swings, last-3-start window\nWindow: 3g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
-    "sp_xwoba_diff": {
-      "name": "sp_xwoba_diff",
-      "summary": "Home SP last-6-start xwOBA allowed \u2212 away SP",
-      "definition": "Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.",
-      "formula": "sp_xwoba_home \u2212 sp_xwoba_away",
-      "source": "Statcast xwOBA on balls in play + K/BB, last-6-start window",
-      "window": "6g",
-      "units": "xwOBA",
-      "direction": "lower = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: Expected weighted-OBA conceded to opposing batters \u2014 contact-quality-based pitcher effectiveness.\nFormula: sp_xwoba_home \u2212 sp_xwoba_away\nSource: Statcast xwOBA on balls in play + K/BB, last-6-start window\nWindow: 6g \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
-    },
-    "sp_xwoba_vs_l_diff": {
-      "name": "sp_xwoba_vs_l_diff",
-      "summary": "Home SP xwOBA vs LHB (season to date) \u2212 away SP",
-      "definition": "Platoon exposure: expected production allowed specifically to left-handed batters.",
-      "formula": "sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away",
-      "source": "Statcast xwOBA split by batter handedness (season)",
-      "window": "season to date",
-      "units": "xwOBA",
-      "direction": "lower = home advantage",
-      "members": [
-        "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp",
-        "logistic"
-      ],
-      "tooltip": "What: Platoon exposure: expected production allowed specifically to left-handed batters.\nFormula: sp_xwoba_vs_l_home \u2212 sp_xwoba_vs_l_away\nSource: Statcast xwOBA split by batter handedness (season)\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     },
     "lineup_woba_mean_diff": {
       "name": "lineup_woba_mean_diff",
@@ -1040,6 +932,150 @@
         "logistic"
       ],
       "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_centered_k_diff": {
+      "name": "exp2_centered_k_diff",
+      "summary": "Centered strikeout matchup: (SP K/9 \u2212 league K%) \u00d7 (opp K% \u2212 league K%), home \u2212 away",
+      "definition": "Interaction of both sides' strikeout tendency centered on the point-in-time league prior \u2014 positive when BOTH the home starter and the away offense are extreme (either direction) relative to league. Known denominator mix: SP K/9 vs opponent/league K/PA (frozen pre-test in the experiment registry).",
+      "formula": "(sp_k9_home \u2212 league_k_pct)(team_k_rate_30g_home \u2212 league_k_pct) \u2212 (away mirror)",
+      "source": "Experiment #2 source layer (Statcast season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "rate\u00b2 product",
+      "direction": "positive = home side's K matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Interaction of both sides' strikeout tendency centered on the point-in-time league prior \u2014 positive when BOTH the home starter and the away offense are extreme (either direction) relative to league. Known denominator mix: SP K/9 vs opponent/league K/PA (frozen pre-test in the experiment registry).\nFormula: (sp_k9_home \u2212 league_k_pct)(team_k_rate_30g_home \u2212 league_k_pct) \u2212 (away mirror)\nSource: Experiment #2 source layer (Statcast season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b2 product\nDirection: positive = home side's K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_k_fastball_diff": {
+      "name": "exp2_cat_k_fastball_diff",
+      "summary": "Fastball K matchup: SP FB usage \u00d7 (SP \u2212 league) \u00d7 (opp \u2212 league) FB K%, home \u2212 away",
+      "definition": "Usage-weighted amplification of fastball strikeout extremes on both sides of the home matchup, minus the away mirror.",
+      "formula": "sp_usage_cat_fastball\u00b7(sp_k_pct_cat_fastball \u2212 lg)\u00b7(team_k_pct_cat_fastball \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "rate\u00b3 product",
+      "direction": "positive = home FB-K matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted amplification of fastball strikeout extremes on both sides of the home matchup, minus the away mirror.\nFormula: sp_usage_cat_fastball\u00b7(sp_k_pct_cat_fastball \u2212 lg)\u00b7(team_k_pct_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home FB-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_k_breaking_diff": {
+      "name": "exp2_cat_k_breaking_diff",
+      "summary": "Breaking-ball K matchup: usage \u00d7 (SP \u2212 lg) \u00d7 (opp \u2212 lg) breaking K%, home \u2212 away",
+      "definition": "Usage-weighted breaking-ball strikeout matchup. Best single moneyline candidate in the frozen experiment (+0.0055 \u0394AUC, CI excluding zero, survives S_FB_K removal).",
+      "formula": "sp_usage_cat_breaking\u00b7(sp_k_pct_cat_breaking \u2212 lg)\u00b7(team_k_pct_cat_breaking \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "rate\u00b3 product",
+      "direction": "positive = home breaking-K matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted breaking-ball strikeout matchup. Best single moneyline candidate in the frozen experiment (+0.0055 \u0394AUC, CI excluding zero, survives S_FB_K removal).\nFormula: sp_usage_cat_breaking\u00b7(sp_k_pct_cat_breaking \u2212 lg)\u00b7(team_k_pct_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home breaking-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_k_offspeed_diff": {
+      "name": "exp2_cat_k_offspeed_diff",
+      "summary": "Offspeed K matchup: usage \u00d7 (SP \u2212 lg) \u00d7 (opp \u2212 lg) offspeed K%, home \u2212 away",
+      "definition": "Usage-weighted offspeed strikeout matchup. Sparsest category (~56% coverage).",
+      "formula": "sp_usage_cat_offspeed\u00b7(sp_k_pct_cat_offspeed \u2212 lg)\u00b7(team_k_pct_cat_offspeed \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "rate\u00b3 product",
+      "direction": "positive = home offspeed-K matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted offspeed strikeout matchup. Sparsest category (~56% coverage).\nFormula: sp_usage_cat_offspeed\u00b7(sp_k_pct_cat_offspeed \u2212 lg)\u00b7(team_k_pct_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home offspeed-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_xwoba_fastball_diff": {
+      "name": "exp2_cat_xwoba_fastball_diff",
+      "summary": "Fastball xwOBA matchup: usage \u00d7 (SP \u2212 lg) \u00d7 (opp \u2212 lg) FB xwOBA, home \u2212 away",
+      "definition": "Usage-weighted fastball quality-of-contact matchup. Higher xwOBA = worse for the pitcher; the product amplifies when both sides sit off-league, same form as the K family (no sign flip).",
+      "formula": "sp_usage_cat_fastball\u00b7(sp_xwoba_cat_fastball \u2212 lg)\u00b7(team_xwoba_cat_fastball \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "xwOBA\u00b2 product",
+      "direction": "positive = home FB quality matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted fastball quality-of-contact matchup. Higher xwOBA = worse for the pitcher; the product amplifies when both sides sit off-league, same form as the K family (no sign flip).\nFormula: sp_usage_cat_fastball\u00b7(sp_xwoba_cat_fastball \u2212 lg)\u00b7(team_xwoba_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home FB quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_xwoba_breaking_diff": {
+      "name": "exp2_cat_xwoba_breaking_diff",
+      "summary": "Breaking-ball xwOBA matchup: usage \u00d7 (SP \u2212 lg) \u00d7 (opp \u2212 lg) breaking xwOBA, home \u2212 away",
+      "definition": "Usage-weighted breaking-ball quality-of-contact matchup (same amplification form).",
+      "formula": "sp_usage_cat_breaking\u00b7(sp_xwoba_cat_breaking \u2212 lg)\u00b7(team_xwoba_cat_breaking \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "xwOBA\u00b2 product",
+      "direction": "positive = home breaking quality matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted breaking-ball quality-of-contact matchup (same amplification form).\nFormula: sp_usage_cat_breaking\u00b7(sp_xwoba_cat_breaking \u2212 lg)\u00b7(team_xwoba_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home breaking quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_xwoba_offspeed_diff": {
+      "name": "exp2_cat_xwoba_offspeed_diff",
+      "summary": "Offspeed xwOBA matchup: usage \u00d7 (SP \u2212 lg) \u00d7 (opp \u2212 lg) offspeed xwOBA, home \u2212 away",
+      "definition": "Usage-weighted offspeed quality-of-contact matchup (sparsest category).",
+      "formula": "sp_usage_cat_offspeed\u00b7(sp_xwoba_cat_offspeed \u2212 lg)\u00b7(team_xwoba_cat_offspeed \u2212 lg), home \u2212 away",
+      "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "xwOBA\u00b2 product",
+      "direction": "positive = home offspeed quality matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Usage-weighted offspeed quality-of-contact matchup (sparsest category).\nFormula: sp_usage_cat_offspeed\u00b7(sp_xwoba_cat_offspeed \u2212 lg)\u00b7(team_xwoba_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home offspeed quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+    },
+    "exp2_cat_platoon_k_fastball_diff": {
+      "name": "exp2_cat_platoon_k_fastball_diff",
+      "summary": "Platoon fastball-K matchup: hand-mix-weighted (SP \u2212 lg) \u00d7 (opp \u2212 lg) FB K \u00d7 SP FB usage, home \u2212 away",
+      "definition": "Fastball strikeout matchup weighted by the opposing lineup's actual L/R share: each side's SP and offense K-vs-fastball splits are centered on the league FB-K prior per hand, platoon-weighted, multiplied, then scaled by SP fastball usage.",
+      "formula": "\u03a3_hand share_hand\u00b7(sp_fb_vs_hand \u2212 lg_hand)\u00b7\u03a3_hand share_hand\u00b7(opp_fb_vs_hand \u2212 lg_hand)\u00b7sp_fb_usage, home \u2212 away",
+      "source": "Experiment #2 source layer (platoon fastball-K splits + opp_lefty_share)",
+      "window": "season to date (strictly prior games)",
+      "units": "rate\u00b3 product",
+      "direction": "positive = home platoon-K matchup more extreme",
+      "members": [
+        "xgboost",
+        "lightgbm",
+        "randomforest",
+        "mlp",
+        "logistic"
+      ],
+      "tooltip": "What: Fastball strikeout matchup weighted by the opposing lineup's actual L/R share: each side's SP and offense K-vs-fastball splits are centered on the league FB-K prior per hand, platoon-weighted, multiplied, then scaled by SP fastball usage.\nFormula: \u03a3_hand share_hand\u00b7(sp_fb_vs_hand \u2212 lg_hand)\u00b7\u03a3_hand share_hand\u00b7(opp_fb_vs_hand \u2212 lg_hand)\u00b7sp_fb_usage, home \u2212 away\nSource: Experiment #2 source layer (platoon fastball-K splits + opp_lefty_share)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home platoon-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
     }
   },
   "categorical_context": {
