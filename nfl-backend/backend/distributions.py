@@ -102,18 +102,25 @@ class ScoreRegressor:
         self.home_model = _make_reg("xgboost")
         self.away_model = _make_reg("lightgbm")
 
-    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
+    @staticmethod
+    def _matrix(df: pd.DataFrame) -> np.ndarray:
+        """Single source of truth for the regression feature matrix — the
+        SAME ndarray construction at fit and predict time, so a model can
+        never be fitted with one representation and predicted with another
+        (the sklearn "does not have valid feature names" warning class)."""
         X = feat_mod.tree_view(df).to_numpy(dtype=np.float64)
         # NaN-safe: trees route NaN natively; guard all-NaN columns by
-        # filling with the training median (fit-time only).
-        X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        # filling with the training median.
+        return np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+
+    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
+        X = self._matrix(df)
         self.home_model.fit(X, df["home_score"].astype(float).to_numpy())
         self.away_model.fit(X, df["away_score"].astype(float).to_numpy())
         return self
 
     def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        X = feat_mod.tree_view(df).to_numpy(dtype=np.float64)
-        X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        X = self._matrix(df)
         return self.home_model.predict(X), self.away_model.predict(X)
 
 

@@ -91,12 +91,26 @@ def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
     return feat_mod.linear_view(df) if name in LINEAR_MEMBERS else feat_mod.tree_view(df)
 
 
-def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
+def member_matrix_ndarray(name: str, df: pd.DataFrame,
                           pre: TrainFoldPreprocessor | None) -> np.ndarray:
+    """The exact ndarray a member consumes, from the RAW game frame.
+
+    Single source of truth for BOTH fit and prediction: the member's model-
+    family view is built here and converted once — tree members get the raw
+    float64 matrix (NaN routed natively, no names), linear/MLP members get
+    the train-fitted impute+scale transform. Keeping one builder means a
+    model can never be fitted with one representation and predicted with
+    another (the sklearn "does not have valid feature names" warning class).
+    """
+    X_view = member_matrix(name, df)
     if name in LINEAR_MEMBERS:
-        X = pre.transform(X_raw)
-    else:
-        X = X_raw.to_numpy(dtype=np.float64)
+        return pre.transform(X_view)
+    return X_view.to_numpy(dtype=np.float64)
+
+
+def _member_predict_proba(model, name: str, df: pd.DataFrame,
+                          pre: TrainFoldPreprocessor | None) -> np.ndarray:
+    X = member_matrix_ndarray(name, df, pre)
     p = model.predict_proba(X)[:, 1]
     return np.clip(p, CLIP, 1.0 - CLIP)
 
@@ -134,19 +148,14 @@ def walk_forward_oof(game_df: pd.DataFrame,
 
         member_p: dict[str, np.ndarray] = {}
         for name in config.ENSEMBLE_MEMBERS:
-            X_tr_raw = member_matrix(name, train)
-            X_va_raw = member_matrix(name, val)
             if name in LINEAR_MEMBERS:
-                pre = TrainFoldPreprocessor().fit(X_tr_raw)
+                pre = TrainFoldPreprocessor().fit(member_matrix(name, train))
             else:
                 pre = None
             try:
                 model = _make_member(name)
-                if name in LINEAR_MEMBERS:
-                    model.fit(pre.transform(X_tr_raw), y_train)
-                else:
-                    model.fit(X_tr_raw.to_numpy(dtype=np.float64), y_train)
-                member_p[name] = _member_predict_proba(model, name, X_va_raw, pre)
+                model.fit(member_matrix_ndarray(name, train, pre), y_train)
+                member_p[name] = _member_predict_proba(model, name, val, pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("fold %s member %s failed: %s",
                                fold.fold_id, name, exc)
@@ -254,11 +263,11 @@ def fit_final_models(game_df: pd.DataFrame) -> tuple[dict, TrainFoldPreprocessor
         if name in LINEAR_MEMBERS:
             member_pre = TrainFoldPreprocessor().fit(X_raw)
             model = _make_member(name)
-            model.fit(member_pre.transform(X_raw), y)
+            model.fit(member_matrix_ndarray(name, X_raw, member_pre), y)
             models[name] = {"model": model, "pre": member_pre}
         else:
             model = _make_member(name)
-            model.fit(X_raw.to_numpy(dtype=np.float64), y)
+            model.fit(member_matrix_ndarray(name, X_raw, None), y)
             models[name] = {"model": model, "pre": None}
     return models, pre
 
@@ -273,9 +282,8 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
         if entry is None:
             member_p[name] = None
             continue
-        X_raw = member_matrix(name, slate_df)
-        member_p[name] = _member_predict_proba(entry["model"], name, X_raw,
-                                               entry["pre"])
+        member_p[name] = _member_predict_proba(entry["model"], name,
+                                               slate_df, entry["pre"])
     cols = [n for n in config.ENSEMBLE_MEMBERS if member_p.get(n) is not None]
     if not cols:
         return np.full(len(slate_df), np.nan)
