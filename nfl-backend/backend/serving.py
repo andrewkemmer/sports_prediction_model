@@ -145,15 +145,19 @@ def write_calibration_json(path, moneyline_metrics: dict,
                            calibrated_metrics: dict,
                            buckets: list[dict], daily: list[dict],
                            config_meta: dict, platt: dict | None = None,
-                           run_date: str = "", n_games: int = 0) -> dict:
+                           run_date: str = "", n_games: int = 0,
+                           calibrated_buckets: list[dict] | None = None) -> dict:
     """MLB-shaped calibration artifact (frontend presentation contract).
 
     Carries the MLB schema keys the shared Calibration page renders: ``date``
     / ``trained_at`` / ``n_games`` for the header pill, ``calibration`` with
     the Platt ``params`` + ``metrics_raw`` / ``metrics_calibrated`` for the
-    recalibration banner and green calibrated curve, and ``calibration``
-    buckets carrying ``gap`` / ``count`` / ``mean_predicted``. All values are
-    the NFL pipeline's own outputs; ``platt`` is the OOF-fitted Platt map the
+    recalibration banner and green calibrated curve, ``calibration`` buckets
+    carrying ``gap`` / ``count`` / ``mean_predicted`` (favored view), and
+    ``calibration.calibration_buckets_calibrated`` — the prequential
+    calibrated twin per bucket (MLB parity: the reliability table's
+    CALIBRATED column renders '—' without it). All values are the NFL
+    pipeline's own outputs; ``platt`` is the OOF-fitted Platt map the
     serving path already applies — never refitted here.
     """
     cal_sec: dict = {}
@@ -174,6 +178,8 @@ def write_calibration_json(path, moneyline_metrics: dict,
                 "ece": calibrated_metrics.get("ece"),
             },
         }
+        if calibrated_buckets:
+            cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
     record = {
         "date": run_date,
         "trained_at": _now_utc(),

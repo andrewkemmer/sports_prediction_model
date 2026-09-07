@@ -302,11 +302,15 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.append(p.name)
 
     p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
+    # MLB convention: the pooled reliability buckets are built from the RAW
+    # blend (the table renders MEAN PREDICTED (RAW)) with the calibrated
+    # twin carried separately in calibration.calibration_buckets_calibrated.
     serve_mod.write_calibration_json(
         p, raw_m, cal_m,
-        eval_mod.calibration_buckets(
-            oof_ml["p_ensemble_calibrated"], y_oof),
-        daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()))
+        eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
+        daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
+        calibrated_buckets=eval_mod.calibration_buckets(
+            oof_ml["p_ensemble_calibrated"], y_oof))
     artifacts.append(p.name)
 
     p = out_dir / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)

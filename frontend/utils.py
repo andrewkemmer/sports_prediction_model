@@ -1512,16 +1512,28 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
         }
 
     m = cal.get("metrics", {})
+
+    # MLB presentation precision: the MLB emitter rounds every metric to 4
+    # decimals before persisting, so the shared KPI cards render "0.5697".
+    # The NFL emitter persists full float precision, which rendered as
+    # "0.6910276523909135". Round at the loader so BOTH artifacts present
+    # identically without touching either backend's stored values.
+    def _r4(v):
+        try:
+            return round(float(v), 4) if v is not None else None
+        except (TypeError, ValueError):
+            return v
+
     cal.setdefault("kpis", {
-        "auc_roc": m.get("auc"),
-        "brier_score": m.get("brier"),
-        "log_loss": m.get("logloss"),
-        "cal_error": m.get("ece"),
+        "auc_roc": _r4(m.get("auc")),
+        "brier_score": _r4(m.get("brier")),
+        "log_loss": _r4(m.get("logloss")),
+        "cal_error": _r4(m.get("ece")),
         # Per-day post-hoc twins (present when the daily row carries the
         # prequential calibrated metrics).
-        "cal_error_calibrated": m.get("ece_calibrated"),
-        "log_loss_calibrated": m.get("logloss_calibrated"),
-        "brier_calibrated": m.get("brier_calibrated"),
+        "cal_error_calibrated": _r4(m.get("ece_calibrated")),
+        "log_loss_calibrated": _r4(m.get("logloss_calibrated")),
+        "brier_calibrated": _r4(m.get("brier_calibrated")),
     })
 
     curve = cal.get("calibration_curve") or cal.get("calibration_buckets") or []
