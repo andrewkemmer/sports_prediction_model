@@ -468,7 +468,13 @@ def _downcast(df: pd.DataFrame) -> pd.DataFrame:
         if df[col].isna().any():
             continue
         col_max = df[col].max()
-        if col_max < 32767 and df[col].min() >= -32768:
+        col_min = df[col].min()
+        # Nullable/Arrow-backed int columns can surface pd.NA sentinels even
+        # when isna().any() is False (pandas >= 3 select_dtypes semantics);
+        # skip rather than crash on the comparison.
+        if pd.isna(col_max) or pd.isna(col_min):
+            continue
+        if col_max < 32767 and col_min >= -32768:
             df[col] = df[col].astype("int16")
         else:
             df[col] = df[col].astype("int32")
