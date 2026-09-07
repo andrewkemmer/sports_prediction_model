@@ -2,10 +2,26 @@ __pycache__/
 *.pyc
 *.pyo
 .env
-*.joblib
 
-# Generated per-run artifacts — the pipeline re-creates them on every run,
-# so they are never committed (serving families ship fresh each run).
-data_delivery/*.csv
-data_delivery/*.json
-data_delivery/*.meta.json
+# The production serving families ARE repository-delivered: the pipeline
+# writes them to data_delivery/, commits/pushes them, and the frontend's
+# readers resolve the newest dated artifact from GitHub first (local disk is
+# the fallback). Negate ONLY these exact families; every other generated
+# file stays ignored (regenerated per run — OOF stores, caches, research).
+!data_delivery/models/
+!data_delivery/models/*.joblib
+!data_delivery/nfl_moneyline_v1_*.json
+!data_delivery/nfl_calibration_*.json
+!data_delivery/nfl_predictions_history_*.csv
+!data_delivery/nfl_power_rankings_*.csv
+!data_delivery/nfl_run_engine_markets_*.csv
+!data_delivery/nfl_run_engine_markets_*.meta.json
+!data_delivery/nfl_run_engine_monitor_*.json
+!data_delivery/nfl_qb_matchup_*.json
+!data_delivery/nfl_feature_v1_*.json
+!data_delivery/nfl_model_monitor_*.json
+!data_delivery/nfl_decided_store_rs_*.csv
+
+# Generated per-run internals — re-created by the pipeline, never committed.
+data_delivery/nfl_oof_*.csv
+data_delivery/nfl_pipeline_summary.json

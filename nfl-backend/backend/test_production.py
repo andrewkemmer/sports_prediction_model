@@ -384,6 +384,173 @@ for f in prod_files:
 check("market-independence (no odds inputs)", mk_ok, mk_detail)
 
 # ---------------------------------------------------------------------------
+print("\n== 9. Phase 4 production fold regression ==")
+# Representative eligible NFL historical data: 2018 warmup + 2019..2021 core,
+# REG-only, settled, NFL-like weekly cadence, run through the same production
+# generators (ingestion.eligible_games -> features.build_game_features ->
+# folds.make_folds).
+def _eligible_nfl_history() -> pd.DataFrame:
+    rng = np.random.default_rng(config.RANDOM_SEED)
+    teams = ["T%02d" % i for i in range(32)]
+    rows = []
+    gid = 0
+    for season in (2018, 2019, 2020, 2021):
+        for wk in range(1, 19):  # 16 games/week x 18 weeks = 288 per season
+            day = pd.Timestamp(f"{season}-09-05") + pd.Timedelta(weeks=wk - 1)
+            order = teams.copy()
+            rng.shuffle(order)
+            for i in range(0, 32, 2):
+                h, a = order[i], order[i + 1]
+                rows.append({
+                    "game_id": f"G{gid:05d}", "season": season, "week": wk,
+                    "game_type": "REG",
+                    "gameday": (day + pd.Timedelta(days=gid % 3)).strftime("%Y-%m-%d"),
+                    "home_team": h, "away_team": a,
+                    "home_score": int(rng.integers(0, 45)),
+                    "away_score": int(rng.integers(0, 45)),
+                    "roof": "outdoors", "div_game": 0,
+                    "stadium": "Test Stadium", "gametime": "13:00",
+                })
+                gid += 1
+    return pd.DataFrame(rows)
+
+import ingestion as ingest_mod  # noqa: E402
+sched = _eligible_nfl_history()
+eligible = ingest_mod.eligible_games(sched)
+check("eligible_games keeps settled REG rows", len(eligible) == len(sched))
+hist = feat_mod.build_game_features(eligible, pbp=None)
+hist = hist.sort_values("gameday").reset_index(drop=True)
+
+# Phase 4 objects exactly as the production pipeline generates them
+folds_prod = folds_mod.make_folds(hist, date_col="gameday")
+check("n_folds > 0", len(folds_prod) > 0, str(len(folds_prod)))
+check("first OOF validation year >= 2019",
+      all(pd.to_numeric(hist.loc[f.val_idx, "season"]).ge(2019).all()
+          for f in folds_prod))
+check("2018 is warmup only (never validated)",
+      all(not (pd.to_numeric(hist.loc[f.val_idx, "season"]) == 2018).any()
+          for f in folds_prod))
+check("training strictly before validation start",
+      all((pd.to_datetime(hist.loc[f.train_idx, "gameday"]) < f.val_start).all()
+          for f in folds_prod))
+check("validation dates >= validation_start",
+      all((pd.to_datetime(hist.loc[f.val_idx, "gameday"]) >= f.val_start).all()
+          for f in folds_prod))
+check("validation dates <= validation_end",
+      all((pd.to_datetime(hist.loc[f.val_idx, "gameday"]) <= f.val_end
+           + pd.Timedelta(hours=23, minutes=59, seconds=59)).all()
+          for f in folds_prod))
+check("validation windows 7 calendar days (final partial tail allowed)",
+      all((f.val_end - f.val_start).days == config.RETRAIN_CADENCE_DAYS - 1
+          for f in folds_prod[:-1]))
+check("folds chronological (val_start strictly increasing)",
+      all(folds_prod[i].val_start < folds_prod[i + 1].val_start
+          for i in range(len(folds_prod) - 1)))
+check("folds non-overlapping",
+      all(folds_prod[i].val_end < folds_prod[i + 1].val_start
+          for i in range(len(folds_prod) - 1)))
+check("training expands chronologically",
+      all(folds_prod[i].train_idx.isin(folds_prod[i + 1].train_idx).all()
+          and len(folds_prod[i].train_idx) < len(folds_prod[i + 1].train_idx)
+          for i in range(len(folds_prod) - 1)))
+
+# fold_table reporting helper on the production objects
+ftbl = folds_mod.fold_table(hist, folds_prod, date_col="gameday")
+check("fold_table populated for every fold",
+      len(ftbl) == len(folds_prod) and ftbl["n_validation"].sum() > 0
+      and ftbl["n_train"].min() > 0)
+
+# Downstream identity: moneyline and distribution OOF must consume the SAME
+# Phase 4 fold objects (no hidden second fold implementation).
+def _folds_sig(fl):
+    return [(f.fold_id, str(f.val_start), str(f.val_end),
+             tuple(f.train_idx.tolist()), tuple(f.val_idx.tolist())) for f in fl]
+sig_p4 = _folds_sig(folds_prod)
+import moneyline as ml_mod2  # noqa: E402
+import distributions as dist_mod2  # noqa: E402
+ml_folds_probe = folds_mod.make_folds(
+    hist.sort_values("gameday").reset_index(drop=True), date_col="gameday")
+check("downstream regeneration identical to Phase 4 folds",
+      _folds_sig(ml_folds_probe) == sig_p4)
+import inspect  # noqa: E402
+ml_sig = inspect.signature(ml_mod2.walk_forward_oof)
+dist_sig = inspect.signature(dist_mod2.walk_forward_oof)
+check("moneyline OOF accepts the Phase 4 fold_list",
+      "fold_list" in ml_sig.parameters)
+check("distribution OOF accepts the Phase 4 fold_list",
+      "fold_list" in dist_sig.parameters)
+mp_src = inspect.getsource(mp_mod := __import__("master_pipeline"))
+check("master_pipeline passes fold_list to moneyline OOF",
+      "ml_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
+check("master_pipeline passes fold_list to distribution OOF",
+      "dist_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
+check("Phase 4 prints a visible fold report",
+      "first OOF validation" in mp_src and "validation windows" in mp_src)
+check("Phase 4 persists nfl_fold_table.csv",
+      "nfl_fold_table.csv" in mp_src)
+
+# End-to-end: moneyline OOF over Phase 4 fold objects on a small tail of the
+# history — fold_id coverage and per-fold geometry must match Phase 4.
+small = hist.tail(240).reset_index(drop=True)
+small_folds = folds_mod.make_folds(small, date_col="gameday")
+try:
+    res = ml_mod2.walk_forward_oof(small, fold_list=small_folds)
+    oof = res["oof"]
+    check("moneyline OOF runs on Phase 4 fold objects",
+          len(oof) > 0 and set(oof["fold_id"]) == {f.fold_id for f in small_folds})
+    check("OOF fold geometry matches Phase 4 (per-fold n_val)",
+          all(int((oof["fold_id"] == f.fold_id).sum()) == len(f.val_idx)
+              for f in small_folds))
+except Exception as exc:  # noqa: BLE001
+    check("moneyline OOF runs on Phase 4 fold objects", False, str(exc))
+
+# ---- Reconciliation invariants (protect against the 1871/1984-style
+# misread: sum(n_validation) must equal the eligible 2019+ population, and
+# validation game IDs must be unique — no double-count, no orphan games). ---
+all_val_ids = [gid for f in folds_prod for gid in hist.loc[f.val_idx, "game_id"]]
+check("sum(n_validation) == unique validation game IDs (no duplicates)",
+      len(all_val_ids) == len(set(all_val_ids)))
+check("unique validation game IDs == eligible 2019+ population",
+      len(set(all_val_ids)) == int(pd.to_numeric(hist["season"]).ge(2019).sum()))
+check("sum(n_validation) == eligible 2019+ population",
+      sum(len(f.val_idx) for f in folds_prod)
+      == int(pd.to_numeric(hist["season"]).ge(2019).sum()))
+check("OOF row counts match Phase 4 n_validation per fold",
+      all(int((oof["fold_id"] == f.fold_id).sum()) == len(f.val_idx)
+          for f in small_folds))
+check("Phase 4 validation game IDs == OOF validation game IDs",
+      set(oof["game_id"]) == set().union(*[
+          set(small.loc[f.val_idx, "game_id"]) for f in small_folds]))
+
+# Phase 4 must fail loudly on zero folds (cannot silently succeed).
+try:
+    empty_summary = folds_mod.fold_summary(folds_mod.make_folds(
+        hist[pd.to_numeric(hist["season"]) < config.OOF_FIRST_SEASON],
+        date_col="gameday"))
+    check("zero-fold frame yields n_folds == 0 (guard-detectable)",
+          empty_summary.get("n_folds") == 0)
+except Exception as exc:  # noqa: BLE001
+    check("zero-fold frame yields n_folds == 0 (guard-detectable)", False, str(exc))
+
+# Downstream must consume the PASSED fold objects, not silently regenerate.
+regen = {"n": 0}
+_orig_make = folds_mod.make_folds
+def _counting_make(df, date_col="gameday", cadence_days=None):
+    regen["n"] += 1
+    return _orig_make(df, date_col=date_col, cadence_days=cadence_days)
+folds_mod.make_folds = _counting_make
+ml_mod2.folds_mod = folds_mod
+try:
+    ml_mod2.walk_forward_oof(small, fold_list=small_folds)
+    check("downstream OOF does NOT regenerate folds when fold_list passed",
+          regen["n"] == 0)
+except Exception as exc:  # noqa: BLE001
+    check("downstream OOF does NOT regenerate folds when fold_list passed",
+          False, str(exc))
+finally:
+    folds_mod.make_folds = _orig_make
+
+# ---------------------------------------------------------------------------
 print(f"\n{'=' * 60}")
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

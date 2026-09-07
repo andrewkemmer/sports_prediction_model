@@ -144,8 +144,46 @@ def _start_time_utc(g) -> str | None:
 def write_calibration_json(path, moneyline_metrics: dict,
                            calibrated_metrics: dict,
                            buckets: list[dict], daily: list[dict],
-                           config_meta: dict) -> dict:
+                           config_meta: dict, platt: dict | None = None,
+                           run_date: str = "", n_games: int = 0,
+                           calibrated_buckets: list[dict] | None = None) -> dict:
+    """MLB-shaped calibration artifact (frontend presentation contract).
+
+    Carries the MLB schema keys the shared Calibration page renders: ``date``
+    / ``trained_at`` / ``n_games`` for the header pill, ``calibration`` with
+    the Platt ``params`` + ``metrics_raw`` / ``metrics_calibrated`` for the
+    recalibration banner and green calibrated curve, ``calibration`` buckets
+    carrying ``gap`` / ``count`` / ``mean_predicted`` (favored view), and
+    ``calibration.calibration_buckets_calibrated`` — the prequential
+    calibrated twin per bucket (MLB parity: the reliability table's
+    CALIBRATED column renders '—' without it). All values are the NFL
+    pipeline's own outputs; ``platt`` is the OOF-fitted Platt map the
+    serving path already applies — never refitted here.
+    """
+    cal_sec: dict = {}
+    if isinstance(platt, dict) and platt.get("a") is not None \
+            and platt.get("b") is not None:
+        n = int(platt.get("n") or n_games or 0)
+        cal_sec = {
+            "method": "platt",
+            "params": {"a": platt.get("a"), "b": platt.get("b"), "n": n},
+            "metrics_raw": {
+                "brier": moneyline_metrics.get("brier"),
+                "logloss": moneyline_metrics.get("logloss"),
+                "ece": moneyline_metrics.get("ece"),
+            },
+            "metrics_calibrated": {
+                "brier": calibrated_metrics.get("brier"),
+                "logloss": calibrated_metrics.get("logloss"),
+                "ece": calibrated_metrics.get("ece"),
+            },
+        }
+        if calibrated_buckets:
+            cal_sec["calibration_buckets_calibrated"] = calibrated_buckets
     record = {
+        "date": run_date,
+        "trained_at": _now_utc(),
+        "n_games": int(n_games),
         "created_utc": _now_utc(),
         "config": config_meta,
         "metrics": {
@@ -158,6 +196,7 @@ def write_calibration_json(path, moneyline_metrics: dict,
             "brier_calibrated": calibrated_metrics.get("brier"),
             "logloss_calibrated": calibrated_metrics.get("logloss"),
         },
+        "calibration": cal_sec,
         "calibration_buckets": buckets,
         "daily": daily,
     }

@@ -58,21 +58,44 @@ def binary_metrics(p: np.ndarray, y: np.ndarray) -> dict:
 
 def calibration_buckets(p: np.ndarray, y: np.ndarray,
                         n_bins: int = 10) -> list[dict]:
+    """MLB-shaped reliability buckets (frontend presentation contract).
+
+    Matches the MLB implementation (``mlb-backend/backend/training.py
+    .calibration_buckets``) exactly so the shared Calibration page renders
+    both sports through one code path with identical presentation:
+
+    * FAVORED-team perspective: each game contributes ONE point at
+      ``max(p, 1-p)`` ∈ [0.5, 1], labeled by whether the favorite won —
+      information-equivalent to the home-side view (every (p, y) pair
+      complements to (1-p, 1-y)) and matching how the model is consumed.
+    * Bucket labels use the MLB en-dash convention (e.g. ``"50–60%"``).
+
+    Values remain the NFL pipeline's own pooled OOF statistics — nothing
+    copied from MLB. ``gap`` = mean_predicted − mean_actual (>0 =
+    overconfident).
+    """
     p = np.asarray(p, dtype=float)
     y = np.asarray(y, dtype=float)
     ok = np.isfinite(p) & np.isfinite(y)
     p, y = p[ok], y[ok]
-    bins = np.clip((p * n_bins).astype(int), 0, n_bins - 1)
+    fav_prob = np.maximum(p, 1.0 - p)
+    fav_won = np.where(p >= 0.5, y, 1.0 - y)
+    half = max(n_bins // 2, 1)
+    bin_edges = np.linspace(0.5, 1.0, half + 1)
     rows = []
-    for b in range(n_bins):
-        m = bins == b
+    for i in range(len(bin_edges) - 1):
+        m = (fav_prob >= bin_edges[i]) & (fav_prob < bin_edges[i + 1])
+        if i == len(bin_edges) - 2:  # include 1.0 in the top bucket
+            m |= fav_prob == bin_edges[i + 1]
         if not m.any():
             continue
+        mean_pred, mean_actual = float(fav_prob[m].mean()), float(fav_won[m].mean())
         rows.append({
-            "bucket": f"{b / n_bins:.1f}-{(b + 1) / n_bins:.1f}",
-            "n": int(m.sum()),
-            "mean_pred": float(p[m].mean()),
-            "mean_actual": float(y[m].mean()),
+            "bucket": f"{bin_edges[i] * 100:.0f}–{bin_edges[i + 1] * 100:.0f}%",
+            "mean_predicted": round(mean_pred, 4),
+            "mean_actual": round(mean_actual, 4),
+            "count": int(m.sum()),
+            "gap": round(mean_pred - mean_actual, 4),
         })
     return rows
 

@@ -90,3 +90,23 @@ def fold_summary(folds: list[Fold]) -> dict:
         "max_train": int(max(len(f.train_idx) for f in folds)),
         "total_val_games": int(sum(len(f.val_idx) for f in folds)),
     }
+
+
+def fold_table(df: pd.DataFrame, folds: list[Fold],
+               date_col: str = "gameday") -> pd.DataFrame:
+    """Per-fold reporting table: fold_id, train_end_date, validation window,
+    n_train, n_validation. ``df`` must be the SAME frame (same row order)
+    the folds were generated over."""
+    rows = []
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    for f in folds:
+        rows.append({
+            "fold_id": f.fold_id,
+            "train_end_date": (dates.loc[f.train_idx].max().date()
+                               if len(f.train_idx) else pd.NaT),
+            "validation_start": f.val_start.date(),
+            "validation_end": f.val_end.date(),
+            "n_train": int(len(f.train_idx)),
+            "n_validation": int(len(f.val_idx)),
+        })
+    return pd.DataFrame(rows)

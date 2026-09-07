@@ -1,0 +1,39 @@
+{
+ "record": "nfl_run_engine_markets",
+ "written_utc": "2026-09-07T01:19:47.012880+00:00",
+ "config": {
+  "feature_set_version": "nfl-prod-v1",
+  "warmup_seasons": [
+   2018
+  ],
+  "oof_first_season": 2019,
+  "retrain_cadence_days": 7,
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "logistic",
+   "randomforest",
+   "mlp"
+  ],
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "columns": 241,
+ "n_rows": 2143,
+ "n_oof": 1871,
+ "n_slate": 272,
+ "grids": {
+  "spread": [
+   -14,
+   14
+  ],
+  "total": [
+   24,
+   66
+  ],
+  "half_stops": [
+   -0.5,
+   0.5
+  ]
+ }
+}

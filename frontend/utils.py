@@ -1512,19 +1512,52 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
         }
 
     m = cal.get("metrics", {})
+
+    # MLB presentation precision: the MLB emitter rounds every metric to 4
+    # decimals before persisting, so the shared KPI cards render "0.5697".
+    # The NFL emitter persists full float precision, which rendered as
+    # "0.6910276523909135". Round at the loader so BOTH artifacts present
+    # identically without touching either backend's stored values.
+    def _r4(v):
+        try:
+            return round(float(v), 4) if v is not None else None
+        except (TypeError, ValueError):
+            return v
+
     cal.setdefault("kpis", {
-        "auc_roc": m.get("auc"),
-        "brier_score": m.get("brier"),
-        "log_loss": m.get("logloss"),
-        "cal_error": m.get("ece"),
+        "auc_roc": _r4(m.get("auc")),
+        "brier_score": _r4(m.get("brier")),
+        "log_loss": _r4(m.get("logloss")),
+        "cal_error": _r4(m.get("ece")),
         # Per-day post-hoc twins (present when the daily row carries the
         # prequential calibrated metrics).
-        "cal_error_calibrated": m.get("ece_calibrated"),
-        "log_loss_calibrated": m.get("logloss_calibrated"),
-        "brier_calibrated": m.get("brier_calibrated"),
+        "cal_error_calibrated": _r4(m.get("ece_calibrated")),
+        "log_loss_calibrated": _r4(m.get("logloss_calibrated")),
+        "brier_calibrated": _r4(m.get("brier_calibrated")),
     })
 
     curve = cal.get("calibration_curve") or cal.get("calibration_buckets") or []
+    # Legacy NFL bucket rows (mean_pred / n, no gap) are normalized onto the
+    # MLB presentation contract so the shared page renders both sports and
+    # both artifact vintages through one code path. Gap is derived from the
+    # row's own values - never fabricated.
+    norm_curve = []
+    for b in curve:
+        if not isinstance(b, dict):
+            continue
+        row = dict(b)
+        if "mean_predicted" not in row and "mean_pred" in row:
+            row["mean_predicted"] = row["mean_pred"]
+        if "count" not in row and "n" in row:
+            row["count"] = row["n"]
+        if "gap" not in row:
+            try:
+                row["gap"] = round(
+                    float(row["mean_predicted"]) - float(row["mean_actual"]), 4)
+            except (KeyError, TypeError, ValueError):
+                row["gap"] = None
+        norm_curve.append(row)
+    curve = norm_curve
     cal["calibration_curve"] = curve
 
     if not cal.get("confidence"):
@@ -1536,17 +1569,16 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
         ]
 
     # Today's Record + upsets. MLB derives them from the day's board CSV
-    # (real outcomes). NFL's 2026 season is scheduled ahead (no decided board),
-    # so the summary card instead derives a real predicted-vs-actual record
-    # from the DECIDED OOF/sealed prediction history — never empty.
+    # (real outcomes for THAT day only). NFL follows the same semantic rule:
+    # the 2026 board is scheduled ahead (no decided games for the board
+    # date), so the day's record is legitimately 0-0 with no upsets — the
+    # lifetime OOF history is never presented as "today". It feeds the
+    # chart/reliability/history sections (lifetime by design on both
+    # sports) but NOT the summary card.
     if normalize_sport_key(sport if sport is not None else get_sport()) == "nfl":
-        hist = load_prediction_history(date_str, sport="nfl")
-        rec = _record_from_history(hist)
-        if rec:
-            cal["today_record"] = rec
-        ups = _upsets_from_history(hist)
-        if ups:
-            cal["upsets"] = ups
+        cal.setdefault("today_record",
+                       {"wins": 0, "losses": 0, "completed": 0})
+        cal.setdefault("upsets", [])
         return cal
 
     try:
