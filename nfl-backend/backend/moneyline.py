@@ -308,7 +308,11 @@ def fit_platt(oof_p: np.ndarray, y: np.ndarray) -> dict:
                (1 - np.clip(oof_p, CLIP, 1 - CLIP)))
     lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000)
     lr.fit(z.reshape(-1, 1), y.astype(int))
-    return {"a": float(lr.coef_[0][0]), "b": float(lr.intercept_[0])}
+    # MLB presentation parity (calibration.fit_platt): persist the map at
+    # 6-decimal precision so the artifact's Platt params render identically
+    # on both sports' dashboards (a=0.931371, not a=0.9313710155066628).
+    return {"a": round(float(lr.coef_[0][0]), 6),
+            "b": round(float(lr.intercept_[0]), 6)}
 
 
 def apply_platt(p: np.ndarray, cal: dict) -> np.ndarray:
