@@ -107,17 +107,66 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 4", "walk-forward fold generation")
     fold_list = folds_mod.make_folds(game_df, date_col="gameday")
     fold_info = folds_mod.fold_summary(fold_list)
-    logger.info("folds: %s", json.dumps(fold_info))
+    fold_tbl = folds_mod.fold_table(game_df, fold_list, date_col="gameday")
+    if not fold_list:
+        raise RuntimeError(
+            "PHASE 4 produced ZERO folds — walk-forward OOF cannot proceed. "
+            "Check eligible-game ingestion and OOF_FIRST_SEASON geometry.")
     first_val_season = pd.to_numeric(
         game_df.loc[fold_list[0].val_idx, "season"]).min() if fold_list else None
     if first_val_season != config.OOF_FIRST_SEASON:
         raise RuntimeError(
             f"fold geometry violation: first validation season {first_val_season} "
             f"!= OOF_FIRST_SEASON {config.OOF_FIRST_SEASON}")
+    # Population reconciliation gate: every eligible 2019+ game must appear
+    # in exactly one validation window, and nothing else may.
+    _val_ids = [gid for f in fold_list for gid in game_df.loc[f.val_idx, "game_id"]]
+    _core_pop = int((pd.to_numeric(game_df["season"]) >= config.OOF_FIRST_SEASON).sum())
+    if len(_val_ids) != len(set(_val_ids)):
+        raise RuntimeError(
+            f"fold population violation: {len(_val_ids) - len(set(_val_ids))} "
+            "duplicated validation game IDs across folds")
+    if len(set(_val_ids)) != _core_pop:
+        raise RuntimeError(
+            f"fold population violation: {len(set(_val_ids))} unique validation "
+            f"game IDs != {_core_pop} eligible {config.OOF_FIRST_SEASON}+ games")
+    # Meaningful, visible Phase 4 report (print → stdout, same stream as the
+    # phase banners; logger goes to stderr and was easy to miss).
+    gd_dates = pd.to_datetime(game_df["gameday"])
+    print(f"  eligible settled games : {len(game_df)}")
+    print(f"  game date range        : {gd_dates.min().date()} .. {gd_dates.max().date()}")
+    print(f"  warmup seasons         : {config.WARMUP_SEASONS} (training-only)")
+    print(f"  first OOF validation   : {fold_list[0].val_start.date()} "
+          f"(fold 0, n_val={len(fold_list[0].val_idx)})")
+    print(f"  last OOF validation    : {fold_list[-1].val_end.date()} "
+          f"(fold {fold_list[-1].fold_id}, n_val={len(fold_list[-1].val_idx)})")
+    print(f"  validation windows     : {len(fold_list)} "
+          f"(7-calendar-day, non-overlapping, expanding training)")
+    print(f"  training observations  : {fold_info['min_train']} (first) .. "
+          f"{fold_info['max_train']} (last)")
+    print(f"  validation observations: {fold_info['total_val_games']}")
+    nv_arr = fold_tbl["n_validation"].to_numpy()
+    print(f"  n_validation min/max/mean/median: {int(nv_arr.min())} / {int(nv_arr.max())} / "
+          f"{round(float(nv_arr.mean()), 3)} / {float(np.median(nv_arr))} "
+          "(windows are 7 CALENDAR days — game counts vary per window)")
+    print("  complete n_validation distribution:")
+    for k, v in fold_tbl["n_validation"].value_counts().sort_index().items():
+        print(f"    {int(k):3d} games: {int(v)} folds")
+    print("  representative folds (first 3 / last 3):")
+    show = list(range(min(3, len(fold_tbl)))) + \
+        list(range(max(3, len(fold_tbl) - 3), len(fold_tbl)))
+    for i in show:
+        r = fold_tbl.iloc[i]
+        print(f"    fold {int(r['fold_id']):3d}  train_end={r['train_end_date']}  "
+              f"val=[{r['validation_start']} .. {r['validation_end']}]  "
+              f"n_train={int(r['n_train']):5d}  n_val={int(r['n_validation'])}")
+    # Persist the per-fold table so Phase 4 output is inspectable post-run.
+    fold_tbl.to_csv(out_dir / "nfl_fold_table.csv", index=False)
+    logger.info("folds: %s", json.dumps(fold_info))
 
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
     _banner("PHASE 5", "moneyline walk-forward OOF")
-    ml = ml_mod.walk_forward_oof(game_df)
+    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_ml = ml["oof"]
     weights = ml["member_weights"]
     logger.info("moneyline OOF rows: %d; adaptive weights: %s",
@@ -136,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 6/7. Run-line + totals OOF (joint distribution model) ─────────────
     _banner("PHASE 6-7", "margin/total distribution OOF")
-    dist = dist_mod.walk_forward_oof(game_df)
+    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_dist = dist["oof"]
 
     # pooled sigma calibration from OOF residuals

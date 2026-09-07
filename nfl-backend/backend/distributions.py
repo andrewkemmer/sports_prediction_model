@@ -208,12 +208,20 @@ def apply_distribution(df: pd.DataFrame, sigma_margin: float,
 # Walk-forward OOF for the distribution model
 # ---------------------------------------------------------------------------
 def walk_forward_oof(game_df: pd.DataFrame,
-                     date_col: str = "gameday") -> dict:
+                     date_col: str = "gameday",
+                     fold_list: list | None = None) -> dict:
     """Expanding walk-forward OOF: per fold, fit mu regressions on strictly
     prior training games, predict validation, collect residuals for the
-    pooled sigma calibration. Returns {oof, fold_table}."""
+    pooled sigma calibration. Returns {oof, fold_table}.
+
+    ``fold_list``: the authoritative Phase 4 Fold objects (from
+    folds.make_folds over the SAME frame/row order). When omitted, the same
+    authoritative generator is invoked here so the geometry is always
+    folds.make_folds — never a second implementation.
+    """
     df = game_df.sort_values(date_col).reset_index(drop=True)
-    fold_list = folds_mod.make_folds(df, date_col=date_col)
+    if fold_list is None:
+        fold_list = folds_mod.make_folds(df, date_col=date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
     for fold in fold_list:

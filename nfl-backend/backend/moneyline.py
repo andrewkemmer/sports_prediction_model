@@ -106,8 +106,14 @@ def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
 # ---------------------------------------------------------------------------
 def walk_forward_oof(game_df: pd.DataFrame,
                      date_col: str = "gameday",
-                     progress_every: int = 25) -> dict:
+                     progress_every: int = 25,
+                     fold_list: list | None = None) -> dict:
     """Expanding walk-forward OOF for every ensemble member + the ensemble.
+
+    ``fold_list``: the authoritative Phase 4 Fold objects (from
+    folds.make_folds over the SAME frame/row order). When omitted, the same
+    authoritative generator is invoked here so the geometry is always
+    folds.make_folds — never a second implementation.
 
     Returns a dict with:
       oof: DataFrame (game_id, gameday, fold_id, per-member p_home, ensemble)
@@ -115,7 +121,8 @@ def walk_forward_oof(game_df: pd.DataFrame,
       fold_table: per-fold diagnostics
     """
     df = game_df.sort_values(date_col).reset_index(drop=True)
-    fold_list = folds_mod.make_folds(df, date_col=date_col)
+    if fold_list is None:
+        fold_list = folds_mod.make_folds(df, date_col=date_col)
 
     oof_parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
