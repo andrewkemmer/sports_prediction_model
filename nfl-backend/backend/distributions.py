@@ -96,24 +96,36 @@ def _make_reg(name: str):
 
 
 class ScoreRegressor:
-    """mu_h / mu_a from a boosted-tree regression pair (tree view)."""
+    """mu_h / mu_a from a boosted-tree regression pair (tree view).
+
+    Representation contract (mirrors moneyline.member_fit_input): both
+    regressors are FIT and PREDICTED on the NAMED tree-view DataFrame.
+    scikit-learn >= 1.6 + LightGBM < 4.6 emits
+    "X does not have valid feature names ... fitted with feature names"
+    on ndarray predicts, so the named frame is pinned at both ends;
+    tree_view's reindex keeps column names/order identical everywhere.
+    """
 
     def __init__(self) -> None:
         self.home_model = _make_reg("xgboost")
         self.away_model = _make_reg("lightgbm")
 
-    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
-        X = feat_mod.tree_view(df).to_numpy(dtype=np.float64)
+    def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # NaN-safe: trees route NaN natively; guard all-NaN columns by
         # filling with the training median (fit-time only).
+        Xv = feat_mod.tree_view(df)
+        X = Xv.to_numpy(dtype=np.float64)
         X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        return pd.DataFrame(X, columns=Xv.columns, index=Xv.index)
+
+    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
+        X = self._matrix(df)
         self.home_model.fit(X, df["home_score"].astype(float).to_numpy())
         self.away_model.fit(X, df["away_score"].astype(float).to_numpy())
         return self
 
     def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        X = feat_mod.tree_view(df).to_numpy(dtype=np.float64)
-        X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
+        X = self._matrix(df)
         return self.home_model.predict(X), self.away_model.predict(X)
 
 

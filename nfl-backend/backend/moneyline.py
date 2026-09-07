@@ -91,12 +91,31 @@ def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
     return feat_mod.linear_view(df) if name in LINEAR_MEMBERS else feat_mod.tree_view(df)
 
 
+def member_fit_input(name: str, X_raw: pd.DataFrame,
+                     pre: "TrainFoldPreprocessor | None"):
+    """The ONE authoritative representation handed to member.fit().
+
+    Representation contract (mirrors MLB's model-specific routing):
+      * linear members -> the fitted preprocessor's ndarray (imputed+scaled)
+      * tree members   -> the NAMED tree-view DataFrame, feature names
+        preserved. scikit-learn >= 1.6 + LightGBM < 4.6 warns
+        "X does not have valid feature names ... fitted with feature names"
+        on every ndarray predict (LightGBM auto-assigns Column_i names), so
+        the tree family is pinned to the named frame at BOTH fit and
+        predict. member_matrix()'s reindex guarantees identical column
+        names/order at every call site.
+
+    fit and predict MUST go through this pair of helpers — never convert to
+    a raw ndarray at one site only.
+    """
+    if name in LINEAR_MEMBERS:
+        return pre.transform(X_raw)
+    return X_raw
+
+
 def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
                           pre: TrainFoldPreprocessor | None) -> np.ndarray:
-    if name in LINEAR_MEMBERS:
-        X = pre.transform(X_raw)
-    else:
-        X = X_raw.to_numpy(dtype=np.float64)
+    X = member_fit_input(name, X_raw, pre)
     p = model.predict_proba(X)[:, 1]
     return np.clip(p, CLIP, 1.0 - CLIP)
 
@@ -135,10 +154,7 @@ def walk_forward_oof(game_df: pd.DataFrame,
                 pre = None
             try:
                 model = _make_member(name)
-                if name in LINEAR_MEMBERS:
-                    model.fit(pre.transform(X_tr_raw), y_train)
-                else:
-                    model.fit(X_tr_raw.to_numpy(dtype=np.float64), y_train)
+                model.fit(member_fit_input(name, X_tr_raw, pre), y_train)
                 member_p[name] = _member_predict_proba(model, name, X_va_raw, pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("fold %s member %s failed: %s",
@@ -247,11 +263,11 @@ def fit_final_models(game_df: pd.DataFrame) -> tuple[dict, TrainFoldPreprocessor
         if name in LINEAR_MEMBERS:
             member_pre = TrainFoldPreprocessor().fit(X_raw)
             model = _make_member(name)
-            model.fit(member_pre.transform(X_raw), y)
+            model.fit(member_fit_input(name, X_raw, member_pre), y)
             models[name] = {"model": model, "pre": member_pre}
         else:
             model = _make_member(name)
-            model.fit(X_raw.to_numpy(dtype=np.float64), y)
+            model.fit(member_fit_input(name, X_raw, None), y)
             models[name] = {"model": model, "pre": None}
     return models, pre
 
