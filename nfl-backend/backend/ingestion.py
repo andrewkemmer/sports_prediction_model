@@ -32,6 +32,13 @@ def _cache_path(name: str) -> Path:
     return CACHE_DIR / name
 
 
+def clear_cache() -> None:
+    """Remove all cached nflverse parquet artifacts."""
+    if CACHE_DIR.exists():
+        for path in CACHE_DIR.glob("*.parquet"):
+            path.unlink(missing_ok=True)
+
+
 def _polars_to_pandas(frame):
     if hasattr(frame, "to_pandas"):
         return frame.to_pandas()

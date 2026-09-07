@@ -77,6 +77,7 @@ tests can import the module without a Streamlit page context.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -174,6 +175,37 @@ def _render_relativized_tab(decided: pd.DataFrame) -> None:
         f"(≥30 each, {curve['n_dropped_bins']} dropped) · predicted range "
         f"{min(xs):.2f}–{max(xs):.2f} — the spread is the point; the dashed "
         "diagonal is perfect calibration."
+    )
+    # Known-limitation block — the SAME chart→caption→warning→caption slot
+    # MLB's relativized tab renders, with the NFL's own honest limitation:
+    # integer totals priced 2-way no-push compress the predicted-P range, so
+    # many predicted-P bins fall under the ≥30-pair floor and the curve only
+    # speaks where the sample does.
+    bins = [b for b in curve["bins"]]
+    n_valid = len(bins)
+    worst = None
+    if bins:
+        devs = [abs(float(b["mean_pred"]) - float(b["mean_actual"]))
+                for b in bins]
+        worst = max(devs) if devs else None
+    st.warning(
+        "**Known limitation — compressed probability range:** NFL totals "
+        "are integer and priced 2-way no-push at fair-total ± offset, so "
+        "the predicted-P range compresses toward 50% (MLB's half-run grid "
+        "reaches a much wider band). "
+        f"{curve['n_dropped_bins']} of {curve['n_dropped_bins'] + n_valid} "
+        "predicted-P bins hold fewer than 30 pairs and are dropped — the "
+        "curve is evidence about the MIDDLE of the range only; the extreme "
+        "tails are structurally unpopulated, not mispriced."
+    )
+    st.caption(
+        f"The {n_valid} valid bins hold the pooled evidence: every one "
+        + (f"tracks the diagonal within Δ {worst:.3f} " if worst is not None
+           else "")
+        + "(predicted vs actual over rate). Every game stays priced at all "
+        "seven offsets — the drops are a binning floor, never a pricing "
+        "gap; the pinned 76×76 joint's mass conservation holds across the "
+        "grid (see the totals-law check in the first tab)."
     )
 
 
@@ -334,92 +366,185 @@ def _render_rl_tab(decided: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 # Prediction History (MLB-schema tables over NFL decided rows)
 # ---------------------------------------------------------------------------
-def _render_history_table(df: pd.DataFrame, line_kind: str, start_d, end_d,
-                          cal_note: str) -> None:
-    """The MLB-schema history table (DATE | MATCHUP | SCORE (A–H) | LINE |
-    MODEL PICK | WINNER | RESULT) over NFL decided rows. LINE and the pick
-    come from the model FAIR lines only (never the offered columns); whole-
-    number-line pushes resolve 3-way and are excluded from the result ✓/✗
-    (the NFL integer convention)."""
+def _history_view(df: pd.DataFrame, start_d, end_d) -> pd.DataFrame:
+    """Date-filtered, most-recent-first view (shared by both tables — the
+    MLB helpers' ``diag.filter_history_frame`` + sort step)."""
     view = df.copy()
     view["_d"] = pd.to_datetime(view.get("gameday"), errors="coerce")
     view = view[(view["_d"].notna()) & (view["_d"].dt.date >= start_d)
                 & (view["_d"].dt.date <= end_d)]
-    view = view.sort_values("_d", ascending=False)
-    if not len(view):
-        st.info("No games in the selected date range.")
-        return
-    rows = []
-    n_pushes = 0
-    for _, r in view.iterrows():
-        away = str(r.get("away_team", "") or "")
-        home = str(r.get("home_team", "") or "")
-        h_s, a_s = r.get("home_score"), r.get("away_score")
-        score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
-                 else f"{int(a_s)}–{int(h_s)}")
-        winner = "—"
-        if pd.notna(h_s) and pd.notna(a_s):
-            winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
-        if line_kind == "totals":
-            U = int(round(sv._f(r, "fair_total") or 0))
-            po = sv.price_total(r, U)[0]
-            over = po is not None and po > 0.5
-            line_txt, pick_txt = f"O/U {U}", "—"
-            correct = None
-            if po is not None:
-                pick_txt = f"{'Over' if over else 'Under'} {U} ({po:.0%})"
-            if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(po):
-                tot = int(h_s) + int(a_s)
-                if tot == U:
-                    n_pushes += 1
-                else:
-                    correct = over == (tot > U)
+    return view.sort_values("_d", ascending=False)
+
+
+def _totals_row(r) -> dict | None:
+    """One totals-history row (MLB schema fields) priced at the game's own
+    fair total: LINE (O/U U) | MODEL PICK (Over/Under U (p%)) | WINNER |
+    RESULT, whole-number pushes resolved 3-way (push rows render '—' and
+    are excluded from the W/(W+L) rate — the NFL integer convention)."""
+    away = str(r.get("away_team", "") or "")
+    home = str(r.get("home_team", "") or "")
+    h_s, a_s = r.get("home_score"), r.get("away_score")
+    score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
+             else f"{int(a_s)}–{int(h_s)}")
+    winner = "—"
+    if pd.notna(h_s) and pd.notna(a_s):
+        winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
+    U = int(round(sv._f(r, "fair_total") or 0))
+    po = sv.price_total(r, U)[0]
+    over = po is not None and po > 0.5
+    line_txt, pick_txt, correct = f"O/U {U}", "—", None
+    if po is not None:
+        pick_txt = f"{'Over' if over else 'Under'} {U} ({po:.0%})"
+    if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(po):
+        tot = int(h_s) + int(a_s)
+        if tot == U:
+            correct = "push"
         else:
-            L = int(round(sv._f(r, "fair_spread") or 0))
-            ph = sv.price_spread(r, L)[0]
-            fav_home = ph is not None and ph > 0.5
-            line_txt = (f"RL {home} {-L:+d} / {away} {L:+d}"
-                        if L >= 0 else f"RL {home} {L:+d} / {away} {-L:+d}")
-            pick_txt, correct = "—", None
-            if ph is not None:
-                pick_txt = (f"{home if fav_home else away} "
-                            f"{-L:+d} ({ph:.0%})")
-            if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(ph):
-                margin = int(h_s) - int(a_s)
-                if margin == L:
-                    n_pushes += 1
-                else:
-                    correct = (margin > L) == fav_home
-        if correct is None:
-            res = "<td>—</td>"
-        elif correct:
-            res = "<td style='color:#10B981;font-weight:700;'>✓</td>"
+            correct = over == (tot > U)
+    return {"date": r["_d"].strftime("%b %d, %Y"), "away": away,
+            "home": home, "score": score, "line": line_txt,
+            "pick": pick_txt, "winner": winner, "correct": correct,
+            "pick_side": ("Over" if over else "Under")
+            if po is not None else None}
+
+
+def _runline_row(r) -> dict | None:
+    """One run-line-history row (MLB schema fields) at the game's own fair
+    spread: LINE (RL home −L / away +L) | MODEL PICK (side ±L (p%)) |
+    WINNER | RESULT, whole-number pushes resolved 3-way."""
+    away = str(r.get("away_team", "") or "")
+    home = str(r.get("home_team", "") or "")
+    h_s, a_s = r.get("home_score"), r.get("away_score")
+    score = ("—" if (pd.isna(h_s) or pd.isna(a_s))
+             else f"{int(a_s)}–{int(h_s)}")
+    winner = "—"
+    if pd.notna(h_s) and pd.notna(a_s):
+        winner = home if h_s > a_s else (away if a_s > h_s else "Tie")
+    L = int(round(sv._f(r, "fair_spread") or 0))
+    ph = sv.price_spread(r, L)[0]
+    fav_home = ph is not None and ph > 0.5
+    line_txt = (f"RL {home} {-L:+d} / {away} {L:+d}"
+                if L >= 0 else f"RL {home} {L:+d} / {away} {-L:+d}")
+    pick_txt, pick_side, correct = "—", None, None
+    if ph is not None:
+        pick_side = home if fav_home else away
+        pick_txt = f"{pick_side} {-L:+d} ({ph:.0%})"
+    if pd.notna(h_s) and pd.notna(a_s) and not pd.isna(ph):
+        margin = int(h_s) - int(a_s)
+        if margin == L:
+            correct = "push"
         else:
-            res = "<td style='color:#EF4444;font-weight:700;'>✗</td>"
-        rows.append(
-            f"<tr><td>{r['_d'].strftime('%b %d, %Y')}</td>"
-            f"<td>{away} @ {home}</td>"
-            f"<td>{score}</td>"
-            f"<td>{line_txt}</td>"
-            f"<td>{pick_txt}</td>"
-            f"<td>{winner}</td>{res}</tr>")
+            correct = (margin > L) == fav_home
+    return {"date": r["_d"].strftime("%b %d, %Y"), "away": away,
+            "home": home, "score": score, "line": line_txt,
+            "pick": pick_txt, "winner": winner, "correct": correct,
+            "pick_side": pick_side}
+
+
+def _result_cell(correct) -> str:
+    if correct is None or correct == "push":
+        return "<td>—</td>"
+    if correct:
+        return "<td style='color:#10B981;font-weight:700;'>✓</td>"
+    return "<td style='color:#EF4444;font-weight:700;'>✗</td>"
+
+
+def _history_box(rows_html: list[str]) -> None:
+    """The MLB fb-box scroll container (byte-identical markup)."""
     st.markdown(
         f"""
         <div class="fb-box" style="padding:6px 8px;">
           <div style="max-height:480px;overflow-y:auto;">
             <table class="fb-table">
               <thead><tr><th>{HISTORY_HEADERS}</th></tr></thead>
-              <tbody>{''.join(rows)}</tbody>
+              <tbody>{''.join(rows_html)}</tbody>
             </table>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    push_txt = (f" · {n_pushes:,} push(es) excluded — whole-number "
-                "line, neither wins nor loses" if n_pushes else "")
-    st.caption(f"{len(view):,} games · most recent first — scroll for older "
-               f"results{push_txt}{cal_note}")
+
+
+def _render_totals_history(df: pd.DataFrame, start_d, end_d,
+                           cal_note: str) -> None:
+    """MLB ``_render_totals_history`` byte-anatomy: side filter radio →
+    header markdown → caption (n · side · win rate · most-recent-first ·
+    pushes · cal note) → fb-box table, over NFL decided rows priced at
+    their own fair totals."""
+    side = st.radio("Side filter", ["All", "Over", "Under"],
+                    index=0, horizontal=True, key="nfl_totals_history_side")
+    view = _history_view(df, start_d, end_d)
+    st.markdown("#### Game Totals — Prediction History")
+    records = [x for x in (_totals_row(r) for _, r in view.iterrows())
+               if x is not None]
+    if side != "All":
+        records = [x for x in records if x["pick_side"] == side]
+    if not records:
+        st.info("No games in the selected date range / side.")
+        return
+    n_wins = sum(1 for x in records if x["correct"] is True)
+    n_losses = sum(1 for x in records if x["correct"] is False)
+    n_pushes = sum(1 for x in records if x["correct"] == "push")
+    n_games = n_wins + n_losses
+    rate = (n_wins / n_games) if n_games else None
+    rate_txt = (f"{rate * 100:.1f}% picks correct" if rate is not None
+                else "no priced games")
+    push_txt = (
+        f" · {n_pushes:,} push(es) excluded — whole-"
+        "number line, neither wins nor loses") if n_pushes else ""
+    side_txt = " · all sides" if side == "All" else f" · {side} picks only"
+    st.caption(
+        f"{n_games:,} games{side_txt} · {rate_txt} · most recent "
+        f"first — scroll for older results{push_txt}{cal_note}"
+    )
+    rows_html = [
+        f"<tr><td>{x['date']}</td>"
+        f"<td>{x['away']} @ {x['home']}</td>"
+        f"<td>{x['score']}</td>"
+        f"<td>{x['line']}</td>"
+        f"<td>{x['pick']}</td>"
+        f"<td>{x['winner']}</td>{_result_cell(x['correct'])}</tr>"
+        for x in records]
+    _history_box(rows_html)
+
+
+def _render_runline_history(df: pd.DataFrame, start_d, end_d,
+                            cal_note: str) -> None:
+    """MLB ``_render_runline_history`` byte-anatomy: header markdown →
+    caption (n · win rate · most-recent-first · pushes · cal note) →
+    fb-box table, over NFL decided rows priced at their own fair
+    spreads (whole-number lines push — the push note stays)."""
+    view = _history_view(df, start_d, end_d)
+    st.markdown("#### Run Lines — Prediction History")
+    records = [x for x in (_runline_row(r) for _, r in view.iterrows())
+               if x is not None]
+    if not records:
+        st.info("No games in the selected date range.")
+        return
+    n_wins = sum(1 for x in records if x["correct"] is True)
+    n_losses = sum(1 for x in records if x["correct"] is False)
+    n_pushes = sum(1 for x in records if x["correct"] == "push")
+    n_games = n_wins + n_losses
+    rate = (n_wins / n_games) if n_games else None
+    rate_txt = (f"{rate * 100:.1f}% picks correct" if rate is not None
+                else "no priced games")
+    push_txt = (
+        f" · {n_pushes:,} push(es) excluded — whole-"
+        "number line, neither wins nor losses") if n_pushes else ""
+    st.caption(
+        f"{n_games:,} games · {rate_txt} · most recent "
+        f"first — scroll for older results{push_txt}{cal_note}"
+    )
+    rows_html = [
+        f"<tr><td>{x['date']}</td>"
+        f"<td>{x['away']} @ {x['home']}</td>"
+        f"<td>{x['score']}</td>"
+        f"<td>{x['line']}</td>"
+        f"<td>{x['pick']}</td>"
+        f"<td>{x['winner']}</td>{_result_cell(x['correct'])}</tr>"
+        for x in records]
+    _history_box(rows_html)
 
 
 # ---------------------------------------------------------------------------
@@ -445,37 +570,111 @@ _FIT_PARAMS = {
 }
 
 
-def _render_fit_panel() -> None:
-    """Distributional Fit Diagnostics — MLB markets.py anatomy (metric row
-    + parameter caption + mechanism note) with the NFL's honest pinned
-    content: the per-side era model (E2, ewm_2w, median rounds 20/23) and
-    the pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) on the
-    76×76 grid. Where MLB shows its Monte Carlo configuration, the NFL
-    panel states the exact-PMF decision explicitly — the NFL engine is an
-    analytic joint (no MC sampler; a deliberate, recorded divergence).
-    Nothing here is fabricated: every number is a pinned record constant."""
+def _fit_tail_data(decided: pd.DataFrame) -> dict:
+    """Row-derived tail/variance legs for the fit panel — the SAME math the
+    artifact's ``fit`` block ships (monitoring._run_engine_fit_block), so
+    the panel shows one source of truth either way: total tail (modeled =
+    pooled grid legs, observed = decided scores), margin tail (home-win /
+    push band), and per-side score-residual SDs (the era sigmas are
+    residual SDs around mu)."""
+    out: dict = {"total_tail": None, "margin_tail": None,
+                 "variance_obs": None}
+    if decided is None or not len(decided):
+        return out
+
+    def _col_mean(base: str, line: float) -> float:
+        col = nd._col(base, line)
+        if col not in decided.columns:
+            return float("nan")
+        return float(pd.to_numeric(decided[col], errors="coerce").mean())
+
+    tot = pd.to_numeric(decided.get("total"), errors="coerce")
+    if tot.notna().any():
+        mod_ge = _col_mean("p_over", 59.0)          # P(total >= 60)
+        mod_le = 1.0 - _col_mean("p_over", 35.0)    # P(total <= 35)
+        obs_ge = float((tot >= 60).mean())
+        obs_le = float((tot <= 35).mean())
+        if all(np.isfinite(v) for v in (mod_ge, mod_le, obs_ge, obs_le)):
+            out["total_tail"] = (f"k≥60: obs={obs_ge:.3f} mod={mod_ge:.3f}"
+                                 f" | k≤35: obs={obs_le:.3f} mod={mod_le:.3f}")
+    margin = pd.to_numeric(decided.get("margin"), errors="coerce")
+    if margin.notna().any():
+        ml = pd.to_numeric(decided.get("derived_ml"), errors="coerce")
+        push = _col_mean("p_push", 0.0)             # P(margin == 0)
+        obs_home = float((margin > 0).mean())
+        obs_push = float((margin == 0).mean())
+        ml_mean = float(ml.mean()) if ml.notna().any() else float("nan")
+        if all(np.isfinite(v) for v in (ml_mean, push, obs_home, obs_push)):
+            out["margin_tail"] = (
+                f"P(home win): obs={obs_home:.3f} mod={ml_mean:.3f}"
+                f" | push: obs={obs_push:.3f} mod={push:.3f}")
+    mu_h = pd.to_numeric(decided.get("mu_h"), errors="coerce")
+    mu_a = pd.to_numeric(decided.get("mu_a"), errors="coerce")
+    hs = pd.to_numeric(decided.get("home_score"), errors="coerce")
+    as_ = pd.to_numeric(decided.get("away_score"), errors="coerce")
+    res_h = hs - mu_h
+    res_a = as_ - mu_a
+    if res_h.notna().sum() > 1 and res_a.notna().sum() > 1:
+        out["variance_obs"] = {
+            "home": round(float(res_h.dropna().std(ddof=1)), 2),
+            "away": round(float(res_a.dropna().std(ddof=1)), 2),
+        }
+    return out
+
+
+def _render_fit_panel(decided: pd.DataFrame) -> None:
+    """Distributional Fit Diagnostics — MLB markets.py ``_render_fit_panel``
+    anatomy EXACTLY (metric row → α-form caption → two per-side tail
+    captions → variance caption → mechanism caption), with the NFL's own
+    model in each slot: the pinned per-side era model + DN joint, the
+    total/margin tail checks, the per-side residual-variance check, and the
+    exact-PMF note where MLB shows its Monte Carlo configuration (the
+    analytic-joint decision is deliberate and recorded). Nothing fabricated:
+    the tails/variance are computed from the artifact's own rows."""
     p = _FIT_PARAMS
     st.markdown("#### Distributional Fit (exact 76×76 joint)")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("σ_home", f"{p['sigma_home']:.3f}")
     c2.metric("σ_away", f"{p['sigma_away']:.4f}")
-    c3.metric("ρ (margin·total)", f"{p['rho']:.4f}")
+    c3.metric("ρ (home·away)", f"{p['rho']:.4f}")
     c4.metric("Tie rate (final)", f"{p['p_tie']:.3%}")
 
+    # Slot 1 — the joint's form + fitted-on scope + provenance (the α-form
+    # caption's NFL analog).
     st.caption(
         f"Joint: {p['family']} family, const σ — fitted on pooled OOF "
         f"({p['grid']}, tie-calibrated to the empirical final rate) · "
         f"era: {p['era']} · median rounds home "
-        f"{p['rounds']['home']} / away {p['rounds']['away']}."
+        f"{p['rounds']['home']} / away {p['rounds']['away']} · pinned "
+        "parameters from " + ", ".join(p["provenance"])
     )
+
+    # Slots 2-3 — the per-surface tail checks (MLB's Home/Away tail
+    # captions; the NFL joint's surfaces are the total and the margin).
+    tails = _fit_tail_data(decided)
+    tt = tails.get("total_tail")
+    if tt:
+        st.caption(f"**Total** tail: {tt}")
+    mt = tails.get("margin_tail")
+    if mt:
+        st.caption(f"**Margin** tail: {mt}")
+
+    # Slot 4 — variance check: pinned sigma0 vs observed residual SDs.
+    vo = tails.get("variance_obs")
+    if vo:
+        st.caption(
+            f"Variance check: home implied={p['sigma_home']:.2f} / "
+            f"obs={vo['home']:.2f} · away implied={p['sigma_away']:.2f} / "
+            f"obs={vo['away']:.2f}")
+
+    # Slot 5 — the mechanism note (MLB's Monte Carlo caption slot).
     st.caption(
         "Exact PMF — no Monte Carlo sampler (NFL decision, recorded): "
         "per-game probabilities are computed analytically from the pinned "
         "76×76 joint, not sampled — deterministic, no RNG, byte-identical "
         "re-runs."
     )
-    st.caption("Pinned parameters from " + ", ".join(p["provenance"]))
 
 
 def _render_rolling_history(rolling: dict) -> None:
@@ -548,6 +747,18 @@ def _render_winner_cards(cards: dict) -> None:
             h_txt = (f"{h_n:,}" if isinstance(h_n, int) else str(h_n or 0))
             st.caption(f"n = {n_txt} pooled"
                        + (f" / {h_txt} holdout" if h else ""))
+            # MLB's derived-ML comparison anchor (same slot + wording): the
+            # shared moneyline ensemble's pooled win rate, shipped by the
+            # monitor emitter as the derived-ML card's ml_reference.
+            ref = card.get("ml_reference")
+            if ref and key == "derived_ml":
+                rwr = ref.get("win_rate")
+                st.caption(
+                    f"Moneyline ensemble reference (ml_win_prob): "
+                    f"{_fmt(rwr, pct=True) if rwr is not None else '--'} "
+                    f"win rate (n={ref.get('n', '--'):,}) — the run-line "
+                    "model's derived ML is a coherence report; the "
+                    "ensemble stays as the comparison anchor")
 
 
 def _render_totals_calibration_card(decided: pd.DataFrame) -> None:
@@ -604,9 +815,11 @@ def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
         st.caption("No priced games at this line.")
         return
     wr = s["win_rate"]
+    cp = s.get("predicted_2way")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Games", f"{s['n']:,}")
-    m2.metric("Model predicted", "--")   # 2-way pred needs the card stat
+    m2.metric("Model predicted",
+              f"{cp * 100:.1f}%" if cp is not None else "--")
     m3.metric("Win rate (W/(W+L))", f"{wr * 100:.1f}%" if wr else "—")
     m4.metric("Wins / Losses", f"{s['n_wins']:,} / {s['n_losses']:,}")
     m5.metric("Pushes", f"{s['n_pushes']:,}")
@@ -623,9 +836,11 @@ def _render_runline_calibration_card(decided: pd.DataFrame) -> None:
     st.caption(
         f"Favored side = derived-ML favorite (P(home win) > 50%). At deeper "
         "lines its cover P can fall below 50% — that is a calibration "
-        "finding, not a pick rule. Win rate is 2-way re-normalized "
-        "(whole-line pushes, favored margin == ±m, folded out of both "
-        "sides)."
+        "finding, not a pick rule. Model predicted and Win rate are BOTH "
+        "2-way re-normalized (whole-line pushes, favored margin == ±m, "
+        "folded out of both sides), so a whole-line card is never read as "
+        "an under-prediction. −0.5 ≡ outright win (integer margins, no "
+        "ties)."
     )
 
 
@@ -722,12 +937,8 @@ def run() -> None:
             start_d, end_d = end_d, start_d
         _cal_note = (" · probabilities are RAW (no calibration map shipped "
                      "in the run-engine artifact)")
-        st.markdown("#### Game Totals — Prediction History")
-        st.radio("Side filter", ["All", "Over", "Under"], index=0,
-                 horizontal=True, key="nfl_totals_history_side")
-        _render_history_table(decided, "totals", start_d, end_d, _cal_note)
-        st.markdown("#### Run Lines — Prediction History")
-        _render_history_table(decided, "runline", start_d, end_d, _cal_note)
+        _render_totals_history(decided, start_d, end_d, _cal_note)
+        _render_runline_history(decided, start_d, end_d, _cal_note)
 
     # ------------------------------------------------------------------
     # Run-Line & Totals Monitor — winner cards + calibration cards +
@@ -759,9 +970,13 @@ def run() -> None:
                 "The monitor data below is from the in-memory summary; "
                 "downstream consumers should not trust the markets artifact."
             )
-        # Winner cards — computed from the decided OOF store (the NFL
-        # monitor's card-equivalent data; nothing fabricated).
-        cards = nd.winner_cards(decided) if not decided.empty else {}
+        # Winner cards — the monitor artifact's cards (MLB's source: the
+        # emitter ships the pooled card so artifact and page agree — one
+        # source of truth), with the live recompute as the fallback when
+        # the artifact predates the winner-card schema.
+        cards = monitor.get("winner_cards") or {}
+        if not cards and not decided.empty:
+            cards = nd.winner_cards(decided)
         if cards:
             _render_winner_cards(cards)
         else:
@@ -779,10 +994,11 @@ def run() -> None:
                 _render_runline_calibration_card(decided)
 
         # Fit panel — MLB markets.py anatomy, honest NFL content: the
-        # pinned era/joint parameters (record constants) + the exact-PMF
-        # note where MLB shows its MC configuration (nothing fabricated).
+        # pinned era/joint parameters (record constants) + the tail /
+        # variance checks computed from the artifact's own rows + the
+        # exact-PMF note where MLB shows its MC configuration.
         with st.expander("Distributional Fit Diagnostics", expanded=False):
-            _render_fit_panel()
+            _render_fit_panel(decided)
 
         # Drift / coverage — MLB markets.py mirror: load the emitter CSVs
         # for this date (run_engine_feature_drift_{date}.csv /
@@ -800,8 +1016,58 @@ def run() -> None:
                    "pinned DN joint (σ 9.663/9.0789, ρ 0.0076, tie 0.275%) "
                    "— the run-engine OOF metrics live on the Diagnostics "
                    "tabs and the winner cards above.")
-        st.info("Per-line engine OOF metrics appear in the Diagnostics tabs "
-                "from the decided OOF store.")
+        # Per-line OOF metrics — MLB's _render_run_engine_model_card table
+        # (MARKET LINE | ECE (RAW) | ECE (CAL) | BRIER | LOG LOSS | N (OOF))
+        # over the artifact's market_metrics (exact-PWF joint legs at the
+        # canonical lines; no calibration map ships, so ECE-raw IS
+        # ECE-cal — the honest figure).
+        mm = monitor.get("market_metrics") or {}
+        if not mm:
+            st.info("Per-line engine OOF metrics appear after a pipeline run "
+                    "that emits market_metrics (the current artifact "
+                    "predates them).")
+        else:
+            _line_labels = ([
+                (f"over_{u}", f"Over {u}")
+                for u in sorted({int(k.split("_")[1]) for k in mm
+                                 if k.startswith("over_")})]
+                + [(k, "Home −" + k.split("_")[2])
+                   for k in sorted(mm) if k.startswith("home_cover_")]
+                + [("derived_moneyline", "Derived ML")])
+            rows_html = []
+            for key, label in _line_labels:
+                r = mm.get(key)
+                if not isinstance(r, dict):
+                    continue
+                rows_html.append(
+                    f"<tr>"
+                    f"<td style='color:#E2E8F0;font-weight:700;'>{label}</td>"
+                    f"<td>{_fmt(r.get('engine_ece_raw'), 4)}</td>"
+                    f"<td>{_fmt(r.get('engine_ece_calibrated'), 4)}</td>"
+                    f"<td>{_fmt(r.get('engine_brier'), 4)}</td>"
+                    f"<td>{_fmt(r.get('engine_logloss'), 4)}</td>"
+                    f"<td style='color:#E2E8F0;'>"
+                    f"{(r.get('n') or 0):,}</td>"
+                    f"</tr>")
+            st.markdown(
+                f"""
+                <div class="fb-box" style="padding:6px 8px;">
+                  <table class="fb-table">
+                    <thead><tr><th>MARKET LINE</th><th>ECE (RAW)</th><th>ECE (CAL)</th>
+                    <th>BRIER</th><th>LOG LOSS</th><th>N (OOF)</th></tr></thead>
+                    <tbody>{''.join(rows_html)}</tbody>
+                  </table>
+                </div>
+                <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
+                  Run engine is the pinned per-side era model + 76×76 DN
+                  joint — no member blend; rows are per market line (2-way
+                  no-push basis). ECE-CAL equals ECE-RAW: the run engine
+                  ships no calibration map (exact-PMF probabilities only).
+                  N = pooled OOF games scored for the line.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # Rolling history — the MLB convention: first build starts empty by
         # design (nothing fabricated). Once daily runs ship decided-slate
@@ -816,6 +1082,9 @@ def run() -> None:
             if not rolling:
                 st.info("No rolling history yet (first build starts empty).")
             else:
+                # MLB's expander-internal header (same wording, same slot).
+                st.markdown(
+                    "#### Rolling ECE-Calibrated History (per winner card)")
                 _render_rolling_history(rolling)
 
 

@@ -304,19 +304,15 @@ def runengine_html(row, home_team: str, away_team: str,
     rl = runline_html(row, home_team, away_team,
                       home_spread=home_spread, half_stop=half_stop)
 
-    dh = _f(row, "p_home_win_derived", "derived_ml")
-    da = _f(row, "p_away_win_derived")
-    if dh is not None and da is not None:
-        ml_span = (f'<span>ML: {home_team} {_pct(dh, 1)} · '
-                   f'{away_team} {_pct(da, 1)}</span>')
-    else:
-        ml_span = '<span>ML: n/a</span>'
-
+    # No separate ML span — MLB's run-engine strip renders Proj / O/U / RL
+    # only, and the win probabilities are already the card's two team bars
+    # (the ±0.5 stop's per-side derived-ML notes carry the raw pair where
+    # it is genuinely line-specific). Same strip anatomy, byte-for-byte.
     return ('<div class="fb-runengine"><span class="re-label">'
             'RUN ENGINE</span>'
             f'<span>Proj: {away_team} {_num(mu_a)} – '
             f'{home_team} {_num(mu_h)}</span>'
-            f'{total_span}{rl}{ml_span}</div>')
+            f'{total_span}{rl}</div>')
 
 
 def push_span(pp: float | None) -> str:

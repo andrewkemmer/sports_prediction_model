@@ -765,8 +765,13 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
     as_ = r.get("away_score")
     h_score_n = None if pd.isna(hs) else int(hs)
     a_score_n = None if pd.isna(as_) else int(as_)
-    h_disp = "" if h_score_n is None else h_score_n
-    a_disp = "" if a_score_n is None else a_score_n
+    # PRE-GAME renders the 0-0 scoreboard exactly like MLB (the artifact
+    # carries null scores pre-game; the card presentation is the shared
+    # 0-0 display — the banner still says prediction locked at kickoff).
+    h_disp = (0 if (is_scheduled and h_score_n is None) else
+              ("" if h_score_n is None else h_score_n))
+    a_disp = (0 if (is_scheduled and a_score_n is None) else
+              ("" if a_score_n is None else a_score_n))
 
     ph = r.get("home_win_prob_model")
     ph = None if ph is None or pd.isna(ph) else float(ph)
@@ -992,23 +997,33 @@ def _render_nfl_cards(frame, slate: pd.DataFrame | None = None) -> None:
 
 
 def _nfl_shap_expander(r) -> None:
-    """NFL SHAP accordion — same expander/chart/caption as the MLB card's
-    ``_shap_expander``, keyed by the NFL game id. The moneyline record does
-    not ship per-game SHAP files yet, so this quietly renders the MLB
-    expander's 'no file' empty state until the backend emits them."""
+    """NFL SHAP accordion — the exact MLB per-card accordion (same expander
+    title, chart, empty state and caption) keyed by the NFL game id. The
+    backend emits per-game attributions from the deployed ensemble's tree
+    members (nfl_shap_game_<game_id>.csv), so the shared loader resolves the
+    real file and the identical MLB chart renders."""
     gid = _nfl_widget_key(r)
     date_str = str(r.get("game_date", "") or "").replace("-", "")
     with st.expander(f"📈 SHAP Features — {gid}", expanded=False):
-        shap_df = utils.load_shap(gid, date_str)
+        shap_df = utils.load_shap(gid, date_str, sport="nfl")
         if shap_df.empty:
             st.caption("No SHAP file found for this game.")
             return
         chart = utils.shap_chart(shap_df)
         if chart is not None:
             utils.show_chart(chart)
+        # SHAP is aligned to the FAVORED team (backend negates values when
+        # the away team is favored) — same caption semantics as MLB, with
+        # the NFL ensemble's member list.
+        persp = ""
+        if "perspective_team" in shap_df.columns:
+            pt = shap_df["perspective_team"].dropna().astype(str)
+            pt = pt[pt.str.strip() != ""].iloc[0] if not pt.empty else ""
+            if pt and pt not in ("HOME", "AWAY"):
+                persp = f" · Viewing from {pt}'s perspective"
         st.caption("Positive values increase the favored team's win probability; "
                    "negative decrease it. Averaged across the XGBoost / LightGBM / "
-                   "Logistic Regression ensemble.")
+                   f"Random Forest ensemble.{persp}")
 
 
 def _nfl_header_strip(frame, date_str: str) -> None:

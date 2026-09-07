@@ -30,15 +30,25 @@ marked ⟐):
   8. ``st.divider()`` → two-per-row card loop — same columns(2), same
      iteration, same per-card flow: ⟐ run-engine O/U + spread selectors
      (the existing ``_nfl_run_engine_selectors`` seam) → card HTML →
-     ⟐ QB-matchup expander instead of the SHAP expander.
+     the SAME per-card SHAP expander as MLB (``_nfl_shap_expander``,
+     imported from the shared board module; the backend emits
+     ``nfl_shap_game_<game_id>.csv`` attributions from the deployed
+     ensemble's tree members).
   9. Card (⟐ ``_card_html`` mirror): top badge strip (☀/🌙 + LIVE/PRE-GAME/
-     FINAL + ✓/X pills) → scoreboard (winner bars) → team rows (records,
-     PICK badge, trophy, prob bars) → `fb-pregame` line → ⟐ QB-matchup
-     twin boxes (the ``fb-pitchers`` grid: passer rating + TD/game
-     headline; cmp% · Y/A · INT) → ``fb-venue`` (📍 stadium · kickoff ET)
-     → RUN ENGINE strip (the existing ``nfl_slate_view.runengine_html``)
-     → banner.
+     FINAL + ✓/X pills) → scoreboard (winner bars; PRE-GAME renders the
+     0-0 display exactly like MLB) → team rows (records, PICK badge,
+     trophy, prob bars) → `fb-pregame` line → ⟐ QB-matchup twin boxes
+     (the ``fb-pitchers`` grid, MLB's TWO-stat single-line format:
+     Rating · TD/g — the ERA/K-9 analogs) → ``fb-venue`` (📍 stadium ·
+     kickoff ET) → RUN ENGINE strip (the existing
+     ``nfl_slate_view.runengine_html``: Proj / O/U / RL — no separate ML
+     span, matching MLB's strip anatomy) → banner.
   10. Point-in-time caption — SAME wording.
+
+Board title / artifact caption: the MLB board renders neither (the header
+strip IS the page header), so the NFL mirror renders neither either —
+the extra 'NFL moneyline board' line and the ⟐ title from earlier
+iterations were removed for byte-parity with the MLB element tree.
 
 Empty / missing states: no board → the shared notice; no games on the
 selected date → the shared nearest-valid fallback; missing QB record →
@@ -59,6 +69,7 @@ from todays_games import (  # noqa: E402
     _match_slate_row,
     _nfl_card_html,
     _nfl_run_engine_selectors,
+    _nfl_shap_expander,
     _render_date_nav,
     _render_nearest_valid_fallback,
 )
@@ -78,14 +89,16 @@ def _fmt(v, fmt: str) -> str:
         return "—"
 
 
-def _qb_box(name: str, rating, td_game, cmp_pct, ya, ints) -> str:
-    """One side of the QB matchup — mirrors ``_pitcher_box`` geometry:
-    bold name line + a stats line, inside the fb-pitcher box styling."""
+def _qb_box(name: str, rating, td_game) -> str:
+    """One side of the QB matchup — ``_pitcher_box`` byte-format: bold name
+    line + ONE stats line with the same ' · ' separator (MLB shows exactly
+    two stats: ERA · K/9; the QB pair is the passer rating and TD/game —
+    rating is the ERA analog, TD/g the K/9 analog). The extra per-attempt
+    columns stay in the artifact; the box renders the two-stat line so the
+    card geometry (single pstats line, same height) matches MLB exactly."""
     name_html = f'<div class="pname">{name}</div>' if name else ""
     stats = (
-        f"Rating {_fmt(rating, '.1f')} · TD/g {_fmt(td_game, '.1f')}<br>"
-        f"Cmp {_fmt(cmp_pct, '.1f')}% · Y/A {_fmt(ya, '.2f')} · "
-        f"INT {_fmt(ints, '.0f')}"
+        f"Rating {_fmt(rating, '.1f')} · TD/g {_fmt(td_game, '.1f')}"
     )
     return (f'<div class="fb-pitcher">{name_html}'
             f'<div class="pstats">{stats}</div></div>')
@@ -98,14 +111,10 @@ def _qb_matchup_html(qb_row) -> str:
         qb_row = {}
     home = _qb_box(
         str(qb_row.get("qb_home_name", "") or ""),
-        qb_row.get("qb_home_rating"), qb_row.get("qb_home_td_per_game"),
-        qb_row.get("qb_home_cmp_pct"), qb_row.get("qb_home_yards_per_attempt"),
-        qb_row.get("qb_home_ints"))
+        qb_row.get("qb_home_rating"), qb_row.get("qb_home_td_per_game"))
     away = _qb_box(
         str(qb_row.get("qb_away_name", "") or ""),
-        qb_row.get("qb_away_rating"), qb_row.get("qb_away_td_per_game"),
-        qb_row.get("qb_away_cmp_pct"), qb_row.get("qb_away_yards_per_attempt"),
-        qb_row.get("qb_away_ints"))
+        qb_row.get("qb_away_rating"), qb_row.get("qb_away_td_per_game"))
     return f'<div class="fb-pitchers">{away}{home}</div>'
 
 
@@ -128,8 +137,13 @@ def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
     hs, as_ = g.get("home_score"), g.get("away_score")
     h_score_n = None if pd.isna(hs) else int(hs)
     a_score_n = None if pd.isna(as_) else int(as_)
-    h_disp = "" if h_score_n is None else h_score_n
-    a_disp = "" if a_score_n is None else a_score_n
+    # PRE-GAME renders the 0-0 scoreboard exactly like MLB's card (the
+    # moneyline artifact carries null scores pre-game; the presentation is
+    # the shared 0-0 display — the banner still says locked at kickoff).
+    h_disp = (0 if (is_scheduled and h_score_n is None) else
+              ("" if h_score_n is None else h_score_n))
+    a_disp = (0 if (is_scheduled and a_score_n is None) else
+              ("" if a_score_n is None else a_score_n))
 
     ph = g.get("home_win_prob_model")
     pa = g.get("away_win_prob_model")
@@ -249,35 +263,6 @@ def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
-# ⟐ SHAP-expander substitute: the QB-matchup detail expander
-# ---------------------------------------------------------------------------
-
-def _qb_expander(g: pd.Series, qb_row) -> None:
-    """Mirror of the MLB per-card SHAP accordion slot: an expander under the
-    card carrying the per-side detail (starts context — never fabricated)."""
-    gid = str(g.get("game_id", "") or "")
-    with st.expander(f"🎯 QB Matchup — {gid}", expanded=False):
-        if qb_row is None or not (qb_row.get("qb_home_name") or
-                                  qb_row.get("qb_away_name")):
-            st.caption("No starting-QB record resolved for this game.")
-            return
-        c1, c2 = st.columns(2)
-        for col, side, team in ((c1, "qb_away", g.get("away_team")),
-                                (c2, "qb_home", g.get("home_team"))):
-            with col:
-                st.markdown(f"**{side == 'qb_home' and 'Home' or 'Away'} — "
-                            f"{team}**")
-                st.write(qb_row.get(f"{side}_name", "") or "—")
-                st.caption(
-                    f"Passer rating {_fmt(qb_row.get(f'{side}_rating'), '.1f')} · "
-                    f"TD/g {_fmt(qb_row.get(f'{side}_td_per_game'), '.1f')} · "
-                    f"Cmp {_fmt(qb_row.get(f'{side}_cmp_pct'), '.1f')}% · "
-                    f"Y/A {_fmt(qb_row.get(f'{side}_yards_per_attempt'), '.2f')} · "
-                    f"INT {_fmt(qb_row.get(f'{side}_ints'), '.0f')} "
-                    f"(strictly-prior window)")
-
-
-# ---------------------------------------------------------------------------
 # Board (the MLB main() mirror)
 # ---------------------------------------------------------------------------
 
@@ -294,9 +279,13 @@ def _evening_count(day: pd.DataFrame) -> int:
 
 def run() -> None:
     """Render the NFL Today's Games board — the MLB page mirror."""
-    utils.inject_css()
+    # CSS is already injected by Home.py and the shared board module
+    # (todays_games.py imports run it at module level) — exactly the two
+    # <style> blocks the MLB render emits. Calling it again here would add
+    # a THIRD style block the MLB page doesn't have.
 
-    # 1-2. Title + date reset (same session-state contract as MLB)
+    # 1-2. Date reset (same session-state contract as MLB; MLB renders no
+    # page title — the header strip is the page header)
     valid = list(utils.valid_dates("nfl"))
     valid_set = set(valid)
     if not valid:
@@ -357,11 +346,8 @@ def run() -> None:
 
     fdate = utils.latest_artifact_date("nfl", "moneyline_json")
     tag = f"v1_{fdate}" if fdate else "—"
-    st.markdown(
-        f"<div style='color:#94A3B8;margin:2px 0 14px;'>NFL moneyline board · "
-        f"{utils.format_date_long(date_str)} · artifact {tag}</div>",
-        unsafe_allow_html=True,
-    )
+    # (the artifact tag stays resolved for the empty-state message below; the
+    # MLB board renders no artifact caption line, so neither does NFL)
 
     # 7. Filter pills — same widget pair + counts math as MLB
     counts = {
@@ -429,7 +415,10 @@ def run() -> None:
                         qb_row = hit.iloc[0].to_dict()
                 st.markdown(_nfl_mirror_card_html(g, qb_row, re_html),
                             unsafe_allow_html=True)
-                _qb_expander(g, qb_row)
+                # SAME per-card expander as MLB (📈 SHAP Features) — the
+                # backend now emits nfl_shap_game_<game_id>.csv attributions
+                # from the deployed ensemble, so the identical chart renders.
+                _nfl_shap_expander(g)
 
     # 10. Same point-in-time caption
     st.caption("Model outputs are point-in-time — only data available before each "

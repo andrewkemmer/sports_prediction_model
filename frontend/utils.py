@@ -1239,24 +1239,27 @@ def load_nfl_qb_matchup(sport: str | None = "nfl") -> pd.DataFrame:
         for g in games:
             if not isinstance(g, dict):
                 continue
+            # The emitter (serving.write_qb_matchup_json) writes FLAT
+            # qb_<side>_<field> columns; accept the nested per-side block
+            # form too so older/alternate emitters still resolve.
             def _q(side: str, field: str):
                 block = g.get(side)
-                if not isinstance(block, dict):
-                    return None
-                return block.get(field)
+                if isinstance(block, dict):
+                    return block.get(field)
+                return g.get(f"{side}_{field}")
             out.append({
                 "game_id": str(g.get("game_id", "") or ""),
                 "gameday": str(g.get("gameday", "") or ""),
                 "home_team": str(g.get("home_team", "") or ""),
                 "away_team": str(g.get("away_team", "") or ""),
                 "qb_home_name": _q("qb_home", "name") or "",
-                "qb_home_rating": _q("qb_home", "passer_rating"),
+                "qb_home_rating": _q("qb_home", "rating"),
                 "qb_home_td_per_game": _q("qb_home", "td_per_game"),
                 "qb_home_cmp_pct": _q("qb_home", "cmp_pct"),
                 "qb_home_yards_per_attempt": _q("qb_home", "yards_per_attempt"),
                 "qb_home_ints": _q("qb_home", "ints"),
                 "qb_away_name": _q("qb_away", "name") or "",
-                "qb_away_rating": _q("qb_away", "passer_rating"),
+                "qb_away_rating": _q("qb_away", "rating"),
                 "qb_away_td_per_game": _q("qb_away", "td_per_game"),
                 "qb_away_cmp_pct": _q("qb_away", "cmp_pct"),
                 "qb_away_yards_per_attempt": _q("qb_away", "yards_per_attempt"),
@@ -1624,19 +1627,26 @@ def load_model_monitor(date_str: str,
     return json.loads(data)
 
 
-def load_shap(game_id: str, date_str: str) -> pd.DataFrame:
+def load_shap(game_id: str, date_str: str,
+              sport: str | None = None) -> pd.DataFrame:
+    """Per-game SHAP attributions (feature, shap_value, signed_effect,
+    perspective_team) — MLB ``shap_game_<game_id>.csv``; NFL emits the same
+    schema as ``nfl_shap_game_<game_id>.csv`` (game_id namespaces differ, so
+    the NFL prefix prevents cross-sport collisions)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    prefix = "shap_game" if s == "mlb" else "nfl_shap_game"
     cfg = get_source_config()
     # Try the requested date first; fall back to latest available snapshot.
     # SHAP files use a game_id that embeds the date (shap_game_20260821_STL@PHI.csv),
     # so we can't do a simple prefix lookup — try requested date then latest.
-    data, _ = _fetch_bytes(f"shap_game_{game_id}.csv", **cfg)
+    data, _ = _fetch_bytes(f"{prefix}_{game_id}.csv", **cfg, sport=s)
     if data is not None:
         return pd.read_csv(io.BytesIO(data))
     # Extract date from game_id (first 8 digits) and try latest
     dates = available_dates(**cfg)
     if dates and dates[0] != date_str:
         new_gid = game_id.replace(date_str, dates[0]) if date_str in game_id else game_id
-        data, _ = _fetch_bytes(f"shap_game_{new_gid}.csv", **cfg)
+        data, _ = _fetch_bytes(f"{prefix}_{new_gid}.csv", **cfg, sport=s)
         if data is not None:
             return pd.read_csv(io.BytesIO(data))
     return pd.DataFrame()

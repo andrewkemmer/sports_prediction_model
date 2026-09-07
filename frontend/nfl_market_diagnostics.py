@@ -597,12 +597,20 @@ def winner_cards(decided: pd.DataFrame) -> dict[str, Any]:
                 # > U) and the artifact carries NO p_under_fair — the
                 # under leg is 1 - over - push (push read from the integer
                 # grid's p_push_<U> column). 2-way no-push re-scale.
+                # Pre-grid artifacts ship p_over_fair as all-null: fall
+                # back to the SAME integer grid column (p_over_<U>) —
+                # fair_total IS the integer median, so p_over_<U> IS the
+                # fair-line over leg exactly, no approximation.
                 po = _fnum(r, "p_over_fair")
                 U = _fnum(r, "fair_total")
                 tot = _fnum(r, "total")
-                if not np.isfinite(po) or not np.isfinite(U):
+                if not np.isfinite(U) or not np.isfinite(tot):
                     continue
                 u_int = int(np.clip(round(U), TOTAL_GRID[0], TOTAL_GRID[-1]))
+                if not np.isfinite(po):
+                    po = _fnum(r, _col("p_over", u_int))
+                if not np.isfinite(po):
+                    continue
                 pp_col = _col("p_push", u_int)
                 pp = (_fnum(r, pp_col) if pp_col in r else float("nan"))
                 pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
@@ -685,14 +693,20 @@ def totals_monitor_stats(decided: pd.DataFrame, min_pct: float = 0.0,
         return out
     rows = []
     for _, r in decided.iterrows():
-        # Raw 3-way legs at the fair line (see winner_cards — the artifact
-        # has p_over_fair only; under = 1 - over - push from the grid).
+        # Raw 3-way legs at the fair line (see winner_cards): p_over_fair
+        # when the artifact ships it, else the SAME integer grid column
+        # p_over_<U> (fair_total IS the integer median — exact, not an
+        # approximation); under = 1 - over - push from the grid.
         po = _fnum(r, "p_over_fair")
         U = _fnum(r, "fair_total")
         tot = _fnum(r, "total")
-        if not np.isfinite(po) or not np.isfinite(U):
+        if not np.isfinite(U) or not np.isfinite(tot):
             continue
         u_int = int(np.clip(round(U), TOTAL_GRID[0], TOTAL_GRID[-1]))
+        if not np.isfinite(po):
+            po = _fnum(r, _col("p_over", u_int))
+        if not np.isfinite(po):
+            continue
         pp_col = _col("p_push", u_int)
         pp = (_fnum(r, pp_col) if pp_col in r else float("nan"))
         pu = 1.0 - po - (pp if np.isfinite(pp) else 0.0)
@@ -961,7 +975,7 @@ def runline_monitor_stats(decided: pd.DataFrame,
     2-way equals the derived ML); integer magnitudes keep the push-band
     semantics (margin == ±m pushes excluded)."""
     out = {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0,
-           "win_rate": None, "sides": {}}
+           "win_rate": None, "predicted_2way": None, "sides": {}}
     if not len(decided) or "margin" not in decided.columns \
             or "derived_ml" not in decided.columns:
         return out
@@ -970,6 +984,8 @@ def runline_monitor_stats(decided: pd.DataFrame,
     sides = {"home": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0},
              "away": {"n": 0, "n_wins": 0, "n_losses": 0, "n_pushes": 0}}
     n_wins = n_losses = n_pushes = 0
+    p2_sum = 0.0
+    n_scored = 0
     for _, r in decided.iterrows():
         hw = _fnum(r, "derived_ml")
         margin = _fnum(r, "margin")
@@ -1009,6 +1025,8 @@ def runline_monitor_stats(decided: pd.DataFrame,
             sides[side_name]["n_pushes"] += 1
             continue
         covered = (margin > m) if home_fav else (margin < -m)
+        p2_sum += p2
+        n_scored += 1
         won = (p2 > 0.5) == covered
         n_wins += won
         n_losses += (not won)
@@ -1017,7 +1035,14 @@ def runline_monitor_stats(decided: pd.DataFrame,
     n = n_wins + n_losses
     out.update({"n": n, "n_wins": int(n_wins), "n_losses": int(n_losses),
                 "n_pushes": int(n_pushes),
-                "win_rate": (round(n_wins / n, 4) if n else None)})
+                "win_rate": (round(n_wins / n, 4) if n else None),
+                # Pooled 2-way re-normalized cover probability over the
+                # scored (push-excluded) rows — the card's "Model
+                # predicted" metric, the same basis as W/(W+L) (MLB
+                # convention: never read a whole-line card as an
+                # under-prediction).
+                "predicted_2way": (round(p2_sum / n_scored, 4)
+                                  if n_scored else None)})
     for name, s in sides.items():
         sw = s["n_wins"]
         sl = s["n_losses"]

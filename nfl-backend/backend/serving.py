@@ -353,7 +353,12 @@ def write_qb_matchup_json(path, qb_df: pd.DataFrame,
     base = slate_df.reset_index(drop=True)
     games = []
     for i, row in base.iterrows():
-        rec = {"game_id": row["game_id"]}
+        rec = {
+            "game_id": row["game_id"],
+            "gameday": str(row.get("gameday", row.get("game_date", "")) or ""),
+            "home_team": str(row.get("home_team", "") or ""),
+            "away_team": str(row.get("away_team", "") or ""),
+        }
         for f in config.QB_FIELDS:
             rec[f] = _clean(qb_df.iloc[i][f]) if f in qb_df.columns else None
         games.append(rec)

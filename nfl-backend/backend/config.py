@@ -194,6 +194,10 @@ LIGHTGBM_REG_PARAMS = {
 # ---------------------------------------------------------------------------
 SPREAD_GRID = list(range(-14, 15))          # margin thresholds L: -14..+14
 TOTAL_GRID = list(range(24, 67))            # totals U: 24..66
+# Canonical lines the Run-Engine Model card scores per-line OOF metrics at
+# (the pooled-diagnostics tab's fixed totals + the NFL key-number spread).
+RUN_ENGINE_FIXED_TOTALS = (38, 42, 46, 50, 54)
+RUN_ENGINE_CANONICAL_SPREADS = (3,)
 # Half-stop lines the ±0.5 derived-ML stop prices from.
 HALF_STOP_LINES = [-0.5, 0.5]
 # Margin/total PMF support (integer points; discrete-normal base)
@@ -224,6 +228,7 @@ MARKETS_MONITOR_JSON = "nfl_run_engine_monitor_{date}.json"
 QB_MATCHUP_JSON = "nfl_qb_matchup_{date}.json"
 FEATURE_JSON = "nfl_feature_v1_{date}.json"
 MODEL_MONITOR_JSON = "nfl_model_monitor_{date}.json"
+SHAP_GAME_PREFIX = "nfl_shap_game"
 MODEL_BUNDLE = MODELS_DIR / "nfl_ensemble_latest.joblib"
 OOF_STORE_CSV = DATA_DELIVERY_DIR / "nfl_oof_store.csv"
 
