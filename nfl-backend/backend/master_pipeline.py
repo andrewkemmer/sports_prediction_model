@@ -1,832 +1,528 @@
-"""NFL master pipeline — the phase-driven Kaggle/Colab orchestration.
+"""NFL production master pipeline — the ONE authoritative entry point.
 
-Mirrors ``mlb-backend/backend/master_pipeline.py`` for the NFL backend:
+Sequence (spec section 31):
+  1. configuration         8. ensemble/calibration
+  2. eligible ingestion    9. evaluation/diagnostics
+  3. point-in-time features 10. final full-history fit
+  4. fold generation       11. current-slate serving
+  5. moneyline OOF         12. artifact persistence
+  6. run-line OOF          13. schema validation
+  7. totals OOF            14. monitoring
 
-  Phase 0  environment: pip install NFL deps, fresh clone into the ACTIVE
-           working dir (/kaggle/working on Kaggle, /content on Colab) and
-           chdir into ``nfl-backend``. A LOCAL checkout (no /kaggle or
-           /content dirs) skips the clone and runs against the current repo.
-  Phase 1  ingest: ``nfl_game_frame`` decided frame (2019-2025) → the
-           canonical CSV + dated snapshot.
-  Phase 2  features: ``nfl_features`` build + STATIC served-pool manifest
-           (the feature-admission gate was retired 2026-09-02 by the
-           NFL↔MLB parity pass) → ``nfl_feature_v1_<date>.json``.
-  Phase 3  moneyline: ``nfl_moneyline`` 5-member ensemble walk-forward +
-           sealed-2025 gate → ``nfl_moneyline_v1_<date>.json`` with the
-           per-game ``games[]`` slate — written ONLY when the sealed window
-           earns adoption; otherwise ``predictions: {status: blocked}``.
-  Phase 3b run-engine markets emission (MLB ``run_engine_daily`` mirror):
-           after the moneyline phase, the shared core
-           (``run_nfl_markets_backfill.run_daily_markets``) regenerates the
-           decided OOF store (pooled/sealed walk, pinned chain) + today's
-           slate rows into ``nfl_run_engine_markets_<date>.csv`` (+ meta /
-           monitor / serve record) so the Totals & Run Lines dashboard
-           stays current without manual backfills. Any gate/pin breach
-           RAISES — the run stops loudly, nothing partial is emitted.
-  Phase 4  GitHub sync: stage ONLY this run's ``nfl-backend/data_delivery``
-           files (never ``.pyc``, never other sport dirs) and push.
-  Phase 5  stale-artifact cleanup: runs strictly after a confirmed push (a
-           failed push can never empty the folder). The sweep may ONLY remove
-           stale UNTRACKED artifacts (protected names/prefixes, the
-           board-backed record rule and a 48h retention window honored).
-           Anything TRACKED (committed to git) is never deleted — it is the
-           permanent record; a would-be-stale committed file is reported with
-           a loud warning and skipped.
-
-CLI:
-    python master_pipeline.py                       # full Kaggle run (sync + cleanup)
-    python master_pipeline.py --no-push             # dry: phases 0-3 only, no git
-    python master_pipeline.py --no-push --features-csv /path/feats.csv
-                                                    # dry from a pre-computed frame
-    python master_pipeline.py --slate-season 2026   # override the slate target season
-    python master_pipeline.py --out-dir /tmp/out    # write records to a custom dir
+Zero dependency on obsolete NFL research/production modules. Market-free.
+Run:  python3 master_pipeline.py            (from nfl-backend/backend/)
+      python3 master_pipeline.py --skip-pull   (use cached nflverse pulls)
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
-import importlib.util
-import os
+import json
+import logging
 import shutil
-import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Environment / token
-# ---------------------------------------------------------------------------
-def _load_github_token() -> str:
-    """GitHub token from env or Kaggle Secrets, never crashing.
-
-    Order: GITHUB_TOKEN / MY_GITHUB_TOKEN env → Kaggle ``UserSecretsClient``
-    (guarded, so a subprocess/Colab run without Kaggle secrets doesn't crash).
-    Returns "" when unavailable; GitHub sync is then skipped.
-    """
-    env_tok = (os.environ.get("GITHUB_TOKEN") or os.environ.get("MY_GITHUB_TOKEN") or "").strip()
-    if env_tok:
-        print("  [token] GitHub token loaded from environment")
-        return env_tok
-    try:
-        from kaggle_secrets import UserSecretsClient
-        tok = UserSecretsClient().get_secret("MY_GITHUB_TOKEN").strip()
-        print("  [token] GitHub token loaded from Kaggle Secrets")
-        return tok
-    except Exception:
-        print("  [token] No GitHub token (set Kaggle secret 'MY_GITHUB_TOKEN' "
-              "or env GITHUB_TOKEN) -> GitHub sync will be skipped")
-        return ""
-
-
-TOKEN = _load_github_token()
-
-CONFIG = {
-    "github_username": "andrewkemmer",
-    "github_repo":     "sports_prediction_model",
-    "github_branch":   "main",
-    "github_token":    TOKEN,
-    "git_email":       "andrew.kemmer@gmail.com",
-    "git_name":        "andrewkemmer",
-}
-
-# The repo-relative directory holding this sport's backend + data_delivery
-# (mirrored in backend/config.py and frontend/sports_config.py).
-SPORT_DIR_NAME = "nfl-backend"
-
-# Default open-ended season bounds, used ONLY to fall back when the user
-# supplies exactly one of --start-season / --end-season (see parse_args).
-_DEFAULT_FIRST_SEASON = 2019
-_DEFAULT_LAST_SEASON = 2025
-
-
-def _window_label(seasons: list[int] | None) -> str:
-    """Human label for the data/feature season window in banners; the
-    default full range is printed as the conventional 2019-2025 span."""
-    if seasons:
-        return f"({seasons[0]}-{seasons[-1]})"
-    return "(2019-2025)"
-
-
-def _active_work_dir() -> Path:
-    """The pipeline's working dir: Kaggle → /kaggle/working, Colab → /content,
-    otherwise the current checkout (local dry path)."""
-    for cand in ("/kaggle/working", "/content"):
-        p = Path(cand)
-        if p.exists():
-            return p
-    return Path.cwd()
-
-
-WORK_DIR = _active_work_dir()
-IS_LOCAL = WORK_DIR == Path.cwd() and not Path("/kaggle/working").exists() \
-    and not Path("/content").exists()
-REPO_DIR = (WORK_DIR / CONFIG["github_repo"] if not IS_LOCAL else
-            Path(__file__).resolve().parents[2])
-NFL_DIR = REPO_DIR / SPORT_DIR_NAME
-
-
-def _banner(phase, msg=""):
-    print(f"\n{'=' * 70}\n  {phase} - {msg}\n{'=' * 70}\n")
-
-
-def _run(cmd, check=True, cwd=None):
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
-    if check and r.returncode != 0:
-        print(f"  [warn] {cmd}\n      {r.stderr[:300]}")
-    return r
-
-
-def _try_load_schedule(slate_season: int):
-    """Load the schedule + pbp (nflreadpy) for the moneyline phase's slate
-    stage, then append the target-season's scheduled games from ESPN (nflreadpy
-    caps its feed at the latest nflverse season it knows, so 2026 pre-game rows
-    come from ESPN). Returns (schedule, pbp) or (None, None) when nflreadpy is
-    missing (the --features-csv local dry path) — the slate stage then reports
-    'blocked (no schedule loaded)' instead of erroring."""
-    try:
-        from nfl_features import DEFAULT_SEASONS, _load_raw
-        ss = slate_season or datetime.now().year
-        seasons = list(DEFAULT_SEASONS)
-        print(f"  [slate] loading nflreadpy schedule+pbp for {seasons}")
-        sched, pbp = _load_raw(seasons)
-    except ImportError:
-        print("  [slate] nflreadpy not installed - slate skipped (dry path)")
-        return None, None
-    except Exception as e:  # noqa: BLE001
-        print(f"  [slate] schedule load failed (slate skipped): {e}")
-        return None, None
-
-    # The target-season (e.g. 2026) scheduled rows are read live from the
-    # native nflverse ``games.csv`` release (GitHub, reachable from Kaggle).
-    # nflreadpy can't serve 2026 (its installed validator caps at 2025), so we
-    # fetch the same underlying artifact directly. Scheduled rows carry NaN
-    # scores, so build_slate_features treats them as the pre-game slate.
-    try:
-        import pandas as pd
-        from nfl_nflverse_schedule import load_nflverse_games
-        rows = load_nflverse_games(ss)
-        if not rows.empty:
-            sched = pd.concat([sched, rows], ignore_index=True, sort=False)
-            print(f"  [slate] nflverse games.csv: {len(rows)} scheduled {ss} games appended")
-        else:
-            print(f"  [slate] nflverse has no scheduled {ss} games yet")
-    except Exception as e:  # noqa: BLE001
-        print(f"  [slate] nflverse {ss} games.csv load failed: {e}")
-    return sched, pbp
-
-
-# ---------------------------------------------------------------------------
-# Phase 0 — environment
-# ---------------------------------------------------------------------------
-def phase0(args) -> None:
-    _banner("PHASE 0", "Environment Setup")
-    if IS_LOCAL:
-        print(f"  Local checkout detected: {REPO_DIR} (no clone)")
-    else:
-        print(f"  pip install NFL dependencies...")
-        _run('pip install -q nflreadpy scikit-learn lightgbm xgboost '
-             'pandas polars numpy joblib gitpython requests', check=False)
-        repo_dir = REPO_DIR
-        # CRITICAL: never rmtree the checkout we are currently running FROM.
-        # The Kaggle notebook clones the repo then launches this script with
-        # cwd inside the clone. Deleting that directory deletes the process's
-        # own working dir: git clone then fails with "getcwd() failed" and the
-        # subsequent os.chdir(NFL_DIR) dies. If cwd already resolves inside
-        # REPO_DIR, reuse the existing checkout instead of re-cloning.
-        cwd = Path.cwd().resolve()
-        inside_checkout = False
-        try:
-            cwd.relative_to(repo_dir.resolve())
-            inside_checkout = True
-        except ValueError:
-            inside_checkout = False
-        if repo_dir.exists() and inside_checkout:
-            print(f"  Already running inside repo checkout: {repo_dir} (no re-clone)")
-        else:
-            if repo_dir.exists():
-                print("  Removing old clone...")
-                shutil.rmtree(repo_dir, ignore_errors=True)
-            print(f"  Cloning {CONFIG['github_repo']}...")
-            _run(f"git clone -q https://github.com/{CONFIG['github_username']}/"
-                 f"{CONFIG['github_repo']}.git {repo_dir}")
-
-    backend_dir = NFL_DIR / "backend"
-    sys.path.insert(0, str(backend_dir))
-    os.chdir(str(NFL_DIR))
-    print(f"  cwd -> {os.getcwd()}")
-
-    # Drop cached sport modules so a fresh clone's code is used.
-    for mod in list(sys.modules.keys()):
-        if any(x in mod for x in ("nfl_game_frame", "nfl_features", "nfl_moneyline")):
-            del sys.modules[mod]
-
-
-# ---------------------------------------------------------------------------
-# Phase 1 — ingest
-# ---------------------------------------------------------------------------
-def phase1(args) -> None:
-    seasons = args.window
-    _banner("PHASE 1", f"NFL decided game frame {_window_label(seasons)}")
-    if args.features_csv is not None:
-        print("  --features-csv set: skipping ingest (using pre-computed frame)")
-        return
-    from nfl_game_frame import pull_and_build
-    summary = pull_and_build(seasons)
-    # Market-independence policy: betting-line coverage was removed with the
-    # market columns (49b1297), so the summary no longer emits
-    # ``line_coverage_pct``. Report only the market-free counts + frame sha.
-    print(f"  [ok] decided games: {summary['games']}, sha256 {summary['sha256']}")
-
-
-# ---------------------------------------------------------------------------
-# Phase 2 — features
-# ---------------------------------------------------------------------------
-def phase2(args) -> None:
-    _banner("PHASE 2", "Served-pool manifest (12-pool; admission gate retired)")
-    if args.features_csv is not None:
-        print("  --features-csv set: skipping feature build")
-        return
-    from nfl_features import pull_and_build
-    pull_and_build(seasons=args.window)
-
-
-# ---------------------------------------------------------------------------
-# Phase 3 — moneyline ensemble + gated slate
-# ---------------------------------------------------------------------------
-def phase3(args) -> None:
-    _banner("PHASE 3", "Moneyline 5-member ensemble + sealed gate + gated slate")
-    from nfl_moneyline import pull_and_run
-
-    out_dir = Path(args.out_dir) if args.out_dir else None
-    schedule = pbp = None
-    if args.features_csv is None:
-        schedule, pbp = _try_load_schedule(args.slate_season)
-    elif not IS_LOCAL:
-        # non-local but features_csv given: still try the slate
-        schedule, pbp = _try_load_schedule(args.slate_season)
-
-    pull_and_run(out_dir=out_dir,
-                 features_csv=args.features_csv,
-                 schedule=schedule,
-                 pbp=pbp,
-                 slate_season=args.slate_season,
-                 seasons=args.window)
-
-    # Phase 3b — run-engine markets emission (the daily Totals & Run Lines
-    # store). MLB mirror: the moneyline/training phase ends with
-    # run_engine_daily emitting the dated markets artifact (decided rows
-    # WITH actuals + today's slate rows in one dated file) that the
-    # dashboard reads as the newest dated store. The shared core raises on
-    # any pin/gate breach — the run stops loudly (sync/cleanup never run),
-    # never a silent or partial emit.
-    _phase3b(args)
-
-
-# ---------------------------------------------------------------------------
-# Phase 3b — run-engine markets emission (daily Totals & Run Lines store)
-# ---------------------------------------------------------------------------
-def _phase3b(args) -> None:
-    """Run-engine markets emission — the daily dated store, MLB mirror.
-
-    Mirrors MLB's ``run_engine_daily`` call at the end of its
-    moneyline/training phase (pipeline.py: the markets artifact regenerates
-    every run, decided rows WITH actuals + today's slate rows in one dated
-    file, and the frontend reads the newest one). Calls the SAME shared
-    core the standalone backfill CLI calls
-    (``run_nfl_markets_backfill.run_daily_markets``) — one schema, no fork.
-
-    Failure policy (judgment call 2 of the wiring spec): the core RAISES on
-    any frame-sha / record-pin / gate breach after printing the FATAL
-    reason, and this phase lets the exception propagate — the run stops
-    loudly, sync/cleanup never run, nothing partial is emitted, and the
-    last good committed dated store stays the served store until the
-    degradation is resolved. A dry path without nflreadpy (no board/slate
-    possible) is the one graceful skip, mirroring Phase 3's slate stage.
-    """
-    _banner("PHASE 3b",
-            "Run-engine markets emission (decided OOF store + today's slate)")
-    if importlib.util.find_spec("nflreadpy") is None:
-        print("  [phase 3b] nflreadpy not installed - run-engine emission "
-              "skipped (dry path, mirror of the slate stage)")
-        return
-    from run_nfl_markets_backfill import run_daily_markets
-    out_dir = Path(args.out_dir) if getattr(args, "out_dir", None) else None
-    res = run_daily_markets(out_dir=out_dir)
-    print(f"  [ok] emitted {res['date_str']}: {res['n_slate']} slate + "
-          f"{res['n_oof']} decided rows")
-    for w in res["written"]:
-        print(f"    {w}")
-
-
-# ---------------------------------------------------------------------------
-# Phase 4 — GitHub sync (stage ONLY this run's nfl-backend/data_delivery)
-# ---------------------------------------------------------------------------
-def _git_push_confirmed(repo, branch: str) -> None:
-    import git
-    info = repo.remote("origin").push(branch)
-    bad = [p for p in info if p.flags & (p.ERROR | p.REJECTED | p.REMOTE_REJECTED | p.REMOTE_FAILURE)]
-    if bad:
-        raise RuntimeError(f"Push rejected by remote: {[p.summary for p in bad]}")
-
-
-def _open_sync_repo(token: str, sync_dir: Path):
-    import git
-    auth_url = (f"https://{token}@github.com/{CONFIG['github_username']}/"
-                f"{CONFIG['github_repo']}.git")
-    if (sync_dir / ".git").exists():
-        repo = git.Repo(str(sync_dir))
-    else:
-        repo = git.Repo.clone_from(auth_url, str(sync_dir),
-                                   branch=CONFIG["github_branch"], depth=1)
-    if CONFIG["git_email"]:
-        repo.config_writer().set_value("user", "email", CONFIG["git_email"]).release()
-    if CONFIG["git_name"]:
-        repo.config_writer().set_value("user", "name", CONFIG["git_name"]).release()
-    return repo
-
-
-def _file_sha256(path: Path) -> str:
-    """Content sha256 of a small artifact (data_delivery files are tiny CSVs/
-    JSONs). Used instead of mtime to decide stale-vs-changed, because a fresh
-    ``git clone`` stamps every checked-out file with the clone time (~now),
-    which is LATER than this run's writes — so mtime baselines silently drop
-    re-generated artifacts on same-date re-runs."""
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _snapshot_delivery(delivery_dir: Path) -> dict[str, str]:
-    """Map repo-relative data_delivery path -> committed content sha256, for the
-    sync clone's pre-existing files. Absent from the map = new to the repo."""
-    snap: dict[str, str] = {}
-    if delivery_dir.exists():
-        for p in delivery_dir.rglob("*"):
-            if p.is_file():
-                snap[p.relative_to(delivery_dir).as_posix()] = _file_sha256(p)
-    return snap
-
-
-def _latest_dated_artifacts(tree_lines: list[str], prefix: str,
-                            n: int = 3) -> list[str]:
-    """The newest ``n`` dated artifacts from a git tree listing, ascending.
-
-    Filters to ``prefix`` lines with a real YYYYMMDD in the name (via
-    _artifact_date); undated or wrong-prefix lines are ignored. Returns []
-    when nothing dated matches."""
-    dated = sorted(ln for ln in tree_lines
-                   if ln.startswith(prefix) and _artifact_date(ln) is not None)
-    return dated[-n:] if dated else []
-
-
-def _post_push_summary(repo, prefix: str) -> dict:
-    """HEAD + newest dated artifacts read from the PUSHED clone — the state
-    the remote actually has after Phase 4's confirmed push.
-
-    Never read from the working checkout: the pipeline commits/pushes in a
-    /tmp sync clone, so the checkout's HEAD and origin/main ref stay at the
-    PRE-push commit and report a stale summary (2026-09-01 regression:
-    "Repo HEAD after run: 81aea53" while origin had already advanced)."""
-    head = repo.head.commit
-    return {
-        "head": f"{head.hexsha[:7]} {head.summary.strip()}",
-        "latest_dated": _latest_dated_artifacts(
-            repo.git.ls_tree("-r", "--name-only", "HEAD").splitlines(),
-            prefix),
-    }
-
-
-def phase4(args) -> None:
-    _banner("PHASE 4", "GitHub sync - push this run's new artifacts")
-    if args.no_push:
-        print("  --no-push: skipping sync")
-        return
-    token = TOKEN or CONFIG.get("github_token", "")
-    if not token:
-        print("  [skip] No token - skipping push and cleanup")
-        return
-
-    import shutil
-    sync_dir = Path("/tmp") / "nfl_sync_tmp" if not IS_LOCAL \
-        else Path(os.environ.get("TMPDIR", "/tmp")) / "nfl_sync_tmp"
-    staged: list[str] = []
-    seen: set[str] = set()
-    try:
-        repo = _open_sync_repo(token, sync_dir)
-        delivery_dir = sync_dir / SPORT_DIR_NAME / "data_delivery"
-        delivery_dir.mkdir(parents=True, exist_ok=True)
-        local_delivery = Path.cwd() / "data_delivery"
-
-        # Snapshot the sync clone's committed files by CONTENT hash. A fresh
-        # clone stamps every file with the clone time (~now) which is later than
-        # this run's writes, so an mtime comparison would silently skip every
-        # re-generated artifact on a same-date re-run. Content comparison stages
-        # a file when it differs from the committed copy (or is new to the repo).
-        committed = _snapshot_delivery(delivery_dir)
-
-        def _stage(src: Path, rel: str) -> None:
-            if rel in seen:
-                return
-            seen.add(rel)
-            dest = delivery_dir / rel[len(f"{SPORT_DIR_NAME}/data_delivery/"):]
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            staged.append(rel)
-
-        for artifact in sorted(local_delivery.rglob("*")) if local_delivery.exists() else []:
-            if not artifact.is_file():
-                continue
-            rel_local = artifact.relative_to(local_delivery).as_posix()
-            if artifact.suffix == ".pyc":
-                continue  # never stage bytecode
-            committed_sha = committed.get(rel_local)
-            if committed_sha is not None and _file_sha256(artifact) == committed_sha:
-                continue  # byte-identical to the committed copy -> stale/unchanged
-            _stage(artifact, f"{SPORT_DIR_NAME}/data_delivery/{rel_local}")
-
-        print(f"  [stage] {len(staged)} files:")
-        for s in staged:
-            print(f"    {s}")
-        if staged:
-            # force=True == ``git add -f``: the dated markets CSV is
-            # gitignored (nfl-backend/.gitignore: data_delivery/*.csv), and a
-            # BRAND-NEW dated .csv (never committed before its first push)
-            # would otherwise be silently skipped. Tracked files are
-            # unaffected (gitignore never applies to them).
-            repo.index.add(staged, force=True)
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            repo.index.commit(f"Update NFL features + predictions: {ts}")
-            _git_push_confirmed(repo, CONFIG["github_branch"])
-            print(f"  [ok] Pushed {len(staged)} files - confirmed on "
-                  f"{CONFIG['github_repo']}@{CONFIG['github_branch']}")
-            # Post-push summary from the PUSHED clone (its HEAD is what the
-            # remote now has) — NOT from the stale working checkout's
-            # origin/main ref (2026-09-01 regression).
-            summ = _post_push_summary(repo, f"{SPORT_DIR_NAME}/data_delivery/")
-            print(f"  [summary] Repo HEAD after push: {summ['head']}")
-            if summ["latest_dated"]:
-                print("  [summary] Latest dated artifacts (post-push): "
-                      f"{summ['latest_dated']}")
-        else:
-            print("  [skip] Nothing new to push")
-        # stash the sync clone state for phase 5 cleanup
-        phase4._delivery_dir = delivery_dir  # type: ignore[attr-defined]
-        phase4._staged = set(seen)  # type: ignore[attr-defined]
-        phase4._sync_dir = sync_dir  # type: ignore[attr-defined]
-    except Exception as e:  # noqa: BLE001
-        print(f"  [error] {e}")
-
-
-# ---------------------------------------------------------------------------
-# Phase 5 — stale artifact cleanup (strictly after a confirmed push)
-# ---------------------------------------------------------------------------
-# BOARD-BACKED RETENTION (MLB regression lesson): an artifact a navigable
-# game-date depends on must never be pruned while that date still renders a
-# board. MLB kept todays_games_*/shap_game_* for 3 days but run-engine markets
-# only 2, so a still-shown board lost its RUN ENGINE data. NFL run-engine
-# families are handled by PREFIX-PROTECTION instead (below — accumulating
-# dated history, MLB's run_engine_monitor_ rule); the board-backed rule
-# translates to the moneyline record family: a dated
-# nfl_moneyline_v1_<d>.json / nfl_feature_v1_<d>.json is kept while <d> is
-# still a board date — <d> appears as a distinct game_date in the moneyline
-# record(s)' games[]. Mirror the board-backed mechanism (no fixed count).
-
-# Exact-name protection for persistent / dateless assets the date-gate can
-# never save. The CANONICAL decided frame is the dateless name everything
-# hangs off (the same reason MLB protects model_history.json /
-# statsapi_roof_cache.json) — never delete it.
-_PROTECTED_DELIVERY_NAMES = {
-    "nfl_game_level_features.csv",   # canonical decided frame (regenerated +
-                                     # staged every run; a dateless name the
-                                     # date-gate can never save)
-}
-_PROTECTED_DELIVERY_PREFIXES = (
-    "models/",          # deployed ensemble bundles
-    # Run-engine + research-record families (daily emission wiring,
-    # 2026-09-04): the dated markets store + its monitor + the slate-serve
-    # record and the PINNED research records (era/market/adoption) a daily
-    # run depends on are NEVER swept — not even as stale-untracked copies
-    # (the tracked-file guard already protects committed copies; prefix-
-    # protection extends the same guarantee to untracked ones, so a sweep
-    # can never remove the last good dated store or a research record).
-    # History accumulates — growth is expected and matches MLB.
-    "nfl_run_engine_markets_", "nfl_run_engine_monitor_",
-    "nfl_slate_serve_", "nfl_era_", "nfl_market_",
-    "nfl_adoption_decision_",
-    # Decision/diagnostic records (cb4036f, 2026-09-05): the drift/coverage
-    # v2 + fit-panel parity records are DATELESS (sha-named) — the date-gate
-    # can never save them, so like the other nfl_* record families they get
-    # targeted prefix protection (never a broad nfl_ prefix — the dated
-    # moneyline/feature families legitimately ride the date-gate).
-    "nfl_run_engine_diagnostics_", "nfl_markets_fit_panel_parity_",
-    # Run-engine drift/coverage families (diagnostics emitters, 2026-09-04)
-    "run_engine_feature_drift_", "run_engine_feature_coverage_",
-    # Binary moneyline calibration decision record (2026-09-05): dateless
-    # sha-named — targeted prefix protection like its nfl_* siblings.
-    "nfl_binary_calibration_",
-    # QB-strata / QB-feature decision records (2026-09-05): dateless
-    # sha-named records from the QB/availability feature program.
-    "nfl_qb_",
-    # PBP player-cohort feature diagnostic records (2026-09-05): dateless
-    # sha-named records from the cohort-structure feature program. Prefix
-    # without the trailing underscore: the record is plural
-    # (nfl_pbp_cohorts_3e8c8a510f04.json) and the family stays narrow.
-    "nfl_pbp_cohort",
-    # Wide-pool validation rearchitecture record (2026-09-05): dateless
-    # sha-named; re-baselines BOTH engines on the RS-only 2018-2025 pool
-    # (week-ID folds, 300-game identity seed, no sealed gate). Production
-    # serving path UNTOUCHED — validation harness only. Targeted prefix
-    # (never a broad nfl_).
-    "nfl_wide_pool_",
-)
-
-# Dated record families whose survival is BOARD-BACKED: kept while their
-# filename date still renders a board (see classify_stale). The moneyline /
-# feature records AND the MLB-equivalent calibration + per-game history
-# artifacts (Part-A siblings) are treated identically — a board date never
-# loses the calibration/metrics/curve that renders it. Everything else dated
-# (monitor/calibration-like files) stays on the plain retention window.
-_BOARD_BACKED_RECORD_PREFIXES = (
-    "nfl_moneyline_v1_", "nfl_feature_v1_", "nfl_calibration_",
-    "nfl_predictions_history_",
-)
-
-
-# ---------------------------------------------------------------------------
-# Pure cleanup predicates (unit-tested — see test_master_pipeline.py)
-# ---------------------------------------------------------------------------
-def _artifact_date(rel: str) -> str | None:
-    """Extract the YYYYMMDD date from an artifact path (e.g.
-    ``nfl_moneyline_v1_20260830.json`` → 20260830), or None when dateless."""
-    import re
-    m = re.search(r"_(\d{8})", rel)
-    return m.group(1) if m else None
-
-
-def _is_protected_name(rel: str) -> bool:
-    """True when ``rel`` is a persistent asset cleanup must never touch:
-    an exact protected name (canonical decided frame) or a protected prefix
-    (deployed models/)."""
-    _DD = "data_delivery/"
-    idx = rel.find(_DD)
-    local = rel[idx + len(_DD):] if idx >= 0 else rel
-    basename = local.rsplit("/", 1)[-1]
-    return (basename in _PROTECTED_DELIVERY_NAMES
-            or any(local.startswith(pfx) for pfx in _PROTECTED_DELIVERY_PREFIXES))
-
-
-def board_dates_from_records(delivery_dir: Path) -> set[str]:
-    """S = the board-date set: distinct game_date (YYYYMMDD) across EVERY
-    moneyline record's games[].
-
-    A date that has a board must never lose the moneyline_v1/feature_v1
-    record that renders it, so S is the UNION over all records (not just the
-    newest — after a blocked run the newest record has no games[] and would
-    otherwise drop protection for every still-live board). Records without
-    games[] (blocked) contribute nothing.
-    """
-    import json
-    board: set[str] = set()
-    if not delivery_dir.exists():
-        return board
-    for rec in sorted(delivery_dir.glob("nfl_moneyline_v1_*.json")):
-        try:
-            data = json.loads(rec.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 — a corrupt record never crashes cleanup
-            continue
-        for g in data.get("games") or []:
-            gd = str(g.get("game_date") or "").replace("-", "")[:8]
-            if len(gd) == 8 and gd.isdigit():
-                board.add(gd)
-    return board
-
-
-def _board_backed_keep(rel: str, board_dates: set[str]) -> bool:
-    """True when ``rel`` is a dated moneyline/feature record whose filename
-    date still renders a board (a distinct game_date in the moneyline
-    games[]). A board date must never lose the record that renders it."""
-    art_date = _artifact_date(rel)
-    if art_date is None or art_date not in board_dates:
-        return False
-    basename = rel.rsplit("/", 1)[-1]
-    return any(basename.startswith(p) for p in _BOARD_BACKED_RECORD_PREFIXES)
-
-
-def classify_stale(rel: str, staged: set[str], board_dates: set[str],
-                   retention_dates: set[str]) -> str:
-    """One artifact's cleanup verdict: staged | protected | keep | stale.
-
-    Order (mirrors MLB Phase 6, board-backed):
-      1. staged   — this run regenerated it; always wins.
-      2. protected— exact-name / prefix-protected (canonical frame, models/).
-      3. keep     — board-backed: a moneyline/feature record whose filename
-                    date still renders a board (in ``board_dates``) survives
-                    regardless of the retention window.
-      4. keep     — within the plain retention window (today + prior day).
-      5. stale    — everything else, INCLUDING records for dates with no
-                    board (the reverse direction is explicitly allowed).
-    """
-    if rel in staged:
-        return "staged"
-    if _is_protected_name(rel):
-        return "protected"
-    if _board_backed_keep(rel, board_dates):
-        return "keep"  # board-backed: a board date never loses its record
-    art_date = _artifact_date(rel)
-    if art_date is None:
-        return "stale"  # dateless non-protected -> the date-gate can never save it
-    if art_date in retention_dates:
-        return "keep"
-    return "stale"
-
-
-def _prune_stale(delivery_dir: Path, staged: set[str], board_dates: set[str],
-                 retention: set[str], tracked: set[str],
-                 sport_prefix: str = SPORT_DIR_NAME) -> dict:
-    """Stale-artifact sweep with the committed-file guarantee.
-
-    NEVER deletes a file listed in ``tracked`` (committed to git): those are
-    the permanent record. A tracked file whose classification would be
-    ``stale`` lands in ``stale_tracked`` (the caller must print the LOUD
-    warning) and is skipped; tracked protected/keep files are counted as
-    kept, unchanged. ONLY stale UNTRACKED files are unlinked (plain removal —
-    nothing to commit/push, since git never saw them).
-
-    Returns ``{"deleted": [...], "stale_tracked": [...], "kept_protected": n,
-    "kept_board": n, "kept_retention": n}`` — repo-relative paths for
-    ``deleted`` / ``stale_tracked`` (the deleted list is the record of what
-    actually got cleaned). Also honors the existing protections: staged files
-    never lose, and every non-stale verdict is kept."""
-    deleted: list[str] = []
-    stale_tracked: list[str] = []
-    kept_protected = kept_board = kept_retention = 0
-    if not delivery_dir.exists():
-        return {"deleted": deleted, "stale_tracked": stale_tracked,
-                "kept_protected": 0, "kept_board": 0, "kept_retention": 0}
-    for p in sorted(delivery_dir.rglob("*")):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(delivery_dir).as_posix()
-        full = f"{sport_prefix}/data_delivery/{rel}"
-        if full in staged:
-            continue  # this run staged it -> never stale
-        verdict = classify_stale(full, staged, board_dates, retention)
-        if full in tracked:
-            # Committed file: NEVER deleted, whatever the verdict.
-            if verdict == "stale":
-                stale_tracked.append(full)
-            elif verdict == "protected":
-                kept_protected += 1
-            elif verdict == "keep":
-                if _board_backed_keep(full, board_dates):
-                    kept_board += 1
-                else:
-                    kept_retention += 1
-            continue
-        if verdict == "stale":
-            p.unlink()
-            deleted.append(full)
-        elif verdict == "protected":
-            kept_protected += 1
-        elif verdict == "keep":
-            if _board_backed_keep(full, board_dates):
-                kept_board += 1
-            else:
-                kept_retention += 1
-    return {"deleted": deleted, "stale_tracked": stale_tracked,
-            "kept_protected": kept_protected, "kept_board": kept_board,
-            "kept_retention": kept_retention}
-
-
-def phase5(args) -> None:
-    _banner("PHASE 5", "Stale artifact cleanup (final step)")
-    if args.no_push:
-        print("  --no-push: skipping cleanup")
-        return
-    token = TOKEN or CONFIG.get("github_token", "")
-    sync_dir = getattr(phase4, "_sync_dir", None)
-    delivery_dir = getattr(phase4, "_delivery_dir", None)
-    staged = getattr(phase4, "_staged", set())
-    if not token or sync_dir is None:
-        print("  [skip] no token or nothing pushed - skipping cleanup")
-        return
-
-    from datetime import date, timedelta
-    import git
-
-    retention = {(date.today() - timedelta(days=i)).strftime("%Y%m%d")
-                 for i in range(2)}  # today + previous GMT day
-
-    try:
-        repo = git.Repo(str(sync_dir))
-        # Board dates from the SYNC CLONE's moneyline records (the pushed
-        # state — this run's just-pushed record included).
-        board_dates = board_dates_from_records(delivery_dir)
-        # COMMITTED-FILE GUARD (2026-09-01 regression): the sweep once gc'd
-        # COMMITTED evidence records via git rm + push (the win_pct_diff KEEP
-        # verdict, 88d6c8f). ``tracked`` = every committed data_delivery
-        # path; _prune_stale skips (loud warning) anything in it and deletes
-        # only stale UNTRACKED files — no git rm, no deletion commits.
-        tracked = set(repo.git.ls_files(
-            f"{SPORT_DIR_NAME}/data_delivery").splitlines())
-        out = _prune_stale(delivery_dir, set(staged), board_dates, retention,
-                           tracked)
-        if out["stale_tracked"]:
-            print(f"  [WARN] {len(out['stale_tracked'])} would-be-stale file(s) "
-                  "are TRACKED (committed) — kept, NEVER deleted:")
-            for s in out["stale_tracked"]:
-                print(f"    {s}")
-        if out["kept_protected"]:
-            print(f"  [protected] kept {out['kept_protected']} protected file(s)")
-        if out["kept_board"]:
-            print(f"  [board] kept {out['kept_board']} record(s) for "
-                  "still-live board dates")
-        if out["kept_retention"]:
-            print(f"  [retention] kept {out['kept_retention']} same-day "
-                  "artifact(s)")
-        if not out["deleted"]:
-            print("  [ok] No stale untracked files - committed artifacts are "
-                  "never auto-deleted")
-        else:
-            print(f"  [clean] removed {len(out['deleted'])} stale UNTRACKED "
-                  "file(s) (not in git - no push needed):")
-            for s in out["deleted"]:
-                print(f"    {s}")
-    except Exception as e:  # noqa: BLE001
-        print(f"  [error] Cleanup failed: {e}")
-
-    shutil.rmtree(sync_dir, ignore_errors=True)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(
-        description="NFL master pipeline: ingest -> features -> moneyline "
-                    "ensemble + gated slate -> GitHub sync + cleanup.")
-    ap.add_argument("--no-push", action="store_true",
-                    help="dry run: phases 0-3 only, never touch git")
-    env_slate = os.environ.get("NFL_SLATE_SEASON", "").strip()
-    ap.add_argument("--features-csv", type=Path, default=None,
-                    help="pre-computed features CSV (skips ingest/features; "
-                         "the moneyline dry path)")
-    env_start = os.environ.get("NFL_START_SEASON", "").strip()
-    env_end = os.environ.get("NFL_END_SEASON", "").strip()
-    ap.add_argument("--start-season", type=int,
-                    default=(int(env_start) if env_start.isdigit() else None),
-                    help="first season in the data/feature window (default: "
-                         "each module's full range, e.g. 2019); env "
-                         "NFL_START_SEASON also works")
-    ap.add_argument("--end-season", type=int,
-                    default=(int(env_end) if env_end.isdigit() else None),
-                    help="last season in the data/feature window (default: "
-                         "each module's full range, e.g. 2025); env "
-                         "NFL_END_SEASON also works")
-    ap.add_argument("--slate-season", type=int,
-                    default=(int(env_slate) if env_slate.isdigit() else None),
-                    help="override the slate target season (default: the "
-                         "current calendar year, e.g. 2026 week 1; env "
-                         "NFL_SLATE_SEASON also works)")
-    ap.add_argument("--out-dir", type=str, default=None,
-                    help="write records to a custom dir (default: "
-                         "nfl-backend/data_delivery)")
-    ns = ap.parse_args(argv if argv is not None else sys.argv[1:])
-    # Resolve the requested data/feature window to a contiguous season list.
-    # None for both = each module keeps its own full range (default behavior).
-    if ns.start_season is not None or ns.end_season is not None:
-        start = ns.start_season if ns.start_season is not None else _DEFAULT_FIRST_SEASON
-        end = ns.end_season if ns.end_season is not None else _DEFAULT_LAST_SEASON
-        if end < start:
-            raise ValueError(f"--end-season {end} < --start-season {start}")
-        ns.window = list(range(start, end + 1))
-    else:
-        ns.window = None
-    return ns
+import numpy as np
+import pandas as pd
+
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+import config  # noqa: E402
+import ingestion  # noqa: E402
+import features as feat_mod  # noqa: E402
+import folds as folds_mod  # noqa: E402
+import moneyline as ml_mod  # noqa: E402
+import distributions as dist_mod  # noqa: E402
+import evaluation as eval_mod  # noqa: E402
+import serving as serve_mod  # noqa: E402
+import qb_enrichment  # noqa: E402
+import monitoring  # noqa: E402
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("nfl_master_pipeline")
+
+
+def _banner(phase: str, msg: str = "") -> None:
+    print(f"\n{'━' * 70}\n  {phase} — {msg}\n{'━' * 70}\n", flush=True)
+
+
+def _now_utc() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    # Resolve paths BEFORE phase 0 chdirs into nfl-backend.
-    if args.features_csv is not None:
-        args.features_csv = Path(args.features_csv).resolve()
-    if args.out_dir is not None:
-        args.out_dir = str(Path(args.out_dir).resolve())
-    phase0(args)
-    phase1(args)
-    phase2(args)
-    phase3(args)
-    if not args.no_push:
-        phase4(args)
-        phase5(args)
-    _banner("DONE")
-    print(f"  cwd: {os.getcwd()} | no_push: {args.no_push} | "
-          f"features_csv: {args.features_csv}")
+    ap = argparse.ArgumentParser(description="NFL production master pipeline")
+    ap.add_argument("--skip-pull", action="store_true",
+                    help="use cached nflverse pulls (no network)")
+    ap.add_argument("--out-dir", default=None,
+                    help="override artifact output directory")
+    args = ap.parse_args(argv)
+
+    t0 = time.time()
+    out_dir = Path(args.out_dir) if args.out_dir else config.DATA_DELIVERY_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_c = run_date.replace("-", "")
+    config_meta = {
+        "feature_set_version": config.FEATURE_SET_VERSION,
+        "warmup_seasons": config.WARMUP_SEASONS,
+        "oof_first_season": config.OOF_FIRST_SEASON,
+        "retrain_cadence_days": config.RETRAIN_CADENCE_DAYS,
+        "ensemble_members": config.ENSEMBLE_MEMBERS,
+        "random_seed": config.RANDOM_SEED,
+        "market_independence": True,
+    }
+
+    # ── 2. Eligible game ingestion ────────────────────────────────────────
+    _banner("PHASE 2", "nflverse ingestion")
+    schedule = ingestion.load_schedule(use_cache=not args.skip_pull and False)
+    schedule = ingestion.eligible_games(schedule)
+    logger.info("schedule rows (eligible seasons): %d", len(schedule))
+    pbp = ingestion.load_pbp(use_cache=True)
+    logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
+
+    decided_all = schedule[schedule["home_score"].notna()
+                           & schedule["away_score"].notna()].copy()
+    warmup = decided_all[pd.to_numeric(decided_all["season"]) < config.OOF_FIRST_SEASON]
+    core = decided_all[pd.to_numeric(decided_all["season"]) >= config.OOF_FIRST_SEASON]
+    logger.info("decided games: warmup %d, core (OOF population) %d",
+                len(warmup), len(core))
+
+    # ── 3. Point-in-time features ─────────────────────────────────────────
+    _banner("PHASE 3", "point-in-time feature engine")
+    game_df = feat_mod.build_game_features(decided_all, pbp)
+    game_df = game_df.sort_values("gameday").reset_index(drop=True)
+    logger.info("feature frame: %d decided games, %d columns",
+                len(game_df), game_df.shape[1])
+    cov = feat_mod.feature_coverage_report(game_df)
+    logger.info("feature coverage:\n%s", cov.to_string(index=False))
+
+    # ── 4. Fold generation ────────────────────────────────────────────────
+    _banner("PHASE 4", "walk-forward fold generation")
+    fold_list = folds_mod.make_folds(game_df, date_col="gameday")
+    fold_info = folds_mod.fold_summary(fold_list)
+    logger.info("folds: %s", json.dumps(fold_info))
+    first_val_season = pd.to_numeric(
+        game_df.loc[fold_list[0].val_idx, "season"]).min() if fold_list else None
+    if first_val_season != config.OOF_FIRST_SEASON:
+        raise RuntimeError(
+            f"fold geometry violation: first validation season {first_val_season} "
+            f"!= OOF_FIRST_SEASON {config.OOF_FIRST_SEASON}")
+
+    # ── 5. Moneyline OOF ──────────────────────────────────────────────────
+    _banner("PHASE 5", "moneyline walk-forward OOF")
+    ml = ml_mod.walk_forward_oof(game_df)
+    oof_ml = ml["oof"]
+    weights = ml["member_weights"]
+    logger.info("moneyline OOF rows: %d; adaptive weights: %s",
+                len(oof_ml), json.dumps({k: round(v, 3) for k, v in weights.items()}))
+
+    # join targets/sides onto the OOF rows for evaluation/serving. The OOF
+    # frame already carries home_win from walk_forward_oof — exclude it from
+    # the key frame so the merge never suffixes the target column.
+    key = game_df[["game_id", "gameday", "season", "week", "home_team",
+                   "away_team", "home_score", "away_score", "margin",
+                   "total", "stadium", "gametime",
+                   "home_record", "away_record"]].copy()
+    key["gameday"] = pd.to_datetime(key["gameday"])
+    oof_ml["gameday"] = pd.to_datetime(oof_ml["gameday"])
+    oof_ml = oof_ml.merge(key, on=["game_id", "gameday", "season"], how="left")
+
+    # ── 6/7. Run-line + totals OOF (joint distribution model) ─────────────
+    _banner("PHASE 6-7", "margin/total distribution OOF")
+    dist = dist_mod.walk_forward_oof(game_df)
+    oof_dist = dist["oof"]
+
+    # pooled sigma calibration from OOF residuals
+    sig = dist_mod.calibrate_sigma(oof_dist["resid_margin"].to_numpy(),
+                                   oof_dist["resid_total"].to_numpy())
+    logger.info("calibrated sigma: margin %.3f, total %.3f",
+                sig["sigma_margin"], sig["sigma_total"])
+
+    # ── 8. Ensemble calibration (moneyline Platt on OOF) ──────────────────
+    _banner("PHASE 8", "calibration")
+    y_oof = oof_ml["home_win"].to_numpy(float)
+    p_ens = oof_ml["p_ensemble"].to_numpy(float)
+    okp = np.isfinite(p_ens)
+    platt = ml_mod.fit_platt(p_ens[okp], y_oof[okp])
+    logger.info("Platt (OOF-fit): a=%.4f b=%.4f", platt["a"], platt["b"])
+    oof_ml["p_ensemble_calibrated"] = np.nan
+    oof_ml.loc[okp, "p_ensemble_calibrated"] = ml_mod.apply_platt(
+        p_ens[okp], platt)
+
+    # ── 9. Evaluation ─────────────────────────────────────────────────────
+    _banner("PHASE 9", "evaluation / diagnostics")
+    raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"], y_oof)
+    cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
+    logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
+    logger.info("moneyline OOF calib:  %s", json.dumps(cal_m))
+    member_rows = monitoring.ensemble_table(oof_ml, weights)
+    for r in member_rows:
+        logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
+                    r["name"], r["weight"], r["auc"] or np.nan, r["brier"] or np.nan)
+
+    dist_metrics = eval_mod.distribution_metrics(
+        oof_dist.merge(
+            oof_ml[["game_id"]].assign(_k=1), on="game_id", how="inner"
+        ).drop(columns=["_k"]) if len(oof_ml) else oof_dist,
+        sig["sigma_margin"], sig["sigma_total"])
+    logger.info("run-line OOF:  %s", json.dumps(dist_metrics["run_line"]))
+    logger.info("totals OOF:    %s", json.dumps(dist_metrics["totals"]))
+    margin_cal_tbl = eval_mod.margin_calibration_table(oof_dist, sig["sigma_margin"])
+    total_cal_tbl = eval_mod.total_calibration_table(oof_dist, sig["sigma_total"])
+
+    # daily calibration rows (frontend contract)
+    daily = []
+    oof_ml["gd_date"] = pd.to_datetime(oof_ml["gameday"]).dt.strftime("%Y%m%d")
+    for day, grp in oof_ml.groupby("gd_date"):
+        m = eval_mod.binary_metrics(grp["p_ensemble_calibrated"], grp["home_win"])
+        daily.append({
+            "date": day, "n_games": m["n"],
+            "wins": int(((grp["p_ensemble_calibrated"] >= 0.5)
+                         == (grp["home_win"] > 0.5)).sum()),
+            "losses": int(m["n"] - ((grp["p_ensemble_calibrated"] >= 0.5)
+                                    == (grp["home_win"] > 0.5)).sum()),
+            "metrics": {k: m[k] for k in ("auc", "brier", "logloss", "ece")},
+            "buckets": eval_mod.calibration_buckets(
+                grp["p_ensemble_calibrated"], grp["home_win"]),
+        })
+
+    # ── 10. Final full-history refit ──────────────────────────────────────
+    _banner("PHASE 10", "final full-history refit")
+    final_models, _ = ml_mod.fit_final_models(game_df)
+    final_reg = dist_mod.fit_final(game_df)
+
+    # ── 11. Current-slate serving ─────────────────────────────────────────
+    _banner("PHASE 11", "current-slate serving")
+    slate = feat_mod.build_slate_features(schedule, pbp)
+    if len(slate):
+        slate = slate.sort_values("gameday").reset_index(drop=True)
+        p_home = ml_mod.predict_slate(final_models, slate, weights)
+        # serve through the SAME Platt map fitted on OOF
+        p_home_cal = ml_mod.apply_platt(p_home, platt) if np.isfinite(p_home).any() else p_home
+        slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
+        slate = dist_mod.apply_distribution(slate, sig["sigma_margin"],
+                                            sig["sigma_total"])
+        slate["p_home_win"] = p_home_cal
+        slate["p_away_win"] = 1.0 - p_home_cal
+        slate["p_tie"] = slate["p_push_0"]
+        slate["derived_ml"] = slate["p_home_win_derived"]
+        slate["kind"] = "slate"
+        slate["decided"] = False
+        slate["frame_view"] = "slate"
+        slate["pred_home"] = slate["mu_h"]
+        slate["pred_away"] = slate["mu_a"]
+        # QB enrichment (display only)
+        qb_stats = {}
+        try:
+            from nflreadpy import load_player_stats
+            for s in sorted(set(int(x) for x in slate["season"].unique())):
+                ps = load_player_stats(s)
+                df = ps.to_pandas() if hasattr(ps, "to_pandas") else ps
+                qb_stats[s] = df
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("QB stats pull failed: %s", exc)
+        qb_df = qb_enrichment.enrich_slate(slate, qb_stats)
+    else:
+        slate = pd.DataFrame()
+        qb_df = pd.DataFrame()
+        p_home = np.array([])
+        p_home_cal = np.array([])
+    logger.info("slate games: %d", len(slate))
+
+    # decided OOF rows for the markets artifact (same schema as slate rows)
+    oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig)
+
+    # ── 12. Artifact persistence ──────────────────────────────────────────
+    _banner("PHASE 12", "artifact persistence")
+    artifacts: list[str] = []
+    if len(slate):
+        p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
+        serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
+                                       _team_names(), config_meta)
+        artifacts.append(p.name)
+
+        p = out_dir / config.QB_MATCHUP_JSON.format(date=date_c)
+        serve_mod.write_qb_matchup_json(p, qb_df, slate)
+        artifacts.append(p.name)
+
+    p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
+    serve_mod.write_calibration_json(p, raw_m, cal_m,
+                                     eval_mod.calibration_buckets(
+                                         oof_ml["p_ensemble_calibrated"], y_oof),
+                                     daily, config_meta)
+    artifacts.append(p.name)
+
+    p = out_dir / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
+    serve_mod.write_predictions_history_csv(p, oof_ml,
+                                            oof_ml["p_ensemble_calibrated"].to_numpy())
+    artifacts.append(p.name)
+
+    p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
+    _write_power_rankings(p, game_df)
+    artifacts.append(p.name)
+
+    p = out_dir / config.MARKETS_CSV.format(date=date_c)
+    mp = out_dir / config.MARKETS_META_JSON.format(date=date_c)
+    serve_mod.write_markets_csv(p, mp, oof_market_rows, slate, config_meta)
+    artifacts.append(p.name)
+
+    # OOF stores (model artifacts under data_delivery/models/)
+    p = out_dir / "nfl_oof_moneyline.csv"
+    oof_ml.to_csv(p, index=False)
+    artifacts.append(p.name)
+    p = out_dir / "nfl_oof_distribution.csv"
+    oof_dist.to_csv(p, index=False)
+    artifacts.append(p.name)
+
+    # feature manifest record
+    p = out_dir / config.FEATURE_JSON.format(date=date_c)
+    _write_feature_json(p, cov, config_meta, fold_info)
+    artifacts.append(p.name)
+
+    # model bundle (joblib)
+    import joblib
+    bundle = {
+        "moneyline_models": {k: v["model"] for k, v in final_models.items()},
+        "moneyline_preprocessors": {k: v["pre"] for k, v in final_models.items()},
+        "ensemble_weights": weights,
+        "platt": platt,
+        "score_regressor": final_reg,
+        "sigma": sig,
+        "feature_set_version": config.FEATURE_SET_VERSION,
+        "feature_columns": config.FEATURE_COLUMNS,
+        "trained_utc": _now_utc(),
+        "config": config_meta,
+    }
+    joblib.dump(bundle, config.MODEL_BUNDLE)
+    artifacts.append(str(config.MODEL_BUNDLE.name))
+
+    # ── 14. Monitoring ────────────────────────────────────────────────────
+    _banner("PHASE 14", "monitoring")
+    recent = game_df.tail(60)
+    drift = monitoring.feature_drift(game_df, recent)
+    cov_rows = monitoring.coverage(game_df)
+    rb = monitoring.rolling_brier(oof_ml)
+    baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier
+    p = out_dir / config.MODEL_MONITOR_JSON.format(date=date_c)
+    monitoring.write_monitor_json(p, date_c, drift, cov_rows, member_rows,
+                                  rb, baseline, config_meta, fold_info)
+    artifacts.append(p.name)
+
+    # ── 13. Schema validation (gates) ─────────────────────────────────────
+    _banner("PHASE 13", "schema validation")
+    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
+    for name, ok in gates.items():
+        logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
+    if not all(gates.values()):
+        failed = [k for k, v in gates.items() if not v]
+        raise RuntimeError(f"validation gates failed: {failed}")
+
+    # retention: keep only the newest 3 dated copies of each family
+    _prune_old_artifacts(out_dir, date_c)
+
+    _banner("DONE", f"{len(artifacts)} artifacts in {time.time() - t0:.0f}s")
+    summary = {
+        "status": "ok",
+        "run_date": run_date,
+        "artifacts": artifacts,
+        "moneyline_oof": raw_m,
+        "moneyline_oof_calibrated": cal_m,
+        "run_line_oof": dist_metrics["run_line"],
+        "totals_oof": dist_metrics["totals"],
+        "weights": weights,
+        "folds": fold_info,
+        "n_slate": int(len(slate)),
+    }
+    (out_dir / "nfl_pipeline_summary.json").write_text(
+        json.dumps(summary, indent=1, default=str))
     return 0
 
 
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+def _team_names() -> dict[str, str]:
+    try:
+        return ingestion.load_team_names()
+    except Exception:
+        return {}
+
+
+def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
+                           sig: dict) -> pd.DataFrame:
+    """Decided OOF rows in the markets schema: distribution grids from the
+    OOF mu pair + honest outcomes (y_*), plus the calibrated moneyline."""
+    m = oof_ml[["game_id", "gameday", "season", "week", "home_team",
+                "away_team", "stadium", "gametime", "home_record",
+                "away_record", "home_score", "away_score", "margin",
+                "total", "home_win", "p_ensemble",
+                "p_ensemble_calibrated"]].copy()
+    d = oof_dist[["game_id", "mu_h", "mu_a"]].copy()
+    df = m.merge(d, on="game_id", how="inner")
+    if not len(df):
+        return pd.DataFrame()
+    df = dist_mod.apply_distribution(df, sig["sigma_margin"], sig["sigma_total"])
+    # the markets schema's p_home_win is the CALIBRATED moneyline (falling
+    # back to the raw blend when calibration is unavailable for a row)
+    df["p_home_win"] = df["p_ensemble_calibrated"].where(
+        df["p_ensemble_calibrated"].notna(), df["p_ensemble"])
+    df["p_away_win"] = 1.0 - df["p_home_win"]
+    df["p_tie"] = df["p_push_0"]
+    df["derived_ml"] = df["p_home_win_derived"]
+    df["kind"] = "oof"
+    df["decided"] = True
+    df["frame_view"] = "oof"
+    df["pred_home"] = df["mu_h"]
+    df["pred_away"] = df["mu_a"]
+    df["spread_line"] = np.nan
+    df["total_line"] = np.nan
+    df["has_offer"] = False
+    df["p_cover_offered"] = np.nan
+    df["p_push_offered"] = np.nan
+    df["p_over_offered"] = np.nan
+    df["p_under_offered"] = np.nan
+    df["p_push_total_offered"] = np.nan
+    # honest outcomes at the fair lines
+    def _outcome_row(r) -> dict:
+        fair_s = r.fair_spread
+        fair_t = r.fair_total
+        eps = 1e-12
+        y_cover = 1.0 if r.margin > fair_s else 0.0
+        y_push_s = 1.0 if r.margin == fair_s else 0.0
+        y_over = 1.0 if r.total > fair_t else 0.0
+        y_push_t = 1.0 if r.total == fair_t else 0.0
+        return {
+            "y_over_fair": y_over, "y_under_fair": 1.0 - y_over - y_push_t,
+            "y_push_fair": y_push_t,
+            "y_cover_fair": y_cover, "y_push_spread_fair": y_push_s,
+            "y_home_win": float(r.home_win),
+        }
+    outs = [_outcome_row(r) for r in df.itertuples(index=False)]
+    for c in outs[0]:
+        df[c] = [o[c] for o in outs]
+    return df
+
+
+def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
+    """Elo-based power rankings from the feature engine's state."""
+    ev = feat_mod.team_events(game_df)
+    _, ratings = feat_mod._elo_apply(ev)
+    rec = ev.groupby("team").agg(
+        wins=("team_win", lambda s: float((s == 1).sum())),
+        losses=("team_win", lambda s: float((s == 0).sum())),
+    )
+    names = _team_names()
+    rows = []
+    for team, elo in sorted(ratings.items(), key=lambda kv: -kv[1]):
+        w = int(rec.loc[team, "wins"]) if team in rec.index else 0
+        l = int(rec.loc[team, "losses"]) if team in rec.index else 0
+        rows.append({"rank": 0, "team": team, "team_name": names.get(team, team),
+                     "elo": round(float(elo), 1), "wins": w, "losses": l,
+                     "record": f"{w}-{l}",
+                     "pct": round(w / (w + l), 3) if (w + l) else np.nan,
+                     "run_diff": 0, "l10": "", "home_pct": np.nan,
+                     "away_pct": np.nan})
+    df = pd.DataFrame(rows)
+    df["rank"] = range(1, len(df) + 1)
+    df.to_csv(path, index=False)
+
+
+def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
+                        fold_info: dict) -> None:
+    from manifest import FEATURE_MANIFEST
+    record = {
+        "created_utc": _now_utc(),
+        "feature_set_version": config.FEATURE_SET_VERSION,
+        "manifest": FEATURE_MANIFEST,
+        "served_columns": config.FEATURE_COLUMNS,
+        "coverage": cov.to_dict(orient="records"),
+        "fold_geometry": fold_info,
+        "config": config_meta,
+    }
+    serve_mod._dump_json(path, record)
+
+
+def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
+                      slate: pd.DataFrame, fold_info: dict) -> dict:
+    """Schema/coherence gates over the written artifacts."""
+    gates: dict[str, bool] = {}
+    # moneyline probability coherence
+    p = oof_ml["p_ensemble_calibrated"].to_numpy(float)
+    p = p[np.isfinite(p)]
+    gates["ml_probability_bounds"] = bool(((p >= 0) & (p <= 1)).all())
+    gates["oof_population"] = bool(
+        (pd.to_numeric(oof_ml["season"]) >= config.OOF_FIRST_SEASON).all())
+    # distribution coherence on the OOF market rows
+    p = out_dir / config.MARKETS_CSV.format(date=date_c)
+    if p.exists():
+        mk = pd.read_csv(p)
+        ok = True
+        for L in config.SPREAD_GRID:
+            label = f"m{-L}" if L < 0 else str(L)
+            h, pu = mk.get(f"p_home_cover_{label}"), mk.get(f"p_push_{label}")
+            if h is None or pu is None:
+                ok = False
+                break
+            s = (h.fillna(0) + pu.fillna(0)).clip(0, 1)
+            if not ((s <= 1.0 + 1e-9)).all():
+                ok = False
+                break
+        gates["spread_grid_coherent"] = ok
+        ok = True
+        for U in config.TOTAL_GRID:
+            o, u, pu = (mk.get(f"p_over_{U}"), mk.get(f"p_under_{U}"),
+                        mk.get(f"p_push_{U}"))
+            if o is None or u is None or pu is None:
+                ok = False
+                break
+            s = (o.fillna(0) + u.fillna(0) + pu.fillna(0))
+            if not ((np.abs(s - 1.0) < 1e-6)).all():
+                ok = False
+                break
+        gates["totals_grid_coherent"] = ok
+        gates["markets_has_slate"] = bool((mk["kind"] == "slate").any())
+    else:
+        gates["spread_grid_coherent"] = False
+        gates["totals_grid_coherent"] = False
+        gates["markets_has_slate"] = False
+    # serving contract fields on the slate rows
+    need = {"game_id", "gameday", "home_team", "away_team", "mu_h", "mu_a",
+            "fair_spread", "fair_total", "p_home_win_derived",
+            "p_away_win_derived"}
+    gates["slate_contract_fields"] = need.issubset(slate.columns) if len(slate) else True
+    gates["fold_geometry"] = fold_info.get("n_folds", 0) > 0
+    return gates
+
+
+def _prune_old_artifacts(out_dir: Path, date_c: str) -> None:
+    """Keep the newest KEEP dated copies per family; never touch non-dated
+    files or other sports' directories."""
+    KEEP = 3
+    families = [
+        config.MONEYLINE_JSON, config.CALIBRATION_JSON,
+        config.PREDICTIONS_HISTORY_CSV, config.POWER_RANKINGS_CSV,
+        config.MARKETS_CSV, config.MARKETS_META_JSON,
+        config.QB_MATCHUP_JSON, config.FEATURE_JSON,
+        config.MODEL_MONITOR_JSON,
+    ]
+    for template in families:
+        prefix = template.split("{")[0]
+        ext = template.split("}")[1]
+        dated = sorted(out_dir.glob(f"{prefix}*{ext}"))
+        for old in dated[:-KEEP]:
+            try:
+                old.unlink()
+                logger.info("pruned stale artifact %s", old.name)
+            except OSError:
+                pass
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
