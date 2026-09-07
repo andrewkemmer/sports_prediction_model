@@ -64,16 +64,21 @@ class TestRoutingAdoptedOutcome(unittest.TestCase):
         """Current rule (adopted: RESTORE) — exact kept/dropped sets.
 
         The 24 matchup-gap _diff features are KEPT (RUN_RESTORED_DIFF_FEATURES);
-        run_margin_diff (the only remaining _diff) and the 5 composites are
-        dropped. Active view: 53 cols.
+        run_margin_diff, the 8 exp2 matchup candidates (2026-09-07 C+E/D+F
+        decision — moneyline/run-line-only, deliberately NOT added to the run
+        engine's λ view) and the 5 composites are dropped. Active view: 53 cols.
         """
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         dropped_diffs = [d for d in dropped if d.endswith("_diff")]
         composites = [d for d in dropped if not d.endswith("_diff")]
         self.assertEqual(len(keep), 53, "kept view must stay 53 cols")
-        self.assertEqual(len(dropped), 6)
-        self.assertEqual(dropped_diffs, ["run_margin_diff"],
-                         "run_margin_diff is the only excluded _diff")
+        self.assertEqual(len(dropped), 14)
+        self.assertEqual(
+            dropped_diffs,
+            ["run_margin_diff", *(
+                f for f in FEATURE_COLS if f.startswith("exp2_")
+            )],
+            "run_margin_diff + the 8 exp2 matchup diffs are the only excluded _diffs")
         self.assertEqual(len(composites), 5)
         # The restored 24 diffs + the park exception are the only _diff kept.
         kept_diffs = {f for f in keep if f.endswith("_diff")}
@@ -112,12 +117,12 @@ class TestSelectionPartitionInvariants(unittest.TestCase):
     def test_derive_run_features_partitions_feature_cols_exactly(self):
         """kept ∪ dropped == FEATURE_COLS, disjoint, deterministic — the
         rule is a pure function of the name list (no importance/drift input),
-        so the denominator/count invariants (59 = 53 kept + 6 dropped) are
-        structural, not incidental."""
+        so the denominator/count invariants (67 = 53 kept + 14 dropped after
+        the 2026-09-07 exp2 expansion) are structural, not incidental."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
-        self.assertEqual(len(FEATURE_COLS), 59)
+        self.assertEqual(len(FEATURE_COLS), 67)
         self.assertEqual(len(keep), 53)
-        self.assertEqual(len(dropped), 6)
+        self.assertEqual(len(dropped), 14)
         self.assertEqual(len(keep) + len(dropped), len(FEATURE_COLS))
         self.assertEqual(set(keep) | set(dropped), set(FEATURE_COLS))
         self.assertEqual(len(set(keep)) + len(set(dropped)),
@@ -230,18 +235,20 @@ class TestMarketHarnessFixture(unittest.TestCase):
 
 
 class TestRegressions(unittest.TestCase):
-    def test_moneyline_feature_cols_now_59_leakage_pruned(self):
-        """The 6 lineup-delta features were removed from FEATURE_COLS
-        (train-serve skew fix, 2026-08-29). FEATURE_COLS is 59."""
-        self.assertEqual(len(FEATURE_COLS), 59)
+    def test_moneyline_feature_cols_now_67_exp2_expansion(self):
+        """The 6 lineup-delta features stay removed (train-serve skew fix,
+        2026-08-29); the 8 Experiment #2 candidates joined on 2026-09-07.
+        FEATURE_COLS is 67."""
+        self.assertEqual(len(FEATURE_COLS), 67)
         self.assertIn("run_margin_diff", FEATURE_COLS)
 
     def test_default_run_oof_path_derives_53(self):
         """run_features=None must derive the 53-col rule (2026-08-30 restored
-        view). Dropped is 6: run_margin_diff + the 5 composites."""
+        view). Dropped is 14: run_margin_diff + the 8 exp2 matchup diffs +
+        the 5 composites."""
         keep, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertEqual(len(keep), 53)
-        self.assertEqual(len(dropped), 6)
+        self.assertEqual(len(dropped), 14)
 
     def test_alpha_lambda_mc_path_still_derives(self):
         """derive_markets_v3 still produces α(λ) curves + full grid + holdout

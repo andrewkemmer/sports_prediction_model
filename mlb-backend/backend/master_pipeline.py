@@ -170,10 +170,13 @@ gc.collect()
 # features so win_pct_diff / elo_diff / woba_30g_diff ship real values
 # (spec features 2, 3, 17) instead of all-NaN columns.
 from data_ingestion import enrich_elo_and_records
-from features import add_diff_features
+from features import add_diff_features, add_exp2_features
 
 game_df = enrich_elo_and_records(game_df, rename_team_woba=True)
 game_df = add_diff_features(game_df)
+# Experiment #2 candidate features (C+E / D+F decision): built from the
+# source layer's PIT-safe columns, shipped in the CSV (FEATURE_COLS members).
+game_df = add_exp2_features(game_df)
 
 # ── Save features BEFORE training (Phase 4 needs the CSV) ────────────────
 _banner("PHASE 3.5", "Save Features")

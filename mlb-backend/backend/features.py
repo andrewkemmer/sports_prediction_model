@@ -2387,6 +2387,137 @@ def add_form_delta_features(game_df: pd.DataFrame,
     return df
 
 
+# ── Experiment #2 candidate features (SHIPPED 2026-09-07) ──────────────────
+# The 8 frozen exp2 matchup candidates (C+E moneyline / D+F run-line decision,
+# run_exp2_feature_test registry exp2_feature_test_20260907.json), built as
+# pure arithmetic on the PIT-safe source columns shipped by the Experiment #2
+# source layer (league priors, category K%/xwOBA, platoon splits). Every
+# input is a point-in-time season-to-date aggregate (source_game_date <
+# target_game_date, doubleheader-safe date-level ASOF), so the arithmetic
+# here adds no new temporal exposure. Coverage gaps (offspeed 0.56,
+# breaking 0.79) stay NULL — the feature matrix preserves NaN (tree members
+# route it; logistic/mlp impute).
+EXP2_CANDIDATE_COLS: list[str] = [
+    "exp2_centered_k_diff",
+    "exp2_cat_k_fastball_diff", "exp2_cat_k_breaking_diff",
+    "exp2_cat_k_offspeed_diff",
+    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
+    "exp2_cat_xwoba_offspeed_diff",
+    "exp2_cat_platoon_k_fastball_diff",
+]
+_EXP2_CATEGORIES = ("fastball", "breaking", "offspeed")
+
+
+def add_exp2_features(game_df: pd.DataFrame,
+                      inplace: bool = False) -> pd.DataFrame:
+    """Compute the 8 frozen exp2 matchup candidates from source columns.
+
+    Formulas are FROZEN from run_exp2_feature_test.add_candidates (the
+    experiment that produced the adoption decision) — identical arithmetic,
+    identical column names, no alternate windows/transformations:
+
+      centered_k(side)     = (sp_k9 − lg_k)·(team_k_rate_30g − lg_k)
+      cat_k_cat(side)      = sp_usage_cat·(sp_k_cat − lg_k_cat)·(opp_k_cat − lg_k_cat)
+      cat_xwoba_cat(side)  = sp_usage_cat·(sp_xwoba_cat − lg_x_cat)·(opp_x_cat − lg_x_cat)
+      platoon(side)        = Σ_hand share_hand·(SP_fb_vs_hand − lg_fb_hand)
+                             · Σ_hand share_hand·(opp_fb_vs_hand − lg_fb_hand)
+                             · sp_usage_fastball      (share = opposing lineup L/R)
+
+    each shipped as home − away. NOTE (recorded in the experiment registry,
+    frozen before results): candidate 1 mixes denominators — SP K/9 vs
+    opponent/league K/PA — by design. Missing inputs propagate as NaN, never
+    a fabricated 0.
+
+    Returns the frame (same object when inplace=True, else a copy).
+    """
+    df = game_df if inplace else game_df.copy()
+
+    def _num(col: str) -> pd.Series:
+        return pd.to_numeric(df[col], errors="coerce")
+
+    missing_src = sorted({c for c in (
+        ["league_k_pct", "league_k_pct_fb_vs_l", "league_k_pct_fb_vs_r",
+         "opp_lefty_share_home", "opp_lefty_share_away"]
+        + [f"sp_k9_{s}" for s in ("home", "away")]
+        + [f"team_k_rate_30g_{s}" for s in ("home", "away")]
+        + [f"{p}_{c}_{s}" for c in _EXP2_CATEGORIES
+           for p in ("sp_usage_cat", "sp_k_pct_cat", "team_k_pct_cat",
+                     "sp_xwoba_cat", "team_xwoba_cat")
+           for s in ("home", "away")]
+        # league category priors are DATE-level (unsuffixed, identical for
+        # both sides — same convention as league_k_pct itself)
+        + [f"league_k_pct_cat_{c}" for c in _EXP2_CATEGORIES]
+        + [f"league_xwoba_cat_{c}" for c in _EXP2_CATEGORIES]
+        + [f"sp_k_pct_fb_vs_{h}_{s}" for h in ("l", "r") for s in ("home", "away")]
+        + [f"team_k_pct_fb_vs_{h}_{s}" for h in ("l", "r") for s in ("home", "away")]
+        + [f"sp_usage_cat_fastball_{s}" for s in ("home", "away")]
+    ) if c not in df.columns})
+    if missing_src:
+        for c in EXP2_CANDIDATE_COLS:
+            df[c] = np.nan
+        logger.warning(
+            "add_exp2_features: %d source columns absent (%s…) — all 8 "
+            "candidates ship as NaN (thin/partial frame)",
+            len(missing_src), ", ".join(missing_src[:5]))
+        return df
+
+    lg_k = _num("league_k_pct")
+
+    # 1. centered K — production K-rate columns: SP = sp_k9 (K/9), opp =
+    #    team_k_rate_30g (offense K/PA), league = league_k_pct (K/PA).
+    for side in ("home", "away"):
+        sp_c = _num(f"sp_k9_{side}") - lg_k
+        opp_c = _num(f"team_k_rate_30g_{side}") - lg_k
+        df[f"_exp2_side_{side}_centered_k"] = sp_c * opp_c
+    df["exp2_centered_k_diff"] = (df["_exp2_side_home_centered_k"]
+                                  - df["_exp2_side_away_centered_k"])
+
+    # 2-4 / 5-7: category K and xwOBA (directionality: higher xwOBA = worse
+    # for the pitcher; product is the same amplification form — no sign flip).
+    for cat in _EXP2_CATEGORIES:
+        lg_kc = _num(f"league_k_pct_cat_{cat}")
+        lg_xc = _num(f"league_xwoba_cat_{cat}")
+        for side in ("home", "away"):
+            df[f"_exp2_side_{side}_cat_k_{cat}"] = (
+                _num(f"sp_usage_cat_{cat}_{side}")
+                * (_num(f"sp_k_pct_cat_{cat}_{side}") - lg_kc)
+                * (_num(f"team_k_pct_cat_{cat}_{side}") - lg_kc))
+            df[f"_exp2_side_{side}_cat_xwoba_{cat}"] = (
+                _num(f"sp_usage_cat_{cat}_{side}")
+                * (_num(f"sp_xwoba_cat_{cat}_{side}") - lg_xc)
+                * (_num(f"team_xwoba_cat_{cat}_{side}") - lg_xc))
+        df[f"exp2_cat_k_{cat}_diff"] = (df[f"_exp2_side_home_cat_k_{cat}"]
+                                        - df[f"_exp2_side_away_cat_k_{cat}"])
+        df[f"exp2_cat_xwoba_{cat}_diff"] = (
+            df[f"_exp2_side_home_cat_xwoba_{cat}"]
+            - df[f"_exp2_side_away_cat_xwoba_{cat}"])
+
+    # 8: platoon fastball K — for side s, the OPPOSING lineup is the other
+    #    team's offense: its L share is opp_lefty_share_<other> and its
+    #    K-vs-FB by hand is team_k_pct_fb_vs_<hand>_<other>.
+    def _platoon(side: str) -> pd.Series:
+        other = "away" if side == "home" else "home"
+        lsh = _num(f"opp_lefty_share_{other}")
+        rsh = 1.0 - lsh
+        lg_l = _num("league_k_pct_fb_vs_l")
+        lg_r = _num("league_k_pct_fb_vs_r")
+        sp_c = (lsh * (_num(f"sp_k_pct_fb_vs_l_{side}") - lg_l)
+                + rsh * (_num(f"sp_k_pct_fb_vs_r_{side}") - lg_r))
+        opp_c = (lsh * (_num(f"team_k_pct_fb_vs_l_{other}") - lg_l)
+                 + rsh * (_num(f"team_k_pct_fb_vs_r_{other}") - lg_r))
+        return sp_c * opp_c * _num(f"sp_usage_cat_fastball_{side}")
+
+    df["exp2_cat_platoon_k_fastball_diff"] = (_platoon("home")
+                                              - _platoon("away"))
+
+    df.drop(columns=[c for c in df.columns
+                     if c.startswith("_exp2_side_")], inplace=True)
+    cov = {c: round(float(df[c].notna().mean()), 3)
+           for c in EXP2_CANDIDATE_COLS}
+    logger.info("add_exp2_features: 8 candidates computed, coverage %s", cov)
+    return df
+
+
 # ── Lineup-delta features (Phase 2, moneyline-only) ───────────────────────────
 # mean wOBA of tonight's ACTUAL starting 9 (and its top-3) minus the team's
 # season-to-date wOBA, per side. The model otherwise only sees season-average

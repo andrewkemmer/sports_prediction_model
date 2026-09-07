@@ -72,6 +72,7 @@ from calibration import is_identity
 from features import (
     add_diff_features,
     add_env_level_features,
+    add_exp2_features,
     add_form_delta_features,
     add_lineup_delta_features,
     refine_dome_game_level,
@@ -1862,6 +1863,11 @@ def run_daily_pipeline(
                 # NULL and avoids a second key contract in add_diff_features.
                 slate = add_diff_features(slate)
                 slate = add_form_delta_features(slate)
+                # Experiment #2 candidates (C+E/D+F): same arithmetic as the
+                # decided frame so train and serve share one construction.
+                # Slate rows missing a source column ship NaN, like every
+                # other feature (never a fabricated 0).
+                slate = add_exp2_features(slate)
                 slate = _fetch_slate_lineups(slate, target_date)
                 if weather:
                     slate = apply_weather_features(slate, weather)

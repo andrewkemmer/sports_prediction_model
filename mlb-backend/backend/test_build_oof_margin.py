@@ -170,18 +170,19 @@ class TestRefitMargins(unittest.TestCase):
 
 
 class TestConfigRegressions(unittest.TestCase):
-    def test_feature_cols_now_59_leakage_pruned(self):
-        """Post-prune pin: the 6 lineup-delta features were removed from
-        FEATURE_COLS (train-serve skew — actuals at train time, zeros at
-        prediction time). FEATURE_COLS is 59; margin is still shipped."""
-        self.assertEqual(len(FEATURE_COLS), 59)
+    def test_feature_cols_now_67_exp2_expansion(self):
+        """Post-expansion pin: the 8 Experiment #2 matchup candidates joined
+        FEATURE_COLS (2026-09-07 C+E/D+F frozen decision; 59 baseline + 8 =
+        67). The 6 lineup-delta features stay removed; margin still shipped."""
+        self.assertEqual(len(FEATURE_COLS), 67)
         self.assertIn(bom.MARGIN_COL, FEATURE_COLS)
 
     def test_run_engine_stays_read_only_wrt_margin(self):
-        """The run view drops run_margin_diff by the *_diff rule (the only
-        survivor is park_factor_slug_diff) — the run engine cannot consume
-        the margin, so the margin path cannot leak into itself. The 53-col
-        keep-list (2026-08-30 restore) keeps run_margin_diff excluded."""
+        """The run view drops run_margin_diff and the 8 exp2 matchup diffs by
+        the *_diff rule (the only survivor is park_factor_slug_diff) — the run
+        engine cannot consume the margin, so the margin path cannot leak into
+        itself. The 53-col keep-list (2026-08-30 restore) is unchanged by the
+        2026-09-07 exp2 expansion."""
         feats, dropped = derive_run_features(list(FEATURE_COLS))
         self.assertNotIn(bom.MARGIN_COL, feats)
         self.assertIn(bom.MARGIN_COL, dropped)

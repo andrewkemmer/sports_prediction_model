@@ -426,6 +426,101 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "expected runs",
         "direction": "positive = run engine expects the home club to outscore",
     },
+    # ---- Experiment #2 matchup candidates (SHIPPED 2026-09-07, C+E/D+F) ---
+    "exp2_centered_k_diff": {
+        "summary": "Centered strikeout matchup: (SP K/9 − league K%) × (opp K% − league K%), home − away",
+        "definition": (
+            "Interaction of both sides' strikeout tendency centered on the "
+            "point-in-time league prior — positive when BOTH the home "
+            "starter and the away offense are extreme (either direction) "
+            "relative to league. Known denominator mix: SP K/9 vs opponent/"
+            "league K/PA (frozen pre-test in the experiment registry)."
+        ),
+        "formula": "(sp_k9_home − league_k_pct)(team_k_rate_30g_home − league_k_pct) − (away mirror)",
+        "source": "Experiment #2 source layer (Statcast season-to-date aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "rate² product",
+        "direction": "positive = home side's K matchup more extreme",
+    },
+    "exp2_cat_k_fastball_diff": {
+        "summary": "Fastball K matchup: SP FB usage × (SP − league) × (opp − league) FB K%, home − away",
+        "definition": (
+            "Usage-weighted amplification of fastball strikeout extremes on "
+            "both sides of the home matchup, minus the away mirror."
+        ),
+        "formula": "sp_usage_cat_fastball·(sp_k_pct_cat_fastball − lg)·(team_k_pct_cat_fastball − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "rate³ product",
+        "direction": "positive = home FB-K matchup more extreme",
+    },
+    "exp2_cat_k_breaking_diff": {
+        "summary": "Breaking-ball K matchup: usage × (SP − lg) × (opp − lg) breaking K%, home − away",
+        "definition": (
+            "Usage-weighted breaking-ball strikeout matchup. Best single "
+            "moneyline candidate in the frozen experiment (+0.0055 ΔAUC, "
+            "CI excluding zero, survives S_FB_K removal)."
+        ),
+        "formula": "sp_usage_cat_breaking·(sp_k_pct_cat_breaking − lg)·(team_k_pct_cat_breaking − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "rate³ product",
+        "direction": "positive = home breaking-K matchup more extreme",
+    },
+    "exp2_cat_k_offspeed_diff": {
+        "summary": "Offspeed K matchup: usage × (SP − lg) × (opp − lg) offspeed K%, home − away",
+        "definition": "Usage-weighted offspeed strikeout matchup. Sparsest category (~56% coverage).",
+        "formula": "sp_usage_cat_offspeed·(sp_k_pct_cat_offspeed − lg)·(team_k_pct_cat_offspeed − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category K% aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "rate³ product",
+        "direction": "positive = home offspeed-K matchup more extreme",
+    },
+    "exp2_cat_xwoba_fastball_diff": {
+        "summary": "Fastball xwOBA matchup: usage × (SP − lg) × (opp − lg) FB xwOBA, home − away",
+        "definition": (
+            "Usage-weighted fastball quality-of-contact matchup. Higher "
+            "xwOBA = worse for the pitcher; the product amplifies when both "
+            "sides sit off-league, same form as the K family (no sign flip)."
+        ),
+        "formula": "sp_usage_cat_fastball·(sp_xwoba_cat_fastball − lg)·(team_xwoba_cat_fastball − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "xwOBA² product",
+        "direction": "positive = home FB quality matchup more extreme",
+    },
+    "exp2_cat_xwoba_breaking_diff": {
+        "summary": "Breaking-ball xwOBA matchup: usage × (SP − lg) × (opp − lg) breaking xwOBA, home − away",
+        "definition": "Usage-weighted breaking-ball quality-of-contact matchup (same amplification form).",
+        "formula": "sp_usage_cat_breaking·(sp_xwoba_cat_breaking − lg)·(team_xwoba_cat_breaking − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "xwOBA² product",
+        "direction": "positive = home breaking quality matchup more extreme",
+    },
+    "exp2_cat_xwoba_offspeed_diff": {
+        "summary": "Offspeed xwOBA matchup: usage × (SP − lg) × (opp − lg) offspeed xwOBA, home − away",
+        "definition": "Usage-weighted offspeed quality-of-contact matchup (sparsest category).",
+        "formula": "sp_usage_cat_offspeed·(sp_xwoba_cat_offspeed − lg)·(team_xwoba_cat_offspeed − lg), home − away",
+        "source": "Experiment #2 source layer (pitch-category xwOBA aggregates)",
+        "window": "season to date (strictly prior games)",
+        "units": "xwOBA² product",
+        "direction": "positive = home offspeed quality matchup more extreme",
+    },
+    "exp2_cat_platoon_k_fastball_diff": {
+        "summary": "Platoon fastball-K matchup: hand-mix-weighted (SP − lg) × (opp − lg) FB K × SP FB usage, home − away",
+        "definition": (
+            "Fastball strikeout matchup weighted by the opposing lineup's "
+            "actual L/R share: each side's SP and offense K-vs-fastball "
+            "splits are centered on the league FB-K prior per hand, "
+            "platoon-weighted, multiplied, then scaled by SP fastball usage."
+        ),
+        "formula": "Σ_hand share_hand·(sp_fb_vs_hand − lg_hand)·Σ_hand share_hand·(opp_fb_vs_hand − lg_hand)·sp_fb_usage, home − away",
+        "source": "Experiment #2 source layer (platoon fastball-K splits + opp_lefty_share)",
+        "window": "season to date (strictly prior games)",
+        "units": "rate³ product",
+        "direction": "positive = home platoon-K matchup more extreme",
+    },
 }
 
 _PER_SIDE_FAMILIES = {

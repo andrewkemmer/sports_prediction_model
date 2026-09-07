@@ -314,24 +314,30 @@ class TestExp2GameLevelAssembly(unittest.TestCase):
 
 
 class TestFeatureSafety(unittest.TestCase):
-    """Section 14/18 of the task: source columns exist in the dataset layer
-    but NEVER enter the production estimator."""
+    """Feature-safety gate, UPDATED for the frozen implementation decision
+    (2026-09-07, C+E moneyline / D+F run line): the 8 exp2 candidate columns
+    are now PRODUCTION FEATURE_COLS members (59 → 67) and are computed by
+    features.add_exp2_features, while the RAW source columns remain
+    dataset-only and never enter the estimator."""
 
-    def test_feature_cols_unchanged_59(self):
-        self.assertEqual(len(FEATURE_COLS), 59,
-                         "FEATURE_COLS changed — source-only task violated")
+    def test_feature_cols_67_with_exp2_candidates(self):
+        from features import EXP2_CANDIDATE_COLS
+        self.assertEqual(len(FEATURE_COLS), 67,
+                         "FEATURE_COLS must be the 59 baseline + 8 exp2 candidates")
+        for c in EXP2_CANDIDATE_COLS:
+            self.assertIn(c, FEATURE_COLS, f"{c} missing from FEATURE_COLS")
 
-    def test_no_exp2_or_source_col_in_feature_cols(self):
-        banned = ({"exp2"} | {s.split("_")[0] for s in EXP2_SOURCE_SUFFIXES})
+    def test_no_raw_source_col_in_feature_cols(self):
         hits = [f for f in FEATURE_COLS
-                if f.startswith("exp2_") or f in EXP2_SOURCE_COLS
+                if f in EXP2_SOURCE_COLS
                 or any(f.endswith(sfx) for sfx in
                        [f"{s}_{side}" for s in EXP2_SOURCE_SUFFIXES
                         for side in ("home", "away")])]
-        self.assertEqual(hits, [], f"candidate/source columns leaked: {hits}")
+        self.assertEqual(hits, [], f"raw source columns leaked: {hits}")
 
-    def test_no_exp2_candidate_columns_exist_anywhere(self):
-        """The 8 final candidates must NOT be produced by this task."""
+    def test_exp2_candidate_columns_produced_by_production_pipeline(self):
+        """The 8 final candidates must be computed by features.py (the normal
+        production path), not only by the experiment runner."""
         candidates = [
             "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
             "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
@@ -339,8 +345,8 @@ class TestFeatureSafety(unittest.TestCase):
             "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
         ]
         for c in candidates:
-            self.assertNotIn(c, _FEATURES_SRC,
-                             f"final candidate {c} must not exist yet")
+            self.assertIn(f'"{c}"', _FEATURES_SRC,
+                          f"candidate {c} not produced by features.py")
 
 
 class TestExp2RealDataSmoke(unittest.TestCase):

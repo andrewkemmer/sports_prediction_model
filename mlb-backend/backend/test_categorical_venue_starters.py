@@ -216,12 +216,17 @@ class TestRunEngineIsolation(unittest.TestCase):
 
     def test_kept_dropped_lists_byte_identical(self):
         """Adding the 3 categorical-context names must NOT move the derived
-        lists: the run engine's 53-feature view is byte-identical to the
-        2026-08-30 restore contract (53 = 29 original + 24 restored diffs)."""
+        KEPT list: the run engine's 53-feature view is byte-identical to the
+        2026-08-30 restore contract (53 = 29 original + 24 restored diffs).
+        After the 2026-09-07 exp2 expansion the dropped side grows by the 8
+        exp2 matchup diffs (kept view unchanged — they are moneyline/run-line
+        classifier-only)."""
         keep, dropped = derive_run_features(list(training.FEATURE_COLS))
         self.assertEqual(keep, self._EXPECTED_KEPT)
         self.assertEqual(len(keep), 53)
-        self.assertEqual(len(dropped), 6)
+        self.assertEqual(len(dropped), 14)
+        exp2_dropped = [f for f in dropped if f.startswith("exp2_")]
+        self.assertEqual(len(exp2_dropped), 8)
         for f in _CAT_SOURCE_EXCLUSIONS:
             self.assertNotIn(f, keep)
             self.assertNotIn(f, dropped)  # never in FEATURE_COLS input either

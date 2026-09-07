@@ -268,6 +268,31 @@ FEATURE_COLS = [
     # run_home_edge_interaction_ablation.py and
     # data_delivery/home_edge_interaction_ablation_20260827.json.
     "run_margin_diff",
+    # 60–67. Experiment #2 matchup candidates — SHIPPED 2026-09-07 per the
+    # frozen C+E (moneyline) / D+F (true −1.5 run line) implementation
+    # decision. NOT a new selection exercise: all 8 candidates ship for
+    # consistency, and NO baseline family was removed (the targeted-removal
+    # evidence in the decision only gated adoption; expansion ≠ replacement).
+    # sp_xwoba_vs_r_diff was confirmed ABSENT from the original baseline and
+    # is deliberately NOT backfilled. Candidates are computed by
+    # features.add_exp2_features from the Experiment #2 source layer's
+    # PIT-safe columns (league priors, category K%/xwOBA, platoon splits);
+    # every input satisfies source_game_date < target_game_date (date-level
+    # ASOF, doubleheader-safe), so no new temporal exposure. Formulas frozen
+    # from run_exp2_feature_test.add_candidates; adoption evidence:
+    # data_delivery/exp2_feature_test_20260907.json +
+    # exp2_stability_20260907.json. All 8 end in _diff and are matchup gaps,
+    # so derive_run_features drops them from the run engine's λ view — the
+    # run engine (NB pricing) is untouched by this decision; the run-line
+    # model is the true −1.5 classifier below.
+    "exp2_centered_k_diff",
+    "exp2_cat_k_fastball_diff",
+    "exp2_cat_k_breaking_diff",
+    "exp2_cat_k_offspeed_diff",
+    "exp2_cat_xwoba_fastball_diff",
+    "exp2_cat_xwoba_breaking_diff",
+    "exp2_cat_xwoba_offspeed_diff",
+    "exp2_cat_platoon_k_fastball_diff",
 ]
 # Deduplicate (should already be unique but defensive)
 FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
@@ -1332,6 +1357,60 @@ def train_totals_model(
 
 
 # ── Run-line classification ─────────────────────────────────────────────────
+
+# TRUE −1.5 run-line target (frozen D+F decision, 2026-09-07): home covers −1.5
+# iff home_runs − away_runs ≥ 2. The legacy train_run_line_model below collapses
+# its target to home_win and is EXCLUDED from production use — kept only for
+# historical reference, never called by the pipeline.
+RUN_LINE_TARGET_NOTE = (
+    "true -1.5 classifier: y = (home_score - away_score) >= 2; same ensemble "
+    "trainer/hyperparameters/folds/prequential calibration as the moneyline "
+    "(fold geometry is a pure function of game_date + non-null target, so "
+    "swapping y in place leaves boundaries byte-identical). Legacy "
+    "train_run_line_model excluded (collapses target to home_win)."
+)
+
+
+def with_run_line_target(games: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of the frame whose home_win column carries the TRUE −1.5
+    run-line cover target ((home_score − away_score) ≥ 2).
+
+    This is the sanctioned run-line model construction (frozen D+F decision):
+    the production ensemble trainer is target-agnostic — it reads y from the
+    home_win column everywhere (_prepare_features, fold loops, OOF pooling) —
+    so swapping the column in place trains/predicts the −1.5 classifier with
+    byte-identical fold geometry and identical prequential calibration
+    semantics. Verified in the Experiment #2 run-line harness (rl_cover
+    target, val_start signature asserted equal to the moneyline folds).
+    Requires home_score/away_score columns (decided frames only).
+    """
+    df = games.copy()
+    if "home_score" not in df.columns or "away_score" not in df.columns:
+        raise ValueError(
+            "with_run_line_target: home_score/away_score required — the true "
+            "−1.5 target is defined on decided games only")
+    margin = (pd.to_numeric(df["home_score"], errors="coerce")
+              - pd.to_numeric(df["away_score"], errors="coerce"))
+    # Keep NULL-alignment identical to the decided mask so walk_forward_splits
+    # (dropna on home_win) produces byte-identical boundaries.
+    df["home_win"] = np.where(margin.isna(), np.nan, (margin >= 2).astype(float))
+    return df
+
+
+def walk_forward_evaluate_runline(
+    games: pd.DataFrame,
+    **kwargs: Any,
+) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
+    """Walk-forward evaluation of the TRUE −1.5 run-line classifier.
+
+    Same ensemble members, hyperparameters, fold cadence and prequential
+    calibration as the moneyline (walk_forward_evaluate), with the target
+    swapped to (home_runs − away_runs ≥ 2) per the frozen D+F decision. The
+    returned predictions keep the home_win_prob_model column names (the
+    trainer's contract) — there they mean P(home covers −1.5).
+    """
+    return walk_forward_evaluate(with_run_line_target(games), **kwargs)
+
 
 def train_run_line_model(
     train: pd.DataFrame, val: pd.DataFrame
