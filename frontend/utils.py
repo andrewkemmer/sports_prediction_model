@@ -1525,6 +1525,27 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
     })
 
     curve = cal.get("calibration_curve") or cal.get("calibration_buckets") or []
+    # Legacy NFL bucket rows (mean_pred / n, no gap) are normalized onto the
+    # MLB presentation contract so the shared page renders both sports and
+    # both artifact vintages through one code path. Gap is derived from the
+    # row's own values - never fabricated.
+    norm_curve = []
+    for b in curve:
+        if not isinstance(b, dict):
+            continue
+        row = dict(b)
+        if "mean_predicted" not in row and "mean_pred" in row:
+            row["mean_predicted"] = row["mean_pred"]
+        if "count" not in row and "n" in row:
+            row["count"] = row["n"]
+        if "gap" not in row:
+            try:
+                row["gap"] = round(
+                    float(row["mean_predicted"]) - float(row["mean_actual"]), 4)
+            except (KeyError, TypeError, ValueError):
+                row["gap"] = None
+        norm_curve.append(row)
+    curve = norm_curve
     cal["calibration_curve"] = curve
 
     if not cal.get("confidence"):
@@ -1536,17 +1557,16 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
         ]
 
     # Today's Record + upsets. MLB derives them from the day's board CSV
-    # (real outcomes). NFL's 2026 season is scheduled ahead (no decided board),
-    # so the summary card instead derives a real predicted-vs-actual record
-    # from the DECIDED OOF/sealed prediction history — never empty.
+    # (real outcomes for THAT day only). NFL follows the same semantic rule:
+    # the 2026 board is scheduled ahead (no decided games for the board
+    # date), so the day's record is legitimately 0-0 with no upsets — the
+    # lifetime OOF history is never presented as "today". It feeds the
+    # chart/reliability/history sections (lifetime by design on both
+    # sports) but NOT the summary card.
     if normalize_sport_key(sport if sport is not None else get_sport()) == "nfl":
-        hist = load_prediction_history(date_str, sport="nfl")
-        rec = _record_from_history(hist)
-        if rec:
-            cal["today_record"] = rec
-        ups = _upsets_from_history(hist)
-        if ups:
-            cal["upsets"] = ups
+        cal.setdefault("today_record",
+                       {"wins": 0, "losses": 0, "completed": 0})
+        cal.setdefault("upsets", [])
         return cal
 
     try:

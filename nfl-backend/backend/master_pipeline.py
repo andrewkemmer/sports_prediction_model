@@ -302,10 +302,11 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.append(p.name)
 
     p = out_dir / config.CALIBRATION_JSON.format(date=date_c)
-    serve_mod.write_calibration_json(p, raw_m, cal_m,
-                                     eval_mod.calibration_buckets(
-                                         oof_ml["p_ensemble_calibrated"], y_oof),
-                                     daily, config_meta)
+    serve_mod.write_calibration_json(
+        p, raw_m, cal_m,
+        eval_mod.calibration_buckets(
+            oof_ml["p_ensemble_calibrated"], y_oof),
+        daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()))
     artifacts.append(p.name)
 
     p = out_dir / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
@@ -352,16 +353,17 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
-    # ── 14. Monitoring ────────────────────────────────────────────────────
+    # ── 14. Monitoring ───────────────────────────────────────────────────
     _banner("PHASE 14", "monitoring")
     recent = game_df.tail(60)
-    drift = monitoring.feature_drift(game_df, recent)
+    drift = monitoring.feature_drift(game_df, recent, weights=weights)
     cov_rows = monitoring.coverage(game_df)
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier
     p = out_dir / config.MODEL_MONITOR_JSON.format(date=date_c)
     monitoring.write_monitor_json(p, date_c, drift, cov_rows, member_rows,
-                                  rb, baseline, config_meta, fold_info)
+                                  rb, baseline, config_meta, fold_info,
+                                  metrics=cal_m, platt=platt)
     artifacts.append(p.name)
 
     # ── 13. Schema validation (gates) ─────────────────────────────────────

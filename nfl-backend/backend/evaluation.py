@@ -58,6 +58,14 @@ def binary_metrics(p: np.ndarray, y: np.ndarray) -> dict:
 
 def calibration_buckets(p: np.ndarray, y: np.ndarray,
                         n_bins: int = 10) -> list[dict]:
+    """MLB-shaped reliability buckets (frontend presentation contract).
+
+    Field names match the MLB calibration artifact exactly so the shared
+    Calibration page renders both sports through one code path: ``bucket``
+    (e.g. ``"50-60%"``), ``mean_predicted``, ``mean_actual``, ``count``, and
+    ``gap`` (= mean_predicted − mean_actual; >0 = overconfident). Values are
+    the NFL pipeline's own pooled OOF statistics — nothing copied from MLB.
+    """
     p = np.asarray(p, dtype=float)
     y = np.asarray(y, dtype=float)
     ok = np.isfinite(p) & np.isfinite(y)
@@ -68,11 +76,13 @@ def calibration_buckets(p: np.ndarray, y: np.ndarray,
         m = bins == b
         if not m.any():
             continue
+        mean_pred, mean_actual = float(p[m].mean()), float(y[m].mean())
         rows.append({
-            "bucket": f"{b / n_bins:.1f}-{(b + 1) / n_bins:.1f}",
-            "n": int(m.sum()),
-            "mean_pred": float(p[m].mean()),
-            "mean_actual": float(y[m].mean()),
+            "bucket": f"{b * 10}-{(b + 1) * 10}%",
+            "mean_predicted": round(mean_pred, 4),
+            "mean_actual": round(mean_actual, 4),
+            "count": int(m.sum()),
+            "gap": round(mean_pred - mean_actual, 4),
         })
     return rows
 

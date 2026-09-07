@@ -35,7 +35,9 @@ FRONTEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = FRONTEND_DIR.parent if FRONTEND_DIR.name == "frontend" else FRONTEND_DIR
 NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
 
-ARTIFACT_DATE = "20260831"
+# Newer than any committed artifact so the fixture is the one the page's
+# newest-date resolution picks up (removed after the run).
+ARTIFACT_DATE = "20260909"
 CALIBRATION_NAME = f"nfl_calibration_{ARTIFACT_DATE}.json"
 HISTORY_NAME = f"nfl_predictions_history_{ARTIFACT_DATE}.csv"
 CALIBRATION_PATH = NFL_DD / CALIBRATION_NAME
@@ -53,11 +55,12 @@ _BACKUPS: dict[Path, bytes] = {}
 # Representative artifact construction (matches the emitted Part-A schema)
 # ---------------------------------------------------------------------------
 def _calibration_record() -> dict:
-    """A realistic nfl_calibration_*.json mirroring build_calibration.
+    """A realistic nfl_calibration_*.json mirroring the MLB-shaped writer.
 
-    Buckets run the FAVORED view only (>= 50%), matching the backend
-    reliability_buckets fix — the raw calibration_buckets / calibrated set
-    never carry a sub-50% bucket."""
+    Buckets carry the MLB presentation fields (bucket/mean_predicted/
+    mean_actual/count/gap); the ``calibration`` block carries the deployed
+    Platt params + raw→calibrated metrics exactly like ``calibration_*.json``.
+    Values are NFL pipeline-shaped (decided OOF pool, favored view ≥ 50%)."""
     seq = [0.52, 0.60, 0.68, 0.76, 0.84, 0.92]   # favored-only: 50%..100%
     counts = [130, 210, 260, 230, 170, 107]
     buckets, cal_buckets = [], []
@@ -190,19 +193,21 @@ def run() -> int:
         text = _all_text(at)
         vcl = at.get("vega_lite_chart")
 
-        # (1) header pill, record summary card
+        # (1) header pill, record summary card — Today's Record follows the
+        #     MLB semantic rule: it counts only the BOARD DATE's decided
+        #     games. The NFL 2026 board is scheduled ahead, so the card is
+        #     legitimately 0-0 with 'No upsets today' — the lifetime OOF
+        #     pool must never masquerade as today's results.
         for key, needle in [("header", "Model Calibration Dashboard"),
-                            ("record", "Today's Record:"),
-                            ("rec-completed", " completed games")]:
+                            ("record", "Today's Record:")]:
             if needle not in text:
                 problems.append(f"missing [{key}] = {needle!r}")
-
-        # (1b) NFL upset strip is capped to the most-surprising few (not all 50
-        #     upsets from the lifetime pool) with a collapsed remainder tail.
-        if " more upsets" not in text:  # tail renders as '· +40 more upsets'
-            problems.append("NFL upset strip not collapsed to top-N + remainder")
-        if text.count(" upset ") > 20:  # capped ~10 pills — not the ~50 full flood
-            problems.append("NFL upset strip still floods (too many upset pills)")
+        if "✓ 0-0" not in text:
+            problems.append("NFL summary card not the honest 0-0 board-date record")
+        if "No upsets today" not in text:
+            problems.append("NFL summary card not the 'No upsets today' empty state")
+        if "1,110 completed games" in text or "1107 completed games" in text:
+            problems.append("NFL summary card presents OOF history as today's games")
 
         # (2) four KPI cards
         for key, needle in {"auc": "AUC-ROC", "brier": "BRIER SCORE",
