@@ -611,22 +611,76 @@ def _pick_date(date_str: str) -> str:
 def _pick_artifact_date(date_str: str, prefix: str) -> str:
     """Find the best date for an artifact file ``{prefix}_{date}.ext``.
 
-    Tries the requested date first; if no artifact exists for it, falls
-    back to the newest available date — so tabs that track the latest
-    snapshot (Calibration, Model Monitor, SHAP) never show blank just
-    because the user navigated to a past date.
+    Verify-then-fallback: NEVER trust the union date set for a family.
+
+    ``available_dates()`` is a UNION across families (boards ∪ calibration
+    ``daily`` ∪ prediction-history game dates), so its newest entry can
+    carry NO artifact for this particular family — a fresh push read
+    through a lagging raw-CDN edge (the contents API lists the file, raw
+    404s for minutes), retention pruning a family the union still lists,
+    or a partial run shipping one family but not another. Returning that
+    newest union date unverified made the ``{prefix}_{date}`` fetch come
+    back None and every family-tracked page (Calibration / Model Monitor /
+    Power Rankings) render its 'no artifacts found' empty state with data
+    plainly committed one day earlier (the 2026-09-13 deployed regression:
+    'No calibration artifacts found for 20260907 or any recent date').
+
+    Resolution order — the first date whose artifact ACTUALLY fetches wins:
+      1. the requested date;
+      2. the last few CALENDAR days ending today (ET) — the pipeline's own
+         dated naming, healing a stale/lagging union date set;
+      3. the union set, newest first (bounded probes — retention keeps
+         ~1-3 days per family, so a real hit sits near the top);
+      4. the family's own enumerated dates (``_family_dated_dates``), for
+         a union that lags the family (rate-limited contents API while
+         the family has fresh reachable files).
+    Returns the requested date (or the 20260809 placeholder) when nothing
+    resolves — the caller renders its honest missing-artifact state.
     """
     cfg = get_source_config()
-    dates = available_dates(**cfg)
-    latest = dates[0] if dates else None
-    # Try the requested date — check .json first (calibration/monitor), then .csv (SHAP)
+    # 1) The requested date — .json first (calibration/monitor), then .csv.
     if date_str:
         for ext in (".json", ".csv"):
             if _fetch_bytes(f"{prefix}_{date_str}{ext}", **cfg)[0] is not None:
                 return date_str
-    # Fall back to latest available date
-    if latest and latest != date_str:
-        return latest
+
+    # 2) Calendar days: today (ET) .. today-3 — the retention / CDN-lag
+    # window. Independent of any enumeration, so a stale union can never
+    # hide a family artifact that raw.githubusercontent still serves.
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+    try:
+        base = datetime.strptime(today, "%Y%m%d").date()
+        calendar_dates = [(base - timedelta(days=i)).strftime("%Y%m%d")
+                          for i in range(4)]
+    except ValueError:
+        calendar_dates = []
+    for cand in calendar_dates:
+        if cand == date_str:
+            continue
+        for ext in (".json", ".csv"):
+            if _fetch_bytes(f"{prefix}_{cand}{ext}", **cfg)[0] is not None:
+                return cand
+
+    # 3) Union set, newest first, bounded: a family hit is always near the
+    # newest end (retention windows are 1-3 days), so capping the probes
+    # keeps the miss path cheap even on a season-long union list.
+    dates = available_dates(**cfg)
+    for cand in dates[:10]:
+        if cand == date_str:
+            continue
+        for ext in (".json", ".csv"):
+            if _fetch_bytes(f"{prefix}_{cand}{ext}", **cfg)[0] is not None:
+                return cand
+
+    # 4) The family's own enumerated dates (contents API + local dir).
+    for cand in _family_dated_dates(
+            get_sport(), [(prefix, ".json"), (prefix, ".csv")])[:10]:
+        if cand == date_str:
+            continue
+        for ext in (".json", ".csv"):
+            if _fetch_bytes(f"{prefix}_{cand}{ext}", **cfg)[0] is not None:
+                return cand
+
     return date_str or "20260809"
 
 

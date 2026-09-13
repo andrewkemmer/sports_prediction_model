@@ -14,6 +14,9 @@ projected team runs, the 8.5 O/U probability split, and the ±1.5 run line
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -1439,11 +1442,92 @@ def _run_nfl_main(valid, valid_set) -> None:
     nfl_todays_page.run()
 
 
+def _recovery_dates(failed: str) -> list[str]:
+    """Candidate dates to walk through when the selected board date failed.
+
+    Newest-first CALENDAR days from today (ET) back 5 days — the retention
+    / CDN-lag window — with the failed date last (its history rebuild is
+    still worth one attempt before the honest empty state). Independent of
+    any artifact enumeration, so a stale/lagging date union can never hide
+    a board that raw.githubusercontent still serves.
+    """
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+    try:
+        base = datetime.strptime(today, "%Y%m%d").date()
+        days = [(base - timedelta(days=i)).strftime("%Y%m%d")
+                for i in range(5)]
+    except ValueError:
+        days = []
+    if failed not in days:
+        days.append(failed)
+    return days
+
+
+def _recovered_board(date_str: str, cand: str):
+    """A renderable board for ``cand`` (recovered), or None.
+
+    Direct snapshot first, then the prediction-history rebuild (the same
+    archive-view path the regular board uses). 'Renderable' = a NON-EMPTY
+    frame — an empty frame must NOT short-circuit the walk to an earlier
+    candidate. Cached per (candidate, requested) pair so the walk probes
+    each artifact at most once across reruns; a cache hit that has since
+    become empty (artifact pushed) is refreshed on a miss-after-hit only
+    when the frame was empty. Exceptions (transient CDN 404s surface as
+    RerunException-free streamlit DownloadErrors in some hosts) degrade to
+    None — the walk continues to the next candidate, never crashes.
+    """
+    key = f"_recovered_board_{cand}_{date_str}"
+    if key in st.session_state and st.session_state[key] is not None:
+        return st.session_state[key]
+    frame = None
+    try:
+        frame = utils.load_todays_games(cand)
+        if frame is None or frame.empty:
+            frame = utils.load_history_games(cand)
+    except Exception:
+        try:
+            frame = utils.load_history_games(cand)
+        except Exception:
+            frame = None
+    st.session_state[key] = frame if (frame is not None and not frame.empty) else None
+    return st.session_state[key]
+
+
+def _build_slate_map(games, date_str: str) -> dict:
+    """Run-engine slate rows resolved across the available dated
+    run_engine_markets_*.csv artifacts by game_pk (ESPN game_id pre-game --
+    the 145d841 convention), newest-first, instead of keying the lookup to
+    the game's exact date file. A game priced by a later run (artifact date
+    > game date) or a GMT-rollover evening game whose id carries the next
+    day's prefix still resolves here. An unresolvable id is simply absent
+    from the map -> the card renders the quiet 'unavailable' fallback.
+    """
+    _frames = {}
+    for _d in [date_str] + [d for d in _run_engine_dates() if d >= date_str]:
+        if _d not in _frames:
+            _frames[_d] = utils.load_run_engine_markets(_d)
+    _gids = [str(g.get("game_id", "")) for _, g in games.iterrows()]
+    return diag.resolve_slate_across_artifacts(_frames, _gids)
+
+
 def main() -> None:
     """Sport-aware Today's Games: valid-date nav + calendar for the active
     sport (MLB board, NFL moneyline day board), with a graceful missing-date
-    fallback. Touches date navigation only — card rendering/artifacts are
-    passed through the existing loaders unchanged."""
+    fallback that RECOVERS instead of showing a dead end.
+    Deployed regression (2026-09-13, 'No game board exists for Sunday,
+    September 13, 2026'): the date navigator trusts a UNION date set
+    (board snapshots ∪ calibration ``daily`` ∪ prediction-history game
+    dates), so its newest entry can carry NO todays_games_<date>.csv —
+    a fresh push read through a lagging raw-CDN edge (contents API lists
+    the file minutes before raw serves it), retention pruning a snapshot
+    the union still lists, or a partial run shipping one family but not
+    another. The old code stopped dead with the 'No game board exists'
+    warning. It now walks BACKWARD through recent calendar dates and
+    takes the newest one that actually renders a board (direct snapshot
+    or the prediction-history archive rebuild) before ever showing the
+    honest empty state — each candidate is probed once per session, so
+    CDN lag heals itself on the next rerun without user action.
+    """
     sport = utils.get_sport()
     valid = list(utils.valid_dates(sport))
     valid_set = set(valid)
@@ -1460,38 +1544,60 @@ def main() -> None:
     date_str = st.session_state["selected_date"]
 
     if date_str not in valid_set:
+        for _cand in _recovery_dates(date_str):
+            if _cand == date_str:
+                continue
+            _recovered = _recovered_board(date_str, _cand)
+            if _recovered is not None:
+                st.info(
+                    f"🗂 Recovery view — no game board was reachable for "
+                    f"{utils.format_date_long(date_str)} right now, so the "
+                    f"most recent available board ({utils.format_date_long(_cand)}) "
+                    "is shown. Re-select the original date once its snapshot "
+                    "lands (usually within minutes of the next push)."
+                )
+                _render_board(_recovered, _cand, valid)
+                return
         _render_nearest_valid_fallback(valid, date_str)
         st.stop()
 
     games = utils.load_todays_games(date_str)
-    cal = utils.load_calibration(date_str)
-
-    # Run-engine slate rows resolved across the available dated
-    # run_engine_markets_*.csv artifacts by game_pk (ESPN game_id pre-game --
-    # the 145d841 convention), newest-first, instead of keying the lookup to
-    # the game's exact date file. A game priced by a later run (artifact date
-    # > game date) or a GMT-rollover evening game whose id carries the next
-    # day's prefix still resolves here. An unresolvable id is simply absent
-    # from the map -> the card renders the quiet 'unavailable' fallback.
-    _frames = {}
-    for _d in [date_str] + [d for d in _run_engine_dates() if d >= date_str]:
-        if _d not in _frames:
-            _frames[_d] = utils.load_run_engine_markets(_d)
-    _gids = [str(g.get("game_id", "")) for _, g in games.iterrows()]
-    slate_map = diag.resolve_slate_across_artifacts(_frames, _gids)
-
-    history_view = False
     if games.empty:
-        # No full card snapshot for this date — rebuild a simplified board
-        # from the walk-forward prediction history, which covers every game
-        # the model has ever predicted.
+        # Union-listed date whose snapshot fetch failed (CDN lag): try the
+        # history rebuild, then the recovery walk, before the empty state.
         games = utils.load_history_games(date_str)
         if not games.empty:
-            history_view = True
-
-    if games.empty:
+            _render_board(games, date_str, valid, history_view=True)
+            return
+        for _cand in _recovery_dates(date_str):
+            if _cand == date_str:
+                continue
+            _recovered = _recovered_board(date_str, _cand)
+            if _recovered is not None:
+                st.info(
+                    f"🗂 Recovery view — no game board was reachable for "
+                    f"{utils.format_date_long(date_str)} right now, so the "
+                    f"most recent available board ({utils.format_date_long(_cand)}) "
+                    "is shown."
+                )
+                _render_board(_recovered, _cand, valid)
+                return
         _render_nearest_valid_fallback(valid, date_str)
         st.stop()
+
+    _render_board(games, date_str, valid)
+
+
+def _render_board(games, date_str: str, valid, history_view: bool = False) -> None:
+    """Shared board renderer: accuracy header strip, date nav, filter pills,
+    and the two-per-row game cards with run-engine boxes + SHAP accordions.
+
+    Both entry points call this — the primary ``main()`` path and the
+    missing-snapshot recovery path — so a recovered board is byte-identical
+    to a normally-loaded one apart from the recovery notice.
+    """
+    cal = utils.load_calibration(date_str)
+    slate_map = _build_slate_map(games, date_str)
 
     # --- header: date + accuracy badge + evening note ---
     record = cal.get("today_record", {})

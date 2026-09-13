@@ -575,9 +575,15 @@ class TestNflAppTestSmoke(unittest.TestCase):
         self.assertIn("FALLBACK_OK", self._run(script))
 
 
-    def test_mlb_invalid_selected_date_falls_back_gracefully(self):
-        """An invalid/stale selected_date (no board) never crashes — it shows
-        the graceful fallback with a jump action instead of a zero-card page."""
+    def test_mlb_invalid_selected_date_recovers_or_falls_back(self):
+        """An invalid/stale selected_date (no board) never crashes — it either
+        RECOVERS onto the most recent board that actually renders (the
+        2026-09-13 deployed regression: a union-listed date whose
+        todays_games snapshot is missing must not dead-end the page) or,
+        when nothing is reachable at all, shows the graceful fallback with
+        the jump action. The recovery info notice is asserted when present.
+        Runs against the live local artifacts, so the honest fallback only
+        asserts when NO board renders."""
         script = (
             "import sys; sys.path.insert(0, %r);\n"
             "from streamlit.testing.v1 import AppTest;\n"
@@ -587,7 +593,13 @@ class TestNflAppTestSmoke(unittest.TestCase):
             "at.run();\n"
             "assert not at.exception, at.exception;\n"
             "warns = ' '.join(w.value for w in at.warning);\n"
-            "assert 'No game board exists' in warns, warns[:400];\n"
+            "infos = ' '.join(i.value for i in at.info);\n"
+            "texts = ' '.join(getattr(m,'value','') for m in at.markdown);\n"
+            "recovered = 'games shown' in texts;\n"
+            "if not recovered:\n"
+            "    assert 'No game board exists' in warns, warns[:400];\n"
+            "else:\n"
+            "    assert 'Recovery view' in infos or 'Recovery view' in texts, infos[:400];\n"
             "print('MLB_FALLBACK_OK')\n"
         ) % (str(_FRONTEND), str(_FRONTEND / "Home.py"))
         self.assertIn("MLB_FALLBACK_OK", self._run(script))
