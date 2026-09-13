@@ -204,38 +204,24 @@ production failure messages name for `data_delivery/` parquet regeneration.
 
 This is enforced two ways:
 
-1. **CI** — `.github/workflows/backend-hygiene.yml` runs the guard plus the
-   kept test suite on every push/PR touching `mlb-backend/backend/`. New test
-   failures fail the build; the pre-existing artifact-drift pins are managed
-   by the enforced contract in `mlb-backend/.github-known-failures.txt`
-   (fixes must shrink that file).
+1. **CI** — `.github/workflows/backend-hygiene.yml` runs the guard on every
+   push/PR touching `mlb-backend/backend/`. Any file that is not
+   production-reachable or allowlisted fails the build — research code,
+   ablations *and test files* are uncommittable by default.
 2. **Locally** — `python backend/check_production_graph.py` exits non-zero
    with one line per violation.
 
-**Research code does not live in this repo.** Ablations, gates, diagnostics,
-tuners, probes and their harnesses belong in the coding agent's (or your)
-scratch workspace — a local `tmp/` directory outside version control. If a
-verdict matters, it lands as (a) an `mlb_*` JSON record in `data_delivery/`
-(never deleted, feeds the dashboards) and (b) a production-code change with
-the provenance written into the code comment. Never as a new backend script.
+**Research code and tests do not live in this repo.** Ablations, gates,
+diagnostics, tuners, probes, harnesses and the test suite belong in the
+coding agent's (or your) scratch workspace — a local `tmp/` directory
+outside version control. If a verdict matters, it lands as (a) an `mlb_*`
+JSON record in `data_delivery/` (never deleted, feeds the dashboards) and
+(b) a production-code change with the provenance written into the code
+comment. Never as a new backend file. Historical test suites remain
+recoverable from git history
+(`git show <sha>:mlb-backend/backend/test_x.py`).
 
-## 5. Tests
-
-```bash
-cd mlb-backend/backend
-python -m unittest discover -s . -p "test_*.py" -v    # or: pytest .
-```
-
-* `test_point_in_time.py` — strict filtering, no future leakage in rolling
-  features/Elo, market lines timestamped at/after start are rejected.
-* `test_walk_forward.py` — train folds strictly historical, expanding window,
-  non-overlapping validation, removing future games leaves folds unchanged.
-* `test_psi.py` — identical distributions ≈ 0, shifted distributions exceed
-  WARN, degenerate inputs return 0, PSI is never negative, status mapping.
-
-Tests need only `pandas`/`numpy` (heavy ML is imported lazily).
-
-## 6. Assumptions & decisions (documented per the brief)
+## 5. Assumptions & decisions (documented per the brief)
 
 * **Synthetic-by-default.** The pipeline ships a seeded, deterministic
   synthetic game log so it runs end-to-end in Colab with no API access. Real
@@ -280,7 +266,7 @@ Tests need only `pandas`/`numpy` (heavy ML is imported lazily).
   page renders a per-feature coverage panel (feature × window × % measured)
   so absence is visible instead of hiding behind default-filled zeros.
 
-## 7. FAQ
+## 6. FAQ
 
 **Why doesn't the app import scikit-learn / xgboost / shap?**
 All model code lives in `backend/`; the frontend only reads CSV/JSON artifacts

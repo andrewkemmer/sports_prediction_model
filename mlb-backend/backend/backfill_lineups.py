@@ -4,7 +4,8 @@ Emits data_delivery/lineups.parquet: game_pk, game_date, home_team,
 away_team, home_order (9 MLB IDs), away_order, complete_home, complete_away,
 state. Incremental + resumable (already-fetched pks are skipped), paced at
 ~2.4 fetches/sec (pause 0.15s, one retry) — under the roof fetcher's proven
-~2.85/s. Reuses the Phase 1 parser (tested in test_phase1_lineup_probe.py).
+~2.85/s. Reuses the Phase 1 parser (unit-tested historically; see git
+# history for the retired test suite).
 
 Usage:
     python backfill_lineups.py --limit 400     # chunk across invocations
