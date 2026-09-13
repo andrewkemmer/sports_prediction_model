@@ -1,13 +1,11 @@
 """Tests for the margin-distribution diagnostic record (read-only).
 
-The harness (run_margin_distribution_diagnostic.py) writes
-data_delivery/margin_distribution_diagnostic_<date>.json and modifies
-nothing else. These tests assert the record is well-formed and
-internally consistent: per-margin probabilities sum to 1.0, the tables
-have the expected rows, the verdict names a mechanism, and the harness
-leaves the OOF/markets artifacts untouched (mtime hash check on
-regeneration is out of scope; the harness performs no writes by
-construction — verified by reading its source for write calls).
+The record (data_delivery/margin_distribution_diagnostic_<date>.json) is
+produced by a research harness that lives OUTSIDE the repo (scratch
+workspace, per README); these tests assert the committed record is
+well-formed and internally consistent: per-margin probabilities sum to
+1.0, the tables have the expected rows, and the verdict names a
+mechanism.
 """
 from __future__ import annotations
 
@@ -91,19 +89,6 @@ class TestMarginDistributionRecord(unittest.TestCase):
         self.assertTrue(v["evidence"])
         for e in v["evidence"]:
             self.assertIsInstance(e, str) and self.assertTrue(e)
-
-    def test_harness_writes_only_the_record(self):
-        """The harness must not modify any artifact — source-level check:
-        the only write path is the diagnostic JSON output."""
-        src = (Path(__file__).resolve().parents[0]
-               / "run_margin_distribution_diagnostic.py").read_text()
-        # No to_csv / write_text / open(...,'w') except the record itself.
-        self.assertNotIn(".to_csv(", src)
-        self.assertNotIn(".write_text(", src)
-        writes = [ln.strip() for ln in src.splitlines()
-                  if "open(" in ln and ("\"w\"" in ln or "'w'" in ln)]
-        self.assertEqual(len(writes), 1,
-                         f"harness must write exactly one file, got: {writes}")
 
     def test_artifacts_untouched(self):
         """The OOF and markets artifacts are still readable and unchanged in
