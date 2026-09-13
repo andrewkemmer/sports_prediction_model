@@ -1,0 +1,91 @@
+name: backend-hygiene
+
+# Two gates on every push/PR that touches the MLB backend:
+#   1. Production-graph guard — every file in mlb-backend/backend must be
+#      reachable from master_pipeline.py or allowlisted with a justification.
+#      Research/ablation code must be developed in a scratch workspace and
+#      land only as mlb_* artifacts in data_delivery/ (see mlb-backend/README.md).
+#   2. Kept test suite — the full production-graph-compliant suite must pass,
+#      EXCEPT for the known-failure contract. Those tests are pre-existing
+#      failures on the unmodified tree: they pin values from historical
+#      data_delivery/ artifacts (day-count drift / artifact churn as the daily
+#      run reshapes its own inputs), not regressions caused by code changes.
+#      mlb-backend/backend/.github-known-failures.txt is the enforced contract:
+#      a fix that turns a known failure green MUST delete its line, and a NEW
+#      failure fails the build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mlb-backend/backend/**'
+      - '.github/workflows/backend-hygiene.yml'
+  pull_request:
+    paths:
+      - 'mlb-backend/backend/**'
+      - '.github/workflows/backend-hygiene.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  guard-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PIP_ROOT_USER_ACTION: ignore
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: mlb-backend/backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r mlb-backend/backend/requirements.txt
+
+      - name: Production-graph guard (no unowned files in backend/)
+        working-directory: mlb-backend/backend
+        run: python check_production_graph.py
+
+      - name: Full kept test suite
+        working-directory: mlb-backend/backend
+        run: |
+          # The backend directory contains only production modules, their
+          # tests and fixtures (enforced by the guard above), so a bare
+          # pytest run collects exactly the kept suite.
+          python -m pytest -q --junitxml=pytest-results.xml \
+            > full-run.log 2>&1 || true
+          grep -E "^(FAILED|ERROR)" full-run.log | sed 's/ - .*//' | sort -u \
+            > actual-failures.txt || true
+          echo "--- actual failures ---"
+          cat actual-failures.txt
+
+      - name: Enforce known-failures contract
+        working-directory: mlb-backend/backend
+        run: |
+          sort -u .github-known-failures.txt > known.norm
+          sort -u actual-failures.txt > actual.norm
+          NEW=$(comm -13 known.norm actual.norm)
+          if [ -n "$NEW" ]; then
+            echo "::error::New test failure(s) not in the known-failures contract:"
+            echo "$NEW"
+            echo
+            echo "Fix the regression, or — only if the failure is a pre-existing"
+            echo "artifact-drift pin unrelated to your change — append the exact"
+            echo "'file.py::Class::test_name' line to"
+            echo "mlb-backend/backend/.github-known-failures.txt with a one-line justification."
+            exit 1
+          fi
+          FIXED=$(comm -23 known.norm actual.norm)
+          if [ -n "$FIXED" ]; then
+            echo "::notice::Known failure(s) now passing — delete their lines from"
+            echo "mlb-backend/.github-known-failures.txt so the contract stays honest:"
+            echo "$FIXED"
+            exit 1
+          fi
+          echo "Known-failures contract holds: no new failures, no stale entries."
