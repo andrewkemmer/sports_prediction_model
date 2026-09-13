@@ -12,6 +12,9 @@ numpy
 joblib
 requests
 altair
+# The backend test suite imports frontend/utils.py helpers (e.g. the
+# reconciliation tests), and utils imports streamlit at module level.
+streamlit>=1.30
 pytest
 duckdb>=1.0.0
 pyarrow
