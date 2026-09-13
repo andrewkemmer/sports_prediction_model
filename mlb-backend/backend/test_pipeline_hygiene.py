@@ -12,10 +12,14 @@ Imports use the TOP-LEVEL module names exactly as production code does
 module instances the code under test reads.
 """
 import re
+import tempfile
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
+import git
+import github_sync
 import numpy as np
 import pandas as pd
 
@@ -196,6 +200,155 @@ class TestWinPctDiffStageAwareness(unittest.TestCase):
             out = add_diff_features(df, require_records=True)
         self.assertIn("FINAL computation", " ".join(captured.output))
         self.assertTrue(pd.isna(out["win_pct_diff"]).all())
+
+
+class TestSyncRemoteTipAndPushRetry(unittest.TestCase):
+    """The 2026-09-13 rejected-push race, pinned with REAL git mechanics.
+
+    A warm sync clone (/content/mlb_sync_tmp) never fetched: after any
+    other push landed, the daily run committed on a stale snapshot and its
+    artifact push was hard-rejected (non-fast-forward), losing the run's
+    delivery. sync_remote_tip must heal a reused clone to the current
+    remote tip, and push_with_retry must recover by re-syncing + replaying
+    the run's restage() onto the new tip.
+
+    Every test here runs against local throwaway git repos (a bare origin
+    plus clones), so the rejection is genuine, not mocked.
+    """
+
+    def _init_repo(self, path: Path, bare: bool = False):
+        repo = git.Repo.init(str(path), bare=bare, initial_branch="main")
+        if not bare:
+            with repo.config_writer() as cw:
+                cw.set_value("user", "email", "ci@example.com")
+                cw.set_value("user", "name", "CI Test")
+        return repo
+
+    def _commit_file(self, repo, fname: str, content: str, msg: str):
+        p = Path(repo.working_tree_dir) / fname
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        repo.index.add([fname])
+        return repo.index.commit(msg)
+
+    def _seed_origin(self, root: Path):
+        origin_path = root / "origin.git"
+        origin = self._init_repo(origin_path, bare=True)
+        # file:/// URI: a plain Windows path (C:\...) is parsed as scp syntax
+        # (drive letter = hostname) and the push dies in SSH.
+        origin_url = origin_path.as_uri()
+        seed = self._init_repo(root / "seed")
+        self._commit_file(seed, "mlb/data_delivery/seed.csv", "pk\n", "seed")
+        seed.create_remote("origin", origin_url)
+        seed.remote("origin").push("main")
+        return origin, seed
+
+    def test_sync_remote_tip_heals_stale_clone(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            root = Path(td)
+            _origin, seed = self._seed_origin(root)
+            branch = seed.active_branch.name
+            clone = git.Repo.clone_from(
+                (root / "origin.git").as_uri(),
+                str(root / "clone"), branch=branch)
+            with clone.config_writer() as cw:
+                cw.set_value("user", "email", "ci@example.com")
+                cw.set_value("user", "name", "CI Test")
+            # Remote moves ahead; the clone never fetches (the stale-clone
+            # condition that caused the rejected pushes).
+            self._commit_file(seed, "mlb/data_delivery/newer_20260913.csv",
+                              "x\n", "second push")
+            seed.remote("origin").push(branch)
+            stray = Path(clone.working_tree_dir) / "stray.txt"
+            stray.write_text("junk", encoding="utf-8")
+
+            self.assertNotEqual(clone.head.commit.hexsha,
+                                seed.head.commit.hexsha,
+                                "precondition: clone must be stale")
+            github_sync.sync_remote_tip(clone, branch)
+            self.assertEqual(clone.head.commit.hexsha, seed.head.commit.hexsha,
+                             "clone must sit on the CURRENT remote tip")
+            self.assertFalse(stray.exists(),
+                             "stray untracked files must be cleaned")
+
+    def test_push_with_retry_replays_after_rejection(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            root = Path(td)
+            _origin, seed = self._seed_origin(root)
+            clone = git.Repo.clone_from(str(seed.remote("origin").url),
+                                        str(root / "clone"), branch="main")
+            with clone.config_writer() as cw:
+                cw.set_value("user", "email", "ci@example.com")
+                cw.set_value("user", "name", "CI Test")
+            # A concurrent actor advances the remote after our clone.
+            self._commit_file(seed, "other/concurrent.csv", "c\n", "concurrent")
+            seed.remote("origin").push("main")
+            # Simulate the daily run: stage + commit on the STALE clone.
+            artifact = Path(clone.working_tree_dir) / "mlb/data_delivery/run.csv"
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text("run1", encoding="utf-8")
+            clone.index.add(["mlb/data_delivery/run.csv"])
+            clone.index.commit("Update MLB features + predictions")
+
+            def restage():
+                # Mirror production _restage_artifacts: re-copy the run's
+                # files (reset --hard dropped them) and commit again.
+                artifact.write_text("run1", encoding="utf-8")
+                clone.index.add(["mlb/data_delivery/run.csv"])
+                clone.index.commit("Update MLB features + predictions")
+
+            github_sync.push_with_retry(clone, "main", restage=restage,
+                                        attempts=3, log=lambda msg: None)
+            origin_repo = git.Repo(str(root / "origin.git"))
+            blobs = [e.path for e in
+                     origin_repo.commit("main").tree.traverse()
+                     if e.type == "blob"]
+            self.assertIn("mlb/data_delivery/run.csv", blobs,
+                          "the replayed run artifact must be on the remote")
+            self.assertIn("other/concurrent.csv", blobs,
+                          "the concurrent commit must not be clobbered")
+            self.assertEqual(origin_repo.commit("main").hexsha,
+                             clone.head.commit.hexsha,
+                             "remote tip must equal the retry's final commit")
+
+    def test_push_with_retry_success_without_retry(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            root = Path(td)
+            _origin, seed = self._seed_origin(root)
+            clone = git.Repo.clone_from(str(seed.remote("origin").url),
+                                        str(root / "clone"), branch="main")
+            with clone.config_writer() as cw:
+                cw.set_value("user", "email", "ci@example.com")
+                cw.set_value("user", "name", "CI Test")
+            self._commit_file(clone, "mlb/data_delivery/fresh.csv", "f\n",
+                              "fresh run")
+            calls = []
+            github_sync.push_with_retry(clone, "main",
+                                        restage=lambda: calls.append(1),
+                                        attempts=3, log=lambda msg: None)
+            self.assertEqual(calls, [],
+                             "a healthy tip must never trigger a restage")
+
+    def test_push_with_retry_raises_when_attempts_exhausted(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            root = Path(td)
+            _origin, seed = self._seed_origin(root)
+            clone = git.Repo.clone_from(str(seed.remote("origin").url),
+                                        str(root / "clone"), branch="main")
+            with clone.config_writer() as cw:
+                cw.set_value("user", "email", "ci@example.com")
+                cw.set_value("user", "name", "CI Test")
+            self._commit_file(seed, "other/concurrent.csv", "c\n", "concurrent")
+            seed.remote("origin").push("main")
+            self._commit_file(clone, "mlb/data_delivery/run.csv", "r\n",
+                              "stale-base run commit")
+            restage_calls = []
+            with self.assertRaises(RuntimeError):
+                github_sync.push_with_retry(
+                    clone, "main",
+                    restage=lambda: restage_calls.append(1), attempts=1)
+            self.assertEqual(restage_calls, [],
+                             "no restage may run after the final attempt")
 
 
 if __name__ == "__main__":

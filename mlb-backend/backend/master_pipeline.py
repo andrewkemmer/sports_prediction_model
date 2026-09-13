@@ -276,13 +276,19 @@ except Exception as e:
 _banner("PHASE 5", "GitHub Sync — push new artifacts")
 token = token or CONFIG.get("github_token", "")
 sync_dir = Path("/content/mlb_sync_tmp")
+# Race-resilient push machinery (lives in github_sync so it is importable
+# and unit-testable — master_pipeline is a run-once script).
+from github_sync import push_with_retry, sync_remote_tip
 
 def _git_push_confirmed(repo, branch: str) -> None:
-    """Push and verify the remote accepted the new head (raise on failure)."""
-    info = repo.remote("origin").push(branch)
-    bad = [p for p in info if p.flags & (p.ERROR | p.REJECTED | p.REMOTE_REJECTED | p.REMOTE_FAILURE)]
-    if bad:
-        raise RuntimeError(f"Push rejected by remote: {[p.summary for p in bad]}")
+    """Single-shot push kept for compatibility; raises on rejection.
+
+    The daily run now pushes through ``push_with_retry`` instead: a reused
+    sync clone that sat out earlier pushes used to commit on a stale
+    snapshot and get hard-rejected (non-fast-forward), losing the run's
+    artifact delivery. See github_sync.sync_remote_tip / push_with_retry.
+    """
+    push_with_retry(repo, branch, restage=None, attempts=1, log=print)
 
 def _open_sync_repo(token: str, sync_dir: Path):
     """Open the sync clone (or create it), configuring git identity."""
@@ -290,6 +296,11 @@ def _open_sync_repo(token: str, sync_dir: Path):
     auth_url = f"https://{token}@github.com/{CONFIG['github_username']}/{CONFIG['github_repo']}.git"
     if (sync_dir / ".git").exists():
         repo = git.Repo(str(sync_dir))
+        # A warm clone can predate other pushes (the previous run crashed
+        # before cleanup, or a manual push landed between runs) — heal it to
+        # the CURRENT remote tip before anything commits on top, or the
+        # eventual push is a guaranteed non-fast-forward rejection.
+        sync_remote_tip(repo, CONFIG["github_branch"], log=print)
     else:
         repo = git.Repo.clone_from(auth_url, str(sync_dir), branch=CONFIG["github_branch"], depth=1)
     if CONFIG["git_email"]: repo.config_writer().set_value("user", "email", CONFIG["git_email"]).release()
@@ -298,6 +309,7 @@ def _open_sync_repo(token: str, sync_dir: Path):
 
 staged: list[str] = []
 seen: set[str] = set()
+staged_srcs: dict[str, Path] = {}  # rel -> local source, for push retries
 
 if not token:
     print("  ⏭️  No token — skipping push and cleanup")
@@ -311,6 +323,7 @@ else:
             if rel in seen:
                 return
             seen.add(rel)
+            staged_srcs[rel] = src
             dest = data_delivery_dir / rel[len(f"{SPORT_DIR_NAME}/data_delivery/"):]
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
@@ -352,10 +365,23 @@ else:
         for s in staged:
             print(f"    {s}")
         if staged:
+            def _restage_artifacts() -> None:
+                # Retry path: replay this run's staged files onto whatever
+                # tip sync_remote_tip just healed the clone to, then commit
+                # again. Sources are remembered from the original staging.
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for rel in staged:
+                    dest = data_delivery_dir / rel[len(f"{SPORT_DIR_NAME}/data_delivery/"):]
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(staged_srcs[rel], dest)
+                repo.index.add(staged)
+                repo.index.commit(f"Update MLB features + predictions: {ts}")
+
             repo.index.add(staged)
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             repo.index.commit(f"Update MLB features + predictions: {ts}")
-            _git_push_confirmed(repo, CONFIG["github_branch"])
+            push_with_retry(repo, CONFIG["github_branch"],
+                            restage=_restage_artifacts, log=print)
             print(f"  ✅ Pushed {len(staged)} files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
         else:
             print("  ⏭️  Nothing new to push")
@@ -474,10 +500,18 @@ else:
             print(f"  🧹 Removing {len(stale)} stale files:")
             for s in stale:
                 print(f"    {s}")
-            repo.git.rm(stale)
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            repo.index.commit(f"Remove stale data_delivery artifacts: {ts}")
-            _git_push_confirmed(repo, CONFIG["github_branch"])
+
+            def _restage_cleanup() -> None:
+                # Retry path: after sync_remote_tip heals the clone to the
+                # (not-yet-cleaned) remote tip, the stale paths exist again,
+                # so the rm + commit replay cleanly.
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                repo.git.rm(stale)
+                repo.index.commit(f"Remove stale data_delivery artifacts: {ts}")
+
+            _restage_cleanup()
+            push_with_retry(repo, CONFIG["github_branch"],
+                            restage=_restage_cleanup, log=print)
             print(f"  ✅ Removed {len(stale)} stale files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
     except Exception as e:
         print(f"  ❌ Cleanup failed: {e}")

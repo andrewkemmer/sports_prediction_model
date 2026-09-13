@@ -12,7 +12,8 @@ name: backend-hygiene
 #      run reshapes its own inputs), not regressions caused by code changes.
 #      mlb-backend/backend/.github-known-failures.txt is the enforced contract:
 #      a fix that turns a known failure green MUST delete its line, and a NEW
-#      failure fails the build.
+#      failure fails the build. Comment lines and whitespace are ignored when
+#      the contract is parsed (first CI run failed exactly on this).
 
 on:
   push:
@@ -68,7 +69,13 @@ jobs:
       - name: Enforce known-failures contract
         working-directory: mlb-backend/backend
         run: |
-          sort -u .github-known-failures.txt > known.norm
+          # Contract parsing: skip comment lines, blank lines, and CR
+          # (the file may be checked out with CRLF endings on Windows).
+          # pytest "FAILED file.py::Class::test - reason" lines were already
+          # stripped to bare node IDs in the previous step.
+          grep -v '^[[:space:]]*#' .github-known-failures.txt \
+            | grep -v '^[[:space:]]*$' | sed 's/\r$//' | sed 's/[[:space:]]*$//' \
+            | sort -u > known.norm
           sort -u actual-failures.txt > actual.norm
           NEW=$(comm -13 known.norm actual.norm)
           if [ -n "$NEW" ]; then
@@ -84,7 +91,7 @@ jobs:
           FIXED=$(comm -23 known.norm actual.norm)
           if [ -n "$FIXED" ]; then
             echo "::notice::Known failure(s) now passing — delete their lines from"
-            echo "mlb-backend/.github-known-failures.txt so the contract stays honest:"
+            echo "mlb-backend/backend/.github-known-failures.txt so the contract stays honest:"
             echo "$FIXED"
             exit 1
           fi

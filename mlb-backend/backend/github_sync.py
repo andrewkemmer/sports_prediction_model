@@ -4,6 +4,12 @@ GitHub sync for MLB Bet Predictor.
 Uses GitPython to clone the repo, copy artifacts into data_delivery/,
 commit, and push. Provides robust error handling and supports both
 SSH key and PAT authentication in Colab.
+
+Also hosts the shared daily-run sync helpers used by master_pipeline.py
+(Phases 5/6): ``sync_remote_tip`` heals a reused sync clone to the current
+remote tip, and ``push_with_retry`` pushes with bounded, self-healing
+retries so a non-fast-forward race (another actor pushed between our clone
+and our push) no longer kills the run's artifact delivery.
 """
 from __future__ import annotations
 
@@ -114,3 +120,69 @@ def sync_artifacts(
     finally:
         if tmp_dir and Path(tmp_dir).exists():
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ── Daily-run sync helpers (used by master_pipeline.py Phases 5/6) ─────────
+
+
+def _rejected_pushinfos(info) -> list:
+    """PushInfo objects carrying an error/rejection flag (bad = failed ref)."""
+    import git
+
+    bad_flags = (git.PushInfo.ERROR | git.PushInfo.REJECTED
+                 | git.PushInfo.REMOTE_REJECTED | git.PushInfo.REMOTE_FAILURE)
+    return [p for p in info if p.flags & bad_flags]
+
+
+def sync_remote_tip(repo, branch: str = "main", log=None) -> None:
+    """Hard-heal ``repo`` to the CURRENT remote tip of ``branch``.
+
+    A reused (warm) sync clone can sit on a stale snapshot of the branch —
+    the previous run crashed before its cleanup, or a manual push landed
+    between runs — and committing on top of a stale parent makes the
+    eventual push a guaranteed non-fast-forward rejection. Fetch, then hard
+    reset (and drop stray untracked files) so every commit lands on the
+    true tip. Safe for the artifact-sync use case: the clone is a throwaway
+    whose only local changes are files the caller stages AFTER this reset.
+    """
+    import git
+
+    say = log or (lambda msg: None)
+    repo.git.fetch("origin", branch)
+    try:
+        tip = repo.git.rev_parse(f"origin/{branch}")
+    except git.GitCommandError:  # very old git: tracking ref not updated
+        tip = repo.git.rev_parse("FETCH_HEAD")
+    repo.git.reset("--hard", tip)
+    repo.git.clean("-fd")
+    say(f"  synced clone to remote tip {tip[:10]} ({branch})")
+
+
+def push_with_retry(repo, branch: str, restage=None, attempts: int = 3,
+                    log=None) -> None:
+    """Push ``branch`` with bounded, self-healing retries; raise on final failure.
+
+    On a non-fast-forward rejection the throwaway clone is re-synced to the
+    NEW remote tip via :func:`sync_remote_tip` and ``restage()`` replays this
+    run's changes (re-copy + re-add + re-commit for Phase 5 artifacts; re-run
+    the stale-file rm for Phase 6) on top, then the push is attempted again.
+    The replay is always safe because the run only ever touches
+    ``<sport>/data_delivery/**`` — replaying it onto any fresh tip is valid.
+    """
+    say = log or (lambda msg: None)
+    restage = restage or (lambda: None)
+    last_error: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        info = repo.remote("origin").push(branch)
+        bad = _rejected_pushinfos(info)
+        if not bad:
+            return
+        last_error = RuntimeError(
+            f"Push rejected by remote: {[p.summary for p in bad]}")
+        if attempt == attempts:
+            break
+        say(f"  ⚠️  Push rejected (attempt {attempt}/{attempts}) — "
+            f"re-syncing to the current remote tip and replaying this run")
+        sync_remote_tip(repo, branch, log=log)
+        restage()
+    raise last_error
