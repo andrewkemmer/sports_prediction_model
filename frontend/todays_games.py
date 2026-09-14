@@ -662,27 +662,22 @@ def _run_engine_dates() -> list[str]:
 
     Enumerates the data_delivery contents API (same shape as
     ``utils.available_dates`` but for the run-engine artifact family) plus the
-    local fallback. The ``*_rl`` bridge copy is excluded (not a date). Returns
-    [] when nothing is reachable -- the resolver then degrades to 'unavailable'.
+    local fallback, through utils' rate-limit-aware listing helper — a 403
+    from the shared unauthenticated API degrades the date set, never crashes
+    the card render. The ``*_rl`` bridge copy is excluded (not a date).
+    Returns [] when nothing is reachable -- the resolver then degrades to
+    'unavailable'.
     """
-    import requests
     cfg = utils.get_source_config()
     owner, repo, branch = cfg["owner"], cfg["repo"], cfg["branch"]
     dates: set[str] = set()
     if owner and repo:
-        try:
-            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
-                   f"/{utils.REPO_SUBDIR}/data_delivery")
-            resp = requests.get(api, timeout=15)
-            if resp.ok:
-                for item in resp.json():
-                    name = item.get("name", "")
-                    if name.startswith("run_engine_markets_") and name.endswith(".csv"):
-                        rem = name[len("run_engine_markets_"):-len(".csv")]
-                        if len(rem) == 8 and rem.isdigit():
-                            dates.add(rem)
-        except requests.RequestException:
-            pass
+        for item in utils._contents_listing(owner, repo, utils.REPO_SUBDIR):
+            name = item.get("name", "")
+            if name.startswith("run_engine_markets_") and name.endswith(".csv"):
+                rem = name[len("run_engine_markets_"):-len(".csv")]
+                if len(rem) == 8 and rem.isdigit():
+                    dates.add(rem)
     for p in utils.LOCAL_DATA_DIR.glob("run_engine_markets_*.csv"):
         rem = p.name[len("run_engine_markets_"):-len(".csv")]
         if len(rem) == 8 and rem.isdigit():

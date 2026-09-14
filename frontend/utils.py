@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 import re
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -240,12 +242,15 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_scores() -> pd.DataFrame:
     """Per-game final scores from game_level_features.csv (optional merge).
 
     Returns a two-column frame keyed by game_id ('YYYYMMDD_AWAY@HOME');
-    empty frame when the artifact is unavailable.
+    empty frame when the artifact is unavailable. Cached 300s (was 3600):
+    an hour-long cache served pre-push score vintages alongside post-push
+    calibration after every pipeline run — the mixed-vintage "erroneous
+    values" on the dashboards. Misses are short-cached by the fetch layer.
     """
     cfg = get_source_config()
     data, src = _fetch_bytes("game_level_features.csv", **cfg)
@@ -304,11 +309,13 @@ def _game_date_compact(d) -> str:
     return ""
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_final_results() -> pd.DataFrame:
     """Authoritative final scores/results from game_level_features.csv (the
     decided frame). Carries the per-leg game_pk so doubleheader identity
-    survives; empty frame when the artifact is unavailable."""
+    survives; empty frame when the artifact is unavailable. Cached 300s
+    (was 3600) so post-push results replace pre-push vintages within
+    minutes, not an hour."""
     cfg = get_source_config()
     data, _src = _fetch_bytes("game_level_features.csv", **cfg)
     cols = ["game_pk", "game_date", "home_team", "away_team",
@@ -469,10 +476,28 @@ def _raw_url(relpath: str, owner: str, repo: str, branch: str, sport=None) -> st
     return f"<local:{_data_dir(s) / relpath}>"
 
 
+# How long a FAILED artifact fetch may be remembered (seconds). The 2026-09-14
+# post-push outage: the old single ttl=300 cache pinned a transient raw-CDN
+# 404 (fresh push listed before raw serves it) as "missing" for five minutes,
+# so every page rendered its dead-end empty state until an app reboot. A miss
+# must heal on the order of seconds; a hit may stay cached for minutes.
+_NEG_TTL_SECONDS = 20
+
+
+class _ArtifactMiss(Exception):
+    """Internal control flow: the artifact is unavailable right now. Never
+    shown to users; raised so the POSITIVE cache never stores a miss."""
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def _fetch_bytes_cached(relpath: str, sport: str, owner: str, repo: str,
-                        branch: str):
-    """Fetch one artifact for a SPECIFIED sport (sport is in the cache key)."""
+def _fetch_bytes_positive(relpath: str, sport: str, owner: str, repo: str,
+                          branch: str):
+    """POSITIVE-only artifact fetch cache (sport is in the cache key).
+
+    Returns ``(bytes, source)`` on success and RAISES :class:`_ArtifactMiss`
+    on a miss — a failed fetch is never stored here, so a transient raw-CDN
+    404 during a push window can only be remembered by the short negative
+    cache below, never by this five-minute one."""
     s = normalize_sport_key(sport)
     subdir = resolve_sport(s)["repo_subdir"]
     dd = REPO_ROOT / subdir / "data_delivery"
@@ -488,7 +513,20 @@ def _fetch_bytes_cached(relpath: str, sport: str, owner: str, repo: str,
     local = dd / relpath
     if local.exists():
         return local.read_bytes(), "local"
-    return None, "missing"
+    raise _ArtifactMiss(relpath)
+
+
+@st.cache_data(ttl=_NEG_TTL_SECONDS, show_spinner=False)
+def _fetch_bytes_with_negative_cache(relpath: str, sport: str, owner: str,
+                                     repo: str, branch: str):
+    """The caller-facing fetch: successes live 300s (positive cache), misses
+    only :data:`_NEG_TTL_SECONDS` (this cache). During a post-push CDN-lag
+    window a miss self-heals within seconds instead of pinning the dead-end
+    empty state for the full five minutes (the 2026-09-14 outage)."""
+    try:
+        return _fetch_bytes_positive(relpath, sport, owner, repo, branch)
+    except _ArtifactMiss:
+        return None, "missing"
 
 
 def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str,
@@ -497,7 +535,7 @@ def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str,
     Returns (bytes | None, source); the sport is resolved here and forwarded
     to the cached impl so the cache key is sport-specific."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    return _fetch_bytes_cached(relpath, s, owner, repo, branch)
+    return _fetch_bytes_with_negative_cache(relpath, s, owner, repo, branch)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -523,18 +561,9 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
     dates: set[str] = set()
 
     if s == "mlb":
-        if owner and repo:
-            try:
-                api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
-                       f"/{subdir}/data_delivery")
-                resp = requests.get(api, timeout=15)
-                if resp.ok:
-                    for item in resp.json():
-                        name = item.get("name", "")
-                        if name.startswith("todays_games_") and name.endswith(".csv"):
-                            dates.add(name[len("todays_games_"):-len(".csv")])
-            except requests.RequestException:
-                pass
+        # Calendar-first contents set (rate-limit aware + raw probes of the
+        # last 4 ET days — see _contents_todays_dates).
+        dates.update(_contents_todays_dates(owner, repo, branch))
         for p in dd_dir.glob("todays_games_*.csv"):
             dates.add(p.name[len("todays_games_"):-len(".csv")])
 
@@ -578,21 +607,17 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                 ("nfl_run_engine_markets_", ".csv"),
                 ("nfl_run_engine_monitor_", ".json")]
     if owner and repo:
-        try:
-            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
-                   f"/{subdir}/data_delivery")
-            resp = requests.get(api, timeout=15)
-            if resp.ok:
-                for item in resp.json():
-                    name = item.get("name", "")
-                    for pfx, ext in prefixes:
-                        if name.startswith(pfx) and name.endswith(ext):
-                            core = name[len(pfx):-len(ext)]
-                            if len(core) == 8 and core.isdigit():
-                                dates.add(core)
-                            break
-        except requests.RequestException:
-            pass
+        # Rate-limit aware listing (shared helper): a 403/429 degrades this
+        # family set but is retried once, logged loudly, and never mistaken
+        # for an empty repo (local-dir merge below still applies).
+        for item in _contents_listing(owner, repo, subdir):
+            name = item.get("name", "")
+            for pfx, ext in prefixes:
+                if name.startswith(pfx) and name.endswith(ext):
+                    core = name[len(pfx):-len(ext)]
+                    if len(core) == 8 and core.isdigit():
+                        dates.add(core)
+                    break
     for pfx, ext in prefixes:
         for p in dd_dir.glob(f"{pfx}*{ext}"):
             dates.update(_stamp_suffixes(p))
@@ -600,6 +625,11 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
 
 
 def _pick_date(date_str: str) -> str:
+    """UNVERIFIED union-date picker (legacy). Only still used by
+    ``load_prediction_history``; every family page resolved through
+    ``_pick_artifact_date`` instead, which VERIFY-then-falls-back per
+    family — the union's newest entry can carry no artifact for the family
+    being fetched (the 2026-09-13/14 desync class)."""
     dates = available_dates(**get_source_config())
     if date_str and date_str in dates:
         return date_str
@@ -734,25 +764,80 @@ def latest_artifact_date(sport: str | None, family: str) -> Optional[str]:
 # Per-sport VALID game dates (the boards a user can land on)
 # ==========================================================================
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _contents_todays_dates(owner: str, repo: str, branch: str) -> tuple[str, ...]:
-    """todays_games_*.csv dates listed by the GitHub contents API (cached),
-    or empty when the API is unreachable — callers also merge the local dir."""
-    dates: set[str] = set()
-    if owner and repo:
+_CONTENTS_LOG = logging.getLogger("utils.contents")
+
+
+def _contents_listing(owner: str, repo: str, subdir: str) -> list[dict]:
+    """One GitHub contents-API listing of ``{subdir}/data_delivery`` with
+    rate-limit awareness.
+
+    The unauthenticated contents API allows 60 requests/hour PER IP — and on
+    Streamlit Cloud that IP is shared across many apps, so 403/429s are a
+    routine post-push condition, not an edge case. A limited (or failed)
+    listing is retried once after 1s, then logged LOUDLY and returned as []
+    — it must never be mistaken for an empty repo. Callers merge local-dir
+    and calendar-day sources, so a limited listing degrades navigation
+    breadth, never correctness."""
+    if not (owner and repo):
+        return []
+    api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
+           f"/{subdir}/data_delivery")
+    for attempt in (1, 2):
         try:
-            api = (f"https://api.github.com/repos/{owner}/{repo}/contents"
-                   f"/{REPO_SUBDIR}/data_delivery")
             resp = requests.get(api, timeout=15)
             if resp.ok:
-                for item in resp.json():
-                    name = item.get("name", "")
-                    if name.startswith("todays_games_") and name.endswith(".csv"):
-                        d = name[len("todays_games_"):-len(".csv")]
-                        if len(d) == 8 and d.isdigit():
-                            dates.add(d)
-        except requests.RequestException:
-            pass
+                return resp.json()
+            if resp.status_code in (403, 429) and attempt == 1:
+                _CONTENTS_LOG.warning(
+                    "GitHub contents API rate-limited (HTTP %s) for %s/%s — "
+                    "retrying once, then degrading to local/calendar sources",
+                    resp.status_code, owner, repo)
+                time.sleep(1.0)
+                continue
+            _CONTENTS_LOG.warning("GitHub contents listing HTTP %s for %s/%s",
+                                  resp.status_code, owner, repo)
+            return []
+        except requests.RequestException as exc:
+            if attempt == 1:
+                time.sleep(1.0)
+                continue
+            _CONTENTS_LOG.warning("GitHub contents listing failed for %s/%s: %s",
+                                  owner, repo, exc)
+            return []
+    return []
+
+
+def _calendar_day_candidates(days: int = 4) -> list[str]:
+    """The last ``days`` ET calendar dates (today first) as YYYYMMDD — the
+    pipeline's own dated-naming window, independent of any listing."""
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+    try:
+        base = datetime.strptime(today, "%Y%m%d").date()
+    except ValueError:
+        return []
+    return [(base - timedelta(days=i)).strftime("%Y%m%d")
+            for i in range(days)]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _contents_todays_dates(owner: str, repo: str, branch: str) -> tuple[str, ...]:
+    """todays_games_*.csv dates listed by the GitHub contents API, MERGED
+    with direct raw-file probes of the last 4 ET calendar days (calendar-
+    first: today is navigable the moment raw serves the file, even while the
+    contents listing is rate-limited or lagging the push — the 2026-09-14
+    outage class). Empty only when genuinely nothing is reachable — callers
+    also merge the local dir."""
+    dates: set[str] = set()
+    for item in _contents_listing(owner, repo, REPO_SUBDIR):
+        name = item.get("name", "")
+        if name.startswith("todays_games_") and name.endswith(".csv"):
+            d = name[len("todays_games_"):-len(".csv")]
+            if len(d) == 8 and d.isdigit():
+                dates.add(d)
+    for cand in _calendar_day_candidates():
+        if _fetch_bytes(f"todays_games_{cand}.csv", owner=owner, repo=repo,
+                        branch=branch, sport="mlb")[0] is not None:
+            dates.add(cand)
     return tuple(sorted(dates))
 
 
@@ -1075,7 +1160,14 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     if s == "nfl":
         return load_nfl_moneyline("nfl")
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"todays_games_{_pick_date(date_str)}.csv", **cfg)
+    # VERIFY-then-fallback on the board's OWN family (never the union date
+    # set): after a fresh push the union's newest entry can be a
+    # calibration/history-only date with no board file, which made this
+    # fetch return None and the page hit its dead-end recovery walk (the
+    # 2026-09-14 "No game board exists" outage). Same contract the
+    # Calibration/Model Monitor/Power Rankings pages already use.
+    picked = _pick_artifact_date(date_str, "todays_games")
+    data, src = _fetch_bytes(f"todays_games_{picked}.csv", **cfg)
     st.session_state["data_source"] = src
     if data is None:
         return pd.DataFrame()
@@ -1147,21 +1239,14 @@ def _family_dated_dates(sport: str | None,
     # those trigger a real contents-API request.
     if (isinstance(cfg.get("owner"), str) and isinstance(cfg.get("repo"), str)
             and cfg["owner"] and cfg["repo"]):
-        try:
-            api = (f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}"
-                   f"/contents/{subdir}/data_delivery")
-            resp = requests.get(api, timeout=15)
-            if resp.ok:
-                for item in resp.json():
-                    name = str(item.get("name", ""))
-                    for pfx, ext in prefixes:
-                        if name.startswith(pfx) and name.endswith(ext):
-                            core = name[len(pfx):-len(ext)]
-                            if len(core) == 8 and core.isdigit():
-                                dates.add(core)
-                            break
-        except requests.RequestException:
-            pass
+        for item in _contents_listing(cfg["owner"], cfg["repo"], subdir):
+            name = str(item.get("name", ""))
+            for pfx, ext in prefixes:
+                if name.startswith(pfx) and name.endswith(ext):
+                    core = name[len(pfx):-len(ext)]
+                    if len(core) == 8 and core.isdigit():
+                        dates.add(core)
+                    break
     dd = REPO_ROOT / subdir / "data_delivery"
     if dd.is_dir():
         for pfx, ext in prefixes:
