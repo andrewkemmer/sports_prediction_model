@@ -253,7 +253,12 @@ RF_PARAMS = {
 # ---------------------------------------------------------------------------
 RFE_FLOOR = 25                 # never prune below this many features
 RFE_AUC_GUARD = 0.003          # adopt step only if pooled AUC drop <= this
-RFE_ECE_GUARD = 0.005          # adopt step only if pooled ECE rise <= this
+RFE_ECE_GUARD = 0.010          # adopt step only if pooled ECE rise <= this
+                               # (loosened from 0.005: at full depth the logloss
+                               # commit threshold is ~0.005, so the stricter bound
+                               # vetoed sharpness trades the primary objective had
+                               # already blessed; 0.010 still trips real blows-ups
+                               # like the rest_days_diff 0.0138 rise)
 RFE_MIN_LOGLOSS_GAIN = 0.002   # floor on the commit threshold (never commit on
                                # a smaller measured gain, even at huge n)
 RFE_NOISE_SIGMA = 2.0          # commit threshold = max(floor, this many
@@ -263,6 +268,195 @@ RFE_NOISE_SIGMA = 2.0          # commit threshold = max(floor, this many
                                # chance logloss jitter (±0.02) exceeds any
                                # fixed floor.
 RFE_MAX_STEPS = 40             # walk-forward scoring evaluations per RFE run
+RFE_REDUNDANCY_R = 0.9         # |r| above which two pool features are flagged
+                               # redundant_with each other (informational: they
+                               # are trialed consecutively so one measured verdict
+                               # informs its sibling)
+# The RFE candidate pool: generated, PIT-safe columns NOT currently in the
+# moneyline universe that feature_selection.py may additionally trial
+# (universe members are always in scope). Grouped in trial-priority order;
+# every entry is computed pre-game. Blocked by design: identity/metadata
+# (game_pk, game_id, game_date, team/venue, start times), targets and
+# post-game fields (home_win, scores, total_runs), string-typed cols
+# (records, starter hands), and dead all-NaN cols (lineup_rest_count_*).
+# Serving risk is handled at adoption time: confirm_slate_coverage() builds
+# the real upcoming slate and refuses any adopted col below
+# RFE_SLATE_COVERAGE_FLOOR non-null coverage.
+RFE_CANDIDATE_COLS = [
+    # --- form deltas (5g/10g vs season momentum) (42) ---
+    "sp_era_delta_home",
+    "sp_k9_delta_home",
+    "sp_bb9_delta_home",
+    "sp_whip_delta_home",
+    "sp_xwoba_delta_home",
+    "sp_fbvelo_delta_home",
+    "sp_fbpct_delta_home",
+    "sp_whiff_delta_home",
+    "woba_delta_home",
+    "team_iso_delta_home",
+    "team_k_rate_delta_home",
+    "team_bb_rate_delta_home",
+    "team_barrel_delta_home",
+    "team_hardhit_delta_home",
+    "team_exitvelo_delta_home",
+    "bullpen_whip_delta_home",
+    "bullpen_era_delta_home",
+    "lineup_woba_mean_delta_home",
+    "lineup_woba_top3_delta_home",
+    "sp_era_delta_away",
+    "sp_k9_delta_away",
+    "sp_bb9_delta_away",
+    "sp_whip_delta_away",
+    "sp_xwoba_delta_away",
+    "sp_fbvelo_delta_away",
+    "sp_fbpct_delta_away",
+    "sp_whiff_delta_away",
+    "woba_delta_away",
+    "team_iso_delta_away",
+    "team_k_rate_delta_away",
+    "team_bb_rate_delta_away",
+    "team_barrel_delta_away",
+    "team_hardhit_delta_away",
+    "team_exitvelo_delta_away",
+    "bullpen_whip_delta_away",
+    "bullpen_era_delta_away",
+    "lineup_woba_mean_delta_away",
+    "lineup_woba_top3_delta_away",
+    "lineup_actual_top3_delta_away",
+    "lineup_actual_top3_delta_home",
+    "lineup_actual_woba_delta_away",
+    "lineup_actual_woba_delta_home",
+    # --- diff cols culled from universe, never ablated (S-family cull 2026-09-07) (7) ---
+    "sp_k9_diff",
+    "sp_k9_5g_diff",
+    "sp_fbpct_diff",
+    "sp_whiff_diff",
+    "sp_xwoba_diff",
+    "sp_xwoba_vs_l_diff",
+    "bullpen_ip_diff",
+    # --- raw per-side levels (shadowed by diff-only routing) (76) ---
+    "rest_days_home",
+    "rest_days_away",
+    "sp_bb9_home",
+    "sp_whip_home",
+    "sp_fip_home",
+    "sp_bb9_away",
+    "sp_whip_away",
+    "sp_fip_away",
+    "sp_era_5g_home",
+    "sp_k9_5g_home",
+    "sp_era_5g_away",
+    "sp_k9_5g_away",
+    "team_iso_30g_home",
+    "team_k_rate_30g_home",
+    "team_bb_rate_30g_home",
+    "team_iso_30g_away",
+    "team_k_rate_30g_away",
+    "team_bb_rate_30g_away",
+    "bullpen_era_10g_home",
+    "bullpen_era_10g_away",
+    "sp_fbvelo_3g_home",
+    "sp_fbpct_3g_home",
+    "sp_whiff_3g_home",
+    "sp_xwoba_vs_l_home",
+    "sp_xwoba_vs_r_home",
+    "sp_fbvelo_3g_away",
+    "sp_fbpct_3g_away",
+    "sp_whiff_3g_away",
+    "sp_xwoba_vs_l_away",
+    "sp_xwoba_vs_r_away",
+    "team_hardhit_15g_home",
+    "team_hardhit_15g_away",
+    "opp_lefty_share_home",
+    "opp_lefty_share_away",
+    "bullpen_pitches_3d_home",
+    "bullpen_ip_3d_home",
+    "bullpen_pitches_3d_away",
+    "bullpen_ip_3d_away",
+    "lineup_ops_vs_l_home",
+    "lineup_ops_vs_r_home",
+    "lineup_ops_vs_l_away",
+    "lineup_ops_vs_r_away",
+    "lineup_ops_vs_starter_hand_home",
+    "lineup_ops_vs_starter_hand_away",
+    "time_zones_crossed_last_3d_home",
+    "time_zones_crossed_last_3d_away",
+    "closer_available_home",
+    "closer_available_away",
+    "lineup_woba_std_home",
+    "lineup_woba_std_away",
+    "sp_k_pct_cat_fastball_home",
+    "sp_k_pct_cat_fastball_away",
+    "sp_k_pct_cat_breaking_home",
+    "sp_k_pct_cat_breaking_away",
+    "sp_k_pct_cat_offspeed_home",
+    "sp_k_pct_cat_offspeed_away",
+    "sp_usage_cat_fastball_home",
+    "sp_usage_cat_fastball_away",
+    "sp_usage_cat_breaking_home",
+    "sp_usage_cat_breaking_away",
+    "sp_usage_cat_offspeed_home",
+    "sp_usage_cat_offspeed_away",
+    "sp_xwoba_cat_fastball_home",
+    "sp_xwoba_cat_fastball_away",
+    "sp_xwoba_cat_breaking_home",
+    "sp_xwoba_cat_breaking_away",
+    "sp_xwoba_cat_offspeed_home",
+    "sp_xwoba_cat_offspeed_away",
+    "sp_k_pct_fb_vs_l_home",
+    "sp_k_pct_fb_vs_l_away",
+    "sp_k_pct_fb_vs_r_home",
+    "sp_k_pct_fb_vs_r_away",
+    "sp_pa_fb_vs_l_home",
+    "sp_pa_fb_vs_l_away",
+    "sp_pa_fb_vs_r_home",
+    "sp_pa_fb_vs_r_away",
+    # --- pitch-arsenal / matchup category stats (28) ---
+    "league_k_pct_cat_fastball",
+    "league_k_pct_cat_breaking",
+    "league_k_pct_cat_offspeed",
+    "league_xwoba_cat_fastball",
+    "league_xwoba_cat_breaking",
+    "league_xwoba_cat_offspeed",
+    "league_k_pct_fb_vs_l",
+    "league_k_pct_fb_vs_r",
+    "team_k_pct_cat_fastball_home",
+    "team_k_pct_cat_fastball_away",
+    "team_k_pct_cat_breaking_home",
+    "team_k_pct_cat_breaking_away",
+    "team_k_pct_cat_offspeed_home",
+    "team_k_pct_cat_offspeed_away",
+    "team_xwoba_cat_fastball_home",
+    "team_xwoba_cat_fastball_away",
+    "team_xwoba_cat_breaking_home",
+    "team_xwoba_cat_breaking_away",
+    "team_xwoba_cat_offspeed_home",
+    "team_xwoba_cat_offspeed_away",
+    "team_k_pct_fb_vs_l_home",
+    "team_k_pct_fb_vs_l_away",
+    "team_k_pct_fb_vs_r_home",
+    "team_k_pct_fb_vs_r_away",
+    "team_pa_fb_vs_l_home",
+    "team_pa_fb_vs_l_away",
+    "team_pa_fb_vs_r_home",
+    "team_pa_fb_vs_r_away",
+    # --- league-context aggregates (1) ---
+    "league_k_pct",
+    # --- environment/schedule per-side extras (10) ---
+    "home_wins",
+    "home_losses",
+    "away_wins",
+    "away_losses",
+    "home_run_diff",
+    "away_run_diff",
+    "park_wind_factor",
+    "air_density_level",
+    "dome_is_neutral_game",
+    "park_factor_slug",
+    # --- lineup actuals deltas (posted lineup vs probable) (0) ---
+]
+RFE_SLATE_COVERAGE_FLOOR = 0.5  # min non-null share on a real upcoming
+                                # slate for an adopted candidate feature
 
 # ---------------------------------------------------------------------------
 # Coin-flip threshold

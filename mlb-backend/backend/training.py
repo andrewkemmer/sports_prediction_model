@@ -42,6 +42,7 @@ from config import (
     MODELS_DIR,
     RANDOM_SEED,
     RETRAIN_CADENCE_DAYS,
+    RFE_CANDIDATE_COLS,
     VERSION_KEY,
     TRAINED_AT_KEY,
     DATA_CUTOFF_KEY,
@@ -320,6 +321,20 @@ MONEYLINE_FEATURE_COLS = [c for c in MONEYLINE_FEATURE_COLS if c not in _EXP2_RE
 # Deduplicate (should already be unique but defensive)
 MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
 
+# ── Known feature pool (RFE trial space) ────────────────────────────────────
+# KNOWN_FEATURE_COLS = the generation universe plus every RFE candidate
+# column (config.RFE_CANDIDATE_COLS, generated PIT-safe, pre-game, not in the
+# universe). It is the complete space feature_selection.py may trial:
+# removals come from the universe half, additions from the candidate half,
+# and an adopted record may promote candidates into serving width — so the
+# subset validator must accept the full pool, not just the universe. Order:
+# universe first (canonical), then candidates in config group-priority order;
+# set_feature_subset always rebuilds subsets in this order so every
+# consumer's positional assumptions hold. Nothing is ever REMOVED from this
+# pool — RFE verdicts govern serving width, never candidacy.
+KNOWN_FEATURE_COLS = list(dict.fromkeys(
+    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+
 
 # ── Active feature subset (RFE-controlled) ──────────────────────────────────
 # MONEYLINE_FEATURE_COLS above is the canonical GENERATION universe and is
@@ -343,22 +358,24 @@ def active_moneyline_feature_cols() -> list[str]:
 def set_feature_subset(cols: list[str] | None) -> None:
     """Apply (or clear, None) the active feature subset.
 
-    Canonical universe order is preserved regardless of ``cols`` ordering, so
-    every consumer's positional assumptions hold. Raises on non-universe
-    names — a subset referencing an unknown feature is an upstream bug, not
-    something to silently intersect away.
+    Canonical pool order (KNOWN_FEATURE_COLS: universe then candidates) is
+    preserved regardless of ``cols`` ordering, so every consumer's positional
+    assumptions hold. Raises on non-pool names — a subset referencing an
+    unknown feature is an upstream bug, not something to silently intersect
+    away. The pool (not just the universe) is the validator because an
+    adopted RFE record may promote candidate columns into serving width.
     """
     global _FEATURE_SUBSET
     if cols is None:
         _FEATURE_SUBSET = None
         return
-    unknown = [c for c in cols if c not in MONEYLINE_FEATURE_COLS]
+    unknown = [c for c in cols if c not in KNOWN_FEATURE_COLS]
     if unknown:
         raise ValueError(
-            f"feature subset contains non-universe columns: {unknown[:6]}"
-            f" (universe has {len(MONEYLINE_FEATURE_COLS)} entries)")
+            f"feature subset contains non-pool columns: {unknown[:6]}"
+            f" (known pool has {len(KNOWN_FEATURE_COLS)} entries)")
     keep = set(cols)
-    _FEATURE_SUBSET = [c for c in MONEYLINE_FEATURE_COLS if c in keep]
+    _FEATURE_SUBSET = [c for c in KNOWN_FEATURE_COLS if c in keep]
 
 
 def reset_feature_subset() -> None:

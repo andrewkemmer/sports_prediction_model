@@ -286,18 +286,27 @@ try:
 except Exception as e:
     print(f"  ❌ Training failed: {e}")
 
-# ── Phase 4.5: Feature-selection RFE (record-only, weekly) ────────────────
-# Blend-level RFE on scheduled days only (Mondays; MLB_RFE_FORCE=1 to force).
-# Writes data_delivery/mlb_feature_selection_<date>.json and NEVER adopts —
-# changing serving width requires the explicit --adopt invocation. A failure
-# here must never block the artifact sync below. (train_games may be unbound
-# if Phase 4 died early — the guard covers that too.)
+# ── Phase 4.5: Feature-selection RFE (record-only) ────────────────────────
+# Runs ONLY when MLB_RFE_FORCE=1 — unset/0 is a no-op with no calendar
+# logic. Writes data_delivery/mlb_feature_selection_<date>.json and NEVER
+# adopts — changing serving width requires the explicit --adopt invocation
+# of feature_selection.py. A failure here must never block the artifact
+# sync below. (train_games may be unbound if Phase 4 died early — the
+# guard covers that too.)
 try:
     from feature_selection import maybe_run_rfe
     _rfe = maybe_run_rfe(train_games, end)
     if _rfe.get("ran"):
-        print(f"  🎯 RFE: {_rfe['n_universe']} -> {_rfe['n_selected']} features "
+        print(f"  🎯 RFE [{_rfe.get('run_mode')}]: pool {_rfe.get('n_pool')} | "
+              f"trials {_rfe.get('n_trials')} (committed "
+              f"{_rfe.get('n_committed')}) | "
+              f"selected {_rfe.get('n_selected')} cols "
               f"(logloss {_rfe['baseline_logloss']:.4f} -> {_rfe['best_logloss']:.4f})")
+        if _rfe.get("forced_unresolved"):
+            print(f"     ⚠️  forced-trial list had unresolvable names: "
+                  f"{_rfe['forced_unresolved']}")
+        if _rfe.get("incumbent_note"):
+            print(f"     incumbent: {_rfe['incumbent_note']}")
         print(f"     trace: {_rfe['trace']}")
     else:
         print(f"  🎯 RFE skipped: {_rfe.get('reason')}")
