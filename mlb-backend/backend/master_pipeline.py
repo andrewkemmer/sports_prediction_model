@@ -463,39 +463,44 @@ from retention_policy import (
     local_name as _basename,
 )
 
-# Current run date in YYYYMMDD for date-gating.
-_run_date_compact = CONFIG["end_date"].replace("-", "")  # e.g. "20260824"
+# Retention ANCHOR (policy 2026-09-14): MLB_END_DATE when the run sets it,
+# else TODAY in America/New_York — ONE anchor for every window (the old mix
+# of an end_date-anchored 48h window with a UTC-anchored slate window is
+# gone). Kaggle servers run UTC; ET is the game-day convention the
+# dashboards use. DST-safe via zoneinfo (project convention, pipeline.py).
+from zoneinfo import ZoneInfo
+if "MLB_END_DATE" in os.environ and os.environ["MLB_END_DATE"].strip():
+    # Explicit run window (backfill/rebuild): anchor on MLB_END_DATE exactly
+    # as CONFIG resolved it.
+    _anchor_date = CONFIG["end_date"]
+else:
+    _anchor_date = _dt.datetime.now(
+        ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+_anchor_compact = _anchor_date.replace("-", "")  # YYYYMMDD
 
-# Recent-slate protection window: keep todays_games_* and shap_game_*
-# for the current run date AND the 2 prior days so that games have time to
-# settle before their card snapshots are pruned.  Other dated artifacts
-# ride the 48h retention window below.
-_now_utc = _dt.datetime.now(_tz.utc)
+# Blanket retention window (policy 2026-09-14): anchor .. anchor-10. EVERY
+# dated, allowlisted family keeps 10 calendar days; artifacts NEWER than the
+# anchor are kept by classify_artifact's anchor guard (backfill-safe).
+_RETENTION_DAYS = 10
+_anchor_obj = _date(*(int(x) for x in _anchor_date.split("-")))
+_RETENTION_DATES = {(_anchor_obj - _td(days=i)).strftime("%Y%m%d")
+                    for i in range(_RETENTION_DAYS + 1)}
+
+# Recent-slate settle window (todays_games_* / shap_game_*): now a strict
+# subset of the blanket window — at 10 days the slate rule no longer extends
+# beyond it; wired through for policy parity (retention_policy slate_window).
 _RECENT_DATES = {
-    (_now_utc - _td(days=i)).strftime("%Y%m%d")
-    for i in range(3)  # today, yesterday, 2 days ago
+    (_anchor_obj - _td(days=i)).strftime("%Y%m%d")
+    for i in range(3)  # anchor, anchor-1, anchor-2
 }
 
 # Board-backed retention (doubleheader regression fix): a dated run-engine /
 # predictions artifact is kept for ANY date that still has a tracked
 # todays_games_<date>.csv board, so a navigable board is never left without
 # the RUN ENGINE columns its cards need. Keep them for as long as the board
-# itself is tracked (policy: families with board_supported=True).
+# itself is tracked (policy: families with board_supported=True) — at the
+# 10-day blanket window the slate rule dominates; this stays a safety net.
 _BOARD_BACKED_PREFIXES = _family_prefixes("board_supported")
-
-# Rolling 48-hour retention window (GMT-rollover regression fix): keep EVERY
-# dated artifact for the current run date AND the previous GMT day. US games
-# end up to ~midnight ET (~05:00 GMT next day), so the previous GMT day is
-# never "stale" while those games are live — their card RUN ENGINE block
-# depends on run_engine_markets / run_engine_oof / predictions_history from
-# that day. The old strict same-day rule (`art_date == _run_date_compact`)
-# deleted yesterday's artifacts at the 00:00 GMT rollover even while those
-# games were still pre-game, silently dropping the RUN ENGINE block. Threshold
-# is timedelta(days=1) — never string equality against today.
-_RETENTION_DAYS = 1
-_run_date_obj = _date(*(int(x) for x in CONFIG["end_date"].split("-")))
-_RETENTION_DATES = {(_run_date_obj - _td(days=i)).strftime("%Y%m%d")
-                    for i in range(_RETENTION_DAYS + 1)}  # {today, yesterday}
 
 _banner("PHASE 6", "Stale artifact cleanup (final step)")
 if not token:
@@ -521,7 +526,8 @@ else:
         kept_current = 0
         for p in tracked:
             verdict = classify_artifact(
-                p, seen, _RETENTION_DATES, _RECENT_DATES, board_dates)
+                p, seen, _RETENTION_DATES, _RECENT_DATES, board_dates,
+                anchor_date=_anchor_compact)
             if verdict == "seen":
                 continue  # this run staged it
             if verdict == "protected":
@@ -534,7 +540,8 @@ else:
         if kept_protected:
             print(f"  🛡️  Kept {kept_protected} protected file(s) (never deleted)")
         if kept_current:
-            print(f"  📅 Kept {kept_current} same-day artifact(s)")
+            print(f"  📅 Kept {kept_current} artifact(s) within the retention "
+                  f"window (anchor {_anchor_compact} -10d)")
         if not stale:
             print("  ✅ No stale files — data_delivery holds exactly this run's artifacts")
         else:

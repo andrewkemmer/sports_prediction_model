@@ -1,31 +1,57 @@
 """
 Explicit rolling-retention policy for MLB ``data_delivery`` dated artifacts.
 
+*** Policy (2026-09-14): blanket 10-day window, one anchor ***
+
+Every DATED, deletion-allowlisted artifact family keeps the run's anchor date
+and the 10 days before it (anchor = ``MLB_END_DATE`` when the run sets it,
+else today in America/New_York). Anything older is pruned via ``git rm`` in
+the daily auto-commit (a forward commit — git history keeps every blob).
+Files NEWER than the anchor are never touched (backfill-safe), and the scope
+is exactly ``mlb-backend/data_delivery/``.
+
 *** Deliberate convention reversal (documented, not silent) ***
 
 The long-standing repo rule was "committed artifacts are never auto-deleted".
 This module formalizes the **deliberate reversal of that rule for the
-ALLOWLISTED dated board-artifact families only** (``allowlisted=True``): those
-families' committed files are pruned via ``git rm`` inside the daily
-auto-commit once they fall outside their family window (a forward commit —
-history keeps the blobs).  EVERYTHING ELSE — research/verdict records, undated
-masters, and families that READ A SERIES across dated files — is
-``never_delete`` and exempt.  See the audit record
-``data_delivery/mlb_retention_policy_<framesha>.json`` for the full consumer
-classification table.
+ALLOWLISTED dated board-artifact families only** (``allowlisted=True``).
+EVERYTHING ELSE — research/verdict records, undated masters, and families that
+READ A SERIES across dated files — is ``never_delete`` and exempt.  See the
+audit records ``data_delivery/mlb_retention_policy_*.json`` for the consumer
+classification tables.
+
+*** Why the exempt classes survive a blanket "no exemptions" rule ***
+(pressure-tested 2026-09-14 against backend + frontend workflows)
+
+- Dateless MASTERS (parquets, game_level_features.csv, umpire_*, roof cache,
+  model histories): they have NO date to age, and the daily pipeline CONSUMES
+  several as inputs — deleting them bricks the next run (documented regression
+  42ef3f7: lineups.parquet deletion failed the pipeline loud) and strips the
+  dashboards' final scores + the RFE engine's training frame.
+- Adopted-model STATE (mlb_feature_selection_state.json, an ``mlb_*``
+  record): holds the adopted RFE serving width. Silent deletion would
+  silently revert model behavior — the worst failure mode.
+- SERIES readers (run_engine_monitor_*, pbp_defense_*, pbp_chunks/,
+  models/): producers/readers fold ALL dated members; pruning any member
+  resets rolling history or orphans cumulative stores.
+- mlb_* / *_triage_* RECORDS: audit trail + the RFE engine's cross-run
+  memory (prior traces drive the trial-queue frontier).
+
+Everything else in the folder is a dated, regenerable, per-run artifact: the
+10-day window deletes it exactly as specified.
 
 Consumer audit (traced at HEAD 827de1b):
 
   family                          | consumer(s)                                  | read pattern                        | policy
   --------------------------------|----------------------------------------------|-------------------------------------|---------------
-  calibration_*.json              | model_calibration (_pick_artifact_date       | newest-only                         | 2-day window
+  calibration_*.json              | model_calibration (_pick_artifact_date       | newest-only                         | 10-day window
                                   |   newest); available_dates daily[] from NEWEST|                                     |
-  model_monitor_*.json            | model_monitor page (newest per date); embeds | newest-only                         | 2-day window
+  model_monitor_*.json            | model_monitor page (newest per date); embeds | newest-only                         | 10-day window
                                   |   drift/coverage/brier/metadata              |                                     |
   predictions_history_*.csv       | calibration/history pages (per date);        | newest-only + board-backed          | keep-while-board
                                   |   available_dates game_dates from NEWEST;    |                                     |
                                   |   rolling-brier recompute (in-run, newest)   |                                     |
-  todays_games_*.csv              | board date navigator (loads per date)        | newest-only per navigable date      | 3-day slate
+  todays_games_*.csv              | board date navigator (loads per date)        | newest-only per navigable date      | 10-day window
   run_engine_markets_*.csv(+meta) | markets page (family-aware newest); board    | newest-only + board-backed          | keep-while-board
                                   |   cards (market_diagnostics per date)        |                                     |
   run_engine_oof_*.csv            | no frontend reader; backend monitor rebuild/ | newest-only + board-backed          | keep-while-board
@@ -33,20 +59,20 @@ Consumer audit (traced at HEAD 827de1b):
   run_engine_monitor_*.json       | markets page (newest per date); **producer   | **SERIES** (producer folds ALL      | NEVER DELETE
                                   |   folds ALL dated files into the rolling     |   dated monitors — pipeline.        |
                                   |   per-line series**                          |   _run_engine_monitor_json glob)    |
-  rolling_brier_*.json            | never read standalone (embedded in the       | newest-only snapshot                | 2-day window
+  rolling_brier_*.json            | never read standalone (embedded in the       | newest-only snapshot                | 10-day window
                                   |   model_monitor json)                        |                                     |
-  run_engine_feature_drift_*.csv  | markets page drift table (per date)          | newest-only                         | 2-day window
-  run_engine_feature_coverage_*.csv | markets page coverage (per date)           | newest-only                         | 2-day window
-  feature_drift_*.csv             | never read standalone (embedded in monitor)  | newest-only                         | 2-day window
-  feature_coverage_*.csv          | never read standalone                        | newest-only                         | 2-day window
-  features_metadata_*.json        | never read standalone (embedded in monitor)  | newest-only                         | 2-day window
-  shap_game_*.csv                 | board per-game card fetch (per date)         | newest-only per navigable date      | 3-day slate
-  power_rankings_*.csv            | Home / power_rankings page (newest)          | newest-only                         | 2-day window
+  run_engine_feature_drift_*.csv  | markets page drift table (per date)          | newest-only                         | 10-day window
+  run_engine_feature_coverage_*.csv | markets page coverage (per date)           | newest-only                         | 10-day window
+  feature_drift_*.csv             | never read standalone (embedded in monitor)  | newest-only                         | 10-day window
+  feature_coverage_*.csv          | never read standalone                        | newest-only                         | 10-day window
+  features_metadata_*.json        | never read standalone (embedded in monitor)  | newest-only                         | 10-day window
+  shap_game_*.csv                 | board per-game card fetch (per date)         | newest-only per navigable date      | 10-day window
+  power_rankings_*.csv            | Home / power_rankings page (newest)          | newest-only                         | 10-day window
   pbp_defense_*.parquet(+meta)    | defense ablation harnesses GLOB ALL dated    | **SERIES (research)**               | NEVER DELETE
                                   |   files (ablation_defense / runline defense) |                                     |
   pbp_chunks/                     | build_pbp_defense (cumulative raw chunks)    | **SERIES (cumulative)**             | NEVER DELETE
   models/                         | ensemble/monitor loaders (newest)            | newest-only; staged every run       | NEVER DELETE
-  mlb_* records (sha-named)       | audit trail                                  | record                              | NEVER DELETE
+  mlb_* records (sha-named)       | audit trail + RFE cross-run memory           | record                              | NEVER DELETE
   *_triage_* records              | audit trail                                  | record                              | NEVER DELETE
   masters (game_level_features.csv, model_history.json, model_version_history.json,
            umpire_*.csv, lineups.parquet, batter_woba.parquet, team_woba.parquet,
@@ -54,15 +80,16 @@ Consumer audit (traced at HEAD 827de1b):
 
 Notes
 -----
-- ``retention_days=1`` means the run date + the previous day are kept — the
-  repo's rolling 48h GMT-rollover window, **not** a count-of-files rule.
+- The blanket window keeps anchor .. anchor-10 (11 calendar days) — anchor
+  = ``MLB_END_DATE`` when set, else today ET (master_pipeline Phase 6).
 - Board-backed families survive as long as a ``todays_games_<date>.csv`` board
-  for that date is still tracked (the 2026-08-29 doubleheader regression fix).
-- The 3-day slate window is the recent-slate settle window for the board's
-  own snapshots (``_RECENT_DATES`` = today .. day-2).
+  for that date is still tracked (the 2026-08-29 doubleheader regression fix);
+  at the 10-day window the slate rule dominates, kept as a safety net.
+- Files dated NEWER than the anchor are never deleted (backfill runs set
+  ``MLB_END_DATE`` in the past; present-day artifacts must survive it).
 - Run-dated harness OUTPUTS (``*_ablation_*.json``, ``calibration_ablation_*``,
-  ``calibration_flip_*``, ...) intentionally keep riding the date gate (their
-  tests pin that; they are regenerable run outputs, not decision records).
+  ``calibration_flip_*``, ...) intentionally keep riding the date gate (they
+  are regenerable run outputs, not decision records).
   New decision/diagnostic records should use the ``mlb_*`` or ``*_triage_*``
   naming to inherit never-delete protection.
 """
@@ -136,21 +163,23 @@ class FamilyPolicy:
 # Order is significant ONLY for documentation; family match is by longest
 # prefix (see _family_for). Every family in the audit is classified here.
 FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
-    FamilyPolicy("calibration", "calibration_", retention_days=1,
+    FamilyPolicy("calibration", "calibration_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (model_calibration _pick_artifact_date; "
-                       "available_dates daily[] from NEWEST calibration)"),
-    FamilyPolicy("model_monitor", "model_monitor_", retention_days=1,
+                       "available_dates daily[] from NEWEST calibration); "
+                       "10-day blanket window"),
+    FamilyPolicy("model_monitor", "model_monitor_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (monitor page; embeds drift/coverage/"
-                       "brier/features_metadata)"),
+                       "brier/features_metadata); 10-day blanket window"),
     FamilyPolicy("predictions_history", "predictions_history_",
                  retention_days=None, allowlisted=True, board_supported=True,
                  notes="newest-only + board-backed (available_dates game_dates "
                        "from NEWEST; rolling-brier recompute in-run)"),
     FamilyPolicy("todays_games", "todays_games_", retention_days=None,
-                 allowlisted=True, slate_window_days=3,
-                 notes="board date-navigator loads per date (3-day settle)"),
+                 allowlisted=True, slate_window_days=10,
+                 notes="board date-navigator loads per date (10-day blanket "
+                       "window)"),
     FamilyPolicy("run_engine_markets", "run_engine_markets_",
                  retention_days=None, allowlisted=True, board_supported=True,
                  notes="newest-only + board-backed (markets page family-aware "
@@ -162,35 +191,38 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  retention_days=None, allowlisted=False,
                  notes="SERIES — producer folds ALL dated monitors "
                        "(pipeline._run_engine_monitor_json)"),
-    FamilyPolicy("rolling_brier", "rolling_brier_", retention_days=1,
+    FamilyPolicy("rolling_brier", "rolling_brier_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only snapshot; recomputed each run, never read "
-                       "standalone (embedded in model_monitor)"),
+                       "standalone (embedded in model_monitor); 10-day window"),
     FamilyPolicy("run_engine_feature_drift", "run_engine_feature_drift_",
-                 retention_days=1, allowlisted=True,
-                 notes="newest-only (markets page drift table per date)"),
+                 retention_days=10, allowlisted=True,
+                 notes="newest-only (markets page drift table per date); "
+                       "10-day window"),
     FamilyPolicy("run_engine_feature_coverage", "run_engine_feature_coverage_",
-                 retention_days=1, allowlisted=True,
-                 notes="newest-only (markets page coverage per date)"),
-    FamilyPolicy("feature_drift", "feature_drift_", retention_days=1,
+                 retention_days=10, allowlisted=True,
+                 notes="newest-only (markets page coverage per date); "
+                       "10-day window"),
+    FamilyPolicy("feature_drift", "feature_drift_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only; never read standalone (embedded in "
-                       "model_monitor)"),
-    FamilyPolicy("feature_coverage", "feature_coverage_", retention_days=1,
+                       "model_monitor); 10-day window"),
+    FamilyPolicy("feature_coverage", "feature_coverage_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only; never read standalone (embedded in "
-                       "model_monitor)"),
-    FamilyPolicy("features_metadata", "features_metadata_", retention_days=1,
+                       "model_monitor); 10-day window"),
+    FamilyPolicy("features_metadata", "features_metadata_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only; never read standalone (embedded in "
-                       "model_monitor)"),
+                       "model_monitor); 10-day window"),
     FamilyPolicy("shap_game", "shap_game_", retention_days=None,
-                 allowlisted=True, slate_window_days=3,
+                 allowlisted=True, slate_window_days=10,
                  notes="board per-game card fetch; newest-only per navigable "
-                       "date"),
-    FamilyPolicy("power_rankings", "power_rankings_", retention_days=1,
+                       "date (10-day blanket window)"),
+    FamilyPolicy("power_rankings", "power_rankings_", retention_days=10,
                  allowlisted=True,
-                 notes="newest-only (Home / power_rankings load_power_rankings)"),
+                 notes="newest-only (Home / power_rankings "
+                       "load_power_rankings); 10-day window"),
     FamilyPolicy("pbp_defense", "pbp_defense_", retention_days=None,
                  allowlisted=False,
                  notes="SERIES (research) — defense ablation harnesses glob "
@@ -250,15 +282,22 @@ def is_allowlisted(rel: str) -> bool:
 
 def classify_artifact(rel: str, seen: set,
                       retention_dates: set, recent_dates: set,
-                      board_dates: set) -> str:
+                      board_dates: set,
+                      anchor_date: Optional[str] = None) -> str:
     """Pure keep/stale decision for one tracked artifact path.
 
     Returns one of:
       "seen"      - staged by this run (kept; never counted)
       "protected" - never-delete (master / record / series reader)
-      "current"   - kept via a family window (48h retention, recent-slate
-                    3-day window, or board-backed run-engine/predictions)
+      "current"   - kept via a family window (blanket 10-day retention,
+                    recent-slate window, or board-backed
+                    run-engine/predictions) — or NEWER than the anchor
       "stale"     - safe to delete (git rm) under the policy
+
+    ``anchor_date`` (YYYYMMDD, optional): the run's retention anchor. Any
+    artifact dated AFTER the anchor is kept regardless of windows — a
+    backfill run (``MLB_END_DATE`` in the past) must never prune artifacts
+    newer than its historical anchor. YYYYMMDD strings compare correctly.
 
     Pure (no I/O) so it is unit-testable in isolation — master_pipeline's
     live Phase 6 loop only calls this predicate.
@@ -272,8 +311,10 @@ def classify_artifact(rel: str, seen: set,
     if art_date is None:
         # Dateless and not never-delete -> stale (no window can save it).
         return "stale"
+    if anchor_date and art_date > anchor_date:
+        return "current"  # newer than the run's anchor — backfill-safe keep
     if art_date in retention_dates:
-        return "current"  # within the rolling 48h retention window — keep
+        return "current"  # within the blanket retention window — keep
     if fam is not None and fam.slate_window_days and art_date in recent_dates:
         return "current"  # recent slate snapshot — keep
     if fam is not None and fam.board_supported and art_date in board_dates:
