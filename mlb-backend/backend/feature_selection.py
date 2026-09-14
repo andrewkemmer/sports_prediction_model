@@ -132,25 +132,28 @@ def _score_splits(splits: list[dict[str, Any]]) -> dict[str, float]:
     return metrics
 
 
-def _splits_and_frame(games: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+def _splits_and_frame(games: pd.DataFrame,
+                      max_eval_folds: int = DEFAULT_MAX_EVAL_FOLDS) -> tuple[pd.DataFrame, list]:
     """Attach OOF run margins when the margin feature is active, then split.
 
     Same geometry contract as the daily walk-forward: when run_margin_diff is
     in the active subset, folds are regenerated over the margin-enriched frame
     (build_oof_margin._attach_oof_run_margins asserts identical geometry).
     max_eval_folds follows the production default (0 = full history) so the
-    RFE view can never see fewer folds than the shipped metric.
+    RFE view can never see fewer folds than the shipped metric; a bounded
+    scratch run may pass N to score only the N most recent folds (the trace
+    records the depth so a bounded verdict is never mistaken for a full one).
     """
     splits = walk_forward_splits(
         games, retrain_cadence_days=RETRAIN_CADENCE_DAYS,
-        max_eval_folds=DEFAULT_MAX_EVAL_FOLDS)
+        max_eval_folds=max_eval_folds)
     if MARGIN_COL not in active_moneyline_feature_cols():
         return games, splits
     from training import _attach_oof_run_margins
 
     enriched, splits = _attach_oof_run_margins(
         games, splits,
-        min_val_games=0, max_eval_folds=DEFAULT_MAX_EVAL_FOLDS,
+        min_val_games=0, max_eval_folds=max_eval_folds,
         retrain_cadence_days=RETRAIN_CADENCE_DAYS, min_train_days=0)
     return enriched, splits
 
@@ -184,6 +187,7 @@ def run_rfe(
     ece_guard: float = RFE_ECE_GUARD,
     min_logloss_gain: float = RFE_MIN_LOGLOSS_GAIN,
     noise_sigma: float = RFE_NOISE_SIGMA,
+    max_eval_folds: int = DEFAULT_MAX_EVAL_FOLDS,
 ) -> dict[str, Any]:
     """Run blend-level RFE. Returns the full result record (not yet adopted).
 
@@ -206,7 +210,7 @@ def run_rfe(
     reset_feature_subset()
     universe = list(MONEYLINE_FEATURE_COLS)
 
-    enriched, splits = _splits_and_frame(games)
+    enriched, splits = _splits_and_frame(games, max_eval_folds=max_eval_folds)
     if not splits:
         raise RuntimeError("No walk-forward folds for the supplied frame")
 
@@ -293,6 +297,7 @@ def run_rfe(
         "guard_breaches": guard_breaches,
         "floor": floor,
         "max_steps": max_steps,
+        "max_eval_folds": max_eval_folds,
     }
 
 
@@ -303,6 +308,7 @@ def confirm_candidate(
     ece_guard: float = RFE_ECE_GUARD,
     min_logloss_gain: float = RFE_MIN_LOGLOSS_GAIN,
     noise_sigma: float = RFE_NOISE_SIGMA,
+    max_eval_folds: int = DEFAULT_MAX_EVAL_FOLDS,
 ) -> dict[str, Any]:
     """Confirm a candidate on a DIFFERENT fold geometry before adoption.
 
@@ -325,10 +331,10 @@ def confirm_candidate(
         reset_feature_subset()
         splits = walk_forward_splits(
             games, retrain_cadence_days=alt_cadence,
-            max_eval_folds=DEFAULT_MAX_EVAL_FOLDS)
+            max_eval_folds=max_eval_folds)
         if MARGIN_COL in MONEYLINE_FEATURE_COLS:
             games, splits = _attach_oof_run_margins(
-                games, splits, 0, DEFAULT_MAX_EVAL_FOLDS, alt_cadence, 0)
+                games, splits, 0, max_eval_folds, alt_cadence, 0)
         out: dict[str, Any] = {}
         for label, subset in (("universe", None), ("candidate", cols)):
             if subset is None:
@@ -369,7 +375,10 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool) -> Path:
         "generated_at": datetime.now().isoformat(),
         "seed": RANDOM_SEED,
         "objective": "minimize pooled ensemble logloss per fold",
-        "guards": {"auc_drop_max": RFE_AUC_GUARD, "ece_rise_max": RFE_ECE_GUARD},
+        "guards": {"auc_drop_max": RFE_AUC_GUARD, "ece_rise_max": RFE_ECE_GUARD,
+                   "min_logloss_gain": RFE_MIN_LOGLOSS_GAIN,
+                   "noise_sigma": RFE_NOISE_SIGMA},
+        "max_eval_folds": result.get("max_eval_folds", DEFAULT_MAX_EVAL_FOLDS),
         "universe_cols": list(MONEYLINE_FEATURE_COLS),
         "selected_cols": result["selected_cols"],
         "n_selected": result["n_selected"],
@@ -481,22 +490,28 @@ def maybe_run_rfe(games: pd.DataFrame, day_or_str: "str | date",
 
 
 def load_games_for_date(day: date) -> pd.DataFrame:
-    """Assemble the same decided frame the daily pipeline trains on.
+    """Load the same decided frame the daily pipeline trains on.
 
-    loads raw events through data_ingestion (cache-aware), derives features via
-    pipeline's game-level path, and keeps only decided games — the exact
-    training population of run_daily_pipeline.
+    Reads the production feature artifact (data_delivery/game_level_features.csv)
+    through data_ingestion.load_game_features — the exact frame master_pipeline
+    Phase 4 hands run_daily_pipeline (column mapping, ELO/win-pct/run-diff
+    derivation included) — and keeps only decided games via
+    frames.get_decided_frame (the canonical decided-frame contract).
+
+    Override the path with MLB_FEATURES_CSV for scratch ablations against a
+    different frame (e.g. an older CSV to check verdict stability).
     """
-    from data_ingestion import load_game_events
+    from data_ingestion import load_game_features
     from frames import get_decided_frame
-    import pipeline as _p
 
-    games = load_game_events(day, real=os.environ.get("MLB_REAL", "").lower() in ("1", "true", "yes"))
-    games = _p.attach_market_lines(
-        games, _p.generate_synthetic_market_lines(games))
+    csv = Path(os.environ.get("MLB_FEATURES_CSV") or
+               (DATA_DELIVERY_DIR / "game_level_features.csv"))
+    games = load_game_features(csv)
     decided = get_decided_frame(games)
     if decided.empty:
-        raise RuntimeError(f"No decided games available through {day.isoformat()}")
+        raise RuntimeError(
+            f"No decided games available through {day.isoformat()} "
+            f"(frame: {csv})")
     return decided
 
 
@@ -512,6 +527,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                              "by the daily retrain")
     parser.add_argument("--floor", type=int, default=RFE_FLOOR)
     parser.add_argument("--max-steps", type=int, default=RFE_MAX_STEPS)
+    parser.add_argument("--max-eval-folds", type=int,
+                        default=DEFAULT_MAX_EVAL_FOLDS,
+                        help="score only the N most recent folds (0 = full "
+                             "history, the production default; bounded N is "
+                             "for scratch verification only and is recorded "
+                             "in the trace)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout,
@@ -522,7 +543,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.info("RFE on %d decided games through %s (universe %d)",
                 len(games), day.isoformat(), len(MONEYLINE_FEATURE_COLS))
 
-    result = run_rfe(games, floor=args.floor, max_steps=args.max_steps)
+    result = run_rfe(games, floor=args.floor, max_steps=args.max_steps,
+                     max_eval_folds=args.max_eval_folds)
     logger.info("RFE: %d -> %d features | logloss %.4f -> %.4f | steps %d",
                 result["n_universe"], result["n_selected"],
                 float(result["baseline_metrics"]["logloss"]),
@@ -538,7 +560,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 0
         print("confirming candidate on alternate fold geometry "
               "(cadence 5) before adoption …")
-        confirm = confirm_candidate(games, result["selected_cols"])
+        confirm = confirm_candidate(games, result["selected_cols"],
+                                    max_eval_folds=args.max_eval_folds)
         print(f"  alt-geometry universe  logloss {confirm['universe']['logloss']:.4f} "
               f"auc {confirm['universe']['auc']:.4f} ece {confirm['universe']['ece']:.4f}")
         print(f"  alt-geometry candidate logloss {confirm['candidate']['logloss']:.4f} "
