@@ -21,7 +21,7 @@ Composite definition (locked to b7eed32):
 PIT discipline: z-statistics and the OLS scale slope are fit exclusively on
 rows where `pre_mask` is True (the pre-holdout pool). Trailing-window
 components (sp_fip etc.) are themselves strictly-prior features already in the
-frame. Nothing here touches served FEATURE_COLS / training / run engine.
+frame. Nothing here touches served MONEYLINE_FEATURE_COLS / training / run engine.
 
 Usage:
     from sp_projection import PROJ_LO_BETTER, PROJ_HI_BETTER, attach_projection_cols

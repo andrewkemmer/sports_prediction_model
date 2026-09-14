@@ -908,7 +908,7 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
                      "home_record", "away_record"):
         df[_rec_col] = records_df[_rec_col]
 
-    # Map column names to match FEATURE_COLS in training.py. The pitcher
+    # Map column names to match MONEYLINE_FEATURE_COLS in training.py. The pitcher
     # windows are intentionally not backward-compatible: a legacy 30-game
     # column is not equivalent to the current last-5-start, cross-season
     # feature and must never be relabeled into it.
@@ -1368,10 +1368,10 @@ def build_upcoming_slate(
     Returns:
         DataFrame with one row per scheduled game. Undecided games carry
         home_win/home_score/away_score = NULL; games ESPN already scores
-        (earlier finals) keep their results. Every FEATURE_COLS column exists
+        (earlier finals) keep their results. Every MONEYLINE_FEATURE_COLS column exists
         so predict_games sees the exact trained feature layout.
     """
-    from training import FEATURE_COLS  # lazy: avoids import cycles at module load
+    from training import MONEYLINE_FEATURE_COLS  # lazy: avoids import cycles at module load
 
     sched = schedule_df if schedule_df is not None else load_espn_schedule(target_date)
     if sched.empty:
@@ -1392,7 +1392,7 @@ def build_upcoming_slate(
     records = _final_team_records(hist)
 
     # Carry forward the raw input columns that add_diff_features() needs
-    # to compute the model's diff FEATURE_COLS.  (FEATURE_COLS itself now
+    # to compute the model's diff MONEYLINE_FEATURE_COLS.  (MONEYLINE_FEATURE_COLS itself now
     # uses diff names, so we derive the raw list from add_diff_features'
     # expected inputs.)
     _RAW_CARRY = [
@@ -1442,9 +1442,9 @@ def build_upcoming_slate(
     rows = []
     for _, s in sched.iterrows():
         home, away = s["home_team"], s["away_team"]
-        row = {c: np.nan for c in FEATURE_COLS}
+        row = {c: np.nan for c in MONEYLINE_FEATURE_COLS}
         # Initialize raw input columns that add_diff_features() needs.
-        # FEATURE_COLS now has diff names only, but the raw home/away
+        # MONEYLINE_FEATURE_COLS now has diff names only, but the raw home/away
         # columns must exist for add_diff_features() to compute them.
         _RAW_INPUTS = [
             "home_elo", "away_elo", "home_win_pct", "away_win_pct",

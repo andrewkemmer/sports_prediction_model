@@ -91,7 +91,7 @@ from frames import (
 )
 from github_sync import sync_artifacts
 from training import (
-    FEATURE_COLS,
+    MONEYLINE_FEATURE_COLS,
     MARGIN_COL,
     _attach_oof_run_margins,
     compute_metrics,
@@ -101,6 +101,7 @@ from training import (
     get_last_walk_forward_splits,
     get_last_fold_signature,
     load_ensemble,
+    apply_bundle_feature_cols,
     persist_ensemble,
     predict_games,
     set_adaptive_weights,
@@ -131,8 +132,8 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
     run-engine inputs keep an all-NaN margin (imputed by existing paths)
     with a loud warning -- never a fabricated 0.
     """
-    from training import FEATURE_COLS
-    if MARGIN_COL not in FEATURE_COLS:
+    from training import MONEYLINE_FEATURE_COLS
+    if MARGIN_COL not in MONEYLINE_FEATURE_COLS:
         return target_games
     _missing = {"game_pk", "home_score", "away_score"} - set(games.columns)
     if _missing:
@@ -146,8 +147,8 @@ def _attach_slate_run_margins(target_games: pd.DataFrame,
 
     from build_oof_margin import MARGIN_COL as _BOM_MARGIN, refit_run_margins
     from run_engine import run_oof, _resolve_slate_key
-    from training import FEATURE_COLS, get_last_margin_rounds
-    assert _BOM_MARGIN == MARGIN_COL and MARGIN_COL in FEATURE_COLS
+    from training import MONEYLINE_FEATURE_COLS, get_last_margin_rounds
+    assert _BOM_MARGIN == MARGIN_COL and MARGIN_COL in MONEYLINE_FEATURE_COLS
 
     # Pre-game ESPN boards carry game_id only (no StatsAPI game_pk) -- the
     # 145d841 slate-key convention. refit_run_margins and the margin merge
@@ -344,7 +345,7 @@ def _attach_drift_run_margins(decided: pd.DataFrame) -> pd.DataFrame:
     A failed derivation warns loudly and returns the frame unchanged -- the
     margin row is then omitted from drift, never fabricated.
     """
-    if MARGIN_COL not in FEATURE_COLS:
+    if MARGIN_COL not in MONEYLINE_FEATURE_COLS:
         return decided
     try:
         # Correctness is based on deterministic geometry, not process state.
@@ -1000,7 +1001,7 @@ def _model_monitor_json(
         } if rolling_brier else {},
         # Rich per-feature metadata (definition/formula/source/window/units/
         # direction/derived members) for drift-table tooltips. One source of
-        # truth generated from FEATURE_COLS -- see feature_metadata.py.
+        # truth generated from MONEYLINE_FEATURE_COLS -- see feature_metadata.py.
         "features_metadata": (features_metadata or {}).get("features", {}),
         # Run-engine Phase 3: per-market metrics, α(λ) params + fit-checks,
         # MC metadata, line-grid availability, agreement-filter stats.
@@ -1803,6 +1804,18 @@ def run_daily_pipeline(
         need_retrain = force_retrain or should_retrain(None)  # Always train on first run
 
         if need_retrain:
+            # Apply the adopted feature-selection subset (if any) so this
+            # retrain trains AND persists at the governed width — the state
+            # file is the record-only RFE contract's only lever on serving
+            # (feature_selection.py; adoption is explicit, via --adopt).
+            # Universe wins on any problem; never blocks the daily board.
+            try:
+                from feature_selection import apply_adopted_subset
+                summary["feature_selection"] = apply_adopted_subset()
+            except Exception as _fs_exc:
+                logger.warning(
+                    "Feature-selection state apply failed (universe width): %s",
+                    _fs_exc)
             best_models, pooled_metrics, all_predictions = walk_forward_evaluate(
                 train_games,
                 max_eval_folds=max_eval_folds,
@@ -1832,6 +1845,11 @@ def run_daily_pipeline(
             all_predictions = None  # cached model: no fresh OOF predictions
             set_adaptive_weights(ensemble.get("adaptive_weights"))
             set_calibration(ensemble.get("calibrator"))
+            # Serving width follows the BUNDLE's recorded fit width (not the
+            # current state file) — a cached bundle must be predicted with
+            # exactly the features it was trained on, even if the adopted
+            # subset changed since its retrain day.
+            apply_bundle_feature_cols(ensemble)
             summary["metrics"] = pooled_metrics
 
         # 4. Predict today's games (target_date only)
@@ -1973,7 +1991,7 @@ def run_daily_pipeline(
             summary["artifacts"].append(
                 str(DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json")
             )
-        # Feature metadata (dashboard tooltips) -- walks FEATURE_COLS itself so
+        # Feature metadata (dashboard tooltips) -- walks MONEYLINE_FEATURE_COLS itself so
         # new features appear (or warn loudly); routing derived from live config.
         features_metadata = generate_features_metadata(target_date_str)
         summary["artifacts"].append(

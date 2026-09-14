@@ -25,7 +25,7 @@ from config import (
     SHAP_GAME,
 )
 from training import (
-    FEATURE_COLS,
+    MONEYLINE_FEATURE_COLS,
     TREE_CATEGORICAL_COLS,
     UNK_TEAM_ID,
     _add_team_ids,
@@ -209,19 +209,23 @@ def compute_shap_per_game(
         has_shap = False
         logger.warning("shap not available; writing zero-attribution CSVs")
 
-    # Full FEATURE_COLS width in canonical order — mirrors the training/
+    # Full active-subset width in canonical order — mirrors the training/
     # predict matrices (see _feature_matrix). A narrower matrix here is what
-    # made SHAP attributions come back empty while logs looked healthy.
-    missing = [c for c in FEATURE_COLS if c not in games.columns]
+    # made SHAP attributions come back empty while logs looked healthy. Mirrors
+    # the served model's width (adopted RFE subset when applied, else the full
+    # MONEYLINE_FEATURE_COLS universe).
+    from training import active_moneyline_feature_cols as _active_cols
+    active = _active_cols()
+    missing = [c for c in active if c not in games.columns]
     if missing:
         logger.warning(
             "SHAP input: %d/%d expected columns absent (%s%s) — filled as NULL",
-            len(missing), len(FEATURE_COLS), ", ".join(missing[:6]),
+            len(missing), len(active), ", ".join(missing[:6]),
             " …" if len(missing) > 6 else "")
-    cols = list(FEATURE_COLS)
+    cols = list(MONEYLINE_FEATURE_COLS)
     # Preserve NaN: tree explainers handle missing values natively and a
     # zero-fill would fabricate attributions for unobserved features.
-    X = games.reindex(columns=FEATURE_COLS).to_numpy(dtype=float)
+    X = games.reindex(columns=MONEYLINE_FEATURE_COLS).to_numpy(dtype=float)
 
     # Tree members were trained on numeric features PLUS team-ID categorical
     # columns (58 + 2 = 60 wide). Feeding them a numeric-only matrix makes
@@ -248,7 +252,7 @@ def compute_shap_per_game(
         if name == "randomforest":
             rf = models.get("randomforest")
             n_feat = getattr(rf, "n_features_in_", None)
-            if n_feat is not None and n_feat == len(FEATURE_COLS):
+            if n_feat is not None and n_feat == len(MONEYLINE_FEATURE_COLS):
                 return xn  # ablation RF trained without team IDs
             return np.hstack([xn, xc])
         return xn
@@ -513,11 +517,11 @@ def compute_feature_drift(
     Output: data_delivery/feature_drift_YYYYMMDD.csv (or ``out_name``).
     ``feature_cols`` narrows the feature view (the run engine's 29 kept
     features use the same machinery on the same windows); default keeps the
-    moneyline FEATURE_COLS behavior byte-identical.
+    moneyline MONEYLINE_FEATURE_COLS behavior byte-identical.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
-        else list(FEATURE_COLS)
+        else list(MONEYLINE_FEATURE_COLS)
 
     drift_rows = []
     for col in cols:
@@ -649,7 +653,7 @@ def compute_feature_coverage(
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
-        else list(FEATURE_COLS)
+        else list(MONEYLINE_FEATURE_COLS)
 
     def _window_rows(games: pd.DataFrame, window: str) -> list[dict]:
         rows: list[dict] = []
@@ -713,12 +717,12 @@ def run_engine_feature_cols() -> list[str]:
 
     Base: the FROZEN run-engine λ view (RUN_LAMBDA_VIEW_FROZEN — 53 cols,
     byte-identical to the 2026-08-30 restore contract; pinned so the
-    2026-09-07 moneyline FEATURE_COLS correction does not shrink the
+    2026-09-07 moneyline MONEYLINE_FEATURE_COLS correction does not shrink the
     monitored set).
     Plus: sp_proj_era_home and sp_proj_era_away — the P1 projection level
     (adopted 2026-09-05, gate 7e4c529 ADOPT) that build_side_frame appends
     per side at runtime (home view gets sp_proj_era_away, away view gets
-    sp_proj_era_home). These are model inputs but are NOT in FEATURE_COLS
+    sp_proj_era_home). These are model inputs but are NOT in MONEYLINE_FEATURE_COLS
     (they are runtime-attached, not raw features), so derive_run_features
     never sees them. Added here explicitly so the drift/coverage tables
     monitor every model-input column — the gap that existed before this

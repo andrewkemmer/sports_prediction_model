@@ -38,7 +38,6 @@ from config import (
     ENSEMBLE_FILE,
     ENSEMBLE_WEIGHTS,
     LIGHTGBM_PARAMS,
-    LIGHTGBM_REG_PARAMS,
     MIN_VAL_FOLD_GAMES,
     MODELS_DIR,
     RANDOM_SEED,
@@ -47,7 +46,6 @@ from config import (
     TRAINED_AT_KEY,
     DATA_CUTOFF_KEY,
     XGBOOST_PARAMS,
-    XGBOOST_REG_PARAMS,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,7 +124,7 @@ def get_last_fold_signature() -> str | None:
 # retrain to confirm): sp_fbpct_diff, team_barrel_diff, lineup_woba_std_diff,
 # park_factor_slug_diff, closer_availability_diff, travel_fatigue_diff,
 # bullpen_whip_3g_diff, ace_efficiency_factor, pitcher_regression_indicator.
-FEATURE_COLS = [
+MONEYLINE_FEATURE_COLS = [
     # 1. Baseline (home-field anchor; constant by construction)
     "is_home",
     # 2–4. Core pre-game diffs
@@ -318,9 +316,55 @@ _EXP2_REMOVALS = [
     "sp_xwoba_diff",
     "sp_xwoba_vs_l_diff",
 ]
-FEATURE_COLS = [c for c in FEATURE_COLS if c not in _EXP2_REMOVALS]
+MONEYLINE_FEATURE_COLS = [c for c in MONEYLINE_FEATURE_COLS if c not in _EXP2_REMOVALS]
 # Deduplicate (should already be unique but defensive)
-FEATURE_COLS = list(dict.fromkeys(FEATURE_COLS))
+MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
+
+
+# ── Active feature subset (RFE-controlled) ──────────────────────────────────
+# MONEYLINE_FEATURE_COLS above is the canonical GENERATION universe and is
+# NEVER rebound after import (run_engine.py and other modules import the name
+# at load time — rebinding would silently desync them). Serving/training use
+# the ACTIVE subset returned by active_moneyline_feature_cols(): identical to
+# the universe until feature_selection.apply_adopted_subset() applies an
+# adopted RFE record (data_delivery/mlb_feature_selection_state.json) at the
+# start of a retrain. Generation-side code (features.py construction, the
+# pipeline's universe assertions, run-engine derivation, data_ingestion's
+# frame skeleton) keeps reading the literal universe.
+_FEATURE_SUBSET: list[str] | None = None
+
+
+def active_moneyline_feature_cols() -> list[str]:
+    """Model-facing feature list: adopted RFE subset, else the full universe."""
+    return list(_FEATURE_SUBSET) if _FEATURE_SUBSET is not None \
+        else list(MONEYLINE_FEATURE_COLS)
+
+
+def set_feature_subset(cols: list[str] | None) -> None:
+    """Apply (or clear, None) the active feature subset.
+
+    Canonical universe order is preserved regardless of ``cols`` ordering, so
+    every consumer's positional assumptions hold. Raises on non-universe
+    names — a subset referencing an unknown feature is an upstream bug, not
+    something to silently intersect away.
+    """
+    global _FEATURE_SUBSET
+    if cols is None:
+        _FEATURE_SUBSET = None
+        return
+    unknown = [c for c in cols if c not in MONEYLINE_FEATURE_COLS]
+    if unknown:
+        raise ValueError(
+            f"feature subset contains non-universe columns: {unknown[:6]}"
+            f" (universe has {len(MONEYLINE_FEATURE_COLS)} entries)")
+    keep = set(cols)
+    _FEATURE_SUBSET = [c for c in MONEYLINE_FEATURE_COLS if c in keep]
+
+
+def reset_feature_subset() -> None:
+    """Clear any active subset (back to the full universe)."""
+    global _FEATURE_SUBSET
+    _FEATURE_SUBSET = None
 
 
 # ── Walk-forward splits ─────────────────────────────────────────────────────
@@ -522,22 +566,24 @@ def _feature_matrix(df: pd.DataFrame) -> np.ndarray:
     imputation, applied at predict time via the medians stored in the models
     dict. Team IDs route through a separate categorical path (LightGBM).
 
-    WIDTH IS AN INVARIANT: the result is ALWAYS len(FEATURE_COLS) wide in
-    canonical FEATURE_COLS order. Columns absent from ``df`` come back as
+    WIDTH IS AN INVARIANT: the result is ALWAYS len(active_moneyline_feature_cols())
+    wide in canonical order (the adopted RFE subset when one is applied, else
+    the full MONEYLINE_FEATURE_COLS universe). Columns absent from ``df`` come back as
     all-NaN (never silently dropped) with one loud warning — a narrower-than-
     fit-time matrix is how SHAP attributions went quietly empty on synthetic
     slates, and column-name labels elsewhere assume this exact width/order.
     """
-    missing = [c for c in FEATURE_COLS if c not in df.columns]
+    cols = active_moneyline_feature_cols()
+    missing = [c for c in cols if c not in df.columns]
     if missing:
         logger.warning(
             "Feature matrix: %d/%d expected columns absent (%s%s) — filled as "
             "NULL (tree members route NaN; logistic/mlp impute); investigate "
             "the source frame",
-            len(missing), len(FEATURE_COLS), ", ".join(missing[:6]),
+            len(missing), len(cols), ", ".join(missing[:6]),
             " …" if len(missing) > 6 else "",
         )
-    return df.reindex(columns=FEATURE_COLS).to_numpy(dtype=float)
+    return df.reindex(columns=cols).to_numpy(dtype=float)
 
 
 def _prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -613,7 +659,7 @@ def _team_id(abbr: str) -> int:
     _TEAM_ID_TO_ABBR[tid] = abbr
     return tid
 
-# Tree-member-only categorical columns. NOT in FEATURE_COLS — they get
+# Tree-member-only categorical columns. NOT in MONEYLINE_FEATURE_COLS — they get
 # native categorical handling in LightGBM (categorical_feature= BY NAME) and
 # XGBoost (enable_categorical + pd.Categorical dtype). Logistic/MLP must not
 # receive them (one-hot would starve on ~4k rows).
@@ -694,16 +740,17 @@ def _logistic_feature_cols() -> list[str]:
 Diff-only under the default flag; the raw per-side columns remain
 available to tree members regardless of this toggle.
 """
-    cols = list(FEATURE_COLS)
+    cols = active_moneyline_feature_cols()
     if LOGISTIC_USE_RAW_COLS:
-        return cols
+        return list(cols)
     raw = set(RAW_PER_SIDE_COLS)
     return [c for c in cols if c not in raw]
 
 
 def _logistic_feature_indices() -> list[int]:
-    """Indices into a full-width FEATURE_COLS matrix for the logistic member."""
-    return [FEATURE_COLS.index(c) for c in _logistic_feature_cols()]
+    """Indices into the active-width feature matrix for the logistic member."""
+    active = active_moneyline_feature_cols()
+    return [active.index(c) for c in _logistic_feature_cols()]
 
 # Venue / starter categorical mappers — same lazy auto-ID contract as
 # _team_id, each with its own reserved UNK slot.
@@ -834,7 +881,7 @@ def _tree_dataframe(
 ) -> "pd.DataFrame":
     """Build a DataFrame with named numeric + categorical columns.
 
-    Numeric columns preserve their names from FEATURE_COLS. Categorical
+    Numeric columns preserve their names from MONEYLINE_FEATURE_COLS. Categorical
     columns become pandas Categorical with an explicit category set (so
     XGBoost never throws "unseen category" at predict time); LightGBM gets
     plain ints + categorical_feature= by name.
@@ -1001,7 +1048,7 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
         raw = {n: 1.0 / len(members) for n in members}
         total = 1.0
 
-    agg = np.zeros(len(FEATURE_COLS))
+    agg = np.zeros(len(active_moneyline_feature_cols()))
     contributed = False
     for name, model in members.items():
         try:
@@ -1014,8 +1061,8 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
         except Exception:
             continue
         # Tree members trained with team-ID categoricals have larger
-        # feature-importance vectors; trim to numeric FEATURE_COLS only.
-        nfc = len(FEATURE_COLS)
+        # feature-importance vectors; trim to numeric active cols only.
+        nfc = len(active_moneyline_feature_cols())
         if len(imp) >= nfc:
             imp = imp[:nfc]
         if len(imp) != nfc or imp.sum() <= 0:
@@ -1024,7 +1071,7 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
         contributed = True
     if not contributed or agg.sum() <= 0:
         return None
-    return {f: round(float(w), 4) for f, w in zip(FEATURE_COLS, agg / agg.sum() * 100.0)}
+    return {f: round(float(w), 4) for f, w in zip(active_moneyline_feature_cols(), agg / agg.sum() * 100.0)}
 
 
 def ensemble_predict(
@@ -1067,15 +1114,15 @@ def ensemble_predict(
                 Xuse = Xu
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
-                # _feature_matrix guarantees full FEATURE_COLS width/order.
+                # _feature_matrix guarantees full MONEYLINE_FEATURE_COLS width/order.
                 # Clamp to the fit-time vocabulary so predict-time newcomers
                 # (callup starters etc.) route to UNK instead of crashing
                 # XGBoost's "category not in the training set" check.
-                Xuse = _tree_dataframe(Xi, X_cat, list(FEATURE_COLS),
+                Xuse = _tree_dataframe(Xi, X_cat, active_moneyline_feature_cols(),
                                        vocabs=ml_models.get("categorical_vocab"))
             elif name == "lightgbm":
                 import pandas as pd
-                num_cols_in_data = list(FEATURE_COLS)
+                num_cols_in_data = active_moneyline_feature_cols()
                 _df = pd.DataFrame(X, columns=num_cols_in_data)
                 _vocab = ml_models.get("categorical_vocab") or {}
                 for i, c_ in enumerate(TREE_CATEGORICAL_COLS):
@@ -1088,8 +1135,8 @@ def ensemble_predict(
                 Xuse = _df
             elif name == "randomforest":
                 # If model was trained without team IDs (ablation), it expects
-                # FEATURE_COLS dimensions. Detect from model's n_features_in_.
-                if hasattr(model, "n_features_in_") and model.n_features_in_ == len(FEATURE_COLS):
+                # active-subset dimensions. Detect from model's n_features_in_.
+                if hasattr(model, "n_features_in_") and model.n_features_in_ == len(active_moneyline_feature_cols()):
                     Xuse = X  # ablation: numeric only
                 else:
                     Xuse = X_tree  # production: numeric + int team IDs
@@ -1200,7 +1247,7 @@ def train_moneyline_ensemble(
         # XGBoost: named DataFrame with pd.Categorical team-ID columns.
         # enable_categorical=True (in XGBOOST_PARAMS) picks them up natively.
         # Labels mirror _feature_matrix's guaranteed width/order.
-        num_cols_in_data = list(FEATURE_COLS)
+        num_cols_in_data = active_moneyline_feature_cols()
         X_train_xgb = _tree_dataframe(X_train_lr, X_cat_train, num_cols_in_data)
         if X_val is not None:
             X_val_xgb = _tree_dataframe(X_val_lr, X_cat_val, num_cols_in_data)
@@ -1226,7 +1273,7 @@ def train_moneyline_ensemble(
     try:
         from lightgbm import LGBMClassifier
         import pandas as pd
-        num_cols_in_data = list(FEATURE_COLS)
+        num_cols_in_data = active_moneyline_feature_cols()
         lgbm_cols = num_cols_in_data + TREE_CATEGORICAL_COLS
         X_train_lgbm = pd.DataFrame(X_train, columns=num_cols_in_data)
         for i, c in enumerate(TREE_CATEGORICAL_COLS):
@@ -1334,162 +1381,6 @@ def train_moneyline_ensemble(
 
 
 # ── Totals regression ───────────────────────────────────────────────────────
-
-def train_totals_model(
-    train: pd.DataFrame, val: pd.DataFrame
-) -> dict[str, Any]:
-    """Train XGBoost + LightGBM regression ensemble for total runs."""
-    cols = [c for c in FEATURE_COLS if c in train.columns]
-    X_train = train[cols].to_numpy(dtype=float)
-    y_train = train["total_runs"].values.astype(float)
-    X_val = val[cols].to_numpy(dtype=float)
-    y_val = val["total_runs"].values.astype(float)
-
-    models = {}
-
-    try:
-        from xgboost import XGBRegressor
-        xgb = XGBRegressor(**XGBOOST_REG_PARAMS)
-        xgb.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-        models["xgboost_reg"] = xgb
-    except ImportError:
-        pass
-
-    try:
-        from lightgbm import LGBMRegressor
-        lgbm = LGBMRegressor(**LIGHTGBM_REG_PARAMS)
-        lgbm.fit(X_train, y_train, eval_set=[(X_val, y_val)])
-        models["lgbm_reg"] = lgbm
-    except ImportError:
-        pass
-
-    # Predictions for metrics
-    preds = []
-    for name, model in models.items():
-        preds.append(model.predict(X_val))
-
-    if preds:
-        ensemble_pred = np.mean(preds, axis=0)
-        rmse = float(np.sqrt(np.mean((ensemble_pred - y_val) ** 2)))
-        mae = float(np.mean(np.abs(ensemble_pred - y_val)))
-    else:
-        rmse = mae = float("nan")
-
-    return {
-        "models": models,
-        "metrics": {"rmse": round(rmse, 4), "mae": round(mae, 4)},
-    }
-
-
-# ── Run-line classification ─────────────────────────────────────────────────
-
-# TRUE −1.5 run-line target (frozen D+F decision, 2026-09-07): home covers −1.5
-# iff home_runs − away_runs ≥ 2. The legacy train_run_line_model below collapses
-# its target to home_win and is EXCLUDED from production use — kept only for
-# historical reference, never called by the pipeline.
-RUN_LINE_TARGET_NOTE = (
-    "true -1.5 classifier: y = (home_score - away_score) >= 2; same ensemble "
-    "trainer/hyperparameters/folds/prequential calibration as the moneyline "
-    "(fold geometry is a pure function of game_date + non-null target, so "
-    "swapping y in place leaves boundaries byte-identical). Legacy "
-    "train_run_line_model excluded (collapses target to home_win)."
-)
-
-
-def with_run_line_target(games: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of the frame whose home_win column carries the TRUE −1.5
-    run-line cover target ((home_score − away_score) ≥ 2).
-
-    This is the sanctioned run-line model construction (frozen D+F decision):
-    the production ensemble trainer is target-agnostic — it reads y from the
-    home_win column everywhere (_prepare_features, fold loops, OOF pooling) —
-    so swapping the column in place trains/predicts the −1.5 classifier with
-    byte-identical fold geometry and identical prequential calibration
-    semantics. Verified in the Experiment #2 run-line harness (rl_cover
-    target, val_start signature asserted equal to the moneyline folds).
-    Requires home_score/away_score columns (decided frames only).
-    """
-    df = games.copy()
-    if "home_score" not in df.columns or "away_score" not in df.columns:
-        raise ValueError(
-            "with_run_line_target: home_score/away_score required — the true "
-            "−1.5 target is defined on decided games only")
-    margin = (pd.to_numeric(df["home_score"], errors="coerce")
-              - pd.to_numeric(df["away_score"], errors="coerce"))
-    # Keep NULL-alignment identical to the decided mask so walk_forward_splits
-    # (dropna on home_win) produces byte-identical boundaries.
-    df["home_win"] = np.where(margin.isna(), np.nan, (margin >= 2).astype(float))
-    return df
-
-
-def walk_forward_evaluate_runline(
-    games: pd.DataFrame,
-    **kwargs: Any,
-) -> tuple[dict[str, Any], dict[str, float], pd.DataFrame]:
-    """Walk-forward evaluation of the TRUE −1.5 run-line classifier.
-
-    Same ensemble members, hyperparameters, fold cadence and prequential
-    calibration as the moneyline (walk_forward_evaluate), with the target
-    swapped to (home_runs − away_runs ≥ 2) per the frozen D+F decision. The
-    returned predictions keep the home_win_prob_model column names (the
-    trainer's contract) — there they mean P(home covers −1.5).
-    """
-    return walk_forward_evaluate(with_run_line_target(games), **kwargs)
-
-
-def train_run_line_model(
-    train: pd.DataFrame, val: pd.DataFrame
-) -> dict[str, Any]:
-    """Train run-line cover probability classifier.
-
-    Run-line cover: does the home team cover -1.5 run line?
-    (i.e., win by 2+ runs)
-    """
-    train = train.copy()
-    val = val.copy()
-    train["run_line_cover"] = (train["home_win"] == 1) & (train.get("total_runs", 0) > 1)
-    # Simplified: home covers if they win (since run_line is -1.5)
-    train["run_line_cover"] = (train["home_win"] == 1).astype(float)
-    val["run_line_cover"] = (val["home_win"] == 1).astype(float)
-
-    cols = [c for c in FEATURE_COLS if c in train.columns]
-    X_train = train[cols].to_numpy(dtype=float)
-    y_train = train["run_line_cover"].values
-    X_val = val[cols].to_numpy(dtype=float)
-    y_val = val["run_line_cover"].values
-
-    models = {}
-    try:
-        from xgboost import XGBClassifier
-        xgb = XGBClassifier(**XGBOOST_PARAMS)
-        xgb.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-        models["xgboost_rl"] = xgb
-    except ImportError:
-        pass
-
-    try:
-        from lightgbm import LGBMClassifier
-        lgbm = LGBMClassifier(**LIGHTGBM_PARAMS)
-        lgbm.fit(X_train, y_train, eval_set=[(X_val, y_val)])
-        models["lgbm_rl"] = lgbm
-    except ImportError:
-        pass
-
-    # Predictions
-    probs = []
-    for name, model in models.items():
-        probs.append(model.predict_proba(X_val)[:, 1])
-
-    if probs:
-        ensemble_prob = np.mean(probs, axis=0)
-        metrics = compute_metrics(y_val, ensemble_prob)
-    else:
-        metrics = {"auc": 0.5, "brier": 0.25}
-
-    return {"models": models, "metrics": metrics}
-
-
-# ── Run-margin enrichment (moneyline-only, leakage-free) ──────────────────
 
 def _attach_oof_run_margins(
     games: pd.DataFrame,
@@ -1636,7 +1527,7 @@ def walk_forward_evaluate(
     # the enriched frame (geometry asserted identical inside). The final
     # fit-only refit below then sees the same column. Skipped with a loud
     # warning when the frame lacks run-engine inputs.
-    if MARGIN_COL in FEATURE_COLS and splits:
+    if MARGIN_COL in active_moneyline_feature_cols() and splits:
         games, splits = _attach_oof_run_margins(
             games, splits, min_val_games, max_eval_folds,
             retrain_cadence_days, min_train_days,
@@ -1875,6 +1766,12 @@ def persist_ensemble(
         # Post-hoc Platt calibrator fitted on pooled OOF; applied by
         # predict_games so published probabilities are calibrated.
         "calibrator": get_last_calibrator(),
+        # The exact feature list the members were trained on. Serving-side
+        # truth: a cached bundle must always be predicted with its own fit
+        # width, even if the adopted RFE subset later changes — see
+        # apply_bundle_feature_cols. Bundles persisted before this field
+        # existed were trained at universe width (key absent → universe).
+        "feature_cols": active_moneyline_feature_cols(),
     }
 
     path = MODELS_DIR / ENSEMBLE_FILE
@@ -1889,6 +1786,33 @@ def load_ensemble(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
     if not path.exists():
         return None
     return joblib.load(path)
+
+
+def apply_bundle_feature_cols(bundle: Optional[dict[str, Any]]) -> None:
+    """Make serving width match a loaded bundle's fit width.
+
+    Applies the bundle's recorded feature_cols as the active subset. A bundle
+    without the field (pre-RFE format) was trained at universe width and
+    resets to it. Invalid recorded lists (universe shrank beneath an old
+    bundle, corrupted joblib) degrade loudly to the universe rather than
+    crash the daily board — a width mismatch would fail anyway inside the
+    members, so the universe fallback is the honest best effort.
+    """
+    if not bundle:
+        reset_feature_subset()
+        return
+    cols = bundle.get("feature_cols")
+    if cols is None:
+        reset_feature_subset()
+        return
+    try:
+        set_feature_subset(list(cols))
+        logger.info("Serving feature width: %d (bundle-recorded subset)", len(cols))
+    except ValueError as e:
+        logger.warning(
+            "Bundle feature_cols not a valid subset — serving at full "
+            "universe width instead (%s)", e)
+        reset_feature_subset()
 
 
 def should_retrain(last_trained: Optional[datetime], cadence_days: int = RETRAIN_CADENCE_DAYS) -> bool:

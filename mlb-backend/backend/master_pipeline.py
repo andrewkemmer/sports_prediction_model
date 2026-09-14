@@ -175,7 +175,7 @@ from features import add_diff_features, add_exp2_features
 game_df = enrich_elo_and_records(game_df, rename_team_woba=True)
 game_df = add_diff_features(game_df)
 # Experiment #2 candidate features (C+E / D+F decision): built from the
-# source layer's PIT-safe columns, shipped in the CSV (FEATURE_COLS members).
+# source layer's PIT-safe columns, shipped in the CSV (MONEYLINE_FEATURE_COLS members).
 game_df = add_exp2_features(game_df)
 
 # ── Save features BEFORE training (Phase 4 needs the CSV) ────────────────
@@ -213,7 +213,7 @@ try:
     from data_ingestion import load_game_features
 
     # Always load via load_game_features — it computes ELO, win_pct,
-    # run_diff and maps columns to training.py's FEATURE_COLS format.
+    # run_diff and maps columns to training.py's MONEYLINE_FEATURE_COLS format.
     train_games = load_game_features(csv_path)
     print(f"  📋 Training data: {train_games.shape[0]} games, {train_games.shape[1]} features")
     key_feats = ["home_elo", "home_win_pct", "sp_era_5g_home", "woba_30g_home",
@@ -223,6 +223,20 @@ try:
         for c in key_feats if c in train_games.columns
     )
     print(f"  📊 Feature coverage: {cov}")
+
+    # ── ADOPTED FEATURE-SUBSET STATE (record-only RFE governance) ───────────
+    # Apply the adopted subset (data_delivery/mlb_feature_selection_state.json,
+    # written only by an explicit --adopt invocation of feature_selection.py)
+    # to the live training/serving width BEFORE any model work. Universe wins
+    # on any problem. run_daily_pipeline re-applies it on the retrain path and
+    # pins cached-bundle width itself — this covers everything else that reads
+    # the width in this process.
+    try:
+        from feature_selection import apply_adopted_subset
+        _fs = apply_adopted_subset()
+        print(f"  🎯 Feature width: {'RFE subset (' + str(_fs.get('n_cols')) + ' cols)' if _fs.get('applied') else 'full universe'}")
+    except Exception as _fs_exc:
+        print(f"  ⚠️  Feature-selection state apply failed (universe width): {_fs_exc}")
 
     # ── PRE-TRAINING SILENT-DATA INGESTION GUARD ────────────────────────────
     # The 08-28 Statcast chunk failure (IncompleteRead on a core-season chunk,
@@ -271,6 +285,24 @@ try:
         print(f"  ❌ Errors: {summary['errors']}")
 except Exception as e:
     print(f"  ❌ Training failed: {e}")
+
+# ── Phase 4.5: Feature-selection RFE (record-only, weekly) ────────────────
+# Blend-level RFE on scheduled days only (Mondays; MLB_RFE_FORCE=1 to force).
+# Writes data_delivery/mlb_feature_selection_<date>.json and NEVER adopts —
+# changing serving width requires the explicit --adopt invocation. A failure
+# here must never block the artifact sync below. (train_games may be unbound
+# if Phase 4 died early — the guard covers that too.)
+try:
+    from feature_selection import maybe_run_rfe
+    _rfe = maybe_run_rfe(train_games, end)
+    if _rfe.get("ran"):
+        print(f"  🎯 RFE: {_rfe['n_universe']} -> {_rfe['n_selected']} features "
+              f"(logloss {_rfe['baseline_logloss']:.4f} -> {_rfe['best_logloss']:.4f})")
+        print(f"     trace: {_rfe['trace']}")
+    else:
+        print(f"  🎯 RFE skipped: {_rfe.get('reason')}")
+except Exception as _rfe_exc:
+    print(f"  ⚠️  Feature-selection RFE skipped ({_rfe_exc})")
 
 # ── Phase 5: GitHub Sync — push this run's NEW files first ─────────────────
 _banner("PHASE 5", "GitHub Sync — push new artifacts")

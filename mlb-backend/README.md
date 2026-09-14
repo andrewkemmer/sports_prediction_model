@@ -221,7 +221,42 @@ comment. Never as a new backend file. Historical test suites remain
 recoverable from git history
 (`git show <sha>:mlb-backend/backend/test_x.py`).
 
-## 5. Assumptions & decisions (documented per the brief)
+## 5. Automated feature selection (blend-level RFE, record-only)
+
+`backend/feature_selection.py` prunes the moneyline feature universe
+(`MONEYLINE_FEATURE_COLS`) with seeded, deterministic recursive feature
+elimination measured on the **actual five-member ensemble** over the SAME
+point-in-time walk-forward folds the daily run trains on.
+
+- **Objective.** Minimize pooled walk-forward logloss per fold. A removal
+  commits only if pooled logloss improves by at least `RFE_MIN_LOGLOSS_GAIN`
+  *and* by `RFE_NOISE_SIGMA` standard errors of the baseline estimate, while
+  AUC drops no more than `RFE_AUC_GUARD` and ECE rises no more than
+  `RFE_ECE_GUARD` (secondary objectives are guards, not targets). The SE
+  calibration is load-bearing: fixed thresholds noise-fit on small validation
+  windows (verified on synthetic pure-noise targets — zero committed removals,
+  deterministic run-to-run).
+- **Governance is record-only.** The daily pipeline runs the walk on Mondays
+  (`MLB_RFE_FORCE=1` to force) and writes
+  `data_delivery/mlb_feature_selection_<date>.json` — a full step trace with
+  per-step metrics, gains and thresholds. It **never** changes serving width.
+  Changing width requires an explicit
+  `python backend/feature_selection.py --date YYYY-MM-DD --adopt`, which first
+  confirms the candidate on an alternate fold geometry (cadence 5) and refuses
+  adoption when the verdict only holds on the production fold sequence.
+- **Mechanics.** Adoption writes `data_delivery/mlb_feature_selection_state.json`;
+  the next retrain applies it via `training.set_feature_subset` (universe wins
+  on any validation problem; floor `RFE_FLOOR`). The persisted ensemble bundle
+  records its own `feature_cols`, so a cached model is always served at its
+  exact fit width even after the adopted subset later changes. Generation,
+  the run-engine λ view and drift/coverage monitoring keep reading the full
+  universe — a pruned feature is still generated and watched, just not fed to
+  the moneyline.
+- **Scratch workflow.** Ablate in scratch: `python feature_selection.py
+  --date YYYY-MM-DD [--adopt]` runs the full walk against the real frame
+  without waiting for the weekly trigger.
+
+## 6. Assumptions & decisions (documented per the brief)
 
 * **Synthetic-by-default.** The pipeline ships a seeded, deterministic
   synthetic game log so it runs end-to-end in Colab with no API access. Real
@@ -266,7 +301,7 @@ recoverable from git history
   page renders a per-feature coverage panel (feature × window × % measured)
   so absence is visible instead of hiding behind default-filled zeros.
 
-## 6. FAQ
+## 7. FAQ
 
 **Why doesn't the app import scikit-learn / xgboost / shap?**
 All model code lives in `backend/`; the frontend only reads CSV/JSON artifacts

@@ -2,7 +2,7 @@
 
 Single source of truth for dashboard tooltips (Feature Drift Analysis) and any
 consumer that needs to explain what a feature IS. Entries are keyed by exact
-FEATURE_COLS names; generation walks FEATURE_COLS itself so a newly added
+MONEYLINE_FEATURE_COLS names; generation walks MONEYLINE_FEATURE_COLS itself so a newly added
 feature automatically appears (authored entry) or triggers a LOUD WARNING plus
 a clearly-marked placeholder (never a silent gap).
 
@@ -28,7 +28,7 @@ TREE_MEMBERS = ["xgboost", "lightgbm", "randomforest", "mlp"]
 _ALL_MEMBERS = TREE_MEMBERS + ["logistic"]
 
 # ---------------------------------------------------------------------------
-# Rich authored entries. Keys must exactly match FEATURE_COLS names; anything
+# Rich authored entries. Keys must exactly match MONEYLINE_FEATURE_COLS names; anything
 # missing at generation time triggers a loud warning + placeholder.
 # ---------------------------------------------------------------------------
 _RICH: dict[str, dict[str, str]] = {
@@ -99,10 +99,10 @@ _RICH: dict[str, dict[str, str]] = {
         "direction": "lower = home advantage",
     },
     # RETIRED 2026-09-07 (Experiment #2 E/F replacement — the 6 baseline
-    # S-family features left FEATURE_COLS): sp_k9_diff, sp_k9_5g_diff,
+    # S-family features left MONEYLINE_FEATURE_COLS): sp_k9_diff, sp_k9_5g_diff,
     # sp_fbpct_diff, sp_whiff_diff, sp_xwoba_diff, sp_xwoba_vs_l_diff.
     # Their authored dashboard entries were removed (the dashboard only
-    # renders FEATURE_COLS members); the columns are still generated in the
+    # renders MONEYLINE_FEATURE_COLS members); the columns are still generated in the
     # dataset and remain run-engine λ-view inputs (RUN_LAMBDA_VIEW_FROZEN).
     # ---- SP trailing-3 stuff diffs ----------------------------------------
     "sp_fbvelo_diff": {
@@ -526,8 +526,8 @@ _LINEUP_DELTA_FAMILIES = {
 
 
 # Categorical-context columns (TREE_CATEGORICAL_COLS inputs, NOT in
-# FEATURE_COLS — so they live in a dedicated payload section rather than the
-# FEATURE_COLS walk, which would trip the stale-entry warning). Emitted as
+# MONEYLINE_FEATURE_COLS — so they live in a dedicated payload section rather than the
+# MONEYLINE_FEATURE_COLS walk, which would trip the stale-entry warning). Emitted as
 # payload["categorical_context"] with the same tooltip schema; additive for
 # frontend consumers that only read payload["features"].
 _CATEGORICAL_CONTEXT: dict[str, dict[str, str]] = {
@@ -670,17 +670,17 @@ def members_for_feature(name: str, logistic_cols: set[str]) -> list[str]:
 
 
 def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
-    """Build the metadata dict keyed by FEATURE_COLS names.
+    """Build the metadata dict keyed by MONEYLINE_FEATURE_COLS names.
 
-    Returns (metadata, warnings_list). Every FEATURE_COLS entry gets a row;
+    Returns (metadata, warnings_list). Every MONEYLINE_FEATURE_COLS entry gets a row;
     unauthored features get a clearly-marked placeholder AND a warning string
     so absence is never silent."""
-    from training import FEATURE_COLS, _logistic_feature_cols
+    from training import MONEYLINE_FEATURE_COLS, _logistic_feature_cols
 
     logistic_cols = set(_logistic_feature_cols())
     meta: dict[str, dict] = {}
     warnings: list[str] = []
-    for name in FEATURE_COLS:
+    for name in MONEYLINE_FEATURE_COLS:
         entry = _rich_entry(name)
         members = members_for_feature(name, logistic_cols)
         if entry is None:
@@ -703,10 +703,10 @@ def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
         row = {"name": name, **entry, "members": members}
         row["tooltip"] = format_tooltip(row)
         meta[name] = row
-    # Authored-but-no-longer-in-FEATURE_COLS entries would silently rot — warn.
-    stale = sorted(set(_RICH) - set(FEATURE_COLS))
+    # Authored-but-no-longer-in-MONEYLINE_FEATURE_COLS entries would silently rot — warn.
+    stale = sorted(set(_RICH) - set(MONEYLINE_FEATURE_COLS))
     if stale:
-        msg = f"Feature metadata: entries no longer in FEATURE_COLS: {stale}"
+        msg = f"Feature metadata: entries no longer in MONEYLINE_FEATURE_COLS: {stale}"
         logger.warning(msg)
         warnings.append(msg)
     return meta, warnings

@@ -13,7 +13,7 @@ Design contract (2026-08 margin-feature task):
 - Run-engine machinery is reused read-only (build_side_frame /
   _fit_side_model / RUN_LGBM_PARAMS). Nothing in run_engine.py changes; the
   29-feature view and alpha(lambda) stay untouched. (Even if
-  ``run_margin_diff`` itself were ever added to FEATURE_COLS,
+  ``run_margin_diff`` itself were ever added to MONEYLINE_FEATURE_COLS,
   derive_run_features drops every ``*_diff`` except park_factor_slug_diff —
   the run view cannot leak it.)
 - Early stopping uses the validation fold's targets to pick the ITERATION

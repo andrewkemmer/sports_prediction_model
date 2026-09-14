@@ -247,22 +247,22 @@ RF_PARAMS = {
     "n_jobs": -1,
 }
 
-# Totals regression variants
-XGBOOST_REG_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "random_state": RANDOM_SEED,
-}
-LIGHTGBM_REG_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "random_state": RANDOM_SEED,
-    "verbose": -1,
-}
+# ---------------------------------------------------------------------------
+# Recursive feature elimination (moneyline blend-level RFE) — see
+# feature_selection.py. Seeded and deterministic: same data → same verdict.
+# ---------------------------------------------------------------------------
+RFE_FLOOR = 25                 # never prune below this many features
+RFE_AUC_GUARD = 0.003          # adopt step only if pooled AUC drop <= this
+RFE_ECE_GUARD = 0.005          # adopt step only if pooled ECE rise <= this
+RFE_MIN_LOGLOSS_GAIN = 0.002   # floor on the commit threshold (never commit on
+                               # a smaller measured gain, even at huge n)
+RFE_NOISE_SIGMA = 2.0          # commit threshold = max(floor, this many
+                               # standard errors of the baseline pooled
+                               # logloss). SE-calibration is what actually
+                               # blocks noise-fitting: with a small val window,
+                               # chance logloss jitter (±0.02) exceeds any
+                               # fixed floor.
+RFE_MAX_STEPS = 40             # walk-forward scoring evaluations per RFE run
 
 # ---------------------------------------------------------------------------
 # Coin-flip threshold

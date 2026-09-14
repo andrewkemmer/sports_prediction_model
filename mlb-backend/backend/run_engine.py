@@ -11,7 +11,7 @@ holdout LL 0.6865→0.6846 (the earlier DO-NOT-SHIP verdict was measured on a
 stale artifact where calibration degraded 0.0119→0.0144). park_factor_slug_diff
 stays kept as a park-context term; the 5 engineered composite interactions and
 run_margin_diff (a lambda-derived moneyline-side feature) stay excluded. The
-kept list is DERIVED from FEATURE_COLS at call time so new features flow in
+kept list is DERIVED from MONEYLINE_FEATURE_COLS at call time so new features flow in
 (and are logged); only the exclusion RULE lives here.
 
 One regularized LightGBM regressor (objective="poisson") per side, trained on
@@ -69,9 +69,9 @@ RUN_EXTRA_EXCLUSIONS = {
     "lineup_rest_count_home", "lineup_rest_count_away",
     # Categorical-context columns (venue + the two starter IDs) — moneyline
     # TREE_CATEGORICAL_COLS inputs only, not scoring LEVELS. They are not in
-    # FEATURE_COLS today; named here so the rule also drops them if they ever
+    # MONEYLINE_FEATURE_COLS today; named here so the rule also drops them if they ever
     # enter a frame the run engine derives from (kept/dropped lists from
-    # FEATURE_COLS stay byte-identical — asserted in
+    # MONEYLINE_FEATURE_COLS stay byte-identical — asserted in
     # test_categorical_venue_starters.py).
     "venue", "home_starter_id", "away_starter_id",
 }
@@ -102,7 +102,7 @@ RUN_RESTORED_DIFF_FEATURES = frozenset({
 })
 
 # Phase 3.5b — standalone ENVIRONMENT-LEVEL features. These live OUTSIDE
-# FEATURE_COLS (the moneyline's list is untouched until its own ablation
+# MONEYLINE_FEATURE_COLS (the moneyline's list is untouched until its own ablation
 # says otherwise); the run engine appends whichever are present in the frame.
 RUN_LEVEL_ENV_FEATURES = (
     "park_wind_factor", "air_density_level", "park_factor_slug",
@@ -142,7 +142,7 @@ RUN_LGBM_PARAMS = {
 # Feature-view derivation
 # ---------------------------------------------------------------------------
 def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
-    """Derive (run_features, dropped) from FEATURE_COLS by rule:
+    """Derive (run_features, dropped) from MONEYLINE_FEATURE_COLS by rule:
 
       drop  f  if f.endswith("_diff")
                    and f not in RUN_RESTORED_DIFF_FEATURES
@@ -177,10 +177,10 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     return run_feats, dropped
 
 
-# FROZEN run-engine λ view (2026-09-07): the moneyline FEATURE_COLS correction
+# FROZEN run-engine λ view (2026-09-07): the moneyline MONEYLINE_FEATURE_COLS correction
 # (Experiment #2 E/F replacement — the 6 baseline S-family features left the
 # moneyline list) must NOT shrink the run engine's model inputs. These two
-# tuples are byte-identical to derive_run_features(FEATURE_COLS) as of the
+# tuples are byte-identical to derive_run_features(MONEYLINE_FEATURE_COLS) as of the
 # 2026-08-30 keep-list restore (53 kept / 14 dropped), captured before the
 # correction. build_side_frame defaults to this pinned view so NB pricing
 # behavior (alpha(lambda), Monte Carlo scoring, derive_markets_mc) is
@@ -250,7 +250,7 @@ def build_side_frame(games: pd.DataFrame, side: str,
     feats = list(run_features) if run_features is not None else None
     if feats is None or dropped is None:
         # Default: the FROZEN 2026-08-30 λ view (see RUN_LAMBDA_VIEW_FROZEN).
-        # NOT re-derived from the live FEATURE_COLS — the moneyline list may
+        # NOT re-derived from the live MONEYLINE_FEATURE_COLS — the moneyline list may
         # change (e.g. the exp2 E/F replacement) without run-engine sign-off.
         feats = list(RUN_LAMBDA_VIEW_FROZEN)
         dropped = list(RUN_LAMBDA_DROPPED_FROZEN)

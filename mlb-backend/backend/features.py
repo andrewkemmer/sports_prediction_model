@@ -1257,7 +1257,7 @@ def _build_game_level(con: duckdb.DuckDBPyConnection,
 
     # 7i. Experiment #2 SOURCE layer — point-in-time pitch-category inputs
     # (data-layer only; consumed by future research candidates, never by
-    # FEATURE_COLS). All windows are LAG-shifted so the current game never
+    # MONEYLINE_FEATURE_COLS). All windows are LAG-shifted so the current game never
     # enters its own features; expanding season windows are season-partitioned
     # like sp_era/sp_k9; league priors are per-date cumulative from already-
     # shifted stats (same construction as batter_league.lg_woba).
@@ -2316,7 +2316,7 @@ def add_env_level_features(df: pd.DataFrame) -> pd.DataFrame:
 # ABLATION VERDICT (2026-08): NOT SHIPPED into the moneyline. The WITH-vs-
 # WITHOUT measurement on the committed CSV (run_form_delta_ablation.py) lost
 # BOTH pooled OOF (0.6895/0.5494 vs 0.6867/0.5540) and the sealed 21-day
-# holdout (0.6829/0.5437 vs 0.6814/0.5529), so FEATURE_COLS excludes them.
+# holdout (0.6829/0.5437 vs 0.6814/0.5529), so MONEYLINE_FEATURE_COLS excludes them.
 # The columns still ship in the artifact and the run engine drops them via
 # derive_run_features — re-test on a refreshed artifact before re-enabling.
 
