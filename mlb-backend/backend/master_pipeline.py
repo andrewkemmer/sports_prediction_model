@@ -288,7 +288,8 @@ except Exception as e:
 
 # ── Phase 4.5: Feature-selection RFE (record-only) ────────────────────────
 # Runs ONLY when MLB_RFE_FORCE=1 — unset/0 is a no-op with no calendar
-# logic. Writes data_delivery/mlb_feature_selection_<date>.json and NEVER
+# logic. Writes data_delivery/mlb_feature_selection_<date>.json (10-day
+# retention) and NEVER
 # adopts — changing serving width requires the explicit --adopt invocation
 # of feature_selection.py. A failure here must never block the artifact
 # sync below. (train_games may be unbound if Phase 4 died early — the
@@ -316,7 +317,7 @@ except Exception as _rfe_exc:
 
 # ── Phase 4.6: Feature Decision Workbook (human-readable RFE companion) ──
 # Regenerates data_delivery/mlb_feature_workbook_<trace-date>.xlsx from the
-# newest trace whenever an RFE run just wrote one. The .xlsx is the
+# newest trace whenever an RFE run just wrote one (10-day retention). The .xlsx is the
 # readable, actionable form of the trace (feature inventory, per-test
 # impact in plain English, redundancy, coverage gaps); the .json stays the
 # machine-readable record. NEVER blocks the run: a workbook failure is
@@ -535,9 +536,10 @@ else:
         board_dates = {d for p in tracked
                        if _basename(p).startswith("todays_games_")
                        for d in [_artifact_date(p)] if d}
-        # Classify: protected → keep; in seen → keep; within the 48h
-        # retention window (current + previous GMT day) → keep; recent or
-        # board-backed slate/run-engine artifacts → keep; otherwise → stale.
+        # Classify: protected → keep; in seen → keep; within the 10-day
+        # retention window → keep; recent or board-backed slate/run-engine
+        # artifacts or dated mlb_ records within the window → keep;
+        # otherwise → stale.
         stale = []
         kept_protected = 0
         kept_current = 0

@@ -34,8 +34,22 @@ classification tables.
 - SERIES readers (run_engine_monitor_*, pbp_defense_*, pbp_chunks/,
   models/): producers/readers fold ALL dated members; pruning any member
   resets rolling history or orphans cumulative stores.
-- mlb_* / *_triage_* RECORDS: audit trail + the RFE engine's cross-run
-  memory (prior traces drive the trial-queue frontier).
+- test_hygiene_triage_* records: audit trail.
+- mlb_feature_selection_state.json (the ONLY exempt ``mlb_`` file): holds
+  the adopted RFE serving width, is dateless, and is read by EVERY serving
+  run — silent deletion would silently revert model behavior.
+
+*** Revision (2026-09-14 evening): mlb_ records de-exempted ***
+All other ``mlb_*`` files now ride the same rules as every other family
+(owner decision, pressure-tested against backend + frontend):
+- ``mlb_feature_selection_<date>.json`` (RFE traces) and
+  ``mlb_feature_workbook_<date>.xlsx`` — 10-day window. The RFE engine's
+  cross-run prior-verdict memory reads the NEWEST prior trace: pruning old
+  traces degrades gracefully to a fresh search, and adoption reads the
+  STATE file (exempt above), never a trace.
+- Sha-named research/audit records (mlb_binary_sp_projection*,
+  mlb_retention_policy_*, ...) are dateless and DELETABLE — git history
+  retains every blob.
 
 Everything else in the folder is a dated, regenerable, per-run artifact: the
 10-day window deletes it exactly as specified.
@@ -72,7 +86,12 @@ Consumer audit (traced at HEAD 827de1b):
                                   |   files (ablation_defense / runline defense) |                                     |
   pbp_chunks/                     | build_pbp_defense (cumulative raw chunks)    | **SERIES (cumulative)**             | NEVER DELETE
   models/                         | ensemble/monitor loaders (newest)            | newest-only; staged every run       | NEVER DELETE
-  mlb_* records (sha-named)       | audit trail + RFE cross-run memory           | record                              | NEVER DELETE
+  mlb_feature_selection_*.json    | RFE engine prior-verdict memory (newest      | newest prior trace                  | 10-day window
+                                  | prior); adoption reads the STATE file only   |                                     |
+  mlb_feature_workbook_*.xlsx     | human decision workbook; regenerated every   | newest-only                         | 10-day window
+                                  | RFE run; nothing reads it back               |                                     |
+  other mlb_* sha-named records   | none (docstring references only)             | none                                | DELETABLE (dateless -> stale)
+  mlb_feature_selection_state.json| RFE serving gate (every run)                 | master-equivalent                   | NEVER DELETE
   *_triage_* records              | audit trail                                  | record                              | NEVER DELETE
   masters (game_level_features.csv, model_history.json, model_version_history.json,
            umpire_*.csv, lineups.parquet, batter_woba.parquet, team_woba.parquet,
@@ -90,8 +109,9 @@ Notes
 - Run-dated harness OUTPUTS (``*_ablation_*.json``, ``calibration_ablation_*``,
   ``calibration_flip_*``, ...) intentionally keep riding the date gate (they
   are regenerable run outputs, not decision records).
-  New decision/diagnostic records should use the ``mlb_*`` or ``*_triage_*``
-  naming to inherit never-delete protection.
+  ``mlb_*`` decision records ride the 10-day window (2026-09-14 revision):
+  dated records keep 10 days; dateless sha-named records are pruned with
+  git history retaining every blob. Only the state file is exempt.
 """
 from __future__ import annotations
 
@@ -136,12 +156,22 @@ SERIES_PREFIXES = (
     "pbp_defense_",
 )
 
-# -- Research/verdict records (prefix): audit trail — never deleted, even   --
-# -- though several are date-stamped and would otherwise ride a window.     --
-RECORD_PREFIXES = (
-    "mlb_",
-    "test_hygiene_triage",
-)
+# -- Triage records (prefix): audit trail — never deleted.                  --
+TRIAGE_RECORD_PREFIX = "test_hygiene_triage"
+
+# -- MLB decision records ("mlb_" prefix): NOT blanket-exempt (2026-09-14  --
+# -- revision). Dated members (RFE traces, feature workbooks) ride the     --
+# -- 10-day window as FAMILY_POLICY families; dateless sha-named           --
+# -- research/audit records are deletable (git history retains them).      --
+# -- The single exempt ``mlb_`` file is the adopted-model STATE below.     --
+MLB_RECORD_PREFIX = "mlb_"
+
+MLB_EXEMPT_NAMES = frozenset({
+    # Adopted RFE serving width — written on explicit --adopt only, read by
+    # every run. Deleting it would silently revert the model to full-
+    # universe width (the worst failure mode: no error, wrong behavior).
+    "mlb_feature_selection_state.json",
+})
 
 
 @dataclass(frozen=True)
@@ -223,6 +253,16 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  allowlisted=True,
                  notes="newest-only (Home / power_rankings "
                        "load_power_rankings); 10-day window"),
+    FamilyPolicy("mlb_feature_selection", "mlb_feature_selection_",
+                 retention_days=10, allowlisted=True,
+                 notes="RFE trace record; 10-day window (2026-09-14 "
+                       "revision) — prior-verdict memory degrades to a "
+                       "fresh search when pruned; adoption reads the "
+                       "exempt STATE file"),
+    FamilyPolicy("mlb_feature_workbook", "mlb_feature_workbook_",
+                 retention_days=10, allowlisted=True,
+                 notes="human-readable RFE workbook; regenerated every RFE "
+                       "run, nothing reads it back — 10-day window"),
     FamilyPolicy("pbp_defense", "pbp_defense_", retention_days=None,
                  allowlisted=False,
                  notes="SERIES (research) — defense ablation harnesses glob "
@@ -231,7 +271,8 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
 
 # -- Predicates ---------------------------------------------------------------
 
-_DATE_RE = re.compile(r"_(\d{8})")
+_COMPACT_DATE_RE = re.compile(r"_(\d{8})")          # todays_games_20260914.csv
+_ISO_DATE_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})")  # mlb_feature_selection_2026-09-14.json
 
 
 def local_name(rel: str) -> str:
@@ -242,9 +283,15 @@ def local_name(rel: str) -> str:
 
 
 def artifact_date(rel: str) -> Optional[str]:
-    """Extract the YYYYMMDD date from an artifact path, or None if dateless."""
-    m = _DATE_RE.search(rel)
-    return m.group(1) if m else None
+    """Extract the artifact date as compact YYYYMMDD, or None if dateless.
+
+    Understands both the compact ``_YYYYMMDD`` convention (board families)
+    and the ISO ``_YYYY-MM-DD`` convention (``mlb_`` decision records), so
+    dated ``mlb_`` records ride the retention windows on the same footing
+    as every other family.
+    """
+    m = _COMPACT_DATE_RE.search(rel) or _ISO_DATE_RE.search(rel)
+    return m.group(1).replace("-", "") if m else None
 
 
 def is_never_delete(rel: str) -> bool:
@@ -252,9 +299,15 @@ def is_never_delete(rel: str) -> bool:
     touches (regardless of any date window)."""
     local = local_name(rel)
     base = local.rsplit("/", 1)[-1]
-    return (base in EXACT_MASTER_NAMES
-            or any(local.startswith(p)
-                   for p in (*SERIES_PREFIXES, *RECORD_PREFIXES)))
+    if base in EXACT_MASTER_NAMES or base in MLB_EXEMPT_NAMES:
+        return True
+    if local.startswith(TRIAGE_RECORD_PREFIX):
+        return True
+    if any(local.startswith(p) for p in SERIES_PREFIXES):
+        return True
+    # mlb_* records: only the STATE file above is exempt — dated members
+    # ride the family windows; dateless sha-named records are deletable.
+    return False
 
 
 def _family_for(rel: str) -> Optional[FamilyPolicy]:

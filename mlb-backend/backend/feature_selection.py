@@ -50,8 +50,9 @@ Design decisions (locked):
   first-pass coverage of the 225-feature pool therefore completes over
   ~6-7 runs at the default RFE_MAX_STEPS=40 budget.
 * RECORD-ONLY by default: results land in
-  data_delivery/mlb_feature_selection_<date>.json (never deleted; feeds
-  dashboards and audits). Nothing changes at serving time unless the record
+  data_delivery/mlb_feature_selection_<date>.json (10-day retention;
+  feeds the RFE's cross-run prior-verdict memory and audits). Nothing
+  changes at serving time unless the record
   is explicitly adopted (--adopt), which writes
   data_delivery/mlb_feature_selection_state.json after TWO gates: alternate
   fold-geometry confirmation (cadence 5) and slate-coverage verification
@@ -878,13 +879,16 @@ def _trace_path(day: date, suffix: str = "") -> Path:
     """Trace record path. A targeted run gets a ``_targeted`` suffix so it
     can never silently overwrite the same-day full trace record (the
     never-deleted full-depth search history is exactly what the RFE's
-    cross-run memory builds on)."""
+    cross-run  memory builds on — retention keeps 10 days of traces; the prior-verdict
+  memory degrades to a fresh search if all prior traces age out, and
+  adoption reads the never-deleted state file, never a trace)."""
     return DATA_DELIVERY_DIR / f"{TRACE_PREFIX}{day.isoformat()}{suffix}.json"
 
 
 def write_trace(day: date, result: dict[str, Any], adopted: bool,
                 invoked_by: str = "cli") -> Path:
-    """Write the mlb_feature_selection_<date>.json record (never deleted)."""
+    """Write the mlb_feature_selection_<date>.json record (10-day
+    retention; adoption reads the never-deleted state file)."""
     record = {
         "record": "mlb_feature_selection",
         "date": day.isoformat(),
