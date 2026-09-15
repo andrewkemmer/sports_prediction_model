@@ -51,7 +51,9 @@ Design decisions (locked):
   ~6-7 runs at the default RFE_MAX_STEPS=40 budget.
 * RECORD-ONLY by default: results land in
   data_delivery/mlb_feature_selection_<date>.json (10-day retention;
-  feeds the RFE's cross-run prior-verdict memory and audits). Nothing
+  targeted runs write mlb_feature_selection_<date>_targeted_<HHMM>.json,
+  unique per run), feeding the RFE's cross-run prior-verdict memory and
+  audits. Nothing
   changes at serving time unless the record
   is explicitly adopted (--adopt), which writes
   data_delivery/mlb_feature_selection_state.json after TWO gates: alternate
@@ -694,12 +696,16 @@ def load_prior_verdicts(before_day: date) -> dict[str, dict[str, Any]]:
 
     Returns {} when no prior full-depth trace exists. Bounded traces never
     contribute — their verdicts were earned on too little data to constrain
-    a full run.
+    a full run. TARGETED traces are skipped explicitly: they only cover
+    their forced features, so they must never stand in for the full-run
+    verdict memory.
     """
     best_path: Optional[Path] = None
     best_day: Optional[date] = None
     if DATA_DELIVERY_DIR.exists():
         for p in DATA_DELIVERY_DIR.glob(f"{TRACE_PREFIX}*.json"):
+            if "_targeted" in p.stem:
+                continue  # targeted probe — never the full-run memory
             try:
                 d = date.fromisoformat(p.stem[len(TRACE_PREFIX):])
             except ValueError:
@@ -875,13 +881,32 @@ def confirm_slate_coverage(
 # ── Trace + state governance ────────────────────────────────────────────────
 
 
+def _targeted_suffix() -> str:
+    """``_targeted_<HHMM>`` (ET; UTC fallback when zoneinfo is unavailable)
+    — unique per run so same-day targeted runs never overwrite each other,
+    and never colliding with the authoritative per-day full-trace name."""
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        now = datetime.utcnow()
+    return f"_targeted_{now.strftime('%H%M')}"
+
+
 def _trace_path(day: date, suffix: str = "") -> Path:
-    """Trace record path. A targeted run gets a ``_targeted`` suffix so it
-    can never silently overwrite the same-day full trace record (the
-    never-deleted full-depth search history is exactly what the RFE's
-    cross-run  memory builds on — retention keeps 10 days of traces; the prior-verdict
-  memory degrades to a fresh search if all prior traces age out, and
-  adoption reads the never-deleted state file, never a trace)."""
+    """Trace record path.
+
+    - Full runs keep the authoritative per-day name
+      (``mlb_feature_selection_<date>.json``): a same-day full rerun
+      overwrites by design (it recomputes the whole search; git history
+      retains the prior version).
+    - Targeted runs get ``_targeted_<HHMM>`` (ET) — unique per run, so two
+      targeted runs on the same day never overwrite each other, and a
+      targeted run can never overwrite the full trace.
+
+    Retention: traces are dated ``mlb_`` records on the 10-day window; the
+    prior-verdict memory degrades to a fresh search if all traces age out,
+    and adoption reads the never-deleted state file, never a trace."""
     return DATA_DELIVERY_DIR / f"{TRACE_PREFIX}{day.isoformat()}{suffix}.json"
 
 
@@ -932,7 +957,7 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool,
         "incumbent_check": result.get("incumbent_check"),
         "adopted": bool(adopted),
     }
-    suffix = "_targeted" if result.get("targeted") else ""
+    suffix = _targeted_suffix() if result.get("targeted") else ""
     out = _trace_path(day, suffix)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record, indent=2), encoding="utf-8")

@@ -325,7 +325,10 @@ except Exception as _rfe_exc:
 if _rfe.get("ran"):
     try:
         from feature_workbook import generate_workbook
-        _wb_path = generate_workbook()
+        # Build from the trace THIS run just wrote (full or targeted) so the
+        # workbook always reflects the run that finished — never a silent
+        # rebuild of the prior full trace.
+        _wb_path = generate_workbook(trace_path=_rfe.get("trace"))
         if _wb_path:
             print(f"  📊 Feature workbook: {_wb_path}")
     except Exception as _wb_exc:

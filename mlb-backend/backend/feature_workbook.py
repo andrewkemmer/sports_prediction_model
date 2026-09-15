@@ -949,8 +949,19 @@ def generate_workbook(trace_path: Optional[Path] = None,
     sheet_coverage(wb, rows, groups)
     sheet_glossary(wb)
 
-    out = (Path(out_path) if out_path else
-           DATA_DELIVERY / f"mlb_feature_workbook_{trace.get('date')}.xlsx")
+    if out_path:
+        out = Path(out_path)
+    else:
+        # Name mirrors the trace KIND, parsed from the trace FILENAME (ground
+        # truth): full -> mlb_feature_workbook_<date>.xlsx (the production
+        # view; a targeted run never touches it); targeted ->
+        # mlb_feature_workbook_<date>_targeted_<HHMM>.xlsx (its own artifact).
+        # Both are dated mlb_ records on the 10-day retention window.
+        m = re.fullmatch(r"mlb_feature_selection_(\d{4}-\d{2}-\d{2})(.*)",
+                         trace_path.stem)
+        day, suffix = (m.group(1), m.group(2)) if m else (
+            str(trace.get("date", "unknown")), "")
+        out = DATA_DELIVERY / f"mlb_feature_workbook_{day}{suffix}.xlsx"
     wb.save(out)
     print(f"[workbook] wrote {out} "
           f"({len(rows)} features | {len(trace.get('steps', []))} RFE tests)")
