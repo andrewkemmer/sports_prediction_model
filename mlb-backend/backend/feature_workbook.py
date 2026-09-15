@@ -273,48 +273,66 @@ def auto_describe(name: str, group: str) -> str:
 # --------------------------------------------------------------------------- #
 # RFE impact + verdicts
 # --------------------------------------------------------------------------- #
+def _step_feature(s: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """(kind, feature) for one trace step, tolerating BOTH trace schemas.
+
+    v2 steps (current engine): {"action": "remove"|"add", "feature": name}
+    v1 steps (legacy 09-12 trace):        {"removed"|"added": name}
+
+    Schema drift here once blanked the whole workbook silently (every step
+    parsed as featureless, so no row ever matched an RFE test) — the
+    generate_workbook loud check now catches that; this adapter is the
+    single place that knows the schema.
+    """
+    if s.get("feature") and s.get("action") in ("remove", "add"):
+        return ("removal" if s["action"] == "remove" else "addition"), s["feature"]
+    if s.get("removed"):
+        return "removal", s["removed"]
+    if s.get("added"):
+        return "addition", s["added"]
+    return None, None
+
+
 def build_rfe_index(trace: dict[str, Any]) -> dict[str, dict]:
     """{feature: impact record} from a v1 or v2 trace."""
     per_feature: dict[str, dict] = {}
     ece_guard = (trace.get("guards", {}) or {}).get("ece_rise_max", 0.010)
     for s in trace.get("steps", []):
-        feats = [s.get("removed"), s.get("added")]
-        for f in feats:
-            if not f:
-                continue
-            kind = "removal" if s.get("removed") == f else "addition"
-            gain = s.get("logloss_gain")
-            thr = s.get("commit_threshold")
-            if s.get("committed"):
-                verdict = ("REMOVAL COMMITTED — feature measurably redundant; removing it "
-                           "improved accuracy beyond the noise bar" if kind == "removal"
-                           else "ADDITION COMMITTED — feature measurably improves accuracy "
-                                "beyond the noise bar")
-            elif kind == "removal":
-                if gain is not None and thr is not None and 0 < gain < thr:
-                    verdict = ("Kept — removal gave a small gain, but below the noise bar "
-                               f"({gain:.4f} < {thr:.4f}); not proven redundant")
-                else:
-                    verdict = "Kept — removing it did not help (gain ≤ 0)"
-                if (s.get("auc_drop") or 0) > 0:
-                    verdict += "; AUC slightly worse without it"
-                elif (s.get("auc_drop") or 0) < -0.002:
-                    verdict += "; AUC slightly better without it (not enough to commit)"
+        kind, f = _step_feature(s)
+        if not f:
+            continue
+        gain = s.get("logloss_gain")
+        thr = s.get("commit_threshold")
+        if s.get("committed"):
+            verdict = ("REMOVAL COMMITTED — feature measurably redundant; removing it "
+                       "improved accuracy beyond the noise bar" if kind == "removal"
+                       else "ADDITION COMMITTED — feature measurably improves accuracy "
+                            "beyond the noise bar")
+        elif kind == "removal":
+            if gain is not None and thr is not None and 0 < gain < thr:
+                verdict = ("Kept — removal gave a small gain, but below the noise bar "
+                           f"({gain:.4f} < {thr:.4f}); not proven redundant")
             else:
-                if gain is not None and thr is not None and gain < thr:
-                    verdict = ("Not added — improvement below the noise bar "
-                               f"({gain:.4f} < {thr:.4f})")
-                else:
-                    verdict = "Not added — no measurable improvement (or a guard blocked it)"
-                if (s.get("ece_rise") or 0) > ece_guard:
-                    verdict += "; calibration (ECE) guard blocked it"
-            per_feature[f] = {
-                "kind": kind, "step": s.get("step"), "verdict": verdict,
-                "logloss_gain": gain, "commit_threshold": thr,
-                "auc_drop": s.get("auc_drop"), "ece_rise": s.get("ece_rise"),
-                "committed": bool(s.get("committed")), "metrics": s.get("metrics", {}),
-                "per_fold": s.get("per_fold"), "n_features": s.get("n_features"),
-            }
+                verdict = "Kept — removing it did not help (gain ≤ 0)"
+            if (s.get("auc_drop") or 0) > 0:
+                verdict += "; AUC slightly worse without it"
+            elif (s.get("auc_drop") or 0) < -0.002:
+                verdict += "; AUC slightly better without it (not enough to commit)"
+        else:
+            if gain is not None and thr is not None and gain < thr:
+                verdict = ("Not added — improvement below the noise bar "
+                           f"({gain:.4f} < {thr:.4f})")
+            else:
+                verdict = "Not added — no measurable improvement (or a guard blocked it)"
+            if (s.get("ece_rise") or 0) > ece_guard:
+                verdict += "; calibration (ECE) guard blocked it"
+        per_feature[f] = {
+            "kind": kind, "step": s.get("step"), "verdict": verdict,
+            "logloss_gain": gain, "commit_threshold": thr,
+            "auc_drop": s.get("auc_drop"), "ece_rise": s.get("ece_rise"),
+            "committed": bool(s.get("committed")), "metrics": s.get("metrics", {}),
+            "per_fold": s.get("per_fold"), "n_features": s.get("n_features"),
+        }
     return per_feature
 
 
@@ -591,8 +609,10 @@ def sheet_dashboard(wb, rows, trace) -> None:
     n_cand = len(rows) - n_prod
     tested = [f for f in rows if f["rfe"]]
     commits = [f for f in tested if f["rfe"]["committed"]]
-    removals = [s for s in trace.get("steps", []) if s.get("removed")]
-    additions = [s for s in trace.get("steps", []) if s.get("added")]
+    steps = trace.get("steps", []) or []
+    kinds = [_step_feature(s)[0] for s in steps]
+    removals = [s for s, k in zip(steps, kinds) if k == "removal"]
+    additions = [s for s, k in zip(steps, kinds) if k == "addition"]
     adopted = trace.get("adopted")
     bm = trace.get("baseline_metrics", {})
     kpis = [
@@ -677,8 +697,8 @@ def sheet_run_detail(wb, trace) -> None:
             "Folds Used", "Plain-English Verdict"]
     vals = []
     for s in trace.get("steps", []):
-        action = "Remove" if s.get("removed") else "Add"
-        feat = s.get("removed") or s.get("added")
+        kind, feat = _step_feature(s)
+        action = {"removal": "Remove", "addition": "Add"}.get(kind, "—")
         m = s.get("metrics", {})
         gain, thr = s.get("logloss_gain"), s.get("commit_threshold")
         if s.get("committed"):
@@ -720,7 +740,9 @@ def sheet_per_fold(wb, trace) -> None:
     cols = ["Step", "Feature", "Fold", "Fold Window", "N Games", "Logloss"]
     vals = []
     for s in trace.get("steps", []):
-        feat = s.get("removed") or s.get("added")
+        _, feat = _step_feature(s)
+        if not feat:
+            continue
         for i, pf in enumerate(s.get("per_fold") or [], start=1):
             vals.append([s.get("step"), feat, i,
                          pf.get("window", pf.get("fold", i)),
@@ -918,6 +940,12 @@ def generate_workbook(trace_path: Optional[Path] = None,
     universe, candidates, known = load_pool()
     groups = load_candidate_groups()
     per_feature = build_rfe_index(trace)
+    _steps = trace.get("steps", []) or []
+    if _steps and not per_feature:
+        raise ValueError(
+            f"Trace has {len(_steps)} steps but ZERO parsed into per-feature "
+            "records — step schema drift (expected v2 action/feature or v1 "
+            "removed/added). Refusing to build a silently-blank workbook.")
 
     rows = build_rows(universe, candidates, metadata, drift, coverage,
                       groups, trace, per_feature)
