@@ -253,20 +253,23 @@ RF_PARAMS = {
 # ---------------------------------------------------------------------------
 RFE_FLOOR = 25                 # never prune below this many features
 RFE_AUC_GUARD = 0.003          # adopt step only if pooled AUC drop <= this
-RFE_ECE_GUARD = 0.010          # adopt step only if pooled ECE rise <= this
-                               # (loosened from 0.005: at full depth the logloss
-                               # commit threshold is ~0.005, so the stricter bound
-                               # vetoed sharpness trades the primary objective had
-                               # already blessed; 0.010 still trips real blows-ups
-                               # like the rest_days_diff 0.0138 rise)
-RFE_MIN_LOGLOSS_GAIN = 0.002   # floor on the commit threshold (never commit on
+RFE_ECE_GUARD = 0.005          # adopt step only if pooled ECE rise <= this
+                               # (reverted to the original strict bound on
+                               # owner decision 2026-09-15; the 0.010 loosening
+                               # vetoed fewer sharpness trades but let real
+                               # calibration blows-ups ride — 0.005 trips them,
+                               # e.g. the rest_days_diff 0.0138 rise)
+RFE_MIN_LOGLOSS_GAIN = 0.0005  # floor on the commit threshold (never commit on
                                # a smaller measured gain, even at huge n)
 RFE_NOISE_SIGMA = 2.0          # commit threshold = max(floor, this many
-                               # standard errors of the baseline pooled
-                               # logloss). SE-calibration is what actually
-                               # blocks noise-fitting: with a small val window,
-                               # chance logloss jitter (±0.02) exceeds any
-                               # fixed floor.
+                               # standard errors of the PAIRED per-game
+                               # logloss difference (trial - baseline, same
+                               # folds/games scored twice). Paired differencing
+                               # cancels shared per-game difficulty, so the SE
+                               # reflects the CHANGE's noise, not the level's —
+                               # real ~0.001 effects clear a legitimate 2-sigma
+                               # bar while junk features self-calibrate a high
+                               # one (their per-game diffs bounce randomly).
 RFE_MAX_STEPS = 40             # walk-forward scoring evaluations per RFE run
 RFE_REDUNDANCY_R = 0.9         # |r| above which two pool features are flagged
                                # redundant_with each other (informational: they

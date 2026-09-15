@@ -18,7 +18,9 @@ Design decisions (locked):
   training-window size) ranks every feature; trials proceed down that
   ranking, interleaving removals and additions by rank. Importance is a
   training-set usage statistic — a trial-order PRIOR only. Every verdict is
-  measured: pooled full-history logloss vs a noise-calibrated threshold,
+  measured: pooled full-history logloss vs a noise-calibrated threshold
+  (paired per-game difference SE — the same folds are scored twice, so the
+  bar reflects the CHANGE's noise, not the level's),
   plus the AUC/ECE guards. A wrong ranking wastes budget; it can never
   produce a wrong adoption.
 * NO PERMANENT REMOVAL. A rejection deprioritizes a feature to the back of
@@ -167,7 +169,8 @@ def _nearest_names(name: str, limit: int = 3) -> list[str]:
 # ── Fold scoring on the real ensemble ───────────────────────────────────────
 
 
-def _score_splits(splits: list[dict[str, Any]]) -> dict[str, float]:
+def _score_splits(splits: list[dict[str, Any]],
+                  return_losses: bool = False):
     """Train + score the full ensemble on every fold; return pooled metrics.
 
     Mirrors the daily walk-forward loop's per-fold contract: train each fold's
@@ -177,6 +180,11 @@ def _score_splits(splits: list[dict[str, Any]]) -> dict[str, float]:
     calling. Deterministic under the module seed. The pooled record also
     carries per-fold logloss so the trace shows WHERE a width helps or
     hurts, not just the average.
+
+    ``return_losses=True`` additionally returns the concatenated per-game
+    loss vector in fold order — the basis of the paired-difference commit
+    bar (every call scores the SAME rows in the SAME order, so differences
+    against another call's vector are game-aligned by construction).
     """
     per_fold: list[dict[str, Any]] = []
     y_all: list[np.ndarray] = []
@@ -226,6 +234,8 @@ def _score_splits(splits: list[dict[str, Any]]) -> dict[str, float]:
     metrics["folds_used"] = n_used
     metrics["games_scored"] = int(len(y_true))
     metrics["per_fold"] = per_fold
+    if return_losses:
+        return metrics, losses
     return metrics
 
 
@@ -386,9 +396,11 @@ def run_rfe(
       4. Trials proceed down the queue while budget lasts: a removal trial
          drops the feature from the active set, an addition trial appends
          it; the change commits only if pooled logloss improves by at least
-         max(min_logloss_gain, noise_sigma * SE) AND AUC drop <= auc_guard
-         AND ECE rise <= ece_guard (vs the running best). Otherwise the
-         feature is rejected — deprioritized, never blacklisted.
+         max(min_logloss_gain, noise_sigma * PAIRED_SE) — the standard error
+         of the per-game logloss DIFFERENCE vs the running champion (same
+         folds scored twice; shared difficulty cancels) — AND AUC drop <=
+         auc_guard AND ECE rise <= ece_guard. Otherwise the feature is
+         rejected — deprioritized, never blacklisted.
       5. The incumbent (adopted) subset, if any, is re-scored against the
          universe and flagged when it no longer beats it.
 
@@ -405,13 +417,19 @@ def run_rfe(
     full_depth = int(max_eval_folds) == 0
     folds_available = len(splits)
 
-    baseline = _score_splits(splits)
+    baseline, base_losses = _score_splits(splits, return_losses=True)
     baseline_ll = float(baseline["logloss"])
     # A commit is accepted only on a gain the noise cannot explain: at least
     # min_logloss_gain AND at least noise_sigma standard errors of the
-    # baseline pooled logloss estimate.
-    threshold = max(float(min_logloss_gain),
-                    noise_sigma * float(baseline.get("logloss_se", 0.0)))
+    # PAIRED per-game logloss difference (trial vs the current champion —
+    # the same folds are scored twice, so shared per-game difficulty cancels
+    # and the SE reflects the CHANGE's noise, not the level's). Per-step
+    # thresholds are computed in the trial loop; this is the legacy
+    # baseline-SE fallback bar for steps where pairing is impossible.
+    fallback_threshold = max(float(min_logloss_gain),
+                             noise_sigma * float(baseline.get("logloss_se", 0.0)))
+    threshold = fallback_threshold
+    best_losses = base_losses
 
     # Forced trial lists: strict resolution against the pool; anything
     # unresolvable is reported loudly (never silently dropped).
@@ -571,11 +589,11 @@ def run_rfe(
             trial = active + [f]
         set_feature_subset(trial)
         try:
-            m = _score_splits(splits)
+            m, t_losses = _score_splits(splits, return_losses=True)
         except Exception as exc:  # the trial width failed to train at all
             logger.warning("Scoring failed at %d cols (%s %s): %s",
                            len(trial), kind, f, exc)
-            m = None
+            m, t_losses = None, None
         budget -= 1
         record: dict[str, Any] = {
             "step": len(steps) + 1,
@@ -597,17 +615,37 @@ def run_rfe(
             record["per_fold"] = m.get("per_fold", [])
             record["logloss"] = ll
             record["logloss_gain"] = round(best["logloss"] - ll, 4)
-            record["commit_threshold"] = round(threshold, 4)
+            # Paired-difference SE vs the CURRENT champion (best_losses):
+            # per-game diffs cancel shared game difficulty. Fold-set mismatch
+            # (a fold failed for this trial) -> legacy baseline-SE bar.
+            if (t_losses is not None and best_losses is not None
+                    and len(t_losses) == len(best_losses)):
+                diff = t_losses - best_losses
+                paired_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
+                step_threshold = max(float(min_logloss_gain),
+                                     noise_sigma * paired_se)
+                record["paired_se"] = round(paired_se, 6)
+            else:
+                if t_losses is not None:
+                    logger.warning(
+                        "Paired SE unavailable (%s %s): fold-set mismatch "
+                        "(%d vs %d rows) — legacy baseline-SE bar used",
+                        kind, f, len(t_losses),
+                        len(best_losses) if best_losses is not None else 0)
+                step_threshold = fallback_threshold
+            record["commit_threshold"] = round(step_threshold, 4)
             record["auc_drop"] = round(float(best["metrics"]["auc"]) - float(m["auc"]), 4)
             record["ece_rise"] = round(float(m["ece"]) - float(best["metrics"]["ece"]), 4)
             guards_ok = (
-                ll <= best["logloss"] - threshold
+                ll <= best["logloss"] - step_threshold
                 and record["auc_drop"] <= auc_guard
                 and record["ece_rise"] <= ece_guard
             )
             if guards_ok:
                 active = trial
                 record["committed"] = True
+                if t_losses is not None:
+                    best_losses = t_losses
                 verdicts[f] = {"verdict": "committed", "step": record["step"],
                                "folds_used": int(m.get("folds_used", 0)),
                                "logloss_gain": record["logloss_gain"]}
@@ -635,14 +673,25 @@ def run_rfe(
                 and len(valid_inc) >= floor:
             try:
                 set_feature_subset(valid_inc)
-                im = _score_splits(splits)
+                im, inc_losses = _score_splits(splits, return_losses=True)
                 reset_feature_subset()
+                # Same paired bar as the trial loop: the incumbent must beat
+                # the universe by a REAL margin, judged on per-game diffs.
+                if (inc_losses is not None and base_losses is not None
+                        and len(inc_losses) == len(base_losses)):
+                    diff = inc_losses - base_losses
+                    inc_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
+                    inc_threshold = max(float(min_logloss_gain),
+                                        noise_sigma * inc_se)
+                else:
+                    inc_threshold = fallback_threshold
                 incumbent_check = {
                     "metrics": {k: v for k, v in im.items() if k != "per_fold"},
+                    "bar_basis": "paired_diff_2sigma",
                     "beats_universe": bool(
-                        float(im["logloss"]) <= baseline_ll - threshold),
+                        float(im["logloss"]) <= baseline_ll - inc_threshold),
                     "note": ("adopted subset still earns its keep"
-                             if float(im["logloss"]) <= baseline_ll - threshold
+                             if float(im["logloss"]) <= baseline_ll - inc_threshold
                              else "regressed vs universe — consider --reset"),
                 }
             except Exception as exc:
@@ -686,7 +735,8 @@ def run_rfe(
         "targeted_trials": ({"additions": list(forced_add),
                              "removals": list(forced_rm)} if targeted else None),
         "guards": {"auc_drop_max": auc_guard, "ece_rise_max": ece_guard},
-        "commit_threshold": round(threshold, 4),
+        "bar_basis": "paired_diff_2sigma",
+        "commit_threshold": round(threshold, 4),  # legacy fallback bar (baseline SE)
         "incumbent_check": incumbent_check,
     }
 
@@ -771,10 +821,23 @@ def confirm_candidate(
                 reset_feature_subset()
             else:
                 set_feature_subset(subset)
-            m = _score_splits(splits)
+            m, ls = _score_splits(splits, return_losses=True)
             out[label] = {k: v for k, v in m.items() if k != "per_fold"}
-        threshold = max(float(min_logloss_gain),
-                        noise_sigma * float(out["universe"].get("logloss_se", 0.0)))
+            out[label + "_losses"] = ls
+        u_losses = out.pop("universe_losses")
+        c_losses = out.pop("candidate_losses")
+        # Paired bar (same alternate folds scored twice) with a legacy
+        # baseline-SE fallback on fold-set mismatch.
+        if (u_losses is not None and c_losses is not None
+                and len(u_losses) == len(c_losses)):
+            diff = c_losses - u_losses
+            paired_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
+            threshold = max(float(min_logloss_gain), noise_sigma * paired_se)
+            bar_basis = "paired_diff_2sigma"
+        else:
+            threshold = max(float(min_logloss_gain),
+                            noise_sigma * float(out["universe"].get("logloss_se", 0.0)))
+            bar_basis = "baseline_se_fallback"
         holds = (
             out["candidate"]["logloss"]
                 <= out["universe"]["logloss"] - threshold
@@ -782,6 +845,7 @@ def confirm_candidate(
             and float(out["candidate"]["ece"]) - float(out["universe"]["ece"]) <= ece_guard
         )
         return {"holds": bool(holds), "threshold": round(threshold, 4),
+                "bar_basis": bar_basis,
                 "universe": out["universe"], "candidate": out["candidate"],
                 "alt_cadence": alt_cadence}
     finally:
@@ -938,6 +1002,7 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool,
             "noise_sigma": RFE_NOISE_SIGMA,
             "commit_threshold": result.get("commit_threshold"),
         },
+        "bar_basis": result.get("bar_basis"),
         "pool": {
             "n_universe": result.get("n_universe"),
             "n_candidates": result.get("n_candidates"),

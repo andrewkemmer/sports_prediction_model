@@ -628,7 +628,9 @@ def sheet_dashboard(wb, rows, trace) -> None:
         ("Baseline logloss (lower is better)", round(bm.get("logloss", float("nan")), 4)),
         ("Baseline AUC (higher is better)", round(bm.get("auc", float("nan")), 4)),
         ("Baseline ECE (calibration error; lower is better)", round(bm.get("ece", float("nan")), 4)),
-        ("Noise bar per test (2 × standard error)",
+        ("Noise bar per test (2 × paired SE of the logloss change)"
+         if trace.get("bar_basis") == "paired_diff_2sigma"
+         else "Noise bar per test (2 × baseline SE — legacy bar)",
          bm.get("commit_threshold") or round(max(0.002, 2 * (bm.get("logloss_se") or 0)), 4)),
         ("Folds used (walk-forward windows)", bm.get("folds_used")),
     ]
