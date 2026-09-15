@@ -377,6 +377,9 @@ def run_rfe(
          (importance order, redundant siblings consecutive) + previously
          verdict-ed features (deprioritized tail; re-trialed only if budget
          remains). Bounded-depth prior verdicts never constrain a full run.
+         TARGETED MODE: if a forced list is supplied, the queue is ONLY the
+         listed trials — no ranking pass, no other scoring (fast targeted
+         tests; ~minutes instead of hours).
       4. Trials proceed down the queue while budget lasts: a removal trial
          drops the feature from the active set, an addition trial appends
          it; the change commits only if pooled logloss improves by at least
@@ -407,16 +410,6 @@ def run_rfe(
     threshold = max(float(min_logloss_gain),
                     noise_sigma * float(baseline.get("logloss_se", 0.0)))
 
-    # Importance prior over the full pool.
-    prior = _importance_prior(splits)
-
-    # Redundancy map (both directions).
-    pairs = _correlation_pairs(enriched)
-    redundancy: dict[str, list[str]] = {}
-    for a, b, _r in pairs:
-        redundancy.setdefault(a, []).append(b)
-        redundancy.setdefault(b, []).append(a)
-
     # Forced trial lists: strict resolution against the pool; anything
     # unresolvable is reported loudly (never silently dropped).
     forced_add_raw = list(forced_additions or [])
@@ -435,8 +428,40 @@ def run_rfe(
     }
     if unresolved["addition"] or unresolved["removal"]:
         logger.warning(
-            "FORCED TRIAL LIST has unresolvable names (reported in trace): %s",
+            "FORCED TRIAL LIST has unresolvable names (reported in trace) — "
+            "resolvable entries still run in targeted mode: %s",
             {k: [u["name"] for u in v] for k, v in unresolved.items() if v})
+
+    # TARGETED MODE: when the user supplies a forced list, run ONLY those
+    # trials (baseline + the listed trials). Nothing else is ranked, queued,
+    # or scored — a 2-name list costs baseline + 2 trials instead of a
+    # 40-trial full search. Unresolvable names are reported loudly in the
+    # trace and skipped; resolvable ones still run (forcing the TEST, never
+    # the result).
+    targeted = bool(forced_add or forced_rm)
+    if not targeted and (forced_add_raw or forced_rm_raw):
+        # Defensive: a targeted request where NOTHING resolved would fall
+        # through to a silent full search and overwrite the full trace.
+        # That is a user error — fail loud, never burn a 7-hour budget by
+        # surprise.
+        raise RuntimeError(
+            "Targeted RFE requested but no forced name resolved against the "
+            f"pool (candidates={len(candidates)}, universe={len(universe)}). "
+            "Nearest-name suggestions were logged; check the workbook's "
+            "Candidates sheet for exact names.")
+
+    # Importance prior + redundancy map: full runs need both (queue order +
+    # step annotations); targeted runs need neither — skipped for speed.
+    if targeted:
+        prior: dict[str, float] = {}
+        pairs: list = []
+    else:
+        prior = _importance_prior(splits)
+        pairs = _correlation_pairs(enriched)
+    redundancy: dict[str, list[str]] = {}
+    for a, b, _r in pairs:
+        redundancy.setdefault(a, []).append(b)
+        redundancy.setdefault(b, []).append(a)
 
     # Prior full-depth verdicts: deprioritized tail, dropped entirely under
     # RETRIAL, and never derived from bounded-depth traces (load_prior_verdicts
@@ -486,7 +511,37 @@ def run_rfe(
         [{"kind": "remove", "feature": f} for f in forced_rm]
         + [{"kind": "add", "feature": f} for f in forced_add]
     )
-    order = forced + fresh + tail
+    if targeted:
+        # Only the requested trials run — nothing is queued, ranked, or
+        # scored beyond them.
+        order = forced
+    else:
+        fresh: list[dict[str, Any]] = []
+        ri = ai = 0
+        while ri < len(removals_q) or ai < len(additions_q):
+            take_removal: Optional[bool] = None
+            if ri >= len(removals_q):
+                take_removal = False
+            elif ai >= len(additions_q):
+                take_removal = True
+            else:
+                take_removal = rank_key(removals_q[ri]) <= rank_key(additions_q[ai])
+            if take_removal:
+                f = removals_q[ri]; ri += 1
+                if f not in forced_rm and f not in verdicted:
+                    fresh.append({"kind": "remove", "feature": f})
+            else:
+                f = additions_q[ai]; ai += 1
+                if f not in forced_add and f not in verdicted:
+                    fresh.append({"kind": "add", "feature": f})
+        tail: list[dict[str, Any]] = [
+            {"kind": "remove", "feature": f} for f in removals_q
+            if f not in forced_rm and f in verdicted
+        ] + [
+            {"kind": "add", "feature": f} for f in additions_q
+            if f not in forced_add and f in verdicted
+        ]
+        order = forced + fresh + tail
 
     active = list(universe)
     steps: list[dict[str, Any]] = []
@@ -622,6 +677,11 @@ def run_rfe(
         "full_depth": full_depth,
         "folds_available": folds_available,
         "retrial": retrial,
+        "targeted": targeted,
+        "run_mode": ("targeted_full_history" if targeted
+                     else ("full_history" if full_depth else "bounded")),
+        "targeted_trials": ({"additions": list(forced_add),
+                             "removals": list(forced_rm)} if targeted else None),
         "guards": {"auc_drop_max": auc_guard, "ece_rise_max": ece_guard},
         "commit_threshold": round(threshold, 4),
         "incumbent_check": incumbent_check,
@@ -814,8 +874,12 @@ def confirm_slate_coverage(
 # ── Trace + state governance ────────────────────────────────────────────────
 
 
-def _trace_path(day: date) -> Path:
-    return DATA_DELIVERY_DIR / f"{TRACE_PREFIX}{day.isoformat()}.json"
+def _trace_path(day: date, suffix: str = "") -> Path:
+    """Trace record path. A targeted run gets a ``_targeted`` suffix so it
+    can never silently overwrite the same-day full trace record (the
+    never-deleted full-depth search history is exactly what the RFE's
+    cross-run memory builds on)."""
+    return DATA_DELIVERY_DIR / f"{TRACE_PREFIX}{day.isoformat()}{suffix}.json"
 
 
 def write_trace(day: date, result: dict[str, Any], adopted: bool,
@@ -831,7 +895,9 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool,
             "invoked_by": invoked_by,
             "git_sha": _git_sha(),
             "max_eval_folds": result.get("max_eval_folds", DEFAULT_MAX_EVAL_FOLDS),
-            "run_mode": "full_history" if result.get("full_depth") else "BOUNDED",
+            "run_mode": result.get(
+                "run_mode",
+                "full_history" if result.get("full_depth") else "BOUNDED"),
             "folds_available": result.get("folds_available"),
             "retrial": result.get("retrial", False),
             "forced_lists": result.get("forced_lists"),
@@ -862,7 +928,8 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool,
         "incumbent_check": result.get("incumbent_check"),
         "adopted": bool(adopted),
     }
-    out = _trace_path(day)
+    suffix = "_targeted" if result.get("targeted") else ""
+    out = _trace_path(day, suffix)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return out
@@ -978,7 +1045,8 @@ def maybe_run_rfe(games: pd.DataFrame, day_or_str: "str | date") -> dict[str, An
     return {
         "ran": True,
         "trace": str(trace),
-        "run_mode": "full_history" if result["full_depth"] else "BOUNDED",
+        "run_mode": result["run_mode"],
+        "targeted": result.get("targeted", False),
         "n_pool": result["n_pool"],
         "n_universe": result["n_universe"],
         "n_selected": result["n_selected"],

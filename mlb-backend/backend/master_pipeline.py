@@ -293,6 +293,7 @@ except Exception as e:
 # of feature_selection.py. A failure here must never block the artifact
 # sync below. (train_games may be unbound if Phase 4 died early — the
 # guard covers that too.)
+_rfe: dict = {}  # safe default if the RFE phase dies before assigning
 try:
     from feature_selection import maybe_run_rfe
     _rfe = maybe_run_rfe(train_games, end)
@@ -312,6 +313,22 @@ try:
         print(f"  🎯 RFE skipped: {_rfe.get('reason')}")
 except Exception as _rfe_exc:
     print(f"  ⚠️  Feature-selection RFE skipped ({_rfe_exc})")
+
+# ── Phase 4.6: Feature Decision Workbook (human-readable RFE companion) ──
+# Regenerates data_delivery/mlb_feature_workbook_<trace-date>.xlsx from the
+# newest trace whenever an RFE run just wrote one. The .xlsx is the
+# readable, actionable form of the trace (feature inventory, per-test
+# impact in plain English, redundancy, coverage gaps); the .json stays the
+# machine-readable record. NEVER blocks the run: a workbook failure is
+# reported and skipped — Phase 5 syncs whatever exists.
+if _rfe.get("ran"):
+    try:
+        from feature_workbook import generate_workbook
+        _wb_path = generate_workbook()
+        if _wb_path:
+            print(f"  📊 Feature workbook: {_wb_path}")
+    except Exception as _wb_exc:
+        print(f"  ⚠️  Feature workbook skipped ({_wb_exc})")
 
 # ── Phase 5: GitHub Sync — push this run's NEW files first ─────────────────
 _banner("PHASE 5", "GitHub Sync — push new artifacts")
