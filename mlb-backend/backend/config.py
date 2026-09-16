@@ -275,6 +275,16 @@ RFE_REDUNDANCY_R = 0.9         # |r| above which two pool features are flagged
                                # redundant_with each other (informational: they
                                # are trialed consecutively so one measured verdict
                                # informs its sibling)
+RFE_GRID_MAX_STATES = 16       # grid-mode lattice cap (MLB_RFE_ADDITION_REMOVAL_
+                               # GRID_MODE=1): 2^adds x 2^removes states max.
+                               # 16 = the 4-adds-or-4-removes shapes (4+0, 3+1,
+                               # 2+2, 1+3, 0+4 are all exactly 16 states). Env
+                               # override RFE_GRID_MAX_STATES; read ONLY when
+                               # grid mode is on — ignored (not required) for
+                               # normal/targeted runs. Windowing silently
+                               # round-robins adds/removes to fit the cap; the
+                               # dropped tail is recorded in the trace and overflow
+                               # names still get 1-by-1 targeted trials.
 # The RFE candidate pool: generated, PIT-safe columns NOT currently in the
 # moneyline universe that feature_selection.py may additionally trial
 # (universe members are always in scope). Grouped in trial-priority order;

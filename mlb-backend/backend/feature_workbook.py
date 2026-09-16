@@ -333,6 +333,62 @@ def build_rfe_index(trace: dict[str, Any]) -> dict[str, dict]:
             "committed": bool(s.get("committed")), "metrics": s.get("metrics", {}),
             "per_fold": s.get("per_fold"), "n_features": s.get("n_features"),
         }
+    # Grid-mode traces (no sequential steps): attribute chained 1-feature edges
+    # and overflow trials to their feature, then mark winner membership.
+    grid = trace.get("grid") or {}
+    for e in grid.get("edges", []):
+        f, kind = e.get("feature"), e.get("kind")
+        if not f or kind not in ("add", "remove"):
+            continue
+        gain, thr = e.get("logloss_gain"), e.get("commit_threshold")
+        if e.get("committed"):
+            verdict = (f"GRID COMMITTED — clears the noise bar on top of {e.get('from')} "
+                       f"(gain {gain:+.4f}; state {e.get('to')})")
+        else:
+            verdict = (f"Grid-trialed vs parent state {e.get('from')} → {e.get('to')}: "
+                       f"gain {gain:+.4f} below the {thr:.4f} noise bar")
+        per_feature.setdefault(f, {
+            "kind": "addition" if kind == "add" else "removal",
+            "step": None, "logloss_gain": gain, "commit_threshold": thr,
+            "auc_drop": e.get("auc_drop"), "ece_rise": e.get("ece_rise"),
+            "committed": bool(e.get("committed")), "metrics": {},
+            "per_fold": None, "n_features": None, "verdict": verdict,
+        })
+    for t in grid.get("overflow_trials", []):
+        f = t.get("feature")
+        if not f:
+            continue
+        gain, thr = t.get("logloss_gain"), t.get("commit_threshold")
+        verdict = ("Overflow 1-by-1 trial COMMITTED — gain beyond the noise bar"
+                   if t.get("committed") else
+                   f"Overflow 1-by-1 trial vs baseline — gain {gain:+.4f} "
+                   f"below the {thr:.4f} noise bar" if thr is not None else
+                   "Overflow 1-by-1 trial — not committed")
+        per_feature.setdefault(f, {
+            "kind": "addition" if t.get("action") == "add" else "removal",
+            "step": None, "logloss_gain": gain, "commit_threshold": thr,
+            "auc_drop": None, "ece_rise": None,
+            "committed": bool(t.get("committed")), "metrics": t.get("metrics") or {},
+            "per_fold": None, "n_features": t.get("n_features"), "verdict": verdict,
+        })
+    w = grid.get("winner")
+    if w:
+        wl = _grid_state_label(w)
+        for f in (w.get("adds_applied") or []) + (w.get("removes_applied") or []):
+            rec = per_feature.get(f)
+            member = (f"Member of the winning grid state ({wl}) — gain "
+                      f"{w.get('logloss_gain'):+.4f} vs baseline; adoption still "
+                      "requires the --adopt gates")
+            if rec:
+                rec["verdict"] = f"{member} — {rec['verdict']}"
+            else:
+                per_feature[f] = {
+                    "kind": None, "step": None, "verdict": member,
+                    "logloss_gain": w.get("logloss_gain"), "commit_threshold": None,
+                    "auc_drop": None, "ece_rise": None, "committed": False,
+                    "metrics": {}, "per_fold": None,
+                    "n_features": w.get("n_features"),
+                }
     return per_feature
 
 
@@ -569,8 +625,10 @@ def sheet_readme(wb, trace) -> None:
         ("3. Production — the features currently feeding the live moneyline model.", None),
         ("4. Candidates — engineered features waiting for a trial; force-test any of them via "
          "MLB_RFE_ADDITION_MONEYLINE_LIST.", None),
-        ("5. RFE Run Detail — every test the engine ran, with its exact metrics and a plain-English verdict.", None),
-        ("6. Per-Fold Detail — per-fold logloss behind each step (v2 traces).", None),
+        ("5. RFE Run Detail — every test the engine ran, with its exact metrics and a plain-English verdict. "
+         "Grid-mode runs add a Grid Detail sheet: every subset combination of the forced lists scored in "
+         "parallel, the paired edge verdicts, and the joint-vs-parts interactions.", None),
+        ("6. Per-Fold Detail — per-fold logloss behind each step and each grid state (v2 traces).", None),
         ("7. Redundancy — features that measure nearly the same thing; the model splits credit between them.", None),
         ("8. Coverage Gaps — the API-by-API truth: Section A shows what each source's payload "
          "serves vs what the pipeline extracts; Section B lists specific unused payload fields "
@@ -634,6 +692,24 @@ def sheet_dashboard(wb, rows, trace) -> None:
          bm.get("commit_threshold") or round(max(0.002, 2 * (bm.get("logloss_se") or 0)), 4)),
         ("Folds used (walk-forward windows)", bm.get("folds_used")),
     ]
+    grid = trace.get("grid") or {}
+    if grid:
+        gw = grid.get("window") or {}
+        wnr = grid.get("winner")
+        kpis += [
+            ("Grid mode (this run)",
+             f"YES — {grid.get('n_states')} subset states ({len(gw.get('adds') or [])} adds × "
+             f"{len(gw.get('removes') or [])} removes window, cap {grid.get('max_states')}, "
+             f"{grid.get('workers')} workers)"),
+            ("Grid winner (vs baseline)",
+             f"{(wnr or {}).get('state_id')} — gain {(wnr or {}).get('logloss_gain'):+.4f}, "
+             f"{len((wnr or {}).get('cols') or [])} features"
+             if wnr else "none — no state cleared the noise bar vs baseline"),
+            ("Grid edge verdicts", len(grid.get("edges", []))),
+            ("Grid interactions measured", len(grid.get("interactions", []))),
+            ("Overflow features (beyond the cap)",
+             ", ".join(grid.get("grid_truncated") or []) or "none"),
+        ]
     ws.append(["Metric", "Value"])
     style_header(ws, 2)
     for k, v in kpis:
@@ -730,6 +806,168 @@ def sheet_run_detail(wb, trace) -> None:
                 fills=fills, wrap_cols=(15,))
 
 
+def _grid_state_label(st: dict[str, Any]) -> str:
+    """Human label for a grid state record: 'baseline', '+A1 +A2 -R1' …"""
+    a = "+".join(st.get("adds_applied") or [])
+    r = "−".join(st.get("removes_applied") or [])
+    parts = ([f"+{a}"] if a else []) + ([f"−{r}"] if r else [])
+    return "baseline" if not parts else " ".join(parts)
+
+
+def sheet_grid_detail(wb, trace) -> None:
+    """Grid-mode runs only: states, paired edge verdicts, interactions.
+
+    One sheet, four sections, rendered straight from the trace's ``grid``
+    block (sheet_coverage-style manual sections — write_table can only
+    serve one auto-filter per sheet). Silent no-op for normal runs.
+    """
+    grid = trace.get("grid")
+    if not grid:
+        return
+    ws = wb.create_sheet("Grid Detail")
+    ws.sheet_properties.tabColor = "ED7D31"
+    winner_id = (grid.get("winner") or {}).get("state_id")
+    direct = {e.get("to"): e for e in grid.get("edges", [])
+              if e.get("from") == "baseline"}
+
+    # -- Section 1: states -------------------------------------------------
+    ws.append(["SECTION 1 — Grid states: every subset combination of the forced "
+               "lists, each scored ONCE (parallel) and judged against the baseline"])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12, color=NAVY)
+    ws.append(["State", "Adds Applied", "Removals Applied", "# Features",
+               "Logloss", "Δ vs Baseline", "Noise Bar", "Committed?",
+               "AUC", "ECE", "Logloss SE", "Folds", "Note"])
+    style_header(ws, 13, row=ws.max_row)
+    for st in grid.get("states", []):
+        m = st.get("metrics") or {}
+        is_w = st.get("id") == winner_id
+        label = _grid_state_label(st)
+        edge = direct.get(label)
+        err = st.get("error")
+        if is_w:
+            note = ("WINNER — best state clearing the noise bar vs baseline; "
+                    "adoption still requires the --adopt gates")
+        elif err:
+            note = f"FAILED: {err}"
+        elif label == "baseline":
+            note = "baseline reference"
+        else:
+            note = ""
+        ws.append([
+            st.get("id"),
+            ", ".join(st.get("adds_applied") or []) or "—",
+            ", ".join(st.get("removes_applied") or []) or "—",
+            st.get("n_features"),
+            round(m.get("logloss", float("nan")), 4) if m else "—",
+            f"{st.get('logloss_gain'):+.4f}" if st.get("logloss_gain") is not None else "—",
+            round((edge or {}).get("commit_threshold"), 4)
+            if (edge or {}).get("commit_threshold") is not None else "—",
+            ("YES" if (edge or {}).get("committed") else
+             "no" if edge else "—"),
+            round(m.get("auc", float("nan")), 4) if m else "—",
+            round(m.get("ece", float("nan")), 4) if m else "—",
+            round(m.get("logloss_se", float("nan")), 6) if m else "—",
+            m.get("folds_used", "—"),
+            note,
+        ])
+        for c in range(1, 14):
+            cell = ws.cell(row=ws.max_row, column=c)
+            cell.border = BORDER
+            cell.alignment = WRAP if c == 13 else TOP
+            if is_w:
+                fill_cell(cell, GREEN_FILL)
+            elif (edge or {}).get("committed"):
+                fill_cell(cell, AMBER_FILL)
+    ws.append([""])
+
+    # -- Section 2: edge verdicts -------------------------------------------
+    ws.append(["SECTION 2 — Edge verdicts: paired per-game logloss differences between "
+               "states (same bar as a normal run: max(floor, 2 × paired SE) + AUC/ECE guards). "
+               "'baseline' edges are the primary question; parent→child edges are the 1-by-1 marginal view."])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12, color=NAVY)
+    ws.append(["From", "To", "Kind", "Feature", "Logloss Δ", "Noise Bar",
+               "Paired SE", "AUC Δ", "ECE Δ", "Committed?", "Plain-English Verdict"])
+    style_header(ws, 11, row=ws.max_row)
+    for e in grid.get("edges", []):
+        gain, thr = e.get("logloss_gain"), e.get("commit_threshold")
+        ws.append([
+            e.get("from"), e.get("to"), e.get("kind", "—"),
+            e.get("feature", "—"),
+            f"{gain:+.4f}" if gain is not None else "—",
+            round(thr, 4) if thr is not None else "—",
+            e.get("paired_se", "—"),
+            f"{e.get('auc_drop'):+.4f}" if e.get("auc_drop") is not None else "—",
+            f"{e.get('ece_rise'):+.4f}" if e.get("ece_rise") is not None else "—",
+            "YES" if e.get("committed") else "no",
+            e.get("verdict", "—"),
+        ])
+        for c in range(1, 12):
+            cell = ws.cell(row=ws.max_row, column=c)
+            cell.border = BORDER
+            cell.alignment = WRAP if c == 11 else TOP
+            if e.get("committed"):
+                fill_cell(cell, GREEN_FILL)
+    ws.append([""])
+
+    # -- Section 3: interactions --------------------------------------------
+    ws.append(["SECTION 3 — Interactions: joint gain minus the sum of the single-feature "
+               "gains. ≈0 = substitutes sharing one signal; >0 = they help each other; "
+               "<0 = together they overfit."])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12, color=NAVY)
+    ws.append(["Adds", "Removes", "Gain (Add Only)", "Gain (Remove Only)",
+               "Gain (Joint)", "Interaction vs Parts", "Reading"])
+    style_header(ws, 7, row=ws.max_row)
+    for it in grid.get("interactions", []):
+        ws.append([
+            ", ".join(it.get("adds") or []) or "—",
+            ", ".join(it.get("removes") or []) or "—",
+            f"{it.get('gain_add_only'):+.4f}",
+            f"{it.get('gain_remove_only'):+.4f}",
+            f"{it.get('gain_joint'):+.4f}",
+            f"{it.get('interaction_vs_parts'):+.4f}",
+            it.get("reading", "—"),
+        ])
+        for c in range(1, 8):
+            cell = ws.cell(row=ws.max_row, column=c)
+            cell.border = BORDER
+            cell.alignment = WRAP if c == 7 else TOP
+    ws.append([""])
+
+    # -- Section 4: overflow 1-by-1 trials -----------------------------------
+    overflow = grid.get("overflow_trials") or []
+    if grid.get("grid_truncated") or overflow:
+        ws.append(["SECTION 4 — Overflow features (beyond the state cap): every listed "
+                   "name is still honored with a normal 1-by-1 trial vs the baseline"])
+        ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12, color=NAVY)
+        ws.append(["Feature", "Action", "# Features", "Δ vs Baseline",
+                   "Noise Bar", "Committed?"])
+        style_header(ws, 6, row=ws.max_row)
+        for t in overflow:
+            gain = t.get("logloss_gain")
+            ws.append([
+                t.get("feature"), t.get("action"), t.get("n_features"),
+                f"{gain:+.4f}" if gain is not None else "—",
+                round(t.get("commit_threshold"), 4)
+                if t.get("commit_threshold") is not None else "—",
+                "YES" if t.get("committed") else "no",
+            ])
+            for c in range(1, 7):
+                cell = ws.cell(row=ws.max_row, column=c)
+                cell.border = BORDER
+                cell.alignment = TOP
+                if t.get("committed"):
+                    fill_cell(cell, GREEN_FILL)
+        ws.append([""])
+
+    gw = grid.get("window") or {}
+    ws.append([f"Grid config — state cap: {grid.get('max_states')} | window: "
+               f"{len(gw.get('adds') or [])} adds × {len(gw.get('removes') or [])} removes | "
+               f"states scored: {grid.get('n_states')} | workers: {grid.get('workers')} | "
+               f"overflow (1-by-1): {', '.join(grid.get('grid_truncated') or []) or 'none'}"])
+    ws.cell(row=ws.max_row, column=1).font = SUBTITLE_FONT
+    set_widths(ws, [12, 26, 26, 10, 9, 12, 9, 11, 9, 9, 11, 7, 52])
+
+
 def sheet_per_fold(wb, trace) -> None:
     ws = wb.create_sheet("Per-Fold Detail")
     ws.sheet_properties.tabColor = "9E5EB5"
@@ -748,6 +986,13 @@ def sheet_per_fold(wb, trace) -> None:
         for i, pf in enumerate(s.get("per_fold") or [], start=1):
             vals.append([s.get("step"), feat, i,
                          pf.get("window", pf.get("fold", i)),
+                         pf.get("n_games"), round(pf.get("logloss", float("nan")), 4)])
+    for st in (trace.get("grid") or {}).get("states", []):
+        if st.get("error") or not st.get("per_fold"):
+            continue
+        for i, pf in enumerate(st.get("per_fold") or [], start=1):
+            vals.append([st.get("id"), _grid_state_label(st), i,
+                         pf.get("val_window", pf.get("window", pf.get("fold", i))),
                          pf.get("n_games"), round(pf.get("logloss", float("nan")), 4)])
     write_table(ws, cols, vals, widths=[6, 34, 6, 24, 8, 9])
 
@@ -908,6 +1153,13 @@ def sheet_glossary(wb) -> None:
                           "you adopt a subset."),
         ("Forced trial list", "Env vars (MLB_RFE_ADDITION_/REMOVAL_MONEYLINE_LIST) that make the next "
                               "run test specific features first — forcing the test, never the result."),
+        ("Grid state", "One feature list in a grid run (MLB_RFE_ADDITION_REMOVAL_GRID_MODE=1): the "
+                       "baseline plus every combination of forced additions and removals — each "
+                       "scored once, in parallel, and judged directly against the baseline."),
+        ("Interaction (joint vs parts)", "In a grid run: the joint gain of changing features together "
+                                         "minus the sum of their single gains. Near zero = substitutes "
+                                         "sharing one signal; positive = they help each other; "
+                                         "negative = together they overfit."),
     ]
     ws.append(["Term", "Meaning (no jargon)"])
     style_header(ws, 2)
@@ -974,6 +1226,7 @@ def generate_workbook(trace_path: Optional[Path] = None,
     sheet_master(wb, prod, f"Production ({len(prod)})", "375623", subset=prod)
     sheet_master(wb, cand, f"Candidates ({len(cand)})", "C55A11", subset=cand)
     sheet_run_detail(wb, trace)
+    sheet_grid_detail(wb, trace)
     sheet_per_fold(wb, trace)
     sheet_redundancy(wb, rows, trace)
     sheet_coverage(wb, rows, groups)
@@ -993,8 +1246,11 @@ def generate_workbook(trace_path: Optional[Path] = None,
             str(trace.get("date", "unknown")), "")
         out = DATA_DELIVERY / f"mlb_feature_workbook_{day}{suffix}.xlsx"
     wb.save(out)
-    print(f"[workbook] wrote {out} "
-          f"({len(rows)} features | {len(trace.get('steps', []))} RFE tests)")
+    grid = trace.get("grid") or {}
+    n_tests = (f"{len(grid.get('states', []))} grid states, "
+               f"{len(grid.get('edges', []))} edge verdicts") if grid else (
+        f"{len(trace.get('steps', []))} RFE tests")
+    print(f"[workbook] wrote {out} ({len(rows)} features | {n_tests})")
     return out
 
 

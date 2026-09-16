@@ -100,6 +100,7 @@ from config import (
     RFE_CANDIDATE_COLS,
     RFE_ECE_GUARD,
     RFE_FLOOR,
+    RFE_GRID_MAX_STATES,
     RFE_MIN_LOGLOSS_GAIN,
     RFE_MAX_STEPS,
     RFE_NOISE_SIGMA,
@@ -781,6 +782,633 @@ def load_prior_verdicts(before_day: date) -> dict[str, dict[str, Any]]:
     return out
 
 
+# ── Grid mode: all subset combinations of forced adds × removals ────────────
+
+ENV_GRID_MODE = "MLB_RFE_ADDITION_REMOVAL_GRID_MODE"
+ENV_GRID_MAX_STATES = "RFE_GRID_MAX_STATES"
+
+# Worker-process globals (Windows spawn: state arrives via the initializer,
+# NOT via closures or the fork-inherited module state).
+_GRID_CTX: dict[str, Any] = {}
+
+
+def _grid_worker_init(enriched: pd.DataFrame,
+                      splits: list[dict[str, Any]]) -> None:
+    """ProcessPoolExecutor initializer: hand the frame + splits to a worker.
+
+    Windows spawns a fresh interpreter per worker, so the parent's module
+    globals (including the active feature subset) do not exist here. Each
+    worker gets the enriched frame and the FIXED splits once, then serves
+    many state-scoring tasks. Trees are pinned to one thread per worker —
+    parallelism comes from the process pool, not from BLAS inside it.
+    """
+    _GRID_CTX["enriched"] = enriched
+    _GRID_CTX["splits"] = splits
+    reset_feature_subset()
+
+
+def _grid_worker_score(cols: list[str]) -> dict[str, Any]:
+    """Score ONE grid state: a specific feature list on the shared splits.
+
+    Returns pooled metrics + the per-game loss vector (game-aligned with
+    every other state by fold order — the paired bar's foundation).
+    """
+    from training import set_feature_subset as _set, reset_feature_subset as _reset
+    enriched: pd.DataFrame = _GRID_CTX["enriched"]
+    splits: list[dict[str, Any]] = _GRID_CTX["splits"]
+    _set(cols)
+    try:
+        m, losses = _score_splits(splits, return_losses=True)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        _reset()
+    if losses is None:
+        return {"ok": False, "error": "no loss vector (fold-set mismatch)"}
+    return {"ok": True, "metrics": {k: v for k, v in m.items()
+                                    if k != "per_fold"},
+            "per_fold": m.get("per_fold", []),
+            "losses": losses}
+
+
+def _grid_window(forced_add: list[str], forced_rm: list[str],
+                 max_states: int, prior: dict[str, float]) -> tuple[list[str], list[str], list[str]]:
+    """Silently shrink the add/remove lists to fit the state cap.
+
+    Round-robin: A1, R1, A2, R2, ... — extend the window with the next name
+    from whichever side still has overflow ONLY while the resulting lattice
+    (2^adds x 2^removes) stays <= max_states. Single-name lists grow to 4;
+    balanced lists stop at 2+2. Overflow names still get 1-by-1 targeted
+    trials after the grid, so every name the user listed is honored — the
+    cap shapes the LATTICE, never silently drops a test.
+    """
+    def _key(f: str) -> tuple:
+        return (-prior.get(f, 0.0), f)
+
+    adds = sorted(forced_add, key=_key)
+    removes = sorted(forced_rm, key=_key)
+    win_a: list[str] = []
+    win_r: list[str] = []
+    tail: list[str] = []
+    ia = ir = 0
+    while True:
+        progressed = False
+        if ia < len(adds):
+            cand_a = 2 ** (len(win_a) + 1) * 2 ** len(win_r)
+            if cand_a <= max_states:
+                win_a.append(adds[ia])
+                ia += 1
+                progressed = True
+            else:
+                tail.append(adds[ia])
+                ia += 1
+                progressed = True
+        if ir < len(removes):
+            cand_r = 2 ** len(win_a) * 2 ** (len(win_r) + 1)
+            if cand_r <= max_states:
+                win_r.append(removes[ir])
+                ir += 1
+                progressed = True
+            else:
+                tail.append(removes[ir])
+                ir += 1
+                progressed = True
+        if not progressed:
+            break
+    return win_a, win_r, tail
+
+
+def _grid_edge_verdict(name_from: str, name_to: str,
+                       from_losses: Optional[np.ndarray],
+                       to_losses: Optional[np.ndarray],
+                       from_metrics: Optional[dict[str, Any]],
+                       to_metrics: Optional[dict[str, Any]],
+                       min_logloss_gain: float, noise_sigma: float,
+                       auc_guard: float, ece_guard: float,
+                       fallback_threshold: float) -> dict[str, Any]:
+    """One paired-difference verdict between two grid states.
+
+    The EXACT same bar a normal run applies to a trial: the commit threshold
+    is max(RFE_MIN_LOGLOSS_GAIN, noise_sigma * paired SE) computed on the
+    per-game logloss difference, plus the pooled AUC/ECE guards. Here both
+    sides are fixed grid states, so the reference is the state named in the
+    edge — usually the baseline.
+    """
+    edge: dict[str, Any] = {"from": name_from, "to": name_to}
+    if to_metrics is None or from_metrics is None:
+        edge.update(committed=False, verdict="not scored (state failed)")
+        return edge
+    gain = round(float(from_metrics["logloss"]) - float(to_metrics["logloss"]), 4)
+    edge["logloss_gain"] = gain
+    if (to_losses is not None and from_losses is not None
+            and len(to_losses) == len(from_losses)):
+        diff = to_losses - from_losses
+        paired_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
+        threshold = max(float(min_logloss_gain), noise_sigma * paired_se)
+        edge["paired_se"] = round(paired_se, 6)
+        edge["bar_basis"] = "paired_diff_2sigma"
+    else:
+        threshold = fallback_threshold
+        edge["bar_basis"] = "baseline_se_fallback"
+    edge["commit_threshold"] = round(threshold, 4)
+    edge["auc_drop"] = round(float(from_metrics["auc"]) - float(to_metrics["auc"]), 4)
+    edge["ece_rise"] = round(float(to_metrics["ece"]) - float(from_metrics["ece"]), 4)
+    edge["committed"] = bool(
+        float(to_metrics["logloss"]) <= float(from_metrics["logloss"]) - threshold
+        and edge["auc_drop"] <= auc_guard
+        and edge["ece_rise"] <= ece_guard)
+    edge["verdict"] = (
+        f"COMMITTED — {gain:+.4f} clears the {threshold:.4f} noise bar"
+        if edge["committed"] else
+        f"not committed — gain {gain:+.4f} vs the {threshold:.4f} noise bar")
+    return edge
+
+
+def run_grid_rfe(
+    games: pd.DataFrame,
+    forced_additions: list[str],
+    forced_removals: list[str],
+    max_eval_folds: int = DEFAULT_MAX_EVAL_FOLDS,
+    auc_guard: float = RFE_AUC_GUARD,
+    ece_guard: float = RFE_ECE_GUARD,
+    min_logloss_gain: float = RFE_MIN_LOGLOSS_GAIN,
+    noise_sigma: float = RFE_NOISE_SIGMA,
+    incumbent_cols: Optional[list[str]] = None,
+    floor: int = RFE_FLOOR,
+    max_workers: Optional[int] = None,
+) -> dict[str, Any]:
+    """Grid mode: score EVERY subset combination of the forced lists.
+
+    With forced additions [A1, A2] and removals [R1, R2] the lattice is
+    {∅,A1,A2,A1+A2} × {∅,R1,R2,R1+R2} = 16 states — baseline, each single,
+    each pair, and the crossed cells. All states are scored ONCE each (in
+    parallel, full-history walk-forward, identical geometry to production),
+    and every edge verdict is a paired per-game logloss difference between
+    two stored loss vectors — the same bar, floor, and guards as the
+    sequential engine. Reference for "gain" is the BASELINE state (∅,∅),
+    not a moving champion: the grid exists to answer joint questions
+    ("remove R1+R2 together?", "does A1 only help once R1 is gone?") that
+    1-by-1 trials cannot. Per crossed cell the trace records an interaction
+    statistic: joint_gain − (part_a_gain + part_b_gain) — negative = the
+    features are substitutes sharing one signal, positive = they help each
+    other.
+
+    Windowing: if 2^adds × 2^removes exceeds RFE_GRID_MAX_STATES (env
+    RFE_GRID_MAX_STATES, default 16), the lists are silently round-robined
+    down to fit (A1, R1, A2, R2, ...); the dropped tail is recorded and each
+    overflow name still receives its normal 1-by-1 targeted trial.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    universe = list(MONEYLINE_FEATURE_COLS)
+    candidates = list(CANDIDATE_COLS)
+    pool = list(KNOWN_FEATURE_COLS)
+    forced_add = [c for c in forced_additions if c in candidates]
+    forced_rm = [c for c in forced_removals if c in universe]
+    unresolved = {
+        "addition": [{"name": n, "nearest": _nearest_names(n)}
+                     for n in forced_additions if n not in candidates],
+        "removal": [{"name": n, "nearest": _nearest_names(n)}
+                    for n in forced_removals if n not in universe],
+    }
+    if not forced_add and not forced_rm:
+        raise RuntimeError(
+            "Grid RFE requested but no forced name resolved against the "
+            f"pool (candidates={len(candidates)}, universe={len(universe)}). "
+            "Nearest-name suggestions were logged; check the workbook's "
+            "Candidates sheet for exact names.")
+    if unresolved["addition"] or unresolved["removal"]:
+        # Grid lattices are built from exact names — a typo must never
+        # silently shrink the experiment (strict, unlike targeted mode).
+        raise RuntimeError(
+            "Grid RFE requested with unresolvable forced names — refusing to "
+            f"run a shrunken lattice: {unresolved}")
+
+    # Cap resolution: config default 16; a REAL env value overrides it.
+    # Empty/"0"/"null"/garbage env values fall back to the default rather
+    # than zeroing the cap (a 0 cap would abort every grid).
+    raw_cap = (os.environ.get(ENV_GRID_MAX_STATES) or "").strip()
+    try:
+        max_states = int(raw_cap) if raw_cap else int(RFE_GRID_MAX_STATES)
+    except ValueError:
+        logger.warning("RFE_GRID_MAX_STATES=%r is not an integer — "
+                       "using the default %d", raw_cap, RFE_GRID_MAX_STATES)
+        max_states = int(RFE_GRID_MAX_STATES)
+    if max_states <= 0:  # "0"-style env values fall back to the default
+        max_states = int(RFE_GRID_MAX_STATES)
+    max_states = max(2, max_states)  # a grid is at least baseline + one state
+
+    enriched, splits = _splits_and_frame(games, max_eval_folds=max_eval_folds)
+    if not splits:
+        raise RuntimeError("No walk-forward folds for the supplied frame")
+    full_depth = int(max_eval_folds) == 0
+    folds_available = len(splits)
+
+    # Importance prior for canonical state ordering + windowing decisions.
+    prior = _importance_prior(splits)
+    win_add, win_rm, overflow = _grid_window(forced_add, forced_rm,
+                                             max_states, prior)
+    lattice_states = 2 ** len(win_add) * 2 ** len(win_rm)
+    if lattice_states > max_states:  # defensive; windowing should prevent this
+        raise RuntimeError(
+            f"Grid lattice ({lattice_states} states) exceeds the state cap "
+            f"({max_states}) — refusing to run an oversized grid")
+
+    # Lattice: EVERY subset of the windowed adds × EVERY subset of the
+    # windowed removes (2^a × 2^r states — 2+2 is exactly the 16-state grid
+    # the default cap is sized for). Canonical order: fewer changes first,
+    # then importance rank (desc) then name within a count class — two runs
+    # with identical inputs build byte-identical state lists.
+    from itertools import combinations
+
+    def _ranked(subset: list[str]) -> list[str]:
+        return sorted(subset, key=lambda x: (-prior.get(x, 0.0), x))
+
+    def _all_subsets(items: list[str]) -> list[tuple[str, ...]]:
+        out: list[tuple[str, ...]] = []
+        for k in range(len(items) + 1):
+            out.extend(combinations(items, k))
+        return out
+
+    add_subsets = _all_subsets(_ranked(win_add))
+    rm_subsets = _all_subsets(_ranked(win_rm))
+    states: list[dict[str, Any]] = []
+    for a_cols in add_subsets:
+        for r_cols in rm_subsets:
+            cols = [c for c in universe if c not in r_cols] + list(a_cols)
+            states.append({
+                "id": f"S{len(states) + 1:02d}",
+                "adds_applied": list(a_cols),
+                "removes_applied": list(r_cols),
+                "cols": cols,
+                "n_features": len(cols),
+            })
+    n_states = len(states)
+
+    logger.info("Grid RFE: %d states (%d adds x %d removes window, cap %d, "
+                "overflow %d) on %d folds",
+                n_states, len(win_add), len(win_rm), max_states,
+                len(overflow), folds_available)
+
+    # ── Score every state once, in parallel ────────────────────────────────
+    # The adopted incumbent subset (if any) joins the pool as an extra task:
+    # the same governance re-score a normal run performs, now free-riding on
+    # the same worker fan-out.
+    INCUMBENT_KEY = ("__incumbent__",)
+    tasks: list[tuple[tuple, list[str], str]] = [
+        ((tuple(st["adds_applied"]), tuple(st["removes_applied"])),
+         st["cols"], st["id"])
+        for st in states]
+    valid_inc: Optional[list[str]] = None
+    if incumbent_cols:
+        cand_inc = [c for c in incumbent_cols if c in pool]
+        if (cand_inc and len(cand_inc) == len(incumbent_cols)
+                and len(cand_inc) >= floor):
+            valid_inc = cand_inc
+            tasks.append((INCUMBENT_KEY, valid_inc, "__incumbent__"))
+    losses_by_key: dict[tuple, Optional[np.ndarray]] = {}
+    metrics_by_key: dict[tuple, Optional[dict[str, Any]]] = {}
+    per_fold_by_key: dict[tuple, list] = {}
+    errors_by_key: dict[tuple, str] = {}
+    workers = max_workers or max(1, min(len(tasks), (os.cpu_count() or 2) - 1))
+    # Pin BLAS/LightGBM threads to 1 in the PARENT environment so every
+    # spawned worker inherits it (their LightGBM imports initialize OpenMP
+    # before the worker initializer runs). Saved and restored so a pipeline
+    # caller's later phases keep their normal threading.
+    _thread_vars = ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                    "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS")
+    _saved_threads = {v: os.environ.get(v) for v in _thread_vars}
+    for v in _thread_vars:
+        os.environ[v] = "1"
+    try:
+        with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_grid_worker_init,
+                initargs=(enriched, splits)) as ex:
+            futs = {ex.submit(_grid_worker_score, cols): (key, label)
+                    for key, cols, label in tasks}
+            for fut in as_completed(futs):
+                key, label = futs[fut]
+                try:
+                    res = fut.result()
+                except Exception as exc:  # worker died (OOM, native crash)
+                    res = {"ok": False, "error": f"worker failed: {exc}"}
+                if res.get("ok"):
+                    losses_by_key[key] = res["losses"]
+                    metrics_by_key[key] = res["metrics"]
+                    per_fold_by_key[key] = res["per_fold"]
+                else:
+                    losses_by_key[key] = None
+                    metrics_by_key[key] = None
+                    per_fold_by_key[key] = []
+                    errors_by_key[key] = res.get("error", "unknown")
+                    logger.warning("Grid task %s failed: %s", label,
+                                   errors_by_key[key])
+    finally:
+        for v, old in _saved_threads.items():
+            if old is None:
+                os.environ.pop(v, None)
+            else:
+                os.environ[v] = old
+
+    base_key = ((), ())
+    base_metrics = metrics_by_key.get(base_key)
+    base_losses = losses_by_key.get(base_key)
+    if base_metrics is None:
+        raise RuntimeError(
+            "Grid baseline state (∅,∅) failed to score — cannot anchor the "
+            f"lattice ({errors_by_key.get(base_key, 'unknown')})")
+    baseline_ll = float(base_metrics["logloss"])
+    fallback_threshold = max(float(min_logloss_gain),
+                             noise_sigma * float(base_metrics.get("logloss_se", 0.0)))
+
+    # ── Incumbent health: re-score the adopted subset against the universe ─
+    # (governance eval — same paired bar as a normal run's incumbent check;
+    # the grid cannot silently strand an adopted subset it outperformed.)
+    incumbent_check: Optional[dict[str, Any]] = None
+    if incumbent_cols:
+        if valid_inc is None:
+            incumbent_check = {"note": "adopted subset invalid vs pool/floor",
+                               "n_valid": len([c for c in incumbent_cols
+                                               if c in pool])}
+        elif metrics_by_key.get(INCUMBENT_KEY) is not None:
+            im = metrics_by_key[INCUMBENT_KEY]
+            il = losses_by_key[INCUMBENT_KEY]
+            if (il is not None and base_losses is not None
+                    and len(il) == len(base_losses)):
+                inc_diff = il - base_losses
+                inc_se = float(np.std(inc_diff, ddof=1) / np.sqrt(len(inc_diff)))
+                inc_threshold = max(float(min_logloss_gain), noise_sigma * inc_se)
+            else:
+                inc_threshold = fallback_threshold
+            beats = float(im["logloss"]) <= baseline_ll - inc_threshold
+            incumbent_check = {
+                "metrics": {k: v for k, v in im.items()},
+                "bar_basis": "paired_diff_2sigma",
+                "beats_universe": bool(beats),
+                "note": ("adopted subset still earns its keep" if beats
+                         else "regressed vs universe — consider --reset"),
+            }
+        else:
+            incumbent_check = {"error": errors_by_key.get(INCUMBENT_KEY, "unknown"),
+                               "note": "incumbent re-score failed"}
+
+    # ── Fill state records (gains are vs the BASELINE state) ───────────────
+    for st in states:
+        key = (tuple(st["adds_applied"]), tuple(st["removes_applied"]))
+        m = metrics_by_key.get(key)
+        st["metrics"] = m
+        st["per_fold"] = per_fold_by_key.get(key, [])
+        if m is None:
+            st["error"] = errors_by_key.get(key, "unknown")
+            st["logloss_gain"] = None
+            continue
+        st["logloss_gain"] = round(baseline_ll - float(m["logloss"]), 4)
+
+    def _gain(a: tuple[str, ...], r: tuple[str, ...]) -> Optional[float]:
+        m = metrics_by_key.get((a, r))
+        return None if m is None else round(baseline_ll - float(m["logloss"]), 4)
+
+    # ── Edge verdicts. Two families, both judged with the standard bar:
+    #    (1) DIRECT vs baseline for every state — the grid's primary
+    #        question ("does this whole list beat production?") and the
+    #        basis of commit/winner selection;
+    #    (2) CHAINED parent→child edges along the add-chain (fixed removal
+    #        column) and removal-chain (fixed add row) — the 1-by-1 marginal
+    #        view ("does A1 help ON TOP of B−R1?").
+    def _edge_kind(a_delta: int, r_delta: int) -> str:
+        if a_delta == 1 and r_delta == 0:
+            return "add"
+        if a_delta == 0 and r_delta == 1:
+            return "remove"
+        return "joint"
+
+    edges: list[dict[str, Any]] = []
+    direct_committed: dict[str, bool] = {}
+    for st in states:
+        key = (tuple(st["adds_applied"]), tuple(st["removes_applied"]))
+        if key == ((), ()):
+            continue  # baseline is the reference, never an edge
+        edge = _grid_edge_verdict(
+            "baseline", _state_label(key),
+            base_losses, losses_by_key.get(key),
+            base_metrics, metrics_by_key.get(key),
+            min_logloss_gain, noise_sigma, auc_guard, ece_guard,
+            fallback_threshold)
+        edge["kind"] = _edge_kind(len(key[0]), len(key[1]))
+        edge["reference"] = "baseline"
+        edges.append(edge)
+        direct_committed[_state_label(key)] = bool(edge["committed"])
+    chained: list[dict[str, Any]] = []
+    # Hasse (single-feature-delta) edges: every state differs from each of
+    # its one-feature-lighter parents by exactly one add or one remove —
+    # the 1-by-1 marginal view ("does A1 help ON TOP of B−R1?") for every
+    # context the lattice contains.
+    state_key_set = {(tuple(st["adds_applied"]),
+                      tuple(st["removes_applied"])) for st in states}
+    for st in states:
+        a_key = tuple(st["adds_applied"])
+        r_key = tuple(st["removes_applied"])
+        if not a_key and not r_key:
+            continue
+        child = (a_key, r_key)
+        for f in a_key:  # parent without this add
+            p_key = (tuple(x for x in a_key if x != f), r_key)
+            if p_key not in state_key_set:
+                continue
+            e = _grid_edge_verdict(
+                _state_label(p_key), _state_label(child),
+                losses_by_key.get(p_key), losses_by_key.get(child),
+                metrics_by_key.get(p_key), metrics_by_key.get(child),
+                min_logloss_gain, noise_sigma, auc_guard, ece_guard,
+                fallback_threshold)
+            e["kind"] = "add"
+            e["feature"] = f
+            e["reference"] = "parent_state"
+            chained.append(e)
+        for f in r_key:  # parent without this removal
+            p_key = (a_key, tuple(x for x in r_key if x != f))
+            if p_key not in state_key_set:
+                continue
+            e = _grid_edge_verdict(
+                _state_label(p_key), _state_label(child),
+                losses_by_key.get(p_key), losses_by_key.get(child),
+                metrics_by_key.get(p_key), metrics_by_key.get(child),
+                min_logloss_gain, noise_sigma, auc_guard, ece_guard,
+                fallback_threshold)
+            e["kind"] = "remove"
+            e["feature"] = f
+            e["reference"] = "parent_state"
+            chained.append(e)
+    # Dedupe by (from, to): the direct (baseline-referenced) edge wins.
+    seen_edges: set[tuple[str, str]] = {(e["from"], e["to"]) for e in edges}
+    for e in chained:
+        k = (e["from"], e["to"])
+        if k not in seen_edges:
+            seen_edges.add(k)
+            edges.append(e)
+
+    # ── Interaction statistics for every crossed cell (both sides nonempty) ─
+    # joint(A,R) − gain(A) − gain(R): covers every subset pair, including the
+    # joint-adds cell (A={A1,A2}) and the joint-removals cell (R={R1,R2}).
+    interactions: list[dict[str, Any]] = []
+    for a_sub in add_subsets:
+        if not a_sub:
+            continue
+        for r_sub in rm_subsets:
+            if not r_sub:
+                continue
+            ga = _gain(a_sub, ())
+            gr = _gain((), r_sub)
+            gj = _gain(a_sub, r_sub)
+            if None in (ga, gr, gj):
+                continue
+            joint_gain = round(gj - (ga + gr), 4)
+            interactions.append({
+                "adds": list(a_sub),
+                "removes": list(r_sub),
+                "gain_add_only": ga,
+                "gain_remove_only": gr,
+                "gain_joint": gj,
+                "interaction_vs_parts": joint_gain,
+                "reading": ("substitutes — they share one signal (joint ≈ parts)"
+                            if abs(joint_gain) < 0.0005 else
+                            "synergy — they help each other (joint > parts)"
+                            if joint_gain > 0 else
+                            "interference — together they overfit (joint < parts)"),
+            })
+
+    # ── Winner: best state whose DIRECT-vs-baseline edge commits under the
+    #    STANDARD bar — identical math to a normal run, no extra knob ────────
+    winner: Optional[dict[str, Any]] = None
+    committed_states = [
+        st for st in states
+        if st["metrics"] is not None
+        and direct_committed.get(_state_label(
+            (tuple(st["adds_applied"]), tuple(st["removes_applied"]))))
+    ]
+    if committed_states:
+        w = min(committed_states, key=lambda s: float(s["metrics"]["logloss"]))
+        winner = {"state_id": w["id"],
+                  "adds_applied": w["adds_applied"],
+                  "removes_applied": w["removes_applied"],
+                  "cols": w["cols"],
+                  "n_features": w["n_features"],
+                  "logloss": float(w["metrics"]["logloss"]),
+                  "logloss_gain": w["logloss_gain"],
+                  "note": "best grid state clearing the standard noise bar "
+                          "vs baseline — adoption still requires alt-geometry "
+                          "confirmation + slate coverage via --adopt"}
+
+    # ── Overflow names: honored with normal 1-by-1 targeted trials ─────────
+    overflow_trials: list[dict[str, Any]] = []
+    if overflow:
+        try:
+            for f in overflow:
+                if f in win_add or f in win_rm:
+                    continue
+                kind = "add" if f in forced_add else "remove"
+                trial = (list(universe) + [f]) if kind == "add" \
+                    else [c for c in universe if c != f]
+                set_feature_subset(trial)
+                try:
+                    m, t_losses = _score_splits(splits, return_losses=True)
+                except Exception as exc:
+                    logger.warning("Overflow trial failed (%s %s): %s",
+                                   kind, f, exc)
+                    m, t_losses = None, None
+                rec: dict[str, Any] = {"feature": f, "action": kind,
+                                       "n_features": len(trial),
+                                       "metrics": None, "committed": False}
+                if m is not None:
+                    rec["metrics"] = {k: v for k, v in m.items()
+                                      if k != "per_fold"}
+                    rec["logloss_gain"] = round(baseline_ll - float(m["logloss"]), 4)
+                    edge = _grid_edge_verdict(
+                        "baseline", f"overflow:{kind}:{f}",
+                        base_losses, t_losses, base_metrics, rec["metrics"],
+                        min_logloss_gain, noise_sigma, auc_guard, ece_guard,
+                        fallback_threshold)
+                    rec["committed"] = edge["committed"]
+                    rec["commit_threshold"] = edge["commit_threshold"]
+                    rec["paired_se"] = edge.get("paired_se")
+                overflow_trials.append(rec)
+        finally:
+            reset_feature_subset()
+
+    reset_feature_subset()
+
+    selected = (winner["cols"] if winner
+                else list(universe))
+    return {
+        "baseline_metrics": {k: v for k, v in base_metrics.items()},
+        "best_metrics": (dict(metrics_by_key[(tuple(winner["adds_applied"]),
+                                              tuple(winner["removes_applied"]))])
+                         if winner else {k: v for k, v in base_metrics.items()}),
+        "selected_cols": selected,
+        "n_selected": len(selected),
+        "n_universe": len(universe),
+        "n_candidates": len(candidates),
+        "n_pool": len(pool),
+        "steps": [],  # no sequential steps in grid mode
+        "grid": {
+            "max_states": max_states,
+            "window": {"adds": win_add, "removes": win_rm},
+            "grid_truncated": overflow,
+            "n_states": n_states,
+            "states": [
+                {**{k: st[k] for k in ("id", "adds_applied", "removes_applied",
+                                       "cols", "n_features", "metrics",
+                                       "per_fold", "logloss_gain")},
+                 **({"error": st["error"]} if "error" in st else {})}
+                for st in states],
+            "edges": edges,
+            "interactions": interactions,
+            "winner": winner,
+            "overflow_trials": overflow_trials,
+            "workers": workers,
+        },
+        "verdicts": {},
+        "prior_verdicts": {},
+        "n_prior_carried": 0,
+        "forced_lists": {
+            "addition_resolved": forced_add,
+            "removal_resolved": forced_rm,
+            "unresolved": unresolved,
+        },
+        "importance_prior_top": dict(
+            sorted(prior.items(), key=lambda kv: -kv[1])[:25]),
+        "redundancy_pairs": [],
+        "floor": floor,
+        "max_steps": 0,
+        "max_eval_folds": max_eval_folds,
+        "full_depth": full_depth,
+        "folds_available": folds_available,
+        "retrial": False,
+        "targeted": True,
+        "grid_mode": True,
+        "run_mode": ("targeted_grid_full_history" if full_depth
+                     else "targeted_grid_bounded"),
+        "targeted_trials": {"additions": list(forced_add),
+                            "removals": list(forced_rm)},
+        "guards": {"auc_drop_max": auc_guard, "ece_rise_max": ece_guard},
+        "bar_basis": "paired_diff_2sigma",
+        "commit_threshold": round(fallback_threshold, 4),
+        "incumbent_check": incumbent_check,
+    }
+
+
+def _state_label(key: tuple[tuple[str, ...], tuple[str, ...]]) -> str:
+    """Human-readable grid state label: adds/removes applied."""
+    a, r = key
+    parts = []
+    if a:
+        parts.append("+" + "+".join(a))
+    if r:
+        parts.append("−" + "−".join(r))
+    return "baseline" if not parts else " ".join(parts)
+
+
 def confirm_candidate(
     games: pd.DataFrame, cols: list[str],
     alt_cadence: int = 5,
@@ -1017,6 +1645,7 @@ def write_trace(day: date, result: dict[str, Any], adopted: bool,
         "baseline_metrics": result["baseline_metrics"],
         "best_metrics": result["best_metrics"],
         "steps": result["steps"],
+        "grid": result.get("grid"),
         "verdicts": result.get("verdicts"),
         "prior_verdicts_carried": result.get("n_prior_carried", 0),
         "incumbent_check": result.get("incumbent_check"),
@@ -1124,6 +1753,40 @@ def maybe_run_rfe(games: pd.DataFrame, day_or_str: "str | date") -> dict[str, An
     retrial = _truthy_env(ENV_RETRIAL)
     forced_add = _parse_env_list(os.environ.get(ENV_ADDITION_LIST, ""))
     forced_rm = _parse_env_list(os.environ.get(ENV_REMOVAL_LIST, ""))
+    # GRID MODE: all subset combinations of the forced lists, judged against
+    # the baseline with the standard bar. The flag alone (both lists empty)
+    # silently falls through to normal mode — never an error.
+    grid_mode = _truthy_env(ENV_GRID_MODE)
+    if grid_mode and not (forced_add or forced_rm):
+        grid_mode = False
+    if grid_mode:
+        state = load_state()
+        result = run_grid_rfe(
+            games, forced_add, forced_rm,
+            incumbent_cols=(state or {}).get("cols"),
+        )
+        trace = write_trace(day, result, adopted=False, invoked_by="pipeline")
+        grid = result.get("grid", {})
+        n_committed = sum(1 for e in grid.get("edges", []) if e.get("committed")) \
+            + sum(1 for t in grid.get("overflow_trials", []) if t.get("committed"))
+        return {
+            "ran": True,
+            "trace": str(trace),
+            "run_mode": result["run_mode"],
+            "grid_mode": True,
+            "n_states": grid.get("n_states", 0),
+            "n_edges": len(grid.get("edges", [])),
+            "winner": (grid.get("winner") or {}).get("state_id"),
+            "n_pool": result["n_pool"],
+            "n_universe": result["n_universe"],
+            "n_selected": result["n_selected"],
+            "baseline_logloss": float(result["baseline_metrics"]["logloss"]),
+            "best_logloss": float(result["best_metrics"]["logloss"]),
+            "n_trials": 0,
+            "n_committed": n_committed,
+            "incumbent_note": (result.get("incumbent_check") or {}).get("note"),
+            "forced_unresolved": None,
+        }
     prior = {} if retrial else load_prior_verdicts(day)
     state = load_state()
     result = run_rfe(
@@ -1239,16 +1902,31 @@ def main(argv: Optional[list[str]] = None) -> int:
               f"removals: {forced_rm or 'none'}")
 
     retrial = _truthy_env(ENV_RETRIAL)
+    grid_mode = _truthy_env(ENV_GRID_MODE)
+    if grid_mode and not (forced_add or forced_rm):
+        print("grid mode requested but both forced lists are empty — "
+              "running normal mode")
+        grid_mode = False
+    if grid_mode:
+        print("GRID MODE — scoring every subset combination of the forced "
+              "lists in parallel (judged vs baseline, standard noise bar)")
     prior = {} if retrial else load_prior_verdicts(day)
     state = load_state()
 
-    result = run_rfe(
-        games, floor=args.floor, max_steps=args.max_steps,
-        ece_guard=args.ece_guard, max_eval_folds=args.max_eval_folds,
-        forced_additions=forced_add, forced_removals=forced_rm,
-        retrial=retrial, incumbent_cols=(state or {}).get("cols"),
-        prior_verdicts=prior,
-    )
+    if grid_mode:
+        result = run_grid_rfe(
+            games, forced_add, forced_rm, max_eval_folds=args.max_eval_folds,
+            ece_guard=args.ece_guard,
+            incumbent_cols=(state or {}).get("cols"), floor=args.floor,
+        )
+    else:
+        result = run_rfe(
+            games, floor=args.floor, max_steps=args.max_steps,
+            ece_guard=args.ece_guard, max_eval_folds=args.max_eval_folds,
+            forced_additions=forced_add, forced_removals=forced_rm,
+            retrial=retrial, incumbent_cols=(state or {}).get("cols"),
+            prior_verdicts=prior,
+        )
     logger.info("RFE: pool %d | baseline logloss %.4f -> best %.4f | "
                 "trials %d | committed %d | selected %d cols",
                 result["n_pool"],
@@ -1257,6 +1935,22 @@ def main(argv: Optional[list[str]] = None) -> int:
                 len(result["steps"]),
                 sum(1 for s in result["steps"] if s.get("committed")),
                 result["n_selected"])
+    if result.get("grid_mode"):
+        grid = result.get("grid", {})
+        for it in grid.get("interactions", []):
+            logger.info("Grid interaction [%s | %s]: %+.4f (%s)",
+                        "+".join(it["adds"]), "-".join(it["removes"]),
+                        it["interaction_vs_parts"], it["reading"])
+        w = grid.get("winner")
+        if w:
+            logger.info("Grid winner: %s (%s) logloss %.4f (gain %+.4f)",
+                        w["state_id"], _state_label(
+                            (tuple(w["adds_applied"]),
+                             tuple(w["removes_applied"]))),
+                        w["logloss"], w["logloss_gain"])
+        else:
+            logger.info("Grid winner: none — no state cleared the standard "
+                        "noise bar vs baseline")
 
     trace = write_trace(day, result, adopted=args.adopt, invoked_by="cli")
     print(f"trace: {trace}")
