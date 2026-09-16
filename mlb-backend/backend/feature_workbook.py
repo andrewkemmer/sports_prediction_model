@@ -420,7 +420,7 @@ MASTER_COLS = [
     "ECE Change", "Redundant With", "Recommendation",
 ]
 
-ALL_MEMBERS = {"xgboost", "lightgbm", "randomforest", "mlp", "logistic"}
+ALL_MEMBERS = {"xgboost", "lightgbm", "elasticnet"}
 
 
 def routing_label(in_prod: bool, members) -> str:
@@ -1143,8 +1143,8 @@ def sheet_glossary(wb) -> None:
                                 "smaller with more games, which is why full-history tests are sharper."),
         ("Importance", "How much the model used a feature while fitting (split gains + coefficients) — "
                        "a ranking hint only, never proof of value."),
-        ("Member routing", "Which of the ensemble's models (xgboost, lightgbm, randomforest, mlp, "
-                           "logistic) actually see the feature."),
+        ("Member routing", "Which of the ensemble's models (xgboost, lightgbm, "
+                           "elasticnet) actually see the feature."),
         ("PIT-safe", "Point-in-time safe: the feature uses only information that existed before "
                      "first pitch — no lookahead."),
         ("Redundant pair", "Two features with |r| ≥ 0.9 correlation — they measure nearly the same "

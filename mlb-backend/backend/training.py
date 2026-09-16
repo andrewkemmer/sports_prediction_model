@@ -46,6 +46,7 @@ from config import (
     VERSION_KEY,
     TRAINED_AT_KEY,
     DATA_CUTOFF_KEY,
+    ELASTICNET_PARAMS,
     XGBOOST_PARAMS,
 )
 
@@ -939,11 +940,12 @@ def compute_adaptive_weights(
 ) -> dict[str, float]:
     """Blend weights earned by out-of-sample performance.
 
-    Softmax over pooled OOF scores. With ADAPTIVE_WEIGHT_METRIC="auc"
-    (default) the score is pooled OOF AUC — a member beating another by Δ
-    earns exp(Δ / TEMPERATURE) times its weight, so the blend leans toward
-    the members that actually separate winners from losers. With
-    "logloss" it scores pooled OOF log-loss (lower is better) as before.
+    Softmax over pooled OOF scores. With ADAPTIVE_WEIGHT_METRIC="logloss"
+    (default since 2026-09-16) the score is pooled OOF log-loss (lower is
+    better). With "auc" it scores pooled OOF AUC. In production the caller
+    re-earns these weights after every walk-forward fold (rolling per-fold
+    weighting — each fold's blend is weighted by the PRIOR fold's OOF
+    evidence only), so this function sees one fold's OOF window at a time.
     FLOOR keeps every candidate alive for diversity; CAP prevents
     domination. The result sums to exactly 1.0 and feeds both prediction
     blending and reporting so the ensemble visibly self-corrects as
@@ -1022,7 +1024,8 @@ def compute_adaptive_weights(
 def _member_weights(member_names: list[str]) -> dict[str, float]:
     """Normalized blend weights for the members that actually trained.
 
-    Prefers adaptive weights earned from pooled OOF log-loss when available;
+    Prefers the rolling adaptive weights (last fold's OOF log-loss earning)
+    when available; falls back to static ENSEMBLE_WEIGHTS priors otherwise;
     falls back to static ENSEMBLE_WEIGHTS priors otherwise (e.g. mid-run or
     before the first full evaluation). Members that failed to train
     contribute 0% and the remainder renormalizes to exactly 1.0.
@@ -1114,21 +1117,26 @@ def ensemble_predict(
         if name in ("scaler", "impute_median", "categorical_vocab"):
             continue
         try:
-            if name in ("logistic", "mlp"):
+            if name in ("elasticnet", "logistic", "mlp"):
+                # "logistic"/"mlp" stay routable so a cached pre-roster
+                # bundle still serves until the next retrain; the elasticnet
+                # member rides the identical scaled diff-slice path.
                 Xi, _ = _impute_median(X, medians)
                 Xu = scaler.transform(Xi) if scaler is not None else Xi
-                if name == "logistic":
+                if name in ("elasticnet", "logistic"):
                     expected = getattr(model, "n_features_in_", Xu.shape[1])
                     if expected != Xu.shape[1]:
                         idx = _logistic_feature_indices()
                         if len(idx) != expected:
                             raise ValueError(
-                                f"logistic member expects {expected} columns "
+                                f"{name} member expects {expected} columns "
                                 f"but LOGISTIC_USE_RAW_COLS routing yields "
                                 f"{len(idx)} — persisted bundle was trained "
                                 f"under a different flag value")
                         Xu = Xu[:, idx]
-                Xuse = Xu
+                    Xuse = Xu
+                else:
+                    Xuse = Xu  # legacy mlp: full matrix
             elif name == "xgboost":
                 Xi, _ = _impute_median(X, medians)
                 # _feature_matrix guarantees full MONEYLINE_FEATURE_COLS width/order.
@@ -1317,43 +1325,22 @@ def train_moneyline_ensemble(
     # LOGISTIC_USE_RAW_COLS routing: slice AFTER imputation+scaling so the
     # stored full-width medians/scaler stay canonical; the model simply sees
     # fewer columns. MLP keeps the full matrix regardless of this toggle.
+    # Elastic-net logistic — the linear-family member (2026-09-16 roster).
+    # Diff-column slice of the imputed+standardized matrix: the identical
+    # input path the former logistic member used (LOGISTIC_USE_RAW_COLS
+    # routing via _logistic_feature_indices). The mixed L1/L2 penalty
+    # prunes redundant correlated diffs (grid-measured ~6 sigma better
+    # than plain-L2 logistic on the 84-fold walk-forward).
     _lr_idx = _logistic_feature_indices()
-    X_train_logistic = X_train_scaled[:, _lr_idx]
-    lr = LogisticRegression(max_iter=1000, random_state=RANDOM_SEED)
-    lr.fit(X_train_logistic, y_train)
-    models["logistic"] = lr
+    enet = LogisticRegression(**ELASTICNET_PARAMS)
+    enet.fit(X_train_scaled[:, _lr_idx], y_train)
+    models["elasticnet"] = enet
     models["scaler"] = scaler
     models["impute_median"] = impute_medians
 
-    # Random Forest — bagged trees, decorrelated from boosting errors.
-    # sklearn trees cannot consume NaN: use the train-median-imputed matrix.
-    # Params live in config.RF_PARAMS (pre-tuning values; the Optuna study
-    # in tune_rf_optuna.py may replace them with provenance).
-    try:
-        from sklearn.ensemble import RandomForestClassifier
-        from config import RF_PARAMS
-        rf = RandomForestClassifier(**RF_PARAMS)
-        if RF_WITH_TEAM_IDS:
-            rf.fit(X_train_lr_tree, y_train)
-        else:
-            rf.fit(X_train_lr, y_train)  # ablation: numeric only
-        models["randomforest"] = rf
-    except Exception as e:
-        logger.warning("RandomForest member failed: %s", e)
-
-    # MLP — small neural net with early stopping; diversity wildcard whose
-    # weight is earned (or starved) by the adaptive blend. Params live in
-    # config.MLP_PARAMS (pre-tuning values; the Optuna study in
-    # tune_mlp_optuna.py may replace them with provenance).
-    try:
-        from sklearn.neural_network import MLPClassifier
-        from config import MLP_PARAMS
-        mlp = MLPClassifier(**MLP_PARAMS)
-        mlp.fit(X_train_scaled, y_train)
-        models["mlp"] = mlp
-    except Exception as e:
-        logger.warning("MLP member failed: %s", e)
-
+    # (RandomForest and MLP members removed from the roster 2026-09-16;
+    # legacy bundles carrying them still serve via the predict-time
+    # routing in ensemble_predict until the next retrain.)
     # Record the categorical vocabulary the tree members were FIT with (the
     # global ID maps as of this fit, i.e. train+val for fold fits, train for
     # fit-only refits). Predict-time frames clamp unseen values to UNK against
@@ -1373,10 +1360,8 @@ def train_moneyline_ensemble(
     for name, model in models.items():
         if name in ("scaler", "impute_median", "categorical_vocab"):
             continue
-        if name == "logistic":
+        if name == "elasticnet":
             Xuse = X_val_scaled[:, _lr_idx]
-        elif name == "mlp":
-            Xuse = X_val_scaled
         elif name == "xgboost":
             Xuse = X_val_xgb  # DataFrame with pd.Categorical team IDs
         elif name == "randomforest":
@@ -1634,6 +1619,16 @@ def walk_forward_evaluate(
             pc = np.asarray(moneyline_apply(p_arr, fold_cal), dtype=float)
             oof_members_cal.setdefault(name, []).extend(pc.tolist())
 
+        # Rolling per-fold blend weighting (2026-09-16 spec): after each
+        # fold, re-earn the blend weights from the accumulated PRIOR+current
+        # fold OOF member log-loss, so the NEXT fold's blend is weighted by
+        # evidence strictly before it (causal — never sees what it scores).
+        # Fold 0 blended on the static priors (cleared at run start).
+        _rolling = compute_adaptive_weights(oof_members, oof_y)
+        if _rolling:
+            _LAST_ADAPTIVE_WEIGHTS.clear()
+            _LAST_ADAPTIVE_WEIGHTS.update(_rolling)
+
         val_pred = val.copy()
         val_pred["home_win_prob_model"] = ensemble_prob
         val_pred["home_win_prob_model_calibrated"] = np.round(fold_calibrated, 4)
@@ -1692,18 +1687,16 @@ def walk_forward_evaluate(
     else:
         best_models = {}
 
-    # Adaptive blend weights: earned from pooled OOF member scores
-    # (AUC by default — see ADAPTIVE_WEIGHT_METRIC). These replace the
-    # static ENSEMBLE_WEIGHTS priors for prediction blending (see
-    # _member_weights) until the next evaluation, so the ensemble
-    # self-corrects as features change.
+    # Rolling per-fold weighting (2026-09-16 spec): weights are re-earned
+    # INSIDE the fold loop (after each fold, from OOF member log-loss —
+    # see the loop body), so the deployed bundle carries the LAST fold's
+    # earned vector — the most recent causal evidence. The old pooled-OOF
+    # earning (one softmax over the entire history at run end) is retired.
     y_oof = np.asarray(oof_y, dtype=float)
-    adaptive = compute_adaptive_weights(oof_members, y_oof)
-    _LAST_ADAPTIVE_WEIGHTS.clear()
-    _LAST_ADAPTIVE_WEIGHTS.update(adaptive)
+    adaptive = dict(_LAST_ADAPTIVE_WEIGHTS)
     if adaptive:
         logger.info(
-            "Adaptive ensemble weights: %s",
+            "Rolling blend weights (last fold earned): %s",
             {k: f"{v:.1%}" for k, v in sorted(adaptive.items())},
         )
 

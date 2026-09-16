@@ -24,8 +24,8 @@ from config import DATA_DELIVERY_DIR
 
 logger = logging.getLogger(__name__)
 
-TREE_MEMBERS = ["xgboost", "lightgbm", "randomforest", "mlp"]
-_ALL_MEMBERS = TREE_MEMBERS + ["logistic"]
+TREE_MEMBERS = ["xgboost", "lightgbm"]
+_ALL_MEMBERS = TREE_MEMBERS + ["elasticnet"]
 
 # ---------------------------------------------------------------------------
 # Rich authored entries. Keys must exactly match MONEYLINE_FEATURE_COLS names; anything

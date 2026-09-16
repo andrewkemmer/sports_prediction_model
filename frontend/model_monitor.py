@@ -329,20 +329,23 @@ def _lgbm_desc() -> str:
 ENSEMBLE_DESCRIPTIONS = {
     "xgboost": _xgb_desc(),
     "lightgbm": _lgbm_desc(),
+    "elasticnet": (
+        "Elastic-net logistic (50/50 L1/L2 mix, C=0.03) over the standardized "
+        "diff-feature slice — the linear-family anchor. The mixed penalty prunes "
+        "redundant correlated features while shrinking the rest; replaced plain-L2 "
+        "logistic in 2026-09 after the member-audit program (~6σ better OOF)."
+    ),
     "logistic": (
-        "L2-regularized linear model over standardized features (train-median "
-        "imputation). A high-bias anchor that keeps the blend calibrated when tree "
-        "members overfit thin early-season folds; also the most interpretable member."
+        "(Legacy seat) plain-L2 logistic — replaced by the elastic-net member; "
+        "kept routable so cached bundles serve until the next retrain."
     ),
     "randomforest": (
-        "Bagged decision trees (300 estimators, deep-minimum leaves) — averaging "
-        "instead of boosting, so its errors are decorrelated from XGBoost/LightGBM. "
-        "Robust to noisy features; uses train-median imputation."
+        "(Legacy seat) bagged trees — removed from the 2026-09 roster; kept "
+        "routable so cached pre-roster bundles serve until the next retrain."
     ),
     "mlp": (
-        "Small neural network (32×16, L2 penalty, early stopping). A low-capacity "
-        "function approximator that can pick up smooth nonlinearities trees split "
-        "around; earns ensemble weight only when it beats the other members OOF."
+        "(Legacy seat) small neural net — removed after the member audit "
+        "convicted it (3.5σ blend drag); kept routable for cached bundles."
     ),
 }
 
@@ -466,7 +469,7 @@ history = mon.get("version_history", []) or []
 if history:
     _W_ABBR = {
         "xgboost": "xgb", "lightgbm": "lgb", "logistic": "log",
-        "randomforest": "rf", "mlp": "mlp",
+        "elasticnet": "enet", "randomforest": "rf", "mlp": "mlp",
     }
 
     def _weights_str(row: dict) -> str:
