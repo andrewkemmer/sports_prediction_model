@@ -156,7 +156,7 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     (new level/env features included without touching this file). Returns both
     lists so callers log the drops. NOTE: since the 2026-09-07 exp2 E/F
     replacement, the moneyline list is 61 cols and the rule over it yields 47
-    kept — the PRODUCTION view is the frozen 53-col RUN_LAMBDA_VIEW_FROZEN
+    kept — the PRODUCTION view is the frozen 55-col RUN_LAMBDA_VIEW_FROZEN
     (see below), not this derivation.
     """
     run_feats, dropped = [], []
@@ -186,6 +186,11 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
 # behavior (alpha(lambda), Monte Carlo scoring, derive_markets_mc) is
 # invariant to moneyline feature-list changes. Ablation arms can still pass
 # run_features/dropped explicitly to exercise other views.
+# 2026-09-16 closer-pair addition: closer_available_home/away join the view
+# (ablation run_engine_closer_ablation_20260916_1917.json — paired per-game
+# deviance: home −0.0019 @ 0.9σ better, away flat, total-runs RMSE better;
+# structural: closer_availability_diff conflates both-closers-available with
+# both-out, so side models cannot see a depleted bullpen state).
 RUN_LAMBDA_VIEW_FROZEN: tuple[str, ...] = (
     "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
     "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
@@ -194,7 +199,8 @@ RUN_LAMBDA_VIEW_FROZEN: tuple[str, ...] = (
     "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
     "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
     "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
-    "closer_availability_diff", "dome_is_neutral", "park_factor_slug_diff",
+    "closer_availability_diff", "closer_available_home",
+    "closer_available_away", "dome_is_neutral", "park_factor_slug_diff",
     "wind_advantage_flyball_factor", "air_density_velocity_boost",
     "home_elo", "away_elo", "home_win_pct", "away_win_pct",
     "sp_era_home", "sp_era_away", "sp_k9_home", "sp_k9_away",
@@ -216,7 +222,7 @@ RUN_LAMBDA_DROPPED_FROZEN: tuple[str, ...] = (
     "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
     "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
 )
-assert len(RUN_LAMBDA_VIEW_FROZEN) == 53 and len(RUN_LAMBDA_DROPPED_FROZEN) == 14
+assert len(RUN_LAMBDA_VIEW_FROZEN) == 55 and len(RUN_LAMBDA_DROPPED_FROZEN) == 14
 
 
 def split_side_view(run_features: list[str],

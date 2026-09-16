@@ -1,0 +1,105 @@
+{
+ "record": "run_engine_closer_ablation",
+ "generated_at": "2026-09-16T19:17:58.222758",
+ "arm_adds": [
+  "closer_available_home",
+  "closer_available_away"
+ ],
+ "ref_summary": {
+  "n_folds": 76,
+  "n_games": 7016,
+  "final_fit_rounds": {
+   "home": 34,
+   "away": 39
+  },
+  "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+  "home_model": {
+   "poisson_deviance": 2.19117,
+   "rmse": 3.0669,
+   "mae": 2.40194
+  },
+  "home_baseline": {
+   "poisson_deviance": 2.22195,
+   "rmse": 3.08897,
+   "mae": 2.42313
+  },
+  "away_model": {
+   "poisson_deviance": 2.41737,
+   "rmse": 3.21661,
+   "mae": 2.54654
+  },
+  "away_baseline": {
+   "poisson_deviance": 2.47295,
+   "rmse": 3.25437,
+   "mae": 2.58678
+  },
+  "home_pooled": {
+   "poisson_deviance": 2.1883,
+   "rmse": 3.08543,
+   "mae": 2.40092
+  },
+  "home_dispersion_ratio": 2.1556,
+  "away_pooled": {
+   "poisson_deviance": 2.41595,
+   "rmse": 3.22919,
+   "mae": 2.54704
+  },
+  "away_dispersion_ratio": 2.3582
+ },
+ "arm_summary": {
+  "n_folds": 76,
+  "n_games": 7016,
+  "final_fit_rounds": {
+   "home": 28,
+   "away": 38
+  },
+  "final_fit_rounds_note": "median early-stopping iteration across walk-forward folds; used as the fixed round count when refitting on ALL decided games for slate \u03bb",
+  "home_model": {
+   "poisson_deviance": 2.1893,
+   "rmse": 3.06577,
+   "mae": 2.4019
+  },
+  "home_baseline": {
+   "poisson_deviance": 2.22195,
+   "rmse": 3.08897,
+   "mae": 2.42313
+  },
+  "away_model": {
+   "poisson_deviance": 2.41822,
+   "rmse": 3.21679,
+   "mae": 2.54719
+  },
+  "away_baseline": {
+   "poisson_deviance": 2.47295,
+   "rmse": 3.25437,
+   "mae": 2.58678
+  },
+  "home_pooled": {
+   "poisson_deviance": 2.18645,
+   "rmse": 3.08419,
+   "mae": 2.4009
+  },
+  "home_dispersion_ratio": 2.1514,
+  "away_pooled": {
+   "poisson_deviance": 2.41679,
+   "rmse": 3.22964,
+   "mae": 2.54768
+  },
+  "away_dispersion_ratio": 2.36
+ },
+ "paired": {
+  "home": {
+   "n": 7016,
+   "mean_gain": 0.001852,
+   "se": 0.002061,
+   "sigma": 0.9
+  },
+  "away": {
+   "n": 7016,
+   "mean_gain": -0.000839,
+   "se": 0.00241,
+   "sigma": -0.35
+  }
+ },
+ "note": "UNCOMMITTED experiment; frozen lambda view + raw closer pair"
+}

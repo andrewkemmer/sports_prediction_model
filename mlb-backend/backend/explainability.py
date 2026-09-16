@@ -715,10 +715,10 @@ def compute_feature_coverage(
 def run_engine_feature_cols() -> list[str]:
     """The run engine's full input view for drift/coverage monitoring.
 
-    Base: the FROZEN run-engine λ view (RUN_LAMBDA_VIEW_FROZEN — 53 cols,
-    byte-identical to the 2026-08-30 restore contract; pinned so the
-    2026-09-07 moneyline MONEYLINE_FEATURE_COLS correction does not shrink the
-    monitored set).
+    Base: the FROZEN run-engine λ view (RUN_LAMBDA_VIEW_FROZEN — 55 cols,
+    byte-identical to the 2026-08-30 restore contract plus the 2026-09-16
+    closer-pair addition; pinned so the 2026-09-07 moneyline
+    MONEYLINE_FEATURE_COLS correction does not shrink the monitored set).
     Plus: sp_proj_era_home and sp_proj_era_away — the P1 projection level
     (adopted 2026-09-05, gate 7e4c529 ADOPT) that build_side_frame appends
     per side at runtime (home view gets sp_proj_era_away, away view gets
