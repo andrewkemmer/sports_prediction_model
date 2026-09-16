@@ -15,11 +15,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.\nFormula: 1\nSource: Feature engineering: static column added to every game row\nWindow: n/a (constant) \u00b7 Units: binary\nDirection: n/a (constant)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Constant intercept column marking the home side. Every row is 1 because the model always scores the home team's chance of winning.\nFormula: 1\nSource: Feature engineering: static column added to every game row\nWindow: n/a (constant) \u00b7 Units: binary\nDirection: n/a (constant)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "win_pct_diff": {
       "name": "win_pct_diff",
@@ -33,11 +31,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.\nFormula: smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)\nSource: DuckDB feature engineering: official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Season-long record quality gap between the teams, shrunk toward .500 early in the season so tiny samples don't dominate.\nFormula: smoothed_win_pct(home_wins, home_losses) \u2212 smoothed_win_pct(away_wins, away_losses)\nSource: DuckDB feature engineering: official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "elo_diff": {
       "name": "elo_diff",
@@ -51,11 +47,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).\nFormula: home_elo \u2212 away_elo\nSource: DuckDB feature engineering: Elo engine over full game log\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Elo ratings updated after every completed game (K=20, home advantage 65 pts, off-season regression to the mean).\nFormula: home_elo \u2212 away_elo\nSource: DuckDB feature engineering: Elo engine over full game log\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "rest_days_diff": {
       "name": "rest_days_diff",
@@ -69,11 +63,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Days since each team's previous game.\nFormula: rest_days_home \u2212 rest_days_away\nSource: Schedule: gap between consecutive game dates\nWindow: per-game \u00b7 Units: days\nDirection: higher = home advantage (more rested)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_era_diff": {
       "name": "sp_era_diff",
@@ -87,11 +79,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Starting-pitcher quality gap on season-long earned-run average.\nFormula: sp_era_home \u2212 sp_era_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = home advantage (ERA is a cost)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Starting-pitcher quality gap on season-long earned-run average.\nFormula: sp_era_home \u2212 sp_era_away\nSource: Statcast pitching aggregates (season to date)\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = home advantage (ERA is a cost)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_era_5g_diff": {
       "name": "sp_era_5g_diff",
@@ -105,11 +95,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Same ERA gap but only each pitcher's last 5 starts \u2014 captures hot/cold streaks.\nFormula: sp_era_5g_home \u2212 sp_era_5g_away\nSource: Statcast pitching aggregates (last-5-start window)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "sp_fbvelo_diff": {
       "name": "sp_fbvelo_diff",
@@ -123,11 +111,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Average four-seam/fastball velocity gap over recent starts.\nFormula: sp_fbvelo_3g_home \u2212 sp_fbvelo_3g_away\nSource: Statcast pitch-level: mean fastball speed, last-3-start window\nWindow: 3g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "lineup_woba_mean_diff": {
       "name": "lineup_woba_mean_diff",
@@ -141,11 +127,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).\nFormula: lineup_woba_mean_home \u2212 lineup_woba_mean_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Projected nine-man lineup quality gap (each hitter's wOBA shrunk toward league mean by sample size).\nFormula: lineup_woba_mean_home \u2212 lineup_woba_mean_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "lineup_woba_top3_diff": {
       "name": "lineup_woba_top3_diff",
@@ -159,11 +143,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Star-power gap at the top of the card.\nFormula: lineup_woba_top3_home \u2212 lineup_woba_top3_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Star-power gap at the top of the card.\nFormula: lineup_woba_top3_home \u2212 lineup_woba_top3_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "lineup_woba_std_diff": {
       "name": "lineup_woba_std_diff",
@@ -177,11 +159,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.\nFormula: lineup_woba_std_home \u2212 lineup_woba_std_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points (std)\nDirection: n/a (shape signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Depth signal: low std = deep balanced lineup; high std = stars-and-scrubs.\nFormula: lineup_woba_std_home \u2212 lineup_woba_std_away\nSource: Statcast hitter aggregates, projected lineups\nWindow: season to date (shrunk) \u00b7 Units: wOBA points (std)\nDirection: n/a (shape signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "woba_30g_diff": {
       "name": "woba_30g_diff",
@@ -195,11 +175,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Team-level offensive form over the trailing month.\nFormula: woba_30g_home \u2212 woba_30g_away\nSource: Statcast team batting aggregates\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_whip_diff": {
       "name": "bullpen_whip_diff",
@@ -213,11 +191,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Relief corps baserunner allowance over the last 10 games.\nFormula: bullpen_whip_10g_home \u2212 bullpen_whip_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Relief corps baserunner allowance over the last 10 games.\nFormula: bullpen_whip_10g_home \u2212 bullpen_whip_10g_away\nSource: Statcast relief-pitching aggregates\nWindow: 10g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_whip_3g_diff": {
       "name": "bullpen_whip_3g_diff",
@@ -231,11 +207,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_whip_3g_home \u2212 bullpen_whip_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Very recent bullpen form; noisy but catches slumps fast.\nFormula: bullpen_whip_3g_home \u2212 bullpen_whip_3g_away\nSource: Statcast relief-pitching aggregates\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_pitches_diff": {
       "name": "bullpen_pitches_diff",
@@ -249,11 +223,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Cumulative relief workload over the last three days \u2014 availability and fatigue.\nFormula: bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away\nSource: Statcast pitch counts by reliever by date\nWindow: 3d \u00b7 Units: pitches\nDirection: lower = home advantage (fresher arms)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Cumulative relief workload over the last three days \u2014 availability and fatigue.\nFormula: bullpen_pitches_3d_home \u2212 bullpen_pitches_3d_away\nSource: Statcast pitch counts by reliever by date\nWindow: 3d \u00b7 Units: pitches\nDirection: lower = home advantage (fresher arms)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "team_barrel_diff": {
       "name": "team_barrel_diff",
@@ -267,11 +239,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Barreled-ball rate gap (optimal exit velo \u00d7 launch angle buckets).\nFormula: team_barrel_15g_home \u2212 team_barrel_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "team_hardhit_diff": {
       "name": "team_hardhit_diff",
@@ -285,11 +255,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Share of batted balls \u226595 mph over the last 15 games.\nFormula: team_hardhit_15g_home \u2212 team_hardhit_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Share of batted balls \u226595 mph over the last 15 games.\nFormula: team_hardhit_15g_home \u2212 team_hardhit_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "team_exitvelo_diff": {
       "name": "team_exitvelo_diff",
@@ -303,11 +271,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Average exit velocity on balls in play \u2014 raw-contact strength.\nFormula: team_exitvelo_15g_home \u2212 team_exitvelo_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Average exit velocity on balls in play \u2014 raw-contact strength.\nFormula: team_exitvelo_15g_home \u2212 team_exitvelo_15g_away\nSource: Statcast batted-ball data\nWindow: 15g \u00b7 Units: mph\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "lineup_handedness_matchup_advantage": {
       "name": "lineup_handedness_matchup_advantage",
@@ -321,11 +287,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: How productive each lineup is specifically against the handedness it faces tonight.\nFormula: ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)\nSource: Statcast hitter splits vs LHP/RHP + confirmed starter hand\nWindow: season to date \u00b7 Units: OPS\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: How productive each lineup is specifically against the handedness it faces tonight.\nFormula: ops_vs_starter_hand(home lineup) \u2212 ops_vs_starter_hand(away lineup)\nSource: Statcast hitter splits vs LHP/RHP + confirmed starter hand\nWindow: season to date \u00b7 Units: OPS\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "travel_fatigue_diff": {
       "name": "travel_fatigue_diff",
@@ -339,11 +303,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Travel wear: timezone crossings in the last 72 hours per club.\nFormula: time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away\nSource: Schedule geography: venue timezone changes\nWindow: 3d \u00b7 Units: crossings\nDirection: lower = home advantage (less travel)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Travel wear: timezone crossings in the last 72 hours per club.\nFormula: time_zones_crossed_last_3d_home \u2212 time_zones_crossed_last_3d_away\nSource: Schedule geography: venue timezone changes\nWindow: 3d \u00b7 Units: crossings\nDirection: lower = home advantage (less travel)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "closer_availability_diff": {
       "name": "closer_availability_diff",
@@ -357,11 +319,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Whether each club's primary closer is rested and usable tonight.\nFormula: closer_available_home \u2212 closer_available_away\nSource: Recent reliever usage (2-day rest heuristic)\nWindow: per-game \u00b7 Units: binary\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Whether each club's primary closer is rested and usable tonight.\nFormula: closer_available_home \u2212 closer_available_away\nSource: Recent reliever usage (2-day rest heuristic)\nWindow: per-game \u00b7 Units: binary\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "dome_is_neutral": {
       "name": "dome_is_neutral",
@@ -375,11 +335,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Weather hallucination gate: indoor parks get neutral weather values regardless of outside conditions.\nFormula: 1 if venue in DOMED_VENUES else 0\nSource: Static venue table\nWindow: n/a (venue attribute) \u00b7 Units: binary\nDirection: n/a (gate flag)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "park_factor_slug_diff": {
       "name": "park_factor_slug_diff",
@@ -393,11 +351,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Interaction: does tonight's park amplify whichever lineup holds the star-power edge?\nFormula: (home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA\nWindow: season (park) \u00d7 season (lineup) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Interaction: does tonight's park amplify whichever lineup holds the star-power edge?\nFormula: (home_park_slg_factor \u2212 1) \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: park factors \u00d7 Statcast top-3 wOBA\nWindow: season (park) \u00d7 season (lineup) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "wind_advantage_flyball_factor": {
       "name": "wind_advantage_flyball_factor",
@@ -411,11 +367,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_era_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Wind blowing out multiplies the cost of a flyball-prone, weaker SP gap; measured from observed first-pitch weather (dome \u2192 exact 0).\nFormula: wind_direction_multiplier \u00d7 sp_era_diff\nSource: Open-Meteo archive / StatsAPI game-feed weather \u00d7 stadium bearing\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = more flyball risk against the home SP\nConsumed by: xgboost, lightgbm, logistic"
     },
     "air_density_velocity_boost": {
       "name": "air_density_velocity_boost",
@@ -429,11 +383,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.\nFormula: air_density_factor \u00d7 sp_fbvelo_diff\nSource: Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = home advantage (velocity edge amplified)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Thin/cold air (Coors, cold nights) changes how velocity carries; interaction with velo gap.\nFormula: air_density_factor \u00d7 sp_fbvelo_diff\nSource: Open-Meteo archive (temp/RH/pressure \u2192 density) \u00d7 Statcast velo\nWindow: per-game (observed) \u00b7 Units: index\nDirection: higher = home advantage (velocity edge amplified)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "bullpen_meltdown_risk": {
       "name": "bullpen_meltdown_risk",
@@ -447,11 +399,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "pitcher_regression_indicator": {
       "name": "pitcher_regression_indicator",
@@ -465,11 +415,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
     "lineup_depth_multiplier": {
       "name": "lineup_depth_multiplier",
@@ -483,11 +431,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "ace_efficiency_factor": {
       "name": "ace_efficiency_factor",
@@ -501,11 +447,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.\nFormula: sp_k9_diff \u00d7 sp_whiff_diff\nSource: DuckDB feature engineering: volume \u00d7 stuff interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.\nFormula: sp_k9_diff \u00d7 sp_whiff_diff\nSource: DuckDB feature engineering: volume \u00d7 stuff interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
     "home_elo": {
       "name": "home_elo",
@@ -518,11 +462,9 @@
       "direction": "n/a (level; diff is the matchup term)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Absolute strength level of the home club (the diff version carries the matchup signal).\nFormula: home_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level; diff is the matchup term)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Absolute strength level of the home club (the diff version carries the matchup signal).\nFormula: home_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level; diff is the matchup term)\nConsumed by: xgboost, lightgbm"
     },
     "away_elo": {
       "name": "away_elo",
@@ -535,11 +477,9 @@
       "direction": "n/a (level)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Absolute strength level of the away club.\nFormula: away_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Absolute strength level of the away club.\nFormula: away_elo\nSource: DuckDB feature engineering: Elo engine\nWindow: all prior games (decaying) \u00b7 Units: Elo points\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm"
     },
     "home_win_pct": {
       "name": "home_win_pct",
@@ -552,11 +492,9 @@
       "direction": "n/a (level)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Raw season record quality of the home club.\nFormula: smoothed_win_pct(home_wins, home_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Raw season record quality of the home club.\nFormula: smoothed_win_pct(home_wins, home_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm"
     },
     "away_win_pct": {
       "name": "away_win_pct",
@@ -569,11 +507,9 @@
       "direction": "n/a (level)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Raw season record quality of the away club.\nFormula: smoothed_win_pct(away_wins, away_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Raw season record quality of the away club.\nFormula: smoothed_win_pct(away_wins, away_losses)\nSource: Official results records\nWindow: season to date \u00b7 Units: win% (0\u20131)\nDirection: n/a (level)\nConsumed by: xgboost, lightgbm"
     },
     "sp_era_home": {
       "name": "sp_era_home",
@@ -586,11 +522,9 @@
       "direction": "lower = better for that side for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_era_away": {
       "name": "sp_era_away",
@@ -603,11 +537,9 @@
       "direction": "lower = better for that side for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher earned-run average. The corresponding 'sp_era_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_era_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: ERA runs\nDirection: lower = better for that side for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_k9_home": {
       "name": "sp_k9_home",
@@ -620,11 +552,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_k9_away": {
       "name": "sp_k9_away",
@@ -637,11 +567,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's starting-pitcher strikeouts per 9 innings. The corresponding 'sp_k9_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_k9_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: K/9\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_xwoba_home": {
       "name": "sp_xwoba_home",
@@ -654,11 +582,9 @@
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "sp_xwoba_away": {
       "name": "sp_xwoba_away",
@@ -671,11 +597,9 @@
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's expected woba allowed by the starter. The corresponding 'sp_xwoba_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: sp_xwoba_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: xwOBA\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "lineup_woba_mean_home": {
       "name": "lineup_woba_mean_home",
@@ -688,11 +612,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "lineup_woba_mean_away": {
       "name": "lineup_woba_mean_away",
@@ -705,11 +627,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's projected lineup average woba. The corresponding 'lineup_woba_mean_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_mean_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "lineup_woba_top3_home": {
       "name": "lineup_woba_top3_home",
@@ -722,11 +642,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "lineup_woba_top3_away": {
       "name": "lineup_woba_top3_away",
@@ -739,11 +657,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's top-3 hitters' projected woba. The corresponding 'lineup_woba_top3_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: lineup_woba_top3_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "woba_30g_home": {
       "name": "woba_30g_home",
@@ -756,11 +672,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "woba_30g_away": {
       "name": "woba_30g_away",
@@ -773,11 +687,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's team offensive woba. The corresponding 'woba_30g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: woba_30g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 30g \u00b7 Units: wOBA points\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_10g_home": {
       "name": "bullpen_whip_10g_home",
@@ -790,11 +702,9 @@
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_10g_away": {
       "name": "bullpen_whip_10g_away",
@@ -807,11 +717,9 @@
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning. The corresponding 'bullpen_whip_10g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_10g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: season to date \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_3g_home": {
       "name": "bullpen_whip_3g_home",
@@ -824,11 +732,9 @@
       "direction": "lower = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "bullpen_whip_3g_away": {
       "name": "bullpen_whip_3g_away",
@@ -841,11 +747,9 @@
       "direction": "lower = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's bullpen walks+hits per inning, short form. The corresponding 'bullpen_whip_3g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: bullpen_whip_3g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 3g \u00b7 Units: WHIP\nDirection: lower = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_barrel_15g_home": {
       "name": "team_barrel_15g_home",
@@ -858,11 +762,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_barrel_15g_away": {
       "name": "team_barrel_15g_away",
@@ -875,11 +777,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's team barreled-ball rate. The corresponding 'team_barrel_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_barrel_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_exitvelo_15g_home": {
       "name": "team_exitvelo_15g_home",
@@ -892,11 +792,9 @@
       "direction": "higher = better for the home side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the home club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_home\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the home side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "team_exitvelo_15g_away": {
       "name": "team_exitvelo_15g_away",
@@ -909,11 +807,9 @@
       "direction": "higher = better for the away side (level column)",
       "members": [
         "xgboost",
-        "lightgbm",
-        "randomforest",
-        "mlp"
+        "lightgbm"
       ],
-      "tooltip": "What: Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm, randomforest, mlp"
+      "tooltip": "What: Per-side level column: the away club's team average exit velocity. The corresponding 'team_exitvelo_15g_diff' carries the matchup signal; this level column lets tree models learn nonlinear context.\nFormula: team_exitvelo_15g_away\nSource: Statcast aggregates via DuckDB feature engineering\nWindow: 15g \u00b7 Units: mph\nDirection: higher = better for the away side (level column)\nConsumed by: xgboost, lightgbm"
     },
     "run_margin_diff": {
       "name": "run_margin_diff",
@@ -927,11 +823,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: One column: the run engine's per-side LightGBM Poisson models' expected runs for the home club minus the away club \u2014 a MODEL OUTPUT from a different feature view (levels + environment, no diffs), so it is genuinely decorrelated from the existing matchup columns rather than a linear combo of them. Computed OUT-OF-FOLD on the moneyline's own walk-forward split: each game's margin comes from a run-engine model trained strictly before it (fold-boundary asserted), so the moneyline never trains on a margin from a model that saw that game. Slate/inference margins use a fit-only refit on all decided games at the median fold round count. The run engine itself can never consume the column: derive_run_features drops every *_diff except park_factor_slug_diff.\nFormula: \u03bb_home \u2212 \u03bb_away (run engine per-side Poisson, OOF on the moneyline folds)\nSource: Run engine (run_engine.py) per-side LightGBM Poisson, reused READ-ONLY by build_oof_margin.py\nWindow: per-game (model output, strictly-prior training window) \u00b7 Units: expected runs\nDirection: positive = run engine expects the home club to outscore\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_centered_k_diff": {
       "name": "exp2_centered_k_diff",
@@ -945,11 +839,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Interaction of both sides' strikeout tendency centered on the point-in-time league prior \u2014 positive when BOTH the home starter and the away offense are extreme (either direction) relative to league. Known denominator mix: SP K/9 vs opponent/league K/PA (frozen pre-test in the experiment registry).\nFormula: (sp_k9_home \u2212 league_k_pct)(team_k_rate_30g_home \u2212 league_k_pct) \u2212 (away mirror)\nSource: Experiment #2 source layer (Statcast season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b2 product\nDirection: positive = home side's K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Interaction of both sides' strikeout tendency centered on the point-in-time league prior \u2014 positive when BOTH the home starter and the away offense are extreme (either direction) relative to league. Known denominator mix: SP K/9 vs opponent/league K/PA (frozen pre-test in the experiment registry).\nFormula: (sp_k9_home \u2212 league_k_pct)(team_k_rate_30g_home \u2212 league_k_pct) \u2212 (away mirror)\nSource: Experiment #2 source layer (Statcast season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b2 product\nDirection: positive = home side's K matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_k_fastball_diff": {
       "name": "exp2_cat_k_fastball_diff",
@@ -963,11 +855,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted amplification of fastball strikeout extremes on both sides of the home matchup, minus the away mirror.\nFormula: sp_usage_cat_fastball\u00b7(sp_k_pct_cat_fastball \u2212 lg)\u00b7(team_k_pct_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home FB-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted amplification of fastball strikeout extremes on both sides of the home matchup, minus the away mirror.\nFormula: sp_usage_cat_fastball\u00b7(sp_k_pct_cat_fastball \u2212 lg)\u00b7(team_k_pct_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home FB-K matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_k_breaking_diff": {
       "name": "exp2_cat_k_breaking_diff",
@@ -981,11 +871,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted breaking-ball strikeout matchup. Best single moneyline candidate in the frozen experiment (+0.0055 \u0394AUC, CI excluding zero, survives S_FB_K removal).\nFormula: sp_usage_cat_breaking\u00b7(sp_k_pct_cat_breaking \u2212 lg)\u00b7(team_k_pct_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home breaking-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted breaking-ball strikeout matchup. Best single moneyline candidate in the frozen experiment (+0.0055 \u0394AUC, CI excluding zero, survives S_FB_K removal).\nFormula: sp_usage_cat_breaking\u00b7(sp_k_pct_cat_breaking \u2212 lg)\u00b7(team_k_pct_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home breaking-K matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_k_offspeed_diff": {
       "name": "exp2_cat_k_offspeed_diff",
@@ -999,11 +887,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted offspeed strikeout matchup. Sparsest category (~56% coverage).\nFormula: sp_usage_cat_offspeed\u00b7(sp_k_pct_cat_offspeed \u2212 lg)\u00b7(team_k_pct_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home offspeed-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted offspeed strikeout matchup. Sparsest category (~56% coverage).\nFormula: sp_usage_cat_offspeed\u00b7(sp_k_pct_cat_offspeed \u2212 lg)\u00b7(team_k_pct_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category K% aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home offspeed-K matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_xwoba_fastball_diff": {
       "name": "exp2_cat_xwoba_fastball_diff",
@@ -1017,11 +903,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted fastball quality-of-contact matchup. Higher xwOBA = worse for the pitcher; the product amplifies when both sides sit off-league, same form as the K family (no sign flip).\nFormula: sp_usage_cat_fastball\u00b7(sp_xwoba_cat_fastball \u2212 lg)\u00b7(team_xwoba_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home FB quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted fastball quality-of-contact matchup. Higher xwOBA = worse for the pitcher; the product amplifies when both sides sit off-league, same form as the K family (no sign flip).\nFormula: sp_usage_cat_fastball\u00b7(sp_xwoba_cat_fastball \u2212 lg)\u00b7(team_xwoba_cat_fastball \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home FB quality matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_xwoba_breaking_diff": {
       "name": "exp2_cat_xwoba_breaking_diff",
@@ -1035,11 +919,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted breaking-ball quality-of-contact matchup (same amplification form).\nFormula: sp_usage_cat_breaking\u00b7(sp_xwoba_cat_breaking \u2212 lg)\u00b7(team_xwoba_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home breaking quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted breaking-ball quality-of-contact matchup (same amplification form).\nFormula: sp_usage_cat_breaking\u00b7(sp_xwoba_cat_breaking \u2212 lg)\u00b7(team_xwoba_cat_breaking \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home breaking quality matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_xwoba_offspeed_diff": {
       "name": "exp2_cat_xwoba_offspeed_diff",
@@ -1053,11 +935,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Usage-weighted offspeed quality-of-contact matchup (sparsest category).\nFormula: sp_usage_cat_offspeed\u00b7(sp_xwoba_cat_offspeed \u2212 lg)\u00b7(team_xwoba_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home offspeed quality matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Usage-weighted offspeed quality-of-contact matchup (sparsest category).\nFormula: sp_usage_cat_offspeed\u00b7(sp_xwoba_cat_offspeed \u2212 lg)\u00b7(team_xwoba_cat_offspeed \u2212 lg), home \u2212 away\nSource: Experiment #2 source layer (pitch-category xwOBA aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: xwOBA\u00b2 product\nDirection: positive = home offspeed quality matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     },
     "exp2_cat_platoon_k_fastball_diff": {
       "name": "exp2_cat_platoon_k_fastball_diff",
@@ -1071,11 +951,9 @@
       "members": [
         "xgboost",
         "lightgbm",
-        "randomforest",
-        "mlp",
         "logistic"
       ],
-      "tooltip": "What: Fastball strikeout matchup weighted by the opposing lineup's actual L/R share: each side's SP and offense K-vs-fastball splits are centered on the league FB-K prior per hand, platoon-weighted, multiplied, then scaled by SP fastball usage.\nFormula: \u03a3_hand share_hand\u00b7(sp_fb_vs_hand \u2212 lg_hand)\u00b7\u03a3_hand share_hand\u00b7(opp_fb_vs_hand \u2212 lg_hand)\u00b7sp_fb_usage, home \u2212 away\nSource: Experiment #2 source layer (platoon fastball-K splits + opp_lefty_share)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home platoon-K matchup more extreme\nConsumed by: xgboost, lightgbm, randomforest, mlp, logistic"
+      "tooltip": "What: Fastball strikeout matchup weighted by the opposing lineup's actual L/R share: each side's SP and offense K-vs-fastball splits are centered on the league FB-K prior per hand, platoon-weighted, multiplied, then scaled by SP fastball usage.\nFormula: \u03a3_hand share_hand\u00b7(sp_fb_vs_hand \u2212 lg_hand)\u00b7\u03a3_hand share_hand\u00b7(opp_fb_vs_hand \u2212 lg_hand)\u00b7sp_fb_usage, home \u2212 away\nSource: Experiment #2 source layer (platoon fastball-K splits + opp_lefty_share)\nWindow: season to date (strictly prior games) \u00b7 Units: rate\u00b3 product\nDirection: positive = home platoon-K matchup more extreme\nConsumed by: xgboost, lightgbm, logistic"
     }
   },
   "categorical_context": {
