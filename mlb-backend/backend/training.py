@@ -1054,8 +1054,9 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
     Each member's importances are normalized internally, then averaged with
     the member's configured ENSEMBLE_WEIGHTS share — so the result answers
     "what fraction of the final blended model rides on this feature?"
-    Tree members contribute split-gain importance; logistic contributes
-    |coefficient|. Returns None when no member exposes importances.
+    Tree members contribute split-gain importance; linear members (elasticnet)
+    contribute |coefficient| scattered from the diff-column slice back to
+    active-width positions. Returns None when no member exposes importances.
     """
     members = {n: m for n, m in ml_models.items()
                if n not in ("scaler", "impute_median", "categorical_vocab")}
@@ -1069,6 +1070,15 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
         total = 1.0
 
     agg = np.zeros(len(active_moneyline_feature_cols()))
+    nfc = len(active_moneyline_feature_cols())
+    # Linear members (elasticnet) train on the diff-column slice, so their
+    # coef_ vector is slice-shaped. Map slice -> active-width indices once;
+    # on any routing mismatch skip the scatter (the member then simply does
+    # not contribute, exactly as before this mapping existed).
+    try:
+        linear_idx = _logistic_feature_indices()
+    except ValueError:
+        linear_idx = None
     contributed = False
     for name, model in members.items():
         try:
@@ -1076,13 +1086,17 @@ def feature_importance_weights(ml_models: dict[str, Any]) -> dict[str, float] | 
                 imp = np.asarray(model.feature_importances_, dtype=float).ravel()
             elif hasattr(model, "coef_"):
                 imp = np.abs(np.asarray(model.coef_, dtype=float)).ravel()
+                if (linear_idx is not None and len(imp) == len(linear_idx)
+                        and len(linear_idx) <= nfc):
+                    full = np.zeros(nfc)
+                    full[linear_idx] = imp
+                    imp = full
             else:
                 continue
         except Exception:
             continue
         # Tree members trained with team-ID categoricals have larger
         # feature-importance vectors; trim to numeric active cols only.
-        nfc = len(active_moneyline_feature_cols())
         if len(imp) >= nfc:
             imp = imp[:nfc]
         if len(imp) != nfc or imp.sum() <= 0:
