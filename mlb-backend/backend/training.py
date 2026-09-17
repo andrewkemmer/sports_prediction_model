@@ -267,7 +267,25 @@ MONEYLINE_FEATURE_COLS = [
     # leakage-free expected total carries far weaker environment signal. See
     # run_home_edge_interaction_ablation.py and
     # data_delivery/home_edge_interaction_ablation_20260827.json.
-    "run_margin_diff",
+    # REMOVED 2026-09-17 (structural decoupling): run_margin_diff is the run
+    # engine's own model output (lambda_home - lambda_away). Both engines now
+    # share the same feature universe, so keeping the run engine's prediction
+    # inside the moneyline let the run-line model indirectly feed (and
+    # correlate with) the moneyline it shares inputs with. Removal is purely
+    # an output-list change: the column stays COMPUTED and drift-monitored
+    # (the attach guards in pipeline.py / training.py key on MARGIN_COL
+    # membership and now skip cleanly), and the run engine's NB pricing is
+    # untouched (RUN_LAMBDA_VIEW_FROZEN never contained this column - it is
+    # in RUN_LAMBDA_DROPPED_FROZEN). The live adopted RFE subset was re-issued
+    # 62-col alongside this edit so apply_adopted_subset() keeps validating
+    # (an out-of-pool name rejects the WHOLE state at startup, which would
+    # silently drop the shipped closer pair from serving width). Width
+    # note: the closer pair was PROMOTED into this list 2026-09-17
+    # (appended, same trailing position as the adopted state) so the
+    # universe is once again the literal production width: 61 -> 63
+    # (promotion) -> 62 (this removal). Universe = active serving width =
+    # adopted state = 62; the next retrain/persist seals the 62-col
+    # matrix, and the bundle-fallback width now retains the closers.
     # 60–67. Experiment #2 matchup candidates — SHIPPED 2026-09-07 per the
     # frozen C+E (moneyline) / D+F (true −1.5 run line) implementation
     # decision. NOT a new selection exercise: all 8 candidates ship for
@@ -321,6 +339,16 @@ _EXP2_REMOVALS = [
 MONEYLINE_FEATURE_COLS = [c for c in MONEYLINE_FEATURE_COLS if c not in _EXP2_REMOVALS]
 # Deduplicate (should already be unique but defensive)
 MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
+
+# PROMOTED 2026-09-17: closer_available_home/away join the universe so
+# the generation list is once again the literal production serving
+# width. They reached serving 2026-09-16 via the adopted RFE state
+# (ea2c7e0) as candidate columns -- never members of this list -- which
+# left the universe (the fallback serving width) two features behind
+# the production model. Appended to match the adopted state's trailing
+# order, so set_feature_subset's canonical reordering produces zero
+# positional churn for the 62-col matrix.
+MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
 
 # ── Known feature pool (RFE trial space) ────────────────────────────────────
 # KNOWN_FEATURE_COLS = the generation universe plus every RFE candidate
