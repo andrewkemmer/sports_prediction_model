@@ -175,6 +175,79 @@ def test_state_label():
     assert _state_label((("a1", "a2"), ("r1",))) == "+a1+a2 −r1"
 
 
+
+# ── SINGLE-LIST RULE (2026-09-17) ───────────────────────────────────────────
+# Every monitor-facing enumeration (drift PSI, coverage, SHAP matrices,
+# feature weights, tooltips) must read the ACTIVE moneyline serving width —
+# never the generation universe directly. These tests import the real
+# training + explainability modules (no model training, no data files), so
+# a regression to a raw-universe default fails loudly here.
+
+def test_single_list_no_margin_in_any_enumeration():
+    """run_margin_diff must be absent from every list-level surface, even
+    though the column is still computed and can appear in input frames."""
+    import training
+    from training import MARGIN_COL
+    import feature_selection
+
+    assert MARGIN_COL == "run_margin_diff"
+    assert MARGIN_COL not in training.MONEYLINE_FEATURE_COLS, (
+        "generation universe still carries run_margin_diff")
+    assert MARGIN_COL not in training.KNOWN_FEATURE_COLS, (
+        "known pool still carries run_margin_diff")
+    feature_selection.reset_feature_subset()
+    active = training.active_moneyline_feature_cols()
+    assert MARGIN_COL not in active
+    assert len(active) == len(training.MONEYLINE_FEATURE_COLS) == 62, (
+        f"width drift: universe={len(training.MONEYLINE_FEATURE_COLS)} "
+        f"active={len(active)} (expected 62 everywhere)")
+
+def test_drift_default_enumerates_active_width():
+    """compute_feature_drift's default enumeration is the ACTIVE serving
+    width: a frame that still contains run_margin_diff must produce NO PSI
+    row for it once it has left the serving list."""
+    import pandas as pd
+    import training
+    import feature_selection
+    from explainability import compute_feature_drift
+
+    feature_selection.reset_feature_subset()
+    cols = training.active_moneyline_feature_cols()
+    rng = np.random.default_rng(7)
+    n = 40
+    base = pd.DataFrame(
+        rng.normal(size=(n, len(cols) + 1)),
+        columns=cols + ["run_margin_diff"])  # poison: column present in frame
+    cur = base * 1.01
+    df = compute_feature_drift(base, cur, "2099-01-01", out_name="_t_drift.csv")
+    assert "run_margin_diff" not in set(df["feature"]), (
+        "drift emitted a PSI row for a non-serving feature")
+    assert len(df) == len(cols), f"expected {len(cols)} rows, got {len(df)}"
+
+def test_coverage_default_enumerates_active_width():
+    """compute_feature_coverage's default enumeration matches the serving
+    width (same rule as drift) — no coverage row for non-serving features."""
+    import pandas as pd
+    import training
+    import feature_selection
+    from explainability import compute_feature_coverage
+
+    feature_selection.reset_feature_subset()
+    cols = training.active_moneyline_feature_cols()
+    rng = np.random.default_rng(11)
+    n = 40
+    base = pd.DataFrame(
+        rng.normal(size=(n, len(cols) + 1)),
+        columns=cols + ["run_margin_diff"])
+    cur = base
+    df = compute_feature_coverage(base, cur, "2099-01-01",
+                                  out_name="_t_coverage.csv")
+    assert "run_margin_diff" not in set(df["feature"]), (
+        "coverage emitted a row for a non-serving feature")
+    # Coverage emits one row per feature per window (current + baseline).
+    assert len(df) == 2 * len(cols), (
+        f"expected {2 * len(cols)} rows (2 windows x {len(cols)}), got {len(df)}")
+
 if __name__ == "__main__":
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

@@ -1992,8 +1992,10 @@ def run_daily_pipeline(
             summary["artifacts"].append(
                 str(DATA_DELIVERY_DIR / f"rolling_brier_{target_date_str}.json")
             )
-        # Feature metadata (dashboard tooltips) -- walks MONEYLINE_FEATURE_COLS itself so
-        # new features appear (or warn loudly); routing derived from live config.
+        # Feature metadata (dashboard tooltips) -- enumerates the ACTIVE
+        # serving width (adopted RFE subset, else the universe), so new
+        # features appear (or warn loudly) exactly at production width;
+        # routing derived from live config.
         features_metadata = generate_features_metadata(target_date_str)
         summary["artifacts"].append(
             str(DATA_DELIVERY_DIR / f"features_metadata_{target_date_str}.json")
@@ -2110,7 +2112,12 @@ def run_daily_pipeline(
                 feature_cols=active_moneyline_feature_cols(),
             )
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
-            coverage_df = compute_feature_coverage(baseline, current, target_date_str)
+            # SINGLE-LIST RULE: explicit active-width enumeration, mirroring
+            # the drift call above — the coverage table monitors exactly the
+            # serving matrix, never a different list's superset.
+            coverage_df = compute_feature_coverage(
+                baseline, current, target_date_str,
+                feature_cols=active_moneyline_feature_cols())
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_coverage_{target_date_str}.csv"))
             # Run-engine view of the SAME windows: PSI + coverage over
             # its own 29 kept features (single NB sampler -- no weights,

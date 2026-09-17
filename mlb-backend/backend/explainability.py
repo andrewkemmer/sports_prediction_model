@@ -25,7 +25,7 @@ from config import (
     SHAP_GAME,
 )
 from training import (
-    MONEYLINE_FEATURE_COLS,
+    active_moneyline_feature_cols,
     TREE_CATEGORICAL_COLS,
     UNK_TEAM_ID,
     _add_team_ids,
@@ -211,21 +211,24 @@ def compute_shap_per_game(
 
     # Full active-subset width in canonical order — mirrors the training/
     # predict matrices (see _feature_matrix). A narrower matrix here is what
-    # made SHAP attributions come back empty while logs looked healthy. Mirrors
-    # the served model's width (adopted RFE subset when applied, else the full
-    # MONEYLINE_FEATURE_COLS universe).
-    from training import active_moneyline_feature_cols as _active_cols
-    active = _active_cols()
+    # made SHAP attributions come back empty while logs looked healthy.
+    # SINGLE-LIST RULE: the served model's width (adopted RFE subset when
+    # applied, else the full universe) is the ONLY enumeration here — the
+    # matrices below must never be built from a different list than the
+    # warning above announces (pre-2026-09-17 the universe was used while
+    # the warning described the active subset, misaligning attributions
+    # whenever the two widths diverged).
+    active = active_moneyline_feature_cols()
     missing = [c for c in active if c not in games.columns]
     if missing:
         logger.warning(
             "SHAP input: %d/%d expected columns absent (%s%s) — filled as NULL",
             len(missing), len(active), ", ".join(missing[:6]),
             " …" if len(missing) > 6 else "")
-    cols = list(MONEYLINE_FEATURE_COLS)
+    cols = list(active)
     # Preserve NaN: tree explainers handle missing values natively and a
     # zero-fill would fabricate attributions for unobserved features.
-    X = games.reindex(columns=MONEYLINE_FEATURE_COLS).to_numpy(dtype=float)
+    X = games.reindex(columns=cols).to_numpy(dtype=float)
 
     # Tree members were trained on numeric features PLUS team-ID categorical
     # columns (58 + 2 = 60 wide). Feeding them a numeric-only matrix makes
@@ -252,7 +255,7 @@ def compute_shap_per_game(
         if name == "randomforest":
             rf = models.get("randomforest")
             n_feat = getattr(rf, "n_features_in_", None)
-            if n_feat is not None and n_feat == len(MONEYLINE_FEATURE_COLS):
+            if n_feat is not None and n_feat == len(cols):
                 return xn  # ablation RF trained without team IDs
             return np.hstack([xn, xc])
         return xn
@@ -516,12 +519,14 @@ def compute_feature_drift(
 
     Output: data_delivery/feature_drift_YYYYMMDD.csv (or ``out_name``).
     ``feature_cols`` narrows the feature view (the run engine's 29 kept
-    features use the same machinery on the same windows); default keeps the
-    moneyline MONEYLINE_FEATURE_COLS behavior byte-identical.
+    features use the same machinery on the same windows); the default
+    enumerates the ACTIVE moneyline serving width (adopted RFE subset,
+    else the universe) — SINGLE-LIST RULE: every monitor-facing surface
+    reads exactly one list.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
-        else list(MONEYLINE_FEATURE_COLS)
+        else list(active_moneyline_feature_cols())
 
     drift_rows = []
     for col in cols:
@@ -649,11 +654,14 @@ def compute_feature_coverage(
         reliable default signature).
       * air_density_velocity_boost: only ever written from a fetched
         observation (domes stay NULL) — non-null ⇒ measured.
-    All other features: non-null is reported as measured.
+    All other features: non-null is reported as measured. The default
+    enumerates the ACTIVE moneyline serving width (adopted RFE subset,
+    else the universe) — SINGLE-LIST RULE: every monitor-facing surface
+    reads exactly one list.
     """
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
     cols = list(feature_cols) if feature_cols is not None \
-        else list(MONEYLINE_FEATURE_COLS)
+        else list(active_moneyline_feature_cols())
 
     def _window_rows(games: pd.DataFrame, window: str) -> list[dict]:
         rows: list[dict] = []
