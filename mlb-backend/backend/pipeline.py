@@ -92,6 +92,7 @@ from frames import (
 from github_sync import sync_artifacts
 from training import (
     MONEYLINE_FEATURE_COLS,
+    active_moneyline_feature_cols,
     MARGIN_COL,
     _attach_oof_run_margins,
     compute_metrics,
@@ -2100,9 +2101,13 @@ def run_daily_pipeline(
         prior = decided[gd < cutoff]
         baseline = prior.tail(max(3 * len(current), 250)) if not prior.empty else prior
         if not baseline.empty and not current.empty:
+            # PSI over the ACTIVE serving width (adopted RFE subset), not the
+            # full universe — the drift table must mirror what the model sees;
+            # universe-width rows for non-serving features mislead the monitor.
             drift_df = compute_feature_drift(
                 baseline, current, target_date_str,
                 model_weights=feature_importance_weights(best_models),
+                feature_cols=active_moneyline_feature_cols(),
             )
             summary["artifacts"].append(str(DATA_DELIVERY_DIR / f"feature_drift_{target_date_str}.csv"))
             coverage_df = compute_feature_coverage(baseline, current, target_date_str)

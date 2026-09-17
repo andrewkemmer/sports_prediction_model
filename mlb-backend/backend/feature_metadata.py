@@ -237,6 +237,33 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "binary",
         "direction": "higher = home advantage",
     },
+    "closer_available_home": {
+        "summary": "Home closer rested and available tonight (raw flag)",
+        "definition": (
+            "1 if the home club's primary closer is rested and usable tonight, "
+            "0 otherwise. The raw side-level companion to closer_availability_diff: "
+            "the diff alone maps both-closers-available and both-closers-out to the "
+            "same 0, so this flag restores the distinction for each club."
+        ),
+        "formula": "1 if home closer available else 0",
+        "source": "Recent reliever usage (2-day rest heuristic)",
+        "window": "per-game",
+        "units": "binary",
+        "direction": "1 = home bullpen at full strength",
+    },
+    "closer_available_away": {
+        "summary": "Away closer rested and available tonight (raw flag)",
+        "definition": (
+            "1 if the away club's primary closer is rested and usable tonight, "
+            "0 otherwise. Raw side-level companion to closer_availability_diff; "
+            "see closer_available_home."
+        ),
+        "formula": "1 if away closer available else 0",
+        "source": "Recent reliever usage (2-day rest heuristic)",
+        "window": "per-game",
+        "units": "binary",
+        "direction": "1 = away bullpen at full strength",
+    },
     "dome_is_neutral": {
         "summary": "1 if home park is a fixed dome/closed roof, 0 if open-air",
         "description_gate": True,  # type: ignore[dict-item]
@@ -670,17 +697,19 @@ def members_for_feature(name: str, logistic_cols: set[str]) -> list[str]:
 
 
 def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
-    """Build the metadata dict keyed by MONEYLINE_FEATURE_COLS names.
+    """Build the metadata dict keyed by ACTIVE SERVING names.
 
-    Returns (metadata, warnings_list). Every MONEYLINE_FEATURE_COLS entry gets a row;
-    unauthored features get a clearly-marked placeholder AND a warning string
+    Returns (metadata, warnings_list). Every active-moneyline serving col
+    (adopted RFE subset, else the full universe) gets a row; unauthored
+    features get a clearly-marked placeholder AND a warning string
     so absence is never silent."""
-    from training import MONEYLINE_FEATURE_COLS, _logistic_feature_cols
+    from training import MONEYLINE_FEATURE_COLS, _logistic_feature_cols, active_moneyline_feature_cols
 
+    serving_cols = active_moneyline_feature_cols()
     logistic_cols = set(_logistic_feature_cols())
     meta: dict[str, dict] = {}
     warnings: list[str] = []
-    for name in MONEYLINE_FEATURE_COLS:
+    for name in serving_cols:
         entry = _rich_entry(name)
         members = members_for_feature(name, logistic_cols)
         if entry is None:
@@ -703,10 +732,10 @@ def build_features_metadata() -> tuple[dict[str, dict], list[str]]:
         row = {"name": name, **entry, "members": members}
         row["tooltip"] = format_tooltip(row)
         meta[name] = row
-    # Authored-but-no-longer-in-MONEYLINE_FEATURE_COLS entries would silently rot — warn.
-    stale = sorted(set(_RICH) - set(MONEYLINE_FEATURE_COLS))
+    # Authored-but-not-serving entries would silently rot — warn.
+    stale = sorted(set(_RICH) - set(serving_cols))
     if stale:
-        msg = f"Feature metadata: entries no longer in MONEYLINE_FEATURE_COLS: {stale}"
+        msg = f"Feature metadata: authored entries not in active serving width: {stale}"
         logger.warning(msg)
         warnings.append(msg)
     return meta, warnings

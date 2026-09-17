@@ -178,8 +178,8 @@ TYPE_RULES: list[tuple[str, str]] = [
     (r"_delta(_|$)", "Form delta (recent vs season)"),
     (r"(5g|3g|10g|15g|30g).*_diff$", "Diff of rolling average"),
     (r"_diff$", "Diff (season level)"),
+    (r"^(is_home|dome_is_neutral.*|closer_availability_diff|closer_available_(home|away))$", "Flag / availability"),
     (r"_(home|away)$", "Raw level (per side)"),
-    (r"^(is_home|dome_is_neutral.*|closer_availability_diff)$", "Flag / availability"),
     (r"indicator|multiplier|risk|factor|boost|advantage|efficiency|depth", "Derived index"),
 ]
 
