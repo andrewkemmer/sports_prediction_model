@@ -845,6 +845,171 @@ def prequential_calibrate(y: np.ndarray, p: np.ndarray,
     return np.clip(out, 1e-6, 1 - 1e-6)
 
 
+def _calibration_metrics(p_raw: np.ndarray, p_cal: np.ndarray,
+                        y: np.ndarray) -> dict[str, Any]:
+    """Raw vs honest prequential metrics for one binary market."""
+    raw = np.clip(np.asarray(p_raw, float), 1e-6, 1 - 1e-6)
+    cal = np.clip(np.asarray(p_cal, float), 1e-6, 1 - 1e-6)
+    y = np.asarray(y, float)
+    try:
+        auc_raw = (float(roc_auc_score(y, raw))
+                   if len(np.unique(y)) > 1 else None)
+        auc_cal = (float(roc_auc_score(y, cal))
+                   if len(np.unique(y)) > 1 else None)
+    except ValueError:
+        auc_raw = auc_cal = None
+    return {
+        "n": int(len(y)),
+        "raw": {"logloss": round(float(log_loss(y, raw, labels=[0.0, 1.0])), 6),
+                "brier": round(brier_score(y, raw), 6),
+                "ece": ece_score(y, raw), "auc": auc_raw},
+        "prequential_calibrated": {
+            "logloss": round(float(log_loss(y, cal, labels=[0.0, 1.0])), 6),
+            "brier": round(brier_score(y, cal), 6),
+            "ece": ece_score(y, cal), "auc": auc_cal},
+    }
+
+def _normalize_three_way(a: np.ndarray, b: np.ndarray,
+                         c: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Normalize calibrated three-way probabilities without changing shape."""
+    vals = np.maximum(np.column_stack([a, b, c]), 1e-9)
+    vals /= vals.sum(axis=1, keepdims=True)
+    return vals[:, 0], vals[:, 1], vals[:, 2]
+
+def _fit_market_calibration(mc: dict[str, np.ndarray],
+                            total_runs: np.ndarray, margin: np.ndarray,
+                            home_scores: np.ndarray, away_scores: np.ndarray,
+                            fold_idx: np.ndarray) -> tuple[dict, dict, dict]:
+    """Fit prequential Platt maps for every published NB market.
+
+    OOF rows receive the prequential values; the returned calibrator bundle is
+    fit on all OOF rows and is reserved for future slate predictions. This is
+    the same causal calibration contract used by the binary moneyline path.
+    """
+    calibration: dict[str, Any] = {
+        "method": "prequential_platt", "fit_scope": "all_oof",
+        "totals": {}, "run_lines": {}, "legacy_run_lines": {},
+        "derived_moneyline": None,
+    }
+    metrics: dict[str, Any] = {"totals": {}, "run_lines": {},
+                               "legacy_run_lines": {}, "derived_moneyline": None}
+
+    from calibration import fit_platt
+
+    def binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
+        pre = prequential_calibrate(y, raw, fold_idx)
+        final = fit_platt(y, raw)
+        return pre, final, _calibration_metrics(raw, pre, y)
+
+    for j, line in enumerate(TOTAL_LINE_GRID):
+        key = str(line).replace(".", "_")
+        y_over = (total_runs >= line + 0.5).astype(float)
+        p_over = mc["p_over_grid"][:, j]
+        if float(line).is_integer():
+            y_push = (total_runs == line).astype(float)
+            y_under = (total_runs < line).astype(float)
+            p_push = mc["p_push_grid"][:, j]
+            p_under = 1.0 - p_over - p_push
+            co, cal_o, mo = binary(p_over, y_over)
+            cp, cal_p, mp = binary(p_push, y_push)
+            cu, cal_u, mu = binary(p_under, y_under)
+            co, cp, cu = _normalize_three_way(co, cp, cu)
+            calibration["totals"][key] = {"over": cal_o, "push": cal_p, "under": cal_u,
+                                           "three_way": True}
+            metrics["totals"][key] = {"over": mo, "push": mp, "under": mu}
+            metrics["totals"][key]["prequential_sum_error"] = round(
+                float(np.max(np.abs(co + cp + cu - 1.0))), 9)
+            mc["p_over_grid"][:, j] = co
+            mc["p_push_grid"][:, j] = cp
+        else:
+            co, cal_o, mo = binary(p_over, y_over)
+            calibration["totals"][key] = {"over": cal_o, "push": None, "under": None,
+                                           "three_way": False}
+            metrics["totals"][key] = mo
+            mc["p_over_grid"][:, j] = co
+            mc["p_push_grid"][:, j] = 0.0
+
+    for j, margin_line in enumerate(RUN_LINE_GRID_FULL):
+        key = str(margin_line).replace(".", "_")
+        p_home = mc["p_rl_home_grid"][:, j]
+        p_push = mc["p_rl_push_grid"][:, j]
+        p_away = mc["p_rl_away_grid"][:, j]
+        y_home = (margin > margin_line).astype(float)
+        if float(margin_line).is_integer():
+            y_push = (margin == margin_line).astype(float)
+            y_away = (margin < margin_line).astype(float)
+            ch, cal_h, mh = binary(p_home, y_home)
+            cp, cal_p, mp = binary(p_push, y_push)
+            ca, cal_a, ma = binary(p_away, y_away)
+            ch, cp, ca = _normalize_three_way(ch, cp, ca)
+            calibration["run_lines"][key] = {"home": cal_h, "push": cal_p, "away": cal_a,
+                                              "three_way": True}
+            metrics["run_lines"][key] = {"home": mh, "push": mp, "away": ma}
+            mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, cp, ca
+        else:
+            ch, cal_h, mh = binary(p_home, y_home)
+            calibration["run_lines"][key] = {"home": cal_h, "push": None, "away": None,
+                                              "three_way": False}
+            metrics["run_lines"][key] = mh
+            mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, 0.0, 1.0 - ch
+
+    for j, margin_line in enumerate(RUN_LINE_GRID):
+        key = str(margin_line).replace(".", "_")
+        raw = mc["p_cover_grid"][:, j]
+        y = (margin >= margin_line + 0.5).astype(float)
+        pre, cal, met = binary(raw, y)
+        calibration["legacy_run_lines"][key] = cal
+        metrics["legacy_run_lines"][key] = met
+        mc["p_cover_grid"][:, j] = pre
+
+    raw_ml = mc["p_home_win_derived"]
+    y_ml = (home_scores > away_scores).astype(float)
+    pre_ml, cal_ml, met_ml = binary(raw_ml, y_ml)
+    calibration["derived_moneyline"] = cal_ml
+    metrics["derived_moneyline"] = met_ml
+    mc["p_home_win_derived"] = pre_ml
+    return mc, calibration, metrics
+
+
+def apply_market_calibration(mc: dict[str, np.ndarray], calibration: dict | None) -> dict[str, np.ndarray]:
+    """Apply the final NB calibration bundle to future MC probabilities."""
+    if not calibration:
+        return mc
+    from calibration import apply_platt
+    out = {k: np.asarray(v).copy() for k, v in mc.items()}
+    for j, line in enumerate(TOTAL_LINE_GRID):
+        key = str(line).replace(".", "_")
+        spec = calibration.get("totals", {}).get(key)
+        if not spec:
+            continue
+        over = apply_platt(out["p_over_grid"][:, j], spec.get("over"))
+        if spec.get("three_way"):
+            push = apply_platt(out["p_push_grid"][:, j], spec.get("push"))
+            under = apply_platt(1.0 - out["p_over_grid"][:, j] - out["p_push_grid"][:, j], spec.get("under"))
+            over, push, under = _normalize_three_way(over, push, under)
+            out["p_over_grid"][:, j], out["p_push_grid"][:, j] = over, push
+        else:
+            out["p_over_grid"][:, j], out["p_push_grid"][:, j] = over, np.zeros(len(over))
+    for j, line in enumerate(RUN_LINE_GRID_FULL):
+        key = str(line).replace(".", "_")
+        spec = calibration.get("run_lines", {}).get(key)
+        if not spec:
+            continue
+        home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
+        if spec.get("three_way"):
+            push = apply_platt(out["p_rl_push_grid"][:, j], spec.get("push"))
+            away = apply_platt(out["p_rl_away_grid"][:, j], spec.get("away"))
+            home, push, away = _normalize_three_way(home, push, away)
+        else:
+            push, away = np.zeros(len(home)), 1.0 - home
+        out["p_rl_home_grid"][:, j], out["p_rl_push_grid"][:, j], out["p_rl_away_grid"][:, j] = home, push, away
+    for j, line in enumerate(RUN_LINE_GRID):
+        key = str(line).replace(".", "_")
+        out["p_cover_grid"][:, j] = apply_platt(out["p_cover_grid"][:, j], calibration.get("legacy_run_lines", {}).get(key))
+    out["p_home_win_derived"] = apply_platt(out["p_home_win_derived"], calibration.get("derived_moneyline"))
+    return out
+
+
 def derive_markets(oof: pd.DataFrame,
                    moneyline_probs: Optional[pd.DataFrame] = None,
                    n_draws: int = MC_DRAWS,
@@ -1363,6 +1528,20 @@ def derive_markets_v3(oof: pd.DataFrame,
         "mc_se_totals_max": round(float(se.max()), 6),
     }
 
+    # Calibrate the final MC event probabilities after simulation. Keep raw
+    # vectors for honest OOF scoring; the calibrated vectors become the
+    # published market probabilities and are also used for agreement checks.
+    mc_raw = {k: np.asarray(v).copy() for k, v in mc.items()}
+    mc, calibration_bundle, calibration_metrics = _fit_market_calibration(
+        mc, total_runs, hs - as_, hs, as_, fold_idx)
+    summary["calibration"] = {
+        "method": "prequential_platt",
+        "fit_scope": "all_oof",
+        "markets_published": "calibrated",
+        "calibrators": calibration_bundle,
+        "oof_metrics": calibration_metrics,
+    }
+
     def line_key_total(line: float) -> str:
         return f"p_over_{str(line).replace('.', '_')}"
 
@@ -1429,22 +1608,22 @@ def derive_markets_v3(oof: pd.DataFrame,
 
     y_over = (total_runs >= 9).astype(float)
     y_win = (hs > as_).astype(float)
-    score_at("derived_moneyline", mc["p_home_win_derived"], y_win)
-    score_at("derived_moneyline_holdout", mc["p_home_win_derived"], y_win,
+    score_at("derived_moneyline", mc_raw["p_home_win_derived"], y_win)
+    score_at("derived_moneyline_holdout", mc_raw["p_home_win_derived"], y_win,
              mask=~pre_mask)
     for line in TOTAL_REF_LINES:
         col = TOTAL_LINE_GRID.index(line)
         score_at(f"over_{str(line).replace('.', '_')}",
-                 mc["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float))
+                 mc_raw["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float))
         score_at(f"over_{str(line).replace('.', '_')}_holdout",
-                 mc["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float),
+                 mc_raw["p_over_grid"][:, col], (total_runs >= line + 0.5).astype(float),
                  mask=~pre_mask)
     for m in RUN_REF_LINES:
         col = RUN_LINE_GRID.index(m)
         score_at(f"home_cover_{str(m).replace('.', '_')}",
-                 mc["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float))
+                 mc_raw["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float))
         score_at(f"home_cover_{str(m).replace('.', '_')}_holdout",
-                 mc["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float),
+                 mc_raw["p_cover_grid"][:, col], ((hs - as_) >= m + 0.5).astype(float),
                  mask=~pre_mask)
 
     markets = oof[["game_pk", "game_date"]].copy()
@@ -1846,7 +2025,8 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        final_fit_rounds: dict[str, int],
                        curves: dict[str, dict],
                        n_draws: int = MC_DRAWS,
-                       seed: int = MARKET_SEED) -> pd.DataFrame:
+                       seed: int = MARKET_SEED,
+                       calibration: Optional[dict] = None) -> pd.DataFrame:
     """λ + full market grid for TODAY'S SLATE.
 
     Side models refit on ALL decided games at fixed rounds (median fold
@@ -1915,6 +2095,7 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     mc = derive_markets_mc(out["home_expected_runs"].to_numpy(float),
                            out["away_expected_runs"].to_numpy(float),
                            alpha_h, alpha_a, n_draws=n_draws, seed=seed)
+    mc = apply_market_calibration(mc, calibration)
     out["kind"] = "slate"
     for j, line in enumerate(TOTAL_LINE_GRID):
         key = f"p_over_{str(line).replace('.', '_')}"
@@ -2022,7 +2203,8 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
 
     slate_frame = predict_slate_runs(
         decided, slate_ready, result["summary"]["final_fit_rounds"],
-        curves, n_draws=n_draws)
+        curves, n_draws=n_draws,
+        calibration=summary.get("calibration", {}).get("calibrators"))
     if (not slate_frame.empty and ml_probs is not None
             and "home_win_prob_model" in target_games.columns):
         # Use whichever key exists: game_pk (StatsAPI) or game_id (ESPN).
@@ -2084,6 +2266,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
         "year_effect_home": summary["year_effect_home"],
         "year_effect_away": summary["year_effect_away"],
         "mc_meta": summary["mc_meta"],
+        "calibration": summary.get("calibration"),
         "line_grid": summary["line_grid"],
         "holdout_gate": {
             "cutoff": summary["holdout_cutoff"],

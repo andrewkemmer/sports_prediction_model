@@ -172,7 +172,8 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        final_fit_rounds: dict[str, int],
                        curves: dict[str, dict],
                        n_draws: int = _re.MC_DRAWS,
-                       seed: int = _re.MARKET_SEED) -> pd.DataFrame:
+                       seed: int = _re.MARKET_SEED,
+                       calibration: Optional[dict] = None) -> pd.DataFrame:
     """Slate λ + market grid through the SAME C2 expansion as the OOF side.
 
     Calls the original body for the λ + grid, then — when the daily seam is
@@ -180,7 +181,8 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     EXPANDED λ pair through the SAME α(λ) curves and NB MC."""
     out = _orig_predict_slate_runs(decided_games, slate_games,
                                    final_fit_rounds, curves,
-                                   n_draws=n_draws, seed=seed)
+                                   n_draws=n_draws, seed=seed,
+                                   calibration=calibration)
     k = _K_EDGE_ACTIVE
     if k is not None and abs(k - 1.0) > 1e-9 and not out.empty:
         lh = out["home_expected_runs"].to_numpy(float)
@@ -190,6 +192,7 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         alpha_a = _re.alpha_of(la2, curves["away"])
         mc = _re.derive_markets_mc(lh2, la2, alpha_h, alpha_a,
                                    n_draws=n_draws, seed=seed)
+        mc = _re.apply_market_calibration(mc, calibration)
         out["home_expected_runs"] = np.round(lh2, 4)
         out["away_expected_runs"] = np.round(la2, 4)
         out["alpha_home"] = np.round(alpha_h, 4)
