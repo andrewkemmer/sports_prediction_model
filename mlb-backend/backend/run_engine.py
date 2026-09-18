@@ -845,6 +845,34 @@ def prequential_calibrate(y: np.ndarray, p: np.ndarray,
     return np.clip(out, 1e-6, 1 - 1e-6)
 
 
+def prequential_favored_calibrate(y: np.ndarray, p: np.ndarray,
+                                  fold_idx: np.ndarray) -> np.ndarray:
+    """Calibrate a home/away binary market in favored-side space.
+
+    The returned probabilities remain in home-side space for the existing
+    run-engine columns. Each fold's favored calibrator is fit only on prior
+    folds, matching the binary moneyline leakage contract.
+    """
+    from calibration import apply_moneyline_calibration, fit_favored_platt
+
+    y = np.asarray(y, dtype=float)
+    p = np.asarray(p, dtype=float)
+    folds = np.unique(fold_idx)
+    history_y, history_p = [], []
+    out = p.copy()
+    for f in folds:
+        m = fold_idx == f
+        cal = fit_favored_platt(
+            np.concatenate(history_y) if history_y else [],
+            np.concatenate(history_p) if history_p else [],
+        )
+        if cal is not None:
+            out[m] = apply_moneyline_calibration(p[m], cal)
+        history_y.append(y[m])
+        history_p.append(p[m])
+    return np.clip(out, 1e-6, 1 - 1e-6)
+
+
 def _calibration_metrics(p_raw: np.ndarray, p_cal: np.ndarray,
                         y: np.ndarray) -> dict[str, Any]:
     """Raw vs honest prequential metrics for one binary market."""
@@ -894,11 +922,16 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
     metrics: dict[str, Any] = {"totals": {}, "run_lines": {},
                                "legacy_run_lines": {}, "derived_moneyline": None}
 
-    from calibration import fit_platt
+    from calibration import fit_favored_platt, apply_moneyline_calibration, fit_platt
 
     def binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
         pre = prequential_calibrate(y, raw, fold_idx)
         final = fit_platt(y, raw)
+        return pre, final, _calibration_metrics(raw, pre, y)
+
+    def favored_binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
+        pre = prequential_favored_calibrate(y, raw, fold_idx)
+        final = fit_favored_platt(y, raw)
         return pre, final, _calibration_metrics(raw, pre, y)
 
     for j, line in enumerate(TOTAL_LINE_GRID):
@@ -947,9 +980,9 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
             metrics["run_lines"][key] = {"home": mh, "push": mp, "away": ma}
             mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, cp, ca
         else:
-            ch, cal_h, mh = binary(p_home, y_home)
+            ch, cal_h, mh = favored_binary(p_home, y_home)
             calibration["run_lines"][key] = {"home": cal_h, "push": None, "away": None,
-                                              "three_way": False}
+                                              "three_way": False, "favored": True}
             metrics["run_lines"][key] = mh
             mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, 0.0, 1.0 - ch
 
@@ -957,15 +990,16 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
         key = str(margin_line).replace(".", "_")
         raw = mc["p_cover_grid"][:, j]
         y = (margin >= margin_line + 0.5).astype(float)
-        pre, cal, met = binary(raw, y)
-        calibration["legacy_run_lines"][key] = cal
+        pre, cal, met = favored_binary(raw, y)
+        calibration["legacy_run_lines"][key] = {"calibrator": cal, "favored": True}
         metrics["legacy_run_lines"][key] = met
         mc["p_cover_grid"][:, j] = pre
 
     raw_ml = mc["p_home_win_derived"]
     y_ml = (home_scores > away_scores).astype(float)
-    pre_ml, cal_ml, met_ml = binary(raw_ml, y_ml)
+    pre_ml, cal_ml, met_ml = favored_binary(raw_ml, y_ml)
     calibration["derived_moneyline"] = cal_ml
+    calibration["derived_moneyline_favored"] = True
     metrics["derived_moneyline"] = met_ml
     mc["p_home_win_derived"] = pre_ml
     return mc, calibration, metrics
@@ -995,18 +1029,35 @@ def apply_market_calibration(mc: dict[str, np.ndarray], calibration: dict | None
         spec = calibration.get("run_lines", {}).get(key)
         if not spec:
             continue
-        home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
         if spec.get("three_way"):
+            home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
             push = apply_platt(out["p_rl_push_grid"][:, j], spec.get("push"))
             away = apply_platt(out["p_rl_away_grid"][:, j], spec.get("away"))
             home, push, away = _normalize_three_way(home, push, away)
+        elif spec.get("favored"):
+            from calibration import apply_moneyline_calibration
+            home = apply_moneyline_calibration(out["p_rl_home_grid"][:, j], spec.get("home"))
+            push, away = np.zeros(len(home)), 1.0 - home
         else:
+            home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
             push, away = np.zeros(len(home)), 1.0 - home
         out["p_rl_home_grid"][:, j], out["p_rl_push_grid"][:, j], out["p_rl_away_grid"][:, j] = home, push, away
     for j, line in enumerate(RUN_LINE_GRID):
         key = str(line).replace(".", "_")
-        out["p_cover_grid"][:, j] = apply_platt(out["p_cover_grid"][:, j], calibration.get("legacy_run_lines", {}).get(key))
-    out["p_home_win_derived"] = apply_platt(out["p_home_win_derived"], calibration.get("derived_moneyline"))
+        legacy_spec = calibration.get("legacy_run_lines", {}).get(key)
+        if isinstance(legacy_spec, dict) and legacy_spec.get("favored"):
+            from calibration import apply_moneyline_calibration
+            out["p_cover_grid"][:, j] = apply_moneyline_calibration(
+                out["p_cover_grid"][:, j], legacy_spec.get("calibrator"))
+        else:
+            out["p_cover_grid"][:, j] = apply_platt(out["p_cover_grid"][:, j], legacy_spec)
+    derived = calibration.get("derived_moneyline")
+    if calibration.get("derived_moneyline_favored"):
+        from calibration import apply_moneyline_calibration
+        out["p_home_win_derived"] = apply_moneyline_calibration(
+            out["p_home_win_derived"], derived)
+    else:
+        out["p_home_win_derived"] = apply_platt(out["p_home_win_derived"], derived)
     return out
 
 
