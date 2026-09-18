@@ -55,6 +55,8 @@ MIN_OOF_FOR_FIT = 300
 
 
 VALID_CALIBRATION_MODES = ("platt", "identity")
+FAVORED_CALIBRATOR_METHOD = "favored_platt_floor"
+FAVORED_PROBABILITY_FLOOR = 0.5
 
 
 def get_calibration_mode() -> str:
@@ -95,7 +97,7 @@ def moneyline_fit(y_true, y_prob):
             "Calibration: CALIBRATION_MODE=identity — moneyline publishes the "
             "raw blend (no Platt map)")
         return None
-    return fit_platt(y_true, y_prob)
+    return fit_favored_platt(y_true, y_prob)
 
 
 def moneyline_apply(y_prob, calibrator: dict | None) -> np.ndarray:
@@ -106,7 +108,7 @@ def moneyline_apply(y_prob, calibrator: dict | None) -> np.ndarray:
     """
     if get_calibration_mode() == "identity":
         return np.clip(np.asarray(y_prob, dtype=float), 0.0, 1.0)
-    return apply_platt(y_prob, calibrator)
+    return apply_moneyline_calibration(y_prob, calibrator)
 
 _EPS = 1e-6  # clip bound for logit(p); matches compute_metrics clipping spirit
 
@@ -124,7 +126,7 @@ def is_identity(calibrator: dict | None) -> bool:
     """True when ``calibrator`` applies no correction (None or a≈1, b≈0)."""
     if not calibrator:
         return True
-    if str(calibrator.get("method")) != "platt":
+    if str(calibrator.get("method")) not in ("platt", FAVORED_CALIBRATOR_METHOD):
         return True
     try:
         a = float(calibrator.get("a", 1.0))
@@ -134,11 +136,57 @@ def is_identity(calibrator: dict | None) -> bool:
     return abs(a - 1.0) < 1e-9 and abs(b) < 1e-9
 
 
+def _favored_view(y_true, y_prob) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Convert home-side predictions/outcomes into favored-team space."""
+    y = np.asarray(y_true, dtype=float)
+    p = np.asarray(y_prob, dtype=float)
+    home_favorite = p >= 0.5
+    favored_p = np.where(home_favorite, p, 1.0 - p)
+    favored_won = np.where(home_favorite, y, 1.0 - y)
+    return favored_won, favored_p, home_favorite
+
+
+def fit_favored_platt(y_true, y_prob) -> dict | None:
+    """Fit Platt scaling directly to the probability that the model-favored team wins."""
+    favored_y, favored_p, _ = _favored_view(y_true, y_prob)
+    cal = fit_platt(favored_y, favored_p)
+    if cal is None:
+        return None
+    cal["method"] = FAVORED_CALIBRATOR_METHOD
+    cal["floor"] = FAVORED_PROBABILITY_FLOOR
+    return cal
+
+
+def apply_moneyline_calibration(y_prob, calibrator: dict | None) -> np.ndarray:
+    """Apply favored-space calibration and convert back to home-win space.
+
+    Legacy home-space calibrators are deliberately rejected. Generic
+    ``apply_platt`` remains available to the NB run-engine markets, but it is
+    no longer a valid moneyline calibration path.
+    """
+    p = np.clip(np.asarray(y_prob, dtype=float), 0.0, 1.0)
+    if not calibrator:
+        return p.copy()
+    if calibrator.get("method") != FAVORED_CALIBRATOR_METHOD:
+        raise ValueError(
+            "legacy home-space moneyline calibration is unsupported; "
+            "retrain to create a favored-space calibrator"
+        )
+    home_favorite = p >= 0.5
+    favored_p = np.maximum(p, 1.0 - p)
+    favored_cal = apply_platt(favored_p, calibrator)
+    favored_cal = np.maximum(favored_cal, float(calibrator.get("floor", FAVORED_PROBABILITY_FLOOR)))
+    return np.where(home_favorite, favored_cal, 1.0 - favored_cal)
+
+
 def fit_platt(y_true, y_prob) -> dict | None:
     """Fit the Platt map on pooled OOF (y, p) pairs.
 
-    Returns {"method": "platt", "a": slope, "b": intercept, "n": n} or
-    None when the data cannot support a fit (too few games, single class,
+    Returns a generic internal Platt map used by NB markets. The moneyline
+    path wraps this result as ``favored_platt_floor``; generic ``method=platt``
+    is not valid for moneyline serving. Returns {"method": "platt", "a": slope,
+    "b": intercept, "n": n} or None when the data cannot support a fit (too
+    few games, single class,
     non-finite inputs). The logistic fit uses negligible regularization so
     it converges to the classic 2-parameter Platt solution while staying
     numerically stable.

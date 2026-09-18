@@ -793,7 +793,7 @@ def compute_rolling_brier(
     Returns an artifact dict (also written to rolling_brier_<date>.json);
     ``series`` is [] when no data supports it (with a loud warning logged).
     """
-    from calibration import apply_platt  # same module training.py deploys
+    from calibration import moneyline_apply  # same adapter training.py deploys
 
     DATA_DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -801,7 +801,7 @@ def compute_rolling_brier(
         "window_days": int(window_days),
         "min_games_per_day": int(min_games_per_day),
         "source_column": "home_win_prob_model",
-        "calibration": "deployed Platt map σ(a·logit(p)+b) via apply_platt",
+        "calibration": "deployed moneyline calibration adapter (favored-space when available)",
         # The deployed map is fit on ALL OOF games, including recent ones, so
         # the newest ~window_days of points are mildly optimistic vs honest
         # prequential scoring (per-fold maps). Surfaced on the panel.
@@ -833,7 +833,7 @@ def compute_rolling_brier(
     df = pd.DataFrame({
         "date": dates[ok].dt.normalize(),
         "y": y[ok].astype(int),
-        "p_cal": apply_platt(p_raw[ok].to_numpy(dtype=float), calibrator),
+        "p_cal": moneyline_apply(p_raw[ok].to_numpy(dtype=float), calibrator),
     })
     if df.empty:
         logger.warning(

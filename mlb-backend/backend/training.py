@@ -1260,9 +1260,19 @@ def last_ensemble_info() -> list[dict[str, Any]]:
 
 
 def set_calibration(calibrator: dict | None) -> None:
-    """Restore the post-hoc calibrator (e.g. from a persisted ensemble bundle)
-    so published probabilities match the model that was actually evaluated."""
+    """Restore the favored-team moneyline calibrator from a persisted bundle.
+
+    Legacy home-space Platt maps are rejected rather than silently applied.
+    ``fit_platt`` remains available separately for NB market calibration.
+    """
     global _LAST_CALIBRATOR
+    if calibrator:
+        method = str(calibrator.get("method", ""))
+        if method != "favored_platt_floor":
+            raise ValueError(
+                "unsupported moneyline calibrator in bundle: "
+                f"{method or '<missing method>'}; retrain with favored-space calibration"
+            )
     _LAST_CALIBRATOR = dict(calibrator) if calibrator else None
 
 
@@ -2038,6 +2048,9 @@ def update_model_version_history(
                 "a": float(calibrator["a"]),
                 "b": float(calibrator["b"]),
                 "n": int(calibrator.get("n", 0)),
+                "method": str(calibrator.get("method", "platt")),
+                **({"floor": float(calibrator["floor"])}
+                   if calibrator.get("floor") is not None else {}),
             }
         except (TypeError, ValueError):
             pass  # deployed map stays absent rather than half-recorded

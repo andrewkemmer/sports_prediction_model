@@ -826,7 +826,7 @@ def _calibration_json(
             m_raw = compute_metrics(ot[ok].values, op[ok].values)
             calibrator = get_last_calibrator()
             cal_section = {
-                "method": "platt" if not is_identity(calibrator) else "identity",
+                "method": (calibrator or {}).get("method", "identity") if not is_identity(calibrator) else "identity",
                 "params": calibrator,
                 "metrics_raw": {k: m_raw.get(k) for k in ("brier", "logloss", "ece")},
             }
