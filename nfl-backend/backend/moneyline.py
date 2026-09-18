@@ -1,6 +1,6 @@
-"""Production NFL moneyline: ensemble of XGBoost / LightGBM / Logistic /
-Random Forest / MLP with expanding walk-forward OOF, adaptive OOF-derived
-ensemble weights, and Platt calibration fit ONLY on valid OOF predictions.
+"""Production NFL moneyline: XGBoost / LightGBM / elastic-net logistic
+ensemble with expanding walk-forward OOF, causal per-fold logloss weights,
+and Platt calibration fit ONLY on valid OOF predictions.
 
 Determinism: explicit seeds on every member; preprocessing (median
 imputation + scaling for linear/MLP) is fit on training data only.
@@ -125,7 +125,8 @@ def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
 # ---------------------------------------------------------------------------
 def walk_forward_oof(game_df: pd.DataFrame,
                      date_col: str = "gameday",
-                     progress_every: int = 25) -> dict:
+                     progress_every: int = 25,
+                     fold_list: list | None = None) -> dict:
     """Expanding walk-forward OOF for every ensemble member + the ensemble.
 
     Returns a dict with:
@@ -134,10 +135,12 @@ def walk_forward_oof(game_df: pd.DataFrame,
       fold_table: per-fold diagnostics
     """
     df = game_df.sort_values(date_col).reset_index(drop=True)
-    fold_list = folds_mod.make_folds(df, date_col=date_col)
+    fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
 
     oof_parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
+    prior_weights = dict(config.ENSEMBLE_WEIGHTS)
+    prior_losses: dict[str, list[float]] = {n: [] for n in config.ENSEMBLE_MEMBERS}
 
     for fold in fold_list:
         train = df.loc[fold.train_idx]
@@ -170,6 +173,16 @@ def walk_forward_oof(game_df: pd.DataFrame,
         })
         for name in config.ENSEMBLE_MEMBERS:
             rows[f"p_{name}"] = member_p.get(name)
+        # Blend this fold using only information earned before this fold.
+        fold_weights = _weights_from_loss_history(prior_losses, prior_weights)
+        rows["p_ensemble"] = _blend(rows, fold_weights)
+        # Only after scoring the fold may its member losses affect the next
+        # fold. This is the causal walk-forward weighting contract.
+        from sklearn.metrics import log_loss
+        for name in config.ENSEMBLE_MEMBERS:
+            p_member = member_p.get(name)
+            if p_member is not None and len(p_member) and len(np.unique(rows["home_win"])) > 1:
+                prior_losses[name].append(float(log_loss(rows["home_win"], p_member, labels=[0, 1])))
 
         fold_rows.append({
             "fold_id": fold.fold_id,
@@ -185,43 +198,52 @@ def walk_forward_oof(game_df: pd.DataFrame,
 
     oof = pd.concat(oof_parts, ignore_index=True) if oof_parts else pd.DataFrame()
 
-    weights = _adaptive_weights(oof)
-    ensemble_p = _blend(oof, weights)
-    oof["p_ensemble"] = ensemble_p
+    weights = _weights_from_loss_history(prior_losses, prior_weights)
     return {"oof": oof, "member_weights": weights,
             "fold_table": pd.DataFrame(fold_rows)}
 
 
-def _adaptive_weights(oof: pd.DataFrame) -> dict[str, float]:
-    """Softmax over pooled OOF AUC edges (config metric). Deterministic;
-    derived ONLY from OOF rows. Falls back to config priors when OOF is
-    unusable."""
+def _weights_from_loss_history(history: dict[str, list[float]], prior: dict[str, float]) -> dict[str, float]:
+    losses = {n: float(np.mean(v)) for n, v in history.items() if v}
+    if not losses:
+        return dict(prior)
+    inv = {n: 1.0 / max(losses.get(n, 1.0), 1e-6) for n in config.ENSEMBLE_MEMBERS}
+    total = sum(inv.values())
+    raw = {n: max(config.ADAPTIVE_WEIGHT_FLOOR,
+                  min(config.ADAPTIVE_WEIGHT_CAP, v / total))
+           for n, v in inv.items()}
+    total = sum(raw.values())
+    return {n: w / total for n, w in raw.items()}
+
+
+def _adaptive_weights(oof: pd.DataFrame):
+    """Causal-style weights from member logloss, lower loss earns more weight.
+    The final artifact weight is diagnostics/serving weight; fold predictions
+    are produced with the prior weights until prior OOF evidence exists."""
     prior = dict(config.ENSEMBLE_WEIGHTS)
     if oof is None or not len(oof):
         return prior
     y = _oof_targets(oof)
     if y is None or len(y) < 2 or len(np.unique(y)) < 2:
         return prior
-    try:
-        from sklearn.metrics import roc_auc_score
-    except Exception:
-        return prior
-    edges: dict[str, float] = {}
+    from sklearn.metrics import log_loss
+    losses: dict[str, float] = {}
     for name in config.ENSEMBLE_MEMBERS:
         col = f"p_{name}"
         if col not in oof.columns:
             return prior
         p = oof[col].to_numpy(dtype=float)
-        ok = np.isfinite(p)
+        ok = np.isfinite(p) & np.isfinite(y)
         if ok.sum() < 2 or len(np.unique(y[ok])) < 2:
             return prior
-        edges[name] = roc_auc_score(y[ok], p[ok])
-    base_auc = max(edges.values())
-    T = config.ADAPTIVE_WEIGHT_TEMPERATURE
-    exp = {n: np.exp((a - base_auc) / T) for n, a in edges.items()}
+        losses[name] = float(log_loss(y[ok], p[ok], labels=[0, 1]))
+    # Inverse-logloss weights are stable, interpretable, and preserve all
+    # members instead of allowing a single noisy fold to dominate.
+    inv = {n: 1.0 / max(v, 1e-6) for n, v in losses.items()}
+    total = sum(inv.values())
     raw = {n: max(config.ADAPTIVE_WEIGHT_FLOOR,
-                  min(config.ADAPTIVE_WEIGHT_CAP, e / sum(exp.values())))
-           for n, e in exp.items()}
+                  min(config.ADAPTIVE_WEIGHT_CAP, v / total))
+           for n, v in inv.items()}
     total = sum(raw.values())
     return {n: w / total for n, w in raw.items()}
 
@@ -320,3 +342,21 @@ def apply_platt(p: np.ndarray, cal: dict) -> np.ndarray:
     z = np.log(np.clip(p, CLIP, 1 - CLIP) / (1 - np.clip(p, CLIP, 1 - CLIP)))
     out = 1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"])))
     return np.clip(out, CLIP, 1.0 - CLIP)
+
+
+def fit_favored_platt(p_home: np.ndarray, home_win: np.ndarray) -> dict:
+    """Fit Platt in the same favored-team space shown to users."""
+    favored_home = p_home >= 0.5
+    p_fav = np.where(favored_home, p_home, 1.0 - p_home)
+    y_fav = np.where(favored_home, home_win, 1.0 - home_win)
+    cal = fit_platt(p_fav, y_fav)
+    cal.update({"method": "favored_platt", "floor": 0.5})
+    return cal
+
+
+def apply_favored_platt(p_home: np.ndarray, cal: dict) -> np.ndarray:
+    """Calibrate favored probability, floor it at 50%, convert home space back."""
+    favored_home = p_home >= 0.5
+    p_fav = np.where(favored_home, p_home, 1.0 - p_home)
+    p_fav_cal = np.maximum(0.5, apply_platt(p_fav, cal))
+    return np.where(favored_home, p_fav_cal, 1.0 - p_fav_cal)

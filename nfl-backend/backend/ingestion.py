@@ -2,8 +2,7 @@
 
 Pulls the schedules and play-by-play the pipeline needs through
 ``nflreadpy`` and caches each season's frame beside the repo (never inside
-the git tree). Deterministic column narrowing; regular-season filtering
-happens here so every downstream module sees the eligible population only.
+the git tree). Deterministic column narrowing;regular-season and postseason filtering happens here so every downstream module sees the eligible population only.
 
 All frames carry the nflverse column names; the feature engine is the only
 place that interprets them.
@@ -47,7 +46,7 @@ def _polars_to_pandas(frame):
 
 def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
     """Filter a schedules frame to the eligible population: settled
-    regular-season games within the configured season window (2018+)."""
+    regular-season or postseason games within the configured season window (2018+)."""
     df = schedule.copy()
     df["season"] = pd.to_numeric(df["season"], errors="coerce")
     df = df[df["season"].isin(config.ALL_SEASONS)]

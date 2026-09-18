@@ -158,6 +158,17 @@ def sync_remote_tip(repo, branch: str = "main", log=None) -> None:
     say(f"  synced clone to remote tip {tip[:10]} ({branch})")
 
 
+def verify_pushed_paths(repo, branch: str, paths: list[str]) -> None:
+    """Verify the pushed branch contains every requested artifact path."""
+    import git
+    repo.git.fetch("origin", branch)
+    remote_tip = repo.git.rev_parse(f"origin/{branch}")
+    listed = set(repo.git.ls_tree("-r", "--name-only", remote_tip).splitlines())
+    missing = sorted(set(paths) - listed)
+    if missing:
+        raise RuntimeError(f"remote verification missing artifacts: {missing}")
+
+
 def push_with_retry(repo, branch: str, restage=None, attempts: int = 3,
                     log=None) -> None:
     """Push ``branch`` with bounded, self-healing retries; raise on final failure.

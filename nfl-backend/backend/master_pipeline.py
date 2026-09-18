@@ -104,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         "warmup_seasons": config.WARMUP_SEASONS,
         "oof_first_season": config.OOF_FIRST_SEASON,
         "retrain_cadence_days": config.RETRAIN_CADENCE_DAYS,
+        "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
+        "game_types": sorted(config.GAME_TYPES),
         "ensemble_members": config.ENSEMBLE_MEMBERS,
         "random_seed": config.RANDOM_SEED,
         "market_independence": True,
@@ -234,10 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     y_oof = oof_ml["home_win"].to_numpy(float)
     p_ens = oof_ml["p_ensemble"].to_numpy(float)
     okp = np.isfinite(p_ens)
-    platt = ml_mod.fit_platt(p_ens[okp], y_oof[okp])
+    platt = ml_mod.fit_favored_platt(p_ens[okp], y_oof[okp])
     logger.info("Platt (OOF-fit): a=%.4f b=%.4f", platt["a"], platt["b"])
     oof_ml["p_ensemble_calibrated"] = np.nan
-    oof_ml.loc[okp, "p_ensemble_calibrated"] = ml_mod.apply_platt(
+    oof_ml.loc[okp, "p_ensemble_calibrated"] = ml_mod.apply_favored_platt(
         p_ens[okp], platt)
 
     # ── 9. Evaluation ─────────────────────────────────────────────────────
@@ -289,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
         # serve through the SAME Platt map fitted on OOF
-        p_home_cal = ml_mod.apply_platt(p_home, platt) if np.isfinite(p_home).any() else p_home
+        p_home_cal = ml_mod.apply_favored_platt(p_home, platt) if np.isfinite(p_home).any() else p_home
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
         slate = dist_mod.apply_distribution(slate, sig["sigma_margin"],
                                             sig["sigma_total"])

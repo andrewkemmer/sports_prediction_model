@@ -55,7 +55,7 @@ def _season_qb_aggregates(seasons: list[int]) -> pd.DataFrame | None:
         return None
     out = pd.concat(frames, ignore_index=True)
     if "season_type" in out.columns:
-        out = out[out["season_type"] == "REG"]
+        out = out[out["season_type"].isin(("REG", "POST"))]
     return out
 
 

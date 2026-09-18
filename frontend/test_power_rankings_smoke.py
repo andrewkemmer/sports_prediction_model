@@ -121,6 +121,7 @@ def run() -> int:
         at = AppTest.from_file(str(FRONTEND_DIR / "power_rankings.py"),
                                default_timeout=60)
         at.session_state["sport"] = "nfl"
+        at.session_state["selected_date"] = ARTIFACT_DATE
         at.run()
 
         if at.exception:
@@ -162,6 +163,7 @@ def run() -> int:
         mlb = AppTest.from_file(str(FRONTEND_DIR / "power_rankings.py"),
                                 default_timeout=60)
         mlb.session_state["sport"] = "mlb"
+        mlb.session_state["selected_date"] = ARTIFACT_DATE
         mlb.run()
         if mlb.exception:
             prob = "\n  ".join(str(e.value) for e in mlb.exception)

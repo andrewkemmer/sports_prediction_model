@@ -33,7 +33,7 @@ WARMUP_SEASONS = [2018]          # trailing priors only — never OOF-evaluated
 OOF_FIRST_SEASON = 2019          # OOF population starts here
 CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2019..2026 inclusive
 ALL_SEASONS = WARMUP_SEASONS + CORE_SEASONS
-GAME_TYPES = {"REG"}             # regular season only; no pre/post season
+GAME_TYPES = {"REG", "POST"}       # regular season + postseason; preseason excluded
 
 # ---------------------------------------------------------------------------
 # Elo (authoritative semantics — unchanged from the validated definitions)
@@ -59,6 +59,7 @@ PRIME_TIME_HOUR = 17  # nflverse gametime is ET; >= this = evening kickoff
 # Walk-forward fold geometry (calendar-day based, NEVER week-ID based)
 # ---------------------------------------------------------------------------
 RETRAIN_CADENCE_DAYS = 7   # validation-window width in calendar days
+MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retained
 
 # ---------------------------------------------------------------------------
 # Feature set version
@@ -95,22 +96,20 @@ MLP_FEATURES = LINEAR_FEATURES
 # ---------------------------------------------------------------------------
 # Ensemble members (moneyline) — NFL-specific hyperparameters
 # ---------------------------------------------------------------------------
-ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "logistic", "randomforest", "mlp"]
+ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "logistic"]
 
 # Fallback prior weights; replaced by adaptive OOF-derived weights when
 # available (see models.moneyline).
 ENSEMBLE_WEIGHTS = {
-    "xgboost": 0.25,
-    "lightgbm": 0.25,
-    "logistic": 0.20,
-    "randomforest": 0.15,
-    "mlp": 0.15,
+    "xgboost": 1 / 3,
+    "lightgbm": 1 / 3,
+    "logistic": 1 / 3,
 }
 
 # Adaptive blend: softmax over pooled OOF AUC edges (MLB-mirrored, tuned for
 # the wider AUC spread an NFL season produces). FLOOR keeps members alive;
 # CAP prevents domination.
-ADAPTIVE_WEIGHT_METRIC = "auc"
+ADAPTIVE_WEIGHT_METRIC = "logloss"
 ADAPTIVE_WEIGHT_TEMPERATURE = 0.015
 ADAPTIVE_WEIGHT_FLOOR = 0.05
 ADAPTIVE_WEIGHT_CAP = 0.45

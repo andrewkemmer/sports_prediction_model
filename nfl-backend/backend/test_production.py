@@ -334,7 +334,7 @@ check("calibration metrics keys",
 
 # ---------------------------------------------------------------------------
 print("\n== 8. Dependency-isolation tests ==")
-src = {p.name: p.read_text() for p in BACKEND_DIR.glob("*.py")}
+src = {p.name: p.read_text(encoding="utf-8") for p in BACKEND_DIR.glob("*.py")}
 obsolete_modules = [
     "nfl_margin_engine", "nfl_joint_engine", "nfl_market_engine",
     "nfl_slate_engine", "nfl_sigma_layer", "nfl_per_side_engine",

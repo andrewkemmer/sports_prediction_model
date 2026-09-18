@@ -121,9 +121,12 @@ with warnings_as_errors():
               False, f"error: {exc}")
 
 core_n = int((pd.to_numeric(feats["season"]) >= config.OOF_FIRST_SEASON).sum())
-check("OOF rows == core-season games (warmup never evaluated)",
-      oof is not None and len(oof) == core_n,
-      f"oof={len(oof) if oof is not None else None} core={core_n}")
+# Ordinary under-minimum calendar windows are intentionally skipped; the
+# accepted OOF population is the union of the generated fold validation rows.
+expected_oof_n = int(ml["fold_table"]["n_val"].sum()) if ml and len(ml.get("fold_table", [])) else 0
+check("OOF rows match accepted fold population (warmup never evaluated)",
+      oof is not None and len(oof) == expected_oof_n,
+      f"oof={len(oof) if oof is not None else None} accepted={expected_oof_n} core={core_n}")
 p_cols = [f"p_{n}" for n in config.ENSEMBLE_MEMBERS]
 check("all member probability columns present",
       oof is not None and all(c in oof.columns for c in p_cols))

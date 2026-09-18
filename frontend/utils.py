@@ -491,7 +491,7 @@ class _ArtifactMiss(Exception):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_bytes_positive(relpath: str, sport: str, owner: str, repo: str,
-                          branch: str):
+                          branch: str, cache_buster: str = ""):
     """POSITIVE-only artifact fetch cache (sport is in the cache key).
 
     Returns ``(bytes, source)`` on success and RAISES :class:`_ArtifactMiss`
@@ -518,13 +518,14 @@ def _fetch_bytes_positive(relpath: str, sport: str, owner: str, repo: str,
 
 @st.cache_data(ttl=_NEG_TTL_SECONDS, show_spinner=False)
 def _fetch_bytes_with_negative_cache(relpath: str, sport: str, owner: str,
-                                     repo: str, branch: str):
+                                     repo: str, branch: str,
+                                     cache_buster: str = ""):
     """The caller-facing fetch: successes live 300s (positive cache), misses
     only :data:`_NEG_TTL_SECONDS` (this cache). During a post-push CDN-lag
     window a miss self-heals within seconds instead of pinning the dead-end
     empty state for the full five minutes (the 2026-09-14 outage)."""
     try:
-        return _fetch_bytes_positive(relpath, sport, owner, repo, branch)
+        return _fetch_bytes_positive(relpath, sport, owner, repo, branch, cache_buster)
     except _ArtifactMiss:
         return None, "missing"
 
@@ -535,7 +536,12 @@ def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str,
     Returns (bytes | None, source); the sport is resolved here and forwarded
     to the cached impl so the cache key is sport-specific."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    return _fetch_bytes_with_negative_cache(relpath, s, owner, repo, branch)
+    local = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery" / relpath
+    try:
+        cache_buster = str(local.stat().st_mtime_ns)
+    except OSError:
+        cache_buster = "missing"
+    return _fetch_bytes_with_negative_cache(relpath, s, owner, repo, branch, cache_buster)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1471,9 +1477,11 @@ def load_prediction_history(date_str: str,
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = "predictions_history" if s == "mlb" else "nfl_predictions_history"
     cfg = get_source_config()
-    data, src = _fetch_bytes(f"{prefix}_{_pick_date(date_str)}.csv",
+    picked = _pick_artifact_date(date_str, prefix)
+    data, src = _fetch_bytes(f"{prefix}_{picked}.csv",
                              **cfg, sport=s)
     st.session_state["data_source"] = src
+    st.session_state["prediction_history_date"] = picked
     if data is None:
         return pd.DataFrame()
     return pd.read_csv(io.BytesIO(data))

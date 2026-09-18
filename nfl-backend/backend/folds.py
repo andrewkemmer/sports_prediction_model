@@ -7,8 +7,8 @@ Geometry (spec section 6):
   - training expands over time; the final partial window is retained
   - 2018 is warmup only: it appears in training sets (strictly-prior state)
     but never in a validation window
-  - no arbitrary minimum validation-game-count filter — every legitimate
-    window with eligible games is a fold
+  - ordinary validation windows with fewer than MIN_VAL_FOLD_GAMES games are
+    skipped; the final partial tail is retained so newest games remain visible
 
 A fold is a (fold_id, val_start, val_end, train_idx, val_idx) tuple over the
 row order of the caller's frame; callers must pass chronologically sorted
@@ -46,6 +46,7 @@ def make_folds(df: pd.DataFrame,
     Training is every eligible row STRICTLY BEFORE ``val_start``.
     """
     cadence = cadence_days or config.RETRAIN_CADENCE_DAYS
+    min_val_games = getattr(config, "MIN_VAL_FOLD_GAMES", 15)
     if date_col not in df.columns:
         raise KeyError(f"make_folds: missing date column {date_col!r}")
     dates = pd.to_datetime(df[date_col], errors="coerce")
@@ -67,7 +68,8 @@ def make_folds(df: pd.DataFrame,
         val_mask = (core_mask & (dates >= win_start)
                     & (dates <= win_end + pd.Timedelta(hours=23, minutes=59, seconds=59)))
         val_idx = df.index[val_mask]
-        if len(val_idx):
+        is_final_window = win_end >= d_max
+        if len(val_idx) and (len(val_idx) >= min_val_games or is_final_window):
             train_mask = dates < win_start
             train_idx = df.index[train_mask]
             folds.append(Fold(fold_id=fold_id, val_start=win_start,

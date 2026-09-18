@@ -340,7 +340,7 @@ token = token or CONFIG.get("github_token", "")
 sync_dir = Path("/content/mlb_sync_tmp")
 # Race-resilient push machinery (lives in github_sync so it is importable
 # and unit-testable — master_pipeline is a run-once script).
-from github_sync import push_with_retry, sync_remote_tip
+from github_sync import push_with_retry, sync_remote_tip, verify_pushed_paths
 
 def _git_push_confirmed(repo, branch: str) -> None:
     """Single-shot push kept for compatibility; raises on rejection.
@@ -374,7 +374,7 @@ seen: set[str] = set()
 staged_srcs: dict[str, Path] = {}  # rel -> local source, for push retries
 
 if not token:
-    print("  ⏭️  No token — skipping push and cleanup")
+    raise RuntimeError("MLB artifact delivery requires a GitHub token; refusing to skip synchronization")
 else:
     try:
         repo = _open_sync_repo(token, sync_dir)
@@ -444,11 +444,13 @@ else:
             repo.index.commit(f"Update MLB features + predictions: {ts}")
             push_with_retry(repo, CONFIG["github_branch"],
                             restage=_restage_artifacts, log=print)
-            print(f"  ✅ Pushed {len(staged)} files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
+            verify_pushed_paths(repo, CONFIG["github_branch"], staged)
+            print(f"  ✅ Pushed and remotely verified {len(staged)} files — confirmed on {CONFIG['github_repo']}@{CONFIG['github_branch']}")
         else:
             print("  ⏭️  Nothing new to push")
     except Exception as e:
-        print(f"  ❌ {e}")
+        print(f"  ❌ Artifact delivery failed: {e}")
+        raise RuntimeError("MLB artifact delivery did not complete; refusing to report a successful pipeline run") from e
 
 # ── Phase 6: Stale artifact cleanup — LAST step, after push confirmed ──────
 # data_delivery/ on GitHub must contain ONLY this run's refreshed files.
