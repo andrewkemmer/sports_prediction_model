@@ -505,6 +505,8 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
         )
 
     git("remote", "set-url", "origin", auth_url)
+    git("config", "user.name", os.environ.get("GIT_USER_NAME", "NFL Production Pipeline"))
+    git("config", "user.email", os.environ.get("GIT_USER_EMAIL", "nfl-pipeline@users.noreply.github.com"))
     last_error = None
     for attempt in range(1, 4):
         try:
