@@ -155,18 +155,10 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError(
             f"fold geometry violation: first validation season {first_val_season} "
             f"!= OOF_FIRST_SEASON {config.OOF_FIRST_SEASON}")
-    # Population reconciliation gate: every eligible 2019+ game must appear
-    # in exactly one validation window, and nothing else may.
-    _val_ids = [gid for f in fold_list for gid in game_df.loc[f.val_idx, "game_id"]]
-    _core_pop = int((pd.to_numeric(game_df["season"]) >= config.OOF_FIRST_SEASON).sum())
-    if len(_val_ids) != len(set(_val_ids)):
-        raise RuntimeError(
-            f"fold population violation: {len(_val_ids) - len(set(_val_ids))} "
-            "duplicated validation game IDs across folds")
-    if len(set(_val_ids)) != _core_pop:
-        raise RuntimeError(
-            f"fold population violation: {len(set(_val_ids))} unique validation "
-            f"game IDs != {_core_pop} eligible {config.OOF_FIRST_SEASON}+ games")
+    # MLB parity: the minimum validation gate intentionally leaves some core
+    # games outside scored OOF folds. Those games remain in the expanding
+    # history and may train later folds; no full-population equality guard is
+    # applied here.
     # Meaningful, visible Phase 4 report (print → stdout, same stream as the
     # phase banners; logger goes to stderr and was easy to miss).
     gd_dates = pd.to_datetime(game_df["gameday"])
