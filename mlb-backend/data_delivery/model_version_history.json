@@ -1,28 +1,5 @@
 [
   {
-    "version": "v2026.08.29",
-    "date": "2026-08-29",
-    "weights": {
-      "xgboost": 0.45,
-      "lightgbm": 0.1488,
-      "logistic": 0.1711,
-      "randomforest": 0.17,
-      "mlp": 0.0601
-    },
-    "auc": 0.5663,
-    "brier": 0.245,
-    "logloss": 0.683,
-    "ece": 0.0058,
-    "brier_calibrated": 0.2455,
-    "logloss_calibrated": 0.6841,
-    "ece_calibrated": 0.0064,
-    "calibration": {
-      "a": 0.965844,
-      "b": 0.014547,
-      "n": 6480
-    }
-  },
-  {
     "version": "v2026.08.30",
     "date": "2026-08-31",
     "weights": {
@@ -453,6 +430,29 @@
       "a": 1.266224,
       "b": -0.014554,
       "n": 6739
+    }
+  },
+  {
+    "version": "v2026.09.18",
+    "date": "2026-09-18",
+    "weights": {
+      "xgboost": 0.4051,
+      "lightgbm": 0.2826,
+      "elasticnet": 0.3123
+    },
+    "auc": 0.5721,
+    "brier": 0.244,
+    "logloss": 0.6809,
+    "ece": 0.0107,
+    "brier_calibrated": 0.2437,
+    "logloss_calibrated": 0.6801,
+    "ece_calibrated": 0.012,
+    "calibration": {
+      "a": 1.56164,
+      "b": -0.101834,
+      "n": 6748,
+      "method": "favored_platt_floor",
+      "floor": 0.5
     }
   }
 ]
