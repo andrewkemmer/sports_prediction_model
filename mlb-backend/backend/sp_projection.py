@@ -57,7 +57,9 @@ def projection_components_present(games: pd.DataFrame,
     """True when every component the producer needs (per side) exists in the
     frame. Guards the production attach seam so a frame that never carried
     the Statcast-derived trailing components (synthetic fixtures, a fresh
-    cold-start frame) degrades to the legacy view instead of raising."""
+    cold-start frame) continues without optional projection inputs instead of
+    raising."""
+
     sides = ("home", "away") if side is None else (side,)
     for s in sides:
         lo, hi = _side_components(s)

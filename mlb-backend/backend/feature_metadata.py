@@ -102,8 +102,8 @@ _RICH: dict[str, dict[str, str]] = {
     # S-family features left MONEYLINE_FEATURE_COLS): sp_k9_diff, sp_k9_5g_diff,
     # sp_fbpct_diff, sp_whiff_diff, sp_xwoba_diff, sp_xwoba_vs_l_diff.
     # Their authored dashboard entries were removed (the dashboard only
-    # renders MONEYLINE_FEATURE_COLS members); the columns are still generated in the
-    # dataset and remain run-engine λ-view inputs (RUN_LAMBDA_VIEW_FROZEN).
+    # renders MONEYLINE_FEATURE_COLS members); the columns remain generated in
+    # the dataset but are no longer part of the active run-engine contract.
     # ---- SP trailing-3 stuff diffs ----------------------------------------
     "sp_fbvelo_diff": {
         "summary": "Home SP fastball velo (last 3 starts) − away SP (mph)",

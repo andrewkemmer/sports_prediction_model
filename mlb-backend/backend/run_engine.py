@@ -26,8 +26,8 @@ decided frame + slate before the walk/pricing; build_side_frame appends it
 per side when present. The margin-walk gate that ADOPTED P1 measured sealed
 margin CRPS 2.53856 -> 2.51736 and P(win) SD 0.0409 -> 0.0546 with totals /
 covers ECE within tolerance. SP compression (~0.38 sextile ratio) stays
-capped by design — the binary moneyline owns SP-mismatch pricing. The
-legacy view is preserved exactly whenever the frame lacks the columns.
+capped by design — the binary moneyline owns SP-mismatch pricing. If projection components are unavailable, the run engine continues with the
+active moneyline feature contract without the optional projection columns.
 """
 from __future__ import annotations
 
@@ -154,10 +154,10 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     (2026-08-30 restore); run_margin_diff, the 5 composites, and any other
     new _diff column are still dropped. Everything else flows in automatically
     (new level/env features included without touching this file). Returns both
-    lists so callers log the drops. NOTE: since the 2026-09-07 exp2 E/F
-    replacement, the moneyline list is 61 cols and the rule over it yields 47
-    kept — the PRODUCTION view is the frozen 55-col RUN_LAMBDA_VIEW_FROZEN
-    (see below), not this derivation.
+    lists so callers log the drops. Production no longer uses this legacy
+    derivation; the run engine resolves the active moneyline feature list
+    directly at call time.
+
     """
     run_feats, dropped = [], []
     for f in feature_cols:
@@ -177,52 +177,9 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
     return run_feats, dropped
 
 
-# FROZEN run-engine λ view (2026-09-07): the moneyline MONEYLINE_FEATURE_COLS correction
-# (Experiment #2 E/F replacement — the 6 baseline S-family features left the
-# moneyline list) must NOT shrink the run engine's model inputs. These two
-# tuples are byte-identical to derive_run_features(MONEYLINE_FEATURE_COLS) as of the
-# 2026-08-30 keep-list restore (53 kept / 14 dropped), captured before the
-# correction. build_side_frame defaults to this pinned view so NB pricing
-# behavior (alpha(lambda), Monte Carlo scoring, derive_markets_mc) is
-# invariant to moneyline feature-list changes. Ablation arms can still pass
-# run_features/dropped explicitly to exercise other views.
-# 2026-09-16 closer-pair addition: closer_available_home/away join the view
-# (ablation run_engine_closer_ablation_20260916_1917.json — paired per-game
-# deviance: home −0.0019 @ 0.9σ better, away flat, total-runs RMSE better;
-# structural: closer_availability_diff conflates both-closers-available with
-# both-out, so side models cannot see a depleted bullpen state).
-RUN_LAMBDA_VIEW_FROZEN: tuple[str, ...] = (
-    "is_home", "win_pct_diff", "elo_diff", "rest_days_diff",
-    "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
-    "sp_fbvelo_diff", "sp_fbpct_diff", "sp_whiff_diff", "sp_xwoba_diff",
-    "sp_xwoba_vs_l_diff", "lineup_woba_mean_diff", "lineup_woba_top3_diff",
-    "lineup_woba_std_diff", "woba_30g_diff", "bullpen_whip_diff",
-    "bullpen_whip_3g_diff", "bullpen_pitches_diff", "team_barrel_diff",
-    "team_hardhit_diff", "team_exitvelo_diff", "travel_fatigue_diff",
-    "closer_availability_diff", "closer_available_home",
-    "closer_available_away", "dome_is_neutral", "park_factor_slug_diff",
-    "wind_advantage_flyball_factor", "air_density_velocity_boost",
-    "home_elo", "away_elo", "home_win_pct", "away_win_pct",
-    "sp_era_home", "sp_era_away", "sp_k9_home", "sp_k9_away",
-    "sp_xwoba_home", "sp_xwoba_away",
-    "lineup_woba_mean_home", "lineup_woba_mean_away",
-    "lineup_woba_top3_home", "lineup_woba_top3_away",
-    "woba_30g_home", "woba_30g_away",
-    "bullpen_whip_10g_home", "bullpen_whip_10g_away",
-    "bullpen_whip_3g_home", "bullpen_whip_3g_away",
-    "team_barrel_15g_home", "team_barrel_15g_away",
-    "team_exitvelo_15g_home", "team_exitvelo_15g_away",
-)
-RUN_LAMBDA_DROPPED_FROZEN: tuple[str, ...] = (
-    "lineup_handedness_matchup_advantage", "bullpen_meltdown_risk",
-    "pitcher_regression_indicator", "lineup_depth_multiplier",
-    "ace_efficiency_factor", "run_margin_diff",
-    "exp2_centered_k_diff", "exp2_cat_k_fastball_diff",
-    "exp2_cat_k_breaking_diff", "exp2_cat_k_offspeed_diff",
-    "exp2_cat_xwoba_fastball_diff", "exp2_cat_xwoba_breaking_diff",
-    "exp2_cat_xwoba_offspeed_diff", "exp2_cat_platoon_k_fastball_diff",
-)
-assert len(RUN_LAMBDA_VIEW_FROZEN) == 55 and len(RUN_LAMBDA_DROPPED_FROZEN) == 14
+# The run engine has one feature contract: the active moneyline list. It is
+# resolved at call time so adopted RFE additions/removals automatically apply
+# to expected-run fitting, run-line pricing, and monitoring.
 
 
 def split_side_view(run_features: list[str],
@@ -246,6 +203,7 @@ def build_side_frame(games: pd.DataFrame, side: str,
                      run_features: Optional[list[str]] = None,
                      dropped: Optional[list[str]] = None,
                      include_level_env: bool = True,
+                     strict_feature_parity: bool = False,
                      ) -> tuple[pd.DataFrame, list[str]]:
     """Materialize the side's model frame (levels + environment), preserving
     NaN (LightGBM routes it natively). Logs the derivation once per call.
@@ -254,14 +212,18 @@ def build_side_frame(games: pd.DataFrame, side: str,
     (ablation variant A); present-in-frame level features otherwise append
     automatically, with any missing source warned loudly."""
     feats = list(run_features) if run_features is not None else None
-    if feats is None or dropped is None:
-        # Default: the FROZEN 2026-08-30 λ view (see RUN_LAMBDA_VIEW_FROZEN).
-        # NOT re-derived from the live MONEYLINE_FEATURE_COLS — the moneyline list may
-        # change (e.g. the exp2 E/F replacement) without run-engine sign-off.
-        feats = list(RUN_LAMBDA_VIEW_FROZEN)
-        dropped = list(RUN_LAMBDA_DROPPED_FROZEN)
-        logger.info("Run engine: %d frozen-view features kept; dropped %d: %s",
-                    len(feats), len(dropped), dropped)
+    if strict_feature_parity or (feats is None and dropped is None):
+        # Synchronization contract: every production run model receives exactly
+        # the active moneyline feature list. Resolve it at call time so adopted
+        # RFE additions/removals automatically affect run-line serving.
+        from training import active_moneyline_feature_cols
+        feats = list(active_moneyline_feature_cols())
+        dropped = []
+        include_level_env = False
+        logger.info("Run engine: active moneyline feature view (%d features)",
+                    len(feats))
+    elif feats is None:
+        raise ValueError("run_features and dropped must be supplied together")
     if include_level_env:
         present = [c for c in RUN_LEVEL_ENV_FEATURES if c in games.columns]
         missing = [c for c in RUN_LEVEL_ENV_FEATURES if c not in games.columns]
@@ -273,23 +235,20 @@ def build_side_frame(games: pd.DataFrame, side: str,
         feats = feats + present
     else:
         logger.info("Run engine: env-level features EXCLUDED (ablation arm A)")
-    side_cols, env_cols = split_side_view(feats, side)
-    cols = side_cols + env_cols
-    # P1 projection input (adoption 2026-09-05, gate 7e4c529 ADOPT): each
-    # side-scoring model receives the OPPOSING starter's projection level
-    # (sp_proj_era_<opp> — the b7eed32/3108bb0 composite producer) in the
-    # slot the measured arm added it. Appended ONLY when the frame carries
-    # the column (attach_projection_levels is the producer seam) so every
-    # C0/legacy caller whose frame has no sp_proj_* columns keeps the exact
-    # pre-adoption view (byte-identical col list). The _diff gap features in
-    # the shared env (incl. sp_era_diff) are untouched — the arm added the
-    # level, it did not swap the gap.
-    opp = "away" if side == "home" else "home"
-    proj_col = f"sp_proj_era_{opp}"
-    if proj_col in games.columns and proj_col not in cols:
-        cols = list(cols) + [proj_col]
-        logger.info("Run engine: %s view += P1 projection opponent level %s",
-                    side, proj_col)
+    if strict_feature_parity:
+        # Do not apply the legacy side/level/environment split in parity mode:
+        # both home and away run regressors receive the same 62 named columns.
+        cols = list(feats)
+    else:
+        side_cols, env_cols = split_side_view(feats, side)
+        cols = side_cols + env_cols
+        # Legacy P1 projection input: appended only outside strict parity mode.
+        opp = "away" if side == "home" else "home"
+        proj_col = f"sp_proj_era_{opp}"
+        if proj_col in games.columns and proj_col not in cols:
+            cols = list(cols) + [proj_col]
+            logger.info("Run engine: %s view += P1 projection opponent level %s",
+                        side, proj_col)
     frame = games.reindex(columns=cols).astype(float)
     return frame, cols
 
@@ -313,8 +272,9 @@ def attach_projection_levels(
     never fit on itself; a slate row is transformed with the decided-frame
     fit exactly like the OOF rows the walk prices.
 
-    Degrades gracefully (loud log, legacy view) when the frame lacks the
-    producer's component columns (synthetic fixtures / cold-start frame) or
+    Degrades gracefully (loud log, without optional projection inputs) when the
+    frame lacks the producer's component columns (synthetic fixtures /
+    cold-start frame) or
     the pre pool is too thin to fit — this function must never take down
     Phase 3. When the columns are already present (re-entry) the fit is
     recomputed deterministically on the same rows, so it is idempotent.
@@ -335,7 +295,7 @@ def attach_projection_levels(
         meta["reason"] = ("projection component columns absent from the "
                            "decided frame")
         logger.warning("Run engine: P1 projection input NOT attached (%s) — "
-                       "pricing the legacy view", meta["reason"])
+                       "continuing without optional projection inputs", meta["reason"])
         return decided, slate, meta
     orig_decided, orig_slate = decided, slate
     try:
@@ -350,7 +310,7 @@ def attach_projection_levels(
     except Exception as exc:
         meta["reason"] = f"{type(exc).__name__}: {exc}"
         logger.warning("Run engine: P1 projection input NOT attached (%s) — "
-                       "pricing the legacy view", meta["reason"])
+                       "continuing without optional projection inputs", meta["reason"])
         return orig_decided, orig_slate, meta
     cov = {s: round(float(decided[f"sp_proj_era_{s}"].notna().mean()), 4)
            for s in ("home", "away")}
@@ -409,6 +369,7 @@ def dispersion_ratio(y: np.ndarray, lam: np.ndarray) -> float:
 def run_oof(games: pd.DataFrame,
             retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
             min_val_games: int = MIN_VAL_FOLD_GAMES,
+            min_train_days: int = 30,
             include_level_env: bool = True,
             run_features: Optional[list[str]] = None,
             dropped: Optional[list[str]] = None,
@@ -416,8 +377,11 @@ def run_oof(games: pd.DataFrame,
             ) -> dict[str, Any]:
     """Walk-forward OOF for both side models on the moneyline pipeline's folds.
 
-    ``run_features`` / ``dropped`` override the derived keep-list (ablation
-    arms B/C/REF exercise the full 58-col view); None → derive_run_features.
+    The 30-day warm-up default matches master_pipeline's moneyline training
+    contract; changing it changes the shared OOF population.
+
+    ``run_features`` / ``dropped`` are optional explicit overrides for controlled
+    experiments; when omitted, production resolves the active moneyline list.
     ``decided_snapshot``: pre-computed decided frame (from frames.get_decided_frame)
     captured ONCE after official results, before slate merge.  When provided,
     skips re-derivation from the caller's ``games`` object so the OOF folds
@@ -426,21 +390,24 @@ def run_oof(games: pd.DataFrame,
     concatenation, weather, or dome refinement.
     Returns rows (one per decided game), per-side metrics, baseline metrics,
     and the dispersion probe."""
-    from training import walk_forward_splits
+    from training import canonical_walk_forward_splits
 
-    games = (decided_snapshot.copy() if decided_snapshot is not None
-             else get_decided_frame(games))
-    folds = [
-        s for s in walk_forward_splits(games, retrain_cadence_days=retrain_cadence_days)
-        if len(s["val_games"]) >= min_val_games
-    ]
+    source = (decided_snapshot.copy() if decided_snapshot is not None
+              else games)
+    games, folds = canonical_walk_forward_splits(
+        source, retrain_cadence_days=retrain_cadence_days,
+        max_eval_folds=0, min_train_days=min_train_days,
+        min_val_games=min_val_games,
+    )
     logger.info("Run engine: %d walk-forward folds, %d decided games",
                 len(folds), len(games))
 
     frames = {
         side: build_side_frame(games, side, run_features=run_features,
                                dropped=dropped,
-                               include_level_env=include_level_env)
+                               include_level_env=include_level_env,
+                               strict_feature_parity=(run_features is None
+                                                      and dropped is None))
         for side in ("home", "away")}
     params = dict(RUN_LGBM_PARAMS)
 
@@ -487,7 +454,14 @@ def run_oof(games: pd.DataFrame,
         out_rows.extend(pd.DataFrame(rec_base).to_dict(orient="records"))
 
     oof = pd.DataFrame(out_rows).sort_values(["game_date", "game_pk"])
-    summary: dict[str, Any] = {"n_folds": len(folds), "n_games": len(oof)}
+    from training import active_moneyline_feature_cols
+    summary: dict[str, Any] = {"n_folds": len(folds), "n_games": len(oof),
+                               "feature_contract": {
+                                   "mode": "strict_active_moneyline",
+                                   "n_features": len(active_moneyline_feature_cols()),
+                                   "feature_cols": list(active_moneyline_feature_cols()),
+                               },
+                               "postseason_policy": "include"}
     # Median early-stopped rounds per side → fixed round count for the final
     # all-data slate models (predict_slate_runs).
     summary["final_fit_rounds"] = {
@@ -1925,7 +1899,8 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         if tc in slate_games.columns:
             out[tc] = slate_games[tc]
     for side in ("home", "away"):
-        _, cols = build_side_frame(decided_games, side)
+        _, cols = build_side_frame(decided_games, side,
+                                   strict_feature_parity=True)
         tr = decided_games.reindex(columns=cols).astype(float)
         model = LGBMRegressor(**RUN_LGBM_PARAMS)
         model.set_params(n_estimators=int(final_fit_rounds[side]))
@@ -2025,7 +2000,8 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     # sp_proj_era level to the decided frame and to today's slate rows with
     # the same decided-fit stats BEFORE the OOF walk and slate pricing, so
     # both sides of the board price the P1 view. Unattached (cold-start /
-    # component-less frame) falls back to the legacy view with a loud log.
+    # component-less frame) continues with the active moneyline feature contract
+    # and logs that optional projection inputs were unavailable.
     decided, slate_ready, _proj = attach_projection_levels(
         decided, slate=target_games.copy())
     result = run_oof(decided, decided_snapshot=decided)

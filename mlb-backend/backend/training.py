@@ -275,8 +275,7 @@ MONEYLINE_FEATURE_COLS = [
     # an output-list change: the column stays COMPUTED and drift-monitored
     # (the attach guards in pipeline.py / training.py key on MARGIN_COL
     # membership and now skip cleanly), and the run engine's NB pricing is
-    # untouched (RUN_LAMBDA_VIEW_FROZEN never contained this column - it is
-    # in RUN_LAMBDA_DROPPED_FROZEN). The live adopted RFE subset was re-issued
+    # untouched. The live adopted RFE subset was re-issued
     # 62-col alongside this edit so apply_adopted_subset() keeps validating
     # (an out-of-pool name rejects the WHOLE state at startup, which would
     # silently drop the shipped closer pair from serving width). Width
@@ -521,6 +520,32 @@ def walk_forward_splits(
         splits = splits[-max_eval_folds:]
 
     return splits
+
+
+def canonical_walk_forward_splits(
+    games: pd.DataFrame,
+    retrain_cadence_days: int = RETRAIN_CADENCE_DAYS,
+    max_eval_folds: int = 0,
+    min_train_days: int = 0,
+    min_val_games: int = MIN_VAL_FOLD_GAMES,
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Return the shared decided frame and production OOF folds.
+
+    This is the synchronization contract for moneyline, totals, and run
+    engine evaluations: canonical post-game identity filtering, expanding
+    weekly windows, and the same minimum-validation rule. Postseason games
+    are intentionally included because that is the current moneyline policy;
+    there is no season-type filter in the canonical source frame.
+    """
+    decided = get_decided_frame(games).copy()
+    all_splits = walk_forward_splits(
+        decided, retrain_cadence_days=retrain_cadence_days,
+        max_eval_folds=max_eval_folds, min_train_days=min_train_days,
+    )
+    kept = [s for s in all_splits
+            if len(s["val_games"]) >= min_val_games
+            or s.get("is_partial_tail", False)]
+    return decided, kept
 
 
 # ── Metrics ─────────────────────────────────────────────────────────────────

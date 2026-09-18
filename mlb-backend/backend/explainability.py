@@ -717,40 +717,23 @@ def compute_feature_coverage(
 
 
 # ---------------------------------------------------------------------------
-# Run-engine feature view (additive — moneyline drift/coverage untouched)
+# Run-engine feature view (same dynamic contract as moneyline)
 # ---------------------------------------------------------------------------
 
+
 def run_engine_feature_cols() -> list[str]:
-    """The run engine's full input view for drift/coverage monitoring.
+    """Return the active run-engine inputs used by production monitoring.
 
-    Base: the FROZEN run-engine λ view (RUN_LAMBDA_VIEW_FROZEN — 55 cols,
-    byte-identical to the 2026-08-30 restore contract plus the 2026-09-16
-    closer-pair addition; pinned so the 2026-09-07 moneyline
-    MONEYLINE_FEATURE_COLS correction does not shrink the monitored set).
-    Plus: sp_proj_era_home and sp_proj_era_away — the P1 projection level
-    (adopted 2026-09-05, gate 7e4c529 ADOPT) that build_side_frame appends
-    per side at runtime (home view gets sp_proj_era_away, away view gets
-    sp_proj_era_home). These are model inputs but are NOT in MONEYLINE_FEATURE_COLS
-    (they are runtime-attached, not raw features), so derive_run_features
-    never sees them. Added here explicitly so the drift/coverage tables
-    monitor every model-input column — the gap that existed before this
-    fix is documented in mlb_run_engine_proj_drift_monitoring_*.json.
-
-    Deferred import avoids a cycle.
+    The run engine and binary moneyline share one dynamically resolved feature
+    contract. This keeps PSI and coverage aligned automatically when the active
+    moneyline RFE subset changes. Deferred import avoids a module cycle.
     """
-    from run_engine import RUN_LAMBDA_DROPPED_FROZEN, RUN_LAMBDA_VIEW_FROZEN
-    feats, dropped = list(RUN_LAMBDA_VIEW_FROZEN), list(RUN_LAMBDA_DROPPED_FROZEN)
-    # P1 projection level inputs (runtime-attached by build_side_frame /
-    # attach_projection_levels). Both sides' models consume one opponent
-    # projection each, so both columns are model inputs and belong in the
-    # monitored set.
-    proj_cols = ["sp_proj_era_home", "sp_proj_era_away"]
-    feats = list(feats) + [c for c in proj_cols if c not in feats]
-    logger.info(
-        "Run-engine drift view: %d frozen-view features kept (incl. %d P1 proj); "
-        "dropped %d", len(feats), len(proj_cols),
-        len(dropped))
+    from training import active_moneyline_feature_cols
+    feats = list(active_moneyline_feature_cols())
+    logger.info("Run-engine monitoring view: %d active moneyline features",
+                len(feats))
     return feats
+
 
 
 def compute_run_engine_feature_drift(
