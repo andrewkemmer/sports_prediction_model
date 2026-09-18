@@ -96,14 +96,14 @@ MLP_FEATURES = LINEAR_FEATURES
 # ---------------------------------------------------------------------------
 # Ensemble members (moneyline) — NFL-specific hyperparameters
 # ---------------------------------------------------------------------------
-ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "logistic"]
+ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 
 # Fallback prior weights; replaced by adaptive OOF-derived weights when
 # available (see models.moneyline).
 ENSEMBLE_WEIGHTS = {
     "xgboost": 1 / 3,
     "lightgbm": 1 / 3,
-    "logistic": 1 / 3,
+    "elasticnet": 1 / 3,
 }
 
 # Adaptive blend: softmax over pooled OOF AUC edges (MLB-mirrored, tuned for
@@ -138,9 +138,12 @@ LIGHTGBM_PARAMS = {
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
-LOGISTIC_PARAMS = {
-    "C": 0.5,
-    "max_iter": 2000,
+ELASTICNET_PARAMS = {
+    "penalty": "elasticnet",
+    "l1_ratio": 0.5,
+    "C": 0.03,
+    "solver": "saga",
+    "max_iter": 4000,
     "random_state": RANDOM_SEED,
 }
 RF_PARAMS = {

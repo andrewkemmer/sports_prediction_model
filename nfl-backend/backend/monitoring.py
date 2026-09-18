@@ -68,7 +68,7 @@ def feature_importance_weights(models: dict,
     """Return blend-weighted importance for each served feature.
 
     Tree members expose feature_importances_ on the named tree-view
-    columns; the standardized logistic member exposes coef_ on the
+    columns; the standardized elastic-net member exposes coef_ on the
     linear-view columns. Each member is normalized before its causal ensemble
     weight is applied, then the served-feature totals are normalized again.
     This is monitoring metadata only and never changes model fitting or

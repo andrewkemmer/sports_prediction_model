@@ -347,12 +347,8 @@ ENSEMBLE_DESCRIPTIONS = {
     "elasticnet": (
         "Elastic-net logistic (50/50 L1/L2 mix, C=0.03) over the standardized "
         "diff-feature slice — the linear-family anchor. The mixed penalty prunes "
-        "redundant correlated features while shrinking the rest; replaced plain-L2 "
-        "logistic in 2026-09 after the member-audit program (~6σ better OOF)."
-    ),
-    "logistic": (
-        "(Legacy seat) plain-L2 logistic — replaced by the elastic-net member; "
-        "kept routable so cached bundles serve until the next retrain."
+        "redundant correlated features while shrinking the rest; strongly "
+        "regularized after the member-audit program (~6σ better OOF)."
     ),
     "randomforest": (
         "(Legacy seat) bagged trees — removed from the 2026-09 roster; kept "
@@ -483,7 +479,7 @@ st.markdown("### Model Version History")
 history = mon.get("version_history", []) or []
 if history:
     _W_ABBR = {
-        "xgboost": "xgb", "lightgbm": "lgb", "logistic": "log",
+        "xgboost": "xgb", "lightgbm": "lgb",
         "elasticnet": "enet", "randomforest": "rf", "mlp": "mlp",
     }
 

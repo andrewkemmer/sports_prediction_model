@@ -16,7 +16,7 @@ Fix contract (mirrors MLB's model-specific routing):
     tree-view DataFrame — one authoritative matrix builder per family
     (moneyline.member_fit_input / features.tree_view), never a raw
     ndarray at one end.
-  * linear members (logistic / MLP) stay on the preprocessor's ndarray at
+  * linear members (elastic-net / MLP) stay on the preprocessor's ndarray at
     both ends (no feature names either way — consistent).
 
 These tests escalate the exact production UserWarning to an ERROR and run
@@ -156,9 +156,9 @@ check("lightgbm fitted with tree-view feature names",
 # the preprocessor ndarray — at BOTH fit and predict.
 check("tree member_fit_input returns named DataFrame",
       isinstance(ml_mod.member_fit_input("lightgbm", X_tr, None), pd.DataFrame))
-pre = ml_mod.TrainFoldPreprocessor().fit(ml_mod.member_matrix("logistic", train))
-lin_in = ml_mod.member_fit_input("logistic",
-                                 ml_mod.member_matrix("logistic", train), pre)
+pre = ml_mod.TrainFoldPreprocessor().fit(ml_mod.member_matrix("elasticnet", train))
+lin_in = ml_mod.member_fit_input("elasticnet",
+                                 ml_mod.member_matrix("elasticnet", train), pre)
 check("linear member_fit_input returns ndarray", isinstance(lin_in, np.ndarray))
 check("linear ndarray width == linear_view width",
       lin_in.shape[1] == len(lin_cols))

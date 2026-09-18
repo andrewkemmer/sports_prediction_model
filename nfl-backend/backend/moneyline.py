@@ -71,9 +71,9 @@ def _make_member(name: str):
     if name == "lightgbm":
         from lightgbm import LGBMClassifier
         return LGBMClassifier(**config.LIGHTGBM_PARAMS)
-    if name == "logistic":
+    if name == "elasticnet":
         from sklearn.linear_model import LogisticRegression
-        return LogisticRegression(**config.LOGISTIC_PARAMS)
+        return LogisticRegression(**config.ELASTICNET_PARAMS)
     if name == "randomforest":
         from sklearn.ensemble import RandomForestClassifier
         return RandomForestClassifier(**config.RF_PARAMS)
@@ -83,7 +83,7 @@ def _make_member(name: str):
     raise KeyError(f"unknown ensemble member {name!r}")
 
 
-LINEAR_MEMBERS = {"logistic", "mlp"}
+LINEAR_MEMBERS = {"elasticnet", "mlp"}
 
 
 def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:

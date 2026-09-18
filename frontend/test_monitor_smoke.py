@@ -118,7 +118,7 @@ def _monitor_record() -> dict:
         "brier_baseline_label": "Constant home-edge",
         "version_history": [
             {"version": ARTIFACT_DATE, "date": "2026-08-31",
-             "weights": {"xgboost": 0.45, "lightgbm": 0.0, "logistic": 0.0,
+             "weights": {"xgboost": 0.45, "lightgbm": 0.0, "elasticnet": 0.0,
                          "randomforest": 0.0, "mlp": 0.0},
              "auc": 0.6911, "logloss": 0.6329, "ece_calibrated": 0.0290,
              "calibration": {"a": 1.233, "b": 0.130}}],

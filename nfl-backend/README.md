@@ -37,8 +37,8 @@ nfl-backend/backend/
   static pre-game attributes. Asserted structurally and tested.
 - **Market independence** — no sportsbook data anywhere: no spreads,
   totals, moneylines, implied probabilities, or edges enter any model.
-- **Moneyline** — XGBoost / LightGBM / Logistic / Random Forest / MLP
-  ensemble; adaptive weights derived from pooled OOF AUC; Platt calibration
+- **Moneyline** — XGBoost / LightGBM / elastic-net logistic
+  ensemble; adaptive weights derived from pooled OOF log loss; Platt calibration
   fit only on OOF predictions; final full-history refit for serving.
 - **Run line** — joint score distribution: per-side mu regressions, margin
   PMF (discrete normal, sigma calibrated on pooled OOF residuals), fair

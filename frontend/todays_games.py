@@ -591,7 +591,7 @@ def _shap_expander(g: pd.Series, date_str: str) -> None:
                 persp = f" · Viewing from {pt}'s perspective"
         st.caption("Positive values increase the favored team's win probability; "
                    "negative decrease it. Averaged across the XGBoost / LightGBM / "
-                   f"Logistic Regression ensemble.{persp}")
+                   f"elastic-net logistic ensemble.{persp}")
 
 
 # ===========================================================================
