@@ -20,10 +20,12 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -456,12 +458,87 @@ def main(argv: list[str] | None = None) -> int:
     }
     (out_dir / "nfl_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))
+
+    # The Kaggle wrapper intentionally remains MLB-shaped: it runs this
+    # pipeline and expects the pipeline itself to deliver data_delivery/.
+    # Sync the complete NFL directory dynamically; Git's existing ignore rules
+    # determine which generated files are production-deliverable.
+    sync_result = _sync_data_delivery(repo_root=BACKEND_DIR.parent.parent)
+    if sync_result["staged_files"]:
+        print(
+            f"NFL artifacts pushed and remotely verified: "
+            f"{len(sync_result['staged_files'])} files"
+        )
+    else:
+        print("NFL artifact sync: nothing new to push")
     return 0
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
+    """Commit and push the complete NFL delivery tree without static file lists.
+
+    The Kaggle launcher is deliberately unchanged from the MLB pattern: the
+    model process owns artifact delivery and raises on a failed push. Only the
+    NFL data_delivery subtree is ever staged; model/training logic is untouched.
+    """
+    delivery_rel = Path("nfl-backend") / "data_delivery"
+    delivery_dir = repo_root / delivery_rel
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("GITHUB_TOKEN is required for NFL artifact delivery")
+    if not delivery_dir.is_dir():
+        raise RuntimeError(f"NFL delivery directory does not exist: {delivery_dir}")
+
+    auth_url = (
+        "https://x-access-token:"
+        f"{quote(token, safe='')}"
+        "@github.com/andrewkemmer/sports_prediction_model.git"
+    )
+    def git(*args: str, capture: bool = False):
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, check=True,
+            capture_output=capture, text=True,
+        )
+
+    git("remote", "set-url", "origin", auth_url)
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            # Stage dynamically; no artifact family names are maintained here.
+            git("reset")
+            git("add", "-A", "--", delivery_rel.as_posix())
+            staged = git("diff", "--cached", "--name-only", capture=True).stdout.splitlines()
+            if any(not p.startswith(f"{delivery_rel.as_posix()}/") for p in staged):
+                raise RuntimeError(f"NFL delivery scope violation: {staged}")
+
+            if staged:
+                git("commit", "-m", "Update NFL production artifacts")
+
+            # The worktree is clean before rebase, so a concurrent push can be
+            # healed without stashing or touching any non-NFL path.
+            git("fetch", "origin", branch)
+            git("rebase", f"origin/{branch}")
+            git("push", "origin", branch)
+            git("fetch", "origin", branch)
+            remote = git(
+                "ls-tree", "-r", "--name-only", f"origin/{branch}",
+                delivery_rel.as_posix(), capture=True,
+            ).stdout.splitlines()
+            if not any(p.startswith(f"{delivery_rel.as_posix()}/") for p in remote):
+                raise RuntimeError("remote NFL delivery directory is empty")
+            return {"staged_files": staged}
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt == 3:
+                break
+            logger.warning("NFL artifact sync attempt %d failed; retrying: %s", attempt, exc)
+    raise RuntimeError(f"NFL artifact delivery failed after 3 attempts: {last_error}")
+
+
 def _team_names() -> dict[str, str]:
     try:
         return ingestion.load_team_names()
