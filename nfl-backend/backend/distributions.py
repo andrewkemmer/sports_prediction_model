@@ -109,17 +109,23 @@ class ScoreRegressor:
     def __init__(self) -> None:
         self.home_model = _make_reg("xgboost")
         self.away_model = _make_reg("lightgbm")
+        self.feature_medians: pd.Series | None = None
 
-    def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        # NaN-safe: trees route NaN natively; guard all-NaN columns by
-        # filling with the training median (fit-time only).
-        Xv = feat_mod.tree_view(df)
-        X = Xv.to_numpy(dtype=np.float64)
-        X = np.where(np.isfinite(X), X, np.nanmedian(X, axis=0))
-        return pd.DataFrame(X, columns=Xv.columns, index=Xv.index)
+    def _matrix(self, df: pd.DataFrame, *, fit: bool = False) -> pd.DataFrame:
+        # Fit medians on the training frame only, then reuse them for the
+        # validation or serving frame. All-NaN training columns use 0.0,
+        # preventing the bare nanmedian warning and keeping the run-line
+        # regressors deterministic without touching moneyline preprocessing.
+        Xv = feat_mod.tree_view(df).astype(float)
+        if fit:
+            self.feature_medians = Xv.median(axis=0, skipna=True).fillna(0.0)
+        if self.feature_medians is None:
+            raise RuntimeError("ScoreRegressor must be fitted before prediction")
+        Xv = Xv.fillna(self.feature_medians)
+        return Xv
 
     def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
-        X = self._matrix(df)
+        X = self._matrix(df, fit=True)
         self.home_model.fit(X, df["home_score"].astype(float).to_numpy())
         self.away_model.fit(X, df["away_score"].astype(float).to_numpy())
         return self

@@ -421,7 +421,9 @@ def main(argv: list[str] | None = None) -> int:
     # ── 14. Monitoring ───────────────────────────────────────────────────
     _banner("PHASE 14", "monitoring")
     recent = game_df.tail(60)
-    drift = monitoring.feature_drift(game_df, recent, weights=weights)
+    feature_weights = monitoring.feature_importance_weights(
+        final_models, weights, feature_frame=game_df)
+    drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
     cov_rows = monitoring.coverage(game_df)
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier

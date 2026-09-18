@@ -17,8 +17,10 @@ import pandas as pd
 
 try:
     from backend import config
+    from backend import features as feat_mod
 except ImportError:
     import config
+    import features as feat_mod
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,51 @@ def _psi(current: np.ndarray, baseline: np.ndarray, n_bins: int = 10) -> float:
     return float(np.sum((pc - pb) * np.log(pc / pb)))
 
 
+def feature_importance_weights(models: dict,
+                               member_weights: dict[str, float],
+                               feature_frame: pd.DataFrame | None = None) -> dict[str, float]:
+    """Return blend-weighted importance for each served feature.
+
+    Tree members expose feature_importances_ on the named tree-view
+    columns; the standardized logistic member exposes coef_ on the
+    linear-view columns. Each member is normalized before its causal ensemble
+    weight is applied, then the served-feature totals are normalized again.
+    This is monitoring metadata only and never changes model fitting or
+    prediction.
+    """
+    importance = {f: 0.0 for f in config.FEATURE_COLUMNS}
+    for name, entry in (models or {}).items():
+        model = entry.get("model") if isinstance(entry, dict) else entry
+        if model is None:
+            continue
+        raw = getattr(model, "feature_importances_", None)
+        if raw is not None:
+            values = np.asarray(raw, dtype=float)
+            # Recreate the exact named tree-view columns used by the final
+            # moneyline fit so importances stay aligned with the model.
+            columns = feat_mod.tree_view(feature_frame if feature_frame is not None
+                                         else pd.DataFrame()).columns.tolist()
+        else:
+            coef = getattr(model, "coef_", None)
+            if coef is None:
+                continue
+            values = np.abs(np.asarray(coef, dtype=float).reshape(-1))
+            columns = list(config.LINEAR_FEATURES)
+        if len(values) != len(columns):
+            continue
+        total = float(np.nansum(values))
+        if not np.isfinite(total) or total <= 0:
+            continue
+        model_weight = float(member_weights.get(name, 0.0))
+        for column, value in zip(columns, values):
+            if column in importance and np.isfinite(value):
+                importance[column] += model_weight * float(value) / total
+    total = sum(importance.values())
+    if total <= 0:
+        return {f: 0.0 for f in config.FEATURE_COLUMNS}
+    return {f: float(v / total) for f, v in importance.items()}
+
+
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
     """PSI per served feature: recent slate window vs full-history baseline.
@@ -72,6 +119,7 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     nothing copied from MLB.
     """
     wmap = weights or {}
+    has_weight_map = weights is not None
     rows = []
     for f in config.FEATURE_COLUMNS:
         if f not in full_df.columns:
@@ -96,7 +144,7 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                        else "WARN" if (np.isfinite(psi) and psi >= PSI_WARN)
                        else "OK"),
             "weight_pct": (round(100.0 * float(wmap.get(f, 0.0)), 2)
-                           if wmap.get(f) else None),
+                           if has_weight_map else None),
             "n_baseline": int(full_df[f].notna().sum()),
             "n_current": int(recent_df[f].notna().sum()) if len(recent_df) else 0,
         })

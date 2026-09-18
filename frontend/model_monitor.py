@@ -38,6 +38,17 @@ def _fmt_date(raw: str) -> str:
         return str(raw) or "—"
 
 
+def _fmt_drift_mean(value) -> str:
+    """Compact four-decimal feature mean, matching the MLB monitor."""
+    try:
+        value = float(value)
+        if pd.isna(value):
+            return "—"
+        return str(round(value, 4))
+    except (TypeError, ValueError):
+        return "—"
+
+
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -142,7 +153,11 @@ st.markdown("### Feature Drift Analysis (PSI Scores)")
 drift = mon.get("feature_drift", [])
 features_metadata = mon.get("features_metadata", {}) or {}
 if drift:
-    has_weights = any(r.get("weight_pct") is not None for r in drift)
+    # NFL's monitor contract includes this column even for older artifacts
+    # that predate feature-importance weights; those legacy cells render as —
+    # until the next NFL pipeline run publishes the values.
+    has_weights = (utils.get_sport() == "nfl"
+                   or any(r.get("weight_pct") is not None for r in drift))
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
     for r in drift:
@@ -173,8 +188,8 @@ if drift:
         rows.append(
             f"<tr>"
             f"<td style='color:#E2E8F0;'>{feature_cell}</td>"
-            f"<td>{r.get('current_mean', '—')}</td>"
-            f"<td>{r.get('baseline_mean', '—')}</td>"
+            f"<td>{_fmt_drift_mean(r.get('current_mean'))}</td>"
+            f"<td>{_fmt_drift_mean(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
