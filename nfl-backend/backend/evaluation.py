@@ -182,6 +182,40 @@ def distribution_metrics(oof: pd.DataFrame,
     return {"run_line": rl, "totals": tt}
 
 
+def nb_distribution_metrics(oof: pd.DataFrame, params: dict,
+                             n_draws: int = 2000) -> dict:
+    """Raw NB/Monte-Carlo OOF metrics at each game's model fair line."""
+    if oof is None or not len(oof):
+        return {"run_line": {"n": 0}, "totals": {"n": 0}}
+    sim = dist_mod.simulate_distributions(
+        oof["mu_h"].to_numpy(float), oof["mu_a"].to_numpy(float),
+        float(params.get("alpha_home", 0.0)),
+        float(params.get("alpha_away", 0.0)), n_draws=n_draws)
+    margin = oof["margin"].to_numpy(float)
+    total = oof["total"].to_numpy(float)
+    p_cover = sim["p_cover_fair"].to_numpy(float)
+    p_over = sim["p_over_fair"].to_numpy(float)
+    fair_s = sim["fair_spread"].to_numpy(float)
+    fair_t = sim["fair_total"].to_numpy(float)
+    ok_m = np.isfinite(p_cover) & (margin != fair_s)
+    ok_t = np.isfinite(p_over) & (total != fair_t)
+    def _metrics(p, y):
+        if not len(p):
+            return {"n": 0, "n_pushes": 0, "logscore": np.nan,
+                    "brier": np.nan, "ece_cover": np.nan}
+        y = np.asarray(y, float); p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
+        return {"n": int(len(y)), "n_pushes": 0,
+                "logscore": float(-np.mean(y*np.log(p)+(1-y)*np.log(1-p))),
+                "brier": float(np.mean((p-y)**2)),
+                "ece_cover": ece(p, y)}
+    return {
+        "run_line": dict(_metrics(p_cover[ok_m], (margin[ok_m] > fair_s[ok_m]).astype(float)),
+                          n_pushes=int((margin == fair_s).sum())),
+        "totals": dict(_metrics(p_over[ok_t], (total[ok_t] > fair_t[ok_t]).astype(float)),
+                        n_pushes=int((total == fair_t).sum())),
+    }
+
+
 def margin_calibration_table(oof: pd.DataFrame, sigma_margin: float,
                              n_bins: int = 8) -> list[dict]:
     """Predicted-vs-observed P(home covers the fair spread) by mu_margin bin."""

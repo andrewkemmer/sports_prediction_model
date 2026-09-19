@@ -816,6 +816,16 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
     weight_pcts = [_weight(r.get("weight_pct")) for r in records]
     has_weights = any(w is not None for w in weight_pcts)
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
+    def _mean(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return "—"
+        if not np.isfinite(f):
+            return "—"
+        af = abs(f)
+        return f"{f:.1f}" if af >= 100 else (f"{f:.3f}" if af >= 1 else f"{f:.4f}")
+
     rows = []
     for r, w in zip(records, weight_pcts):
         psi = r.get("psi", 0.0)
@@ -836,8 +846,8 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
             f"<td style='color:#E2E8F0;'>{r.get('feature','')}"
             f"<div style='color:#94A3B8;font-size:0.72rem;font-weight:400;"
             f"margin-top:1px;'>{label}</div></td>"
-            f"<td>{r.get('current_mean', '—')}</td>"
-            f"<td>{r.get('baseline_mean', '—')}</td>"
+            f"<td>{_mean(r.get('current_mean'))}</td>"
+            f"<td>{_mean(r.get('baseline_mean'))}</td>"
             f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"

@@ -1,26 +1,20 @@
-"""Production NFL run-line / margin and totals distributional model.
+"""NFL run-line and totals distribution engine.
 
-Architecture (spec sections 21-23): a JOINT score distribution.
+The production structure mirrors MLB:
 
-  mu_h, mu_a  <- gradient-boosted regressions on point-in-time features
-  margin      ~ Skellam-like discrete normal on mu_margin = mu_h - mu_a,
-                 sigma_margin estimated from OOF residuals
-  total       ~ discrete normal on mu_total = mu_h + mu_a, sigma_total
-                 estimated from OOF residuals
+* one LightGBM Poisson regressor for home score;
+* one LightGBM Poisson regressor for away score;
+* the active binary-moneyline feature contract is the sole source feature list;
+* genuine NaNs remain intact for native LightGBM missing-value routing;
+* NFL-specific negative-binomial dispersion is estimated from walk-forward OOF;
+* one Monte Carlo score-pair sample supplies every total/margin probability.
 
-Everything derives from ONE (mu_h, mu_a) pair per game, so the margin and
-total distributions are mathematically coherent: moneyline-derived,
-fair spread, fair total, every cover/over/push probability, and the mu
-quartet all come from the same fitted score distribution.
-
-Calibration preserves distributional coherence: sigma (and a documented
-mean-bias scalar) is calibrated ONCE on pooled OOF residuals — never per
-line — so home_cover + push + away_cover = 1 and over + push + under = 1
-hold exactly by PMF construction, and adjacent lines stay consistent.
+The binary moneyline model is intentionally not imported or modified here.
 """
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -36,216 +30,246 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+MC_DRAWS = 10_000
+MC_SEED = 42
+ALPHA_FLOOR = 1e-8
+ALPHA_CAP = 2.0
 
-# ---------------------------------------------------------------------------
-# Discrete normal PMF helpers (integer support, NFL point mechanics)
-# ---------------------------------------------------------------------------
-def discrete_normal_pmf(mu: float, sigma: float, support: np.ndarray) -> np.ndarray:
-    """P(X = k) for integer support k, X ~ Normal(mu, sigma), normalized."""
-    if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0:
-        return np.full(len(support), np.nan)
-    z = (support - mu) / sigma
-    pdf = np.exp(-0.5 * z * z) / (sigma * np.sqrt(2.0 * np.pi))
-    pmf = pdf / pdf.sum()
-    return pmf
-
-
-def margin_cdf_above(pmf: np.ndarray, support: np.ndarray, L: float) -> float:
-    """P(margin > L) for a real-valued threshold L over integer support.
-
-    A margin m covers L iff m > L, i.e. m >= floor(L) + 1 for non-integer L,
-    and m >= L + 1 for integer L. (NFL margins are integers; the contract
-    P(m > L) is honored exactly.)"""
-    if L == int(L):
-        thresh = int(L) + 1
-    else:
-        thresh = int(np.floor(L)) + 1
-    idx = support >= thresh
-    return float(pmf[idx].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def margin_pmf_at(pmf: np.ndarray, support: np.ndarray, L: float) -> float:
-    """P(margin == L) — zero for non-integer L, PMF mass at int(L) otherwise."""
-    if L != int(L):
-        return 0.0
-    hit = support == int(L)
-    return float(pmf[hit].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def total_probabilities(pmf: np.ndarray, support: np.ndarray, U: float) -> tuple[float, float, float]:
-    """(P(total > U), P(total = U), P(total < U)) — sums to 1 exactly."""
-    if not np.isfinite(pmf).all():
-        return (np.nan, np.nan, np.nan)
-    p_eq = float(pmf[support == int(U)].sum()) if U == int(U) else 0.0
-    p_gt = float(pmf[support > U].sum())
-    p_lt = float(pmf[support < U].sum())
-    return (p_gt, p_eq, p_lt)
-
-
-# ---------------------------------------------------------------------------
-# Regression members (per-side score regressions on point-in-time features)
-# ---------------------------------------------------------------------------
-def _make_reg(name: str):
-    if name == "xgboost":
-        from xgboost import XGBRegressor
-        return XGBRegressor(**config.XGBOOST_REG_PARAMS)
-    if name == "lightgbm":
-        from lightgbm import LGBMRegressor
-        return LGBMRegressor(**config.LIGHTGBM_REG_PARAMS)
-    raise KeyError(f"unknown regression member {name!r}")
-
-
-class ScoreRegressor:
-    """mu_h / mu_a from a boosted-tree regression pair (tree view).
-
-    Representation contract (mirrors moneyline.member_fit_input): both
-    regressors are FIT and PREDICTED on the NAMED tree-view DataFrame.
-    scikit-learn >= 1.6 + LightGBM < 4.6 emits
-    "X does not have valid feature names ... fitted with feature names"
-    on ndarray predicts, so the named frame is pinned at both ends;
-    tree_view's reindex keeps column names/order identical everywhere.
-    """
-
-    def __init__(self) -> None:
-        self.home_model = _make_reg("xgboost")
-        self.away_model = _make_reg("lightgbm")
-        self.feature_medians: pd.Series | None = None
-
-    def _matrix(self, df: pd.DataFrame, *, fit: bool = False) -> pd.DataFrame:
-        # Fit medians on the training frame only, then reuse them for the
-        # validation or serving frame. All-NaN training columns use 0.0,
-        # preventing the bare nanmedian warning and keeping the run-line
-        # regressors deterministic without touching moneyline preprocessing.
-        Xv = feat_mod.tree_view(df).astype(float)
-        if fit:
-            self.feature_medians = Xv.median(axis=0, skipna=True).fillna(0.0)
-        if self.feature_medians is None:
-            raise RuntimeError("ScoreRegressor must be fitted before prediction")
-        Xv = Xv.fillna(self.feature_medians)
-        return Xv
-
-    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
-        X = self._matrix(df, fit=True)
-        self.home_model.fit(X, df["home_score"].astype(float).to_numpy())
-        self.away_model.fit(X, df["away_score"].astype(float).to_numpy())
-        return self
-
-    def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        X = self._matrix(df)
-        return self.home_model.predict(X), self.away_model.predict(X)
-
-
-# ---------------------------------------------------------------------------
-# sigma estimation / calibration — pooled OOF residuals, one scalar pair
-# ---------------------------------------------------------------------------
-def calibrate_sigma(resid_margin: np.ndarray, resid_total: np.ndarray) -> dict:
-    """Robust sigma estimates from pooled OOF residuals (1.4826 * MAD =
-    sigma of a normal). One scalar pair keeps the PMF coherent."""
-    rm = resid_margin[np.isfinite(resid_margin)]
-    rt = resid_total[np.isfinite(resid_total)]
-    s_m = float(1.4826 * np.median(np.abs(rm - np.median(rm)))) if len(rm) else config.MARGIN_SIGMA
-    s_t = float(1.4826 * np.median(np.abs(rt - np.median(rt)))) if len(rt) else config.TOTAL_SIGMA
-    s_m = float(np.clip(s_m, config.SIGMA_FLOOR_MARGIN, config.SIGMA_CAP_MARGIN))
-    s_t = float(np.clip(s_t, config.SIGMA_FLOOR_TOTAL, config.SIGMA_CAP_TOTAL))
-    return {"sigma_margin": s_m, "sigma_total": s_t}
-
-
-# ---------------------------------------------------------------------------
-# Distribution engine — everything derives from (mu_h, mu_a, sigma_m, sigma_t)
-# ---------------------------------------------------------------------------
+# Retained for backwards-compatible diagnostics/tests; production uses NB MC.
 MARGIN_SUPPORT = np.arange(-config.MARGIN_PMF_MAX, config.MARGIN_PMF_MAX + 1)
 TOTAL_SUPPORT = np.arange(0, config.TOTAL_PMF_MAX + 1)
 
 
-def game_distribution(mu_h: float, mu_a: float,
-                      sigma_margin: float, sigma_total: float) -> dict:
-    """All distributional outputs for one game from the joint score model."""
-    mu_margin = mu_h - mu_a
-    mu_total = mu_h + mu_a
-    pmf_m = discrete_normal_pmf(mu_margin, sigma_margin, MARGIN_SUPPORT)
-    pmf_t = discrete_normal_pmf(mu_total, sigma_total, TOTAL_SUPPORT)
-
-    # derived moneyline: P(home > away) = P(margin > 0) = P(margin >= 1)
-    p_home_win = margin_cdf_above(pmf_m, MARGIN_SUPPORT, 0.0)
-    p_tie = margin_pmf_at(pmf_m, MARGIN_SUPPORT, 0.0)
-    p_away_win = 1.0 - p_home_win - p_tie
-
-    out = {
-        "mu_h": float(mu_h), "mu_a": float(mu_a),
-        "mu_margin": float(mu_margin), "mu_total": float(mu_total),
-        "p_home_win_derived": p_home_win,
-        "p_away_win_derived": p_away_win,
-        "p_tie": p_tie,
-    }
-    # fair spread / fair total: integer medians of the PMFs
-    out["fair_spread"] = _pmf_median(pmf_m, MARGIN_SUPPORT)
-    out["fair_total"] = _pmf_median(pmf_t, TOTAL_SUPPORT)
-    # fair-line probabilities (declared in the markets schema — the
-    # winner-card / pick-basis inputs): P(total > fair_total) and
-    # P(home covers fair_spread). fair_total is an integer median, so the
-    # grid lookup IS the fair line.
-    out["p_over_fair"] = total_probabilities(
-        pmf_t, TOTAL_SUPPORT, float(out["fair_total"]))[0]
-    out["p_cover_fair"] = margin_cdf_above(
-        pmf_m, MARGIN_SUPPORT, float(out["fair_spread"]))
-    # spread grid: p_home_cover_L / p_push_L for L in -14..+14
-    for L in config.SPREAD_GRID:
-        out[f"p_home_cover_{L}"] = margin_cdf_above(pmf_m, MARGIN_SUPPORT, float(L))
-        out[f"p_push_{L}"] = margin_pmf_at(pmf_m, MARGIN_SUPPORT, float(L))
-    # half-stop lines (±0.5): no push band (margins are integers)
-    for L in config.HALF_STOP_LINES:
-        out[f"p_home_cover_{str(L).replace('.', '_').replace('-', 'm')}"] = \
-            margin_cdf_above(pmf_m, MARGIN_SUPPORT, L)
-    # totals grid: over/push/under for U in 24..66
-    for U in config.TOTAL_GRID:
-        p_over, p_push, p_under = total_probabilities(pmf_t, TOTAL_SUPPORT, float(U))
-        out[f"p_over_{U}"] = p_over
-        out[f"p_push_{U}"] = p_push
-        out[f"p_under_{U}"] = p_under
-    return out
+def discrete_normal_pmf(mu: float, sigma: float, support: np.ndarray) -> np.ndarray:
+    """Compatibility helper for old diagnostics; not the production sampler."""
+    if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0:
+        return np.full(len(support), np.nan)
+    z = (support - mu) / sigma
+    p = np.exp(-0.5 * z * z)
+    return p / p.sum()
 
 
 def _pmf_median(pmf: np.ndarray, support: np.ndarray) -> float:
-    """Smallest integer k with cumulative PMF >= 0.5 (the fair line)."""
+    """Compatibility median helper for legacy diagnostics."""
     if not np.isfinite(pmf).all():
         return np.nan
-    c = np.cumsum(pmf)
-    idx = int(np.searchsorted(c, 0.5))
-    return float(support[min(idx, len(support) - 1)])
+    return float(support[min(int(np.searchsorted(np.cumsum(pmf), 0.5)),
+                           len(support) - 1)])
 
 
-def apply_distribution(df: pd.DataFrame, sigma_margin: float,
-                       sigma_total: float) -> pd.DataFrame:
-    """Expand a frame with mu_h/mu_a into the full distributional columns.
-
-    Distribution columns already present on the input are replaced (never
-    duplicated) — the engine is the single authority for these values."""
-    rows = [
-        game_distribution(r.mu_h, r.mu_a, sigma_margin, sigma_total)
-        for r in df.itertuples(index=False)
-    ]
-    dist = pd.DataFrame(rows, index=df.index)
-    base = df.drop(columns=[c for c in dist.columns if c in df.columns])
-    return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)],
-                     axis=1)
+def margin_cdf_above(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
+    threshold = int(np.floor(line)) + 1
+    return float(pmf[support >= threshold].sum()) if np.isfinite(pmf).all() else np.nan
 
 
-# ---------------------------------------------------------------------------
-# Walk-forward OOF for the distribution model
-# ---------------------------------------------------------------------------
-def walk_forward_oof(game_df: pd.DataFrame,
-                     date_col: str = "gameday",
+def margin_pmf_at(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
+    if line != int(line):
+        return 0.0
+    return float(pmf[support == int(line)].sum()) if np.isfinite(pmf).all() else np.nan
+
+
+def total_probabilities(pmf: np.ndarray, support: np.ndarray, line: float) -> tuple[float, float, float]:
+    if not np.isfinite(pmf).all():
+        return np.nan, np.nan, np.nan
+    push = float(pmf[support == int(line)].sum()) if line == int(line) else 0.0
+    over = float(pmf[support > line].sum())
+    under = float(pmf[support < line].sum())
+    return over, push, under
+
+
+def _make_reg():
+    from lightgbm import LGBMRegressor
+    params = dict(config.LIGHTGBM_REG_PARAMS)
+    params["objective"] = "poisson"
+    return LGBMRegressor(**params)
+
+
+class ScoreRegressor:
+    """Two same-contract LightGBM Poisson regressors, one per score side."""
+
+    def __init__(self) -> None:
+        self.home_model = _make_reg()
+        self.away_model = _make_reg()
+        self.feature_columns: list[str] = []
+
+    def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
+        # tree_view is the exact representation used by the binary moneyline
+        # tree members. It is derived from config.FEATURE_COLUMNS; this module
+        # never owns a second run-line feature list. Do not fill NaN: LightGBM
+        # handles missing values natively, just like MLB's run engine.
+        X = feat_mod.tree_view(df).astype(float)
+        if not self.feature_columns:
+            self.feature_columns = list(X.columns)
+        return X.reindex(columns=self.feature_columns)
+
+    def fit(self, df: pd.DataFrame) -> "ScoreRegressor":
+        X = self._matrix(df)
+        self.home_model.fit(X, pd.to_numeric(df["home_score"], errors="coerce"))
+        self.away_model.fit(X, pd.to_numeric(df["away_score"], errors="coerce"))
+        return self
+
+    def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        X = self._matrix(df)
+        return (
+            np.clip(self.home_model.predict(X), 1e-6, None),
+            np.clip(self.away_model.predict(X), 1e-6, None),
+        )
+
+
+def estimate_alpha(y: np.ndarray, mu: np.ndarray) -> float:
+    """Estimate NB alpha from OOF residual dispersion.
+
+    For NB variance ``mu + alpha*mu²``, the method-of-moments estimate is the
+    non-negative ratio of excess squared residuals to squared means. A value
+    near zero is the Poisson limit.
+    """
+    y = np.asarray(y, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    ok = np.isfinite(y) & np.isfinite(mu) & (mu > 0)
+    if ok.sum() < 2:
+        return 0.0
+    excess = np.sum((y[ok] - mu[ok]) ** 2 - y[ok])
+    denom = np.sum(mu[ok] ** 2)
+    return float(np.clip(max(excess / max(denom, 1e-12), 0.0), 0.0, ALPHA_CAP))
+
+
+def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, float]:
+    """Fit NFL-specific NB dispersion from leakage-free OOF score predictions."""
+    ah = estimate_alpha(oof["home_score"], oof["mu_h"])
+    aa = estimate_alpha(oof["away_score"], oof["mu_a"])
+    return {"alpha_home": ah, "alpha_away": aa,
+            "distribution": "negative_binomial",
+            "poisson_limit": bool(max(ah, aa) <= ALPHA_FLOOR),
+            "mc_draws": MC_DRAWS}
+
+
+def _nb_draws(mu: np.ndarray, alpha: float, rng: np.random.Generator,
+              n_draws: int) -> np.ndarray:
+    """Draw NB(mu, alpha); alpha≈0 uses Poisson exactly."""
+    mu = np.maximum(np.asarray(mu, dtype=float), 1e-6)
+    if alpha <= ALPHA_FLOOR:
+        return rng.poisson(mu[:, None], size=(len(mu), n_draws)).astype(np.int16)
+    size = np.full(len(mu), 1.0 / max(alpha, ALPHA_FLOOR))
+    prob = size / (size + mu)
+    return rng.negative_binomial(size[:, None], prob[:, None],
+                                 size=(len(mu), n_draws)).astype(np.int16)
+
+
+def _grid_key(prefix: str, value: float | int) -> str:
+    s = str(float(value))
+    if s.endswith(".0"):
+        s = s[:-2]
+    return f"{prefix}_{s.replace('-', 'm').replace('.', '_')}"
+
+
+def simulate_distributions(mu_h: np.ndarray, mu_a: np.ndarray,
+                           alpha_home: float, alpha_away: float,
+                           n_draws: int = MC_DRAWS,
+                           seed: int = MC_SEED) -> pd.DataFrame:
+    """Monte Carlo all NFL grid probabilities from paired score draws."""
+    rng = np.random.default_rng(seed)
+    mu_h = np.asarray(mu_h, dtype=float)
+    mu_a = np.asarray(mu_a, dtype=float)
+    # Keep memory bounded while retaining deterministic per-row output.
+    rows: list[dict[str, Any]] = []
+    chunk = max(1, min(len(mu_h), 2_000_000 // max(n_draws, 1)))
+    for start in range(0, len(mu_h), chunk):
+        end = min(start + chunk, len(mu_h))
+        h = _nb_draws(mu_h[start:end], alpha_home, rng, n_draws)
+        a = _nb_draws(mu_a[start:end], alpha_away, rng, n_draws)
+        total = h + a
+        margin = h - a
+        for i in range(end - start):
+            t = total[i]
+            m = margin[i]
+            row: dict[str, Any] = {
+                "mu_h": float(mu_h[start + i]),
+                "mu_a": float(mu_a[start + i]),
+                "mu_margin": float(mu_h[start + i] - mu_a[start + i]),
+                "mu_total": float(mu_h[start + i] + mu_a[start + i]),
+                "p_home_win_derived": float((m > 0).mean()),
+                "p_away_win_derived": float((m < 0).mean()),
+                "p_tie": float((m == 0).mean()),
+            }
+            # Integer spread grid and half-stop lines.
+            for line in config.SPREAD_GRID:
+                row[_grid_key("p_home_cover", line)] = float((m > line).mean())
+                row[_grid_key("p_push", line)] = float((m == line).mean())
+            for line in config.HALF_STOP_LINES:
+                row[_grid_key("p_home_cover", line)] = float((m > line).mean())
+            # Integer totals grid. The same draws provide over/push/under.
+            for line in config.TOTAL_GRID:
+                row[_grid_key("p_over", line)] = float((t > line).mean())
+                row[_grid_key("p_push", line)] = float((t == line).mean())
+                row[_grid_key("p_under", line)] = float((t < line).mean())
+            rows.append(row)
+    out = pd.DataFrame(rows)
+    if len(out):
+        out["fair_spread"] = out.apply(
+            lambda r: _fair_from_grid(r, "p_home_cover", config.SPREAD_GRID), axis=1)
+        out["fair_total"] = out.apply(
+            lambda r: _fair_from_grid(r, "p_over", config.TOTAL_GRID), axis=1)
+        out["p_cover_fair"] = [
+            float(r[_grid_key("p_home_cover", r["fair_spread"])])
+            for _, r in out.iterrows()
+        ]
+        out["p_over_fair"] = [
+            float(r[_grid_key("p_over", r["fair_total"])])
+            for _, r in out.iterrows()
+        ]
+    return out
+
+
+def _fair_from_grid(row: pd.Series, prefix: str, lines: list) -> float:
+    vals = np.array([float(row[_grid_key(prefix, x)]) for x in lines])
+    # The fair line is the closest grid threshold to 50%, preserving the
+    # existing NFL artifact contract while the probabilities come from MC.
+    return float(lines[int(np.argmin(np.abs(vals - 0.5)))])
+
+
+def game_distribution(mu_h: float, mu_a: float,
+                      sigma_margin: float | None = None,
+                      sigma_total: float | None = None,
+                      *, alpha_home: float = 0.0,
+                      alpha_away: float = 0.0,
+                      n_draws: int = MC_DRAWS,
+                      seed: int = MC_SEED) -> dict:
+    """Single-game NB/MC output; sigma args remain accepted for compatibility."""
+    row = simulate_distributions(np.array([mu_h]), np.array([mu_a]),
+                                  alpha_home, alpha_away, n_draws, seed).iloc[0].to_dict()
+    # Preserve the historical in-memory negative labels used by direct unit
+    # tests; serving.py converts them to the MLB-style mN artifact labels.
+    for line in config.SPREAD_GRID:
+        if line < 0:
+            row[f"p_home_cover_{line}"] = row[_grid_key("p_home_cover", line)]
+            row[f"p_push_{line}"] = row[_grid_key("p_push", line)]
+    return row
+
+
+def apply_distribution(df: pd.DataFrame, params: dict | None = None,
+                       sigma_total: float | None = None) -> pd.DataFrame:
+    """Expand mu predictions into the complete NB/MC market grid."""
+    # Numeric positional arguments are retained for legacy unit callers; the
+    # production pipeline passes the NB parameter dictionary.
+    if not isinstance(params, dict):
+        params = {}
+    ah = float(params.get("alpha_home", 0.0))
+    aa = float(params.get("alpha_away", 0.0))
+    dist = simulate_distributions(df["mu_h"].to_numpy(float),
+                                  df["mu_a"].to_numpy(float), ah, aa)
+    base = df.drop(columns=[c for c in dist.columns if c in df.columns], errors="ignore")
+    return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)], axis=1)
+
+
+def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
                      fold_list: list | None = None) -> dict:
-    """Expanding walk-forward OOF: per fold, fit mu regressions on strictly
-    prior training games, predict validation, collect residuals for the
-    pooled sigma calibration. Returns {oof, fold_table}."""
+    """Fit two LightGBM Poisson models on shared walk-forward folds."""
     df = game_df.sort_values(date_col).reset_index(drop=True)
     fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
     for fold in fold_list:
-        train = df.loc[fold.train_idx]
-        val = df.loc[fold.val_idx]
+        train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
         try:
             reg = ScoreRegressor().fit(train)
             mu_h, mu_a = reg.predict(val)
@@ -264,19 +288,185 @@ def walk_forward_oof(game_df: pd.DataFrame,
         })
         part["margin"] = part["home_score"] - part["away_score"]
         part["total"] = part["home_score"] + part["away_score"]
-        part["resid_margin"] = part["margin"] - (part["mu_h"] - part["mu_a"])
-        part["resid_total"] = part["total"] - (part["mu_h"] + part["mu_a"])
         parts.append(part)
-        fold_rows.append({
-            "fold_id": fold.fold_id,
-            "val_start": str(fold.val_start.date()),
-            "val_end": str(fold.val_end.date()),
-            "n_train": int(len(train)), "n_val": int(len(val)),
-        })
+        fold_rows.append({"fold_id": fold.fold_id,
+                          "val_start": str(fold.val_start.date()),
+                          "val_end": str(fold.val_end.date()),
+                          "n_train": int(len(train)), "n_val": int(len(val))})
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if len(oof):
+        oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])
+        oof["resid_total"] = oof["total"] - (oof["mu_h"] + oof["mu_a"])
     return {"oof": oof, "fold_table": pd.DataFrame(fold_rows)}
 
 
 def fit_final(game_df: pd.DataFrame) -> ScoreRegressor:
-    """Final full-history refit of the mu regressions."""
     return ScoreRegressor().fit(game_df)
+
+
+def _fit_platt(p: np.ndarray, y: np.ndarray) -> dict | None:
+    """Local Platt fit for distributional lines; avoids a moneyline import cycle."""
+    from sklearn.linear_model import LogisticRegression
+    p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
+    y = np.asarray(y, int)
+    if len(p) < 30 or len(np.unique(y)) < 2:
+        return None
+    z = np.log(p / (1.0 - p)).reshape(-1, 1)
+    model = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000)
+    model.fit(z, y)
+    return {"a": round(float(model.coef_[0, 0]), 6),
+            "b": round(float(model.intercept_[0]), 6)}
+
+
+def _apply_platt(p: np.ndarray, cal: dict | None) -> np.ndarray:
+    if not cal:
+        return np.asarray(p, float)
+    p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
+    z = np.log(p / (1.0 - p))
+    return np.clip(1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"]))),
+                   1e-7, 1 - 1e-7)
+
+
+def _prequential_line(raw: np.ndarray, y: np.ndarray,
+                      folds: np.ndarray) -> tuple[np.ndarray, dict | None]:
+    """Apply a prior-fold-only Platt map and return the all-OOF final map."""
+    raw, y, folds = np.asarray(raw, float), np.asarray(y, int), np.asarray(folds)
+    out = raw.copy()
+    history_p: list[np.ndarray] = []
+    history_y: list[np.ndarray] = []
+    for fold in np.unique(folds):
+        m = folds == fold
+        cal = _fit_platt(np.concatenate(history_p) if history_p else [],
+                         np.concatenate(history_y) if history_y else [])
+        if cal:
+            out[m] = _apply_platt(raw[m], cal)
+        history_p.append(raw[m])
+        history_y.append(y[m])
+    return out, _fit_platt(raw, y)
+
+
+def calibrate_market_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Calibrate every published NFL total/run-line grid independently.
+
+    Whole-number lines calibrate over/push/under separately and normalize the
+    three outputs. Half-stop run lines calibrate the favored-side binary event.
+    The returned map is reusable for the current slate.
+    """
+    out = df.copy()
+    bundle: dict[str, Any] = {"method": "prequential_platt",
+                              "scope": "line_specific", "totals": {},
+                              "run_lines": {}, "derived_moneyline": None}
+    if not len(out) or "fold_id" not in out:
+        return out, bundle
+    folds = out["fold_id"].to_numpy()
+    total = out["total"].to_numpy(float)
+    margin = out["margin"].to_numpy(float)
+    for line in config.TOTAL_GRID:
+        key = _grid_key("p_over", line)
+        if key not in out:
+            continue
+        over = out[key].to_numpy(float)
+        push = out[_grid_key("p_push", line)].to_numpy(float)
+        under = out[_grid_key("p_under", line)].to_numpy(float)
+        co, mo = _prequential_line(over, (total > line).astype(int), folds)
+        if line == int(line):
+            cp, mp = _prequential_line(push, (total == line).astype(int), folds)
+            cu, mu = _prequential_line(under, (total < line).astype(int), folds)
+            vals = np.maximum(np.column_stack([co, cp, cu]), 1e-9)
+            vals /= vals.sum(axis=1, keepdims=True)
+            out[key], out[_grid_key("p_push", line)], out[_grid_key("p_under", line)] = vals.T
+            bundle["totals"][str(line)] = {"over": mo, "push": mp, "under": mu}
+        else:
+            out[key] = co
+            bundle["totals"][str(line)] = {"over": mo, "push": None, "under": None}
+    for line in config.SPREAD_GRID:
+        key = _grid_key("p_home_cover", line)
+        if key not in out:
+            continue
+        home = out[key].to_numpy(float)
+        push = out[_grid_key("p_push", line)].to_numpy(float)
+        away = np.maximum(1.0 - home - push, 1e-9)
+        ch, mh = _prequential_line(home, (margin > line).astype(int), folds)
+        if line == int(line):
+            cp, mp = _prequential_line(push, (margin == line).astype(int), folds)
+            ca, ma = _prequential_line(away, (margin < line).astype(int), folds)
+            vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
+            vals /= vals.sum(axis=1, keepdims=True)
+            out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
+            bundle["run_lines"][str(line)] = {"home": mh, "push": mp, "away": ma}
+        else:
+            out[key] = ch
+            bundle["run_lines"][str(line)] = {"home": mh, "push": None, "away": None}
+    # Derived model moneyline uses the same favored-team calibration contract.
+    if "p_home_win_derived" in out:
+        p = out["p_home_win_derived"].to_numpy(float)
+        fav_home = p >= 0.5
+        pf = np.where(fav_home, p, 1.0 - p)
+        yf = np.where(fav_home, margin > 0, margin < 0).astype(int)
+        cal = _fit_platt(pf, yf)
+        pc = np.maximum(0.5, _apply_platt(pf, cal)) if cal else pf
+        out["p_home_win_derived"] = np.where(fav_home, pc, 1.0 - pc)
+        out["p_away_win_derived"] = 1.0 - out["p_home_win_derived"] - out.get("p_tie", 0.0)
+        bundle["derived_moneyline"] = cal
+    # Recompute fair-line aliases from calibrated grid columns.
+    if "fair_spread" in out:
+        out["p_cover_fair"] = [float(r[_grid_key("p_home_cover", r["fair_spread"])])
+                               for _, r in out.iterrows()]
+    if "fair_total" in out:
+        out["p_over_fair"] = [float(r[_grid_key("p_over", r["fair_total"])])
+                              for _, r in out.iterrows()]
+    if _grid_key("p_push", 0) in out:
+        out["p_tie"] = out[_grid_key("p_push", 0)]
+    return out, bundle
+
+
+def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
+    """Apply final line calibrators to a slate frame (no outcomes required)."""
+    out = df.copy()
+    for line in config.TOTAL_GRID:
+        key = _grid_key("p_over", line)
+        if key not in out:
+            continue
+        rec = bundle.get("totals", {}).get(str(line), {})
+        co = _apply_platt(out[key].to_numpy(float), rec.get("over"))
+        if line == int(line):
+            cp = _apply_platt(out[_grid_key("p_push", line)].to_numpy(float), rec.get("push"))
+            cu = _apply_platt(out[_grid_key("p_under", line)].to_numpy(float), rec.get("under"))
+            vals = np.maximum(np.column_stack([co, cp, cu]), 1e-9)
+            vals /= vals.sum(axis=1, keepdims=True)
+            out[key], out[_grid_key("p_push", line)], out[_grid_key("p_under", line)] = vals.T
+        else:
+            out[key] = co
+    for line in config.SPREAD_GRID:
+        key = _grid_key("p_home_cover", line)
+        if key not in out:
+            continue
+        rec = bundle.get("run_lines", {}).get(str(line), {})
+        raw_home = out[key].to_numpy(float)
+        raw_push = out[_grid_key("p_push", line)].to_numpy(float)
+        ch = _apply_platt(raw_home, rec.get("home"))
+        if line == int(line):
+            cp = _apply_platt(raw_push, rec.get("push"))
+            ca = _apply_platt(1.0 - raw_home - raw_push, rec.get("away"))
+            vals = np.maximum(np.column_stack([ch, cp, ca]), 1e-9)
+            vals /= vals.sum(axis=1, keepdims=True)
+            out[key], out[_grid_key("p_push", line)] = vals[:, 0], vals[:, 1]
+        else:
+            out[key] = ch
+    if _grid_key("p_push", 0) in out:
+        out["p_tie"] = out[_grid_key("p_push", 0)]
+    if "fair_spread" in out:
+        out["p_cover_fair"] = [float(r[_grid_key("p_home_cover", r["fair_spread"])])
+                               for _, r in out.iterrows()]
+    if "fair_total" in out:
+        out["p_over_fair"] = [float(r[_grid_key("p_over", r["fair_total"])])
+                              for _, r in out.iterrows()]
+    return out
+
+
+def calibrate_sigma(resid_margin: np.ndarray, resid_total: np.ndarray) -> dict:
+    """Compatibility shim; callers should use calibrate_dispersion."""
+    return {"sigma_margin": float(np.nanstd(resid_margin)),
+            "sigma_total": float(np.nanstd(resid_total)),
+            "alpha_home": 0.0, "alpha_away": 0.0,
+            "distribution": "negative_binomial", "mc_draws": MC_DRAWS}

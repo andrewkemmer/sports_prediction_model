@@ -151,6 +151,25 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     return rows
 
 
+def write_run_engine_feature_artifacts(out_dir, date_c: str,
+                                       full_df: pd.DataFrame,
+                                       recent_df: pd.DataFrame,
+                                       weights: dict[str, float] | None = None) -> tuple[str, str]:
+    """Emit MLB-shaped run-engine drift/coverage CSVs for the NFL page.
+
+    The run engine intentionally resolves the same config.FEATURE_COLUMNS as
+    binary moneyline; this is monitoring output only and does not create a
+    second training feature contract.
+    """
+    drift = feature_drift(full_df, recent_df, weights=weights)
+    cov = coverage(full_df)
+    drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
+    cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
+    pd.DataFrame(drift).to_csv(drift_path, index=False)
+    pd.DataFrame(cov).to_csv(cov_path, index=False)
+    return drift_path.name, cov_path.name
+
+
 def coverage(full_df: pd.DataFrame) -> list[dict]:
     """Per-feature measured/non-null coverage over the decided pool.
 

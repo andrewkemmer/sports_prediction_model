@@ -198,6 +198,10 @@ with warnings_as_errors():
         reg = dist_mod.ScoreRegressor().fit(feats)
         mu_h, mu_a = reg.predict(feats)
         check("ScoreRegressor fit+predict with zero feature-name warnings", True)
+        check("ScoreRegressor preserves native LightGBM NaN routing",
+              not hasattr(reg, "feature_medians"))
+        check("ScoreRegressor uses the moneyline tree feature contract",
+              list(reg.feature_columns) == tree_cols)
     except Warning as exc:
         check("ScoreRegressor fit+predict with zero feature-name warnings",
               False, f"warning escalated: {exc}")

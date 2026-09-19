@@ -167,7 +167,8 @@ def write_calibration_json(path, moneyline_metrics: dict,
                            buckets: list[dict], daily: list[dict],
                            config_meta: dict, platt: dict | None = None,
                            run_date: str = "", n_games: int = 0,
-                           calibrated_buckets: list[dict] | None = None) -> dict:
+                           calibrated_buckets: list[dict] | None = None,
+                           distribution_calibration: dict | None = None) -> dict:
     """MLB-shaped calibration artifact (frontend presentation contract).
 
     Carries the MLB schema keys the shared Calibration page renders: ``date``
@@ -219,6 +220,7 @@ def write_calibration_json(path, moneyline_metrics: dict,
             "logloss_calibrated": _r4(calibrated_metrics.get("logloss")),
         },
         "calibration": cal_sec,
+        "distribution_calibration": distribution_calibration or {},
         "calibration_buckets": buckets,
         # Daily metrics at MLB's stored precision too (MLB's
         # _daily_calibration_rows rounds every emitted daily metric to 4).

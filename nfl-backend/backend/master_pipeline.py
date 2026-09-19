@@ -109,6 +109,15 @@ def main(argv: list[str] | None = None) -> int:
         "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
         "game_types": sorted(config.GAME_TYPES),
         "ensemble_members": config.ENSEMBLE_MEMBERS,
+        "run_line_model": {
+            "home_model": "lightgbm_poisson",
+            "away_model": "lightgbm_poisson",
+            "distribution": "negative_binomial",
+            "simulation": "monte_carlo",
+            "mc_draws": dist_mod.MC_DRAWS,
+            "feature_contract": "binary_moneyline",
+            "feature_columns": list(config.FEATURE_COLUMNS),
+        },
         "random_seed": config.RANDOM_SEED,
         "market_independence": True,
     }
@@ -219,11 +228,12 @@ def main(argv: list[str] | None = None) -> int:
     dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_dist = dist["oof"]
 
-    # pooled sigma calibration from OOF residuals
-    sig = dist_mod.calibrate_sigma(oof_dist["resid_margin"].to_numpy(),
-                                   oof_dist["resid_total"].to_numpy())
-    logger.info("calibrated sigma: margin %.3f, total %.3f",
-                sig["sigma_margin"], sig["sigma_total"])
+    # NFL-specific negative-binomial dispersion is estimated from the
+    # walk-forward score predictions. The Poisson LightGBM means remain the
+    # regression output; NB alpha controls the count-distribution variance.
+    sig = dist_mod.calibrate_dispersion(oof_dist)
+    logger.info("calibrated NB dispersion: alpha_home %.6f, alpha_away %.6f",
+                sig["alpha_home"], sig["alpha_away"])
 
     # ── 8. Ensemble calibration (moneyline Platt on OOF) ──────────────────
     _banner("PHASE 8", "calibration")
@@ -247,15 +257,15 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
                     r["name"], r["weight"], r["auc"] or np.nan, r["brier"] or np.nan)
 
-    dist_metrics = eval_mod.distribution_metrics(
+    dist_metrics = eval_mod.nb_distribution_metrics(
         oof_dist.merge(
             oof_ml[["game_id"]].assign(_k=1), on="game_id", how="inner"
         ).drop(columns=["_k"]) if len(oof_ml) else oof_dist,
-        sig["sigma_margin"], sig["sigma_total"])
+        sig)
     logger.info("run-line OOF:  %s", json.dumps(dist_metrics["run_line"]))
     logger.info("totals OOF:    %s", json.dumps(dist_metrics["totals"]))
-    margin_cal_tbl = eval_mod.margin_calibration_table(oof_dist, sig["sigma_margin"])
-    total_cal_tbl = eval_mod.total_calibration_table(oof_dist, sig["sigma_total"])
+    margin_cal_tbl = []
+    total_cal_tbl = []
 
     # daily calibration rows (frontend contract)
     daily = []
@@ -287,8 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         # serve through the SAME Platt map fitted on OOF
         p_home_cal = ml_mod.apply_favored_platt(p_home, platt) if np.isfinite(p_home).any() else p_home
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
-        slate = dist_mod.apply_distribution(slate, sig["sigma_margin"],
-                                            sig["sigma_total"])
+        slate = dist_mod.apply_distribution(slate, sig)
         slate["p_home_win"] = p_home_cal
         slate["p_away_win"] = 1.0 - p_home_cal
         slate["p_tie"] = slate["p_push_0"]
@@ -325,6 +334,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # decided OOF rows for the markets artifact (same schema as slate rows)
     oof_market_rows = _build_oof_market_rows(oof_ml, oof_dist, sig)
+    # Calibrate every published total and run-line cut separately using only
+    # prior folds for OOF rows; the final maps are reused for tonight's slate.
+    oof_market_rows, market_calibration = dist_mod.calibrate_market_frame(oof_market_rows)
+    if len(slate):
+        slate = dist_mod.apply_market_calibration(slate, market_calibration)
 
     # ── 12. Artifact persistence ──────────────────────────────────────────
     _banner("PHASE 12", "artifact persistence")
@@ -348,7 +362,8 @@ def main(argv: list[str] | None = None) -> int:
         eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
         daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
         calibrated_buckets=eval_mod.calibration_buckets(
-            oof_ml["p_ensemble_calibrated"], y_oof))
+            oof_ml["p_ensemble_calibrated"], y_oof),
+        distribution_calibration=market_calibration)
     artifacts.append(p.name)
 
     p = out_dir / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
@@ -409,7 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         "ensemble_weights": weights,
         "platt": platt,
         "score_regressor": final_reg,
-        "sigma": sig,
+        "distribution": sig,
+        "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
         "feature_columns": config.FEATURE_COLUMNS,
         "trained_utc": _now_utc(),
@@ -425,6 +441,9 @@ def main(argv: list[str] | None = None) -> int:
         final_models, weights, feature_frame=game_df)
     drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
     cov_rows = monitoring.coverage(game_df)
+    run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
+        out_dir, date_c, game_df, recent, weights=feature_weights)
+    artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())  # constant always-predict-home baseline Brier
     p = out_dir / config.MODEL_MONITOR_JSON.format(date=date_c)
@@ -554,8 +573,8 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
                            sig: dict) -> pd.DataFrame:
     """Decided OOF rows in the markets schema: distribution grids from the
     OOF mu pair + honest outcomes (y_*), plus the calibrated moneyline."""
-    m = oof_ml[["game_id", "gameday", "season", "week", "home_team",
-                "away_team", "stadium", "gametime", "home_record",
+    m = oof_ml[["game_id", "gameday", "season", "week", "fold_id",
+                "home_team", "away_team", "stadium", "gametime", "home_record",
                 "away_record", "home_score", "away_score", "margin",
                 "total", "home_win", "p_ensemble",
                 "p_ensemble_calibrated"]].copy()
@@ -563,7 +582,7 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     df = m.merge(d, on="game_id", how="inner")
     if not len(df):
         return pd.DataFrame()
-    df = dist_mod.apply_distribution(df, sig["sigma_margin"], sig["sigma_total"])
+    df = dist_mod.apply_distribution(df, sig)
     # the markets schema's p_home_win is the CALIBRATED moneyline (falling
     # back to the raw blend when calibration is unavailable for a row)
     df["p_home_win"] = df["p_ensemble_calibrated"].where(
