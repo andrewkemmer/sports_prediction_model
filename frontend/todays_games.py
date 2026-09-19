@@ -705,6 +705,22 @@ def _nfl_widget_key(r) -> str:
     return f"{d}_{r.get('away_team', '')}@{r.get('home_team', '')}"
 
 
+def _nfl_start_time_et(value) -> str:
+    """Render NFL gametime as Eastern wall-clock time.
+
+    nflverse's ``gametime`` is already ET, while the serving artifact keeps
+    the value in an ISO-shaped field for the shared card contract. Do not
+    apply a second UTC-to-ET conversion here.
+    """
+    try:
+        raw = str(value or "")
+        stamp = raw[:16].replace("T", " ")
+        dt = datetime.strptime(stamp, "%Y-%m-%d %H:%M")
+        return f"{dt.hour % 12 or 12}:{dt:%M} {dt:%p} ET"
+    except (TypeError, ValueError):
+        return ""
+
+
 def _nfl_banner_html(status, is_final, is_live, winner, pick, correct,
                      coin, upset, home_team, away_team, r) -> str:
     """NFL twin of ``_banner_html`` — identical banner classes/colors and
@@ -715,7 +731,7 @@ def _nfl_banner_html(status, is_final, is_live, winner, pick, correct,
         (str(r.get("away_team_name", "") or "") or away_team)
         if winner == away_team else "")
     if status == "Scheduled":
-        kickoff = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
+        kickoff = _nfl_start_time_et(r.get("start_time_utc", ""))
         suffix = f" — {kickoff}" if kickoff else ""
         return (f'<div class="fb-banner blue">⏳ Pre-game{suffix} · '
                 'prediction locked at kickoff</div>')
@@ -810,7 +826,7 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
 
     # --- scoreboard (shared structure/classes) ---
     if is_scheduled:
-        mid = utils.start_time_et(str(r.get("start_time_utc", "") or "")) or "PREGAME"
+        mid = _nfl_start_time_et(r.get("start_time_utc", "")) or "PREGAME"
     else:
         mid = "F" if is_final else "LIVE"
     score = (
@@ -859,7 +875,7 @@ def _nfl_card_html(r, slate_row=None, total_line=None, home_spread=None,
                    f'{away} {pa:.0%}</div>')
 
     # --- venue (pitchers are MLB-only and intentionally absent) ---
-    start_et = utils.start_time_et(str(r.get("start_time_utc", "") or ""))
+    start_et = _nfl_start_time_et(r.get("start_time_utc", ""))
     venue_txt = str(r.get("venue", "") or "")
     venue = f'<div class="fb-venue">📍 {venue_txt}{f" · {start_et}" if start_et else ""}</div>' \
         if (venue_txt or start_et) else '<div class="fb-venue">&nbsp;</div>'
@@ -945,31 +961,37 @@ def _nfl_run_engine_selectors(r, srow):
     gid = _nfl_widget_key(r)
     totals = sorted(set(nfl_sv.TOTAL_GRID) | {int(round(fair_total))})
     fair_home = -int(round(fair_spread))          # home quoted spread at the fair threshold
-    home_options = sorted(set(-s for s in nfl_sv.SPREAD_GRID)) + ["±0.5"]
+    spread_magnitudes = sorted({abs(int(s)) for s in nfl_sv.SPREAD_GRID if int(s) != 0})
+    spread_options = [0.5] + [float(s) for s in spread_magnitudes]
+    fair_magnitude = float(abs(fair_home))
+    if fair_magnitude not in spread_options:
+        spread_options.append(fair_magnitude)
+        spread_options.sort()
     c_ou, c_rl = st.columns([1.35, 1], gap="small")
     with c_ou:
         total_line = st.selectbox(
             "O/U line", totals, index=totals.index(int(round(fair_total))),
-            format_func=lambda u: f"{u}  (fair)" if int(u) == int(round(fair_total))
-            else f"{u}",
+            format_func=lambda u: f"{u}",
             key=f"nfl_ou_{gid}", label_visibility="collapsed",
             help=("Totals line to price this game at — defaults to the "
                   "model's fair total; model probabilities at your line."))
     with c_rl:
         picked = st.selectbox(
-            "Run line", home_options,
-            index=home_options.index(fair_home),
-            format_func=lambda v: ("±0.5 (raw vs ML)" if v == "±0.5"
-                                   else (f"Home {v:+d} / Away {-v:+d}  (fair)"
-                                         if v == fair_home
-                                         else f"Home {v:+d} / Away {-v:+d}")),
+            "Run line", spread_options,
+            index=spread_options.index(fair_magnitude),
+            format_func=lambda v: f"±{v:.1f}",
             key=f"nfl_rl_{gid}", label_visibility="collapsed",
             help=("Run-line pair to price this game at — defaults to the "
                   "fair home spread. ±0.5 is the pick'em stop: per-side raw "
                   "cover plus the derived (ML) pair, which diverge by the "
                   "tie rate on NFL. Model probabilities only."))
-    half_stop = (picked == "±0.5")
-    home_spread = None if half_stop else int(picked)
+    half_stop = abs(float(picked) - 0.5) < 1e-9
+    if half_stop:
+        home_spread = None
+    else:
+        # The selector is a combined ± magnitude; orient the pair so the
+        # moneyline favorite is the negative side, matching MLB's card.
+        home_spread = -int(round(float(picked))) if _card_fav_home(r) else int(round(float(picked)))
     return int(total_line), home_spread, half_stop
 
 

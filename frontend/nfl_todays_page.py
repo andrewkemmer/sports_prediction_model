@@ -69,6 +69,7 @@ from todays_games import (  # noqa: E402
     _match_slate_row,
     _nfl_card_html,
     _nfl_run_engine_selectors,
+    _nfl_start_time_et,
     _nfl_shap_expander,
     _render_date_nav,
     _render_nearest_valid_fallback,
@@ -195,7 +196,7 @@ def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
 
     # --- scoreboard (winner bars; scheduled shows kickoff like MLB) ---
     if is_scheduled:
-        mid = utils.start_time_et(start_iso) or "PREGAME"
+        mid = _nfl_start_time_et(start_iso) or "PREGAME"
     else:
         mid = "F" if is_final else "LIVE"
     from todays_games import _score_side  # noqa: E402  (shared renderer)
@@ -236,12 +237,12 @@ def _nfl_mirror_card_html(g: pd.Series, qb_row=None, re_html: str = "") -> str:
                f'{_fmt(p_home, ".0%")}</div>')
 
     qb_block = _qb_matchup_html(qb_row)
-    start_et = utils.start_time_et(start_iso)
+    start_et = _nfl_start_time_et(start_iso)
     venue = (f'<div class="fb-venue">📍 {g.get("venue", "") or "—"}'
              f'{f" · {start_et}" if start_et else ""}</div>')
     banner = ''
     if is_scheduled:
-        first = utils.start_time_et(start_iso)
+        first = _nfl_start_time_et(start_iso)
         suffix = f" — {first}" if first else ""
         banner = (f'<div class="fb-banner blue">⏳ Pre-game{suffix} · '
                   f'prediction locked at kickoff</div>')

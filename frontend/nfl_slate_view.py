@@ -156,7 +156,7 @@ def half_stop_pair(row) -> tuple[float | None, float | None,
     the same pair the MLB box's ±0.5 magnitude means): the favorite at -0.5
     covers exactly when it wins OUTRIGHT (raw -0.5 EXCLUDES the tie), the
     underdog at +0.5 covers on a win OR a tie (raw +0.5 INCLUDES the tie).
-    The grey-italic (ML X%) parentheticals are the derived pair
+    The grey-italic (run-ML X%) parentheticals are the derived pair
     P(H>A)/(1-P(tie)) / P(A>H)/(1-P(tie)) — the tie mass normalized out — so
     on NFL the two diverge by the (calibrated ~0.3%) tie rate: fav raw < fav
     ML and dog raw > dog ML. Never conflated; raw and derived are distinct
@@ -167,10 +167,18 @@ def half_stop_pair(row) -> tuple[float | None, float | None,
     """
     ph0 = _f(row, "p_home_cover_0")      # P(margin > 0): home wins outright
     pp0 = _f(row, "p_push_0")            # P(margin == 0): the tie
-    fh = _f(row, "p_home_win_derived")   # derived ML P(H>A)/(1-P_tie)
-    fa = _f(row, "p_away_win_derived")
-    if ph0 is None or pp0 is None or fh is None or fa is None:
+    if ph0 is None or pp0 is None:
         return None, None, None, None, None
+    # Rebuild the derived run-ML from the mutually exclusive outright wins.
+    # The artifact's legacy derived columns may still contain raw win mass;
+    # ties must be removed before normalizing the two moneyline sides.
+    home_win = max(0.0, ph0)
+    away_win = max(0.0, 1.0 - ph0 - pp0)
+    win_mass = home_win + away_win
+    if win_mass <= 0.0:
+        return None, None, None, None, None
+    fh = home_win / win_mass
+    fa = away_win / win_mass
     fav_home = fh >= 0.5
     if fav_home:
         fav_raw, dog_raw = ph0, 1.0 - ph0          # away +0.5 wins ties
@@ -239,15 +247,10 @@ def runline_html(row, home_team: str, away_team: str,
     median margin threshold). Integer lines render the home/away covers from
     the home-anchored grid with the SHARED push note; no (ML) parentheticals
     at integers. The ±0.5 stop renders per-side RAW cover as the main number
-    AND the grey-italic (ML X%) derived parenthetical — the NFL-specific raw
+    AND the grey-italic (run-ML X%) derived parenthetical — the NFL-specific raw
     vs derived pair (they diverge by the tie rate). Never renders offered
     lines, shrink columns or edges.
     """
-    if home_spread is None:
-        fair_spread = _f(row, "fair_spread")
-        if fair_spread is None:
-            return '<span>RL: n/a</span>'
-        home_spread = -int(round(fair_spread))
     if half_stop:
         fav_raw, dog_raw, fav_ml, dog_ml, fav_home = half_stop_pair(row)
         if fav_raw is None:
@@ -256,10 +259,15 @@ def runline_html(row, home_team: str, away_team: str,
             fav_team, dog_team = home_team, away_team
         else:
             fav_team, dog_team = away_team, home_team
-        fav_note = f' <span class="re-na">(ML {_pct(fav_ml, 0)})</span>'
-        dog_note = f' <span class="re-na">(ML {_pct(dog_ml, 0)})</span>'
+        fav_note = f' <span class="re-na">(run-ML {_pct(fav_ml, 0)})</span>'
+        dog_note = f' <span class="re-na">(run-ML {_pct(dog_ml, 0)})</span>'
         return (f'<span>RL: {fav_team} −0.5 {_pct(fav_raw)}'
                 f'{fav_note} · {dog_team} +0.5 {_pct(dog_raw)}{dog_note}</span>')
+    if home_spread is None:
+        fair_spread = _f(row, "fair_spread")
+        if fair_spread is None:
+            return '<span>RL: n/a</span>'
+        home_spread = -int(round(fair_spread))
     # Integer line at home spread S: threshold L = -S (home covers margin > L).
     L = -home_spread
     ph, pp, pa = price_spread(row, L)
