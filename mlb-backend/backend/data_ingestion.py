@@ -1147,11 +1147,6 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
         logger.warning("StatsAPI pitcher enrichment failed: %s", e)
         sp = {}
     if sp:
-        # StatsAPI gamePk is the canonical per-game identity.  Keep the
-        # ESPN matchup id for display/fallback, but carry the real gamePk
-        # through the pre-game slate so served predictions can be joined to
-        # historical results without doubleheader collisions.
-        df["game_pk"] = np.nan
         df["sp_id_home"] = np.nan
         df["sp_id_away"] = np.nan
         for idx, row in df.iterrows():
@@ -1164,8 +1159,6 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
             info = _match_statsapi_pitcher_leg(legs, row.get("start_time_utc"))
             if not info:
                 continue
-            if info.get("game_pk") is not None:
-                df.at[idx, "game_pk"] = info.get("game_pk")
             if info.get("home_name"):
                 df.at[idx, "sp_name_home"] = info["home_name"]
                 df.at[idx, "sp_id_home"] = info.get("home_id")
@@ -1487,7 +1480,6 @@ def build_upcoming_slate(
         row.update({
             "game_id": s.get("game_id") or (
                 f"{pd.Timestamp(s.get('game_date') or target_date).strftime('%Y%m%d')}_{away}@{home}"),
-            "game_pk": s.get("game_pk"),
             "game_date": pd.Timestamp(s.get("game_date") or target_date),
             "start_time_utc": s.get("start_time_utc"),
             "home_team": home,

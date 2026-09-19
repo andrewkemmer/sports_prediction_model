@@ -395,9 +395,7 @@ def decided_rows(markets: Optional[pd.DataFrame]) -> pd.DataFrame:
     """OOF rows with known outcomes — everything else is excluded loudly."""
     if markets is None or not len(markets):
         return pd.DataFrame()
-    # ``served`` is the immutable production-slate lineage; ``oof`` remains
-    # available for development diagnostics and legacy artifacts.
-    df = markets[markets.get("kind").isin(["oof", "served"])]
+    df = markets[(markets.get("kind") == "oof")]
     if "total_runs" in df.columns:
         df = df[df["total_runs"].notna()]
     return df.reset_index(drop=True)

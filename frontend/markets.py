@@ -123,18 +123,7 @@ elif "kind" not in markets.columns:
 import market_diagnostics as diag  # noqa: E402  (page module, imported late)
 
 decided = diag.decided_rows(markets)
-# Production-performance definition: prefer the cumulative as-served slate
-# archive over OOF rows. OOF remains the fallback only until the archive has
-# settled games, and the source is made visible in the page caption.
-_served = utils.load_as_served_predictions("mlb")
-_served_decided = diag.decided_rows(_served)
-_performance_source = "as-served production slate"
-if len(_served_decided):
-    decided = _served_decided
-else:
-    _performance_source = "OOF diagnostic fallback (no settled as-served rows)"
 st.markdown("### Diagnostics")
-st.caption(f"Performance source: {_performance_source}")
 if decided.empty:
     st.warning(
         "No decided OOF rows in run_engine_markets for this date — "

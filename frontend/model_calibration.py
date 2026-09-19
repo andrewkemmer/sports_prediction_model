@@ -183,18 +183,7 @@ st.markdown("### Calibration Curve — Favored Team")
 # history: each OOF prediction is taken from the FAVORED team's side
 # (probability >= 50%), binned to the nearest 1%; each 1% slice yields one
 # calibration point (win_rate) AND one count bar (n) from the same frame.
-_served_history = utils.load_as_served_predictions("mlb")
-_hist_has_outcomes = (
-    not _served_history.empty
-    and {"home_win", "home_win_prob_model"}.issubset(_served_history.columns)
-    and pd.to_numeric(_served_history["home_win"], errors="coerce").notna().any()
-)
-hist_curve = (_served_history if _hist_has_outcomes
-              else utils.load_prediction_history(date_str))
-if _hist_has_outcomes:
-    st.caption("Performance source: as-served production slate predictions")
-else:
-    st.caption("Performance source: OOF diagnostic fallback; no settled as-served archive rows available")
+hist_curve = utils.load_prediction_history(date_str)
 pts = mlc.favored_calibration_pts(hist_curve)
 
 # Green curve on the SAME RAW AXIS: the DEPLOYED Platt calibration map
@@ -332,8 +321,7 @@ else:
 # Game-level history: every walk-forward prediction vs its actual result
 # ---------------------------------------------------------------------------
 st.markdown("### Prediction History — Every Game")
-hist = (_served_history if _hist_has_outcomes
-        else utils.load_prediction_history(date_str))
+hist = utils.load_prediction_history(date_str)
 if hist is None or hist.empty or "home_win_prob_model" not in hist.columns:
     st.info("No per-game prediction history available yet (generated on the next pipeline run).")
 else:
