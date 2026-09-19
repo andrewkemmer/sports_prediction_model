@@ -592,7 +592,9 @@ def _today_games_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     path = DATA_DELIVERY_DIR / f"{TODAYS_GAMES}_{target_date_str}.csv"
     # Select output columns
     out_cols = [
-        "game_id", "game_date", "start_time_utc", "home_team", "away_team",
+        # game_pk is the canonical identity when the slate has been resolved;
+        # game_id remains the stable pre-game/display fallback.
+        "game_pk", "game_id", "game_date", "start_time_utc", "home_team", "away_team",
         "home_record", "away_record", "home_win_prob_model", "away_win_prob_model",
         "moneyline_home", "moneyline_away", "total_line", "run_line_home",
         "juice", "edge_home", "edge_away",
@@ -784,12 +786,14 @@ def _calibration_json(
     n_games: int,
     oof: Optional[pd.DataFrame] = None,
     evening_games: Optional[int] = None,
+    as_served: Optional[pd.DataFrame] = None,
 ) -> Path:
     """Write calibration_YYYYMMDD.json artifact.
 
-    Headline buckets use ALL walk-forward out-of-sample predictions when
-    available (a far richer curve than the target day alone); ``daily``
-    carries per-day predicted-vs-actual for the date selector.
+    Headline buckets use settled as-served production-slate predictions when
+    available; the OOF pool remains an explicitly labelled diagnostic and
+    supplies the calibration-fit details. ``daily`` carries the OOF
+    walk-forward diagnostic by date.
     ``evening_games``: count of slate games beginning at/after 7 PM ET
     (computed by the caller via _count_evening_games; default None keeps
     the pre-fix behavior for direct callers).
@@ -804,7 +808,25 @@ def _calibration_json(
         ok = ot.notna() & op.notna()
         if int(ok.sum()) >= len(y_true):
             y_true, y_pred = ot[ok].values, op[ok].values
+    # Headline performance follows the exact production slate whenever a
+    # completed as-served archive is available. OOF remains the calibration
+    # fitting/evaluation diagnostic and is never silently mixed into this set.
+    performance_source = "oof_walk_forward"
+    if as_served is not None and not as_served.empty \
+            and {"home_win", "home_win_prob_model"}.issubset(as_served.columns):
+        st = as_served.copy()
+        sy = pd.to_numeric(st["home_win"], errors="coerce")
+        sp = pd.to_numeric(st["home_win_prob_model"], errors="coerce")
+        sok = sy.notna() & sp.notna()
+        if int(sok.sum()) > 0:
+            y_true, y_pred = sy[sok].values, sp[sok].values
+            performance_source = "as_served_production_slate"
     buckets = calibration_buckets(np.asarray(y_true), np.asarray(y_pred))
+    try:
+        headline_metrics = compute_metrics(np.asarray(y_true), np.asarray(y_pred))
+    except Exception:
+        headline_metrics = dict(metrics)
+    performance_n = int(len(y_true))
 
     # Post-hoc recalibration report: raw vs calibrated quality over the
     # pooled walk-forward OOF set, plus the fitted Platt parameters.
@@ -847,9 +869,11 @@ def _calibration_json(
 
     data = {
         "date": target_date_str,
-        "n_games": n_games,
+        "n_games": performance_n,
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "metrics": metrics,
+        "metrics": headline_metrics,
+        "metrics_oof_diagnostic": metrics,
+        "performance_source": performance_source,
         "calibration_buckets": buckets,
         "calibration": cal_section,
         "daily": _daily_calibration_rows(oof),
@@ -885,6 +909,8 @@ def _predictions_history_csv(
     if oof is None or oof.empty or "home_win_prob_model" not in getattr(oof, "columns", []):
         return None
     df = pd.DataFrame({
+        # Canonical unique identity for joins; game_id remains display-only.
+        "game_pk": oof.get("game_pk"),
         "game_id": oof.get("game_id"),
         "game_date": pd.to_datetime(oof.get("game_date"), errors="coerce").dt.strftime("%Y-%m-%d"),
         "home_team": oof.get("home_team"),
@@ -913,11 +939,181 @@ def _predictions_history_csv(
     df["model_pick"] = np.where(home_won_pick, df["home_team"], df["away_team"])
     df["actual_winner"] = np.where(hw == 1, df["home_team"], df["away_team"])
     df["correct"] = (home_won_pick == (hw == 1)).astype(int)
-    df = df.sort_values(["game_date", "game_id"], ascending=[False, True])
+    sort_cols = [c for c in ("game_date", "game_pk", "game_id") if c in df.columns]
+    df = df.sort_values(sort_cols, ascending=[False] + [True] * (len(sort_cols) - 1))
     path = DATA_DELIVERY_DIR / f"predictions_history_{target_date_str}.csv"
     df.to_csv(path, index=False)
     logger.info("Prediction history written: %d games -> %s", len(df), path.name)
     return path
+
+
+def _as_served_history_csv(
+    target_games: Optional[pd.DataFrame],
+    slate_markets: Optional[pd.DataFrame],
+    target_date_str: str,
+) -> Optional[Path]:
+    """Persist the exact production predictions shown on the game board.
+
+    This is deliberately separate from ``predictions_history_*``: that family
+    is the walk-forward/OOF diagnostic store.  The as-served store is the
+    canonical source for betting-performance dashboards and is updated by
+    game identity, so reruns reconcile a game's result without replacing the
+    prediction that was served before first pitch.
+    """
+    if target_games is None or target_games.empty:
+        return None
+    required = {"game_id", "game_date", "home_team", "away_team",
+                "home_win_prob_model", "model_pick"}
+    missing = sorted(required - set(target_games.columns))
+    if missing:
+        logger.warning("As-served history skipped; missing columns: %s", missing)
+        return None
+
+    board = target_games.copy()
+    # Never archive the pipeline's emergency "most recent games" fallback as
+    # today's served slate. Only rows belonging to this target date were
+    # actually available to bettors for this snapshot.
+    _dates = pd.to_datetime(board["game_date"], errors="coerce").dt.strftime("%Y%m%d")
+    board = board[_dates == str(target_date_str)].copy()
+    if board.empty:
+        logger.warning("As-served history skipped; no rows belong to %s", target_date_str)
+        return None
+    board["_served_key"] = board.get("game_pk", board["game_id"])
+    board["_served_key"] = board["_served_key"].where(
+        board["_served_key"].notna(), board["game_id"]
+    ).astype(str)
+    cols = ["_served_key", "game_id", "game_pk", "game_date", "home_team",
+            "away_team", "home_win_prob_model", "away_win_prob_model",
+            "home_win_prob_model_calibrated", "model_pick", "home_win",
+            "home_score", "away_score", "total_runs"]
+    rows = board[[c for c in cols if c in board.columns]].copy()
+    # Keep the canonical identity exactly once.  A pre-game slate may not
+    # have StatsAPI game_pk, so the stable game_id is the fallback key.
+    rows["served_game_key"] = board["_served_key"].astype(str)
+    rows = rows.drop(columns=[c for c in ("_served_key", "game_pk")
+                              if c in rows.columns])
+    rows = rows.rename(columns={"served_game_key": "game_pk"})
+    rows["kind"] = "served"
+    rows["prediction_date"] = target_date_str
+    rows["prediction_source"] = "todays_games_production_slate"
+    if "home_win" in rows.columns:
+        hw = pd.to_numeric(rows["home_win"], errors="coerce")
+        rows["actual_winner"] = hw.map(
+            lambda v: None if pd.isna(v) else ("HOME" if float(v) == 1.0 else "AWAY")
+        )
+        # Preserve the displayed team abbreviation in the outcome fields.
+        rows.loc[hw.notna(), "actual_winner"] = rows.loc[hw.notna()].apply(
+            lambda r: r["home_team"] if float(r["home_win"]) == 1.0 else r["away_team"], axis=1
+        )
+        rows["correct"] = pd.NA
+        valid = hw.notna()
+        rows.loc[valid, "correct"] = (
+            rows.loc[valid, "model_pick"].astype(str)
+            == rows.loc[valid, "actual_winner"].astype(str)
+        ).astype(int)
+
+    # The run engine emits the same production slate rows with game_id carried
+    # in game_pk for pre-game games. Copy every published market probability
+    # onto the same identity rather than recomputing anything in the frontend.
+    if slate_markets is not None and not slate_markets.empty and "game_pk" in slate_markets:
+        sm = slate_markets.copy()
+        sm["game_pk"] = sm["game_pk"].astype(str)
+        market_cols = [c for c in sm.columns if c.startswith(("p_over_", "p_push_",
+                         "p_under_", "p_home_cover_", "p_rl_"))]
+        market_cols += [c for c in ("p_home_win_derived", "p_away_win_derived",
+                                    "home_expected_runs", "away_expected_runs",
+                                    "alpha_home", "alpha_away") if c in sm.columns]
+        if market_cols:
+            sm = sm[["game_pk"] + market_cols].drop_duplicates("game_pk")
+            rows["game_pk"] = rows["game_pk"].astype(str)
+            rows = rows.merge(sm, on="game_pk", how="left")
+
+    path = DATA_DELIVERY_DIR / "as_served_predictions.csv"
+    existing = pd.DataFrame()
+    if path.exists():
+        try:
+            existing = pd.read_csv(path)
+        except Exception as exc:
+            logger.warning("As-served history unreadable; rebuilding: %s", exc)
+    if not existing.empty:
+        existing["game_pk"] = existing["game_pk"].astype(str)
+        rows["game_pk"] = rows["game_pk"].astype(str)
+        # The first pre-game prediction is the bet-time truth.  A later rerun
+        # may contain a different refit probability, but it must not replace
+        # the number already shown to the bettor.  Only authoritative outcome
+        # fields are refreshed after a game is final.
+        existing_by_key = existing.drop_duplicates("game_pk", keep="first").set_index("game_pk")
+        for _col in ("actual_winner", "model_pick", "prediction_source", "kind"):
+            if _col in existing_by_key.columns:
+                existing_by_key[_col] = existing_by_key[_col].astype(object)
+        for _, new in rows.set_index("game_pk").iterrows():
+            key = str(new.name)
+            if key not in existing_by_key.index:
+                existing_by_key.loc[key, new.index] = new
+                continue
+            # Add market columns on the second pass, but preserve any
+            # already-served probability values. Outcome fields are the only
+            # values allowed to be revised after first pitch.
+            for col in new.index:
+                if col not in existing_by_key.columns:
+                    existing_by_key[col] = pd.NA
+                current = existing_by_key.at[key, col]
+                if col in ("home_win", "home_score", "away_score", "total_runs",
+                           "actual_winner", "correct"):
+                    if pd.notna(new.get(col)):
+                        existing_by_key.at[key, col] = new[col]
+                elif pd.isna(current) and pd.notna(new.get(col)):
+                    existing_by_key.at[key, col] = new[col]
+        rows = existing_by_key.reset_index()
+    rows = rows.drop_duplicates("game_pk", keep="first")
+    rows["game_date"] = pd.to_datetime(rows["game_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    rows.to_csv(path, index=False)
+    logger.info("As-served history written: %d games -> %s", len(rows), path.name)
+    return path
+
+
+def _backfill_as_served_from_committed_artifacts() -> None:
+    """Seed the cumulative archive from retained production snapshots.
+
+    This recovers the recent board-backed window without refitting models: it
+    uses the exact probabilities already written to ``todays_games_*`` and
+    ``run_engine_markets_*``. Older games that were never archived cannot be
+    reconstructed and remain explicitly OOF-only diagnostics.
+    """
+    boards = sorted(DATA_DELIVERY_DIR.glob(f"{TODAYS_GAMES}_*.csv"))
+    for board_path in boards:
+        stamp = board_path.stem.rsplit("_", 1)[-1]
+        if len(stamp) != 8 or not stamp.isdigit():
+            continue
+        try:
+            board = pd.read_csv(board_path)
+            # Board snapshots are point-in-time and commonly have no final
+            # overlay. Use the authoritative game-level results only for
+            # outcome fields; never use it to alter served probabilities.
+            features_path = DATA_DELIVERY_DIR / "game_level_features.csv"
+            if features_path.exists() and "game_id" in board.columns:
+                try:
+                    gf = pd.read_csv(features_path, usecols=lambda c: c in (
+                        "game_id", "home_win", "home_score", "away_score", "total_runs"))
+                    gf = gf.drop_duplicates("game_id", keep="last").set_index("game_id")
+                    for col in ("home_win", "home_score", "away_score", "total_runs"):
+                        if col not in gf.columns:
+                            continue
+                        vals = board["game_id"].map(gf[col])
+                        if col not in board.columns:
+                            board[col] = vals
+                        else:
+                            board[col] = board[col].where(board[col].notna(), vals)
+                except Exception as _result_exc:
+                    logger.warning("As-served result overlay skipped: %s", _result_exc)
+            markets_path = DATA_DELIVERY_DIR / f"run_engine_markets_{stamp}.csv"
+            markets = pd.read_csv(markets_path) if markets_path.exists() else None
+            if markets is not None and "kind" in markets.columns:
+                markets = markets[markets["kind"] == "slate"].copy()
+            _as_served_history_csv(board, markets, stamp)
+        except Exception as exc:
+            logger.warning("As-served snapshot backfill skipped for %s: %s",
+                           board_path.name, exc)
 
 
 def _model_monitor_json(
@@ -1974,10 +2170,22 @@ def run_daily_pipeline(
                 _op = pd.to_numeric(all_predictions["home_win_prob_model"], errors="coerce")
                 _ok = _ot.notna() & _op.notna()
                 cal_yt, cal_yp = _ot[_ok].values, _op[_ok].values
+            # Capture/update the served moneyline archive before publishing
+            # calibration so the headline view can use settled production
+            # predictions on reruns of a completed date.
+            _served_for_cal = _as_served_history_csv(target_games, None,
+                                                     target_date_str)
+            _served_frame = None
+            if _served_for_cal is not None:
+                try:
+                    _served_frame = pd.read_csv(_served_for_cal)
+                except Exception:
+                    _served_frame = None
             path = _calibration_json(
                 pooled_metrics, cal_yt, cal_yp, target_date_str, len(target_games),
                 oof=all_predictions,
                 evening_games=_count_evening_games(target_games),
+                as_served=_served_frame,
             )
             summary["artifacts"].append(str(path))
             hist_path = _predictions_history_csv(all_predictions, target_date_str)
@@ -2029,6 +2237,24 @@ def run_daily_pipeline(
                 logger.error("Run-engine monitor write failed: %s", mex)
         except Exception as e:
             logger.error("Run engine failed (continuing): %s", e, exc_info=True)
+
+        # Seed the archive from retained prior-day production snapshots,
+        # then persist the current point-in-time slate independently of OOF
+        # diagnostics. This is the source used by historical betting
+        # performance; a later rerun may add official results but never
+        # replaces an already-served probability.
+        try:
+            _backfill_as_served_from_committed_artifacts()
+            _served_path = _as_served_history_csv(
+                target_games,
+                run_engine_block and _re.get("slate_markets"),
+                target_date_str,
+            )
+            if _served_path is not None:
+                summary["artifacts"].append(str(_served_path))
+        except Exception as _served_exc:
+            logger.error("As-served history write failed (continuing): %s",
+                         _served_exc, exc_info=True)
 
         # 6. SHAP + Feature drift
         logger.info("Step 6: Explainability")

@@ -1521,6 +1521,27 @@ def load_nfl_run_engine_monitor_series(
     return out
 
 
+def load_as_served_predictions(sport: str | None = None) -> pd.DataFrame:
+    """Load the cumulative production-slate prediction archive.
+
+    This is the canonical betting-performance source. It is intentionally
+    distinct from ``predictions_history_*`` (OOF diagnostics), so dashboards
+    cannot accidentally compare a served card with a different OOF forecast.
+    """
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    if s != "mlb":
+        return pd.DataFrame()
+    cfg = get_source_config()
+    raw, src = _fetch_bytes("as_served_predictions.csv", **cfg, sport=s)
+    st.session_state["as_served_source"] = src
+    if raw is None:
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(io.BytesIO(raw))
+    except Exception:
+        return pd.DataFrame()
+
+
 def load_prediction_history(date_str: str,
                             sport: str | None = None) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table).

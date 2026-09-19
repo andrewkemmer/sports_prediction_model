@@ -2350,7 +2350,10 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                 / f"run_engine_markets_{target_date_str}.meta.json"))
     return {"block": monitor_block, "artifacts": artifacts,
             "markets_persisted": markets_persisted,
-            "markets_persist_error": markets_persist_error}
+            "markets_persist_error": markets_persist_error,
+            # Returned in-process so the pipeline can archive the exact slate
+            # probabilities shown to the user alongside the moneyline.
+            "slate_markets": slate_frame.copy()}
 
 
 def _print_phase2(s: dict[str, Any],

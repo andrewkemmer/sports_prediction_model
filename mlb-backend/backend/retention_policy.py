@@ -139,6 +139,9 @@ EXACT_MASTER_NAMES = frozenset({
     # Dashboard reads game_level_features.csv for final scores; regenerated
     # and staged every run (seen-protected anyway) — name-protect as a master.
     "game_level_features.csv",
+    # Immutable cumulative record of the exact production slate predictions
+    # shown to bettors; OOF history is a separate diagnostic family.
+    "as_served_predictions.csv",
 })
 
 # -- Series readers / cumulative stores (prefix): deleting ANY member would --
