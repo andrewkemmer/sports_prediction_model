@@ -69,6 +69,18 @@ def _dump_json(path, record: dict) -> None:
     path.write_text(json.dumps(_json_safe(record), indent=1, allow_nan=False))
 
 
+def _date_str(v) -> str:
+    """Calendar date as ``YYYY-MM-DD`` from any gameday representation.
+
+    The slate frame carries pandas Timestamps; ``str(Timestamp)`` would
+    serialize the midnight time (``'2026-09-20 00:00:00'``) into the JSON
+    contracts — the frontend's date filters and kickoff parsing match on
+    the bare date, so every emitted date field normalizes here.
+    """
+    ts = pd.to_datetime(v, errors="coerce")
+    return "" if pd.isna(ts) else ts.strftime("%Y-%m-%d")
+
+
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -93,7 +105,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
             pick = g["home_team"] if ph >= 0.5 else g["away_team"]
         games.append(_row_clean({
             "game_id": g["game_id"],
-            "game_date": str(g["gameday"]),
+            "game_date": _date_str(g["gameday"]),
             "start_time_utc": _start_time_utc(g),
             "home_team": g["home_team"],
             "away_team": g["away_team"],
@@ -113,7 +125,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
     record = {
         "created_utc": _now_utc(),
         "config": config_meta,
-        "slate_date": str(slate_df["gameday"].min()) if len(slate_df) else None,
+        "slate_date": _date_str(slate_df["gameday"].min()) if len(slate_df) else None,
         "n_games": len(games),
         "games": games,
     }
@@ -122,7 +134,7 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
 
 
 def _start_time_utc(g) -> str | None:
-    gd = str(g.get("gameday", "")) or ""
+    gd = _date_str(g.get("gameday", ""))
     gt = str(g.get("gametime", "") or "")
     if not gd:
         return None
@@ -327,9 +339,14 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         cols += [f"p_over_{U}", f"p_under_{U}", f"p_push_{U}"]
 
     out = pd.concat([oof_rows, slate_rows], ignore_index=True)
-    for c in cols:
-        if c not in out.columns:
-            out[c] = np.nan
+    # Missing grid columns materialize in ONE bulk concat — the per-column
+    # ``out[c] = np.nan`` loop fragmented the frame (>100 inserts) and
+    # flooded the run log with pandas PerformanceWarnings.
+    missing = [c for c in cols if c not in out.columns]
+    if missing:
+        out = pd.concat(
+            [out, pd.DataFrame(np.nan, columns=missing, index=out.index)],
+            axis=1)
     out = out[cols]
     out.to_csv(path, index=False)
     meta = {
@@ -357,7 +374,7 @@ def write_qb_matchup_json(path, qb_df: pd.DataFrame,
     for i, row in base.iterrows():
         rec = {
             "game_id": row["game_id"],
-            "gameday": str(row.get("gameday", row.get("game_date", "")) or ""),
+            "gameday": _date_str(row.get("gameday", row.get("game_date", ""))),
             "home_team": str(row.get("home_team", "") or ""),
             "away_team": str(row.get("away_team", "") or ""),
         }

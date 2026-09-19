@@ -72,12 +72,24 @@ def _env_date(primary: str, legacy: str, fallback: str) -> str:
             raise SystemExit(f"{primary}/{legacy} must be YYYY-MM-DD or a season") from None
 
 
-def _env_end_date() -> str:
+def _env_end_bounds() -> tuple[str, str]:
+    """(seasons-range end, gameday window end) from the end controls.
+
+    A legacy integer season alias (``NFL_END_SEASON=2026``) bounds the
+    SEASONS at that year but the gameday window at that season's calendar
+    tail (Feb 28 of the following year) — an NFL postseason runs into
+    January/February, and capping at Dec 31 silently drops the season's
+    own playoff games (the 20260919 run lost the 31 games of Jan 2027).
+    An explicit ``NFL_END_DATE`` bounds both literally; the default bounds
+    both at today (ET).
+    """
     raw = (os.environ.get("NFL_END_DATE") or os.environ.get("NFL_END_SEASON") or "").strip()
     if raw.isdigit() and len(raw) == 4:
-        return date(int(raw), 12, 31).isoformat()
-    return _env_date("NFL_END_DATE", "NFL_END_SEASON",
-                     datetime.now(ZoneInfo("America/New_York")).date().isoformat())
+        year = int(raw)
+        return (date(year, 12, 31).isoformat(), date(year + 1, 2, 28).isoformat())
+    day = _env_date("NFL_END_DATE", "NFL_END_SEASON",
+                    datetime.now(ZoneInfo("America/New_York")).date().isoformat())
+    return (day, day)
 
 
 def _env_flag(name: str) -> bool:
@@ -104,12 +116,12 @@ def main(argv: list[str] | None = None) -> int:
     # begins in config.OOF_FIRST_SEASON. Legacy *_SEASON aliases are accepted.
     full_repull = _env_flag("NFL_FULL_REPULL")
     start_date = _env_date("NFL_START_DATE", "NFL_START_SEASON", "2018-01-01")
-    end_date = _env_end_date()
-    if start_date > end_date:
-        raise SystemExit(f"invalid date window: {start_date} > {end_date}")
+    end_date, window_end = _env_end_bounds()
+    if start_date > window_end:
+        raise SystemExit(f"invalid date window: {start_date} > {window_end}")
     seasons = list(range(int(start_date[:4]), int(end_date[:4]) + 1))
     logger.info("nflverse date window: %s..%s (seasons %d..%d)",
-                start_date, end_date, seasons[0], seasons[-1])
+                start_date, window_end, seasons[0], seasons[-1])
     if full_repull:
         ingestion.clear_cache()
         logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild")
@@ -144,8 +156,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     schedule = ingestion.eligible_games(schedule)
     schedule["gameday"] = pd.to_datetime(schedule["gameday"], errors="coerce")
-    schedule = schedule[(schedule["gameday"] >= pd.Timestamp(start_date))
-                        & (schedule["gameday"] <= pd.Timestamp(end_date))].copy()
+    # Lower bound applies to every row; the upper bound seals DECIDED games
+    # only (a backfill cutoff) — future scheduled games must survive for
+    # slate serving (capping the whole schedule at window_end truncated the
+    # board's upcoming games when the window ends mid-season).
+    decided_rows = (schedule["home_score"].notna()
+                    & schedule["away_score"].notna())
+    schedule = schedule[
+        (schedule["gameday"] >= pd.Timestamp(start_date))
+        & (~decided_rows
+           | (schedule["gameday"] <= pd.Timestamp(window_end)))].copy()
     logger.info("schedule rows (date window): %d", len(schedule))
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
