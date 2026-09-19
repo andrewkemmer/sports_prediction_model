@@ -44,92 +44,11 @@ if not cal:
     st.stop()
 
 artifact_date = cal.get("_artifact_date", date_str)
-# The calibration artifact can be newer than the cumulative as-served archive.
-# Resolve the performance frame once and use it for every headline section so
-# the KPI cards, curve, reliability table, and history cannot mix lineages.
-_served_history = utils.load_as_served_predictions(utils.get_sport())
-_settled = pd.DataFrame()
-if not _served_history.empty and "home_win" in _served_history.columns:
-    _settled = _served_history[
-        pd.to_numeric(_served_history["home_win"], errors="coerce").notna()
-    ].copy()
-_use_as_served = not _settled.empty and {
-    "home_win_prob_model", "home_win", "correct"
-}.issubset(_settled.columns)
-
-
-def _auc(y: np.ndarray, p: np.ndarray) -> float | None:
-    if len(np.unique(y)) < 2:
-        return None
-    order = np.argsort(p, kind="mergesort")
-    ranks = np.empty(len(p), dtype=float)
-    ranks[order] = np.arange(1, len(p) + 1)
-    n_pos = float((y == 1).sum())
-    n_neg = float((y == 0).sum())
-    return float((ranks[y == 1].sum() - n_pos * (n_pos + 1) / 2) /
-                 (n_pos * n_neg))
-
-
-def _as_served_metrics(frame: pd.DataFrame) -> dict:
-    y = pd.to_numeric(frame["home_win"], errors="coerce").to_numpy(float)
-    p = pd.to_numeric(frame["home_win_prob_model"], errors="coerce").to_numpy(float)
-    ok = np.isfinite(y) & np.isfinite(p)
-    y, p = y[ok], np.clip(p[ok], 1e-6, 1 - 1e-6)
-    loss = -(y * np.log(p) + (1 - y) * np.log1p(-p))
-    # Ten fixed probability bins; empty bins contribute no error.
-    edges = np.linspace(0.0, 1.0, 11)
-    ece = 0.0
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        mask = (p >= lo) & ((p < hi) if hi < 1 else (p <= hi))
-        if mask.any():
-            ece += float(mask.mean()) * abs(float(p[mask].mean()) - float(y[mask].mean()))
-    return {
-        "auc_roc": _auc(y, p),
-        "brier_score": float(np.mean((p - y) ** 2)),
-        "log_loss": float(np.mean(loss)),
-        "cal_error": float(ece),
-        "brier_calibrated": None,
-        "log_loss_calibrated": None,
-        "cal_error_calibrated": None,
-    }
-
-
-if _use_as_served:
-    n_games = int(len(_settled))
-    kpis = _as_served_metrics(_settled)
-    _hp0 = pd.to_numeric(_settled["home_win_prob_model"], errors="coerce")
-    _correct0 = pd.to_numeric(_settled["correct"], errors="coerce")
-    _ok0 = _hp0.notna() & _correct0.notna()
-    _fav0 = np.maximum(_hp0[_ok0].to_numpy(float), 1.0 - _hp0[_ok0].to_numpy(float))
-    _bucket0 = np.minimum(np.floor(_fav0 * 20.0) / 20.0 + 0.025, 0.975)
-    _served_pts = (pd.DataFrame({"prob": _bucket0, "won": _correct0[_ok0].to_numpy(float)})
-                   .groupby("prob").agg(win_rate=("won", "mean"), n=("won", "size"))
-                   .reset_index())
-    curve = [
-        {"bucket": f"{int(round(r.prob * 100))}%",
-         "mean_predicted": float(r.prob),
-         "mean_actual": float(r.win_rate), "count": int(r.n),
-         "gap": float(r.prob - r.win_rate)}
-        for r in _served_pts.itertuples(index=False)
-    ]
-    _hw = pd.to_numeric(_settled["home_win"], errors="coerce")
-    _correct = pd.to_numeric(_settled["correct"], errors="coerce").fillna(0)
-    record = {"wins": int(_correct.sum()), "losses": int(len(_settled) - _correct.sum()),
-              "completed": int(len(_settled))}
-    _p_home = pd.to_numeric(_settled["home_win_prob_model"], errors="coerce")
-    _winner_prob = _p_home.where(_hw == 1, 1.0 - _p_home)
-    upsets = [{"team": str(r.actual_winner), "prob": float(_winner_prob.loc[i])}
-              for i, r in _settled.iterrows()
-              if pd.notna(r.get("actual_winner")) and _winner_prob.loc[i] <= 0.40]
-else:
-    n_games = cal.get("n_games", 0)
-    kpis = cal.get("kpis", {})
-    curve = cal.get("calibration_curve", [])
-    record = cal.get("today_record", {})
-    upsets = cal.get("upsets", [])
-
-_scope_label = ("settled as-served production games from the retained archive"
-                if _use_as_served else "walk-forward diagnostic games")
+n_games = cal.get("n_games", 0)
+kpis = cal.get("kpis", {})
+curve = cal.get("calibration_curve", [])
+record = cal.get("today_record", {})
+upsets = cal.get("upsets", [])
 
 
 def _trained_label(raw: str) -> str:
@@ -150,7 +69,7 @@ st.markdown(
     f"""
     <div style="display:inline-flex;align-items:center;gap:6px;margin:6px 0 2px;color:#94A3B8;
                 border:1px solid #1E293B;border-radius:999px;padding:3px 12px;font-size:0.85rem;">
-      As of {utils.format_date_long(artifact_date)} · n = {n_games:,} {_scope_label} · Trained {_trained_label(cal.get('trained_at', ''))}
+      As of {utils.format_date_long(artifact_date)} · n = {n_games:,} games · Trained {_trained_label(cal.get('trained_at', ''))}
     </div>
     {f'<div style="color:#64748B;font-size:0.82rem;margin-top:2px;">ℹ No artifact for {utils.format_date_long(date_str)} — showing latest snapshot ({utils.format_date_long(artifact_date)})</div>' if artifact_date != date_str else ''}
     <div style="color:#94A3B8;font-size:0.9rem;margin-top:4px;">
@@ -178,7 +97,7 @@ st.markdown(
     f"""
     <div class="fb-box" style="margin:14px 0;padding:14px 18px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#E2E8F0;">
-        <span style="font-weight:700;">{'As-Served Record:' if _use_as_served else "Today's Record:"}</span>
+        <span style="font-weight:700;">Today's Record:</span>
         <span style="background:rgba(16,185,129,.18);color:#34D399;border-radius:999px;padding:2px 12px;font-weight:800;">✓ {wins}-{losses}</span>
         <span style="color:#94A3B8;font-size:0.9rem;">{completed} completed games · {wins} correct picks ({acc:.1f}%) · {len(upsets)} upsets</span>
       </div>
@@ -235,7 +154,7 @@ if cal_sec.get("method") == "platt":
             f"""
             <div class="fb-box" style="margin:12px 0;padding:12px 18px;">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#E2E8F0;">
-                <span style="font-weight:700;">Post-Hoc Recalibration (OOF diagnostic):</span>
+                <span style="font-weight:700;">Post-Hoc Recalibration:</span>
                 <span style="background:rgba(59,130,246,.18);color:#60A5FA;border-radius:999px;padding:2px 12px;font-size:0.82rem;font-weight:700;">
                   Platt scaling · a={_params.get('a', '—')}, b={_params.get('b', '—')}
                 </span>
@@ -264,16 +183,19 @@ st.markdown("### Calibration Curve — Favored Team")
 # history: each OOF prediction is taken from the FAVORED team's side
 # (probability >= 50%), binned to the nearest 1%; each 1% slice yields one
 # calibration point (win_rate) AND one count bar (n) from the same frame.
-hist_curve = _settled if _use_as_served else utils.load_prediction_history(date_str)
-_hist_has_outcomes = not hist_curve.empty
-if _use_as_served:
-    st.caption("Performance source: as-served production slate predictions · settled games only · 5-point bins")
-    pts = pd.DataFrame(curve)[["mean_predicted", "mean_actual", "count"]].rename(columns={
-        "mean_predicted": "prob", "mean_actual": "win_rate", "count": "n"
-    })
+_served_history = utils.load_as_served_predictions("mlb")
+_hist_has_outcomes = (
+    not _served_history.empty
+    and {"home_win", "home_win_prob_model"}.issubset(_served_history.columns)
+    and pd.to_numeric(_served_history["home_win"], errors="coerce").notna().any()
+)
+hist_curve = (_served_history if _hist_has_outcomes
+              else utils.load_prediction_history(date_str))
+if _hist_has_outcomes:
+    st.caption("Performance source: as-served production slate predictions")
 else:
     st.caption("Performance source: OOF diagnostic fallback; no settled as-served archive rows available")
-    pts = mlc.favored_calibration_pts(hist_curve)
+pts = mlc.favored_calibration_pts(hist_curve)
 
 # Green curve on the SAME RAW AXIS: the DEPLOYED Platt calibration map
 # σ(a·logit(p)+b) evaluated at every raw favored probability. Because it
@@ -336,14 +258,14 @@ if not pts.empty:
     utils.show_chart(built["chart"])
     st.caption(
         f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
-        f"{'5-point' if _use_as_served else '1%'} predicted-probability bin — the bars are the confidence-vs-"
+        f"1% predicted-probability bin — the bars are the confidence-vs-"
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "
         f"Blue: actual win rate at each raw probability · "
         f"Green: calibrated probability σ(a·logit(p)+b) at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
-        f"blue curve binned to the {'nearest 5 points' if _use_as_served else 'nearest 1%'} — hover for games per point"
+        "blue curve binned to the nearest 1% — hover for games per point"
     )
 
 # ---------------------------------------------------------------------------
@@ -353,7 +275,7 @@ st.markdown("### Reliability Diagram — Binned Data")
 # Prequential calibrated buckets (each point corrected by a map fitted on
 # strictly PRIOR folds) shown alongside the raw view, so overconfidence can
 # be judged at BOTH stages of the deployed chain.
-_cal_buckets = {} if _use_as_served else {
+_cal_buckets = {
     b.get("bucket"): b
     for b in ((cal.get("calibration") or {}).get("calibration_buckets_calibrated") or [])
 }
@@ -400,7 +322,7 @@ else:
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
           Favored-team view: every game counted once at its pick probability (≥ 50%). GAP = mean predicted − mean actual. Green: overconfident (positive). Red: underconfident (negative).
-          {('CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment.' if not _use_as_served else 'CALIBRATED is shown as — because the retained as-served archive contains the exact betting probability, while the Platt fit remains a separate OOF diagnostic.')}
+          CALIBRATED = prequential Platt-corrected prediction per bucket — each game corrected by a map fitted only on prior games, the same convention as deployment.
         </div>
         """,
         unsafe_allow_html=True,
@@ -410,7 +332,7 @@ else:
 # Game-level history: every walk-forward prediction vs its actual result
 # ---------------------------------------------------------------------------
 st.markdown("### Prediction History — Every Game")
-hist = (_settled if _use_as_served
+hist = (_served_history if _hist_has_outcomes
         else utils.load_prediction_history(date_str))
 if hist is None or hist.empty or "home_win_prob_model" not in hist.columns:
     st.info("No per-game prediction history available yet (generated on the next pipeline run).")
