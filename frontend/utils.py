@@ -887,15 +887,18 @@ def _distinct_game_dates(frame: pd.DataFrame) -> list[str]:
 
     NFL valid dates are the DISTINCT per-game ``game_date`` values in the
     moneyline ``games[]`` array (NOT the artifact filename date). Empty frame
-    / no game_date column / aggregate-only record → [].
+    / no game_date column / aggregate-only record → []. A datetime-stamped
+    value ('2026-09-20 00:00:00' — the serving layer's pandas datetime
+    stringification) normalizes to its leading date so the board never
+    blanks out on the timestamp suffix.
     """
     if frame is None or frame.empty or "game_date" not in frame.columns:
         return []
     out: set[str] = set()
     for v in frame["game_date"].dropna().astype(str):
         v = v.strip()
-        if len(v) == 10 and v[4:5] == "-" and v.replace("-", "").isdigit():
-            out.add(v.replace("-", ""))
+        if len(v) >= 10 and v[4:5] == "-" and v[:10].replace("-", "").isdigit():
+            out.add(v[:10].replace("-", ""))
         elif len(v) == 8 and v.isdigit():
             out.add(v)
     return sorted(out, reverse=True)
@@ -996,6 +999,41 @@ def _nl(row: dict) -> Optional[float]:
     return v if v == v else None  # NaN → None
 
 
+def _norm_game_date(v) -> str:
+    """Game date as ``YYYY-MM-DD`` (its leading date token).
+
+    The serving layer can emit a pandas datetime stringification
+    (``'2026-09-20 00:00:00'``) when the slate frame carries datetimes —
+    the timestamp suffix would otherwise break the board's date filter
+    (``str.replace("-", "")`` equality) and every ``game_date[:10]``
+    matcher. Compact ``YYYYMMDD`` normalizes too; anything unparseable
+    passes through untouched (never fabricated).
+    """
+    s = str(v or "").strip()
+    if len(s) >= 10 and s[4:5] == "-" and s[:10].replace("-", "").isdigit():
+        return s[:10]
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return s
+
+
+def _repair_start_iso(v) -> str:
+    """Repair the hybrid datetime stamp the serving layer can emit.
+
+    When ``game_date`` arrives as a datetime, serving concatenates it with
+    the real kickoff time producing ``'2026-09-20 00:00:00T13:00:00Z'`` —
+    unparseable by ``datetime.fromisoformat`` (kickoff renders 12:00 AM ET
+    and the day/evening pill mislabels). The embedded gametime wins; the
+    stray midnight prefix is dropped. Already-clean stamps pass through.
+    """
+    s = str(v or "").strip()
+    m = re.match(
+        r"^(\d{4}-\d{2}-\d{2})[ T]00:00:00T(\d{2}:\d{2})(:\d{2})?Z?$", s)
+    if m:
+        return f"{m.group(1)}T{m.group(2)}{m.group(3) or ''}Z"
+    return s
+
+
 def nfl_moneyline_to_frame(data) -> pd.DataFrame:
     """Adapt an ``nfl_moneyline_v1_*.json`` record into the shared card frame.
 
@@ -1024,9 +1062,9 @@ def nfl_moneyline_to_frame(data) -> pd.DataFrame:
             ph = min(1.0, max(0.0, ph))
         pa = None if ph is None else 1.0 - ph
         game_id = r.get("game_id") or r.get("game_pk") or ""
-        game_date = r.get("game_date") or r.get("gameday") or ""
+        game_date = _norm_game_date(r.get("game_date") or r.get("gameday") or "")
         if not game_id and (home or away):
-            game_id = f"{str(game_date or '').replace('-', '')}_{away}@{home}"
+            game_id = f"{game_date.replace('-', '')}_{away}@{home}"
 
         hs, as_ = _nl(r.get("home_score")), _nl(r.get("away_score"))
         status = r.get("game_status") or r.get("game_state")
@@ -1046,7 +1084,7 @@ def nfl_moneyline_to_frame(data) -> pd.DataFrame:
             "away_record": r.get("away_record"),
             "edge_home": _nl(r.get("edge_home")),
             "edge_away": _nl(r.get("edge_away")),
-            "start_time_utc": r.get("start_time_utc")
+            "start_time_utc": _repair_start_iso(r.get("start_time_utc"))
             or (f"{game_date}T00:00:00Z" if game_date else ""),
             "venue": r.get("venue") or r.get("stadium") or r.get("roof") or "",
             "model_pick": pick or "",
