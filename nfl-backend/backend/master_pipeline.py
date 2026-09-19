@@ -23,7 +23,8 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote
 
@@ -58,15 +59,25 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _env_season(name: str, fallback: int) -> int:
-    """Read an optional NFL_START_SEASON / NFL_END_SEASON override."""
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return fallback
+def _env_date(primary: str, legacy: str, fallback: str) -> str:
+    """Read canonical date controls, retaining the old season aliases."""
+    raw = (os.environ.get(primary) or os.environ.get(legacy) or fallback).strip()
     try:
-        return int(raw)
+        return date.fromisoformat(raw[:10]).isoformat()
     except ValueError:
-        raise SystemExit(f"{name} must be an integer season, got {raw!r}") from None
+        # A legacy integer season remains valid and maps to the season start.
+        try:
+            return date(int(raw), 1, 1).isoformat()
+        except (TypeError, ValueError):
+            raise SystemExit(f"{primary}/{legacy} must be YYYY-MM-DD or a season") from None
+
+
+def _env_end_date() -> str:
+    raw = (os.environ.get("NFL_END_DATE") or os.environ.get("NFL_END_SEASON") or "").strip()
+    if raw.isdigit() and len(raw) == 4:
+        return date(int(raw), 12, 31).isoformat()
+    return _env_date("NFL_END_DATE", "NFL_END_SEASON",
+                     datetime.now(ZoneInfo("America/New_York")).date().isoformat())
 
 
 def _env_flag(name: str) -> bool:
@@ -89,15 +100,16 @@ def main(argv: list[str] | None = None) -> int:
     run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     date_c = run_date.replace("-", "")
 
-    # MLB-style run options: env overrides are for one-off backfills only.
-    # Omit both = full configured history from config (2018..2026).
+    # MLB-style date controls. Warm-up remains 2018 by default; OOF still
+    # begins in config.OOF_FIRST_SEASON. Legacy *_SEASON aliases are accepted.
     full_repull = _env_flag("NFL_FULL_REPULL")
-    start_season = _env_season("NFL_START_SEASON", min(config.ALL_SEASONS))
-    end_season = _env_season("NFL_END_SEASON", max(config.CORE_SEASONS))
-    if start_season > end_season:
-        raise SystemExit(f"invalid season window: {start_season} > {end_season}")
-    seasons = list(range(start_season, end_season + 1))
-    logger.info("nflverse season window: %d..%d", start_season, end_season)
+    start_date = _env_date("NFL_START_DATE", "NFL_START_SEASON", "2018-01-01")
+    end_date = _env_end_date()
+    if start_date > end_date:
+        raise SystemExit(f"invalid date window: {start_date} > {end_date}")
+    seasons = list(range(int(start_date[:4]), int(end_date[:4]) + 1))
+    logger.info("nflverse date window: %s..%s (seasons %d..%d)",
+                start_date, end_date, seasons[0], seasons[-1])
     if full_repull:
         ingestion.clear_cache()
         logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild")
@@ -116,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             "simulation": "monte_carlo",
             "mc_draws": dist_mod.MC_DRAWS,
             "feature_contract": "binary_moneyline",
-            "feature_columns": list(config.FEATURE_COLUMNS),
+            "feature_columns": list(config.active_feature_columns()),
         },
         "random_seed": config.RANDOM_SEED,
         "market_independence": True,
@@ -131,7 +143,10 @@ def main(argv: list[str] | None = None) -> int:
         use_cache=args.skip_pull and not full_repull,
     )
     schedule = ingestion.eligible_games(schedule)
-    logger.info("schedule rows (eligible seasons): %d", len(schedule))
+    schedule["gameday"] = pd.to_datetime(schedule["gameday"], errors="coerce")
+    schedule = schedule[(schedule["gameday"] >= pd.Timestamp(start_date))
+                        & (schedule["gameday"] <= pd.Timestamp(end_date))].copy()
+    logger.info("schedule rows (date window): %d", len(schedule))
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
 
@@ -150,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
                 len(game_df), game_df.shape[1])
     cov = feat_mod.feature_coverage_report(game_df)
     logger.info("feature coverage:\n%s", cov.to_string(index=False))
+
+    # Apply only an explicitly adopted RFE state. Ordinary runs retain the
+    # full production list; a trial never changes serving width.
+    try:
+        from feature_selection import apply_adopted_subset
+        logger.info("feature subset: %s", apply_adopted_subset(list(game_df.columns)))
+    except Exception as exc:
+        logger.warning("feature-selection state ignored: %s", exc)
 
     # ── 4. Fold generation ────────────────────────────────────────────────
     _banner("PHASE 4", "walk-forward fold generation")
@@ -340,6 +363,20 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
 
+    # ── 4.5. Record-only RFE + workbook ───────────────────────────────────
+    _rfe: dict = {"ran": False, "reason": "NFL_RFE_FORCE not set"}
+    try:
+        from feature_selection import maybe_run_rfe
+        _rfe = maybe_run_rfe(game_df, end_date)
+        if _rfe.get("ran"):
+            logger.info("RFE: mode=%s trials=%s selected=%s trace=%s",
+                        _rfe.get("run_mode"), _rfe.get("n_trials"),
+                        _rfe.get("n_selected"), _rfe.get("trace"))
+            from feature_workbook import generate_workbook
+            generate_workbook(trace_path=_rfe.get("trace"))
+    except Exception as exc:
+        logger.warning("NFL RFE skipped (non-fatal): %s", exc)
+
     # ── 12. Artifact persistence ──────────────────────────────────────────
     _banner("PHASE 12", "artifact persistence")
     artifacts: list[str] = []
@@ -476,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
         "weights": weights,
         "folds": fold_info,
         "n_slate": int(len(slate)),
+        "rfe": _rfe,
     }
     (out_dir / "nfl_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))

@@ -76,7 +76,29 @@ FEATURE_COLUMNS = [
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
 ]
+# RFE governance: this remains None during ordinary production runs. An
+# explicit adoption action may set it; RFE trials never mutate it.
+_FEATURE_SUBSET: list[str] | None = None
 ANCHOR_COLUMNS = ["is_home"]
+
+
+def active_feature_columns() -> list[str]:
+    """Return the one authoritative active moneyline feature contract."""
+    cols = _FEATURE_SUBSET if _FEATURE_SUBSET is not None else FEATURE_COLUMNS
+    return list(cols)
+
+
+def set_feature_subset(cols: list[str]) -> None:
+    """Apply an explicitly adopted subset; validate before changing state."""
+    if len(cols) < 1 or len(set(cols)) != len(cols):
+        raise ValueError("invalid NFL feature subset: empty or duplicate columns")
+    global _FEATURE_SUBSET
+    _FEATURE_SUBSET = list(cols)
+
+
+def reset_feature_subset() -> None:
+    global _FEATURE_SUBSET
+    _FEATURE_SUBSET = None
 
 # ---------------------------------------------------------------------------
 # Model-family feature representations (spec section 14)

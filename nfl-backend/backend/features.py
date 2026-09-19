@@ -447,8 +447,9 @@ def build_slate_features(schedule: pd.DataFrame,
 # Model-family feature views (deterministic ordering + dimensionality)
 # ---------------------------------------------------------------------------
 def linear_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Difference-oriented linear/MLP matrix (documented representation)."""
-    cols = [c for c in config.LINEAR_FEATURES if c in df.columns]
+    """Difference-oriented linear/MLP matrix from the active contract."""
+    cols = [c for c in config.active_feature_columns() + config.ANCHOR_COLUMNS
+            if c in df.columns]
     out = df.reindex(columns=cols).astype(float)
     return out
 
@@ -459,11 +460,20 @@ def tree_view(df: pd.DataFrame) -> pd.DataFrame:
     Deterministic column order: served diffs first (manifest order), then
     the per-side raw values in home/away pairs.
     """
-    diff_cols = [c for c in config.FEATURE_COLUMNS if c in df.columns]
-    side_cols = [c for c in ("elo_home", "elo_away", "win_pct_home", "win_pct_away",
-                             "ewm_net_pts_home", "ewm_net_pts_away",
-                             "ewm_ypp_home", "ewm_ypp_away",
-                             "rest_days_home", "rest_days_away") if c in df.columns]
+    active = config.active_feature_columns()
+    diff_cols = [c for c in active if c in df.columns]
+    raw_for_diff = {
+        "elo_diff": ("elo_home", "elo_away"),
+        "win_pct_diff": ("win_pct_home", "win_pct_away"),
+        "ewm_net_pts_diff": ("ewm_net_pts_home", "ewm_net_pts_away"),
+        "ewm_ypp_diff": ("ewm_ypp_home", "ewm_ypp_away"),
+        "rest_days_diff": ("rest_days_home", "rest_days_away"),
+    }
+    side_cols = []
+    for feature in active:
+        for raw in raw_for_diff.get(feature, ()):
+            if raw in df.columns and raw not in side_cols:
+                side_cols.append(raw)
     out = df.reindex(columns=diff_cols + side_cols).astype(float)
     return out
 
@@ -471,7 +481,7 @@ def tree_view(df: pd.DataFrame) -> pd.DataFrame:
 def feature_coverage_report(df: pd.DataFrame) -> pd.DataFrame:
     """Coverage + missingness diagnostics per served feature."""
     rows = []
-    for f in config.FEATURE_COLUMNS:
+    for f in config.active_feature_columns():
         if f not in df.columns:
             rows.append({"feature": f, "n_games": len(df),
                          "coverage_pct": 0.0, "mean": np.nan, "std": np.nan})
