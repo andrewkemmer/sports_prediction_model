@@ -1,28 +1,5 @@
 [
   {
-    "version": "v2026.08.30",
-    "date": "2026-08-31",
-    "weights": {
-      "xgboost": 0.4501,
-      "lightgbm": 0.1529,
-      "logistic": 0.1831,
-      "randomforest": 0.1365,
-      "mlp": 0.0774
-    },
-    "auc": 0.5708,
-    "brier": 0.2446,
-    "logloss": 0.6821,
-    "ece": 0.0047,
-    "brier_calibrated": 0.2451,
-    "logloss_calibrated": 0.6831,
-    "ece_calibrated": 0.0068,
-    "calibration": {
-      "a": 0.957977,
-      "b": 0.014034,
-      "n": 6497
-    }
-  },
-  {
     "version": "v2026.08.31",
     "date": "2026-08-31",
     "weights": {
@@ -449,6 +426,29 @@
     "ece_calibrated": 0.012,
     "calibration": {
       "a": 1.56164,
+      "b": -0.101834,
+      "n": 6748,
+      "method": "favored_platt_floor",
+      "floor": 0.5
+    }
+  },
+  {
+    "version": "v2026.09.19",
+    "date": "2026-09-19",
+    "weights": {
+      "xgboost": 0.4051,
+      "lightgbm": 0.2826,
+      "elasticnet": 0.3123
+    },
+    "auc": 0.5721,
+    "brier": 0.244,
+    "logloss": 0.6809,
+    "ece": 0.0107,
+    "brier_calibrated": 0.2437,
+    "logloss_calibrated": 0.6801,
+    "ece_calibrated": 0.012,
+    "calibration": {
+      "a": 1.561639,
       "b": -0.101834,
       "n": 6748,
       "method": "favored_platt_floor",
