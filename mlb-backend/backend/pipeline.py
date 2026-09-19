@@ -1042,15 +1042,10 @@ def _as_served_history_csv(
         # may contain a different refit probability, but it must not replace
         # the number already shown to the bettor.  Only authoritative outcome
         # fields are refreshed after a game is final.
-        # Use an object-typed merge frame because new snapshot rows can add
-        # string identity/date fields to columns inferred as numeric by CSV
-        # readers (notably prediction_date). This keeps archive reconciliation
-        # lossless across daily snapshots.
-        existing_by_key = (
-            existing.drop_duplicates("game_pk", keep="first")
-            .set_index("game_pk")
-            .astype(object)
-        )
+        existing_by_key = existing.drop_duplicates("game_pk", keep="first").set_index("game_pk")
+        for _col in ("actual_winner", "model_pick", "prediction_source", "kind"):
+            if _col in existing_by_key.columns:
+                existing_by_key[_col] = existing_by_key[_col].astype(object)
         for _, new in rows.set_index("game_pk").iterrows():
             key = str(new.name)
             if key not in existing_by_key.index:
@@ -1105,15 +1100,10 @@ def _backfill_as_served_from_committed_artifacts() -> None:
                         if col not in gf.columns:
                             continue
                         vals = board["game_id"].map(gf[col])
-                        # The retained board can contain pregame placeholders
-                        # (notably 0-0 scores) even after the game is final.
-                        # For outcome columns, a non-null authoritative value
-                        # from game_level_features always wins; served
-                        # probabilities are never changed by this overlay.
                         if col not in board.columns:
                             board[col] = vals
                         else:
-                            board[col] = vals.where(vals.notna(), board[col])
+                            board[col] = board[col].where(board[col].notna(), vals)
                 except Exception as _result_exc:
                     logger.warning("As-served result overlay skipped: %s", _result_exc)
             markets_path = DATA_DELIVERY_DIR / f"run_engine_markets_{stamp}.csv"
