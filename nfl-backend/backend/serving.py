@@ -339,6 +339,28 @@ def write_markets_csv(path, meta_path, oof_rows: pd.DataFrame,
         cols += [f"p_over_{U}", f"p_under_{U}", f"p_push_{U}"]
 
     out = pd.concat([oof_rows, slate_rows], ignore_index=True)
+    # Normalize legacy in-memory spellings before selecting the published
+    # contract. Older callers used signed/decimal column names; accepting them
+    # here prevents a partially populated artifact while the production
+    # distribution engine continues to emit the canonical mN / pN names.
+    for L in config.SPREAD_GRID:
+        label = f"m{-L}" if L < 0 else str(L)
+        canonical = f"p_home_cover_{label}"
+        legacy = [f"p_home_cover_{L}",
+                  f"p_home_cover_{str(float(L)).replace('.', '_').replace('-', 'm')}"]
+        for source in legacy:
+            if source in out.columns:
+                if canonical not in out.columns:
+                    out[canonical] = out[source]
+                else:
+                    out[canonical] = out[canonical].where(out[canonical].notna(), out[source])
+            if source.replace("p_home_cover", "p_push") in out.columns:
+                push_c = f"p_push_{label}"
+                push_s = source.replace("p_home_cover", "p_push")
+                if push_c not in out.columns:
+                    out[push_c] = out[push_s]
+                else:
+                    out[push_c] = out[push_c].where(out[push_c].notna(), out[push_s])
     # Missing grid columns materialize in ONE bulk concat — the per-column
     # ``out[c] = np.nan`` loop fragmented the frame (>100 inserts) and
     # flooded the run log with pandas PerformanceWarnings.

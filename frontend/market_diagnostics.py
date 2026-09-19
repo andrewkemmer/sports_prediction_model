@@ -1760,9 +1760,28 @@ def resolve_slate_across_artifacts(
         frame's row dict)."""
         return {**row, "artifact_date": d}
 
+    def _complete(rec: dict) -> bool:
+        """Only bind a card to a fully populated current-slate grid.
+
+        A dated artifact can exist while an older partial writer left one side
+        of the spread grid null. Treat that row as unusable so a newer complete
+        artifact can win; never render NaN% from a stale snapshot.
+        """
+        required = [
+            *(f"p_home_cover_{('m' + str(-line)) if line < 0 else str(line)}"
+              for line in range(-14, 15)),
+            *(f"p_push_{('m' + str(-line)) if line < 0 else str(line)}"
+              for line in range(-14, 15)),
+            *(f"p_over_{line}" for line in range(24, 67)),
+            *(f"p_under_{line}" for line in range(24, 67)),
+            *(f"p_push_{line}" for line in range(24, 67)),
+        ]
+        return all(rec.get(c) is not None and not pd.isna(rec.get(c))
+                   for c in required)
+
     def _exact(d, g):
         for pk, rec in _slate_rows(frames_by_date[d]):
-            if pk == g:
+            if pk == g and _complete(rec):
                 return rec
         return None
 
@@ -1774,7 +1793,7 @@ def resolve_slate_across_artifacts(
         # onto a leg row).
         m = _slate_match_key(g)
         for pk, rec in _slate_rows(frames_by_date[d]):
-            if pk != g and _slate_match_key(pk) == m:
+            if pk != g and _slate_match_key(pk) == m and _complete(rec):
                 return rec
         return None
 

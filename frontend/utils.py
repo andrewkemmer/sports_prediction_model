@@ -1369,7 +1369,23 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
         if raw is None:
             continue
         try:
-            return pd.read_csv(io.BytesIO(raw)), d
+            frame = pd.read_csv(io.BytesIO(raw))
+            # A markets file is usable for Today's Games only when its current
+            # slate rows carry the complete MC grid. Older pipeline runs can
+            # contain the file but have null negative spread columns; skip
+            # those snapshots so the board never renders NaN%.
+            slate = frame[frame.get("kind", pd.Series(dtype=str)).eq("slate")]
+            required = []
+            for line in range(-14, 15):
+                label = f"m{-line}" if line < 0 else str(line)
+                required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
+            for line in range(24, 67):
+                required.extend([f"p_over_{line}", f"p_under_{line}",
+                                 f"p_push_{line}"])
+            usable = bool(len(slate) and all(c in slate.columns for c in required)
+                          and not slate[required].isna().any().any())
+            if usable:
+                return frame, d
         except Exception:
             continue
     return pd.DataFrame(), None
