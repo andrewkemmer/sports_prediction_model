@@ -1423,19 +1423,18 @@ def favored_cover_at(decided: pd.DataFrame, line: float,
         return cover, is_home
     key = f"{line:.1f}".replace(".", "_")
     h_col, a_col = f"p_rl_{key}_home", f"p_rl_{key}_away"
+    af_col = f"p_rl_{key}_away_favorite"
     cover = nan.copy()
     if h_col in decided.columns:
         hcv = decided[h_col].to_numpy(float)
-        # HOME favorite cover at −L = P(margin > L). For an AWAY favorite the
-        # favorite is also quoted at −L, so its cover = P(away wins by > L) =
-        # P(margin < −L) — which the home-frame artifact does NOT ship
-        # (p_rl_{L}_away = P(margin < L) is the away +L DOG line, not the
-        # favorite cover; using it would inflate away cover as L grows). Never
-        # fabricate: away-favorite deep favorite lines price as unavailable
-        # (NaN), so those games fall back to their reliable −0.5 line.
         cover = np.where(is_home, hcv, np.nan)
-        cover = np.where(np.isfinite(cover), cover, np.nan)
-    return cover, is_home
+    # New artifacts carry the true opposite-tail event P(diff < -L). Do not
+    # substitute p_rl_<L>_away: that is P(diff < +L), the home-oriented dog
+    # event and the source of the old away-favorite asymmetry.
+    if af_col in decided.columns:
+        acv = decided[af_col].to_numpy(float)
+        cover = np.where(~is_home, acv, cover)
+    return np.where(np.isfinite(cover), cover, np.nan), is_home
 
 
 def runline_cut_history_frame(decided: pd.DataFrame) -> pd.DataFrame:

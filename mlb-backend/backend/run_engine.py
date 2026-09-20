@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import json
+import hashlib
 import numpy as np
 import pandas as pd
 from sklearn.metrics import log_loss, roc_auc_score
@@ -438,6 +439,8 @@ def run_oof(games: pd.DataFrame,
         rec_base = {"game_pk": va["game_pk"].to_numpy(),
                     "game_date": pd.to_datetime(va["game_date"]).dt.strftime("%Y-%m-%d"),
                     "fold_idx": split["fold_idx"],
+                    "home_team": va["home_team"].to_numpy() if "home_team" in va.columns else np.array([pd.NA] * len(va)),
+                    "away_team": va["away_team"].to_numpy() if "away_team" in va.columns else np.array([pd.NA] * len(va)),
                     "game_id": (va["game_id"] if "game_id" in va.columns else
                                 _d + "_" + va["away_team"] + "@" + va["home_team"]) if
                     ("game_id" in va.columns or {"home_team", "away_team"}.issubset(va.columns))
@@ -546,6 +549,86 @@ def persist_oof(oof: pd.DataFrame, target_date_str: str,
     tmp.replace(out_path)
     logger.info("Run engine OOF: %d rows -> %s", len(oof), out_path.name)
     return out_path
+
+
+def _contract_key(value: Any) -> str:
+    """Canonical artifact key for numeric game_pk and string game_id values."""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    try:
+        number = float(text)
+        if number.is_integer():
+            return str(int(number))
+    except (TypeError, ValueError):
+        pass
+    return text
+
+
+def build_artifact_contract(oof: pd.DataFrame,
+                            markets: pd.DataFrame) -> dict[str, Any]:
+    """Compare the persisted OOF score frame with market OOF rows.
+
+    This contract is intentionally based on stable keys and post-k-edge
+    expected runs, not row order. A later frontend can reject an older or
+    partially rewritten artifact without guessing from its filename.
+    """
+    left = oof.copy() if oof is not None else pd.DataFrame()
+    right = markets.copy() if markets is not None else pd.DataFrame()
+    if "kind" in right.columns:
+        right = right[right["kind"].eq("oof")].copy()
+    required = {"game_pk", "game_date", "home_expected_runs", "away_expected_runs"}
+    missing_left = sorted(required.difference(left.columns))
+    missing_right = sorted(required.difference(right.columns))
+    if missing_left or missing_right:
+        return {"schema": "run-engine-artifact/v1", "alignment_status": "invalid",
+                "missing_oof_columns": missing_left,
+                "missing_market_columns": missing_right}
+    left["_key"] = left["game_pk"].map(_contract_key)
+    right["_key"] = right["game_pk"].map(_contract_key)
+    left = left[left["_key"].ne("")]
+    right = right[right["_key"].ne("")]
+    duplicate_oof_keys = int(left["_key"].duplicated().sum())
+    duplicate_market_keys = int(right["_key"].duplicated().sum())
+    lk, rk = set(left["_key"]), set(right["_key"])
+    common = sorted(lk & rk)
+    lmap = left.set_index("_key")
+    rmap = right.set_index("_key")
+    if common:
+        hdiff = (pd.to_numeric(lmap.loc[common, "home_expected_runs"], errors="coerce")
+                 - pd.to_numeric(rmap.loc[common, "home_expected_runs"], errors="coerce")).abs()
+        adiff = (pd.to_numeric(lmap.loc[common, "away_expected_runs"], errors="coerce")
+                 - pd.to_numeric(rmap.loc[common, "away_expected_runs"], errors="coerce")).abs()
+        max_home = float(hdiff.max()) if len(hdiff) else 0.0
+        max_away = float(adiff.max()) if len(adiff) else 0.0
+    else:
+        max_home = max_away = float("inf")
+    left_dates = pd.to_datetime(lmap.loc[common, "game_date"], errors="coerce") if common else pd.Series(dtype="datetime64[ns]")
+    right_dates = pd.to_datetime(rmap.loc[common, "game_date"], errors="coerce") if common else pd.Series(dtype="datetime64[ns]")
+    date_mismatch = int((left_dates.reset_index(drop=True).dt.normalize().to_numpy()
+                         != right_dates.reset_index(drop=True).dt.normalize().to_numpy()).sum()) if common else 0
+    aligned = bool(lk == rk and duplicate_oof_keys == 0
+                   and duplicate_market_keys == 0 and date_mismatch == 0
+                   and max_home <= 1e-8 and max_away <= 1e-8)
+    dates = pd.to_datetime(left["game_date"], errors="coerce")
+    canonical = left[["_key", "game_date", "home_expected_runs",
+                      "away_expected_runs"]].sort_values("_key").to_csv(
+                          index=False, lineterminator="\n")
+    return {
+        "schema": "run-engine-artifact/v1",
+        "alignment_status": "aligned" if aligned else "misaligned",
+        "oof_rows": int(len(left)), "market_oof_rows": int(len(right)),
+        "missing_market_keys": int(len(lk - rk)),
+        "missing_oof_keys": int(len(rk - lk)),
+        "duplicate_oof_keys": duplicate_oof_keys,
+        "duplicate_market_keys": duplicate_market_keys,
+        "date_mismatch_rows": date_mismatch,
+        "max_abs_home_expected_runs_diff": round(max_home, 8),
+        "max_abs_away_expected_runs_diff": round(max_away, 8),
+        "oof_date_min": (dates.min().strftime("%Y-%m-%d") if dates.notna().any() else None),
+        "oof_date_max": (dates.max().strftime("%Y-%m-%d") if dates.notna().any() else None),
+        "artifact_fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -708,9 +791,15 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
     grid_cover = np.empty((n_games, n_margins))
     grid_push = np.empty((n_games, n_lines))
     n_rl = len(RUN_LINE_GRID_FULL)
-    grid_rl_home = np.empty((n_games, n_rl))   # P(home covers −L) = P(diff > L)
-    grid_rl_push = np.empty((n_games, n_rl))   # P(push) = P(diff == L)
-    grid_rl_away = np.empty((n_games, n_rl))   # P(away +L) = P(diff < L)
+    grid_rl_home = np.empty((n_games, n_rl))   # home -L: P(diff > L)
+    grid_rl_push = np.empty((n_games, n_rl))   # home -L push: P(diff == L)
+    grid_rl_away = np.empty((n_games, n_rl))   # home -L dog: P(diff < L)
+    # Symmetric orientation: away -L / home +L. These are deliberately
+    # separate from grid_rl_away: the latter is the home-oriented dog event,
+    # not the away-favorite cover event.
+    grid_rl_away_fav = np.empty((n_games, n_rl))
+    grid_rl_away_push = np.empty((n_games, n_rl))
+    grid_rl_home_dog = np.empty((n_games, n_rl))
     chunk = max(1, min(n_games, 2_000_000 // max(n_draws, 1)))
     for start in range(0, n_games, chunk):
         end = min(start + chunk, n_games)
@@ -739,9 +828,17 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
         ge3 = (diff >= 3).mean(axis=1)
         ge4 = (diff >= 4).mean(axis=1)
         ge5 = (diff >= 5).mean(axis=1)
+        le2 = (diff <= -2).mean(axis=1)
+        le3 = (diff <= -3).mean(axis=1)
+        le4 = (diff <= -4).mean(axis=1)
+        le5 = (diff <= -5).mean(axis=1)
         eq2 = (diff == 2).mean(axis=1)
         eq3 = (diff == 3).mean(axis=1)
         eq4 = (diff == 4).mean(axis=1)
+        eqn1 = (diff == -1).mean(axis=1)
+        eqn2 = (diff == -2).mean(axis=1)
+        eqn3 = (diff == -3).mean(axis=1)
+        eqn4 = (diff == -4).mean(axis=1)
         push1 = p1 + MARGIN_PLUS1_HOME_SHARE * p0   # resolved +1 band
         # Strict over: total must EXCEED the line (total > line). Using
         # TOTAL_LINE + 0.5 matches the monitor scorer's definition and
@@ -812,13 +909,34 @@ def derive_markets_mc(lam_home: np.ndarray, lam_away: np.ndarray,
                 grid_rl_push[start:end, j] = eq4
             grid_rl_away[start:end, j] = (1.0 - grid_rl_home[start:end, j]
                                           - grid_rl_push[start:end, j])
+            # The opposite orientation is calculated from the opposite tail,
+            # not by reusing the home-oriented dog probability. This preserves
+            # push mass and makes away favorites priceable at every depth.
+            if m <= 1.5:
+                grid_rl_away_fav[start:end, j] = le2
+                grid_rl_away_push[start:end, j] = eqn1 if m == 1.0 else 0.0
+            elif m <= 2.5:
+                grid_rl_away_fav[start:end, j] = le3
+                grid_rl_away_push[start:end, j] = eqn2 if m == 2.0 else 0.0
+            elif m <= 3.5:
+                grid_rl_away_fav[start:end, j] = le4
+                grid_rl_away_push[start:end, j] = eqn3 if m == 3.0 else 0.0
+            else:
+                grid_rl_away_fav[start:end, j] = le5
+                grid_rl_away_push[start:end, j] = eqn4
+            grid_rl_home_dog[start:end, j] = (
+                1.0 - grid_rl_away_fav[start:end, j]
+                - grid_rl_away_push[start:end, j])
     mc_se = np.sqrt(p_over * (1 - p_over) / n_draws)
     return {"p_over_8_5": p_over, "p_home_cover_1_5": p_cover,
             "p_home_win_derived": p_win, "mc_se_totals": mc_se,
             "p_over_grid": grid_over, "p_cover_grid": grid_cover,
             "p_push_grid": grid_push,
             "p_rl_home_grid": grid_rl_home, "p_rl_push_grid": grid_rl_push,
-            "p_rl_away_grid": grid_rl_away}
+            "p_rl_away_grid": grid_rl_away,
+            "p_rl_away_fav_grid": grid_rl_away_fav,
+            "p_rl_away_push_grid": grid_rl_away_push,
+            "p_rl_home_dog_grid": grid_rl_home_dog}
 
 
 def brier_score(y: np.ndarray, p: np.ndarray) -> float:
@@ -933,10 +1051,11 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
     """
     calibration: dict[str, Any] = {
         "method": "prequential_platt", "fit_scope": "all_oof",
-        "totals": {}, "run_lines": {}, "legacy_run_lines": {},
-        "derived_moneyline": None,
+        "totals": {}, "run_lines": {}, "run_lines_away_favorite": {},
+        "legacy_run_lines": {}, "derived_moneyline": None,
     }
     metrics: dict[str, Any] = {"totals": {}, "run_lines": {},
+                               "run_lines_away_favorite": {},
                                "legacy_run_lines": {}, "derived_moneyline": None}
 
     from calibration import fit_favored_platt, apply_moneyline_calibration, fit_platt
@@ -1003,6 +1122,40 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
             metrics["run_lines"][key] = mh
             mc["p_rl_home_grid"][:, j], mc["p_rl_push_grid"][:, j], mc["p_rl_away_grid"][:, j] = ch, 0.0, 1.0 - ch
 
+    # Fit the opposite orientation separately. The positive-frame `away`
+    # column is the home-oriented dog event P(diff < +L), not the away
+    # favorite event P(diff < -L); conflating them made deep away favorites
+    # systematically unavailable in history and production cards.
+    for j, margin_line in enumerate(RUN_LINE_GRID_FULL):
+        key = str(margin_line).replace(".", "_")
+        p_fav = mc["p_rl_away_fav_grid"][:, j]
+        p_push = mc["p_rl_away_push_grid"][:, j]
+        y_fav = (margin < -margin_line).astype(float)
+        if float(margin_line).is_integer():
+            y_push = (margin == -margin_line).astype(float)
+            y_dog = (margin > -margin_line).astype(float)
+            cf, cal_f, mf = binary(p_fav, y_fav)
+            cp, cal_p, mp = binary(p_push, y_push)
+            cd, cal_d, md = binary(1.0 - p_fav - p_push, y_dog)
+            cf, cp, cd = _normalize_three_way(cf, cp, cd)
+            calibration["run_lines_away_favorite"][key] = {
+                "favorite": cal_f, "push": cal_p, "dog": cal_d,
+                "three_way": True}
+            metrics["run_lines_away_favorite"][key] = {
+                "favorite": mf, "push": mp, "dog": md}
+            mc["p_rl_away_fav_grid"][:, j] = cf
+            mc["p_rl_away_push_grid"][:, j] = cp
+            mc["p_rl_home_dog_grid"][:, j] = cd
+        else:
+            cf, cal_f, mf = favored_binary(p_fav, y_fav)
+            calibration["run_lines_away_favorite"][key] = {
+                "favorite": cal_f, "push": None, "dog": None,
+                "three_way": False, "favored": True}
+            metrics["run_lines_away_favorite"][key] = mf
+            mc["p_rl_away_fav_grid"][:, j] = cf
+            mc["p_rl_away_push_grid"][:, j] = 0.0
+            mc["p_rl_home_dog_grid"][:, j] = 1.0 - cf
+
     for j, margin_line in enumerate(RUN_LINE_GRID):
         key = str(margin_line).replace(".", "_")
         raw = mc["p_cover_grid"][:, j]
@@ -1059,6 +1212,25 @@ def apply_market_calibration(mc: dict[str, np.ndarray], calibration: dict | None
             home = apply_platt(out["p_rl_home_grid"][:, j], spec.get("home"))
             push, away = np.zeros(len(home)), 1.0 - home
         out["p_rl_home_grid"][:, j], out["p_rl_push_grid"][:, j], out["p_rl_away_grid"][:, j] = home, push, away
+    for j, line in enumerate(RUN_LINE_GRID_FULL):
+        key = str(line).replace(".", "_")
+        spec = calibration.get("run_lines_away_favorite", {}).get(key)
+        if not spec:
+            continue
+        if spec.get("three_way"):
+            fav = apply_platt(out["p_rl_away_fav_grid"][:, j], spec.get("favorite"))
+            push = apply_platt(out["p_rl_away_push_grid"][:, j], spec.get("push"))
+            dog = apply_platt(out["p_rl_home_dog_grid"][:, j], spec.get("dog"))
+            fav, push, dog = _normalize_three_way(fav, push, dog)
+        else:
+            from calibration import apply_moneyline_calibration
+            fav = apply_moneyline_calibration(
+                out["p_rl_away_fav_grid"][:, j], spec.get("favorite"))
+            push, dog = np.zeros(len(fav)), 1.0 - fav
+        out["p_rl_away_fav_grid"][:, j] = fav
+        out["p_rl_away_push_grid"][:, j] = push
+        out["p_rl_home_dog_grid"][:, j] = dog
+
     for j, line in enumerate(RUN_LINE_GRID):
         key = str(line).replace(".", "_")
         legacy_spec = calibration.get("legacy_run_lines", {}).get(key)
@@ -1204,7 +1376,10 @@ MARKET_COLUMNS_V3 = (
     + [f"p_home_cover_{str(m).replace('.', '_')}" for m in RUN_LINE_GRID]
     + [rl_col(m, side) for m in RUN_LINE_GRID_FULL
        for side in ("home", "push", "away")]
-    + ["p_home_win_derived", "p_away_win_derived",
+    + [rl_col(m, side) for m in RUN_LINE_GRID_FULL
+       for side in ("away_favorite", "away_push", "home_dog")]
+    + ["game_id", "home_team", "away_team",
+       "p_home_win_derived", "p_away_win_derived",
        "home_score", "away_score", "total_runs",
        "ml_win_prob", "agreement_conflict"]
 )
@@ -1219,7 +1394,21 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
     missing = [c for c in MARKET_COLUMNS_V3 if c not in markets.columns]
     if missing:
         raise ValueError(f"markets frame missing required columns: {missing}")
-    frame = markets[MARKET_COLUMNS_V3]
+    frame = markets[MARKET_COLUMNS_V3].copy()
+    # OOF identity fields are part of the shipped join contract. Older direct
+    # callers may not provide them; derive game_id from the stable key, while
+    # team names remain nullable only for legacy direct callers. Daily OOF
+    # rows must carry the source identity columns before this boundary.
+    for _c in ("game_id", "home_team", "away_team"):
+        if _c not in frame.columns:
+            if _c == "game_id" and "game_pk" in frame.columns:
+                frame[_c] = frame["game_pk"].astype(str)
+            else:
+                frame[_c] = pd.NA
+    # Persist the contract even for direct callers that do not use the daily
+    # wrapper. The k-edge seam replaces this provisional contract after it
+    # rewrites the score artifact with the post-edge lambdas.
+    summary.setdefault("artifact_contract", build_artifact_contract(frame, frame))
     # Decided-target columns must be populated on OOF rows; slate rows are
     # undecided BY DEFINITION and are exempt from exactly those three.
     target_cols = ["home_score", "away_score", "total_runs"]
@@ -1695,6 +1884,8 @@ def derive_markets_v3(oof: pd.DataFrame,
                  mask=~pre_mask)
 
     markets = oof[["game_pk", "game_date"]].copy()
+    if "game_id" in oof.columns:
+        markets["game_id"] = oof["game_id"].to_numpy()
     for tc in ("home_team", "away_team"):
         if tc in oof.columns:
             markets[tc] = oof[tc]
@@ -1715,12 +1906,14 @@ def derive_markets_v3(oof: pd.DataFrame,
     for j, m in enumerate(RUN_LINE_GRID):
         markets[line_key_margin(m)] = np.round(mc["p_cover_grid"][:, j], 5)
     for j, m in enumerate(RUN_LINE_GRID_FULL):
-        # Per-line run-line 3-way split (home covers −L, push, away +L).
-        # Sums to 1.0 exactly from the same margin draws; half-lines have
-        # push = 0 so home + away = 1.0 there.
+        # Per-line run-line 3-way split (home covers −L, push, away +L),
+        # plus the symmetric away-favorite orientation.
         markets[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
         markets[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
         markets[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
+        markets[rl_col(m, "away_favorite")] = np.round(mc["p_rl_away_fav_grid"][:, j], 5)
+        markets[rl_col(m, "away_push")] = np.round(mc["p_rl_away_push_grid"][:, j], 5)
+        markets[rl_col(m, "home_dog")] = np.round(mc["p_rl_home_dog_grid"][:, j], 5)
     markets["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
     markets["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
     markets["home_score"] = hs.astype(int)
@@ -2122,6 +2315,8 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
     from pandas import isna as _pd_isna
     _slate_key = _resolve_slate_key(slate_games)
     out = slate_games[[_slate_key, "game_date"]].copy()
+    if "game_id" in slate_games.columns:
+        out["game_id"] = slate_games["game_id"].to_numpy()
     if _slate_key == "game_id":
         out = out.rename(columns={"game_id": "game_pk"})
     # Per-row resolution (the 145d841 discipline): prefer game_pk where it
@@ -2179,6 +2374,9 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         out[rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
         out[rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
         out[rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
+        out[rl_col(m, "away_favorite")] = np.round(mc["p_rl_away_fav_grid"][:, j], 5)
+        out[rl_col(m, "away_push")] = np.round(mc["p_rl_away_push_grid"][:, j], 5)
+        out[rl_col(m, "home_dog")] = np.round(mc["p_rl_home_dog_grid"][:, j], 5)
     out["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
     out["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
     # Undecided by definition; excluded from the NaN-checked numeric contract.
@@ -2296,6 +2494,7 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
 
     combined = (pd.concat([markets, slate_frame], ignore_index=True)
                 if not slate_frame.empty else markets)
+    summary["artifact_contract"] = build_artifact_contract(oof, combined)
     # Persist the markets artifact LAST so a persist failure leaves the OOF +
     # monitor block intact and loudly flags markets_persisted=False (never a
     # silent stale serve). Task 0's row-resolution fix makes this path robust

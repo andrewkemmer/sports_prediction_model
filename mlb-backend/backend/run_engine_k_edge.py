@@ -193,6 +193,9 @@ def _slate_market_grid(out: pd.DataFrame, mc: dict[str, np.ndarray]) -> None:
         out[_re.rl_col(m, "home")] = np.round(mc["p_rl_home_grid"][:, j], 5)
         out[_re.rl_col(m, "push")] = np.round(mc["p_rl_push_grid"][:, j], 5)
         out[_re.rl_col(m, "away")] = np.round(mc["p_rl_away_grid"][:, j], 5)
+        out[_re.rl_col(m, "away_favorite")] = np.round(mc["p_rl_away_fav_grid"][:, j], 5)
+        out[_re.rl_col(m, "away_push")] = np.round(mc["p_rl_away_push_grid"][:, j], 5)
+        out[_re.rl_col(m, "home_dog")] = np.round(mc["p_rl_home_dog_grid"][:, j], 5)
     out["p_home_win_derived"] = np.round(mc["p_home_win_derived"], 5)
     out["p_away_win_derived"] = np.round(1 - mc["p_home_win_derived"], 5)
 
@@ -278,6 +281,22 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     if _DAILY_OOF_CACHE is not None and not _DAILY_OOF_CACHE.empty:
         adjusted_oof = _apply_k_edge_to_oof_artifact(_DAILY_OOF_CACHE, k_edge)
         _re.persist_oof(adjusted_oof, target_date_str)
+        # The base writer persisted metadata before the post-k rewrite. Update
+        # the same metadata file now so the published contract describes the
+        # exact score state used by the OOF market rows.
+        meta_path = _re.DATA_DELIVERY_DIR / f"run_engine_markets_{target_date_str}.meta.json"
+        market_path = _re.DATA_DELIVERY_DIR / f"run_engine_markets_{target_date_str}.csv"
+        if meta_path.exists() and market_path.exists():
+            try:
+                meta = __import__("json").loads(meta_path.read_text())
+                market_frame = pd.read_csv(market_path)
+                meta["artifact_contract"] = _re.build_artifact_contract(
+                    adjusted_oof, market_frame)
+                tmp = meta_path.with_suffix(".json.tmp")
+                tmp.write_text(__import__("json").dumps(meta, indent=2))
+                tmp.replace(meta_path)
+            except Exception as exc:
+                _re.logger.warning("Run engine: artifact contract update failed: %s", exc)
 
     # Log k into the markets meta regardless (the original persisted the
     # markets + meta inside; re-derive the summary block is NOT needed — the

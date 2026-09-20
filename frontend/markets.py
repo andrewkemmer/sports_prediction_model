@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 import pandas as pd
 import streamlit as st
@@ -105,9 +106,20 @@ elif "kind" not in markets.columns:
     )
 else:
     _oof_n = int((markets["kind"] == "oof").sum())
+    _artifact_fp = None
+    try:
+        _meta_raw, _ = utils._fetch_bytes(
+            f"run_engine_markets_{date_str}.meta.json",
+            **utils.get_source_config(), sport="mlb",
+            cache_buster=str(int(time.time() // 30)))
+        if _meta_raw is not None:
+            _artifact_fp = json.loads(_meta_raw).get("artifact_contract", {}).get("artifact_fingerprint")
+    except Exception:
+        _artifact_fp = None
     st.caption(
         f"OOF artifact: {date_str} · {_oof_n:,} games · "
         "historical performance uses OOF predictions only"
+        + (f" · contract {str(_artifact_fp)[:12]}" if _artifact_fp else "")
     )
 
 # ---------------------------------------------------------------------------
@@ -609,6 +621,13 @@ else:
         rl_legacy = diag.runline_history_frame(decided)
         rl_cut = rl_legacy
     teams = _team_map()
+    # Prefer the validated markets artifact's own identity columns when
+    # available, then fall back to game_level_features. This keeps a newly
+    # completed slate/history row renderable even when the feature snapshot
+    # lags the markets artifact by one run.
+    if markets is not None and len(markets):
+        teams_from_markets = diag.build_team_map(markets)
+        teams = {**teams, **teams_from_markets}
     if not teams:
         st.warning(
             "Team-name artifact (game_level_features.csv) is unavailable "

@@ -13,6 +13,7 @@ lightgbm, or shap (heavy ML stays in the backend).
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -24,6 +25,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
@@ -531,17 +533,22 @@ def _fetch_bytes_with_negative_cache(relpath: str, sport: str, owner: str,
 
 
 def _fetch_bytes(relpath: str, owner: str, repo: str, branch: str,
-                 sport=None):
+                 sport=None, cache_buster: str = ""):
     """Fetch one artifact for the active sport (or ``sport`` when given).
     Returns (bytes | None, source); the sport is resolved here and forwarded
     to the cached impl so the cache key is sport-specific."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     local = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery" / relpath
     try:
-        cache_buster = str(local.stat().st_mtime_ns)
+        local_stamp = str(local.stat().st_mtime_ns)
     except OSError:
-        cache_buster = "missing"
-    return _fetch_bytes_with_negative_cache(relpath, s, owner, repo, branch, cache_buster)
+        local_stamp = "missing"
+    # Remote raw files can be replaced under the same filename after a push;
+    # include a short resolver epoch so the latest artifact cannot remain in
+    # the five-minute positive cache after delivery.
+    effective_buster = f"{local_stamp}:{cache_buster or int(time.time() // 30)}"
+    return _fetch_bytes_with_negative_cache(
+        relpath, s, owner, repo, branch, effective_buster)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1365,23 +1372,85 @@ def load_latest_mlb_run_engine_markets(
         return pd.DataFrame(), None
     cfg = get_source_config()
     dates = run_engine_page_dates(**cfg, sport="mlb")
+    resolver_buster = str(int(time.time() // 30))
     for d in dates:
         raw, _src = _fetch_bytes(f"run_engine_markets_{d}.csv",
-                                 **cfg, sport="mlb")
+                                 **cfg, sport="mlb", cache_buster=resolver_buster)
         if raw is None:
             continue
         try:
             frame = pd.read_csv(io.BytesIO(raw))
         except Exception:
             continue
-        required = {"kind", "game_date", "p_over_8_0", "p_under_8_0"}
+        required = {"kind", "game_date", "game_pk", "p_over_8_0", "p_under_8_0"}
         if not required.issubset(frame.columns):
             continue
-        oof = frame[frame["kind"].eq("oof")]
+        oof = frame[frame["kind"].eq("oof")].copy()
         if oof.empty or oof["game_date"].isna().all():
+            continue
+        # Validate the persisted contract when present. A metadata file with
+        # an explicit misalignment is never eligible, even if its CSV happens
+        # to have a plausible schema and row count.
+        meta_raw, _ = _fetch_bytes(
+            f"run_engine_markets_{d}.meta.json", **cfg, sport="mlb",
+            cache_buster=resolver_buster)
+        if meta_raw is not None:
+            try:
+                contract = json.loads(meta_raw).get("artifact_contract") or {}
+                if contract.get("alignment_status") not in (None, "aligned"):
+                    continue
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+
+        # Validate the companion score artifact too. This catches the exact
+        # historical failure where an older OOF score file and market file
+        # shared a row count but carried different expected runs.
+        oof_raw, _ = _fetch_bytes(
+            f"run_engine_oof_{d}.csv", **cfg, sport="mlb",
+            cache_buster=resolver_buster)
+        if oof_raw is None:
+            continue
+        try:
+            score = pd.read_csv(io.BytesIO(oof_raw))
+            if not {"game_pk", "game_date", "home_expected_runs",
+                    "away_expected_runs"}.issubset(score.columns):
+                continue
+            score["_key"] = score["game_pk"].map(_artifact_key)
+            oof["_key"] = oof["game_pk"].map(_artifact_key)
+            left = score.drop_duplicates("_key").set_index("_key")
+            right = oof.drop_duplicates("_key").set_index("_key")
+            common = left.index.intersection(right.index)
+            left_dates = pd.to_datetime(left.loc[common, "game_date"], errors="coerce")
+            right_dates = pd.to_datetime(right.loc[common, "game_date"], errors="coerce")
+            if (len(common) != len(left) or len(common) != len(right)
+                    or not left_dates.reset_index(drop=True).equals(
+                        right_dates.reset_index(drop=True))
+                    or not np.allclose(
+                        pd.to_numeric(left.loc[common, "home_expected_runs"]),
+                        pd.to_numeric(right.loc[common, "home_expected_runs"]),
+                        atol=1e-8)
+                    or not np.allclose(
+                        pd.to_numeric(left.loc[common, "away_expected_runs"]),
+                        pd.to_numeric(right.loc[common, "away_expected_runs"]),
+                        atol=1e-8)):
+                continue
+        except Exception:
             continue
         return frame, d
     return pd.DataFrame(), None
+
+
+def _artifact_key(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    try:
+        number = float(text)
+        if number.is_integer():
+            return str(int(number))
+    except (TypeError, ValueError):
+        pass
+    return text
 
 
 def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame, str | None]:
