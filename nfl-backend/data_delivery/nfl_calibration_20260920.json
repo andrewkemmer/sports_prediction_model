@@ -1,0 +1,8081 @@
+{
+ "date": "20260920",
+ "trained_at": "2026-09-20T03:59:52.226658+00:00",
+ "n_games": 1280,
+ "created_utc": "2026-09-20T03:59:52.226673+00:00",
+ "config": {
+  "feature_set_version": "nfl-prod-v1",
+  "warmup_seasons": [
+   2018
+  ],
+  "oof_first_season": 2019,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true
+ },
+ "metrics": {
+  "auc": 0.6773,
+  "brier": 0.2273,
+  "logloss": 0.6471,
+  "ece": 0.039,
+  "ece_calibrated": 0.0208,
+  "auc_calibrated": 0.6771,
+  "brier_calibrated": 0.2257,
+  "logloss_calibrated": 0.6428
+ },
+ "calibration": {
+  "method": "platt",
+  "params": {
+   "a": 0.826943,
+   "b": -0.062486,
+   "n": 1280
+  },
+  "metrics_raw": {
+   "brier": 0.2273,
+   "logloss": 0.6471,
+   "ece": 0.039
+  },
+  "metrics_calibrated": {
+   "brier": 0.2257,
+   "logloss": 0.6428,
+   "ece": 0.0208
+  },
+  "calibration_buckets_calibrated": [
+   {
+    "bucket": "50\u201360%",
+    "mean_predicted": 0.543,
+    "mean_actual": 0.5254,
+    "count": 590,
+    "gap": 0.0176
+   },
+   {
+    "bucket": "60\u201370%",
+    "mean_predicted": 0.649,
+    "mean_actual": 0.6781,
+    "count": 407,
+    "gap": -0.0291
+   },
+   {
+    "bucket": "70\u201380%",
+    "mean_predicted": 0.745,
+    "mean_actual": 0.738,
+    "count": 229,
+    "gap": 0.007
+   },
+   {
+    "bucket": "80\u201390%",
+    "mean_predicted": 0.8241,
+    "mean_actual": 0.7736,
+    "count": 53,
+    "gap": 0.0505
+   },
+   {
+    "bucket": "90\u2013100%",
+    "mean_predicted": 0.9012,
+    "mean_actual": 1.0,
+    "count": 1,
+    "gap": -0.0988
+   }
+  ]
+ },
+ "distribution_calibration": {
+  "method": "prequential_platt",
+  "scope": "line_specific",
+  "totals": {
+   "24": {
+    "over": {
+     "a": 0.231016,
+     "b": 2.505239
+    },
+    "push": {
+     "a": -0.501374,
+     "b": -8.010189
+    },
+    "under": {
+     "a": 0.348783,
+     "b": -2.164282
+    }
+   },
+   "25": {
+    "over": {
+     "a": 0.193459,
+     "b": 2.453389
+    },
+    "push": {
+     "a": 0.261327,
+     "b": -3.535012
+    },
+    "under": {
+     "a": 0.231016,
+     "b": -2.505239
+    }
+   },
+   "26": {
+    "over": {
+     "a": 0.282637,
+     "b": 1.867842
+    },
+    "push": {
+     "a": 0.490603,
+     "b": -1.686458
+    },
+    "under": {
+     "a": 0.193459,
+     "b": -2.453389
+    }
+   },
+   "27": {
+    "over": {
+     "a": 0.278801,
+     "b": 1.687486
+    },
+    "push": {
+     "a": 0.096397,
+     "b": -3.62432
+    },
+    "under": {
+     "a": 0.282637,
+     "b": -1.867842
+    }
+   },
+   "28": {
+    "over": {
+     "a": 0.353455,
+     "b": 1.455746
+    },
+    "push": {
+     "a": 1.061495,
+     "b": -0.250126
+    },
+    "under": {
+     "a": 0.278801,
+     "b": -1.687486
+    }
+   },
+   "29": {
+    "over": {
+     "a": 0.376541,
+     "b": 1.309402
+    },
+    "push": {
+     "a": 0.743279,
+     "b": -1.162907
+    },
+    "under": {
+     "a": 0.353455,
+     "b": -1.455746
+    }
+   },
+   "30": {
+    "over": {
+     "a": 0.454801,
+     "b": 0.997755
+    },
+    "push": {
+     "a": 0.87579,
+     "b": -0.216074
+    },
+    "under": {
+     "a": 0.376541,
+     "b": -1.309402
+    }
+   },
+   "31": {
+    "over": {
+     "a": 0.505507,
+     "b": 0.877805
+    },
+    "push": {
+     "a": 1.043756,
+     "b": -0.264003
+    },
+    "under": {
+     "a": 0.454801,
+     "b": -0.997755
+    }
+   },
+   "32": {
+    "over": {
+     "a": 0.511228,
+     "b": 0.81478
+    },
+    "push": {
+     "a": 0.664197,
+     "b": -1.459736
+    },
+    "under": {
+     "a": 0.505507,
+     "b": -0.877805
+    }
+   },
+   "33": {
+    "over": {
+     "a": 0.372948,
+     "b": 0.886516
+    },
+    "push": {
+     "a": -0.721479,
+     "b": -6.254953
+    },
+    "under": {
+     "a": 0.511228,
+     "b": -0.81478
+    }
+   },
+   "34": {
+    "over": {
+     "a": 0.426287,
+     "b": 0.727039
+    },
+    "push": {
+     "a": 1.20082,
+     "b": 0.724891
+    },
+    "under": {
+     "a": 0.372948,
+     "b": -0.886516
+    }
+   },
+   "35": {
+    "over": {
+     "a": 0.474883,
+     "b": 0.619977
+    },
+    "push": {
+     "a": 1.505563,
+     "b": 1.580083
+    },
+    "under": {
+     "a": 0.426287,
+     "b": -0.727039
+    }
+   },
+   "36": {
+    "over": {
+     "a": 0.427108,
+     "b": 0.568557
+    },
+    "push": {
+     "a": 0.073555,
+     "b": -3.166997
+    },
+    "under": {
+     "a": 0.474883,
+     "b": -0.619977
+    }
+   },
+   "37": {
+    "over": {
+     "a": 0.48272,
+     "b": 0.400723
+    },
+    "push": {
+     "a": 1.205437,
+     "b": 1.027583
+    },
+    "under": {
+     "a": 0.427108,
+     "b": -0.568557
+    }
+   },
+   "38": {
+    "over": {
+     "a": 0.485095,
+     "b": 0.377693
+    },
+    "push": {
+     "a": 0.283752,
+     "b": -2.948961
+    },
+    "under": {
+     "a": 0.48272,
+     "b": -0.400723
+    }
+   },
+   "39": {
+    "over": {
+     "a": 0.514996,
+     "b": 0.332653
+    },
+    "push": {
+     "a": 2.403376,
+     "b": 4.543749
+    },
+    "under": {
+     "a": 0.485095,
+     "b": -0.377693
+    }
+   },
+   "40": {
+    "over": {
+     "a": 0.458827,
+     "b": 0.26535
+    },
+    "push": {
+     "a": -1.081222,
+     "b": -7.090892
+    },
+    "under": {
+     "a": 0.514996,
+     "b": -0.332653
+    }
+   },
+   "41": {
+    "over": {
+     "a": 0.472225,
+     "b": 0.161469
+    },
+    "push": {
+     "a": 1.485609,
+     "b": 1.958048
+    },
+    "under": {
+     "a": 0.458827,
+     "b": -0.26535
+    }
+   },
+   "42": {
+    "over": {
+     "a": 0.495841,
+     "b": 0.144988
+    },
+    "push": {
+     "a": 3.557775,
+     "b": 8.360618
+    },
+    "under": {
+     "a": 0.472225,
+     "b": -0.161469
+    }
+   },
+   "43": {
+    "over": {
+     "a": 0.508847,
+     "b": 0.058327
+    },
+    "push": {
+     "a": 0.867826,
+     "b": -0.246967
+    },
+    "under": {
+     "a": 0.495841,
+     "b": -0.144988
+    }
+   },
+   "44": {
+    "over": {
+     "a": 0.626832,
+     "b": -0.033909
+    },
+    "push": {
+     "a": -0.369021,
+     "b": -4.525029
+    },
+    "under": {
+     "a": 0.508847,
+     "b": -0.058327
+    }
+   },
+   "45": {
+    "over": {
+     "a": 0.604703,
+     "b": -0.063377
+    },
+    "push": {
+     "a": 3.713348,
+     "b": 9.413404
+    },
+    "under": {
+     "a": 0.626832,
+     "b": 0.033909
+    }
+   },
+   "46": {
+    "over": {
+     "a": 0.653231,
+     "b": -0.079586
+    },
+    "push": {
+     "a": -1.344203,
+     "b": -8.489023
+    },
+    "under": {
+     "a": 0.604703,
+     "b": 0.063377
+    }
+   },
+   "47": {
+    "over": {
+     "a": 0.620662,
+     "b": -0.12825
+    },
+    "push": {
+     "a": 0.925255,
+     "b": -0.258381
+    },
+    "under": {
+     "a": 0.653231,
+     "b": 0.079586
+    }
+   },
+   "48": {
+    "over": {
+     "a": 0.636654,
+     "b": -0.165088
+    },
+    "push": {
+     "a": -1.09137,
+     "b": -7.526467
+    },
+    "under": {
+     "a": 0.620662,
+     "b": 0.12825
+    }
+   },
+   "49": {
+    "over": {
+     "a": 0.627542,
+     "b": -0.202266
+    },
+    "push": {
+     "a": 0.944003,
+     "b": -0.258425
+    },
+    "under": {
+     "a": 0.636654,
+     "b": 0.165088
+    }
+   },
+   "50": {
+    "over": {
+     "a": 0.628035,
+     "b": -0.217294
+    },
+    "push": {
+     "a": 0.990814,
+     "b": -0.268281
+    },
+    "under": {
+     "a": 0.627542,
+     "b": 0.202266
+    }
+   },
+   "51": {
+    "over": {
+     "a": 0.585481,
+     "b": -0.372683
+    },
+    "push": {
+     "a": 1.618515,
+     "b": 2.867207
+    },
+    "under": {
+     "a": 0.628035,
+     "b": 0.217294
+    }
+   },
+   "52": {
+    "over": {
+     "a": 0.554613,
+     "b": -0.42876
+    },
+    "push": {
+     "a": 0.972614,
+     "b": -0.256663
+    },
+    "under": {
+     "a": 0.585481,
+     "b": 0.372683
+    }
+   },
+   "53": {
+    "over": {
+     "a": 0.545079,
+     "b": -0.426335
+    },
+    "push": {
+     "a": 1.125745,
+     "b": -0.292924
+    },
+    "under": {
+     "a": 0.554613,
+     "b": 0.42876
+    }
+   },
+   "54": {
+    "over": {
+     "a": 0.53154,
+     "b": -0.502792
+    },
+    "push": {
+     "a": 0.904914,
+     "b": -0.231638
+    },
+    "under": {
+     "a": 0.545079,
+     "b": 0.426335
+    }
+   },
+   "55": {
+    "over": {
+     "a": 0.514086,
+     "b": -0.554795
+    },
+    "push": {
+     "a": 0.978373,
+     "b": -0.247542
+    },
+    "under": {
+     "a": 0.53154,
+     "b": 0.502792
+    }
+   },
+   "56": {
+    "over": {
+     "a": 0.5169,
+     "b": -0.555713
+    },
+    "push": {
+     "a": 0.204636,
+     "b": -3.683167
+    },
+    "under": {
+     "a": 0.514086,
+     "b": 0.554795
+    }
+   },
+   "57": {
+    "over": {
+     "a": 0.516502,
+     "b": -0.626635
+    },
+    "push": {
+     "a": 0.471472,
+     "b": -1.919053
+    },
+    "under": {
+     "a": 0.5169,
+     "b": 0.555713
+    }
+   },
+   "58": {
+    "over": {
+     "a": 0.546925,
+     "b": -0.688473
+    },
+    "push": {
+     "a": 0.177865,
+     "b": -2.925212
+    },
+    "under": {
+     "a": 0.516502,
+     "b": 0.626635
+    }
+   },
+   "59": {
+    "over": {
+     "a": 0.569361,
+     "b": -0.691772
+    },
+    "push": {
+     "a": 0.487449,
+     "b": -2.199561
+    },
+    "under": {
+     "a": 0.546925,
+     "b": 0.688473
+    }
+   },
+   "60": {
+    "over": {
+     "a": 0.579985,
+     "b": -0.724683
+    },
+    "push": {
+     "a": 0.346107,
+     "b": -2.711595
+    },
+    "under": {
+     "a": 0.569361,
+     "b": 0.691772
+    }
+   },
+   "61": {
+    "over": {
+     "a": 0.578713,
+     "b": -0.758995
+    },
+    "push": {
+     "a": 0.667644,
+     "b": -1.536563
+    },
+    "under": {
+     "a": 0.579985,
+     "b": 0.724683
+    }
+   },
+   "62": {
+    "over": {
+     "a": 0.588838,
+     "b": -0.742526
+    },
+    "push": {
+     "a": 0.395287,
+     "b": -3.08744
+    },
+    "under": {
+     "a": 0.578713,
+     "b": 0.758995
+    }
+   },
+   "63": {
+    "over": {
+     "a": 0.574807,
+     "b": -0.846846
+    },
+    "push": {
+     "a": 0.561757,
+     "b": -1.660595
+    },
+    "under": {
+     "a": 0.588838,
+     "b": 0.742526
+    }
+   },
+   "64": {
+    "over": {
+     "a": 0.678179,
+     "b": -0.686709
+    },
+    "push": {
+     "a": -0.557902,
+     "b": -7.078611
+    },
+    "under": {
+     "a": 0.574807,
+     "b": 0.846846
+    }
+   },
+   "65": {
+    "over": {
+     "a": 0.782683,
+     "b": -0.562008
+    },
+    "push": {
+     "a": -0.158078,
+     "b": -4.950437
+    },
+    "under": {
+     "a": 0.678179,
+     "b": 0.686709
+    }
+   },
+   "66": {
+    "over": {
+     "a": 0.820291,
+     "b": -0.516709
+    },
+    "push": {
+     "a": 0.502235,
+     "b": -2.26119
+    },
+    "under": {
+     "a": 0.782683,
+     "b": 0.562008
+    }
+   }
+  },
+  "run_lines": {
+   "-14": {
+    "home": {
+     "a": 0.669188,
+     "b": 0.593413
+    },
+    "push": {
+     "a": 0.067024,
+     "b": -3.312161
+    },
+    "away": {
+     "a": 0.819862,
+     "b": -0.498938
+    }
+   },
+   "-13": {
+    "home": {
+     "a": 0.678306,
+     "b": 0.638715
+    },
+    "push": {
+     "a": 1.287483,
+     "b": -0.312219
+    },
+    "away": {
+     "a": 0.669188,
+     "b": -0.593413
+    }
+   },
+   "-12": {
+    "home": {
+     "a": 0.693357,
+     "b": 0.67195
+    },
+    "push": {
+     "a": 0.644065,
+     "b": -2.753051
+    },
+    "away": {
+     "a": 0.678306,
+     "b": -0.638715
+    }
+   },
+   "-11": {
+    "home": {
+     "a": 0.699227,
+     "b": 0.690067
+    },
+    "push": {
+     "a": 1.134858,
+     "b": -0.283206
+    },
+    "away": {
+     "a": 0.693357,
+     "b": -0.67195
+    }
+   },
+   "-10": {
+    "home": {
+     "a": 0.738745,
+     "b": 0.579777
+    },
+    "push": {
+     "a": 1.560818,
+     "b": 2.19475
+    },
+    "away": {
+     "a": 0.699227,
+     "b": -0.690067
+    }
+   },
+   "-9": {
+    "home": {
+     "a": 0.732704,
+     "b": 0.6286
+    },
+    "push": {
+     "a": 0.424289,
+     "b": -3.203157
+    },
+    "away": {
+     "a": 0.738745,
+     "b": -0.579777
+    }
+   },
+   "-8": {
+    "home": {
+     "a": 0.763674,
+     "b": 0.575744
+    },
+    "push": {
+     "a": 1.527029,
+     "b": 1.756893
+    },
+    "away": {
+     "a": 0.732704,
+     "b": -0.6286
+    }
+   },
+   "-7": {
+    "home": {
+     "a": 0.757201,
+     "b": 0.401098
+    },
+    "push": {
+     "a": 0.988821,
+     "b": 0.662764
+    },
+    "away": {
+     "a": 0.763674,
+     "b": -0.575744
+    }
+   },
+   "-6": {
+    "home": {
+     "a": 0.714423,
+     "b": 0.328389
+    },
+    "push": {
+     "a": 0.212192,
+     "b": -2.459274
+    },
+    "away": {
+     "a": 0.757201,
+     "b": -0.401098
+    }
+   },
+   "-5": {
+    "home": {
+     "a": 0.71094,
+     "b": 0.302525
+    },
+    "push": {
+     "a": 0.946493,
+     "b": -0.257468
+    },
+    "away": {
+     "a": 0.714423,
+     "b": -0.328389
+    }
+   },
+   "-4": {
+    "home": {
+     "a": 0.71008,
+     "b": 0.253996
+    },
+    "push": {
+     "a": 1.261124,
+     "b": 1.041023
+    },
+    "away": {
+     "a": 0.71094,
+     "b": -0.302525
+    }
+   },
+   "-3": {
+    "home": {
+     "a": 0.787746,
+     "b": 0.008268
+    },
+    "push": {
+     "a": 1.266739,
+     "b": 1.902946
+    },
+    "away": {
+     "a": 0.71008,
+     "b": -0.253996
+    }
+   },
+   "-2": {
+    "home": {
+     "a": 0.818766,
+     "b": -0.007707
+    },
+    "push": {
+     "a": 0.469648,
+     "b": -1.991966
+    },
+    "away": {
+     "a": 0.787746,
+     "b": -0.008268
+    }
+   },
+   "-1": {
+    "home": {
+     "a": 0.835229,
+     "b": -0.023907
+    },
+    "push": {
+     "a": -0.943897,
+     "b": -6.936857
+    },
+    "away": {
+     "a": 0.818766,
+     "b": 0.007707
+    }
+   },
+   "0": {
+    "home": {
+     "a": 0.835908,
+     "b": 0.068785
+    },
+    "push": {
+     "a": 1.460445,
+     "b": -0.408876
+    },
+    "away": {
+     "a": 0.835229,
+     "b": 0.023907
+    }
+   },
+   "1": {
+    "home": {
+     "a": 0.777306,
+     "b": 0.071165
+    },
+    "push": {
+     "a": 0.232807,
+     "b": -2.90713
+    },
+    "away": {
+     "a": 0.835908,
+     "b": -0.068785
+    }
+   },
+   "2": {
+    "home": {
+     "a": 0.761846,
+     "b": 0.057449
+    },
+    "push": {
+     "a": 0.20643,
+     "b": -2.901035
+    },
+    "away": {
+     "a": 0.777306,
+     "b": -0.071165
+    }
+   },
+   "3": {
+    "home": {
+     "a": 0.781752,
+     "b": -0.133598
+    },
+    "push": {
+     "a": -0.934959,
+     "b": -5.971104
+    },
+    "away": {
+     "a": 0.761846,
+     "b": -0.057449
+    }
+   },
+   "4": {
+    "home": {
+     "a": 0.748711,
+     "b": -0.138502
+    },
+    "push": {
+     "a": 2.487573,
+     "b": 4.943276
+    },
+    "away": {
+     "a": 0.781752,
+     "b": 0.133598
+    }
+   },
+   "5": {
+    "home": {
+     "a": 0.714992,
+     "b": -0.149486
+    },
+    "push": {
+     "a": 1.006883,
+     "b": -0.27842
+    },
+    "away": {
+     "a": 0.748711,
+     "b": 0.138502
+    }
+   },
+   "6": {
+    "home": {
+     "a": 0.742786,
+     "b": -0.197332
+    },
+    "push": {
+     "a": -0.04009,
+     "b": -3.505017
+    },
+    "away": {
+     "a": 0.714992,
+     "b": 0.149486
+    }
+   },
+   "7": {
+    "home": {
+     "a": 0.801853,
+     "b": -0.230951
+    },
+    "push": {
+     "a": 0.076436,
+     "b": -3.05407
+    },
+    "away": {
+     "a": 0.742786,
+     "b": 0.197332
+    }
+   },
+   "8": {
+    "home": {
+     "a": 0.745256,
+     "b": -0.322562
+    },
+    "push": {
+     "a": 2.149558,
+     "b": 4.307613
+    },
+    "away": {
+     "a": 0.801853,
+     "b": 0.230951
+    }
+   },
+   "9": {
+    "home": {
+     "a": 0.772835,
+     "b": -0.246969
+    },
+    "push": {
+     "a": -0.574977,
+     "b": -6.946327
+    },
+    "away": {
+     "a": 0.745256,
+     "b": 0.322562
+    }
+   },
+   "10": {
+    "home": {
+     "a": 0.78656,
+     "b": -0.27867
+    },
+    "push": {
+     "a": 0.389786,
+     "b": -2.147781
+    },
+    "away": {
+     "a": 0.772835,
+     "b": 0.246969
+    }
+   },
+   "11": {
+    "home": {
+     "a": 0.767885,
+     "b": -0.242497
+    },
+    "push": {
+     "a": 1.189853,
+     "b": -0.306814
+    },
+    "away": {
+     "a": 0.78656,
+     "b": 0.27867
+    }
+   },
+   "12": {
+    "home": {
+     "a": 0.766029,
+     "b": -0.230054
+    },
+    "push": {
+     "a": 0.361469,
+     "b": -2.824217
+    },
+    "away": {
+     "a": 0.767885,
+     "b": 0.242497
+    }
+   },
+   "13": {
+    "home": {
+     "a": 0.764191,
+     "b": -0.22659
+    },
+    "push": {
+     "a": 0.465486,
+     "b": -2.332561
+    },
+    "away": {
+     "a": 0.766029,
+     "b": 0.230054
+    }
+   },
+   "14": {
+    "home": {
+     "a": 0.751717,
+     "b": -0.289106
+    },
+    "push": {
+     "a": 0.897724,
+     "b": -0.214635
+    },
+    "away": {
+     "a": 0.764191,
+     "b": 0.22659
+    }
+   }
+  },
+  "derived_moneyline": {
+   "a": 0.83413,
+   "b": -0.002349
+  }
+ },
+ "calibration_buckets": [
+  {
+   "bucket": "50\u201360%",
+   "mean_predicted": 0.5489,
+   "mean_actual": 0.5225,
+   "count": 423,
+   "gap": 0.0265
+  },
+  {
+   "bucket": "60\u201370%",
+   "mean_predicted": 0.6471,
+   "mean_actual": 0.5964,
+   "count": 389,
+   "gap": 0.0507
+  },
+  {
+   "bucket": "70\u201380%",
+   "mean_predicted": 0.7452,
+   "mean_actual": 0.7276,
+   "count": 312,
+   "gap": 0.0176
+  },
+  {
+   "bucket": "80\u201390%",
+   "mean_predicted": 0.8387,
+   "mean_actual": 0.7517,
+   "count": 149,
+   "gap": 0.087
+  },
+  {
+   "bucket": "90\u2013100%",
+   "mean_predicted": 0.9188,
+   "mean_actual": 1.0,
+   "count": 7,
+   "gap": -0.0812
+  }
+ ],
+ "daily": [
+  {
+   "date": "20190905",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6885,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6885
+    }
+   ]
+  },
+  {
+   "date": "20190908",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.8095,
+    "brier": 0.1862,
+    "logloss": 0.561,
+    "ece": 0.2377
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5719,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.2385
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6558,
+     "mean_actual": 0.8889,
+     "count": 9,
+     "gap": -0.2331
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7233,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2767
+    }
+   ]
+  },
+  {
+   "date": "20190909",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5744,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5744
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6343,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3657
+    }
+   ]
+  },
+  {
+   "date": "20190912",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6582,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6582
+    }
+   ]
+  },
+  {
+   "date": "20190915",
+   "n_games": 14,
+   "wins": 8,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.5417,
+    "brier": 0.2394,
+    "logloss": 0.6684,
+    "ece": 0.245
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5535,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.018
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6515,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.1515
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7288,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2288
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8249,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1751
+    }
+   ]
+  },
+  {
+   "date": "20190916",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "date": "20190919",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5642,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5642
+    }
+   ]
+  },
+  {
+   "date": "20190922",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.75,
+    "brier": 0.2039,
+    "logloss": 0.5893,
+    "ece": 0.1938
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5283,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.0283
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6641,
+     "mean_actual": 0.5,
+     "count": 6,
+     "gap": 0.1641
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7731,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.2269
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8395,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1605
+    }
+   ]
+  },
+  {
+   "date": "20190923",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5987,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4013
+    }
+   ]
+  },
+  {
+   "date": "20190926",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6087,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6087
+    }
+   ]
+  },
+  {
+   "date": "20190929",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.5333,
+    "brier": 0.2914,
+    "logloss": 0.7926,
+    "ece": 0.3148
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5411,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": -0.0589
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6422,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.1422
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7722,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.1055
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8179,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8179
+    }
+   ]
+  },
+  {
+   "date": "20190930",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.57,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.43
+    }
+   ]
+  },
+  {
+   "date": "20191003",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.507,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.507
+    }
+   ]
+  },
+  {
+   "date": "20191006",
+   "n_games": 13,
+   "wins": 6,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.4125,
+    "brier": 0.2852,
+    "logloss": 0.7679,
+    "ece": 0.2362
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5428,
+     "mean_actual": 0.5556,
+     "count": 9,
+     "gap": -0.0128
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.614,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.614
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7334,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.4
+    }
+   ]
+  },
+  {
+   "date": "20191007",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5806,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5806
+    }
+   ]
+  },
+  {
+   "date": "20191024",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8315,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1685
+    }
+   ]
+  },
+  {
+   "date": "20191027",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.5833,
+    "brier": 0.1964,
+    "logloss": 0.5805,
+    "ece": 0.0964
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5472,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.1194
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6488,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.1012
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7516,
+     "mean_actual": 0.8333,
+     "count": 6,
+     "gap": -0.0817
+    }
+   ]
+  },
+  {
+   "date": "20191028",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7758,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2242
+    }
+   ]
+  },
+  {
+   "date": "20191128",
+   "n_games": 3,
+   "wins": 1,
+   "losses": 2,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5184,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.5184
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7255,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2745
+    }
+   ]
+  },
+  {
+   "date": "20191201",
+   "n_games": 12,
+   "wins": 5,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.4143,
+    "brier": 0.3006,
+    "logloss": 0.8028,
+    "ece": 0.2204
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5378,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.1378
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6711,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.3378
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7358,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.2358
+    }
+   ]
+  },
+  {
+   "date": "20191202",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.5
+    }
+   ]
+  },
+  {
+   "date": "20191205",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6339,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3661
+    }
+   ]
+  },
+  {
+   "date": "20191208",
+   "n_games": 14,
+   "wins": 11,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.7347,
+    "brier": 0.2017,
+    "logloss": 0.5922,
+    "ece": 0.211
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.516,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.284
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6577,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.0923
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7363,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.0137
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8142,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1858
+    }
+   ]
+  },
+  {
+   "date": "20191209",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8082,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1918
+    }
+   ]
+  },
+  {
+   "date": "20191212",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7085,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2915
+    }
+   ]
+  },
+  {
+   "date": "20191215",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.4667,
+    "brier": 0.2855,
+    "logloss": 0.7658,
+    "ece": 0.356
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5463,
+     "mean_actual": 0.7143,
+     "count": 7,
+     "gap": -0.168
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6579,
+     "mean_actual": 0.0,
+     "count": 5,
+     "gap": 0.6579
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7407,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2593
+    }
+   ]
+  },
+  {
+   "date": "20191216",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6187,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3813
+    }
+   ]
+  },
+  {
+   "date": "20191221",
+   "n_games": 3,
+   "wins": 3,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.143,
+    "logloss": 0.4727,
+    "ece": 0.3745
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5603,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4397
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6581,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3419
+    }
+   ]
+  },
+  {
+   "date": "20191222",
+   "n_games": 12,
+   "wins": 7,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5833,
+    "brier": 0.243,
+    "logloss": 0.6864,
+    "ece": 0.3942
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5365,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.2865
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6387,
+     "mean_actual": 1.0,
+     "count": 5,
+     "gap": -0.3613
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.743,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.4097
+    }
+   ]
+  },
+  {
+   "date": "20191223",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5246,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4754
+    }
+   ]
+  },
+  {
+   "date": "20191229",
+   "n_games": 16,
+   "wins": 10,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.6984,
+    "brier": 0.2288,
+    "logloss": 0.6485,
+    "ece": 0.1451
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5005,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.0005
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6629,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": 0.0914
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7372,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": 0.0706
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8254,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1746
+    }
+   ]
+  },
+  {
+   "date": "20200910",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5852,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4148
+    }
+   ]
+  },
+  {
+   "date": "20200913",
+   "n_games": 13,
+   "wins": 9,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.8571,
+    "brier": 0.2062,
+    "logloss": 0.6094,
+    "ece": 0.3027
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5398,
+     "mean_actual": 0.5,
+     "count": 6,
+     "gap": 0.0398
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6569,
+     "mean_actual": 1.0,
+     "count": 5,
+     "gap": -0.3431
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7602,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2602
+    }
+   ]
+  },
+  {
+   "date": "20200914",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5355,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.0355
+    }
+   ]
+  },
+  {
+   "date": "20200917",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5915,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4085
+    }
+   ]
+  },
+  {
+   "date": "20200920",
+   "n_games": 14,
+   "wins": 11,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.8222,
+    "brier": 0.1847,
+    "logloss": 0.5533,
+    "ece": 0.1699
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5389,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.1278
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6625,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.1375
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7431,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2569
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8069,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1931
+    }
+   ]
+  },
+  {
+   "date": "20200921",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5268,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5268
+    }
+   ]
+  },
+  {
+   "date": "20200924",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6492,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6492
+    }
+   ]
+  },
+  {
+   "date": "20200927",
+   "n_games": 14,
+   "wins": 6,
+   "losses": 8,
+   "metrics": {
+    "auc": 0.5833,
+    "brier": 0.271,
+    "logloss": 0.7501,
+    "ece": 0.3058
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5456,
+     "mean_actual": 0.1667,
+     "count": 6,
+     "gap": 0.3789
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6488,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.1012
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7426,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.076
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8239,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8239
+    }
+   ]
+  },
+  {
+   "date": "20200928",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5763,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5763
+    }
+   ]
+  },
+  {
+   "date": "20201001",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5885,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5885
+    }
+   ]
+  },
+  {
+   "date": "20201004",
+   "n_games": 12,
+   "wins": 6,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.6875,
+    "brier": 0.213,
+    "logloss": 0.6085,
+    "ece": 0.3114
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5387,
+     "mean_actual": 0.0,
+     "count": 3,
+     "gap": 0.5387
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6319,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.2319
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7596,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.2404
+    }
+   ]
+  },
+  {
+   "date": "20201005",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.5
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6228,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3772
+    }
+   ]
+  },
+  {
+   "date": "20201126",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5399,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.0399
+    }
+   ]
+  },
+  {
+   "date": "20201129",
+   "n_games": 12,
+   "wins": 9,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.8,
+    "brier": 0.186,
+    "logloss": 0.5567,
+    "ece": 0.1762
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5389,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.0325
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6748,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3252
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7545,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2455
+    }
+   ]
+  },
+  {
+   "date": "20201130",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6138,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3862
+    }
+   ]
+  },
+  {
+   "date": "20201202",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5723,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4277
+    }
+   ]
+  },
+  {
+   "date": "20201206",
+   "n_games": 12,
+   "wins": 8,
+   "losses": 4,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1699,
+    "logloss": 0.5148,
+    "ece": 0.3732
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5518,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.5518
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6598,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.3265
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7507,
+     "mean_actual": 1.0,
+     "count": 6,
+     "gap": -0.2493
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8008,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1992
+    }
+   ]
+  },
+  {
+   "date": "20201207",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6189,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.1189
+    }
+   ]
+  },
+  {
+   "date": "20201208",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7438,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2562
+    }
+   ]
+  },
+  {
+   "date": "20201210",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5357,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5357
+    }
+   ]
+  },
+  {
+   "date": "20201213",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.5417,
+    "brier": 0.2805,
+    "logloss": 0.7694,
+    "ece": 0.1939
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5632,
+     "mean_actual": 0.3333,
+     "count": 6,
+     "gap": 0.2299
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6512,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.0512
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7203,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2797
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8306,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.3306
+    }
+   ]
+  },
+  {
+   "date": "20201214",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5603,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5603
+    }
+   ]
+  },
+  {
+   "date": "20201217",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.568,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.568
+    }
+   ]
+  },
+  {
+   "date": "20201219",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.145,
+    "logloss": 0.4766,
+    "ece": 0.3766
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5673,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4327
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6795,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3205
+    }
+   ]
+  },
+  {
+   "date": "20201220",
+   "n_games": 12,
+   "wins": 10,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.75,
+    "brier": 0.2076,
+    "logloss": 0.6141,
+    "ece": 0.3282
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.566,
+     "mean_actual": 1.0,
+     "count": 5,
+     "gap": -0.434
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6428,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.1072
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7309,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2691
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8022,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8022
+    }
+   ]
+  },
+  {
+   "date": "20201221",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8245,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8245
+    }
+   ]
+  },
+  {
+   "date": "20201225",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.611,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.389
+    }
+   ]
+  },
+  {
+   "date": "20201226",
+   "n_games": 3,
+   "wins": 3,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.556,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.444
+    }
+   ]
+  },
+  {
+   "date": "20201227",
+   "n_games": 11,
+   "wins": 6,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5417,
+    "brier": 0.2232,
+    "logloss": 0.6377,
+    "ece": 0.255
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5378,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.2878
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6562,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.1438
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7499,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2499
+    }
+   ]
+  },
+  {
+   "date": "20201228",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "date": "20210103",
+   "n_games": 16,
+   "wins": 14,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.873,
+    "brier": 0.1636,
+    "logloss": 0.5151,
+    "ece": 0.3119
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5418,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.2582
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6637,
+     "mean_actual": 1.0,
+     "count": 5,
+     "gap": -0.3363
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7422,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.2578
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8081,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.3081
+    }
+   ]
+  },
+  {
+   "date": "20210909",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7842,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2158
+    }
+   ]
+  },
+  {
+   "date": "20210912",
+   "n_games": 14,
+   "wins": 8,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.5417,
+    "brier": 0.2593,
+    "logloss": 0.7114,
+    "ece": 0.2671
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5367,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.2633
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6472,
+     "mean_actual": 0.375,
+     "count": 8,
+     "gap": 0.2722
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7543,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2457
+    }
+   ]
+  },
+  {
+   "date": "20210913",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8069,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8069
+    }
+   ]
+  },
+  {
+   "date": "20210916",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5474,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5474
+    }
+   ]
+  },
+  {
+   "date": "20210919",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.625,
+    "brier": 0.2549,
+    "logloss": 0.7131,
+    "ece": 0.2919
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.54,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1114
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6355,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.1355
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7543,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2457
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8319,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8319
+    }
+   ]
+  },
+  {
+   "date": "20210920",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6646,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3354
+    }
+   ]
+  },
+  {
+   "date": "20210923",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5627,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4373
+    }
+   ]
+  },
+  {
+   "date": "20210926",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.6735,
+    "brier": 0.2346,
+    "logloss": 0.6617,
+    "ece": 0.1797
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5511,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.1989
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6397,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.0397
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7341,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.1341
+    }
+   ]
+  },
+  {
+   "date": "20210927",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5257,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5257
+    }
+   ]
+  },
+  {
+   "date": "20210930",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6832,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3168
+    }
+   ]
+  },
+  {
+   "date": "20211003",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.4889,
+    "brier": 0.2704,
+    "logloss": 0.7429,
+    "ece": 0.2934
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5659,
+     "mean_actual": 0.375,
+     "count": 8,
+     "gap": 0.1909
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6391,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3609
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7598,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.2598
+    }
+   ]
+  },
+  {
+   "date": "20211004",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5384,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5384
+    }
+   ]
+  },
+  {
+   "date": "20211007",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "date": "20211010",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.8571,
+    "brier": 0.1818,
+    "logloss": 0.5475,
+    "ece": 0.154
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5508,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.0206
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6894,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0228
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7436,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.2564
+    }
+   ]
+  },
+  {
+   "date": "20211011",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6002,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3998
+    }
+   ]
+  },
+  {
+   "date": "20211028",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5459,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4541
+    }
+   ]
+  },
+  {
+   "date": "20211031",
+   "n_games": 13,
+   "wins": 8,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.65,
+    "brier": 0.2216,
+    "logloss": 0.6315,
+    "ece": 0.1713
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5378,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.0336
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6335,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.1335
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.771,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.229
+    }
+   ]
+  },
+  {
+   "date": "20211101",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6577,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3423
+    }
+   ]
+  },
+  {
+   "date": "20211118",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7633,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2367
+    }
+   ]
+  },
+  {
+   "date": "20211121",
+   "n_games": 13,
+   "wins": 8,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5,
+    "brier": 0.2737,
+    "logloss": 0.7469,
+    "ece": 0.3217
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5184,
+     "mean_actual": 0.8333,
+     "count": 6,
+     "gap": -0.3149
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6239,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.2906
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7443,
+     "mean_actual": 0.3333,
+     "count": 3,
+     "gap": 0.4109
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8118,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1882
+    }
+   ]
+  },
+  {
+   "date": "20211122",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6433,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3567
+    }
+   ]
+  },
+  {
+   "date": "20211125",
+   "n_games": 3,
+   "wins": 1,
+   "losses": 2,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.564,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.564
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6917,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3083
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7153,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7153
+    }
+   ]
+  },
+  {
+   "date": "20211128",
+   "n_games": 11,
+   "wins": 6,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.4375,
+    "brier": 0.2535,
+    "logloss": 0.7027,
+    "ece": 0.2587
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5392,
+     "mean_actual": 0.5,
+     "count": 6,
+     "gap": 0.0392
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6767,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.01
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7232,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2232
+    }
+   ]
+  },
+  {
+   "date": "20211129",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5929,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5929
+    }
+   ]
+  },
+  {
+   "date": "20211216",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6344,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3656
+    }
+   ]
+  },
+  {
+   "date": "20211218",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5214,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4786
+    }
+   ]
+  },
+  {
+   "date": "20211219",
+   "n_games": 10,
+   "wins": 7,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.84,
+    "brier": 0.1902,
+    "logloss": 0.5627,
+    "ece": 0.1316
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5401,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.1266
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.641,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.041
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7818,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2182
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8082,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1918
+    }
+   ]
+  },
+  {
+   "date": "20211220",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5578,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5578
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6177,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3823
+    }
+   ]
+  },
+  {
+   "date": "20211221",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5841,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4159
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6768,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3232
+    }
+   ]
+  },
+  {
+   "date": "20211223",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5931,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5931
+    }
+   ]
+  },
+  {
+   "date": "20211225",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.0714,
+    "logloss": 0.3031,
+    "ece": 0.2584
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6736,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3264
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8096,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1904
+    }
+   ]
+  },
+  {
+   "date": "20211226",
+   "n_games": 12,
+   "wins": 6,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.625,
+    "brier": 0.2327,
+    "logloss": 0.6487,
+    "ece": 0.2501
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5349,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.2849
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6474,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.2474
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7779,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2221
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8195,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1805
+    }
+   ]
+  },
+  {
+   "date": "20211227",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5217,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5217
+    }
+   ]
+  },
+  {
+   "date": "20220102",
+   "n_games": 15,
+   "wins": 12,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.86,
+    "brier": 0.1679,
+    "logloss": 0.5162,
+    "ece": 0.1269
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5229,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4771
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6509,
+     "mean_actual": 0.6667,
+     "count": 9,
+     "gap": -0.0157
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.729,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.271
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8619,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1381
+    }
+   ]
+  },
+  {
+   "date": "20220103",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5329,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5329
+    }
+   ]
+  },
+  {
+   "date": "20220108",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5177,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5177
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8079,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1921
+    }
+   ]
+  },
+  {
+   "date": "20220109",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.5,
+    "brier": 0.2877,
+    "logloss": 0.7797,
+    "ece": 0.2472
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5402,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": -0.0598
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6566,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.4066
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7542,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.2542
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8127,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1873
+    }
+   ]
+  },
+  {
+   "date": "20220908",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5888,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4112
+    }
+   ]
+  },
+  {
+   "date": "20220911",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.6889,
+    "brier": 0.2229,
+    "logloss": 0.6396,
+    "ece": 0.206
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.535,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.135
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6601,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.1399
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7641,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.2359
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.801,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.801
+    }
+   ]
+  },
+  {
+   "date": "20220912",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.688,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.312
+    }
+   ]
+  },
+  {
+   "date": "20220915",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7445,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2555
+    }
+   ]
+  },
+  {
+   "date": "20220918",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.35,
+    "brier": 0.2906,
+    "logloss": 0.7878,
+    "ece": 0.3272
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5399,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.2601
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6437,
+     "mean_actual": 0.3333,
+     "count": 6,
+     "gap": 0.3103
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7346,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2654
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8254,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8254
+    }
+   ]
+  },
+  {
+   "date": "20220919",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5665,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4335
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6315,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3685
+    }
+   ]
+  },
+  {
+   "date": "20220922",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5405,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4595
+    }
+   ]
+  },
+  {
+   "date": "20220925",
+   "n_games": 14,
+   "wins": 5,
+   "losses": 9,
+   "metrics": {
+    "auc": 0.3878,
+    "brier": 0.2965,
+    "logloss": 0.7926,
+    "ece": 0.3163
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5465,
+     "mean_actual": 0.0,
+     "count": 4,
+     "gap": 0.5465
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6509,
+     "mean_actual": 0.5,
+     "count": 8,
+     "gap": 0.1509
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7229,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2229
+    }
+   ]
+  },
+  {
+   "date": "20220926",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7137,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2863
+    }
+   ]
+  },
+  {
+   "date": "20220929",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5647,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5647
+    }
+   ]
+  },
+  {
+   "date": "20221002",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5417,
+    "brier": 0.2394,
+    "logloss": 0.6749,
+    "ece": 0.1806
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.547,
+     "mean_actual": 0.625,
+     "count": 8,
+     "gap": -0.078
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6257,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.041
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7458,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0792
+    }
+   ]
+  },
+  {
+   "date": "20221003",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5942,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5942
+    }
+   ]
+  },
+  {
+   "date": "20221006",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5085,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4915
+    }
+   ]
+  },
+  {
+   "date": "20221009",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.6939,
+    "brier": 0.2266,
+    "logloss": 0.6514,
+    "ece": 0.2629
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5414,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.1253
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6663,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.3337
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7271,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2271
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8034,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.3034
+    }
+   ]
+  },
+  {
+   "date": "20221010",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7487,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2513
+    }
+   ]
+  },
+  {
+   "date": "20221027",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5131,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5131
+    }
+   ]
+  },
+  {
+   "date": "20221030",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.7976,
+    "brier": 0.204,
+    "logloss": 0.6006,
+    "ece": 0.2393
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5523,
+     "mean_actual": 0.75,
+     "count": 8,
+     "gap": -0.1977
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6582,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3418
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7518,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2518
+    }
+   ]
+  },
+  {
+   "date": "20221031",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5645,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5645
+    }
+   ]
+  },
+  {
+   "date": "20221124",
+   "n_games": 3,
+   "wins": 3,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1193,
+    "logloss": 0.4207,
+    "ece": 0.341
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5828,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4172
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6825,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3175
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7117,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2883
+    }
+   ]
+  },
+  {
+   "date": "20221127",
+   "n_games": 12,
+   "wins": 7,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5185,
+    "brier": 0.2211,
+    "logloss": 0.6211,
+    "ece": 0.1614
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5342,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1056
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6605,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.0062
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8589,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.1411
+    }
+   ]
+  },
+  {
+   "date": "20221128",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6802,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6802
+    }
+   ]
+  },
+  {
+   "date": "20221201",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6041,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3959
+    }
+   ]
+  },
+  {
+   "date": "20221204",
+   "n_games": 13,
+   "wins": 9,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.95,
+    "brier": 0.1905,
+    "logloss": 0.5668,
+    "ece": 0.29
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5536,
+     "mean_actual": 0.5,
+     "count": 8,
+     "gap": 0.0536
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6385,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3615
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7674,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2326
+    }
+   ]
+  },
+  {
+   "date": "20221205",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6575,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3425
+    }
+   ]
+  },
+  {
+   "date": "20221215",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5605,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4395
+    }
+   ]
+  },
+  {
+   "date": "20221217",
+   "n_games": 3,
+   "wins": 2,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5506,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5506
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6585,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3415
+    }
+   ]
+  },
+  {
+   "date": "20221218",
+   "n_games": 11,
+   "wins": 5,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.5667,
+    "brier": 0.2608,
+    "logloss": 0.7179,
+    "ece": 0.16
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5537,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1252
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6104,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.0563
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7153,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7153
+    }
+   ]
+  },
+  {
+   "date": "20221219",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6912,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3088
+    }
+   ]
+  },
+  {
+   "date": "20221222",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5735,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4265
+    }
+   ]
+  },
+  {
+   "date": "20221224",
+   "n_games": 11,
+   "wins": 7,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.75,
+    "brier": 0.2015,
+    "logloss": 0.5887,
+    "ece": 0.175
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.542,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1134
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6868,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3132
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7275,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.2725
+    }
+   ]
+  },
+  {
+   "date": "20221225",
+   "n_games": 3,
+   "wins": 2,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1727,
+    "logloss": 0.5339,
+    "ece": 0.14
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5481,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.0481
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6761,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3239
+    }
+   ]
+  },
+  {
+   "date": "20221226",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5763,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4237
+    }
+   ]
+  },
+  {
+   "date": "20221229",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5356,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4644
+    }
+   ]
+  },
+  {
+   "date": "20230101",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.6444,
+    "brier": 0.2218,
+    "logloss": 0.6358,
+    "ece": 0.2426
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5415,
+     "mean_actual": 0.7778,
+     "count": 9,
+     "gap": -0.2363
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6303,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.1303
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7589,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0922
+    }
+   ]
+  },
+  {
+   "date": "20230107",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1826,
+    "logloss": 0.5534,
+    "ece": 0.4188
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5038,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5038
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6662,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3338
+    }
+   ]
+  },
+  {
+   "date": "20230108",
+   "n_games": 14,
+   "wins": 8,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.65,
+    "brier": 0.2426,
+    "logloss": 0.6758,
+    "ece": 0.2509
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5361,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.1305
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6475,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.2475
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.748,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": 0.0813
+    }
+   ]
+  },
+  {
+   "date": "20230907",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "date": "20230910",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.6889,
+    "brier": 0.2285,
+    "logloss": 0.6481,
+    "ece": 0.2162
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.554,
+     "mean_actual": 0.5,
+     "count": 6,
+     "gap": 0.054
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6393,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.0274
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7471,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2529
+    }
+   ]
+  },
+  {
+   "date": "20230911",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.647,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.647
+    }
+   ]
+  },
+  {
+   "date": "20230914",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5077,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5077
+    }
+   ]
+  },
+  {
+   "date": "20230917",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.75,
+    "brier": 0.2108,
+    "logloss": 0.6083,
+    "ece": 0.1899
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5334,
+     "mean_actual": 0.2857,
+     "count": 7,
+     "gap": 0.2477
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6402,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3598
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7461,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.0039
+    }
+   ]
+  },
+  {
+   "date": "20230918",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.2101,
+    "logloss": 0.6131,
+    "ece": 0.4581
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5419,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.4581
+    }
+   ]
+  },
+  {
+   "date": "20230921",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7977,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2023
+    }
+   ]
+  },
+  {
+   "date": "20230924",
+   "n_games": 13,
+   "wins": 9,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.619,
+    "brier": 0.2344,
+    "logloss": 0.6707,
+    "ece": 0.2678
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5098,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.0098
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6616,
+     "mean_actual": 0.875,
+     "count": 8,
+     "gap": -0.2134
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7806,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.7806
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8067,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1933
+    }
+   ]
+  },
+  {
+   "date": "20230925",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1994,
+    "logloss": 0.5915,
+    "ece": 0.4462
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5538,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.4462
+    }
+   ]
+  },
+  {
+   "date": "20230928",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5363,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5363
+    }
+   ]
+  },
+  {
+   "date": "20231001",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.7917,
+    "brier": 0.2031,
+    "logloss": 0.5898,
+    "ece": 0.1017
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5318,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.0318
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6247,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": 0.0533
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7476,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2524
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8252,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1748
+    }
+   ]
+  },
+  {
+   "date": "20231002",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6918,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3082
+    }
+   ]
+  },
+  {
+   "date": "20231012",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6707,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3293
+    }
+   ]
+  },
+  {
+   "date": "20231015",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.5,
+    "brier": 0.2431,
+    "logloss": 0.67,
+    "ece": 0.2394
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5406,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.0309
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6324,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.3824
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8452,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.1548
+    }
+   ]
+  },
+  {
+   "date": "20231016",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6245,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6245
+    }
+   ]
+  },
+  {
+   "date": "20231026",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7829,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2171
+    }
+   ]
+  },
+  {
+   "date": "20231029",
+   "n_games": 14,
+   "wins": 8,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.7143,
+    "brier": 0.2229,
+    "logloss": 0.6324,
+    "ece": 0.2261
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5513,
+     "mean_actual": 0.3333,
+     "count": 6,
+     "gap": 0.218
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6477,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.0477
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7277,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2723
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8096,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1904
+    }
+   ]
+  },
+  {
+   "date": "20231030",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7125,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2875
+    }
+   ]
+  },
+  {
+   "date": "20231123",
+   "n_games": 3,
+   "wins": 2,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1495,
+    "logloss": 0.479,
+    "ece": 0.3694
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5276,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5276
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6818,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3182
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7377,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2623
+    }
+   ]
+  },
+  {
+   "date": "20231124",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7012,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2988
+    }
+   ]
+  },
+  {
+   "date": "20231126",
+   "n_games": 11,
+   "wins": 7,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.6667,
+    "brier": 0.2324,
+    "logloss": 0.6572,
+    "ece": 0.0899
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5601,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.1066
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6297,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.0297
+    }
+   ]
+  },
+  {
+   "date": "20231127",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.762,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.762
+    }
+   ]
+  },
+  {
+   "date": "20231207",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7417,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7417
+    }
+   ]
+  },
+  {
+   "date": "20231210",
+   "n_games": 12,
+   "wins": 7,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.5625,
+    "brier": 0.2277,
+    "logloss": 0.6419,
+    "ece": 0.1901
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5392,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": -0.0608
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6378,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.2378
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7306,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2694
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8494,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1506
+    }
+   ]
+  },
+  {
+   "date": "20231211",
+   "n_games": 2,
+   "wins": 0,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.0,
+    "brier": 0.493,
+    "logloss": 1.2778,
+    "ece": 0.6879
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5474,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5474
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8284,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.8284
+    }
+   ]
+  },
+  {
+   "date": "20231214",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5109,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5109
+    }
+   ]
+  },
+  {
+   "date": "20231216",
+   "n_games": 3,
+   "wins": 3,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5531,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.4469
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6669,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3331
+    }
+   ]
+  },
+  {
+   "date": "20231217",
+   "n_games": 11,
+   "wins": 7,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.7,
+    "brier": 0.2151,
+    "logloss": 0.6172,
+    "ece": 0.2714
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5835,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.0832
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6418,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": 0.0704
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8145,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1855
+    }
+   ]
+  },
+  {
+   "date": "20231218",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7064,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7064
+    }
+   ]
+  },
+  {
+   "date": "20231221",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5714,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4286
+    }
+   ]
+  },
+  {
+   "date": "20231223",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.2015,
+    "logloss": 0.5766,
+    "ece": 0.4074
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.596,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.596
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7812,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2188
+    }
+   ]
+  },
+  {
+   "date": "20231224",
+   "n_games": 10,
+   "wins": 7,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.74,
+    "brier": 0.2234,
+    "logloss": 0.6399,
+    "ece": 0.1321
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5436,
+     "mean_actual": 0.7143,
+     "count": 7,
+     "gap": -0.1707
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6246,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.042
+    }
+   ]
+  },
+  {
+   "date": "20231225",
+   "n_games": 3,
+   "wins": 1,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.5,
+    "brier": 0.2973,
+    "logloss": 0.7914,
+    "ece": 0.3111
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5697,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5697
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6818,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.1818
+    }
+   ]
+  },
+  {
+   "date": "20231228",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6998,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3002
+    }
+   ]
+  },
+  {
+   "date": "20231230",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5398,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5398
+    }
+   ]
+  },
+  {
+   "date": "20231231",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.6667,
+    "brier": 0.2165,
+    "logloss": 0.6209,
+    "ece": 0.2172
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5317,
+     "mean_actual": 0.6667,
+     "count": 9,
+     "gap": -0.135
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6489,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3511
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7515,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.2515
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8128,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1872
+    }
+   ]
+  },
+  {
+   "date": "20240106",
+   "n_games": 2,
+   "wins": 0,
+   "losses": 2,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5138,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5138
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7184,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7184
+    }
+   ]
+  },
+  {
+   "date": "20240107",
+   "n_games": 14,
+   "wins": 8,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.6735,
+    "brier": 0.2183,
+    "logloss": 0.626,
+    "ece": 0.1888
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5347,
+     "mean_actual": 0.2,
+     "count": 5,
+     "gap": 0.3347
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6523,
+     "mean_actual": 0.7143,
+     "count": 7,
+     "gap": -0.062
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7323,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2677
+    }
+   ]
+  },
+  {
+   "date": "20240905",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5567,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5567
+    }
+   ]
+  },
+  {
+   "date": "20240906",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5833,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5833
+    }
+   ]
+  },
+  {
+   "date": "20240908",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.75,
+    "brier": 0.1965,
+    "logloss": 0.5797,
+    "ece": 0.1795
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5772,
+     "mean_actual": 0.8333,
+     "count": 6,
+     "gap": -0.2562
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6386,
+     "mean_actual": 0.6,
+     "count": 5,
+     "gap": 0.0386
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7683,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2317
+    }
+   ]
+  },
+  {
+   "date": "20240909",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.65,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.35
+    }
+   ]
+  },
+  {
+   "date": "20240912",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6104,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3896
+    }
+   ]
+  },
+  {
+   "date": "20240915",
+   "n_games": 14,
+   "wins": 7,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.5625,
+    "brier": 0.2505,
+    "logloss": 0.6944,
+    "ece": 0.2864
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5204,
+     "mean_actual": 0.25,
+     "count": 4,
+     "gap": 0.2704
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6402,
+     "mean_actual": 0.5556,
+     "count": 9,
+     "gap": 0.0846
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7214,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2786
+    }
+   ]
+  },
+  {
+   "date": "20240916",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6702,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6702
+    }
+   ]
+  },
+  {
+   "date": "20240919",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5077,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4923
+    }
+   ]
+  },
+  {
+   "date": "20240922",
+   "n_games": 13,
+   "wins": 5,
+   "losses": 8,
+   "metrics": {
+    "auc": 0.375,
+    "brier": 0.2942,
+    "logloss": 0.7885,
+    "ece": 0.2183
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.545,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1164
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6558,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.2558
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7438,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7438
+    }
+   ]
+  },
+  {
+   "date": "20240923",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": 0.0,
+    "brier": 0.3256,
+    "logloss": 0.8686,
+    "ece": 0.5288
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6856,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3144
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7433,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7433
+    }
+   ]
+  },
+  {
+   "date": "20240926",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5947,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4053
+    }
+   ]
+  },
+  {
+   "date": "20240929",
+   "n_games": 13,
+   "wins": 9,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.7,
+    "brier": 0.2243,
+    "logloss": 0.6355,
+    "ece": 0.1999
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5333,
+     "mean_actual": 0.7143,
+     "count": 7,
+     "gap": -0.1809
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.639,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.139
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7397,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2603
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8114,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1886
+    }
+   ]
+  },
+  {
+   "date": "20240930",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": 0.0,
+    "brier": 0.3173,
+    "logloss": 0.8314,
+    "ece": 0.5589
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5117,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4883
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6295,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6295
+    }
+   ]
+  },
+  {
+   "date": "20241017",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5664,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5664
+    }
+   ]
+  },
+  {
+   "date": "20241020",
+   "n_games": 12,
+   "wins": 11,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1628,
+    "logloss": 0.5127,
+    "ece": 0.3137
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5459,
+     "mean_actual": 0.8333,
+     "count": 6,
+     "gap": -0.2875
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6396,
+     "mean_actual": 1.0,
+     "count": 5,
+     "gap": -0.3604
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7627,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2373
+    }
+   ]
+  },
+  {
+   "date": "20241021",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1732,
+    "logloss": 0.5325,
+    "ece": 0.4053
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.5
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6894,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3106
+    }
+   ]
+  },
+  {
+   "date": "20241024",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5389,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5389
+    }
+   ]
+  },
+  {
+   "date": "20241027",
+   "n_games": 14,
+   "wins": 9,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.6771,
+    "brier": 0.2271,
+    "logloss": 0.647,
+    "ece": 0.1535
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5456,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.121
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6226,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.1226
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7446,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0779
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8045,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1955
+    }
+   ]
+  },
+  {
+   "date": "20241028",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6199,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3801
+    }
+   ]
+  },
+  {
+   "date": "20241031",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6109,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6109
+    }
+   ]
+  },
+  {
+   "date": "20241103",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.6389,
+    "brier": 0.2191,
+    "logloss": 0.6272,
+    "ece": 0.2413
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.528,
+     "mean_actual": 0.375,
+     "count": 8,
+     "gap": 0.153
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6419,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.1081
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7696,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2304
+    }
+   ]
+  },
+  {
+   "date": "20241104",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6545,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3455
+    }
+   ]
+  },
+  {
+   "date": "20241128",
+   "n_games": 3,
+   "wins": 3,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5978,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4022
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6239,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3761
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7614,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2386
+    }
+   ]
+  },
+  {
+   "date": "20241129",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6619,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3381
+    }
+   ]
+  },
+  {
+   "date": "20241201",
+   "n_games": 11,
+   "wins": 7,
+   "losses": 4,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1877,
+    "logloss": 0.5639,
+    "ece": 0.3513
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5265,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.0979
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6552,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3448
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7254,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2746
+    }
+   ]
+  },
+  {
+   "date": "20241202",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6925,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3075
+    }
+   ]
+  },
+  {
+   "date": "20241212",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5238,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5238
+    }
+   ]
+  },
+  {
+   "date": "20241215",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.875,
+    "brier": 0.2144,
+    "logloss": 0.6198,
+    "ece": 0.2425
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5252,
+     "mean_actual": 0.7,
+     "count": 10,
+     "gap": -0.1748
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.656,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.344
+    }
+   ]
+  },
+  {
+   "date": "20241216",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1391,
+    "logloss": 0.456,
+    "ece": 0.3572
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5357,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4643
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7499,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2501
+    }
+   ]
+  },
+  {
+   "date": "20241219",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5482,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5482
+    }
+   ]
+  },
+  {
+   "date": "20241221",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.668,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.332
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7569,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2431
+    }
+   ]
+  },
+  {
+   "date": "20241222",
+   "n_games": 12,
+   "wins": 7,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.7037,
+    "brier": 0.2102,
+    "logloss": 0.6049,
+    "ece": 0.2878
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5665,
+     "mean_actual": 0.375,
+     "count": 8,
+     "gap": 0.1915
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7384,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.2616
+    }
+   ]
+  },
+  {
+   "date": "20241223",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7932,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2068
+    }
+   ]
+  },
+  {
+   "date": "20241225",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5041,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4959
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7324,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2676
+    }
+   ]
+  },
+  {
+   "date": "20250104",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.1211,
+    "logloss": 0.381,
+    "ece": 0.2904
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5179,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4821
+    },
+    {
+     "bucket": "90\u2013100%",
+     "mean_predicted": 0.9012,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.0988
+    }
+   ]
+  },
+  {
+   "date": "20250105",
+   "n_games": 14,
+   "wins": 6,
+   "losses": 8,
+   "metrics": {
+    "auc": 0.3958,
+    "brier": 0.308,
+    "logloss": 0.8159,
+    "ece": 0.3677
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5439,
+     "mean_actual": 0.6667,
+     "count": 6,
+     "gap": -0.1228
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6387,
+     "mean_actual": 0.0,
+     "count": 4,
+     "gap": 0.6387
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7769,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.7769
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8482,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.1518
+    }
+   ]
+  },
+  {
+   "date": "20250904",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6921,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3079
+    }
+   ]
+  },
+  {
+   "date": "20250905",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5379,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4621
+    }
+   ]
+  },
+  {
+   "date": "20250907",
+   "n_games": 13,
+   "wins": 10,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.9286,
+    "brier": 0.1843,
+    "logloss": 0.554,
+    "ece": 0.1753
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5477,
+     "mean_actual": 0.7,
+     "count": 10,
+     "gap": -0.1523
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6982,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3018
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7374,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2626
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8089,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1911
+    }
+   ]
+  },
+  {
+   "date": "20250908",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6657,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3343
+    }
+   ]
+  },
+  {
+   "date": "20250911",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5255,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4745
+    }
+   ]
+  },
+  {
+   "date": "20250914",
+   "n_games": 13,
+   "wins": 9,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.8333,
+    "brier": 0.1798,
+    "logloss": 0.5401,
+    "ece": 0.2052
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5252,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.1252
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6869,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3131
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7214,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.0786
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8835,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1165
+    }
+   ]
+  },
+  {
+   "date": "20250915",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5913,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4087
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6569,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3431
+    }
+   ]
+  },
+  {
+   "date": "20250918",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8305,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1695
+    }
+   ]
+  },
+  {
+   "date": "20250921",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.8182,
+    "brier": 0.2313,
+    "logloss": 0.6544,
+    "ece": 0.335
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5442,
+     "mean_actual": 0.6667,
+     "count": 9,
+     "gap": -0.1225
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6653,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3347
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7242,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0575
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8215,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1785
+    }
+   ]
+  },
+  {
+   "date": "20250922",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5
+    }
+   ]
+  },
+  {
+   "date": "20250925",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6324,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3676
+    }
+   ]
+  },
+  {
+   "date": "20250928",
+   "n_games": 13,
+   "wins": 6,
+   "losses": 7,
+   "metrics": {
+    "auc": 0.4167,
+    "brier": 0.241,
+    "logloss": 0.6666,
+    "ece": 0.2373
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5283,
+     "mean_actual": 0.3333,
+     "count": 9,
+     "gap": 0.1949
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7493,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0826
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8903,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1097
+    }
+   ]
+  },
+  {
+   "date": "20250929",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5689,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4311
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6104,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3896
+    }
+   ]
+  },
+  {
+   "date": "20251009",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5445,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5445
+    }
+   ]
+  },
+  {
+   "date": "20251012",
+   "n_games": 12,
+   "wins": 9,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.9429,
+    "brier": 0.1656,
+    "logloss": 0.5148,
+    "ece": 0.312
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5473,
+     "mean_actual": 0.4,
+     "count": 5,
+     "gap": 0.1473
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6441,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.3559
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7426,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.2574
+    }
+   ]
+  },
+  {
+   "date": "20251013",
+   "n_games": 2,
+   "wins": 0,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.0,
+    "brier": 0.4684,
+    "logloss": 1.157,
+    "ece": 0.6835
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6471,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.6471
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7198,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7198
+    }
+   ]
+  },
+  {
+   "date": "20251016",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5088,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5088
+    }
+   ]
+  },
+  {
+   "date": "20251019",
+   "n_games": 12,
+   "wins": 10,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.9167,
+    "brier": 0.1752,
+    "logloss": 0.5356,
+    "ece": 0.2222
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5438,
+     "mean_actual": 0.7143,
+     "count": 7,
+     "gap": -0.1705
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6768,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3232
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7482,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.2518
+    }
+   ]
+  },
+  {
+   "date": "20251020",
+   "n_games": 2,
+   "wins": 1,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5238,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5238
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6071,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3929
+    }
+   ]
+  },
+  {
+   "date": "20251113",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.828,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.172
+    }
+   ]
+  },
+  {
+   "date": "20251116",
+   "n_games": 13,
+   "wins": 7,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.7143,
+    "brier": 0.2244,
+    "logloss": 0.6423,
+    "ece": 0.2822
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5444,
+     "mean_actual": 0.2857,
+     "count": 7,
+     "gap": 0.2587
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6476,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.3524
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.724,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.224
+    }
+   ]
+  },
+  {
+   "date": "20251117",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6929,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3071
+    }
+   ]
+  },
+  {
+   "date": "20251127",
+   "n_games": 3,
+   "wins": 0,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.0,
+    "brier": 0.4363,
+    "logloss": 1.0866,
+    "ece": 0.6585
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6242,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.6242
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7271,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7271
+    }
+   ]
+  },
+  {
+   "date": "20251128",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.585,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.585
+    }
+   ]
+  },
+  {
+   "date": "20251130",
+   "n_games": 11,
+   "wins": 8,
+   "losses": 3,
+   "metrics": {
+    "auc": 0.7667,
+    "brier": 0.1937,
+    "logloss": 0.5702,
+    "ece": 0.1913
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5329,
+     "mean_actual": 0.5,
+     "count": 4,
+     "gap": 0.0329
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6318,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3682
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7533,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0867
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8068,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1932
+    }
+   ]
+  },
+  {
+   "date": "20251201",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7811,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.2189
+    }
+   ]
+  },
+  {
+   "date": "20251211",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5464,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5464
+    }
+   ]
+  },
+  {
+   "date": "20251214",
+   "n_games": 14,
+   "wins": 10,
+   "losses": 4,
+   "metrics": {
+    "auc": 0.8,
+    "brier": 0.1864,
+    "logloss": 0.5589,
+    "ece": 0.1275
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5339,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": -0.0375
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6623,
+     "mean_actual": 0.75,
+     "count": 4,
+     "gap": -0.0877
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7284,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.2716
+    }
+   ]
+  },
+  {
+   "date": "20251215",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.503,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.497
+    }
+   ]
+  },
+  {
+   "date": "20251218",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.5
+    }
+   ]
+  },
+  {
+   "date": "20251220",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.166,
+    "logloss": 0.5185,
+    "ece": 0.3986
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5171,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4829
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6857,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3143
+    }
+   ]
+  },
+  {
+   "date": "20251221",
+   "n_games": 12,
+   "wins": 6,
+   "losses": 6,
+   "metrics": {
+    "auc": 0.6406,
+    "brier": 0.2425,
+    "logloss": 0.6777,
+    "ece": 0.3095
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5304,
+     "mean_actual": 0.2857,
+     "count": 7,
+     "gap": 0.2447
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6431,
+     "mean_actual": 1.0,
+     "count": 3,
+     "gap": -0.3569
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7556,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7556
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8252,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1748
+    }
+   ]
+  },
+  {
+   "date": "20251222",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6448,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.3552
+    }
+   ]
+  },
+  {
+   "date": "20251225",
+   "n_games": 3,
+   "wins": 2,
+   "losses": 1,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.2095,
+    "logloss": 0.6113,
+    "ece": 0.1187
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5479,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": -0.1187
+    }
+   ]
+  },
+  {
+   "date": "20251227",
+   "n_games": 2,
+   "wins": 0,
+   "losses": 2,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5574,
+     "mean_actual": 0.0,
+     "count": 2,
+     "gap": 0.5574
+    }
+   ]
+  },
+  {
+   "date": "20251228",
+   "n_games": 10,
+   "wins": 8,
+   "losses": 2,
+   "metrics": {
+    "auc": 0.7917,
+    "brier": 0.1961,
+    "logloss": 0.5819,
+    "ece": 0.2889
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5474,
+     "mean_actual": 0.8,
+     "count": 5,
+     "gap": -0.2526
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6426,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.3574
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7339,
+     "mean_actual": 0.6667,
+     "count": 3,
+     "gap": 0.0672
+    }
+   ]
+  },
+  {
+   "date": "20251229",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7496,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7496
+    }
+   ]
+  },
+  {
+   "date": "20260103",
+   "n_games": 2,
+   "wins": 2,
+   "losses": 0,
+   "metrics": {
+    "auc": 1.0,
+    "brier": 0.2036,
+    "logloss": 0.6,
+    "ece": 0.4512
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5488,
+     "mean_actual": 1.0,
+     "count": 2,
+     "gap": -0.4512
+    }
+   ]
+  },
+  {
+   "date": "20260104",
+   "n_games": 14,
+   "wins": 6,
+   "losses": 8,
+   "metrics": {
+    "auc": 0.2424,
+    "brier": 0.2783,
+    "logloss": 0.754,
+    "ece": 0.2988
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5452,
+     "mean_actual": 0.2,
+     "count": 5,
+     "gap": 0.3452
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6398,
+     "mean_actual": 0.5,
+     "count": 2,
+     "gap": 0.1398
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7442,
+     "mean_actual": 0.5714,
+     "count": 7,
+     "gap": 0.1728
+    }
+   ]
+  },
+  {
+   "date": "20260910",
+   "n_games": 1,
+   "wins": 1,
+   "losses": 0,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5021,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.4979
+    }
+   ]
+  },
+  {
+   "date": "20260913",
+   "n_games": 13,
+   "wins": 8,
+   "losses": 5,
+   "metrics": {
+    "auc": 0.725,
+    "brier": 0.2195,
+    "logloss": 0.6302,
+    "ece": 0.2441
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5465,
+     "mean_actual": 0.4286,
+     "count": 7,
+     "gap": 0.1179
+    },
+    {
+     "bucket": "60\u201370%",
+     "mean_predicted": 0.6453,
+     "mean_actual": 1.0,
+     "count": 4,
+     "gap": -0.3547
+    },
+    {
+     "bucket": "70\u201380%",
+     "mean_predicted": 0.7414,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.7414
+    },
+    {
+     "bucket": "80\u201390%",
+     "mean_predicted": 0.8123,
+     "mean_actual": 1.0,
+     "count": 1,
+     "gap": -0.1877
+    }
+   ]
+  },
+  {
+   "date": "20260914",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5759,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5759
+    }
+   ]
+  },
+  {
+   "date": "20260917",
+   "n_games": 1,
+   "wins": 0,
+   "losses": 1,
+   "metrics": {
+    "auc": null,
+    "brier": null,
+    "logloss": null,
+    "ece": null
+   },
+   "buckets": [
+    {
+     "bucket": "50\u201360%",
+     "mean_predicted": 0.5386,
+     "mean_actual": 0.0,
+     "count": 1,
+     "gap": 0.5386
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-07T01:19:47.042703+00:00",
+ "created_utc": "2026-09-20T03:59:55.266509+00:00",
  "feature_set_version": "nfl-prod-v1",
  "manifest": {
   "elo_diff": {
@@ -229,96 +229,96 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2127,
+   "n_games": 2144,
    "coverage_pct": 100.0,
-   "mean": -0.9022351265770175,
-   "std": 137.50856799622088
+   "mean": -0.6898639675797833,
+   "std": 137.49815828657034
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2127,
-   "coverage_pct": 99.2,
-   "mean": -0.0010262920334010387,
-   "std": 0.2889009485646167
+   "n_games": 2144,
+   "coverage_pct": 99.21,
+   "mean": -0.0008221953567510709,
+   "std": 0.2888602069214652
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2127,
-   "coverage_pct": 99.2,
-   "mean": -0.061611374407582936,
-   "std": 2.4359009286016846
+   "n_games": 2144,
+   "coverage_pct": 99.21,
+   "mean": -0.0611189468735308,
+   "std": 2.426536283150538
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2127,
-   "coverage_pct": 98.07,
-   "mean": 0.3068072866730585,
-   "std": 0.46127928489267717
+   "n_games": 2144,
+   "coverage_pct": 98.09,
+   "mean": 0.3076557299096529,
+   "std": 0.4616329879673533
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2127,
-   "coverage_pct": 99.2,
-   "mean": -0.3715889310889456,
-   "std": 10.637848310899415
+   "n_games": 2144,
+   "coverage_pct": 99.21,
+   "mean": -0.34208991168892683,
+   "std": 10.635827573294698
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2127,
-   "coverage_pct": 97.74,
-   "mean": -0.002421561193265793,
-   "std": 0.7199594882918574
+   "n_games": 2144,
+   "coverage_pct": 97.76,
+   "mean": -0.004250242172502491,
+   "std": 0.7200938687669686
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2127,
-   "coverage_pct": 97.74,
-   "mean": -0.001622510101963764,
-   "std": 0.12507724090395028
+   "n_games": 2144,
+   "coverage_pct": 97.76,
+   "mean": -0.0014527385741737505,
+   "std": 0.12503732555964975
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2127,
-   "coverage_pct": 99.2,
-   "mean": 0.017535545023696683,
-   "std": 0.3619865011892112
+   "n_games": 2144,
+   "coverage_pct": 99.21,
+   "mean": 0.017395392571697227,
+   "std": 0.3605397141145925
   },
   {
    "feature": "div_game",
-   "n_games": 2127,
+   "n_games": 2144,
    "coverage_pct": 100.0,
-   "mean": 0.3610719322990127,
-   "std": 0.48042429702439293
+   "mean": 0.3605410447761194,
+   "std": 0.4802694901776927
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2127,
-   "coverage_pct": 100.0,
-   "mean": -934.4087314046291,
-   "std": 664.2430013698347
+   "n_games": 2144,
+   "coverage_pct": 99.81,
+   "mean": -934.0675168762449,
+   "std": 664.432264791384
   },
   {
    "feature": "altitude_home",
-   "n_games": 2127,
-   "coverage_pct": 100.0,
-   "mean": 607.1048425011753,
-   "std": 966.3770368918409
+   "n_games": 2144,
+   "coverage_pct": 99.81,
+   "mean": 607.1448598130842,
+   "std": 964.3835556457522
   },
   {
    "feature": "prime_time",
-   "n_games": 2127,
+   "n_games": 2144,
    "coverage_pct": 100.0,
-   "mean": 0.20968500235072873,
-   "std": 0.4071795058991294
+   "mean": 0.2103544776119403,
+   "std": 0.40765546982691364
   }
  ],
  "fold_geometry": {
-  "n_folds": 124,
+  "n_folds": 82,
   "first_val_start": "2019-09-05",
-  "last_val_end": "2026-01-07",
+  "last_val_end": "2026-09-23",
   "min_train": 256,
-  "max_train": 2111,
-  "total_val_games": 1871
+  "max_train": 2143,
+  "total_val_games": 1280
  },
  "config": {
   "feature_set_version": "nfl-prod-v1",
@@ -327,13 +327,38 @@
   ],
   "oof_first_season": 2019,
   "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
   "ensemble_members": [
    "xgboost",
    "lightgbm",
-   "logistic",
-   "randomforest",
-   "mlp"
+   "elasticnet"
   ],
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time"
+   ]
+  },
   "random_seed": 42,
   "market_independence": true
  }
