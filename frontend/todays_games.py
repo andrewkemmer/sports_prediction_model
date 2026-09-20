@@ -368,7 +368,8 @@ def _re_ml_caption() -> str:
     CONSTRUCTION on MLB (expected, not a bug)."""
     return ('<span class="re-na" style="flex-basis:100%;">'
             'run-ML is derived from the run-engine score distribution — '
-            'the binary moneyline is at the top of the card</span>')
+            'ties are excluded from both sides; the binary moneyline is at the '
+            'top of the card</span>')
 
 
 def _rl_html(bits, home_team: str, away_team: str) -> str:
@@ -959,10 +960,16 @@ def _nfl_run_engine_selectors(r, srow):
     if fair_total is None or fair_spread is None:
         return None
     gid = _nfl_widget_key(r)
-    totals = sorted(set(nfl_sv.TOTAL_GRID) | {int(round(fair_total))})
-    fair_home = -int(round(fair_spread))          # home quoted spread at the fair threshold
-    spread_magnitudes = sorted({abs(int(s)) for s in nfl_sv.SPREAD_GRID if int(s) != 0})
-    spread_options = [0.5] + [float(s) for s in spread_magnitudes]
+    # The NFL artifact carries integer-support distributions, but the card
+    # should expose the same half-point ladder a bettor sees. Half-lines are
+    # priced from the adjacent integer PMF threshold in nfl_slate_view.
+    totals = [float(v) / 2.0 for v in range(48, 134)]  # 24.0 … 66.5
+    fair_total_value = float(fair_total)
+    if fair_total_value not in totals:
+        totals.append(fair_total_value)
+        totals.sort()
+    fair_home = -float(round(fair_spread))
+    spread_options = [float(v) / 2.0 for v in range(1, 29)]  # ±0.5 … ±14.0
     fair_magnitude = float(abs(fair_home))
     if fair_magnitude not in spread_options:
         spread_options.append(fair_magnitude)
@@ -970,11 +977,12 @@ def _nfl_run_engine_selectors(r, srow):
     c_ou, c_rl = st.columns([1.35, 1], gap="small")
     with c_ou:
         total_line = st.selectbox(
-            "O/U line", totals, index=totals.index(int(round(fair_total))),
-            format_func=lambda u: f"{u}",
+            "O/U line", totals, index=totals.index(fair_total_value),
+            format_func=lambda u: (f"{u:.1f}" if float(u) % 1 else f"{int(u)}"),
             key=f"nfl_ou_{gid}", label_visibility="collapsed",
             help=("Totals line to price this game at — defaults to the "
-                  "model's fair total; model probabilities at your line."))
+                  "model's fair total; 0.5-point increments are priced from "
+                  "the NFL score distribution."))
     with c_rl:
         picked = st.selectbox(
             "Run line", spread_options,
@@ -982,17 +990,17 @@ def _nfl_run_engine_selectors(r, srow):
             format_func=lambda v: f"±{v:.1f}",
             key=f"nfl_rl_{gid}", label_visibility="collapsed",
             help=("Run-line pair to price this game at — defaults to the "
-                  "fair home spread. ±0.5 is the pick'em stop: per-side raw "
-                  "cover plus the derived (ML) pair, which diverge by the "
-                  "tie rate on NFL. Model probabilities only."))
+                  "fair home spread. 0.5-point increments are available. At "
+                  "±0.5, the run-ML pair excludes ties and is separate from "
+                  "the binary moneyline at the top of the card."))
     half_stop = abs(float(picked) - 0.5) < 1e-9
     if half_stop:
         home_spread = None
     else:
         # The selector is a combined ± magnitude; orient the pair so the
         # moneyline favorite is the negative side, matching MLB's card.
-        home_spread = -int(round(float(picked))) if _card_fav_home(r) else int(round(float(picked)))
-    return int(total_line), home_spread, half_stop
+        home_spread = -float(picked) if _card_fav_home(r) else float(picked)
+    return float(total_line), home_spread, half_stop
 
 
 def _render_nfl_cards(frame, slate: pd.DataFrame | None = None) -> None:

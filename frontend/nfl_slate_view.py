@@ -42,6 +42,7 @@ tests and by page modules without a Streamlit runtime.
 
 from __future__ import annotations
 
+import math
 import re
 
 # The slate engine's grids (mirror nfl_slate_engine.SPREAD_INT_LINES /
@@ -116,26 +117,38 @@ def _f(row, *keys: str) -> float | None:
     return None
 
 
-def price_total(row, total: int) -> tuple[float | None, float | None, float | None]:
-    """(P(over U), P(under U), P(push U)) at the integer total U.
+def price_total(row, total: float) -> tuple[float | None, float | None, float | None]:
+    """(P(over), P(under), P(push)) at an integer or half-point total.
 
-    Push = exact tie on the total (P(score_h + score_a == U)) — the NFL
-    integer-total push band. (None, None, None) when U is off the grid.
+    The NFL artifact has integer-support score distributions. A half-point
+    line therefore uses the adjacent integer threshold and assigns the
+    integer push mass to the underdog side of the half-line:
+
+      Over U.5 = P(total > U); Under U.5 = P(total <= U); Push = 0.
+
+    Whole-number lines retain their explicit over/under/push split.
     """
-    o, u, p = total_columns().get(total, (None, None, None))
+    value = float(total)
+    if not math.isfinite(value):
+        return None, None, None
+    if abs(value - round(value)) > 1e-9:
+        base = math.floor(value)
+        o, _, p = total_columns().get(base, (None, None, None))
+        if o is None:
+            return None, None, None
+        over = _f(row, o)
+        if over is None:
+            return None, None, None
+        return over, 1.0 - over, 0.0
+    whole = int(round(value))
+    o, u, p = total_columns().get(whole, (None, None, None))
     if o is None:
         return None, None, None
     return _f(row, o), _f(row, u), _f(row, p)
 
 
 def price_spread(row, line: int) -> tuple[float | None, float | None, float | None]:
-    """(P(home covers), P(push), P(away covers)) at the home spread -line.
-
-    ``line`` is the margin THRESHOLD L: home is quoted -L (home -L covers
-    margin > L), away +L (away +L covers margin < L), and both push on
-    margin == L. Home covers + push + away covers == 1 over every integer
-    margin. (None, None, None) for lines off the grid.
-    """
+    """(P(home covers), P(push), P(away covers)) at an integer threshold."""
     cols = spread_columns().get(line)
     if cols is None:
         return None, None, None
@@ -146,6 +159,26 @@ def price_spread(row, line: int) -> tuple[float | None, float | None, float | No
         return None, None, None
     pa = None if pp is None else 1.0 - ph - pp
     return ph, pp, pa
+
+
+def price_spread_line(row, line: float) -> tuple[float | None, float | None, float | None]:
+    """Price a quoted spread threshold at whole- or half-point precision.
+
+    ``line`` is the home margin threshold: home is quoted ``-line``. NFL
+    score outcomes are integer-valued, so a half threshold has no push and
+    uses the nearest lower integer threshold for positive values (or the
+    corresponding ceiling boundary for negative values).
+    """
+    value = float(line)
+    if not math.isfinite(value):
+        return None, None, None
+    if abs(value - round(value)) <= 1e-9:
+        return price_spread(row, int(round(value)))
+    integer_threshold = math.ceil(value) - 1
+    ph, _, _ = price_spread(row, integer_threshold)
+    if ph is None:
+        return None, None, None
+    return ph, 0.0, 1.0 - ph
 
 
 def half_stop_pair(row) -> tuple[float | None, float | None,
@@ -220,15 +253,15 @@ def _num(v: float | None, nd: int = 1) -> str:
     return "—" if v is None else f"{v:.{nd}f}"
 
 
-def _spread_label(team: str, pts: int) -> str:
-    """'TEAM −3' when the team lays 3, 'TEAM +3' when it gets 3.
+def _line_text(value: float) -> str:
+    value = float(value)
+    return str(int(round(value))) if abs(value - round(value)) <= 1e-9 else f"{value:.1f}"
 
-    ``pts`` is the side's OWN quoted spread: negative lays, positive gets —
-    so the away mirror of a home spread S is -S.
-    """
-    if pts < 0:
-        return f"{team} −{abs(pts)}"
-    return f"{team} +{pts}"
+
+def _spread_label(team: str, pts: float) -> str:
+    """Render a team's quoted spread, including half-point lines."""
+    text = _line_text(abs(float(pts)))
+    return f"{team} −{text}" if float(pts) < 0 else f"{team} +{text}"
 
 
 def _push_note(pp: float | None) -> str:
@@ -239,7 +272,7 @@ def _push_note(pp: float | None) -> str:
 
 
 def runline_html(row, home_team: str, away_team: str,
-                 home_spread: int | None = None,
+                 home_spread: float | None = None,
                  half_stop: bool = False) -> str:
     """The run-line span at the selected HOME spread (or the ±0.5 stop).
 
@@ -267,20 +300,21 @@ def runline_html(row, home_team: str, away_team: str,
         fair_spread = _f(row, "fair_spread")
         if fair_spread is None:
             return '<span>RL: n/a</span>'
-        home_spread = -int(round(fair_spread))
-    # Integer line at home spread S: threshold L = -S (home covers margin > L).
-    L = -home_spread
-    ph, pp, pa = price_spread(row, L)
+        home_spread = -float(round(fair_spread))
+    # Home spread S corresponds to margin threshold L = -S.
+    L = -float(home_spread)
+    ph, pp, pa = price_spread_line(row, L)
     if ph is None or pa is None:
         return f'<span>RL: {_spread_label(home_team, home_spread)} n/a</span>'
+    push_note = _push_note(pp) if abs(float(home_spread) - round(float(home_spread))) <= 1e-9 else ""
     return (f'<span>RL: {_spread_label(home_team, home_spread)} {_pct(ph)} · '
-            f'{_spread_label(away_team, -home_spread)} {_pct(pa)}'
-            f'{_push_note(pp)}</span>')
+            f'{_spread_label(away_team, -float(home_spread))} {_pct(pa)}'
+            f'{push_note}</span>')
 
 
 def runengine_html(row, home_team: str, away_team: str,
-                   total_line: int | None = None,
-                   home_spread: int | None = None,
+                   total_line: float | None = None,
+                   home_spread: float | None = None,
                    half_stop: bool = False) -> str:
     """Model-fair run-engine strip for one slate row — market-free.
 
@@ -301,16 +335,24 @@ def runengine_html(row, home_team: str, away_team: str,
         return ('<div class="fb-runengine"><span class="re-label">'
                 'RUN ENGINE</span><span class="re-na">n/a</span></div>')
 
-    tot = int(round(total_line if total_line is not None else fair_total))
+    tot = float(total_line if total_line is not None else fair_total)
     po, pu, ppush = price_total(row, tot)
     if po is None or pu is None:
-        total_span = f'<span>O/U {tot}: n/a</span>'
+        total_span = f'<span>O/U {_line_text(tot)}: n/a</span>'
     else:
-        total_span = (f'<span>O/U {tot}: Over {_pct(po)} / '
-                      f'Under {_pct(pu)}{_push_note(ppush)}</span>')
+        push_note = _push_note(ppush) if abs(tot - round(tot)) <= 1e-9 else ""
+        total_span = (f'<span>O/U {_line_text(tot)}: Over {_pct(po)} / '
+                      f'Under {_pct(pu)}{push_note}</span>')
 
     rl = runline_html(row, home_team, away_team,
                       home_spread=home_spread, half_stop=half_stop)
+    ml_caption = (
+        '<span class="re-na" style="flex-basis:100%;">'
+        'run-ML is derived from the run-engine score distribution — '
+        'ties are excluded from both sides; the binary moneyline is at the '
+        'top of the card</span>'
+        if half_stop else ""
+    )
 
     # No separate ML span — MLB's run-engine strip renders Proj / O/U / RL
     # only, and the win probabilities are already the card's two team bars
@@ -320,7 +362,7 @@ def runengine_html(row, home_team: str, away_team: str,
             'RUN ENGINE</span>'
             f'<span>Proj: {away_team} {_num(mu_a)} – '
             f'{home_team} {_num(mu_h)}</span>'
-            f'{total_span}{rl}</div>')
+            f'{total_span}{rl}{ml_caption}</div>')
 
 
 def push_span(pp: float | None) -> str:
