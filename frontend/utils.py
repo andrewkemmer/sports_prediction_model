@@ -1350,6 +1350,40 @@ def run_engine_page_dates(owner: str = "", repo: str = "",
         s, prefixes, {"owner": owner, "repo": repo, "branch": branch})
 
 
+def load_latest_mlb_run_engine_markets(
+        sport: str | None = "mlb") -> tuple[pd.DataFrame, str | None]:
+    """Return the newest reachable MLB markets artifact with usable OOF rows.
+
+    The Totals & Run Lines page is an OOF performance view. Its date picker
+    must therefore validate the artifact itself rather than trusting a mixed
+    date union containing monitor-only or stale snapshots. A valid artifact
+    has the Phase-3 ``kind`` column, at least one OOF row, game dates, and the
+    core total-probability columns. The returned date is the artifact's actual
+    filename date and is displayed by the page for provenance.
+    """
+    if normalize_sport_key(sport) != "mlb":
+        return pd.DataFrame(), None
+    cfg = get_source_config()
+    dates = run_engine_page_dates(**cfg, sport="mlb")
+    for d in dates:
+        raw, _src = _fetch_bytes(f"run_engine_markets_{d}.csv",
+                                 **cfg, sport="mlb")
+        if raw is None:
+            continue
+        try:
+            frame = pd.read_csv(io.BytesIO(raw))
+        except Exception:
+            continue
+        required = {"kind", "game_date", "p_over_8_0", "p_under_8_0"}
+        if not required.issubset(frame.columns):
+            continue
+        oof = frame[frame["kind"].eq("oof")]
+        if oof.empty or oof["game_date"].isna().all():
+            continue
+        return frame, d
+    return pd.DataFrame(), None
+
+
 def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame, str | None]:
     """Newest NFL run-engine slate-serve markets artifact + its YYYYMMDD date.
 

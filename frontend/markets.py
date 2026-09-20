@@ -42,20 +42,12 @@ if utils.get_sport() == "nfl":
 
 utils.inject_css()
 
-# The page's date is resolved from ITS OWN artifact families
-# (run_engine_markets_* / run_engine_monitor_*) — never from
-# available_dates()'s todays_games/calibration/history union, which never
-# enumerates the run-engine families: a date shipped by another family but
-# absent from the run engine would otherwise blank this page. When no
-# run-engine date resolves (offline / empty local), fall back to the shared
-# union so the documented warning path below still fires, not a crash.
-dates = utils.run_engine_page_dates(**utils.get_source_config())
-if not dates:
-    dates = utils.available_dates(**utils.get_source_config())
-# Always show the most recent run (like Calibration):
-# ignore the date picked on Today's Games so Phase-6-pruned past
-# artifacts never produce a misleading empty state.
-date_str = dates[0] if dates else "20260809"
+# Resolve the newest reachable artifact that actually contains OOF rows.
+# The mixed run-engine date set can include monitor-only or stale snapshots;
+# validating the CSV prevents an older OOF result from being presented as the
+# current performance view without an explicit artifact date.
+markets, date_str = utils.load_latest_mlb_run_engine_markets("mlb")
+date_str = date_str or "20260809"
 
 st.markdown(
     "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
@@ -98,22 +90,24 @@ def _load_markets(ds):
         return None
 
 
-markets = _load_markets(date_str)
-if markets is None or not len(markets):
+if markets is None or markets.empty:
     url = utils._raw_url(f"run_engine_markets_{date_str}.csv",
                          **utils.get_source_config())
     st.warning(
-        f"No run-engine markets artifact for {date_str}. "
-        f"Attempted URL: `{url}`. "
-        "This page always loads the latest available artifact. "
-        "The panel fills after the next pipeline run ships "
-        "run_engine_markets_*.csv."
+        f"No usable OOF run-engine markets artifact found. Last attempted "
+        f"date: {date_str}. URL: `{url}`. "
+        "The panel fills after a valid run-engine artifact is reachable."
     )
-    markets = pd.DataFrame()
 elif "kind" not in markets.columns:
     st.warning(
-        "Markets artifact predates Phase 3 (no line grid / slate rows). "
-        "Waiting for the next pipeline run."
+        "Markets artifact predates Phase 3 (no line grid / OOF rows). "
+        "Waiting for a valid pipeline artifact."
+    )
+else:
+    _oof_n = int((markets["kind"] == "oof").sum())
+    st.caption(
+        f"OOF artifact: {date_str} · {_oof_n:,} games · "
+        "historical performance uses OOF predictions only"
     )
 
 # ---------------------------------------------------------------------------

@@ -107,13 +107,21 @@ def _apply_k_edge_to_oof_artifact(oof: pd.DataFrame, k: float) -> pd.DataFrame:
 
 
 def k_edge_meta(k: float) -> dict:
+    """Persist the fitted k and its monitoring status without changing k.
+
+    Out-of-band values are intentionally still used until the dedicated
+    k-edge study establishes a different production policy.
+    """
+    out_of_band = bool(abs(k - K_EDGE_REF) > K_EDGE_BAND)
     return {
         "k": round(float(k), 4),
         "fit": "run-oof-refit (pre-holdout)",
         "reference_k": K_EDGE_REF,
         "drift_band": [round(K_EDGE_REF - K_EDGE_BAND, 3),
                        round(K_EDGE_REF + K_EDGE_BAND, 3)],
-        "drift_alert": bool(abs(k - K_EDGE_REF) > K_EDGE_BAND),
+        "drift_alert": out_of_band,
+        "out_of_band_policy": "continue_using_fitted_value",
+        "production_used": True,
     }
 
 
