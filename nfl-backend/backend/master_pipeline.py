@@ -156,16 +156,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     schedule = ingestion.eligible_games(schedule)
     schedule["gameday"] = pd.to_datetime(schedule["gameday"], errors="coerce")
-    # Lower bound applies to every row; the upper bound seals DECIDED games
-    # only (a backfill cutoff) — future scheduled games must survive for
-    # slate serving (capping the whole schedule at window_end truncated the
-    # board's upcoming games when the window ends mid-season).
-    decided_rows = (schedule["home_score"].notna()
-                    & schedule["away_score"].notna())
+    # The configured date window bounds the complete delivered game
+    # population, including scheduled dashboard games. This keeps NFL_END_DATE
+    # structurally aligned with MLB: games on the inclusive end date remain,
+    # while future games are not emitted into the dashboard artifact.
     schedule = schedule[
         (schedule["gameday"] >= pd.Timestamp(start_date))
-        & (~decided_rows
-           | (schedule["gameday"] <= pd.Timestamp(window_end)))].copy()
+        & (schedule["gameday"] <= pd.Timestamp(window_end))].copy()
     logger.info("schedule rows (date window): %d", len(schedule))
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
