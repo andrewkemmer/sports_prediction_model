@@ -328,19 +328,31 @@ def attach_projection_levels(
 # ---------------------------------------------------------------------------
 # Training / OOF scoring
 # ---------------------------------------------------------------------------
+RUN_FIXED_FIT_ROUNDS = 38
+
+
 def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
-                    va_frame: pd.DataFrame, y_va: np.ndarray):
+                    va_frame: pd.DataFrame, y_va: np.ndarray,
+                    fixed_rounds: Optional[int] = None):
     from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
     model = LGBMRegressor(**params)
-    model.set_params(n_estimators=MAX_ROUNDS)
-    model.fit(
-        tr_frame, y_tr,
-        eval_set=[(va_frame, y_va)],
-        callbacks=[early_stopping(EARLY_STOPPING_ROUNDS, verbose=False),
-                   log_evaluation(period=0)],
-    )
-    best = int(model.best_iteration_ or MAX_ROUNDS)
+    if fixed_rounds is not None:
+        # OOF uses the same fixed-round refit policy as production. The
+        # validation frame remains prediction-only; it must not select the
+        # model complexity for the fold being scored.
+        model.set_params(n_estimators=int(fixed_rounds))
+        model.fit(tr_frame, y_tr, callbacks=[log_evaluation(period=0)])
+        best = int(fixed_rounds)
+    else:
+        model.set_params(n_estimators=MAX_ROUNDS)
+        model.fit(
+            tr_frame, y_tr,
+            eval_set=[(va_frame, y_va)],
+            callbacks=[early_stopping(EARLY_STOPPING_ROUNDS, verbose=False),
+                       log_evaluation(period=0)],
+        )
+        best = int(model.best_iteration_ or MAX_ROUNDS)
     lam = np.clip(model.predict(va_frame, num_iteration=best), 1e-6, None)
     return model, lam, best
 
@@ -436,7 +448,10 @@ def run_oof(games: pd.DataFrame,
             va_frame = va.reindex(columns=cols_all).astype(float)
             y_tr = tr[target].to_numpy(dtype=float)
             y_va = va[target].to_numpy(dtype=float)
-            _, lam, best = _fit_side_model(params, tr_frame, y_tr, va_frame, y_va)
+            _, lam, best = _fit_side_model(
+                params, tr_frame, y_tr, va_frame, y_va,
+                fixed_rounds=RUN_FIXED_FIT_ROUNDS,
+            )
             best_iters[side].append(best)
             key = f"{side}_expected_runs"
             rec_base[key] = np.round(lam, 4)
@@ -462,14 +477,16 @@ def run_oof(games: pd.DataFrame,
                                    "feature_cols": list(active_moneyline_feature_cols()),
                                },
                                "postseason_policy": "include"}
-    # Median early-stopped rounds per side → fixed round count for the final
-    # all-data slate models (predict_slate_runs).
+    # OOF and production share one explicit model-complexity policy. This
+    # prevents the validation frame from selecting a different fit state than
+    # the final all-data slate refit and keeps home/away symmetric.
     summary["final_fit_rounds"] = {
-        s: int(np.median(best_iters[s])) if best_iters[s] else MAX_ROUNDS
-        for s in ("home", "away")}
+        "home": RUN_FIXED_FIT_ROUNDS,
+        "away": RUN_FIXED_FIT_ROUNDS,
+    }
     summary["final_fit_rounds_note"] = (
-        "median early-stopping iteration across walk-forward folds; used as "
-        "the fixed round count when refitting on ALL decided games for slate λ")
+        "fixed 38-round policy shared by OOF and production refits; "
+        "the validation frame never selects fold model complexity")
     for side in ("home", "away"):
         summary[f"{side}_model"] = {
             "poisson_deviance" if k == "deviance" else k:

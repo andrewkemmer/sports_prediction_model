@@ -85,6 +85,27 @@ def k_edge_holdout_mask(oof: pd.DataFrame) -> np.ndarray:
     return (dates < cutoff).to_numpy()
 
 
+def _apply_k_edge_to_oof_artifact(oof: pd.DataFrame, k: float) -> pd.DataFrame:
+    """Return the OOF score frame in the same λ state used by markets.
+
+    The market derivation wrapper expands a copy before NB/Monte Carlo, while
+    the base daily function persists its original frame. Normalize the
+    persisted artifact after the daily pass so ``run_engine_oof`` and the OOF
+    rows inside ``run_engine_markets`` cannot disagree about expected runs.
+    """
+    out = oof.copy()
+    if k is None or abs(float(k) - 1.0) <= 1e-9:
+        return out
+    home, away = apply_k_edge(
+        out["home_expected_runs"].to_numpy(float),
+        out["away_expected_runs"].to_numpy(float),
+        float(k),
+    )
+    out["home_expected_runs"] = np.round(home, 4)
+    out["away_expected_runs"] = np.round(away, 4)
+    return out
+
+
 def k_edge_meta(k: float) -> dict:
     return {
         "k": round(float(k), 4),
@@ -242,6 +263,14 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                                      decided_snapshot=decided_snapshot)
     finally:
         _K_EDGE_ACTIVE = None
+    # The base daily function persists the pre-k OOF frame before returning,
+    # while derive_markets_v3 prices a post-k copy. Rewrite the OOF artifact
+    # after the market pass so dashboard consumers see the exact λ state used
+    # for the OOF markets. This is a delivery-contract fix, not a new model.
+    if _DAILY_OOF_CACHE is not None and not _DAILY_OOF_CACHE.empty:
+        adjusted_oof = _apply_k_edge_to_oof_artifact(_DAILY_OOF_CACHE, k_edge)
+        _re.persist_oof(adjusted_oof, target_date_str)
+
     # Log k into the markets meta regardless (the original persisted the
     # markets + meta inside; re-derive the summary block is NOT needed — the
     # monitor block carries market_metrics already; inject k for the record).
