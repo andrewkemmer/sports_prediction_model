@@ -51,6 +51,32 @@ def favored_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
             .reset_index())
 
 
+def favored_oof_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """Build the published calibration series from stored OOF outputs.
+
+    The production writer persists both the raw favored probability and the
+    per-fold calibrated probability for every OOF game. This function only
+    groups those already-computed OOF values for display; it never refits or
+    re-evaluates the production calibration map in the frontend.
+    """
+    cols = {"home_win_prob_model", "home_win_prob_model_calibrated"}
+    if hist_curve is None or hist_curve.empty or not cols <= set(hist_curve.columns):
+        return pd.DataFrame(columns=["prob", "cal_mean", "n"])
+
+    raw = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce")
+    calibrated = pd.to_numeric(
+        hist_curve["home_win_prob_model_calibrated"], errors="coerce")
+    ok = raw.notna() & calibrated.notna()
+    raw_favored = np.maximum(raw[ok], 1.0 - raw[ok])
+    calibrated_favored = np.where(raw[ok] >= 0.5,
+                                  calibrated[ok], 1.0 - calibrated[ok])
+    bins = (raw_favored / FAVORED_BIN).round() * FAVORED_BIN
+    return (pd.DataFrame({"prob": bins, "cal_mean": calibrated_favored})
+            .groupby("prob")
+            .agg(cal_mean=("cal_mean", "mean"), n=("cal_mean", "size"))
+            .reset_index())
+
+
 def chart_calibration_curve(
     pts: pd.DataFrame,
     series: list,

@@ -2,8 +2,8 @@
 
 Header, summary (today's record + upsets), KPI cards (AUC-ROC, Brier,
 Log-Loss, Cal. Error), a merged confidence-vs-accuracy + calibration curve
-(count bars + actual rate vs the Platt map vs the perfect-calibration
-diagonal), and the reliability table with color-coded GAP values.
+(count bars + actual rate vs the stored OOF calibration series vs the
+perfect-calibration diagonal), and the reliability table with color-coded GAP values.
 """
 
 from __future__ import annotations
@@ -183,44 +183,17 @@ st.markdown("### Calibration Curve — Favored Team")
 # history: each OOF prediction is taken from the FAVORED team's side
 # (probability >= 50%), binned to the nearest 1%; each 1% slice yields one
 # calibration point (win_rate) AND one count bar (n) from the same frame.
-hist_curve = utils.load_prediction_history(date_str)
+hist_curve = utils.load_prediction_history(artifact_date)
 pts = mlc.favored_calibration_pts(hist_curve)
 
-# Green curve on the SAME RAW AXIS: the DEPLOYED favored-space Platt
-# calibration map σ(a·logit(p)+b), including the production 50% floor,
-# evaluated at every raw favored probability. The x-axis is already the
-# favored-team probability, so the production output is max(σ, 0.5) — not
-# max(σ, 1−σ). This keeps the dashboard reference identical to the map used
-# by today's game card. The green line remains a single monotone function,
-# unlike binned averages of stored per-fold calibrated values, which mix
-# calibrators fitted at different times.
-# Vertical gap between blue (actual win rate) and green (what production
-# publishes) at a given raw x = the correction applied.
-pts_cal = pd.DataFrame()
-_params = cal_sec.get("params") or {}
-try:
-    _a = float(_params.get("a"))
-    _b = float(_params.get("b"))
-    _xs = np.arange(0.50, 1.0, 0.005)   # logit(p) undefined at p = 1.0
-    _z = _a * np.log(_xs / (1.0 - _xs)) + _b
-    _sigma = 1.0 / (1.0 + np.exp(-_z))
-    # Favored-side convention mirrors the pipeline: max(p_cal, 1 - p_cal).
-    pts_cal = pd.DataFrame({
-        "prob": _xs,
-        "cal_mean": np.maximum(_sigma, 0.5),
-        "n": 0,
-    })
-    # Per-1%-bin game counts from history, so hover shows sample size.
-    if hist_curve is not None and not hist_curve.empty \
-            and "home_win_prob_model" in hist_curve.columns:
-        _p0 = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce").dropna()
-        _raw0 = np.maximum(_p0.values, 1.0 - _p0.values)
-        _cnt = pd.Series(np.round(_raw0 * 100).astype(int)).value_counts()
-        pts_cal["n"] = pts_cal["prob"].map(
-            lambda x: int(_cnt.get(int(round(x * 100)), 0))
-        )
-except (TypeError, ValueError, ZeroDivisionError):
-    pts_cal = pd.DataFrame()
+# Green curve from the SAME OOF history artifact as the blue curve.
+# The pipeline has already applied the per-fold calibration map and persisted
+# ``home_win_prob_model_calibrated`` for every OOF game. The frontend only
+# groups those published OOF values by their raw favored-probability bin; it
+# never refits Platt, recreates a sigmoid, or applies a separate floor.
+# This makes the chart reproduce the exact calibration behavior that produced
+# the OOF artifacts and the production metrics.
+pts_cal = mlc.favored_oof_calibration_pts(hist_curve)
 
 # Bucketed curve from the artifact (also feeds the reliability table below).
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
@@ -245,8 +218,8 @@ if not pts.empty:
     built = mlc.chart_favored_calibration(pts, pts_cal)
     legend_extra = ""
     if not pts_cal.empty:
-        legend_extra = (" · Green dashed: deployed favored-space Platt map with 50% floor "
-                        "(matches the published card probability; vertical gap = correction)")
+        legend_extra = (" · Green dashed: stored prequential OOF calibration from the production run "
+                        "(same OOF rows as the artifact; vertical gap = correction)")
     utils.show_chart(built["chart"])
     st.caption(
         f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
@@ -254,7 +227,7 @@ if not pts.empty:
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "
         f"Blue: actual win rate at each raw probability · "
-        f"Green: deployed favored-space Platt probability with the 50% floor at each raw probability · "
+        f"Green: stored prequential OOF calibrated probability at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
         "blue curve binned to the nearest 1% — hover for games per point"
