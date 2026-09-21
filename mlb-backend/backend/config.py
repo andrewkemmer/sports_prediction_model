@@ -92,19 +92,24 @@ TRAIN_TEST_SPLIT_RATIO = 0.2  # Not used directly; walk-forward handles splits
 # Roster (2026-09-16): xgboost + lightgbm + elastic-net logistic on the
 # diff-column slice. RF/logistic/MLP seats removed after the member-audit
 # program (MLP convicted at 3.5 sigma; enet beats logistic ~6 sigma solo).
+# Equal thirds (2026-09-21): these priors apply ONLY when no OOF evidence
+# exists yet (fold 0 of a walk-forward, or before the first evaluation) —
+# the blend weights are earned from pooled OOF logloss from the first
+# re-earning onward. Equal thirds make the no-evidence starting point
+# assumption-free rather than audit-flavored.
 ENSEMBLE_WEIGHTS = {
-    "xgboost": 0.45,
-    "lightgbm": 0.30,
-    "elasticnet": 0.25,
+    "xgboost": 0.3333,
+    "lightgbm": 0.3333,
+    "elasticnet": 0.3334,
 }
 
-# Adaptive ensemble weighting: softmax over pooled out-of-fold log-loss.
-# A member beating another by Δ log-loss earns exp(Δ / TEMPERATURE) times
-# its weight; FLOOR keeps every candidate alive (diversity), CAP prevents
-# any single member from dominating.
-ADAPTIVE_WEIGHT_TEMPERATURE = 0.03
-ADAPTIVE_WEIGHT_FLOOR = 0.05
-ADAPTIVE_WEIGHT_CAP = 0.45
+# Adaptive ensemble weighting: winner-take-all on pooled out-of-fold
+# score (2026-09-21). The member with the best pooled OOF log-loss (or
+# AUC under metric="auc") takes 100% of the blend weight; the softmax
+# TEMPERATURE and the FLOOR/CAP band were removed as dead code — measured
+# earned weights (xgb 0.39 / lgbm 0.30 / enet 0.31 at T=0.03) sat strictly
+# inside [FLOOR, CAP], so the band never bound; the temperature alone kept
+# the near-best member from converging to the weight it had earned.
 # Blend-weight objective: "logloss" (softmax over pooled OOF log-loss).
 # 2026-09-16: switched from "auc" to "logloss" as part of the rolling
 # per-fold weighting spec — on the 84-fold walk-forward the rolling
@@ -113,11 +118,6 @@ ADAPTIVE_WEIGHT_CAP = 0.45
 # production behavior. The AUC temperature constant is kept for
 # reversibility but is unused under "logloss".
 ADAPTIVE_WEIGHT_METRIC = "logloss"
-# AUC softmax uses a sharper temperature: AUC edges among members are
-# ~0.005–0.045 (vs log-loss edges ~0.002–0.027), so T=0.015 separates
-# signal members (edge > 0.02) from noise members (edge < 0.01) cleanly,
-# landing near-coin-flip members on the 5% floor.
-ADAPTIVE_WEIGHT_AUC_TEMPERATURE = 0.015
 # Elastic-net logistic (the linear-family member, 2026-09-16). Mixed L1/L2
 # penalty on the diff-column slice; l1_ratio 0.5 is the standard mix, C=0.03
 # the grid optimum's strong-regularization edge (grid on the 84-fold

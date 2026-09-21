@@ -28,11 +28,7 @@ from sklearn.preprocessing import StandardScaler
 
 from calibration import is_identity, MIN_OOF_FOR_FIT, moneyline_apply, moneyline_fit
 from config import (
-    ADAPTIVE_WEIGHT_AUC_TEMPERATURE,
-    ADAPTIVE_WEIGHT_CAP,
-    ADAPTIVE_WEIGHT_FLOOR,
     ADAPTIVE_WEIGHT_METRIC,
-    ADAPTIVE_WEIGHT_TEMPERATURE,
     DATA_DELIVERY_DIR,
     DATE_FMT,
     ENSEMBLE_FILE,
@@ -993,16 +989,20 @@ def compute_adaptive_weights(
 ) -> dict[str, float]:
     """Blend weights earned by out-of-sample performance.
 
-    Softmax over pooled OOF scores. With ADAPTIVE_WEIGHT_METRIC="logloss"
-    (default since 2026-09-16) the score is pooled OOF log-loss (lower is
-    better). With "auc" it scores pooled OOF AUC. In production the caller
-    re-earns these weights after every walk-forward fold (rolling per-fold
-    weighting — each fold's blend is weighted by the PRIOR fold's OOF
-    evidence only), so this function sees one fold's OOF window at a time.
-    FLOOR keeps every candidate alive for diversity; CAP prevents
-    domination. The result sums to exactly 1.0 and feeds both prediction
-    blending and reporting so the ensemble visibly self-corrects as
-    features improve.
+    Optimized per-cycle blend on pooled OOF scores (2026-09-21). With
+    ADAPTIVE_WEIGHT_METRIC="logloss" (default) the weights come from a
+    simplex-constrained SLSQP fit minimizing pooled OOF log-loss, applied
+    in LOGIT space (clip -> logit -> weighted mean -> sigmoid); with
+    "auc" the probability mean is scored instead. There is NO
+    temperature, floor, or cap. A member takes 100% of the weight only
+    when its own pooled OOF log-loss beats the optimized blend's;
+    otherwise the optimized weights stand. In production the caller
+    re-earns these weights after every walk-forward fold (rolling
+    per-fold weighting — each fold's blend is weighted by the PRIOR
+    folds' OOF evidence only), so this function sees one fold's OOF
+    window at a time. The result sums to exactly 1.0 and feeds both
+    prediction blending and reporting so the ensemble visibly
+    self-corrects as features improve.
 
     Constrained stacking meta-learner ablation (DON'T ADOPT, 2026-08-27):
     an L2-regularized logistic stack (scipy SLSQP; standardized member
@@ -1037,39 +1037,63 @@ def compute_adaptive_weights(
     if not scores:
         return {}
 
+    # Optimized blend, no gates (2026-09-21). Weights minimize pooled OOF
+    # log-loss over the simplex (w >= 0, sum(w) = 1) — the same rehearsal
+    # window the weights are graded on — and the blend is pooled in LOGIT
+    # space. A member earns the ENTIRE weight only when it outperforms the
+    # optimized blend on the same pooled OOF window; otherwise the
+    # optimized weights stand. The 73-fold roll-forward verification that
+    # accompanies this change measures the honesty of this fit (weights
+    # from folds < k, scoring fold k).
+    names = sorted(scores)
+    arrays = {n: np.asarray(oof_members[n], dtype=float) for n in names}
+    y = np.asarray(y_oof, dtype=float)
+
+    def _logloss_of(p):
+        p = np.clip(np.asarray(p, dtype=float), 1e-7, 1 - 1e-7)
+        return float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).mean())
+
     if ADAPTIVE_WEIGHT_METRIC == "auc":
-        _t = ADAPTIVE_WEIGHT_AUC_TEMPERATURE
-        best = max(scores.values())
-        exp_w = {n: np.exp((a - best) / _t)
-                 for n, a in scores.items()}
+        # AUC is rank-based: optimize the probability mean.
+        P = np.column_stack([arrays[n] for n in names])
+        blend_loss = lambda w: _logloss_of(P @ w)
     else:
-        _t = ADAPTIVE_WEIGHT_TEMPERATURE
-        best = min(scores.values())
-        exp_w = {n: np.exp(-(ll - best) / _t)
-                 for n, ll in scores.items()}
-    tot = sum(exp_w.values())
-    w = {n: float(v / tot) for n, v in exp_w.items()}
+        # Log-loss is optimized in LOGIT space, matching ensemble_predict.
+        Z = np.column_stack([
+            np.log(np.clip(arrays[n], 1e-7, 1 - 1e-7)
+                   / (1 - np.clip(arrays[n], 1e-7, 1 - 1e-7)))
+            for n in names])
+        blend_loss = lambda w: _logloss_of(1.0 / (1.0 + np.exp(-(Z @ w))))
 
-    # A per-member cap C is satisfiable only if n_members × C >= 1; widen
-    # it slightly past 1/n for small rosters so the constraint set stays
-    # feasible (with 2 members, 0.45 each is impossible).
-    eff_cap = max(ADAPTIVE_WEIGHT_CAP, 1.02 / len(w))
+    if len(names) == 1:
+        return {names[0]: 1.0}
+    from scipy.optimize import minimize
+    w0 = np.full(len(names), 1.0 / len(names))
+    res = minimize(blend_loss, w0, method="SLSQP",
+                   bounds=[(0.0, 1.0)] * len(names),
+                   constraints=({"type": "eq",
+                                 "fun": lambda w: float(w.sum() - 1.0)}),
+                   options={"maxiter": 300, "ftol": 1e-9})
+    if not res.success or not np.all(np.isfinite(res.x)):
+        # Fall back to the best single member rather than serve a
+        # malformed weight vector.
+        best = (max if ADAPTIVE_WEIGHT_METRIC == "auc" else min)(
+            names, key=lambda n: scores[n])
+        return {n: (1.0 if n == best else 0.0) for n in names}
+    w = np.clip(np.asarray(res.x, dtype=float), 0.0, None)
+    w = w / w.sum() if w.sum() > 0 else w0
 
-    # Iterative floor/cap projection until both constraints hold
-    for _ in range(50):
-        w = {n: max(v, ADAPTIVE_WEIGHT_FLOOR) for n, v in w.items()}
-        s = sum(w.values())
-        w = {n: v / s for n, v in w.items()}
-        w = {n: min(v, eff_cap) for n, v in w.items()}
-        s = sum(w.values())
-        w = {n: v / s for n, v in w.items()}
+    best_name = (max if ADAPTIVE_WEIGHT_METRIC == "auc" else min)(
+        names, key=lambda n: scores[n])
+    if ADAPTIVE_WEIGHT_METRIC != "auc" and scores[best_name] < blend_loss(w) - 1e-12:
+        return {n: (1.0 if n == best_name else 0.0) for n in names}
 
     # Round without breaking the exact 1.0 total: give the rounding
     # remainder to the largest weight.
-    rounded = {n: round(v, 4) for n, v in w.items()}
+    rounded = {n: round(float(v), 4) for n, v in zip(names, w)}
     drift = round(1.0 - sum(rounded.values()), 4)
     if drift:
-        top = max(rounded, key=lambda n: w[n])
+        top = max(rounded, key=lambda n: rounded[n])
         rounded[top] = round(rounded[top] + drift, 4)
     return rounded
 
@@ -1085,15 +1109,18 @@ def _member_weights(member_names: list[str]) -> dict[str, float]:
     """
     names = [n for n in member_names
              if n not in ("scaler", "impute_median", "categorical_vocab")]
-    source = _LAST_ADAPTIVE_WEIGHTS or ENSEMBLE_WEIGHTS
-    raw = {n: float(source.get(n, 0.0)) for n in names}
-    # A candidate with no earned weight still gets its static prior so it
-    # can prove itself on the next OOF cycle instead of being locked out.
-    zeroed = [n for n, v in raw.items() if v <= 0]
-    for n in zeroed:
-        prior = float(ENSEMBLE_WEIGHTS.get(n, 0.0))
-        if prior > 0:
-            raw[n] = min(prior, ADAPTIVE_WEIGHT_FLOOR * 2)
+    # Earned weights stand as earned (including exact zeros — the OOF
+    # evidence already re-admits a member whose fit improves, so serving
+    # must not resurrect it behind evaluation's back). The equal-thirds
+    # priors apply only when nothing has been earned yet (fold 0 / pre-
+    # evaluation serving), where they mean "no evidence: treat members
+    # alike" rather than an audit-flavored prior.
+    raw = ({n: float(_LAST_ADAPTIVE_WEIGHTS.get(n, 0.0)) for n in names}
+           if _LAST_ADAPTIVE_WEIGHTS
+           else {n: float(ENSEMBLE_WEIGHTS.get(n, 0.0)) for n in names})
+    # Every trained member keeps its key (earned zeros included, value 0.0):
+    # callers index weights[name] directly, and zero-weight members must
+    # simply contribute nothing rather than raise. Positives renormalize.
     total = sum(raw.values())
     if total <= 0:
         w = 1.0 / max(len(names), 1)
@@ -1242,9 +1269,18 @@ def ensemble_predict(
         return np.full(len(games), 0.5), {}, {}
 
     weights = _member_weights(list(members.keys()))
-    blend = np.zeros(len(games))
-    for name, p in members.items():
-        blend += weights[name] * p
+    # Logit-space pooling (2026-09-21): the earned weights are fit by
+    # minimizing OOF log-loss of the sigmoid of the weighted logit mean,
+    # so serving pools the same way. Members with zero weight drop out.
+    active = {n: p for n, p in members.items() if weights.get(n, 0.0) > 0}
+    if not active:
+        return np.full(len(games), 0.5), members, weights
+    tot = sum(weights[n] for n in active)
+    z = np.zeros(len(games))
+    for name, p in active.items():
+        pc = np.clip(np.asarray(p, dtype=float), 1e-7, 1 - 1e-7)
+        z += (weights[name] / tot) * np.log(pc / (1 - pc))
+    blend = 1.0 / (1.0 + np.exp(-z))
     return blend, members, weights
 
 
