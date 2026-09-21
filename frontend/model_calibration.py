@@ -186,13 +186,16 @@ st.markdown("### Calibration Curve — Favored Team")
 hist_curve = utils.load_prediction_history(date_str)
 pts = mlc.favored_calibration_pts(hist_curve)
 
-# Green curve on the SAME RAW AXIS: the DEPLOYED Platt calibration map
-# σ(a·logit(p)+b) evaluated at every raw favored probability. Because it
-# is a single fitted monotone function (a > 0), the green line is strictly
-# monotone by construction — unlike binned averages of the stored per-fold
-# calibrated values, which mix calibrators fitted at different times.
-# Vertical gap between blue (actual win rate) and green (what the
-# calibrated model predicts) at a given raw x = the correction applied.
+# Green curve on the SAME RAW AXIS: the DEPLOYED favored-space Platt
+# calibration map σ(a·logit(p)+b), including the production 50% floor,
+# evaluated at every raw favored probability. The x-axis is already the
+# favored-team probability, so the production output is max(σ, 0.5) — not
+# max(σ, 1−σ). This keeps the dashboard reference identical to the map used
+# by today's game card. The green line remains a single monotone function,
+# unlike binned averages of stored per-fold calibrated values, which mix
+# calibrators fitted at different times.
+# Vertical gap between blue (actual win rate) and green (what production
+# publishes) at a given raw x = the correction applied.
 pts_cal = pd.DataFrame()
 _params = cal_sec.get("params") or {}
 try:
@@ -204,7 +207,7 @@ try:
     # Favored-side convention mirrors the pipeline: max(p_cal, 1 - p_cal).
     pts_cal = pd.DataFrame({
         "prob": _xs,
-        "cal_mean": np.maximum(_sigma, 1.0 - _sigma),
+        "cal_mean": np.maximum(_sigma, 0.5),
         "n": 0,
     })
     # Per-1%-bin game counts from history, so hover shows sample size.
@@ -242,8 +245,8 @@ if not pts.empty:
     built = mlc.chart_favored_calibration(pts, pts_cal)
     legend_extra = ""
     if not pts_cal.empty:
-        legend_extra = (" · Green dashed: deployed Platt calibration map "
-                        "(vertical gap = correction applied at that raw probability)")
+        legend_extra = (" · Green dashed: deployed favored-space Platt map with 50% floor "
+                        "(matches the published card probability; vertical gap = correction)")
     utils.show_chart(built["chart"])
     st.caption(
         f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
@@ -251,7 +254,7 @@ if not pts.empty:
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "
         f"Blue: actual win rate at each raw probability · "
-        f"Green: calibrated probability σ(a·logit(p)+b) at each raw probability · "
+        f"Green: deployed favored-space Platt probability with the 50% floor at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
         "blue curve binned to the nearest 1% — hover for games per point"
