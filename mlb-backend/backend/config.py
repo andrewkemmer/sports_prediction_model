@@ -141,13 +141,18 @@ ELASTICNET_PARAMS = {
 # a validation window is available; fit-only refits use the params below
 # directly with no early stopping. Train-median imputation is now applied
 # alongside logistic/MLP (the Optuna winner consistently preferred it).
+# L5 re-tune (2026-09-21): causal 73-fold random search (seeded, 32 draws) on
+# the 7,288-game frame + 3-seed confirmation (42/7/2026): pooled OOF member
+# logloss 0.6789 -> 0.6770 mean, better on all three seeds (>=0.001 gate).
+# Blend impact neutral across seeds (mean -0.0004, sign-mixed) -> adopted per
+# the member-strength policy (RF precedent: member gains with blend unharmed).
 XGBOOST_PARAMS = {
-    "max_depth": 2,
-    "min_child_weight": 8,
-    "gamma": 2.13,
-    "subsample": 0.60,
-    "colsample_bytree": 0.56,
-    "learning_rate": 0.058,
+    "max_depth": 3,
+    "min_child_weight": 12,
+    "gamma": 2.4178,
+    "subsample": 0.812,
+    "colsample_bytree": 0.6382,
+    "learning_rate": 0.1097,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,
@@ -180,16 +185,20 @@ XGBOOST_EARLY_STOP = 20
 # 0.6917 LL / 0.5134 AUC / 0.0401 ECE vs current (LIGHTGBM_PARAMS, 17r)
 # 0.6823 / 0.5499 / 0.0548 → the winner still loses logloss and AUC on
 # the sealed set. Verdict: DON'T ADOPT; this config stays.
+# L5 re-tune (2026-09-21): same causal 73-fold search + 3-seed confirmation:
+# pooled OOF member logloss 0.6863 -> 0.6845 mean, better on all three seeds.
+# Elastic-net searched too: production C=0.03 / l1_ratio 0.5 confirmed optimal
+# on the big frame (best challenger -0.0001, below the 0.001 gate) - unchanged.
 LIGHTGBM_PARAMS = {
     "n_estimators": 50,
-    "max_depth": 5,
+    "max_depth": 6,
     "num_leaves": 6,
-    "min_child_samples": 59,
-    "min_gain_to_split": 1.745,
-    "bagging_fraction": 0.556,
+    "min_child_samples": 70,
+    "min_gain_to_split": 1.2224,
+    "bagging_fraction": 0.4518,
     "bagging_freq": 1,
-    "feature_fraction": 0.749,
-    "learning_rate": 0.053,
+    "feature_fraction": 0.7632,
+    "learning_rate": 0.0332,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
