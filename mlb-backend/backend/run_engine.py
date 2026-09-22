@@ -1405,6 +1405,15 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
                 frame[_c] = frame["game_pk"].astype(str)
             else:
                 frame[_c] = pd.NA
+    # Preserve the frontend join key for slate rows. Pre-game rows use the
+    # ESPN game_id as game_pk; if the daily path did not carry game_id through,
+    # recover it before the strict contract check rather than silently
+    # suppressing every Today's Games market selector.
+    if "game_id" in frame.columns and "kind" in frame.columns:
+        missing_game_id = frame["game_id"].isna() & frame["kind"].eq("slate")
+        if missing_game_id.any():
+            frame.loc[missing_game_id, "game_id"] = frame.loc[missing_game_id, "game_pk"]
+
     # Persist the contract even for direct callers that do not use the daily
     # wrapper. The k-edge seam replaces this provisional contract after it
     # rewrites the score artifact with the post-edge lambdas.
@@ -2319,6 +2328,11 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         out["game_id"] = slate_games["game_id"].to_numpy()
     if _slate_key == "game_id":
         out = out.rename(columns={"game_id": "game_pk"})
+        # Preserve the stable ESPN identity separately for the frontend join.
+        # The markets contract uses game_pk for row identity, while Today's
+        # Games resolves cards by game_id. Losing this field makes the slate
+        # rows NaN at persist_markets and suppresses every card selector.
+        out["game_id"] = slate_games["game_id"].to_numpy()
     # Per-row resolution (the 145d841 discipline): prefer game_pk where it
     # holds a value, else fall back to game_id (a ``game_pk`` column can be
     # present-but-null for an ESPN game_id that never resolved). Emit clean
