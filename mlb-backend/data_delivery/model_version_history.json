@@ -1,28 +1,5 @@
 [
   {
-    "version": "v2026.09.02",
-    "date": "2026-09-03",
-    "weights": {
-      "xgboost": 0.45,
-      "lightgbm": 0.1711,
-      "logistic": 0.1781,
-      "randomforest": 0.1439,
-      "mlp": 0.0569
-    },
-    "auc": 0.5699,
-    "brier": 0.2447,
-    "logloss": 0.6823,
-    "ece": 0.0045,
-    "brier_calibrated": 0.2452,
-    "logloss_calibrated": 0.6835,
-    "ece_calibrated": 0.0081,
-    "calibration": {
-      "a": 0.986156,
-      "b": 0.014217,
-      "n": 6538
-    }
-  },
-  {
     "version": "v2026.09.03",
     "date": "2026-09-03",
     "weights": {
@@ -434,6 +411,29 @@
   },
   {
     "version": "v2026.09.21",
+    "date": "2026-09-22",
+    "weights": {
+      "xgboost": 1.0,
+      "lightgbm": 0.0,
+      "elasticnet": 0.0
+    },
+    "auc": 0.5877,
+    "brier": 0.2421,
+    "logloss": 0.6769,
+    "ece": 0.0167,
+    "brier_calibrated": 0.2419,
+    "logloss_calibrated": 0.6762,
+    "ece_calibrated": 0.0076,
+    "calibration": {
+      "a": 1.357782,
+      "b": -0.005258,
+      "n": 6793,
+      "method": "favored_platt_floor",
+      "floor": 0.5
+    }
+  },
+  {
+    "version": "v2026.09.22",
     "date": "2026-09-22",
     "weights": {
       "xgboost": 1.0,
