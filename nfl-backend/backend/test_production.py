@@ -151,6 +151,14 @@ check("linear view deterministic columns",
 check("tree view superset of diffs",
       all(c in tr.columns for c in config.FEATURE_COLUMNS if c in feats.columns))
 check("tree view has per-side columns", any(c.endswith("_home") for c in tr.columns))
+check("feature engine exposes raw RFE candidates",
+      "elo_home" in feat_mod.feature_engine_columns(feats))
+config.set_feature_subset(config.FEATURE_COLUMNS + ["elo_home"])
+trial_tree = feat_mod.tree_view(feats)
+check("RFE raw candidate produces a unique tree contract",
+      len(trial_tree.columns) == len(set(trial_tree.columns))
+      and "elo_home" in trial_tree.columns)
+config.reset_feature_subset()
 
 # ---------------------------------------------------------------------------
 print("\n== 4. Fold tests ==")
@@ -551,6 +559,26 @@ finally:
     folds_mod.make_folds = _orig_make
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+print("\n== 10. RFE/workbook contract tests ==")
+import tempfile
+from feature_selection import _candidate_pool
+from feature_workbook import generate_workbook, _workbook_filename
+check("RFE candidate pool comes from feature engine",
+      "elo_home" in _candidate_pool(feats))
+with tempfile.TemporaryDirectory() as td:
+    trace_path = Path(td) / "nfl_feature_selection_20260921_targeted.json"
+    trace_path.write_text(json.dumps({
+        "date": "2026-09-21", "created_utc": "2026-09-21T12:34:56Z",
+        "targeted": True, "run_mode": "targeted_full_history",
+        "n_universe": 12, "n_pool": 22, "n_trials": 1, "n_committed": 0,
+        "selected_cols": config.FEATURE_COLUMNS, "steps": []}), encoding="utf-8")
+    workbook = generate_workbook(str(trace_path), str(Path(td) / "targeted.xlsx"))
+    check("targeted workbook generation succeeds", workbook is not None and Path(workbook).exists())
+    check("targeted workbook naming helper contract",
+          _workbook_filename(json.loads(trace_path.read_text()), trace_path)
+          == "nfl_feature_workbook_2026-09-21_targeted_1234.xlsx")
+
 print(f"\n{'=' * 60}")
 print(f"RESULTS: {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

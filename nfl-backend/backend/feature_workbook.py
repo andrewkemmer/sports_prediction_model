@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,13 +39,29 @@ def _coverage(trace: dict) -> pd.DataFrame:
     return frame
 
 
+def _workbook_filename(trace: dict[str, Any], path: Path) -> str:
+    raw_day = str(trace.get("date", ""))[:10]
+    try:
+        day = datetime.fromisoformat(raw_day).date().isoformat()
+    except ValueError:
+        day = raw_day if len(raw_day) == 10 and raw_day[4] == "-" else path.stem[-8:]
+    targeted = bool(trace.get("targeted")) or "_targeted" in path.stem
+    if not targeted:
+        return f"nfl_feature_workbook_{day}.xlsx"
+    stamp = ""
+    try:
+        stamp = datetime.fromisoformat(str(trace.get("created_utc", "")).replace("Z", "+00:00")).strftime("%H%M")
+    except ValueError:
+        stamp = datetime.now(timezone.utc).strftime("%H%M")
+    return f"nfl_feature_workbook_{day}_targeted_{stamp}.xlsx"
+
+
 def generate_workbook(trace_path: str | None = None, out_path: str | None = None) -> str | None:
     path = Path(trace_path) if trace_path else _latest_trace()
     if path is None or not path.exists():
         return None
     trace = _load_trace(path)
-    day = str(trace.get("date", path.stem.replace("nfl_feature_selection_", ""))).replace("-", "")
-    target = Path(out_path) if out_path else DELIVERY / f"nfl_feature_workbook_{day}.xlsx"
+    target = Path(out_path) if out_path else DELIVERY / _workbook_filename(trace, path)
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"

@@ -18,9 +18,9 @@ import numpy as np
 import pandas as pd
 
 try:
-    from backend import config, folds as folds_mod, moneyline, evaluation
+    from backend import config, folds as folds_mod, moneyline, evaluation, features as feat_mod
 except ImportError:
-    import config, folds as folds_mod, moneyline, evaluation
+    import config, folds as folds_mod, moneyline, evaluation, features as feat_mod
 
 BACKEND = Path(__file__).resolve().parent
 DELIVERY = BACKEND.parent / "data_delivery"
@@ -37,12 +37,10 @@ def _list_env(name: str) -> list[str]:
 
 
 def _candidate_pool(games: pd.DataFrame) -> list[str]:
-    protected = {"game_id", "season", "week", "gameday", "home_team", "away_team",
-                 "home_score", "away_score", "home_win", "margin", "total",
-                 "game_type", "stadium", "roof", "gametime", "home_record",
-                 "away_record"}
-    numeric = games.select_dtypes(include=[np.number]).columns
-    return [c for c in numeric if c not in protected and c not in config.FEATURE_COLUMNS]
+    """All valid generated features not already in the production contract."""
+    generated = feat_mod.feature_engine_columns(games)
+    base = set(config.active_feature_columns()) | set(config.ANCHOR_COLUMNS)
+    return [c for c in generated if c not in base]
 
 
 def _resolve(names: list[str], pool: list[str]) -> tuple[list[str], list[dict[str, Any]]]:
@@ -165,8 +163,21 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
             continue
         config.set_feature_subset(trial)
         try:
-            metrics, losses = _score(games, folds)
-            diff = losses - (base_loss if kind == "grid" else _score_with_active(games, folds, best, trial)[1]) if False else losses - base_loss
+            try:
+                metrics, losses = _score(games, folds)
+            except Exception as exc:  # noqa: BLE001
+                # A failed trial must be visible in the trace, not abort the
+                # entire record-only analysis and suppress its workbook.
+                steps.append({"step": len(steps) + 1, "kind": kind,
+                              "feature": item["feature"],
+                              "adds": item.get("adds", []),
+                              "removes": item.get("removes", []),
+                              "n_features": len(trial), "status": "failed",
+                              "error": f"{type(exc).__name__}: {exc}",
+                              "committed": False})
+                budget -= 1
+                continue
+            diff = losses - base_loss
             se = float(np.std(diff, ddof=1) / np.sqrt(len(diff))) if len(diff) > 1 else 0.0
             threshold = max(0.0005, 2.0 * se)
             gain = float(best["logloss"] - metrics["logloss"])
@@ -179,7 +190,8 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
                           "adds": item.get("adds", []), "removes": item.get("removes", []),
                           "n_features": len(trial), "metrics": metrics,
                           "logloss_gain": gain, "paired_se": se,
-                          "commit_threshold": threshold, "committed": committed})
+                          "commit_threshold": threshold, "committed": committed,
+                          "status": "scored"})
         finally:
             config.set_feature_subset(active)
         budget -= 1
@@ -187,7 +199,8 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
     record = {"schema": "nfl-rfe-v1", "date": day, "created_utc": datetime.utcnow().isoformat() + "Z",
               "run_mode": "targeted_full_history" if targeted else "full_history",
               "targeted": targeted, "n_pool": len(pool), "n_universe": len(base),
-              "n_trials": len(steps), "n_committed": sum(s["committed"] for s in steps),
+              "n_trials": len(steps), "n_failed": sum(s.get("status") == "failed" for s in steps),
+              "n_committed": sum(s["committed"] for s in steps),
               "n_selected": len(active), "selected_cols": active,
               "baseline_metrics": baseline, "best_metrics": best, "steps": steps,
               "forced_lists": {"additions": adds, "removals": removes,

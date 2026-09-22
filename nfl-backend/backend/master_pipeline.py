@@ -390,13 +390,25 @@ def main(argv: list[str] | None = None) -> int:
                         _rfe.get("run_mode"), _rfe.get("n_trials"),
                         _rfe.get("n_selected"), _rfe.get("trace"))
             from feature_workbook import generate_workbook
-            generate_workbook(trace_path=_rfe.get("trace"))
+            workbook_path = generate_workbook(
+                trace_path=_rfe.get("trace"), out_path=out_dir / _rfe_workbook_name(_rfe))
+            _rfe["workbook"] = workbook_path
+            logger.info("RFE workbook: %s", workbook_path)
     except Exception as exc:
+        _rfe = {"ran": False, "status": "failed", "reason": str(exc),
+                "error_type": type(exc).__name__}
         logger.warning("NFL RFE skipped (non-fatal): %s", exc)
 
     # ── 12. Artifact persistence ──────────────────────────────────────────
     _banner("PHASE 12", "artifact persistence")
     artifacts: list[str] = []
+    # RFE trace/workbook are record-only deliverables, but must be visible in
+    # the run summary whenever they were successfully produced.
+    for artifact_path in (_rfe.get("trace"), _rfe.get("workbook")):
+        if artifact_path:
+            artifact_name = Path(artifact_path).name
+            if Path(artifact_path).exists():
+                artifacts.append(artifact_name)
     if len(slate):
         p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
         serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
@@ -677,6 +689,24 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     for c in outs[0]:
         df[c] = [o[c] for o in outs]
     return df
+
+
+def _rfe_workbook_name(rfe: dict) -> str:
+    """Return the trace-compatible workbook name for artifact persistence."""
+    path = Path(rfe.get("trace", "nfl_feature_selection_"))
+    raw = str(rfe.get("date", ""))[:10]
+    if len(raw) != 10 or raw[4] != "-":
+        raw = path.stem.replace("nfl_feature_selection_", "")[:10]
+    targeted = bool(rfe.get("targeted")) or "_targeted" in path.stem
+    if not targeted:
+        return f"nfl_feature_workbook_{raw}.xlsx"
+    created = str(rfe.get("created_utc", ""))
+    stamp = "0000"
+    try:
+        stamp = datetime.fromisoformat(created.replace("Z", "+00:00")).strftime("%H%M")
+    except ValueError:
+        pass
+    return f"nfl_feature_workbook_{raw}_targeted_{stamp}.xlsx"
 
 
 def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:

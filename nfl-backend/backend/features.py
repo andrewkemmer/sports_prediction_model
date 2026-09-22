@@ -40,6 +40,26 @@ logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_MILES = 3958.8
 
+# The feature engine owns this ordered universe. Production configuration
+# selects the served subset; RFE may evaluate every generated numeric feature,
+# including the raw side values used by the tree representation.
+FEATURE_ENGINE_COLUMNS = [
+    *config.FEATURE_COLUMNS,
+    "is_home",
+    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
+    "ewm_net_pts_home", "ewm_net_pts_away",
+    "ewm_ypp_home", "ewm_ypp_away",
+    "rest_days_home", "rest_days_away",
+]
+
+
+def feature_engine_columns(df: pd.DataFrame | None = None) -> list[str]:
+    """Return the feature engine's single ordered generated-column contract."""
+    cols = list(FEATURE_ENGINE_COLUMNS)
+    if df is not None:
+        cols = [c for c in cols if c in df.columns]
+    return cols
+
 # ---------------------------------------------------------------------------
 # Events: long-form (team, game) view
 # ---------------------------------------------------------------------------
@@ -455,13 +475,13 @@ def linear_view(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def tree_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Tree-family matrix: differences + raw home/away side values.
+    """Tree-family matrix from the feature engine contract.
 
-    Deterministic column order: served diffs first (manifest order), then
-    the per-side raw values in home/away pairs.
+    Production difference features have a fixed representation projection;
+    RFE-added raw side features are selected directly from the same generated
+    universe. No model view appends an independently discovered column set.
     """
     active = config.active_feature_columns()
-    diff_cols = [c for c in active if c in df.columns]
     raw_for_diff = {
         "elo_diff": ("elo_home", "elo_away"),
         "win_pct_diff": ("win_pct_home", "win_pct_away"),
@@ -469,12 +489,18 @@ def tree_view(df: pd.DataFrame) -> pd.DataFrame:
         "ewm_ypp_diff": ("ewm_ypp_home", "ewm_ypp_away"),
         "rest_days_diff": ("rest_days_home", "rest_days_away"),
     }
-    side_cols = []
+    selected: list[str] = []
     for feature in active:
-        for raw in raw_for_diff.get(feature, ()):
-            if raw in df.columns and raw not in side_cols:
-                side_cols.append(raw)
-    out = df.reindex(columns=diff_cols + side_cols).astype(float)
+        if feature in raw_for_diff:
+            names = (feature, *raw_for_diff[feature])
+        else:
+            names = (feature,)
+        for name in names:
+            if name in df.columns and name not in selected:
+                selected.append(name)
+    out = df.reindex(columns=selected).astype(float)
+    if len(selected) != len(set(selected)):
+        raise AssertionError("tree feature contract contains duplicate columns")
     return out
 
 
