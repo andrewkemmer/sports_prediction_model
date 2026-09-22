@@ -87,6 +87,12 @@ def _env_end_bounds() -> tuple[str, str]:
     if raw.isdigit() and len(raw) == 4:
         year = int(raw)
         return (date(year, 12, 31).isoformat(), date(year + 1, 2, 28).isoformat())
+    # Single timezone for BOTH window bounds and the artifact run-date stamp:
+    # ET (the league's operational clock). Mixing ET here with UTC in
+    # run_date produced a one-day stamp skew — a 03:50-UTC run (23:50 ET on
+    # the 21st) windowed data through 2026-09-21 but stamped artifacts
+    # _20260922, and the serving pass found no unplayed in-window game while
+    # the artifact date claimed a day the window never covered.
     day = _env_date("NFL_END_DATE", "NFL_END_SEASON",
                     datetime.now(ZoneInfo("America/New_York")).date().isoformat())
     return (day, day)
@@ -109,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir) if args.out_dir else config.DATA_DELIVERY_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Artifact stamp on the SAME ET clock as the data window (see
+    # _env_end_bounds): keeps run_date, the window, and the slate day aligned.
+    run_date = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
     date_c = run_date.replace("-", "")
 
     # MLB-style date controls. Warm-up remains 2018 by default; OOF still
@@ -767,7 +775,16 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
                 ok = False
                 break
         gates["totals_grid_coherent"] = ok
-        gates["markets_has_slate"] = bool((mk["kind"] == "slate").any())
+        # A zero-game slate is a LEGITIMATE daily state, not a delivery
+        # failure: when the window ends on a day with no unplayed in-window
+        # games (e.g. Tue/Wed in-season, or the late-UTC run at 03:50 ET where
+        # ET-tomorrow's games fall outside the window), the markets CSV is
+        # OOF-only by design and the serving writers already emit empty
+        # games[] records. The gate must only fail when slate rows SHOULD
+        # exist — i.e. the serving pass built them — but the written artifact
+        # lost them. len(slate) is passed in precisely for that distinction.
+        gates["markets_has_slate"] = (bool((mk["kind"] == "slate").any())
+                                      if len(slate) else True)
     else:
         gates["spread_grid_coherent"] = False
         gates["totals_grid_coherent"] = False
