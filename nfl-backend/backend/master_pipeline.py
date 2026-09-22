@@ -283,19 +283,85 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("calibrated NB dispersion: alpha_home %.6f, alpha_away %.6f",
                 sig["alpha_home"], sig["alpha_away"])
 
-    # ── 8. Ensemble calibration (moneyline Platt on OOF) ──────────────────
+    # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ──────────────────
     _banner("PHASE 8", "calibration")
     y_oof = oof_ml["home_win"].to_numpy(float)
     p_ens = oof_ml["p_ensemble"].to_numpy(float)
     okp = np.isfinite(p_ens)
-    platt = ml_mod.fit_favored_platt(p_ens[okp], y_oof[okp])
-    logger.info("Platt (OOF-fit): a=%.4f b=%.4f", platt["a"], platt["b"])
-    oof_ml["p_ensemble_calibrated"] = np.nan
-    oof_ml.loc[okp, "p_ensemble_calibrated"] = ml_mod.apply_favored_platt(
-        p_ens[okp], platt)
+
+    # MLB structural parity — two distinct calibration layers:
+    #
+    #   1. PREQUENTIAL per-fold OOF calibration (the honest evaluation layer):
+    #      fold k's calibrated predictions come from a favored-space Platt map
+    #      fitted strictly on folds 0..k-1's OOF pairs. Fold 0 has no prior
+    #      OOF, so its calibrated twin IS the raw blend (identity). The green
+    #      calibration-curve lever, the CALIBRATED reliability column, and
+    #      the calibrated KPIs all render from this layer — they now match
+    #      the OOF-fold calibration leverage exactly.
+    #
+    #   2. POOLED final calibrator (the serving layer): one favored-space map
+    #      fit on ALL OOF pairs, applied ONLY to tonight's slate — never used
+    #      to score its own fitting population. Today's Game cards therefore
+    #      still exactly match the production run (final calibrated
+    #      probabilities), while the OOF layer stays honest.
+    #
+    # All fits/applications are in FAVORED-team space (p_fav = max(p, 1-p),
+    # the side with probability > 50%), never home-team space — matching
+    # MLB's favored_platt_floor contract end to end.
+
+    # 8a. Per-fold PREQUENTIAL calibrated twins (evaluation layer).
+    fold_calibrators: dict[int, dict | None] = {}
+    cal_fitted = 0
+    cal_identity = 0
+    p_cal_prequential = np.full(len(oof_ml), np.nan)
+    fold_ids = oof_ml["fold_id"].to_numpy()
+    for fold in fold_list:
+        val_mask = fold_ids == fold.fold_id
+        prior_mask = (fold_ids < fold.fold_id) & okp
+        if prior_mask.sum() >= 2:
+            fold_cal = ml_mod.moneyline_fit(p_ens[prior_mask], y_oof[prior_mask])
+        else:
+            fold_cal = None  # no prior evidence yet — identity for fold 0
+        fold_calibrators[int(fold.fold_id)] = fold_cal
+        if fold_cal is None:
+            cal_identity += 1
+        else:
+            cal_fitted += 1
+        if val_mask.any() and okp[val_mask].any():
+            p_cal_prequential[val_mask] = ml_mod.moneyline_apply(
+                p_ens[val_mask], fold_cal)
+    # Guard every row (NaN-safe identity fallback for un-scored rows).
+    need_cal = okp & np.isnan(p_cal_prequential)
+    p_cal_prequential[need_cal] = p_ens[need_cal]  # identity fallback
+    oof_ml["p_ensemble_calibrated"] = p_cal_prequential
+    # per-member prequential calibrated twins (MLB parity; diagnostics only)
+    for name in config.ENSEMBLE_MEMBERS:
+        col = f"p_{name}"
+        if col in oof_ml.columns:
+            pm = pd.to_numeric(oof_ml[col], errors="coerce").to_numpy(float)
+            twin = np.full(len(oof_ml), np.nan)
+            for fold in fold_list:
+                val_mask = fold_ids == fold.fold_id
+                if val_mask.any():
+                    twin[val_mask] = ml_mod.moneyline_apply(
+                        pm[val_mask], fold_calibrators[int(fold.fold_id)])
+            oof_ml[f"p_{name}_calibrated"] = twin
+    logger.info("prequential per-fold calibration: %d fitted, %d identity",
+                cal_fitted, cal_identity)
+
+    # 8b. POOLED final calibrator — the serving layer (never used to score
+    # its own fitting population). Identical favored-space guardrails apply.
+    platt = ml_mod.moneyline_fit(p_ens[okp], y_oof[okp])
+    if platt is not None:
+        logger.info("final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
+                    platt["a"], platt["b"], platt["n"], platt["method"])
+    else:
+        logger.info("final pooled calibrator: identity (raw blend is served)")
 
     # ── 9. Evaluation ─────────────────────────────────────────────────────
     _banner("PHASE 9", "evaluation / diagnostics")
+    # Headline calibrated metrics are the PREQUENTIAL twins (honest per-fold
+    # leverage), not pooled self-calibration (MLB parity).
     raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"], y_oof)
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
     logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
@@ -342,8 +408,11 @@ def main(argv: list[str] | None = None) -> int:
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
-        # serve through the SAME Platt map fitted on OOF
-        p_home_cal = ml_mod.apply_favored_platt(p_home, platt) if np.isfinite(p_home).any() else p_home
+        # serve through the SAME POOLED favored-space calibrator the OOF fit
+        # produced (the serving layer) — gated by CALIBRATION_MODE; identity
+        # mode or a None/degenerate calibrator publishes the raw blend.
+        p_home_cal = (ml_mod.moneyline_apply(p_home, platt)
+                      if np.isfinite(p_home).any() else p_home)
         slate["mu_h"], slate["mu_a"] = final_reg.predict(slate)
         slate = dist_mod.apply_distribution(slate, sig)
         slate["p_home_win"] = p_home_cal

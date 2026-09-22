@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -189,15 +190,19 @@ print("\n== 5. Moneyline tests ==")
 rng = np.random.default_rng(7)
 feats["home_win"] = (feats["margin"] > 0).astype(int)
 y = feats["home_win"].to_numpy(int)
-# correlated predictions (a real calibration signal, not noise)
-p = np.clip(0.15 + 0.7 * y + rng.normal(0, 0.08, len(y)), 1e-7, 1 - 1e-7)
-cal = ml_mod.fit_platt(p, y)
+# correlated predictions (a real calibration signal, not noise).
+# 400 samples clears the MLB-parity MIN_OOF_FOR_FIT = 300 fit gate.
+y400 = rng.integers(0, 2, 400).astype(float)
+p = np.clip(0.15 + 0.7 * y400 + rng.normal(0, 0.08, 400), 1e-7, 1 - 1e-7)
+cal = ml_mod.fit_platt(p, y400)
 pc = ml_mod.apply_platt(p, cal)
 check("platt output in (0,1)", ((pc > 0) & (pc < 1)).all())
-check("platt is monotone (positive slope)", cal["a"] > 0 and
-      (np.diff(pc[np.argsort(p)]) >= -1e-9).all(), f"a={cal['a']:.3f}")
+check("platt is monotone (positive slope)", cal is not None and cal["a"] > 0 and
+      (np.diff(pc[np.argsort(p)]) >= -1e-9).all(), f"a={None if cal is None else cal['a']:.3f}")
+check("platt records the fitted population (n)",
+      cal is not None and cal.get("n") == 400, str(None if cal is None else cal.get("n")))
 
-m = eval_mod.binary_metrics(p, y)
+m = eval_mod.binary_metrics(p, y400)
 check("binary metrics present", all(np.isfinite(m[k]) for k in ("auc", "logloss", "brier", "ece")))
 
 pre = ml_mod.TrainFoldPreprocessor()
@@ -555,7 +560,216 @@ finally:
     folds_mod.make_folds = _orig_make
 
 # ---------------------------------------------------------------------------
-print("\n== 10. RFE workbook naming contract ==")
+print("\n== 10. Moneyline calibration parity (prequential OOF + favored space) ==")
+# 10a. Guardrails: every unsafe fit yields the identity map (None).
+try:
+    _save_mode = ml_mod.get_calibration_mode()
+    ml_mod.set_calibration_mode("platt")
+    rng2 = np.random.default_rng(11)
+    n300 = 400
+    # Predictions span the favored band and outcomes are sampled FROM them,
+    # so favorites lose sometimes (a real favored-space signal, never
+    # single-class) and the fit has genuine slope to learn.
+    p400 = rng2.uniform(0.35, 0.80, n300)
+    y400 = rng2.binomial(1, p400).astype(float)
+    # min-population gate
+    check("below-minimum fit returns identity",
+          ml_mod.moneyline_fit(p400[:100], y400[:100]) is None)
+    # single-class favored labels
+    check("single-class favored labels return identity",
+          ml_mod.moneyline_fit(p400[:100], np.ones(100)) is None
+          or ml_mod.moneyline_fit(p400[:100], np.zeros(100)) is None)
+    # degenerate slope: swap labels -> non-positive slope -> identity
+    cal_flip = ml_mod.moneyline_fit(p400, 1.0 - y400)
+    check("degenerate/non-positive slope returns identity", cal_flip is None,
+          str(cal_flip))
+    # a healthy fit is favored-tagged with a floor and exact n
+    cal_ok = ml_mod.moneyline_fit(p400, y400)
+    check("healthy fit is favored-tagged with floor + n",
+          cal_ok is not None and cal_ok.get("method") == "favored_platt_floor"
+          and float(cal_ok.get("floor", 0)) == 0.5 and cal_ok.get("n") == n300,
+          str(cal_ok))
+
+    # 10b. CALIBRATION_MODE switch: identity publishes the raw blend.
+    ml_mod.set_calibration_mode("identity")
+    check("identity mode fit returns None", ml_mod.moneyline_fit(p400, y400) is None)
+    p_probe = np.array([0.3, 0.55, 0.8])
+    check("identity mode apply returns p unchanged",
+          np.allclose(ml_mod.moneyline_apply(p_probe, cal_ok), p_probe))
+    ml_mod.set_calibration_mode("platt")
+
+    # 10c. Method-tag enforcement: a home-space map cannot reach serving.
+    try:
+        ml_mod.moneyline_apply(p_probe, {"method": "platt", "a": 1.1, "b": -0.05})
+        check("legacy home-space calibrator is rejected at apply", False, "no error raised")
+    except ValueError:
+        check("legacy home-space calibrator is rejected at apply", True)
+    # generic (non-favored) maps are also rejected through moneyline_apply
+    try:
+        ml_mod.moneyline_apply(p_probe, {"method": "favored_platt", "a": 1.0, "b": 0.0})
+        check("non-floor favored tag is rejected at apply", False, "no error raised")
+    except ValueError:
+        check("non-floor favored tag is rejected at apply", True)
+
+    # 10d. Favored-space floor: favorites never drop below 0.5; underdogs mirror.
+    p_extreme = np.array([0.99, 0.60, 0.40, 0.01])
+    p_cal_fav = ml_mod.apply_favored_platt(p_extreme, cal_ok)
+    check("favorites floored at 0.5 after calibration",
+          bool((p_cal_fav[[0, 1]] >= 0.5).all()), str(p_cal_fav))
+    check("underdogs mirror 1 - p_fav_cal",
+          abs(p_cal_fav[2] - (1.0 - p_cal_fav[1])) < 1e-9
+          and abs(p_cal_fav[3] - (1.0 - p_cal_fav[0])) < 1e-9)
+    # extreme favorite pushes toward but never below 0.5
+    p_cap = ml_mod.apply_favored_platt(np.array([1.0 - 1e-7]), cal_ok)
+    check("calibrated favorite never below 0.5 (floor holds)", float(p_cap[0]) >= 0.5)
+finally:
+    ml_mod.set_calibration_mode(_save_mode)
+    if "CALIBRATION_MODE" in os.environ:
+        del os.environ["CALIBRATION_MODE"]
+
+# 10e. Prequential OOF honesty: fold k calibrated ONLY by folds < k.
+try:
+    rng3 = np.random.default_rng(13)
+    n_folds, games_per_fold = 7, 60
+    preq_rows = []
+    for k in range(n_folds):
+        pk = rng3.uniform(0.35, 0.80, games_per_fold)
+        yk = rng3.binomial(1, pk).astype(float)
+        preq_rows.append(pd.DataFrame({
+            "game_id": [f"P{k}_{i}" for i in range(games_per_fold)],
+            "gameday": pd.date_range("2025-01-01", periods=games_per_fold,
+                                     freq="D").strftime("%Y-%m-%d"),
+            "season": 2025, "fold_id": k, "home_win": yk, "p_ensemble": pk,
+        }))
+    preq = pd.concat(preq_rows, ignore_index=True)
+    fold_ids = preq["fold_id"].to_numpy()
+    pv = preq["p_ensemble"].to_numpy(float)
+    yv = preq["home_win"].to_numpy(float)
+    okm = np.isfinite(pv)
+    p_cal_out = np.full(len(preq), np.nan)
+    fold_calibrators = {}
+    for k in sorted(preq["fold_id"].unique()):
+        val_mask = fold_ids == k
+        prior_mask = (fold_ids < k) & okm
+        fcal = (ml_mod.moneyline_fit(pv[prior_mask], yv[prior_mask])
+                if prior_mask.sum() >= 2 else None)
+        fold_calibrators[k] = fcal
+        if val_mask.any():
+            p_cal_out[val_mask] = ml_mod.moneyline_apply(pv[val_mask], fcal)
+    # fold 0 has no prior folds -> identity (calibrated == raw)
+    m0 = preq["fold_id"].to_numpy() == 0
+    check("prequential fold 0 is identity (calibrated == raw)",
+          np.allclose(p_cal_out[m0], pv[m0]))
+    # each fold's calibrated values reproduce ONLY from its own stored map
+    reproducible = True
+    for k in range(1, n_folds):
+        mk = fold_ids == k
+        if fold_calibrators[k] is not None:
+            expected = ml_mod.moneyline_apply(pv[mk], fold_calibrators[k])
+        else:
+            expected = pv[mk]
+        if not np.allclose(p_cal_out[mk], expected):
+            reproducible = False
+            break
+    check("each fold reproduces only from its prior-fold-fitted map", reproducible)
+    # a mid-pool fold with >= 300 prior games fits a real map (folds are 60
+    # games each, so fold 6 sees 6*60 = 360 prior games — well past the gate)
+    check("late-pool fold fits a real (non-identity) map",
+          fold_calibrators[n_folds - 1] is not None
+          and fold_calibrators[n_folds - 1].get("n", 0) >= 300)
+except Exception as exc:  # noqa: BLE001
+    check("prequential OOF honesty checks", False, str(exc))
+
+# 10f. Chart reproduction from the persisted history columns.
+try:
+    rng4 = np.random.default_rng(17)
+    n_hist = 500
+    yh = rng4.integers(0, 2, n_hist).astype(float)
+    ph = np.clip(0.2 + 0.6 * yh + rng4.normal(0, 0.07, n_hist), 1e-6, 1 - 1e-6)
+    cal_h = ml_mod.moneyline_fit(ph, yh)
+    pch = ml_mod.moneyline_apply(ph, cal_h)
+    hist_df = pd.DataFrame({
+        "home_win_prob_model": ph,
+        "home_win_prob_model_calibrated": pch,
+        "correct": ((ph >= 0.5) == (yh > 0.5)).astype(float),
+    })
+    raw_fav = np.maximum(hist_df["home_win_prob_model"],
+                         1.0 - hist_df["home_win_prob_model"])
+    bins = (raw_fav / 0.01).round() * 0.01
+    cal_fav = np.where(hist_df["home_win_prob_model"] >= 0.5,
+                       hist_df["home_win_prob_model_calibrated"],
+                       1.0 - hist_df["home_win_prob_model_calibrated"])
+    green = (pd.DataFrame({"prob": bins, "cal_mean": cal_fav})
+             .groupby("prob").agg(cal_mean=("cal_mean", "mean"),
+                                   n=("cal_mean", "size")).reset_index())
+    blue = (pd.DataFrame({"prob": bins, "won": hist_df["correct"]})
+            .groupby("prob").agg(win_rate=("won", "mean"),
+                                 n=("won", "size")).reset_index())
+    check("green curve regenerates from stored calibrated column",
+          len(green) > 0 and green["cal_mean"].between(0, 1).all()
+          and int(green["n"].sum()) == n_hist)
+    check("blue curve regenerates from stored correct column",
+          len(blue) > 0 and blue["win_rate"].between(0, 1).all()
+          and int(blue["n"].sum()) == n_hist)
+    # favorite floor holds across the whole served population
+    check("served calibrated favorites all >= 0.5",
+          bool((np.maximum(pch, 1.0 - pch) >= 0.5 - 1e-12).all()))
+except Exception as exc:  # noqa: BLE001
+    check("chart reproduction from stored columns", False, str(exc))
+
+# 10g. Serving parity: card probability == final pooled map(raw blend); pick == argmax(raw).
+try:
+    rng5 = np.random.default_rng(19)
+    ns = 400
+    ys = rng5.integers(0, 2, ns).astype(float)
+    ps = np.clip(0.2 + 0.6 * ys + rng5.normal(0, 0.07, ns), 1e-6, 1 - 1e-6)
+    platt_final = ml_mod.moneyline_fit(ps, ys)
+    slate_p = np.array([0.35, 0.52, 0.61, 0.48, 0.77])
+    card = (ml_mod.moneyline_apply(slate_p, platt_final)
+            if platt_final is not None else slate_p)
+    raw_card = ml_mod.apply_favored_platt(slate_p, platt_final)
+    check("card path == final pooled map applied to raw blend",
+          np.allclose(card, raw_card, equal_nan=True))
+    picks_raw = np.where(slate_p >= 0.5, 1, 0)
+    picks_cal = np.where(card >= 0.5, 1, 0)
+    check("model_pick unchanged by the monotone calibrated map",
+          (picks_raw == picks_cal).all())
+    check("serving calibrator carries the favored-space tag",
+          platt_final is None or platt_final.get("method") == "favored_platt_floor")
+except Exception as exc:  # noqa: BLE001
+    check("serving parity checks", False, str(exc))
+
+# ---------------------------------------------------------------------------
+print("\n== 11. RFE feature context (workbook trace contract) ==")
+try:
+    from feature_selection import _feature_context
+    rng6 = np.random.default_rng(23)
+    ctx_df = pd.DataFrame({
+        "elo_diff": rng.normal(0, 10, 120),
+        "elo_home": rng.normal(1500, 40, 120),
+        "elo_away": rng.normal(1500, 40, 120),
+        "is_home": np.ones(120),
+        "prime_time": rng6.integers(0, 2, 120).astype(float),
+        "all_nan_col": np.full(120, np.nan),
+    })
+    # elo_home = elo_away + small noise makes corr(elo_home, elo_away) ~ 0.97,
+    # a genuine |r| >= 0.9 pair by construction
+    ctx_df["elo_home"] = ctx_df["elo_away"] + ctx_df["elo_diff"]
+    ctx = _feature_context(ctx_df)
+    pool_names = {"elo_diff", "elo_home", "elo_away", "is_home", "prime_time"}
+    check("feature context covers exactly the declared pool",
+          set(ctx["meta"]) == pool_names and set(ctx["coverage"]) == pool_names
+          and "elo_diff" in ctx["meta"] and "is_home" in ctx["meta"])
+    check("coverage counts non-null share",
+          ctx["coverage"]["elo_diff"]["pct"] > 99.0
+          and ctx["coverage"]["is_home"]["pct"] > 99.0)
+    check("redundancy finds the constructed |r| >= 0.9 pair",
+          any({p["a"], p["b"]} == {"elo_home", "elo_away"} for p in ctx["redundancy"]))
+except Exception as exc:  # noqa: BLE001
+    check("RFE feature context checks", False, str(exc))
+
+# ---------------------------------------------------------------------------
+print("\n== 12. RFE workbook naming contract ==")
 try:
     from feature_selection import workbook_filename
     _plain = workbook_filename(

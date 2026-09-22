@@ -67,6 +67,21 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 FEATURE_SET_VERSION = "nfl-prod-v1"
 
 # ---------------------------------------------------------------------------
+# Moneyline calibration (MLB structural parity; favored-team space ONLY)
+# ---------------------------------------------------------------------------
+# "platt" (default): the favored-space 2-parameter logistic map.
+# "identity": publish the raw blend — the calibrated path returns p unchanged.
+# The switch is reversible (CALIBRATION_MODE env var / set_calibration_mode)
+# and default stays "platt". All fits and applications happen in FAVORED-team
+# space (the side with probability > 50%), never home-team space.
+CALIBRATION_MODE = "platt"
+
+# Pooled OOF games required before trusting a fitted Platt correction. Below
+# this, a 2-param fit can chase noise; identity is the safer map (MLB parity:
+# calibration.MIN_OOF_FOR_FIT).
+MIN_OOF_FOR_FIT = 300
+
+# ---------------------------------------------------------------------------
 # THE feature contract — ONE master list (MLB structural parity)
 # ---------------------------------------------------------------------------
 # The binary moneyline defines the production feature list below. Every other

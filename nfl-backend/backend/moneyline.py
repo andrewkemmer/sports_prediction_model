@@ -328,42 +328,185 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
-# Platt calibration — fit ONLY on valid OOF predictions
+# Platt calibration — fit ONLY on valid OOF predictions, FAVORED space only
 # ---------------------------------------------------------------------------
-def fit_platt(oof_p: np.ndarray, y: np.ndarray) -> dict:
-    """2-parameter logistic map p -> sigmoid(a*z + b) where z = logit(p).
-    Deterministic (LBFGS, no randomness)."""
-    from sklearn.linear_model import LogisticRegression
-    z = np.log(np.clip(oof_p, CLIP, 1 - CLIP) /
-               (1 - np.clip(oof_p, CLIP, 1 - CLIP)))
-    lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000)
-    lr.fit(z.reshape(-1, 1), y.astype(int))
+# MLB structural parity (mlb-backend/backend/calibration.py):
+#   * all fits/applications happen in FAVORED-team space (p_fav = max(p, 1-p),
+#     the side with probability > 50%) — never home-team space;
+#   * guardrails fall back to the identity map rather than a risky fit:
+#     below MIN_OOF_FOR_FIT pooled games, single-class favored labels, or a
+#     degenerate/non-positive slope (which would invert the favorite's
+#     ranking);
+#   * a CALIBRATION_MODE switch (platt/identity) gates the moneyline path;
+#   * apply-time method-tag enforcement rejects legacy home-space maps.
+FAVORED_CALIBRATOR_METHOD = "favored_platt_floor"
+FAVORED_PROBABILITY_FLOOR = 0.5
+
+VALID_CALIBRATION_MODES = ("platt", "identity")
+
+
+def get_calibration_mode() -> str:
+    """Active moneyline calibration mode ("platt" or "identity")."""
+    import os
+    mode = str(os.environ.get("CALIBRATION_MODE") or config.CALIBRATION_MODE).strip().lower()
+    if mode not in VALID_CALIBRATION_MODES:
+        logger.warning("Calibration: unknown CALIBRATION_MODE %r — falling back to platt", mode)
+        return "platt"
+    return mode
+
+
+def set_calibration_mode(mode: str) -> None:
+    """Switch the moneyline calibration mode in-process (harness/test use).
+
+    Affects ONLY the moneyline path via moneyline_fit/moneyline_apply.
+    """
+    m = str(mode).strip().lower()
+    if m not in VALID_CALIBRATION_MODES:
+        raise ValueError(
+            f"unknown calibration mode {mode!r} (expected 'platt' or 'identity')")
+    config.CALIBRATION_MODE = m
+
+
+def is_identity(cal: dict | None) -> bool:
+    """True when ``cal`` applies no correction (None or a≈1, b≈0)."""
+    if not cal:
+        return True
+    if str(cal.get("method")) != FAVORED_CALIBRATOR_METHOD:
+        return True
+    try:
+        a = float(cal.get("a", 1.0))
+        b = float(cal.get("b", 0.0))
+    except (TypeError, ValueError):
+        return True
+    return abs(a - 1.0) < 1e-9 and abs(b) < 1e-9
+
+
+def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
+    """Fit the 2-parameter logistic map p -> sigmoid(a*logit(p) + b) on
+    FAVORED-space (p, y) pairs. Deterministic (LBFGS, no randomness).
+
+    Returns {"method": "platt", "a", "b", "n"} or None when the data cannot
+    support a fit (below MIN_OOF_FOR_FIT, single class, non-finite inputs,
+    degenerate slope <= 0). None means the identity map everywhere.
+    """
+    y = np.asarray(y_fav, dtype=float)
+    p = np.asarray(p_fav, dtype=float)
+    ok = np.isfinite(y) & np.isfinite(p) & (p > 0) & (p < 1)
+    y, p = y[ok], p[ok]
+    n = len(y)
+    if n < config.MIN_OOF_FOR_FIT:
+        logger.info("Calibration: %d OOF games < %d minimum — using identity map",
+                    n, config.MIN_OOF_FOR_FIT)
+        return None
+    if len(np.unique(y)) < 2:
+        logger.warning("Calibration: single-class OOF labels — identity map")
+        return None
+    try:
+        from sklearn.linear_model import LogisticRegression
+        z = np.log(p / (1.0 - p))
+        lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=1000)
+        lr.fit(z.reshape(-1, 1), y.astype(int))
+        a = float(lr.coef_[0][0])
+        b = float(lr.intercept_[0])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Calibration: Platt fit failed (%s) — identity map", exc)
+        return None
+    # A pathological fit (slope <= 0 would invert the favorite's ranking)
+    # falls back to identity: ranking preservation matters more than ECE
+    # cosmetics (MLB parity).
+    if not (np.isfinite(a) and np.isfinite(b)) or a <= 0:
+        logger.warning("Calibration: degenerate Platt params (a=%s) — identity map", a)
+        return None
     # MLB presentation parity (calibration.fit_platt): persist the map at
     # 6-decimal precision so the artifact's Platt params render identically
     # on both sports' dashboards (a=0.931371, not a=0.9313710155066628).
-    return {"a": round(float(lr.coef_[0][0]), 6),
-            "b": round(float(lr.intercept_[0]), 6)}
-
-
-def apply_platt(p: np.ndarray, cal: dict) -> np.ndarray:
-    z = np.log(np.clip(p, CLIP, 1 - CLIP) / (1 - np.clip(p, CLIP, 1 - CLIP)))
-    out = 1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"])))
-    return np.clip(out, CLIP, 1.0 - CLIP)
-
-
-def fit_favored_platt(p_home: np.ndarray, home_win: np.ndarray) -> dict:
-    """Fit Platt in the same favored-team space shown to users."""
-    favored_home = p_home >= 0.5
-    p_fav = np.where(favored_home, p_home, 1.0 - p_home)
-    y_fav = np.where(favored_home, home_win, 1.0 - home_win)
-    cal = fit_platt(p_fav, y_fav)
-    cal.update({"method": "favored_platt", "floor": 0.5})
+    cal = {"method": "platt", "a": round(a, 6), "b": round(b, 6), "n": int(n)}
+    logger.info("Calibration: Platt fitted on %d OOF games (a=%.4f, b=%.4f)", n, a, b)
     return cal
 
 
-def apply_favored_platt(p_home: np.ndarray, cal: dict) -> np.ndarray:
-    """Calibrate favored probability, floor it at 50%, convert home space back."""
-    favored_home = p_home >= 0.5
-    p_fav = np.where(favored_home, p_home, 1.0 - p_home)
-    p_fav_cal = np.maximum(0.5, apply_platt(p_fav, cal))
+def apply_platt(p: np.ndarray, cal: dict | None) -> np.ndarray:
+    """Apply the fitted map; identity when cal is None/invalid."""
+    p = np.clip(np.asarray(p, dtype=float), CLIP, 1.0 - CLIP)
+    if not cal:
+        return p.copy() if isinstance(p, np.ndarray) else p
+    try:
+        a = float(cal["a"])
+        b = float(cal["b"])
+    except (KeyError, TypeError, ValueError):
+        return p.copy() if isinstance(p, np.ndarray) else p
+    z = np.log(p / (1.0 - p))
+    return np.clip(1.0 / (1.0 + np.exp(-(a * z + b))), CLIP, 1.0 - CLIP)
+
+
+def _favored_view(p_home: np.ndarray, home_win: np.ndarray):
+    """Convert home-space predictions/outcomes into favored-team space."""
+    p = np.asarray(p_home, dtype=float)
+    y = np.asarray(home_win, dtype=float)
+    favored_home = p >= 0.5
+    p_fav = np.where(favored_home, p, 1.0 - p)
+    y_fav = np.where(favored_home, y, 1.0 - y)
+    return p_fav, y_fav, favored_home
+
+
+def moneyline_fit(p_home: np.ndarray, home_win: np.ndarray) -> dict | None:
+    """Favored-space moneyline calibrator fit, gated by CALIBRATION_MODE.
+
+    Identity mode skips the map entirely (returns None -> raw published
+    probabilities); platt mode is the default behavior. The fit is ALWAYS in
+    favored space — never home-team space.
+    """
+    if get_calibration_mode() == "identity":
+        logger.info("Calibration: CALIBRATION_MODE=identity — moneyline publishes the raw blend (no Platt map)")
+        return None
+    p_fav, y_fav, _ = _favored_view(p_home, home_win)
+    cal = fit_platt(p_fav, y_fav)
+    if cal is None:
+        return None
+    cal["method"] = FAVORED_CALIBRATOR_METHOD
+    cal["floor"] = FAVORED_PROBABILITY_FLOOR
+    return cal
+
+
+def moneyline_apply(p_home: np.ndarray, calibrator: dict | None) -> np.ndarray:
+    """Apply the favored-space calibrator, gated by CALIBRATION_MODE.
+
+    Identity mode returns p unchanged (calibrated == raw). A calibrator not
+    tagged ``favored_platt_floor`` (e.g. a legacy home-space map) is rejected
+    rather than silently applied (MLB parity).
+    """
+    p = np.clip(np.asarray(p_home, dtype=float), 0.0, 1.0)
+    if get_calibration_mode() == "identity":
+        return p
+    if not calibrator:
+        return p
+    if calibrator.get("method") != FAVORED_CALIBRATOR_METHOD:
+        raise ValueError(
+            "legacy home-space moneyline calibration is unsupported; "
+            "retrain to create a favored-space calibrator")
+    return apply_favored_platt(p, calibrator)
+
+
+def fit_favored_platt(p_home: np.ndarray, home_win: np.ndarray) -> dict | None:
+    """Fit Platt in the same favored-team space shown to users.
+
+    Fitted on p_fav = max(p, 1-p) (the side with probability > 50%) with
+    labels converted to "did the favorite win". Returns None (identity)
+    under any guardrail instead of a risky fit.
+    """
+    return moneyline_fit(p_home, home_win)
+
+
+def apply_favored_platt(p_home: np.ndarray, cal: dict | None) -> np.ndarray:
+    """Calibrate favored probability, floor it at 50%, convert home space back.
+
+    The favorite's calibrated probability never drops below 0.5 and the
+    underdog mirrors 1 - p_fav_cal. Identity (None) returns the input.
+    """
+    p = np.asarray(p_home, dtype=float)
+    if not cal:
+        return np.clip(p, 0.0, 1.0)
+    favored_home = p >= 0.5
+    p_fav = np.where(favored_home, p, 1.0 - p)
+    p_fav_cal = np.maximum(FAVORED_PROBABILITY_FLOOR, apply_platt(p_fav, cal))
     return np.where(favored_home, p_fav_cal, 1.0 - p_fav_cal)

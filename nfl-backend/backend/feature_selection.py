@@ -188,6 +188,93 @@ def _trace_path(day: str, targeted: bool) -> Path:
     return DELIVERY / f"{TRACE_PREFIX}{day}{suffix}.json"
 
 
+def _feature_context(games: pd.DataFrame) -> dict[str, Any]:
+    """Manifest-derived workbook context, recorded once per trace.
+
+    The decision workbook's Master/Production/Candidates/Glossary/Redundancy/
+    Coverage sheets render from this block — the workbook stays artifact-only
+    (it re-reads nothing and re-derives nothing). All fields come from the
+    authoritative feature manifest (manifest.FEATURE_MANIFEST) and the frame
+    the sweep actually scored:
+
+      meta      : per-feature Type/Category/Side/Description/Window/Units
+      coverage  : per-feature non-null count + pct on the scored frame
+      redundancy: every |r| >= 0.9 pair among pool features on the frame
+    """
+    try:
+        from manifest import FEATURE_MANIFEST
+    except Exception:  # noqa: BLE001 — artifact-only; never fatal
+        FEATURE_MANIFEST = {}  # type: ignore[assignment]
+
+    _, _, pool = _trial_space(games)
+    meta: dict[str, dict[str, Any]] = {}
+    for name in pool:
+        entry = FEATURE_MANIFEST.get(name) or {}
+        lookback = entry.get("lookback", "")
+        if isinstance(lookback, int):
+            window = f"{lookback} games" if lookback else "static pre-game"
+        else:
+            window = str(lookback) or "static pre-game"
+        # Category/side derived from the representation + name convention —
+        # the same diff-vs-level split the manifest's ``representation`` field
+        # documents.
+        rep = str(entry.get("representation", ""))
+        if name.endswith("_home") or name.endswith("_away"):
+            side = "Home" if name.endswith("_home") else "Away"
+            ftype = "Raw level (per side)"
+            category = "Matchup context"
+        elif "difference" in rep or name.endswith("_diff"):
+            side = "Home − Away (diff)"
+            ftype = "Diff"
+            category = "Team form"
+        else:
+            side = "Game-level"
+            ftype = "Game-level flag/context"
+            category = "Schedule / venue"
+        meta[name] = {
+            "description": str(entry.get("description", "")),
+            "definition": str(entry.get("definition", "")),
+            "source": str(entry.get("source", "")),
+            "point_in_time_rule": str(entry.get("point_in_time_rule", "")),
+            "missing_value_policy": str(entry.get("missing_value_policy", "")),
+            "window": window,
+            "type": ftype,
+            "category": category,
+            "side": side,
+        }
+
+    # Coverage: share of non-null values per pool feature on the scored frame.
+    coverage: dict[str, dict[str, float]] = {}
+    n_rows = len(games)
+    for name in pool:
+        if name in games.columns:
+            col = pd.to_numeric(games[name], errors="coerce")
+            n_ok = int(col.notna().sum())
+        else:
+            n_ok = 0
+        coverage[name] = {"n": n_ok,
+                          "pct": round(100.0 * n_ok / n_rows, 2) if n_rows else 0.0}
+
+    # Redundancy: |r| >= 0.9 pairs among pool features (MLB v2 parity).
+    redundancy: list[dict[str, Any]] = []
+    cols_present = [c for c in pool if c in games.columns]
+    if len(cols_present) >= 2 and n_rows > 2:
+        try:
+            corr = games[cols_present].apply(
+                pd.to_numeric, errors="coerce").corr()
+            for i, a in enumerate(cols_present):
+                for b in cols_present[i + 1:]:
+                    r = corr.loc[a, b]
+                    if pd.notna(r) and abs(float(r)) >= 0.9:
+                        redundancy.append({"a": a, "b": b,
+                                           "r": round(float(r), 4)})
+        except Exception as exc:  # noqa: BLE001 — artifact-only
+            logger.warning("RFE redundancy scan skipped: %s", exc)
+
+    return {"meta": meta, "coverage": coverage, "redundancy": redundancy,
+            "n_rows": int(n_rows)}
+
+
 def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any]:
     base, candidates, pool = _trial_space(games)
     adds, unresolved_add = _resolve(_list_env("NFL_RFE_ADDITION_MONEYLINE_LIST"), candidates)
@@ -294,7 +381,7 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
             config.set_feature_subset(active)
         budget -= 1
     config.reset_feature_subset()
-    record = {"schema": "nfl-rfe-v1", "date": day, "created_utc": datetime.utcnow().isoformat() + "Z",
+    record = {"schema": "nfl-rfe-v2", "date": day, "created_utc": datetime.utcnow().isoformat() + "Z",
               "run_mode": "targeted_full_history" if targeted else "full_history",
               "targeted": targeted, "n_pool": len(pool), "n_universe": len(base),
               "candidate_pool": candidates, "n_candidates": len(candidates),
@@ -304,7 +391,8 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
               "baseline_metrics": baseline, "best_metrics": best, "steps": steps,
               "forced_lists": {"additions": adds, "removals": removes,
                                "unresolved": unresolved_add + unresolved_remove},
-              "grid_max_states": max_states}
+              "grid_max_states": max_states,
+              "feature_context": _feature_context(games)}
     DELIVERY.mkdir(parents=True, exist_ok=True)
     path = _trace_path(day.replace("-", ""), targeted)
     path.write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
