@@ -16,6 +16,7 @@ sys.path.insert(0, str(BACKEND))
 
 import run_engine as re
 from data_ingestion import build_upcoming_slate
+from pipeline import _attach_slate_lineup_keys
 
 
 def _market_row(**overrides):
@@ -123,6 +124,61 @@ def test_upcoming_slate_carries_adopted_exp2_sources_pit_safely():
     from features import add_exp2_features, EXP2_CANDIDATE_COLS
     enriched = add_exp2_features(slate)
     assert enriched[EXP2_CANDIDATE_COLS].notna().any(axis=1).all()
+
+
+def test_slate_lineup_keys_are_carried_before_feature_join():
+    """StatsAPI lineup identities must reach the slate feature join."""
+    slate = pd.DataFrame({"game_id": ["g1", "g2"],
+                          "home_team": ["HOME", "HOME2"]})
+    lineup_rows = pd.DataFrame({"game_pk": [101, pd.NA],
+                                "home_order": [[], None],
+                                "away_order": [[], None]})
+    out = _attach_slate_lineup_keys(slate, lineup_rows)
+    assert list(out["game_pk"].astype("Int64")) == [101, pd.NA]
+    assert "game_pk" not in slate.columns
+
+
+def test_posted_lineup_smoke_populates_all_six_deltas():
+    """A posted lineup with a resolved game_pk must enrich every delta."""
+    import features
+    from features import LINEUP_DELTA_COLS, add_lineup_delta_features
+
+    day = pd.Timestamp("2026-09-21")
+    features._lineup_cache.clear()
+    features._lineup_cache.update({
+        "lineups": pd.DataFrame(),
+        "batter": pd.DataFrame({
+            "season": [2026] * 4,
+            "game_date": [day] * 4,
+            "batter": [1, 2, 3, 4],
+            "sd_woba": [0.34, 0.35, 0.36, 0.37],
+            "prior_pa": [100] * 4,
+        }),
+        "team": pd.DataFrame({
+            "season": [2026] * 2,
+            "game_date": [day] * 2,
+            "team": ["HOME", "AWAY"],
+            "sd_woba": [0.32, 0.33],
+            "top3_woba": [0.35, 0.36],
+            "top5_ids": ["[1, 2, 3]", "[2, 3, 4]"],
+        }),
+    })
+    try:
+        slate = pd.DataFrame({
+            "game_pk": pd.Series([101], dtype="Int64"),
+            "game_date": [day],
+            "home_team": ["HOME"],
+            "away_team": ["AWAY"],
+        })
+        lineups = pd.DataFrame({
+            "game_pk": [101],
+            "home_order": [[1, 2]],
+            "away_order": [[3, 4]],
+        })
+        out = add_lineup_delta_features(slate, lineups_override=lineups)
+        assert out[LINEUP_DELTA_COLS].notna().all().all()
+    finally:
+        features._lineup_cache.clear()
 
 
 def test_run_line_opposite_tail_is_not_home_dog_tail():

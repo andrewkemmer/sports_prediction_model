@@ -462,6 +462,23 @@ def _nearest_slate_pk(legs, start_et) -> Optional[int]:
     return None
 
 
+def _attach_slate_lineup_keys(slate: pd.DataFrame,
+                              lineup_rows: pd.DataFrame) -> pd.DataFrame:
+    """Carry resolved StatsAPI game identities onto the ESPN slate.
+
+    Posted lineup enrichment is keyed by ``game_pk``. ESPN rows generally
+    carry only ``game_id``; keeping this conversion explicit prevents a
+    successful StatsAPI lineup fetch from degenerating into all-NaN lineup
+    features during the subsequent PIT wOBA join.
+    """
+    if "game_pk" not in lineup_rows.columns or len(lineup_rows) != len(slate):
+        raise ValueError("slate lineup identity rows must align one-to-one")
+    out = slate.copy()
+    out["game_pk"] = pd.to_numeric(
+        lineup_rows["game_pk"], errors="coerce").astype("Int64")
+    return out
+
+
 def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame:
     """Attach the 6 lineup-delta columns to today's slate from posted lineups.
 
@@ -563,6 +580,13 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
         rows.append({"game_pk": int(pk), "home_order": ho or None,
                      "away_order": ao or None})
     lu = pd.DataFrame(rows)
+
+    # StatsAPI is the authoritative identity for posted lineups. The ESPN
+    # slate normally has only game_id, but add_lineup_delta_features joins
+    # both the lineup override and the PIT wOBA caches by game_pk. Carry the
+    # resolved key onto the slate before enrichment; otherwise every actual
+    # lineup silently misses the join and all six shipped features remain NaN.
+    slate = _attach_slate_lineup_keys(slate, lu)
 
     # 3) real features where both sides posted; projected fallback otherwise
     slate = add_lineup_delta_features(slate, lineups_override=lu)
