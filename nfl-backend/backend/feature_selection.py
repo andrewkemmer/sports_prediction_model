@@ -353,7 +353,8 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
             # paired SE is what makes the commit bar fold-noise aware.
             diff = losses - base_loss
             se = float(np.std(diff, ddof=1) / np.sqrt(len(diff))) if len(diff) > 1 else 0.0
-            threshold = max(0.0005, 2.0 * se)
+            threshold = max(0.0005,
+                            getattr(config, "RFE_COMMIT_SE_MULTIPLE", 2.0) * se)
             gain = float(best["logloss"] - metrics["logloss"])
             committed = bool(gain >= threshold and metrics["auc"] >= best["auc"] - .003
                              and metrics["ece"] <= best["ece"] + .005)
@@ -396,6 +397,7 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
               "forced_lists": {"additions": adds, "removals": removes,
                                "unresolved": unresolved_add + unresolved_remove},
               "grid_max_states": max_states,
+              "commit_se_multiple": getattr(config, "RFE_COMMIT_SE_MULTIPLE", 2.0),
               "feature_context": _feature_context(games)}
     DELIVERY.mkdir(parents=True, exist_ok=True)
     path = _trace_path(day.replace("-", ""), targeted)

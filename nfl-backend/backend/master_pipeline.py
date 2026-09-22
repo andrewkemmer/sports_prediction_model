@@ -174,6 +174,19 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("schedule rows (date window): %d", len(schedule))
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
+    # Skill-position usage, tracking efficiency, and availability (candidate
+    # sources + pre-game facts). Trailing windows need a warmup season, so the
+    # pull extends one season back (same pattern as the slate QB enrichment).
+    ps = ingestion.load_player_stats(
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    ngs = ingestion.load_nextgen(
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    injuries = ingestion.load_injuries(seasons=seasons,
+                                       use_cache=not full_repull)
+    logger.info("player stats rows: %s | ngs rows: %s | injury report rows: %s",
+                0 if ps is None else len(ps),
+                0 if ngs is None else len(ngs),
+                0 if injuries is None else len(injuries))
 
     decided_all = schedule[schedule["home_score"].notna()
                            & schedule["away_score"].notna()].copy()
@@ -184,7 +197,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
-    game_df = feat_mod.build_game_features(decided_all, pbp)
+    game_df = feat_mod.build_game_features(decided_all, pbp, ps=ps, ngs=ngs,
+                                           inj=injuries)
     game_df = game_df.sort_values("gameday").reset_index(drop=True)
     logger.info("feature frame: %d decided games, %d columns",
                 len(game_df), game_df.shape[1])
@@ -404,7 +418,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
-    slate = feat_mod.build_slate_features(schedule, pbp)
+    slate = feat_mod.build_slate_features(schedule, pbp, ps=ps, ngs=ngs,
+                                          inj=injuries)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)

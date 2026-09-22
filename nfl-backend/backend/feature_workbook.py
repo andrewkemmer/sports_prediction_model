@@ -307,19 +307,19 @@ NFL_API_SOURCES = [
      "Per game: betting lines (spread_line, total_line, over_under_line), "
      "weather (temp, wind), stadium/roof/surface/location, referee, game_type, "
      "overtime, division flag, QB ids/names.",
-     "20-column keep-list; features use teams/scores/date/week/div_game and "
-     "QB ids/names (card enrichment).",
-     "Kept-but-unused: roof, stadium, surface, location, referee, game_type. "
-     "Dropped entirely: spread_line, total_line, over_under_line, temp, wind, "
-     "weather, overtime — NFL has NO weather and NO market-implied features "
-     "(MLB has both)."),
+     "22-column keep-list (adds temp, wind, surface); features use "
+     "teams/scores/date/week/div_game, QB ids/names (card enrichment), "
+     "surface (is_turf_home), and temp/wind as fallbacks behind the committed "
+     "observed-weather table.",
+     "Kept-but-unused: roof, stadium, location, referee, game_type. Dropped "
+     "entirely: spread_line, total_line, over_under_line, overtime — NFL has "
+     "NO market-implied features by governance (MLB has both)."),
     ("nflverse player stats\nnflreadpy.load_player_stats (all positions)",
      "Weekly player stats for every position: passing, rushing, receiving "
      "volumes and efficiency, ids/names.",
-     "QB rows only (position == 'QB'): passer-rating components for card "
-     "enrichment. No model features.",
-     "RB/WR/TE usage (carries, targets, team pass-rate, RB load, WR1 "
-     "threat), defensive player stats."),
+     "QB rows for card enrichment; team RB/WR rollups for the model: "
+     "ps_rb_load_share_* / ps_wr1_target_share_* trailing candidates.",
+     "TE-specific usage, per-player efficiency beyond the team shares."),
     ("nflverse teams\nnflreadpy.load_teams",
      "Team abbr, full names, conference/division, colors, logos.",
      "Abbr -> name map for the frontend only.",
@@ -366,10 +366,11 @@ NFL_UNUSED_API_FIELDS = [
      "/ pbp_fg_accuracy_* candidates."),
     ("pbp (dropped)", "air_yards / yac / cpoe",
      "Passing depth, separation after catch, accuracy over expectation.",
-     "Trailing passing-depth and accuracy diffs ( qb play quality).",
+     "Trailing passing-depth and accuracy diffs (qb play quality).",
      "High", "Low",
-     "Added to PBP_NEEDS + aggregated 2026-09-22 (pbp cache v2) → "
-     "pbp_air_yards_att_* / pbp_yac_att_* / pbp_cpoe_play_* candidates."),
+     "Aggregated 2026-09-22 (pbp cache v2; v3 swaps raw yac → yac_epa — "
+     "nflreadpy publishes no raw yac column) → pbp_air_yards_att_* / "
+     "pbp_yac_epa_att_* / pbp_cpoe_play_* candidates."),
     ("pbp (dropped)", "shotgun / no_huddle / drive",
      "Formation tendency and drive counts.",
      "Style/pace complements to the existing plays-per-minute feature.",
@@ -379,31 +380,42 @@ NFL_UNUSED_API_FIELDS = [
     ("schedules (dropped)", "temp / wind / weather",
      "Observed game-day environment.",
      "Wind-speed and temperature bands for outdoor games (MLB weather parity).",
-     "Medium", "Low", "Payload carries it; no weather feature exists today."),
+     "Medium", "Low",
+     "Aggregated 2026-09-22: committed nfl_weather.csv (Open-Meteo archive "
+     "via build_weather_table.py) serves temp_f / wind_mph / is_precip / "
+     "is_snow; schedule temp/wind kept as fallbacks."),
     ("schedules (dropped)", "spread_line / total_line / over_under_line",
      "Market-implied win margin and total.",
      "Market-anchor features or blend components (MLB market parity).",
      "High", "Low", "Closing lines arrive with the schedule payload."),
     ("schedules (KEPT)", "roof / surface",
      "Roof state and playing surface.",
-     "is_dome_home exists; turf-vs-grass interaction still unused.",
-     "Low", "Low", "Kept at load, never read by features."),
+     "is_dome_home exists; surface now normalized to is_turf_home.",
+     "Low", "Low",
+     "Aggregated 2026-09-22 → is_turf_home served feature (turf-family "
+     "normalization; NaN when unlisted)."),
     ("player_stats", "RB carries / WR targets",
      "Skill-position usage.",
      "Team pass-rate tendency, RB-load and WR1-threat diffs.",
-     "Medium", "Medium", "Requires removing the QB-only filter."),
+     "Medium", "Medium",
+     "Aggregated 2026-09-22 → ps_rb_load_share_* / ps_wr1_target_share_* "
+     "trailing candidates (full-position pull)."),
 ]
 
 # Endpoints the codebase never calls at all.
 NFL_UNLOADED_ENDPOINTS = [
-    ("load_injuries", "Weekly injury reports with participation status.",
-     "Starter-out availability flags (QB/edge/left-tackle most valuable)."),
     ("load_snap_counts", "Per-player snap counts by week.",
      "Workload context: RB committees, defensive snap wear."),
-    ("load_ngs", "Next-Gen Stats: passing/rushing/receiving efficiency.",
-     "Deeper QB/RB quality measures beyond box-score aggregates."),
     ("load_officials", "Per-game officiating crews.",
      "Crew penalty-rate context (second-order)."),
+    ("load_injuries (now loaded)", "Weekly injury reports with participation status.",
+     "Aggregated 2026-09-22 → inj_qb_out_diff / inj_tackle_out_diff / "
+     "inj_edge_out_diff / inj_starters_out_diff served facts (week>0 reports; "
+     "report_status == Out)."),
+    ("load_ngs (now loaded)", "Next-Gen Stats: passing/rushing/receiving efficiency.",
+     "Aggregated 2026-09-22 → ngs_cpoe_* / ngs_rush_eff_* / "
+     "ngs_sep_* trailing candidates (weekly rows, week-0 aggregates "
+     "excluded)."),
     ("load_participation", "Advanced participation and alignment data.",
      "Coverage/pressure context (higher effort)."),
     ("load_pfr", "PFR advanced passing/rushing metrics.",

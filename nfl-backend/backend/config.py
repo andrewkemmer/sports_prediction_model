@@ -51,6 +51,16 @@ YPP_WINDOW = 5        # net yards/play window
 EWM_HALFLIFE = 2      # decaying-window halflife (games)
 OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing window (games; roll_opp)
 OPP_ADJ_SHRINKAGE = 8.0  # games of opponent-defensive evidence before the prior is fully trusted
+
+# RFE commit gate: a trial commits when its pooled logloss gain beats this
+# multiple of the paired per-game SE (floor 0.0005). 1.0 = ~84% one-sided
+# confidence — deliberately looser than the old 2.0 (97.5%); every trial
+# stays visible in the trace/workbook either way.
+RFE_COMMIT_SE_MULTIPLE = 1.0
+
+# Precipitation thresholds for the committed weather table (inches).
+PRECIP_FLAG_IN = 0.1
+SNOW_FLAG_IN = 0.1
 PACE_WINDOW = 4       # trailing plays/min window (games)
 PBP_ROLL_WINDOW = 4   # trailing flat window for the pbp candidate metrics
 
@@ -66,7 +76,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v3-opp-adj-epa"
+FEATURE_SET_VERSION = "nfl-prod-v4-yac-weather-skill-ngs"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -109,6 +119,13 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_net_pts_diff", "ewm_ypp_diff",
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
+    # playing surface + observed game-day environment (static pre-game facts;
+    # NaN for domes/international/missing rows — never fabricated)
+    "is_turf_home", "temp_f", "wind_mph", "is_precip", "is_snow",
+    # starter availability (weekly injury reports, pre-game facts; diffs of
+    # Out/IR counts by position group)
+    "inj_qb_out_diff", "inj_tackle_out_diff", "inj_edge_out_diff",
+    "inj_starters_out_diff",
     # raw per-side levels (the tree family's home/away representations).
     # Declared HERE, never synthesized by a view: the served list stays the
     # only place a feature can appear.
@@ -150,7 +167,7 @@ PBP_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "qb_epa_dropback": ("ewm",),
     "cpoe_play": ("ewm",),          # needs pbp cache v2 (air_yards-family pull)
     "air_yards_att": ("ewm",),      # needs pbp cache v2
-    "yac_att": ("ewm",),            # needs pbp cache v2
+    "yac_epa_att": ("ewm",),        # YAC-as-EPA per attempt (nflreadpy has no raw yac; pbp cache v3)
     # Opponent-adjusted EPA lives in PBP_OPP_ADJ_TRAILING_SPECS below (the
     # ladder pre-pass produces it from epa_play x def_epa_play).
     # Defensive efficiency: EPA allowed per play on the team's defensive
@@ -199,10 +216,40 @@ PBP_OPP_ADJ_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "epa_play_opp_adj": ("ewm", "roll_opp"),
 }
 
-# Served candidate names, derived from the spec — never hand-listed.
+# Skill-position usage (weekly player stats): per-(game, team) shares served
+# at the same causal windows. Family prefix ps_.
+PS_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    # RB carries / team rushing attempts (committee vs workhorse backfield)
+    "rb_load_share": ("ewm", "roll"),
+    # max WR target share (a true WR1 threat vs target dispersal)
+    "wr1_target_share": ("ewm", "roll"),
+}
+
+# Next-Gen Stats weekly tracking efficiency, trailed like every per-game
+# metric. The family prefix makes the served names (ngs_cpoe_* etc.); week-0
+# season aggregates never reach here.
+NGS_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    "cpoe": ("ewm", "roll"),      # NGS completion % above expectation (QBs)
+    "rush_eff": ("ewm", "roll"),  # NGS rush yards over expected / attempt
+    "sep": ("ewm", "roll"),       # NGS avg separation (WR/TE receiving)
+}
+
+# family prefix -> the trailing specs behind it (served candidate names are
+# DERIVED from this — never hand-listed).
+CANDIDATE_FAMILIES: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
+    "pbp": {
+        "base": PBP_CANDIDATE_TRAILING_SPECS,
+        "opp_adj": PBP_OPP_ADJ_TRAILING_SPECS,
+    },
+    "ps": {"base": PS_CANDIDATE_TRAILING_SPECS},
+    "ngs": {"base": NGS_CANDIDATE_TRAILING_SPECS},
+}
+
+# Served candidate names, derived from the specs — never hand-listed.
 PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
-    f"pbp_{metric}_{window}_{rep}"
-    for spec in (PBP_CANDIDATE_TRAILING_SPECS, PBP_OPP_ADJ_TRAILING_SPECS)
+    f"{family}_{metric}_{window}_{rep}"
+    for family, specs in CANDIDATE_FAMILIES.items()
+    for spec in specs.values()
     for metric, windows in spec.items()
     for window in windows
     for rep in ("diff", "home", "away")
@@ -220,8 +267,9 @@ RAW_PER_SIDE_COLS = frozenset({
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
-} | {f"pbp_{m}_{w}_{s}"
-     for spec in (PBP_CANDIDATE_TRAILING_SPECS, PBP_OPP_ADJ_TRAILING_SPECS)
+} | {f"{family}_{m}_{w}_{s}"
+     for family, specs in CANDIDATE_FAMILIES.items()
+     for spec in specs.values()
      for m, ws in spec.items() for w in ws for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only

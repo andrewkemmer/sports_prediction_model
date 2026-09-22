@@ -18,3 +18,10 @@ mlb-backend/backend/final_delete.txt
 # Coding-agent scratch workspace: ablations, verification harnesses, tests.
 # Never committed — verdicts land as mlb_* records in data_delivery/ (README §4/§5).
 scratch/
+
+# nflverse data caches (pbp/ps/NGS/injuries parquets) — regenerable from the
+# ingestion loaders, hundreds of MB. Never committed.
+.nfl_cache/
+
+# Local agent scratch (RFE runners, smoke artifacts) — never committed.
+.local_rfe/

@@ -64,9 +64,9 @@ def _build_candidate_manifest() -> None:
             "Trailing air yards per attempt",
             "Per-team trailing mean of air yards over pass attempts — passing depth (aggressive downfield vs checkdown profile)",
             "passing profile"),
-        "yac_att": (
-            "Trailing yards after catch per attempt",
-            "Per-team trailing mean of yards after catch over pass attempts — separation / open-field yards (receiver play)",
+        "yac_epa_att": (
+            "Trailing YAC-as-EPA per attempt",
+            "Per-team trailing mean of nflverse yac_epa over pass attempts — separation/open-field value expressed as EPA (nflreadpy publishes no raw yac column; pbp cache v3)",
             "passing profile"),
         "turnovers": (
             "Trailing giveaways",
@@ -120,62 +120,88 @@ def _build_candidate_manifest() -> None:
             "Trailing drives per game",
             "Per-team 4-game mean of distinct offensive drives (possessions/pace)",
             "pace"),
+        "rb_load_share": (
+            "Trailing RB load share",
+            "Per-team trailing mean of RB+FB carries / team rushing attempts — committee vs workhorse backfield (weekly player stats)",
+            "usage"),
+        "wr1_target_share": (
+            "Trailing WR1 target share",
+            "Per-team trailing mean of the highest-WR target share of team targets — a true WR1 threat vs target dispersal (weekly player stats)",
+            "usage"),
+        "cpoe": (
+            "Trailing NGS completion % above expectation",
+            "Per-team attempts-weighted mean of Next-Gen-Stats completion_percentage_above_expectation across the week's QBs (weekly tracking, week>0 only)",
+            "tracking"),
+        "rush_eff": (
+            "Trailing NGS rush efficiency",
+            "Per-team attempts-weighted mean of Next-Gen-Stats rush_yards_over_expected_per_attempt across the week's RB/FBs (weekly tracking)",
+            "tracking"),
+        "sep": (
+            "Trailing NGS separation",
+            "Per-team targets-weighted mean of Next-Gen-Stats avg_separation across the week's WR/TEs (weekly tracking)",
+            "tracking"),
     }
     window_doc = {
         "ewm": "decaying (halflife=2 games)",
         "roll": "4 games",
         "roll_opp": "6 games (config.OPP_ADJ_WINDOW; opponent-adjusted series)",
     }
-    for spec in (_c.PBP_CANDIDATE_TRAILING_SPECS, _c.PBP_OPP_ADJ_TRAILING_SPECS):
-        for metric, windows in spec.items():
-            desc, definition, _cat = metric_doc[metric]
-            for window in windows:
-                base = f"pbp_{metric}_{window}"
-                pit = (f"per-team EWM (halflife={_c.EWM_HALFLIFE}) of the per-game metric "
-                       "then shift(1) — current and future games excluded"
-                       if window == "ewm" else
-                       f"per-team rolling({_c.PBP_ROLL_WINDOW}).mean().shift(1) — current "
-                       "and future games excluded")
-                lookback = (f"decaying (halflife={_c.EWM_HALFLIFE} games)"
-                            if window == "ewm" else f"{_c.PBP_ROLL_WINDOW} games")
-                if window == "roll_opp":
-                    pit = (f"per-team rolling({_c.OPP_ADJ_WINDOW}).mean().shift(1) — current "
+    family_source = {
+        "pbp": "nflverse play-by-play (per-game rollup)",
+        "ps": "nflverse weekly player stats (per-game rollup)",
+        "ngs": "nflverse Next-Gen Stats weekly tracking (per-game rollup)",
+    }
+    for _family, family_specs in _c.CANDIDATE_FAMILIES.items():
+        for _spec_name, spec in family_specs.items():
+            for metric, windows in spec.items():
+                desc, definition, _cat = metric_doc[metric]
+                for window in windows:
+                    base = f"{_family}_{metric}_{window}"
+                    pit = (f"per-team EWM (halflife={_c.EWM_HALFLIFE}) of the per-game metric "
+                           "then shift(1) — current and future games excluded"
+                           if window == "ewm" else
+                           f"per-team rolling({_c.PBP_ROLL_WINDOW}).mean().shift(1) — current "
                            "and future games excluded")
-                    lookback = f"{_c.OPP_ADJ_WINDOW} games"
-                mvp = ("NaN when the team has no prior games, PBP is unavailable for a "
-                       "season, or the source column is absent (pre-v2 pbp cache / "
-                       "unpublished season"
-                       + ("; no opponent-prior games shrinks fully to the league mean"
-                          if metric.endswith("_opp_adj") else "")
-                       + "); in-model handling")
-                CANDIDATE_MANIFEST[f"{base}_diff"] = {
-                    "description": f"Home minus away {desc.lower()}",
-                    "definition": f"pbp_{metric}_{window}_home - pbp_{metric}_{window}_away — {definition}",
-                    "source": "nflverse play-by-play (per-game rollup)",
-                    "lookback": lookback,
-                    "aggregation": "per-team trailing mean of the per-game metric",
-                    "point_in_time_rule": pit,
-                    "missing_value_policy": mvp,
-                    "representation": "difference (all model families)",
-                    "model_family_availability": ["linear", "tree", "mlp"],
-                    "feature_version": 2,
-                    "candidate": True,
-                }
-                for side, rep_name, fams in (("home", "raw home level", ["tree"]),
-                                             ("away", "raw away level", ["tree"])):
-                    CANDIDATE_MANIFEST[f"{base}_{side}"] = {
-                        "description": f"{side.capitalize()} team's {desc.lower()}",
-                        "definition": f"The {side} team's own {definition} — {definition}",
-                        "source": "nflverse play-by-play (per-game rollup)",
+                    lookback = (f"decaying (halflife={_c.EWM_HALFLIFE} games)"
+                                if window == "ewm" else f"{_c.PBP_ROLL_WINDOW} games")
+                    if window == "roll_opp":
+                        pit = (f"per-team rolling({_c.OPP_ADJ_WINDOW}).mean().shift(1) — current "
+                               "and future games excluded")
+                        lookback = f"{_c.OPP_ADJ_WINDOW} games"
+                    mvp = ("NaN when the team has no prior games, the source data is "
+                           "unavailable for a season (pre-v3 pbp cache / unpublished "
+                           "season / absent source column"
+                           + ("; no opponent-prior games shrinks fully to the league mean"
+                              if metric.endswith("_opp_adj") else "")
+                           + "); in-model handling")
+                    CANDIDATE_MANIFEST[f"{base}_diff"] = {
+                        "description": f"Home minus away {desc.lower()}",
+                        "definition": f"{base}_home - {base}_away — {definition}",
+                        "source": family_source[_family],
                         "lookback": lookback,
                         "aggregation": "per-team trailing mean of the per-game metric",
                         "point_in_time_rule": pit,
                         "missing_value_policy": mvp,
-                        "representation": f"{rep_name} (tree members)",
-                        "model_family_availability": fams,
+                        "representation": "difference (all model families)",
+                        "model_family_availability": ["linear", "tree", "mlp"],
                         "feature_version": 2,
                         "candidate": True,
                     }
+                    for side, rep_name, fams in (("home", "raw home level", ["tree"]),
+                                                 ("away", "raw away level", ["tree"])):
+                        CANDIDATE_MANIFEST[f"{base}_{side}"] = {
+                            "description": f"{side.capitalize()} team's {desc.lower()}",
+                            "definition": f"The {side} team's own {definition} — {definition}",
+                            "source": family_source[_family],
+                            "lookback": lookback,
+                            "aggregation": "per-team trailing mean of the per-game metric",
+                            "point_in_time_rule": pit,
+                            "missing_value_policy": mvp,
+                            "representation": f"{rep_name} (tree members)",
+                            "model_family_availability": fams,
+                            "feature_version": 2,
+                            "candidate": True,
+                        }
 
 
 _build_candidate_manifest()
@@ -325,6 +351,114 @@ FEATURE_MANIFEST = {
         "representation": "game-level flag (all model families)",
         "model_family_availability": ["linear", "tree", "mlp"],
         "feature_version": 1,
+    },
+    "is_turf_home": {
+        "description": "Home venue playing surface is artificial turf",
+        "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+        "source": "nflverse schedule surface field",
+        "lookback": 0,
+        "aggregation": "static pre-game fact",
+        "point_in_time_rule": "venue attribute known before kickoff",
+        "missing_value_policy": "NaN when surface is unlisted/blank; never fabricated",
+        "representation": "game-level flag (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "temp_f": {
+        "description": "Observed game-day temperature (F) at the game venue",
+        "definition": "daily mean temperature on the game date from the committed observed-weather table (build_weather_table.py, Open-Meteo archive); schedule temp payload as fallback",
+        "source": "committed nfl_weather.csv + nflverse schedule temp",
+        "lookback": 0,
+        "aggregation": "static pre-game fact",
+        "point_in_time_rule": "observed game-day environment, known before kickoff",
+        "missing_value_policy": "NaN for domes/international/missing rows; never fabricated",
+        "representation": "game-level value (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "wind_mph": {
+        "description": "Observed game-day wind speed (mph) at the game venue",
+        "definition": "daily max sustained wind speed on the game date from the committed observed-weather table; schedule wind payload as fallback",
+        "source": "committed nfl_weather.csv + nflverse schedule wind",
+        "lookback": 0,
+        "aggregation": "static pre-game fact",
+        "point_in_time_rule": "observed game-day environment, known before kickoff",
+        "missing_value_policy": "NaN for domes/international/missing rows; never fabricated",
+        "representation": "game-level value (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "is_precip": {
+        "description": "Observed precipitation at the game venue (game day)",
+        "definition": "1.0 when observed daily precipitation >= PRECIP_FLAG_IN (0.1 in), 0.0 otherwise; NaN unknown",
+        "source": "committed nfl_weather.csv (Open-Meteo archive precipitation)",
+        "lookback": 0,
+        "aggregation": "static pre-game fact",
+        "point_in_time_rule": "observed game-day environment, known before kickoff",
+        "missing_value_policy": "NaN when the weather table lacks the (stadium, gameday) row; never fabricated",
+        "representation": "game-level flag (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "is_snow": {
+        "description": "Observed snowfall at the game venue (game day)",
+        "definition": "1.0 when observed daily snowfall >= SNOW_FLAG_IN (0.1 in), 0.0 otherwise; NaN unknown",
+        "source": "committed nfl_weather.csv (Open-Meteo archive snowfall)",
+        "lookback": 0,
+        "aggregation": "static pre-game fact",
+        "point_in_time_rule": "observed game-day environment, known before kickoff",
+        "missing_value_policy": "NaN when the weather table lacks the (stadium, gameday) row; never fabricated",
+        "representation": "game-level flag (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "inj_qb_out_diff": {
+        "description": "Home minus away QBs ruled Out on the week's report",
+        "definition": "count of QBs with report_status == 'Out' on the week's injury report, home minus away",
+        "source": "nflverse weekly injury reports (load_injuries)",
+        "lookback": 0,
+        "aggregation": "pre-game fact (weekly report)",
+        "point_in_time_rule": "the week's published report — known before kickoff",
+        "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "inj_tackle_out_diff": {
+        "description": "Home minus away tackles ruled Out on the week's report",
+        "definition": "count of T/OT/LT/RT with report_status == 'Out' on the week's injury report, home minus away",
+        "source": "nflverse weekly injury reports (load_injuries)",
+        "lookback": 0,
+        "aggregation": "pre-game fact (weekly report)",
+        "point_in_time_rule": "the week's published report — known before kickoff",
+        "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "inj_edge_out_diff": {
+        "description": "Home minus away edge rushers ruled Out on the week's report",
+        "definition": "count of EDGE/DE/OLB/OL with report_status == 'Out' on the week's injury report, home minus away",
+        "source": "nflverse weekly injury reports (load_injuries)",
+        "lookback": 0,
+        "aggregation": "pre-game fact (weekly report)",
+        "point_in_time_rule": "the week's published report — known before kickoff",
+        "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
+    },
+    "inj_starters_out_diff": {
+        "description": "Home minus away players ruled Out on the week's report",
+        "definition": "count of ALL players with report_status == 'Out' on the week's injury report, home minus away",
+        "source": "nflverse weekly injury reports (load_injuries)",
+        "lookback": 0,
+        "aggregation": "pre-game fact (weekly report)",
+        "point_in_time_rule": "the week's published report — known before kickoff",
+        "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 4,
     },
     "is_home": {
         "description": "Constant 1.0 anchor for the home-field edge",
