@@ -259,8 +259,16 @@ contract = list(config.MONEYLINE_FEATURE_COLS)
 check("contract is declared once with unique names",
       len(contract) > 0 and len(set(contract)) == len(contract),
       f"n={len(contract)}")
-check("raw per-side routing is a subset of the contract",
-      set(config.RAW_PER_SIDE_COLS) <= set(contract))
+check("raw per-side routing is a subset of the TRIABLE pool",
+      set(config.RAW_PER_SIDE_COLS) <= set(config.KNOWN_FEATURE_COLS),
+      f"n_raw={len(config.RAW_PER_SIDE_COLS)} n_pool={len(config.KNOWN_FEATURE_COLS)}")
+check("raw per-side routing is pool-served or declared candidates",
+      all(f in contract or f in config.RFE_CANDIDATE_COLS
+          for f in config.RAW_PER_SIDE_COLS),
+      "served raws route now; candidate raws route after adoption")
+check("candidate manifest documents every declared candidate",
+      not __import__("manifest").validate(),
+      "manifest.validate() includes candidate parity")
 check("pool == contract + declared candidates (derived, never re-listed)",
       config.KNOWN_FEATURE_COLS == list(dict.fromkeys(
           contract + [c for c in config.RFE_CANDIDATE_COLS if c not in contract])))

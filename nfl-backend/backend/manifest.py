@@ -14,6 +14,172 @@ Feature-set version: see config.FEATURE_SET_VERSION.
 """
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# pbp candidate-pool documentation (2026-09-22 expansion)
+# ---------------------------------------------------------------------------
+# Generated entries for every declared RFE candidate
+# (config.PBP_CANDIDATE_COLS = pbp_<metric>_<window>_{diff,home,away}).
+# Candidates are NOT in config.MONEYLINE_FEATURE_COLS until an RFE adoption
+# promotes them, and validate() only checks the SERVED list name-for-name —
+# so candidate entries live in a side table consumed at admission time:
+#   * feature_selection._feature_context merges it into the workbook's
+#     per-feature metadata, so trials and the decision workbook document
+#     every candidate exactly like a served feature.
+#   * config.assert_candidate_manifest_parity (called by the pipeline before
+#     RFE) asserts the coverage is complete — no undocumented candidate.
+CANDIDATE_MANIFEST: dict[str, dict] = {}
+
+
+def _build_candidate_manifest() -> None:
+    """Populate CANDIDATE_MANIFEST from the config specs — name-for-name with
+    config.PBP_CANDIDATE_COLS (asserted by config.assert_candidate_manifest
+    _parity)."""
+    try:
+        from backend import config as _c
+    except ImportError:  # running as a top-level module
+        import config as _c
+
+    metric_doc = {
+        "epa_play": (
+            "Trailing EPA per play",
+            "Per-team EWM/rolling mean of the team's prior games' mean offensive EPA per play (nflverse epa over the possession snaps)",
+            "efficiency"),
+        "def_epa_play": (
+            "Trailing EPA allowed per play",
+            "Per-team EWM/rolling mean of mean EPA allowed per play on the team's defensive snaps (nflverse epa over defteam snaps; lower = stingier defense)",
+            "defense"),
+        "epa_play_opp_adj": (
+            "Trailing opponent-adjusted EPA per play",
+            "Per-game offensive EPA per play rescaled by the PRIOR quality of the defense faced: epa_play + (prior expanding league mean of def EPA allowed − the opponent's shrunk shift(1) halflife-EWM of def EPA allowed, weight n/(n+OPP_ADJ_SHRINKAGE)); production against a good defense counts more, against a bad one less",
+            "efficiency"),
+        "qb_epa_dropback": (
+            "Trailing QB EPA per dropback",
+            "Per-team trailing mean of QB EPA on dropbacks (pass attempts + sacks); QB play quality beyond volume",
+            "efficiency"),
+        "cpoe_play": (
+            "Trailing completion percentage over expectation",
+            "Per-team trailing mean of nflverse cpoe on dropbacks — accuracy over expectation (qb play quality)",
+            "efficiency"),
+        "air_yards_att": (
+            "Trailing air yards per attempt",
+            "Per-team trailing mean of air yards over pass attempts — passing depth (aggressive downfield vs checkdown profile)",
+            "passing profile"),
+        "yac_att": (
+            "Trailing yards after catch per attempt",
+            "Per-team trailing mean of yards after catch over pass attempts — separation / open-field yards (receiver play)",
+            "passing profile"),
+        "turnovers": (
+            "Trailing giveaways",
+            "Per-team trailing mean of interceptions + lost fumbles committed on offense (protection)",
+            "turnovers"),
+        "takeaways": (
+            "Trailing takeaways",
+            "Per-team trailing mean of opponent interceptions + lost fumbles on the team's defensive snaps (takeaway edge)",
+            "turnovers"),
+        "sack_rate": (
+            "Trailing sack rate",
+            "Per-team trailing mean of sacks / dropbacks — pressure allowed (offensive line)",
+            "protection"),
+        "dropback_rate": (
+            "Trailing dropback rate",
+            "Per-team trailing mean of dropbacks / plays — passing volume tendency (playcalling)",
+            "tendency"),
+        "third_down_rate": (
+            "Trailing third-down conversion rate",
+            "Per-team trailing mean of third downs converted / third-down outcomes (situational strength)",
+            "situation"),
+        "redzone_td_rate": (
+            "Trailing red-zone TD rate",
+            "Per-team trailing share of red-zone drives (a drive entering possession inside the 20) ending in a touchdown (finishing)",
+            "situation"),
+        "start_field_pos": (
+            "Trailing starting field position",
+            "Per-team trailing mean of starting yardline_100 across drives — field-position edge (special teams / turnovers)",
+            "field position"),
+        "penalty_yards_pg": (
+            "Trailing penalty yards per game",
+            "Per-team 4-game mean of penalty yards (discipline)",
+            "discipline"),
+        "penalties_pg": (
+            "Trailing penalty count per game",
+            "Per-team 4-game mean of accepted penalties (discipline)",
+            "discipline"),
+        "fg_accuracy": (
+            "Trailing field-goal accuracy",
+            "Per-team trailing mean share of field-goal attempts made (kicker/special teams)",
+            "special teams"),
+        "shotgun_rate": (
+            "Trailing shotgun rate",
+            "Per-team trailing mean of shotgun snaps / plays (formation tendency)",
+            "tendency"),
+        "no_huddle_rate": (
+            "Trailing no-huddle rate",
+            "Per-team trailing mean of no-huddle snaps / plays (pace/formation tendency)",
+            "tendency"),
+        "drives_pg": (
+            "Trailing drives per game",
+            "Per-team 4-game mean of distinct offensive drives (possessions/pace)",
+            "pace"),
+    }
+    window_doc = {
+        "ewm": "decaying (halflife=2 games)",
+        "roll": "4 games",
+        "roll_opp": "6 games (config.OPP_ADJ_WINDOW; opponent-adjusted series)",
+    }
+    for spec in (_c.PBP_CANDIDATE_TRAILING_SPECS, _c.PBP_OPP_ADJ_TRAILING_SPECS):
+        for metric, windows in spec.items():
+            desc, definition, _cat = metric_doc[metric]
+            for window in windows:
+                base = f"pbp_{metric}_{window}"
+                pit = (f"per-team EWM (halflife={_c.EWM_HALFLIFE}) of the per-game metric "
+                       "then shift(1) — current and future games excluded"
+                       if window == "ewm" else
+                       f"per-team rolling({_c.PBP_ROLL_WINDOW}).mean().shift(1) — current "
+                       "and future games excluded")
+                lookback = (f"decaying (halflife={_c.EWM_HALFLIFE} games)"
+                            if window == "ewm" else f"{_c.PBP_ROLL_WINDOW} games")
+                if window == "roll_opp":
+                    pit = (f"per-team rolling({_c.OPP_ADJ_WINDOW}).mean().shift(1) — current "
+                           "and future games excluded")
+                    lookback = f"{_c.OPP_ADJ_WINDOW} games"
+                mvp = ("NaN when the team has no prior games, PBP is unavailable for a "
+                       "season, or the source column is absent (pre-v2 pbp cache / "
+                       "unpublished season"
+                       + ("; no opponent-prior games shrinks fully to the league mean"
+                          if metric.endswith("_opp_adj") else "")
+                       + "); in-model handling")
+                CANDIDATE_MANIFEST[f"{base}_diff"] = {
+                    "description": f"Home minus away {desc.lower()}",
+                    "definition": f"pbp_{metric}_{window}_home - pbp_{metric}_{window}_away — {definition}",
+                    "source": "nflverse play-by-play (per-game rollup)",
+                    "lookback": lookback,
+                    "aggregation": "per-team trailing mean of the per-game metric",
+                    "point_in_time_rule": pit,
+                    "missing_value_policy": mvp,
+                    "representation": "difference (all model families)",
+                    "model_family_availability": ["linear", "tree", "mlp"],
+                    "feature_version": 2,
+                    "candidate": True,
+                }
+                for side, rep_name, fams in (("home", "raw home level", ["tree"]),
+                                             ("away", "raw away level", ["tree"])):
+                    CANDIDATE_MANIFEST[f"{base}_{side}"] = {
+                        "description": f"{side.capitalize()} team's {desc.lower()}",
+                        "definition": f"The {side} team's own {definition} — {definition}",
+                        "source": "nflverse play-by-play (per-game rollup)",
+                        "lookback": lookback,
+                        "aggregation": "per-team trailing mean of the per-game metric",
+                        "point_in_time_rule": pit,
+                        "missing_value_policy": mvp,
+                        "representation": f"{rep_name} (tree members)",
+                        "model_family_availability": fams,
+                        "feature_version": 2,
+                        "candidate": True,
+                    }
+
+
+_build_candidate_manifest()
+
 # One entry per served feature. Field order mirrors the spec (section 11).
 FEATURE_MANIFEST = {
     "elo_diff": {
@@ -317,9 +483,20 @@ def validate() -> list[str]:
     for f in FEATURE_MANIFEST:
         if f not in served:
             problems.append(f"manifest feature {f!r} is not served")
+    # Raw per-side routing columns must be TRIABLE names (the declared pool):
+    # served raws live in MONEYLINE_FEATURE_COLS; candidate raws are triable
+    # from RFE_CANDIDATE_COLS and — only after an adoption — served. Both
+    # cases are covered by pool membership; a promoted raw's routing (linear
+    # members never see it) is enforced by features.linear_view at matrix
+    # time, not by this static check.
+    pool = list(_c.KNOWN_FEATURE_COLS)
     for f in _c.RAW_PER_SIDE_COLS:
-        if f not in served:
-            problems.append(f"raw per-side column {f!r} is not in the served contract")
+        if f not in pool:
+            problems.append(f"raw per-side column {f!r} is not in the declared pool")
+    # Candidate documentation must name the declared candidate list exactly.
+    # (Candidates are triable-but-unserved, so they live in CANDIDATE_MANIFEST,
+    # not FEATURE_MANIFEST — until an adoption promotes them.)
+    problems.extend(config_assert_candidate_parity(_c))
     required_fields = ("definition", "source", "lookback", "aggregation",
                        "point_in_time_rule", "missing_value_policy",
                        "representation", "model_family_availability",
@@ -328,4 +505,20 @@ def validate() -> list[str]:
         for field_name in required_fields:
             if field_name not in entry:
                 problems.append(f"manifest entry {f!r} missing field {field_name!r}")
+    return problems
+
+
+def config_assert_candidate_parity(_c) -> list[str]:
+    """Declared-candidate <-> CANDIDATE_MANIFEST parity (shared helper so the
+    same check runs in validate() and via config.assert_candidate_manifest
+    _parity at pipeline time)."""
+    problems: list[str] = []
+    declared = list(getattr(_c, "PBP_CANDIDATE_COLS", []))
+    documented = list(CANDIDATE_MANIFEST)
+    for f in declared:
+        if f not in documented:
+            problems.append(f"declared candidate {f!r} missing from candidate manifest")
+    for f in documented:
+        if f not in declared:
+            problems.append(f"candidate-manifest entry {f!r} is not a declared candidate")
     return problems

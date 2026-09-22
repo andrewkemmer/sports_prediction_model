@@ -49,8 +49,10 @@ FORM_WINDOW = 4       # net pts/game window
 WINPCT_WINDOW = 12    # trailing win% window
 YPP_WINDOW = 5        # net yards/play window
 EWM_HALFLIFE = 2      # decaying-window halflife (games)
-OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing-margin window (games)
+OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing window (games; roll_opp)
+OPP_ADJ_SHRINKAGE = 8.0  # games of opponent-defensive evidence before the prior is fully trusted
 PACE_WINDOW = 4       # trailing plays/min window (games)
+PBP_ROLL_WINDOW = 4   # trailing flat window for the pbp candidate metrics
 
 # Venue / schedule facts
 PRIME_TIME_HOUR = 17  # nflverse gametime is ET; >= this = evening kickoff
@@ -64,7 +66,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v1"
+FEATURE_SET_VERSION = "nfl-prod-v3-opp-adj-epa"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -120,24 +122,113 @@ MONEYLINE_FEATURE_COLS = [
     "is_home",
 ]
 
+# ---------------------------------------------------------------------------
+# pbp candidate-pool spec (2026-09-22 expansion)
+# ---------------------------------------------------------------------------
+# Per-game play-by-play metrics the feature engine rolls up (features.py
+# _add_pbp_metrics), the trailing windows each is served at, and the served
+# names derived from them — the RFE candidate list, defined ONCE here.
+#
+#   "ewm"  — per-team EWM (halflife EWM_HALFLIFE) of the per-game metric
+#   "roll" — per-team 4-game mean (PBP_ROLL_WINDOW)
+#   "roll_opp" — per-team OPP_ADJ_WINDOW-game mean of an opponent-ADJUSTED
+#                series (see PBP_OPP_ADJ_TRAILING_SPECS below)
+# All ride features._trailing_ewm / _trailing_per_team, so every candidate
+# inherits the production shift(1) leakage discipline.
+#
+# Each <metric>_<window> serves THREE candidates:
+#   pbp_<metric>_<window>_diff  home−away gap (every model family)
+#   pbp_<metric>_<window>_home  raw home level (tree family only)
+#   pbp_<metric>_<window>_away  raw away level (tree family only)
+# Candidates stay OUT of serving width until an RFE adoption promotes them;
+# being declared here only makes them triable (features._attach_pbp_candidate
+# _features still generates the columns so trials score real signal, and a
+# declared-but-ungenerated column is narrowed out of trials by _trial_space).
+PBP_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    # Offensive efficiency beyond yards (High impact / Low cost in the audit)
+    "epa_play": ("ewm", "roll"),
+    "qb_epa_dropback": ("ewm",),
+    "cpoe_play": ("ewm",),          # needs pbp cache v2 (air_yards-family pull)
+    "air_yards_att": ("ewm",),      # needs pbp cache v2
+    "yac_att": ("ewm",),            # needs pbp cache v2
+    # Opponent-adjusted EPA lives in PBP_OPP_ADJ_TRAILING_SPECS below (the
+    # ladder pre-pass produces it from epa_play x def_epa_play).
+    # Defensive efficiency: EPA allowed per play on the team's defensive
+    # snaps (lower = stingier defense; the served diff is home minus away).
+    "def_epa_play": ("ewm", "roll"),
+    # Turnover margin as two symmetric sides (protection vs takeaway edge)
+    "turnovers": ("ewm", "roll"),
+    "takeaways": ("ewm", "roll"),
+    # Pressure / playcalling (OL + tendency)
+    "sack_rate": ("ewm",),
+    "dropback_rate": ("ewm",),
+    # Situational strength
+    "third_down_rate": ("ewm",),
+    "redzone_td_rate": ("ewm",),
+    "start_field_pos": ("ewm",),
+    # Discipline (flat 4-game volume window)
+    "penalty_yards_pg": ("roll",),
+    "penalties_pg": ("roll",),
+    # Special teams
+    "fg_accuracy": ("ewm", "roll"),
+    # Formation/pace complements to pace_plays_min
+    "shotgun_rate": ("ewm",),
+    "no_huddle_rate": ("ewm",),
+    "drives_pg": ("roll",),
+}
+
+# ---------------------------------------------------------------------------
+# Opponent-adjustment pre-pass (features.team_stats_ladder)
+# ---------------------------------------------------------------------------
+# base per-game metric -> the DEFENSIVE metric it is adjusted against. The
+# adjusted series  <base>_opp_adj = base + (prior league mean of the defense
+# metric − the opponent's shrunk prior EWM of it)  rewards production against
+# good defenses and discounts production against bad ones, using ONLY
+# strictly-prior information: the opponent strength is the opponent's own
+# shift(1) halflife-EWM shrunk toward the prior expanding league mean
+# (OPP_ADJ_SHRINKAGE games of evidence before full trust) — the leakage
+# contract is unchanged, and the adjusted series then rides the ordinary
+# trailing windows in PBP_OPP_ADJ_TRAILING_SPECS.
+PBP_OPP_ADJ_METRICS: dict[str, str] = {
+    "epa_play": "def_epa_play",
+}
+
+# Trailing windows for the opponent-adjusted series (same causal primitives;
+# the flat window is the long-standing OPP_ADJ_WINDOW knob, finally armed).
+PBP_OPP_ADJ_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    "epa_play_opp_adj": ("ewm", "roll_opp"),
+}
+
+# Served candidate names, derived from the spec — never hand-listed.
+PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
+    f"pbp_{metric}_{window}_{rep}"
+    for spec in (PBP_CANDIDATE_TRAILING_SPECS, PBP_OPP_ADJ_TRAILING_SPECS)
+    for metric, windows in spec.items()
+    for window in windows
+    for rep in ("diff", "home", "away")
+))
+
 # Member-family routing over the master list — a SELECTOR, not a feature list.
 # Mirrors MLB's training.RAW_PER_SIDE_COLS: the linear/MLP family consumes the
-# diff/anchor view, tree members consume every column.
+# diff/anchor view, tree members consume every column. Includes the pbp
+# candidate raw levels too: an adopted candidate promotes into serving width,
+# where the same routing rule must apply (a promoted raw level must never
+# reach the linear members).
 RAW_PER_SIDE_COLS = frozenset({
     "elo_home", "elo_away",
     "win_pct_home", "win_pct_away",
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
-})
+} | {f"pbp_{m}_{w}_{s}"
+     for spec in (PBP_CANDIDATE_TRAILING_SPECS, PBP_OPP_ADJ_TRAILING_SPECS)
+     for m, ws in spec.items() for w in ws for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
 # be a PIT-safe, pre-game column the feature engine produces and that is NOT
-# already in the universe above. Empty today: the engine computes no PIT-safe
-# columns beyond the universe (the frame's other numerics are structural
-# identity/outcome fields or whole-timeline display records).
-RFE_CANDIDATE_COLS: list[str] = []
+# already in the universe above.
+RFE_CANDIDATE_COLS: list[str] = list(PBP_CANDIDATE_COLS)
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record
@@ -178,6 +269,29 @@ def set_feature_subset(cols: list[str]) -> None:
 def reset_feature_subset() -> None:
     global _FEATURE_SUBSET
     _FEATURE_SUBSET = None
+
+
+def assert_candidate_manifest_parity() -> list[str]:
+    """Declared candidates <-> manifest.CANDIDATE_MANIFEST, name-for-name.
+
+    The pipeline calls this before the RFE phase so an undocumented candidate
+    (a spec name with no manifest entry, or a stale manifest entry) fails
+    loudly at run start instead of surfacing as blank workbook rows inside a
+    trial. Returns the problem list (empty = parity)."""
+    try:
+        from backend import manifest as _m
+    except ImportError:  # running as a top-level module
+        import manifest as _m
+    problems: list[str] = []
+    declared = list(PBP_CANDIDATE_COLS)
+    documented = list(_m.CANDIDATE_MANIFEST)
+    for f in declared:
+        if f not in documented:
+            problems.append(f"declared candidate {f!r} missing from candidate manifest")
+    for f in documented:
+        if f not in declared:
+            problems.append(f"candidate-manifest entry {f!r} is not a declared candidate")
+    return problems
 
 # ---------------------------------------------------------------------------
 # Ensemble members (moneyline) — NFL-specific hyperparameters

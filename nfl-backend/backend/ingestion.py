@@ -85,7 +85,18 @@ PBP_NEEDS = [
     "passing_yards", "pass_attempt", "sack", "penalty", "penalty_yards",
     "penalty_team", "third_down_converted", "third_down_failed",
     "yardline_100", "touchdown", "field_goal_result", "drive",
+    # 2026-09-22 candidate-pool expansion (pbp feature family): passing depth /
+    # separation / accuracy-over-expectation, formation tendency, drive
+    # ordering, and the TD-attribution column the red-zone rollup guards with.
+    "air_yards", "yac", "cpoe", "shotgun", "no_huddle", "play_id", "td_team",
 ]
+
+# Cache schema version for the pbp parquets. Bump whenever PBP_NEEDS widens:
+# the per-season caches store the NARROWED frame, so a previously cached
+# season would otherwise keep serving the old column set (features built from
+# the missing columns would degrade to all-NaN and read like evidence).
+# "v1" = the original 21-column set; "v2" adds the candidate-pool columns.
+PBP_CACHE_VERSION = "v2"
 
 
 def load_pbp(seasons: list[int] | None = None,
@@ -100,7 +111,7 @@ def load_pbp(seasons: list[int] | None = None,
     frames: list[pd.DataFrame] = []
     missing: list[int] = []
     for season in seasons:
-        path = _cache_path(f"pbp_{season}.parquet")
+        path = _cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet")
         if use_cache and path.exists():
             try:
                 frames.append(pd.read_parquet(path))
@@ -123,7 +134,8 @@ def load_pbp(seasons: list[int] | None = None,
                 continue
             keep = [c for c in PBP_NEEDS if c in df.columns]
             df = df[keep]
-            df.to_parquet(_cache_path(f"pbp_{season}.parquet"), index=False)
+            df.to_parquet(_cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet"),
+                          index=False)
             frames.append(df)
     if not frames:
         return None

@@ -202,14 +202,18 @@ def _feature_context(games: pd.DataFrame) -> dict[str, Any]:
       redundancy: every |r| >= 0.9 pair among pool features on the frame
     """
     try:
-        from manifest import FEATURE_MANIFEST
+        from manifest import FEATURE_MANIFEST, CANDIDATE_MANIFEST
     except Exception:  # noqa: BLE001 — artifact-only; never fatal
         FEATURE_MANIFEST = {}  # type: ignore[assignment]
+        CANDIDATE_MANIFEST = {}  # type: ignore[assignment]
 
     _, _, pool = _trial_space(games)
     meta: dict[str, dict[str, Any]] = {}
     for name in pool:
-        entry = FEATURE_MANIFEST.get(name) or {}
+        # Candidates are documented in manifest.CANDIDATE_MANIFEST until an
+        # adoption promotes them into FEATURE_MANIFEST's served list; served
+        # names always win so an adopted promotion reads consistently.
+        entry = FEATURE_MANIFEST.get(name) or CANDIDATE_MANIFEST.get(name) or {}
         lookback = entry.get("lookback", "")
         if isinstance(lookback, int):
             window = f"{lookback} games" if lookback else "static pre-game"

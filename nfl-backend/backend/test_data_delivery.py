@@ -39,7 +39,7 @@ check("config.DATA_DELIVERY_DIR is nfl-backend/data_delivery",
       str(config.DATA_DELIVERY_DIR))
 check("persistence layer creates the output dir (mkdir in main)",
       "out_dir.mkdir(parents=True, exist_ok=True)"
-      in (BACKEND_DIR / "master_pipeline.py").read_text())
+      in (BACKEND_DIR / "master_pipeline.py").read_text(encoding="utf-8"))
 check("data_delivery dir exists on disk", DD.is_dir())
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ for pattern in REQUIRED_JSON:
         continue
     path = files[-1]
     try:
-        rec = json.loads(path.read_text())
+        rec = json.loads(path.read_text(encoding="utf-8"))
         valid = True
     except Exception as exc:  # noqa: BLE001
         check(f"{path.name} parses as JSON", False, str(exc))
@@ -153,7 +153,7 @@ for pattern in REQUIRED_CSV:
 print("\n== 4. Current-slate delivery verification ==")
 ml_files = sorted(DD.glob("nfl_moneyline_v1_*.json"))
 if ml_files:
-    rec = json.loads(ml_files[-1].read_text())
+    rec = json.loads(ml_files[-1].read_text(encoding="utf-8"))
     games = rec.get("games") or []
     dates = sorted({g.get("game_date") for g in games})
     check("moneyline record carries a current slate", len(games) > 0)
@@ -191,7 +191,7 @@ check("run internals stay ignored (nfl_oof_*.csv)", oof_ignored)
 # The frontend fetch path prefers GitHub raw over local disk; the delivery
 # architecture therefore requires these files to be committable. Assert the
 # resolution order from the frontend source.
-utils_src = (REPO_ROOT / "frontend" / "utils.py").read_text()
+utils_src = (REPO_ROOT / "frontend" / "utils.py").read_text(encoding="utf-8")
 check("frontend _fetch_bytes prefers raw.githubusercontent.com then local",
       "raw.githubusercontent.com" in utils_src
       and "return resp.content, \"github\"" in utils_src
@@ -199,7 +199,7 @@ check("frontend _fetch_bytes prefers raw.githubusercontent.com then local",
 
 # ---------------------------------------------------------------------------
 print("\n== 6. Persistence failure semantics ==")
-mon_src = (BACKEND_DIR / "master_pipeline.py").read_text()
+mon_src = (BACKEND_DIR / "master_pipeline.py").read_text(encoding="utf-8")
 check("pipeline gates completion on schema validation (no silent success)",
       "validation gates failed" in mon_src and "RuntimeError" in mon_src)
 check("pipeline hard-fails on zero folds", "PHASE 4 produced ZERO folds" in mon_src)

@@ -291,15 +291,18 @@ NFL_API_SOURCES = [
      "(shotgun/no-huddle), timeouts, score state, penalties, third/fourth-down "
      "conversions, field-goal results, drive metadata — plus the payload's own "
      "temp/wind/humidity and roof/surface columns.",
-     "Narrowed at load to PBP_NEEDS (21 columns). The game rollup "
-     "(features.pbp_team_agg) then aggregates ONLY yards_gained and "
-     "game_seconds_remaining (total yards, plays, pace).",
-     "Everything else — including columns KEPT but never aggregated: epa, "
-     "qb_epa, interception, fumble_lost, sack, pass_attempt, passing_yards, "
-     "penalty, penalty_yards, penalty_team, third_down_converted/failed, "
-     "yardline_100, touchdown, field_goal_result, drive. Also dropped at "
-     "load: air_yards, yac, cpoe, wpa, down/ydstogo, shotgun/no_huddle, "
-     "score_differential, timeouts."),
+     "Narrowed at load to PBP_NEEDS (28 columns). The game rollup "
+     "(features.pbp_team_agg) aggregates yards/pace PLUS the per-game "
+     "efficiency/rate/situation metrics behind the pbp candidate pool: EPA "
+     "per play, QB EPA per dropback, defensive EPA allowed, cpoe, air "
+     "yards, YAC, turnovers/takeaways, sack/dropback/third-down rates, "
+     "penalties, red-zone finishing, field position, FG accuracy, "
+     "formation/pace — each served at trailing EWM/rolling windows, with "
+     "EPA per play also opponent-adjusted against prior defensive EPA "
+     "allowed.",
+     "Columns KEPT but still unaggregated: passing_yards, penalty_team, "
+     "touchdown (drive-level attribution beyond the rollups). Dropped at "
+     "load: wpa, down/ydstogo, score_differential, timeouts."),
     ("nflverse schedules\nnflreadpy.load_schedules",
      "Per game: betting lines (spread_line, total_line, over_under_line), "
      "weather (temp, wind), stadium/roof/surface/location, referee, game_type, "
@@ -330,36 +333,49 @@ NFL_UNUSED_API_FIELDS = [
      "Play- and QB-level expected points added.",
      "Trailing EPA/play and EPA-per-dropback diffs (efficiency beyond yards).",
      "High", "Low",
-     "Already in the pull cache — only the rollup is missing."),
+     "Aggregated 2026-09-22 → pbp_epa_play_* / pbp_qb_epa_dropback_* "
+     "candidates (+ pbp_epa_play_opp_adj_* opponent-adjusted vs prior "
+     "defensive EPA; pbp cache v2)."),
     ("pbp (KEPT)", "interception / fumble_lost",
      "Turnover events per play.",
      "Trailing turnover-margin EWM; protection/takeaway edge.",
      "High", "Low",
-     "Kept in PBP_NEEDS, never aggregated."),
+     "Aggregated 2026-09-22 → pbp_turnovers_* / pbp_takeaways_* candidates."),
     ("pbp (KEPT)", "sack / pass_attempt",
      "Pressure allowed and dropback volume.",
      "Sack-rate and dropback-rate diffs (OL + playcalling).",
-     "Medium", "Low", "Kept in PBP_NEEDS, never aggregated."),
+     "Medium", "Low",
+     "Aggregated 2026-09-22 → pbp_sack_rate_* / pbp_dropback_rate_* "
+     "candidates."),
     ("pbp (KEPT)", "third_down_converted / third_down_failed",
      "Third-down outcomes.",
      "Trailing conversion-rate diff (situational strength).",
-     "Medium", "Low", "Kept in PBP_NEEDS, never aggregated."),
+     "Medium", "Low",
+     "Aggregated 2026-09-22 → pbp_third_down_rate_* candidates."),
     ("pbp (KEPT)", "penalty / penalty_yards",
      "Penalty events and yardage.",
      "Trailing penalty-yards-per-game diff (discipline).",
-     "Medium", "Low", "Kept in PBP_NEEDS, never aggregated."),
+     "Medium", "Low",
+     "Aggregated 2026-09-22 → pbp_penalty_yards_pg_* / pbp_penalties_pg_* "
+     "candidates."),
     ("pbp (KEPT)", "yardline_100 / touchdown / field_goal_result",
      "Field position, scoring plays, FG outcomes.",
      "Red-zone finish rate, starting-field-position edge, kicker accuracy.",
-     "Medium", "Medium", "Kept in PBP_NEEDS, never aggregated."),
+     "Medium", "Medium",
+     "Aggregated 2026-09-22 → pbp_redzone_td_rate_* / pbp_start_field_pos_* "
+     "/ pbp_fg_accuracy_* candidates."),
     ("pbp (dropped)", "air_yards / yac / cpoe",
      "Passing depth, separation after catch, accuracy over expectation.",
      "Trailing passing-depth and accuracy diffs ( qb play quality).",
-     "High", "Low", "One-line additions to PBP_NEEDS + rollup."),
+     "High", "Low",
+     "Added to PBP_NEEDS + aggregated 2026-09-22 (pbp cache v2) → "
+     "pbp_air_yards_att_* / pbp_yac_att_* / pbp_cpoe_play_* candidates."),
     ("pbp (dropped)", "shotgun / no_huddle / drive",
      "Formation tendency and drive counts.",
      "Style/pace complements to the existing plays-per-minute feature.",
-     "Low", "Low", ""),
+     "Low", "Low",
+     "Added to PBP_NEEDS + aggregated 2026-09-22 → pbp_shotgun_rate_* / "
+     "pbp_no_huddle_rate_* / pbp_drives_pg_* candidates."),
     ("schedules (dropped)", "temp / wind / weather",
      "Observed game-day environment.",
      "Wind-speed and temperature bands for outdoor games (MLB weather parity).",
