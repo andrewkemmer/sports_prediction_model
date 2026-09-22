@@ -118,6 +118,11 @@ ENSEMBLE_WEIGHTS = {
 # production behavior. The AUC temperature constant is kept for
 # reversibility but is unused under "logloss".
 ADAPTIVE_WEIGHT_METRIC = "logloss"
+
+# Local BLEND_SPACE experiment retained from the pre-existing worktree change.
+# "prob" uses the historical weighted probability mean; "logit" uses the
+# weighted logit mean. The production default remains logit in training.py.
+BLEND_SPACE = "prob"
 # Elastic-net logistic (the linear-family member, 2026-09-16). Mixed L1/L2
 # penalty on the diff-column slice; l1_ratio 0.5 is the standard mix, C=0.03
 # the grid optimum's strong-regularization edge (grid on the 84-fold

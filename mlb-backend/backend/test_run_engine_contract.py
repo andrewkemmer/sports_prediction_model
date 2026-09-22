@@ -181,6 +181,63 @@ def test_posted_lineup_smoke_populates_all_six_deltas():
         features._lineup_cache.clear()
 
 
+def test_lineup_override_with_unresolved_pk_joins_without_crash():
+    """Regression (2026-09-22): a lineup override keyed by a MIXED int/NA
+    game_pk lands as object dtype, and pandas refuses the object-vs-Int64
+    key merge with a hard ValueError — killing the entire slate build so
+    zero dated artifacts shipped for the day. The enrichment must coerce
+    the key and join cleanly: resolved games enrich, unresolved games ship
+    NaN instead of crashing."""
+    import features
+    from features import LINEUP_DELTA_COLS, add_lineup_delta_features
+
+    day = pd.Timestamp("2026-09-22")
+    features._lineup_cache.clear()
+    features._lineup_cache.update({
+        "lineups": pd.DataFrame(),
+        "batter": pd.DataFrame({
+            "season": [2026] * 4,
+            "game_date": [day] * 4,
+            "batter": [1, 2, 3, 4],
+            "sd_woba": [0.34, 0.35, 0.36, 0.37],
+            "prior_pa": [100] * 4,
+        }),
+        "team": pd.DataFrame({
+            "season": [2026] * 2,
+            "game_date": [day] * 2,
+            "team": ["HOME", "AWAY"],
+            "sd_woba": [0.32, 0.33],
+            "top3_woba": [0.35, 0.36],
+            "top5_ids": ["[1, 2, 3]", "[2, 3, 4]"],
+        }),
+    })
+    try:
+        slate = pd.DataFrame({
+            "game_pk": pd.Series([101, 102], dtype="Int64"),
+            "game_date": [day, day],
+            "home_team": ["HOME", "AWAY"],
+            "away_team": ["AWAY", "HOME"],
+        })
+        # The exact production shape from _fetch_slate_lineups: one resolved
+        # int mixed with one pd.NA — a bare DataFrame of this is object dtype.
+        lineups = pd.DataFrame([
+            {"game_pk": 101, "home_order": [1, 2], "away_order": [3, 4]},
+            {"game_pk": pd.NA, "home_order": None, "away_order": None},
+        ])
+        assert lineups["game_pk"].dtype == object
+        out = add_lineup_delta_features(slate, lineups_override=lineups)
+        # Resolved game fully enriched from the posted order (team sd-wOBA
+        # 0.32/0.33, batters 0.34/0.35 and 0.36/0.37). Unresolved game falls
+        # to the team-baseline fallback and is NULLed downstream by the
+        # slate's posted-lineup mask — the contract here is only: NO CRASH
+        # on the mixed int/NA object-dtype key.
+        assert abs(out.loc[0, "lineup_actual_woba_delta_home"] - 0.025) < 1e-9
+        assert abs(out.loc[0, "lineup_actual_woba_delta_away"] - 0.035) < 1e-9
+        assert len(out) == 2
+    finally:
+        features._lineup_cache.clear()
+
+
 def test_run_line_opposite_tail_is_not_home_dog_tail():
     # A deterministic draw matrix is unnecessary here: the two output arrays
     # have separate contracts and are populated independently by the MC path.

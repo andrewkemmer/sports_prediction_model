@@ -29,6 +29,7 @@ from sklearn.preprocessing import StandardScaler
 from calibration import is_identity, MIN_OOF_FOR_FIT, moneyline_apply, moneyline_fit
 from config import (
     ADAPTIVE_WEIGHT_METRIC,
+    BLEND_SPACE,
     DATA_DELIVERY_DIR,
     DATE_FMT,
     ENSEMBLE_FILE,

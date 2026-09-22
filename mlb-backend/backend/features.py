@@ -2661,6 +2661,14 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
     batters, teams = caches["batter"].copy(), caches["team"].copy()
     lineups = (lineups_override if lineups_override is not None
                else caches["lineups"])
+    if lineups is not None and "game_pk" in lineups.columns:
+        # dtype-safe by construction: an override keyed by a mixed int/NA
+        # column lands as object dtype, and pandas refuses an object-vs-Int64
+        # key merge with a hard ValueError (the 2026-09-22 slate crash).
+        # Coerce once here so ANY caller's override joins cleanly.
+        lineups = lineups.copy()
+        lineups["game_pk"] = pd.to_numeric(
+            lineups["game_pk"], errors="coerce").astype("Int64")
 
     date = pd.to_datetime(df["game_date"])
     df["game_date"] = date
@@ -2668,6 +2676,9 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
     df["_gpk"] = pd.to_numeric(df["game_pk"], errors="coerce").astype("Int64")
     batters = batters.rename(columns={"season": "_season"})
     teams = teams.rename(columns={"season": "_season"})
+    # Unify the join key name: every merge below uses the typed _gpk column
+    # (game_pk-vs-_gpk merge keys are the exact 2026-09-22 crash surface).
+    lineups = lineups.rename(columns={"game_pk": "_gpk"})
     batters["batter"] = pd.to_numeric(batters["batter"], errors="coerce").astype("Int64")
 
     for side, team_col, order_col, woba_col, top3_col, rest_col in (
@@ -2680,8 +2691,8 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
         g = df[["_gpk", "_season", "game_date", team_col]].rename(
             columns={team_col: "team"})
         g = g.merge(teams, on=["_season", "game_date", "team"], how="left")
-        g = g.merge(lineups[["game_pk", order_col]].rename(columns={order_col: "order"}),
-                    left_on="_gpk", right_on="game_pk", how="left")
+        g = g.merge(lineups[["_gpk", order_col]].rename(columns={order_col: "order"}),
+                    on="_gpk", how="left")
 
         # explode to batter level; join point-in-time batter wOBA
         exp = g[["_gpk", "_season", "game_date", "team", "sd_woba", "top3_woba",

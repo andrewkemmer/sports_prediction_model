@@ -580,6 +580,14 @@ def _fetch_slate_lineups(slate: pd.DataFrame, target_date: date) -> pd.DataFrame
         rows.append({"game_pk": int(pk), "home_order": ho or None,
                      "away_order": ao or None})
     lu = pd.DataFrame(rows)
+    # game_pk must be TYPED before any join: rows mix resolved ints with
+    # pd.NA (games whose StatsAPI identity has not resolved yet), so the
+    # bare list-of-dicts frame lands as object dtype. pandas refuses
+    # object-vs-Int64 key merges outright — on 2026-09-22 that ValueError
+    # killed the whole slate build and shipped zero dated artifacts for the
+    # day (the dashboard fell back to the previous day's files).
+    if "game_pk" in lu.columns:
+        lu["game_pk"] = pd.to_numeric(lu["game_pk"], errors="coerce").astype("Int64")
 
     # StatsAPI is the authoritative identity for posted lineups. The ESPN
     # slate normally has only game_id, but add_lineup_delta_features joins
@@ -1911,7 +1919,23 @@ def run_daily_pipeline(
                 # Slate rows missing a source column ship NaN, like every
                 # other feature (never a fabricated 0).
                 slate = add_exp2_features(slate)
-                slate = _fetch_slate_lineups(slate, target_date)
+                try:
+                    slate = _fetch_slate_lineups(slate, target_date)
+                except Exception as exc:
+                    # Blast-radius containment: a lineup-enrichment failure
+                    # must never cost the day's artifacts (2026-09-22 shipped
+                    # zero dated files and every dashboard fell back a day).
+                    # All six lineup-delta columns stay NaN -- exactly the
+                    # PIT-correct state of a morning slate with nothing
+                    # posted -- and prediction proceeds.
+                    logger.error(
+                        "Slate lineup enrichment failed (%s); shipping the "
+                        "slate with NULL lineup-delta columns so today's "
+                        "artifacts still publish", exc)
+                    from features import LINEUP_DELTA_COLS
+                    for c in LINEUP_DELTA_COLS:
+                        if c not in slate.columns:
+                            slate[c] = pd.NA
                 if weather:
                     slate = apply_weather_features(slate, weather)
                 games = pd.concat([games, slate], ignore_index=True)

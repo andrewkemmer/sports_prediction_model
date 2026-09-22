@@ -208,6 +208,7 @@ except Exception as e:
 
 # ── Phase 4: Training + Prediction ──────────────────────────────────────────
 _banner("PHASE 4", "Training + Prediction")
+_phase4_error: Exception | None = None
 try:
     from pipeline import run_daily_pipeline
     from data_ingestion import load_game_features
@@ -285,6 +286,21 @@ try:
         print(f"  ❌ Errors: {summary['errors']}")
 except Exception as e:
     print(f"  ❌ Training failed: {e}")
+    _phase4_error = e
+else:
+    if str(summary.get("status", "")).lower() != "ok" or summary.get("errors"):
+        # The daily run's DATED artifacts (todays_games_*, predictions_*)
+        # are written in Phase 4. A failed slate/predict step means today's
+        # dashboard silently falls back to yesterday's files, so this must
+        # surface as a RED run, not a banner that still says DONE ✅
+        # (2026-09-22 shipped zero dated artifacts and still printed ✅).
+        print(f"  ❌ Phase 4 reported status={summary.get('status')} "
+              f"errors={summary.get('errors')} — failing the run loudly")
+        _phase4_error = RuntimeError(
+            f"daily pipeline status={summary.get('status')} "
+            f"errors={summary.get('errors')}")
+    else:
+        _phase4_error = None
 
 # ── Phase 4.5: Feature-selection RFE (record-only) ────────────────────────
 # Runs ONLY when MLB_RFE_FORCE=1 — unset/0 is a no-op with no calendar
@@ -591,6 +607,14 @@ else:
 if sync_dir.exists():
     shutil.rmtree(sync_dir, ignore_errors=True)
 
-_banner("DONE ✅")
+_banner("DONE ✅" if _phase4_error is None else "DONE — WITH ERRORS ❌")
 print(f"  Games: {game_df.shape[0]}  |  Pitches: {pbp_df.shape[0]:,}  |  Features: {game_df.shape[1]+pbp_df.shape[1]}")
 print(f"  Output: {out_dir}")
+
+# Honest exit code: a failed prediction phase must fail the RUN (nonzero
+# exit), even though artifact delivery already pushed whatever existed.
+# The Kaggle wrapper raises SystemExit on a nonzero code, so a stale-board
+# day like 2026-09-22 (zero dated artifacts, banner said ✅) can never
+# silently pass again.
+if _phase4_error is not None:
+    raise SystemExit(f"MLB pipeline finished WITH ERRORS: {_phase4_error}")
