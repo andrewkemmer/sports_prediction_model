@@ -40,26 +40,6 @@ logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_MILES = 3958.8
 
-# The feature engine owns this ordered universe. Production configuration
-# selects the served subset; RFE may evaluate every generated numeric feature,
-# including the raw side values used by the tree representation.
-FEATURE_ENGINE_COLUMNS = [
-    *config.FEATURE_COLUMNS,
-    "is_home",
-    "elo_home", "elo_away", "win_pct_home", "win_pct_away",
-    "ewm_net_pts_home", "ewm_net_pts_away",
-    "ewm_ypp_home", "ewm_ypp_away",
-    "rest_days_home", "rest_days_away",
-]
-
-
-def feature_engine_columns(df: pd.DataFrame | None = None) -> list[str]:
-    """Return the feature engine's single ordered generated-column contract."""
-    cols = list(FEATURE_ENGINE_COLUMNS)
-    if df is not None:
-        cols = [c for c in cols if c in df.columns]
-    return cols
-
 # ---------------------------------------------------------------------------
 # Events: long-form (team, game) view
 # ---------------------------------------------------------------------------
@@ -466,48 +446,41 @@ def build_slate_features(schedule: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Model-family feature views (deterministic ordering + dimensionality)
 # ---------------------------------------------------------------------------
+def linear_feature_columns(active: list[str] | None = None) -> list[str]:
+    """Diff/anchor projection of the contract (linear + MLP member view).
+
+    Routing RULE, not a second list: the linear family never sees the raw
+    per-side levels (config.RAW_PER_SIDE_COLS) — those exist for the tree
+    members, which consume the whole contract.
+    """
+    cols = config.active_moneyline_feature_cols() if active is None else list(active)
+    return [c for c in cols if c not in config.RAW_PER_SIDE_COLS]
+
+
 def linear_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Difference-oriented linear/MLP matrix from the active contract."""
-    cols = [c for c in config.active_feature_columns() + config.ANCHOR_COLUMNS
-            if c in df.columns]
+    """Linear/MLP matrix: pure projection of the active contract (diff view)."""
+    cols = [c for c in linear_feature_columns() if c in df.columns]
     out = df.reindex(columns=cols).astype(float)
     return out
 
 
 def tree_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Tree-family matrix from the feature engine contract.
+    """Tree-family matrix: the active contract verbatim.
 
-    Production difference features have a fixed representation projection;
-    RFE-added raw side features are selected directly from the same generated
-    universe. No model view appends an independently discovered column set.
+    No column is synthesized here — diffs, raw per-side levels and the anchor
+    all come from config.MONEYLINE_FEATURE_COLS (the run-line/totals
+    regressors pull this same view), so the matrix is unique and
+    drift-free by construction.
     """
-    active = config.active_feature_columns()
-    raw_for_diff = {
-        "elo_diff": ("elo_home", "elo_away"),
-        "win_pct_diff": ("win_pct_home", "win_pct_away"),
-        "ewm_net_pts_diff": ("ewm_net_pts_home", "ewm_net_pts_away"),
-        "ewm_ypp_diff": ("ewm_ypp_home", "ewm_ypp_away"),
-        "rest_days_diff": ("rest_days_home", "rest_days_away"),
-    }
-    selected: list[str] = []
-    for feature in active:
-        if feature in raw_for_diff:
-            names = (feature, *raw_for_diff[feature])
-        else:
-            names = (feature,)
-        for name in names:
-            if name in df.columns and name not in selected:
-                selected.append(name)
-    out = df.reindex(columns=selected).astype(float)
-    if len(selected) != len(set(selected)):
-        raise AssertionError("tree feature contract contains duplicate columns")
+    cols = [c for c in config.active_moneyline_feature_cols() if c in df.columns]
+    out = df.reindex(columns=cols).astype(float)
     return out
 
 
 def feature_coverage_report(df: pd.DataFrame) -> pd.DataFrame:
     """Coverage + missingness diagnostics per served feature."""
     rows = []
-    for f in config.active_feature_columns():
+    for f in config.active_moneyline_feature_cols():
         if f not in df.columns:
             rows.append({"feature": f, "n_games": len(df),
                          "coverage_pct": 0.0, "mean": np.nan, "std": np.nan})

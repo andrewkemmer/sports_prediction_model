@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             "simulation": "monte_carlo",
             "mc_draws": dist_mod.MC_DRAWS,
             "feature_contract": "binary_moneyline",
-            "feature_columns": list(config.active_feature_columns()),
+            "feature_columns": list(config.active_moneyline_feature_cols()),
         },
         "random_seed": config.RANDOM_SEED,
         "market_independence": True,
@@ -390,25 +390,24 @@ def main(argv: list[str] | None = None) -> int:
                         _rfe.get("run_mode"), _rfe.get("n_trials"),
                         _rfe.get("n_selected"), _rfe.get("trace"))
             from feature_workbook import generate_workbook
-            workbook_path = generate_workbook(
-                trace_path=_rfe.get("trace"), out_path=out_dir / _rfe_workbook_name(_rfe))
-            _rfe["workbook"] = workbook_path
-            logger.info("RFE workbook: %s", workbook_path)
+            _rfe["workbook"] = generate_workbook(trace_path=_rfe.get("trace"))
+            logger.info("RFE workbook: %s", _rfe["workbook"] or "not written")
     except Exception as exc:
-        _rfe = {"ran": False, "status": "failed", "reason": str(exc),
-                "error_type": type(exc).__name__}
-        logger.warning("NFL RFE skipped (non-fatal): %s", exc)
+        # Non-fatal by design (a selection hiccup must never block artifact
+        # delivery) but never silent: the traceback goes to the log, and the
+        # run summary records WHY — otherwise a crashed sweep is reported as
+        # "NFL_RFE_FORCE not set" and the missing workbook looks intentional.
+        _rfe["error"] = f"{type(exc).__name__}: {exc}"
+        logger.warning("NFL RFE skipped (non-fatal): %s", exc, exc_info=True)
 
     # ── 12. Artifact persistence ──────────────────────────────────────────
     _banner("PHASE 12", "artifact persistence")
     artifacts: list[str] = []
-    # RFE trace/workbook are record-only deliverables, but must be visible in
-    # the run summary whenever they were successfully produced.
-    for artifact_path in (_rfe.get("trace"), _rfe.get("workbook")):
-        if artifact_path:
-            artifact_name = Path(artifact_path).name
-            if Path(artifact_path).exists():
-                artifacts.append(artifact_name)
+    # RFE evidence travels with the run: the sweep trace plus the decision
+    # workbook (both absent unless NFL_RFE_FORCE was set).
+    for _rfe_path in (_rfe.get("trace"), _rfe.get("workbook")):
+        if _rfe_path:
+            artifacts.append(Path(_rfe_path).name)
     if len(slate):
         p = out_dir / config.MONEYLINE_JSON.format(date=date_c)
         serve_mod.write_moneyline_json(p, slate, p_home, p_home_cal,
@@ -493,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
         "distribution": sig,
         "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
-        "feature_columns": config.FEATURE_COLUMNS,
+        "feature_columns": config.active_moneyline_feature_cols(),
         "trained_utc": _now_utc(),
         "config": config_meta,
     }
@@ -691,24 +690,6 @@ def _build_oof_market_rows(oof_ml: pd.DataFrame, oof_dist: pd.DataFrame,
     return df
 
 
-def _rfe_workbook_name(rfe: dict) -> str:
-    """Return the trace-compatible workbook name for artifact persistence."""
-    path = Path(rfe.get("trace", "nfl_feature_selection_"))
-    raw = str(rfe.get("date", ""))[:10]
-    if len(raw) != 10 or raw[4] != "-":
-        raw = path.stem.replace("nfl_feature_selection_", "")[:10]
-    targeted = bool(rfe.get("targeted")) or "_targeted" in path.stem
-    if not targeted:
-        return f"nfl_feature_workbook_{raw}.xlsx"
-    created = str(rfe.get("created_utc", ""))
-    stamp = "0000"
-    try:
-        stamp = datetime.fromisoformat(created.replace("Z", "+00:00")).strftime("%H%M")
-    except ValueError:
-        pass
-    return f"nfl_feature_workbook_{raw}_targeted_{stamp}.xlsx"
-
-
 def _write_power_rankings(path: Path, game_df: pd.DataFrame) -> None:
     """Elo-based power rankings from the feature engine's state."""
     ev = feat_mod.team_events(game_df)
@@ -740,7 +721,7 @@ def _write_feature_json(path: Path, cov: pd.DataFrame, config_meta: dict,
         "created_utc": _now_utc(),
         "feature_set_version": config.FEATURE_SET_VERSION,
         "manifest": FEATURE_MANIFEST,
-        "served_columns": config.FEATURE_COLUMNS,
+        "served_columns": config.active_moneyline_feature_cols(),
         "coverage": cov.to_dict(orient="records"),
         "fold_geometry": fold_info,
         "config": config_meta,

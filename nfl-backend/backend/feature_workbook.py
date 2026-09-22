@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,11 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+try:
+    from backend.feature_selection import workbook_filename
+except ImportError:
+    from feature_selection import workbook_filename
 
 BACKEND = Path(__file__).resolve().parent
 DELIVERY = BACKEND.parent / "data_delivery"
@@ -39,29 +43,12 @@ def _coverage(trace: dict) -> pd.DataFrame:
     return frame
 
 
-def _workbook_filename(trace: dict[str, Any], path: Path) -> str:
-    raw_day = str(trace.get("date", ""))[:10]
-    try:
-        day = datetime.fromisoformat(raw_day).date().isoformat()
-    except ValueError:
-        day = raw_day if len(raw_day) == 10 and raw_day[4] == "-" else path.stem[-8:]
-    targeted = bool(trace.get("targeted")) or "_targeted" in path.stem
-    if not targeted:
-        return f"nfl_feature_workbook_{day}.xlsx"
-    stamp = ""
-    try:
-        stamp = datetime.fromisoformat(str(trace.get("created_utc", "")).replace("Z", "+00:00")).strftime("%H%M")
-    except ValueError:
-        stamp = datetime.now(timezone.utc).strftime("%H%M")
-    return f"nfl_feature_workbook_{day}_targeted_{stamp}.xlsx"
-
-
 def generate_workbook(trace_path: str | None = None, out_path: str | None = None) -> str | None:
     path = Path(trace_path) if trace_path else _latest_trace()
     if path is None or not path.exists():
         return None
     trace = _load_trace(path)
-    target = Path(out_path) if out_path else DELIVERY / _workbook_filename(trace, path)
+    target = Path(out_path) if out_path else DELIVERY / workbook_filename(trace, path)
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
@@ -78,15 +65,16 @@ def generate_workbook(trace_path: str | None = None, out_path: str | None = None
 
     steps = wb.create_sheet("RFE Run Detail")
     headers = ["step", "kind", "feature", "n_features", "logloss", "logloss_gain",
-               "paired_se", "commit_threshold", "auc", "ece", "committed"]
+               "paired_se", "commit_threshold", "auc", "ece", "committed", "error"]
     steps.append(headers)
     for rec in trace.get("steps", []):
         metrics = rec.get("metrics") or {}
         steps.append([rec.get("step"), rec.get("kind"), rec.get("feature"),
                       rec.get("n_features"), metrics.get("logloss"),
-                      rec.get("logloss_gain", rec.get("logloss_gain")),
+                      rec.get("logloss_gain"),
                       rec.get("paired_se"), rec.get("commit_threshold"),
-                      metrics.get("auc"), metrics.get("ece"), rec.get("committed")])
+                      metrics.get("auc"), metrics.get("ece"), rec.get("committed"),
+                      rec.get("error")])
 
     folds = wb.create_sheet("Per-Fold Detail")
     folds.append(["step", "feature", "fold_id", "validation_window", "n_games", "logloss"])
@@ -103,6 +91,8 @@ def generate_workbook(trace_path: str | None = None, out_path: str | None = None
         pool.append([feature, "production contract", feature in tested])
     for feature in sorted(tested - selected):
         pool.append([feature, "trialed candidate/removal", True])
+    for feature in sorted(set(trace.get("candidate_pool", [])) - tested - selected):
+        pool.append([feature, "auto candidate (offered, not trialed)", False])
 
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"

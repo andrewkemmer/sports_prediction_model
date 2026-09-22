@@ -74,7 +74,7 @@ def feature_importance_weights(models: dict,
     This is monitoring metadata only and never changes model fitting or
     prediction.
     """
-    importance = {f: 0.0 for f in config.FEATURE_COLUMNS}
+    importance = {f: 0.0 for f in config.active_moneyline_feature_cols()}
     for name, entry in (models or {}).items():
         model = entry.get("model") if isinstance(entry, dict) else entry
         if model is None:
@@ -91,7 +91,7 @@ def feature_importance_weights(models: dict,
             if coef is None:
                 continue
             values = np.abs(np.asarray(coef, dtype=float).reshape(-1))
-            columns = list(config.LINEAR_FEATURES)
+            columns = feat_mod.linear_feature_columns()
         if len(values) != len(columns):
             continue
         total = float(np.nansum(values))
@@ -103,7 +103,7 @@ def feature_importance_weights(models: dict,
                 importance[column] += model_weight * float(value) / total
     total = sum(importance.values())
     if total <= 0:
-        return {f: 0.0 for f in config.FEATURE_COLUMNS}
+        return {f: 0.0 for f in config.active_moneyline_feature_cols()}
     return {f: float(v / total) for f, v in importance.items()}
 
 
@@ -121,7 +121,7 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
     wmap = weights or {}
     has_weight_map = weights is not None
     rows = []
-    for f in config.FEATURE_COLUMNS:
+    for f in config.active_moneyline_feature_cols():
         if f not in full_df.columns:
             continue
         psi = _psi(recent_df[f].to_numpy(float), full_df[f].to_numpy(float))
@@ -157,9 +157,10 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        weights: dict[str, float] | None = None) -> tuple[str, str]:
     """Emit MLB-shaped run-engine drift/coverage CSVs for the NFL page.
 
-    The run engine intentionally resolves the same config.FEATURE_COLUMNS as
-    binary moneyline; this is monitoring output only and does not create a
-    second training feature contract.
+    The run engine intentionally resolves the same contract
+    (config.MONEYLINE_FEATURE_COLS via features.tree_view) as binary
+    moneyline; this is monitoring output only and does not create a second
+    training feature contract.
     """
     drift = feature_drift(full_df, recent_df, weights=weights)
     cov = coverage(full_df)
@@ -180,7 +181,7 @@ def coverage(full_df: pd.DataFrame) -> list[dict]:
     real measurement: pct_measured == pct_nonnull and n_default_zero is 0.
     """
     rows = []
-    for f in config.FEATURE_COLUMNS:
+    for f in config.active_moneyline_feature_cols():
         if f not in full_df.columns:
             rows.append({"feature": f, "window": "decided pool",
                          "n_games": len(full_df), "pct_measured": 0.0,

@@ -239,6 +239,51 @@ with warnings_as_errors():
 check("warnings-as-errors guard fires on a real df/ndarray mismatch", caught)
 
 # ---------------------------------------------------------------------------
+print("\n== 7. One master list (contract, routing, candidates) ==")
+# The binary moneyline defines config.MONEYLINE_FEATURE_COLS and every other
+# consumer PULLS it (run line via features.tree_view, the RFE via
+# _trial_space, monitoring/manifest via the same accessor). These checks
+# assert the structural properties that make duplicate columns and drift
+# impossible — nothing here is duplicate PROTECTION; the views have none.
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+    except Exception:
+        return True
+    return False
+
+
+contract = list(config.MONEYLINE_FEATURE_COLS)
+check("contract is declared once with unique names",
+      len(contract) > 0 and len(set(contract)) == len(contract),
+      f"n={len(contract)}")
+check("raw per-side routing is a subset of the contract",
+      set(config.RAW_PER_SIDE_COLS) <= set(contract))
+check("pool == contract + declared candidates (derived, never re-listed)",
+      config.KNOWN_FEATURE_COLS == list(dict.fromkeys(
+          contract + [c for c in config.RFE_CANDIDATE_COLS if c not in contract])))
+config.set_feature_subset(["elo_diff", "elo_diff", "is_home", "elo_away"])
+subset = list(config.active_moneyline_feature_cols())
+check("subsets rebuild canonically from the pool (duplicates impossible)",
+      subset == [c for c in config.KNOWN_FEATURE_COLS
+                 if c in {"elo_diff", "is_home", "elo_away"}],
+      f"got {subset}")
+sub_tree = list(feat_mod.tree_view(feats).columns)
+sub_lin = list(feat_mod.linear_view(feats).columns)
+config.reset_feature_subset()
+check("subset views stay unique and pool-ordered",
+      len(set(sub_tree)) == len(sub_tree) and len(set(sub_lin)) == len(sub_lin)
+      and sub_tree == [c for c in subset if c in feats.columns]
+      and sub_lin == [c for c in subset
+                      if c not in config.RAW_PER_SIDE_COLS and c in feats.columns])
+check("unknown subset names are rejected, not silently intersected",
+      _raises(lambda: config.set_feature_subset(["not_a_feature"])))
+check("active contract returns to the full list after reset",
+      config.active_moneyline_feature_cols() == contract)
+
+# ---------------------------------------------------------------------------
 
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:

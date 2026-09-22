@@ -94,9 +94,10 @@ class ScoreRegressor:
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         # tree_view is the exact representation used by the binary moneyline
-        # tree members. It is derived from config.FEATURE_COLUMNS; this module
-        # never owns a second run-line feature list. Do not fill NaN: LightGBM
-        # handles missing values natively, just like MLB's run engine.
+        # tree members: it projects config.MONEYLINE_FEATURE_COLS, the one
+        # master list. This module never owns a run-line feature list, so the
+        # run line PULLS the moneyline contract by construction. Do not fill
+        # NaN: LightGBM handles missing values natively, like MLB's run engine.
         X = feat_mod.tree_view(df).astype(float)
         if not self.feature_columns:
             self.feature_columns = list(X.columns)

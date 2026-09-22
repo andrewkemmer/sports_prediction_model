@@ -1,9 +1,14 @@
-"""Authoritative NFL feature manifest — the single production feature list.
+"""Authoritative NFL feature manifest — the documentation of the one list.
 
 Every production feature is documented here: definition, source, lookback,
 aggregation, point-in-time rule, missing-value policy, representation, and
-version. ``config.FEATURE_COLUMNS`` is the served pool ORDERED BY THIS
-manifest; there is no other production feature list.
+version. ``config.MONEYLINE_FEATURE_COLS`` is the served contract and the
+single source of truth; this manifest is its documentation (validated
+name-for-name by ``validate()``), never a parallel list.
+
+``representation`` carries the member routing that ``config.RAW_PER_SIDE_COLS``
+encodes: raw home/away levels reach the tree members only, while diffs,
+flags and the anchor reach every family.
 
 Feature-set version: see config.FEATURE_SET_VERSION.
 """
@@ -163,10 +168,134 @@ FEATURE_MANIFEST = {
         "aggregation": "constant",
         "point_in_time_rule": "structural — no data dependency",
         "missing_value_policy": "never missing",
-        "representation": "constant anchor (linear/MLP views; trees receive it too)",
+        "representation": "constant anchor (part of the served contract; every family receives it)",
         "model_family_availability": ["linear", "tree", "mlp"],
         "feature_version": 1,
-        "role": "anchor — reported, included in linear/MLP matrices",
+        "role": "anchor — in config.MONEYLINE_FEATURE_COLS, so trees receive it too",
+    },
+    # ---- raw per-side levels (tree members only; config.RAW_PER_SIDE_COLS) ---
+    # Each pair is the level half of the corresponding served difference. They
+    # are declared in the served contract itself (never synthesized by a view)
+    # so the tree matrix is a projection of the one list.
+    "elo_home": {
+        "description": "Home team's pre-game Elo rating",
+        "definition": "team Elo entering kickoff (home side of elo_diff)",
+        "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+        "lookback": "full history (iterative)",
+        "aggregation": "iterative state update",
+        "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+        "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "elo_away": {
+        "description": "Away team's pre-game Elo rating",
+        "definition": "team Elo entering kickoff (away side of elo_diff)",
+        "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+        "lookback": "full history (iterative)",
+        "aggregation": "iterative state update",
+        "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+        "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "win_pct_home": {
+        "description": "Home team's trailing win percentage",
+        "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
+        "source": "decided game outcomes",
+        "lookback": 12,
+        "aggregation": "trailing windowed mean",
+        "point_in_time_rule": "per-team rolling(12).mean().shift(1) — current and future games excluded",
+        "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "win_pct_away": {
+        "description": "Away team's trailing win percentage",
+        "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
+        "source": "decided game outcomes",
+        "lookback": 12,
+        "aggregation": "trailing windowed mean",
+        "point_in_time_rule": "per-team rolling(12).mean().shift(1) — current and future games excluded",
+        "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "ewm_net_pts_home": {
+        "description": "Home team's exponentially-weighted net points per game",
+        "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+        "source": "decided game scores",
+        "lookback": "decaying (halflife=2 games)",
+        "aggregation": "per-team EWM",
+        "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+        "missing_value_policy": "NaN when the team has no prior games",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "ewm_net_pts_away": {
+        "description": "Away team's exponentially-weighted net points per game",
+        "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+        "source": "decided game scores",
+        "lookback": "decaying (halflife=2 games)",
+        "aggregation": "per-team EWM",
+        "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+        "missing_value_policy": "NaN when the team has no prior games",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "ewm_ypp_home": {
+        "description": "Home team's exponentially-weighted net yards per play",
+        "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+        "source": "nflverse play-by-play",
+        "lookback": "decaying (halflife=2 games)",
+        "aggregation": "per-team EWM of per-game yardage efficiency",
+        "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+        "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "ewm_ypp_away": {
+        "description": "Away team's exponentially-weighted net yards per play",
+        "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+        "source": "nflverse play-by-play",
+        "lookback": "decaying (halflife=2 games)",
+        "aggregation": "per-team EWM of per-game yardage efficiency",
+        "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+        "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "rest_days_home": {
+        "description": "Home team's days since its previous game",
+        "definition": "(gameday_t - gameday_{t-1}).days for the home team",
+        "source": "nflverse schedules",
+        "lookback": 1,
+        "aggregation": "date difference",
+        "point_in_time_rule": "days since the team's own strictly-prior game",
+        "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+        "representation": "raw home level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
+    },
+    "rest_days_away": {
+        "description": "Away team's days since its previous game",
+        "definition": "(gameday_t - gameday_{t-1}).days for the away team",
+        "source": "nflverse schedules",
+        "lookback": 1,
+        "aggregation": "date difference",
+        "point_in_time_rule": "days since the team's own strictly-prior game",
+        "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+        "representation": "raw away level (tree members)",
+        "model_family_availability": ["tree"],
+        "feature_version": 1,
     },
 }
 
@@ -178,13 +307,19 @@ def validate() -> list[str]:
         from backend import config as _c
     except ImportError:  # running as a top-level module
         import config as _c
-    served = list(_c.FEATURE_COLUMNS) + list(_c.ANCHOR_COLUMNS)
+    # The served contract is the ONE list; the manifest documents exactly it.
+    served = list(_c.MONEYLINE_FEATURE_COLS)
+    if len(set(served)) != len(served):
+        problems.append("config.MONEYLINE_FEATURE_COLS contains duplicate names")
     for f in served:
         if f not in FEATURE_MANIFEST:
             problems.append(f"served feature {f!r} missing from manifest")
     for f in FEATURE_MANIFEST:
         if f not in served:
             problems.append(f"manifest feature {f!r} is not served")
+    for f in _c.RAW_PER_SIDE_COLS:
+        if f not in served:
+            problems.append(f"raw per-side column {f!r} is not in the served contract")
     required_fields = ("definition", "source", "lookback", "aggregation",
                        "point_in_time_rule", "missing_value_policy",
                        "representation", "model_family_availability",

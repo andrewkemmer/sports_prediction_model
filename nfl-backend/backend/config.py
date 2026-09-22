@@ -66,54 +66,103 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 FEATURE_SET_VERSION = "nfl-prod-v1"
 
-# Authoritative starting production feature pool (spec section 9). The
-# trailing ladder may compose additional candidates, but only these are
-# served to the production models. is_home is a constant anchor: reported
-# in the manifest, excluded from the model matrix.
-FEATURE_COLUMNS = [
+# ---------------------------------------------------------------------------
+# THE feature contract — ONE master list (MLB structural parity)
+# ---------------------------------------------------------------------------
+# The binary moneyline defines the production feature list below. Every other
+# consumer PULLS it; none of them declares or synthesizes its own list:
+#
+#   binary moneyline members ....... active_moneyline_feature_cols()
+#   run-line / totals regressors .. features.tree_view() over the same list
+#                                   (distributions.ScoreRegressor._matrix)
+#   RFE trials ..................... same list for removals; additions come
+#                                   only from KNOWN_FEATURE_COLS (candidates)
+#   monitoring / manifest / workbook  same list
+#
+# Member routing is a RULE over this list, never a second list:
+#   tree members (xgboost, lightgbm) -> the full list
+#   linear members (elasticnet, mlp) -> the list minus RAW_PER_SIDE_COLS
+# so `features.linear_view` / `features.tree_view` are pure projections of
+# whatever appears here. A column that is not in this list cannot reach a
+# model, and a column that is in it is unique by construction — no view needs
+# duplicate protection.
+MONEYLINE_FEATURE_COLS = [
+    # served diffs (home − away; positive = home advantage)
     "elo_diff", "win_pct_diff", "rest_days_diff", "is_dome_home",
     "ewm_net_pts_diff", "ewm_ypp_diff",
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
+    # raw per-side levels (the tree family's home/away representations).
+    # Declared HERE, never synthesized by a view: the served list stays the
+    # only place a feature can appear.
+    "elo_home", "elo_away",
+    "win_pct_home", "win_pct_away",
+    "ewm_net_pts_home", "ewm_net_pts_away",
+    "ewm_ypp_home", "ewm_ypp_away",
+    "rest_days_home", "rest_days_away",
+    # constant home anchor last, so the linear member's positional contract is
+    # unchanged by the raw-side block above (MLB parity: training.RAW_PER_SIDE_COLS)
+    "is_home",
 ]
+
+# Member-family routing over the master list — a SELECTOR, not a feature list.
+# Mirrors MLB's training.RAW_PER_SIDE_COLS: the linear/MLP family consumes the
+# diff/anchor view, tree members consume every column.
+RAW_PER_SIDE_COLS = frozenset({
+    "elo_home", "elo_away",
+    "win_pct_home", "win_pct_away",
+    "ewm_net_pts_home", "ewm_net_pts_away",
+    "ewm_ypp_home", "ewm_ypp_away",
+    "rest_days_home", "rest_days_away",
+})
+
+# The full candidate list (RFE trial space), defined ONCE. Additions may only
+# name these; the RFE never derives candidates from a frame. A candidate must
+# be a PIT-safe, pre-game column the feature engine produces and that is NOT
+# already in the universe above. Empty today: the engine computes no PIT-safe
+# columns beyond the universe (the frame's other numerics are structural
+# identity/outcome fields or whole-timeline display records).
+RFE_CANDIDATE_COLS: list[str] = []
+
+# Trial / validation pool: universe first (canonical), then candidates.
+# set_feature_subset validates against the POOL, because an adopted RFE record
+# may promote candidates into serving width. Nothing is ever removed from it.
+KNOWN_FEATURE_COLS = list(dict.fromkeys(
+    list(MONEYLINE_FEATURE_COLS) + list(RFE_CANDIDATE_COLS)))
+
 # RFE governance: this remains None during ordinary production runs. An
 # explicit adoption action may set it; RFE trials never mutate it.
 _FEATURE_SUBSET: list[str] | None = None
-ANCHOR_COLUMNS = ["is_home"]
 
 
-def active_feature_columns() -> list[str]:
-    """Return the one authoritative active moneyline feature contract."""
-    cols = _FEATURE_SUBSET if _FEATURE_SUBSET is not None else FEATURE_COLUMNS
-    return list(cols)
+def active_moneyline_feature_cols() -> list[str]:
+    """Model-facing contract: adopted RFE subset, else the full universe."""
+    return list(_FEATURE_SUBSET) if _FEATURE_SUBSET is not None \
+        else list(MONEYLINE_FEATURE_COLS)
 
 
 def set_feature_subset(cols: list[str]) -> None:
-    """Apply an explicitly adopted subset; validate before changing state."""
-    if len(cols) < 1 or len(set(cols)) != len(cols):
-        raise ValueError("invalid NFL feature subset: empty or duplicate columns")
+    """Apply an adopted subset, rebuilt in canonical pool order.
+
+    Membership (not the caller's sequence) and canonical order make a subset
+    unique and positionally stable by construction, so no consumer needs its
+    own duplicate or ordering protection. Raises on non-pool names — a subset
+    naming an unknown feature is an upstream bug, not something to intersect
+    away.
+    """
     global _FEATURE_SUBSET
-    _FEATURE_SUBSET = list(cols)
+    if len(cols) < 1:
+        raise ValueError("invalid NFL feature subset: empty")
+    unknown = [c for c in cols if c not in KNOWN_FEATURE_COLS]
+    if unknown:
+        raise ValueError(f"NFL feature subset contains non-pool columns: {unknown[:6]}")
+    chosen = set(cols)
+    _FEATURE_SUBSET = [c for c in KNOWN_FEATURE_COLS if c in chosen]
 
 
 def reset_feature_subset() -> None:
     global _FEATURE_SUBSET
     _FEATURE_SUBSET = None
-
-# ---------------------------------------------------------------------------
-# Model-family feature representations (spec section 14)
-# ---------------------------------------------------------------------------
-# Linear-family view: difference-oriented + the constant is_home anchor
-# (documented representation — the home edge needs the anchor in a
-# difference-only design).
-LINEAR_FEATURES = FEATURE_COLUMNS + ANCHOR_COLUMNS
-
-# Tree-family view: differences + raw home/away values where meaningful.
-# Built by features.build_tree_view from the ladder's per-side columns.
-TREE_FEATURES = None  # resolved at runtime by features.build_tree_view
-
-# MLP view: same columns as linear, standard-scaled; documented explicitly.
-MLP_FEATURES = LINEAR_FEATURES
 
 # ---------------------------------------------------------------------------
 # Ensemble members (moneyline) — NFL-specific hyperparameters

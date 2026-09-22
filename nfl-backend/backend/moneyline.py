@@ -172,7 +172,14 @@ def walk_forward_oof(game_df: pd.DataFrame,
             "home_win": val["home_win"].astype(float).to_numpy(),
         })
         for name in config.ENSEMBLE_MEMBERS:
-            rows[f"p_{name}"] = member_p.get(name)
+            p = member_p.get(name)
+            # A failed member is recorded as an all-NaN float column, never as
+            # None: an object-dtype None column survives into the OOF frame
+            # and poisons the numeric consumers that read it (a trial's
+            # paired-loss arithmetic could no longer tell "no member scored"
+            # from "this member failed").
+            rows[f"p_{name}"] = (np.asarray(p, dtype=float) if p is not None
+                                 else np.full(len(val), np.nan))
         # Blend this fold using only information earned before this fold.
         fold_weights = _weights_from_loss_history(prior_losses, prior_weights)
         rows["p_ensemble"] = _blend(rows, fold_weights)
