@@ -1281,6 +1281,57 @@ def _travel_crossings(hist: pd.DataFrame, target_date: date,
     return crossings
 
 
+def _latest_global_state(hist: pd.DataFrame, cols: list[str]) -> dict[str, float]:
+    """Return the latest non-null date-level source values before the slate.
+
+    Exp2 league priors are repeated on every historical game row but are not
+    team- or pitcher-specific. Resolve each source independently so the
+    upcoming slate uses the same prior-date value as historical serving.
+    """
+    state: dict[str, float] = {}
+    ordered = hist.sort_values(["game_date", "start_time_utc"]
+                               if "start_time_utc" in hist.columns
+                               else ["game_date"])
+    for col in cols:
+        if col not in ordered.columns:
+            continue
+        values = ordered.loc[ordered[col].notna(), col]
+        if not values.empty:
+            state[col] = float(values.iloc[-1])
+    return state
+
+
+def _latest_exp2_team_state(hist: pd.DataFrame,
+                            cols: list[str]) -> dict[str, dict[str, float]]:
+    """Carry exp2 opponent-lineup sources by the role they serve.
+
+    Historical exp2 columns use ``*_home`` for the AWAY lineup faced by the
+    home starter and ``*_away`` for the HOME lineup faced by the away starter.
+    This is intentionally different from ordinary team-state columns, whose
+    suffix identifies the team itself.
+    """
+    state: dict[str, dict[str, float]] = {}
+    ordered = hist.sort_values(["game_date", "start_time_utc"]
+                               if "start_time_utc" in hist.columns
+                               else ["game_date"])
+    for col in cols:
+        if col not in ordered.columns:
+            continue
+        if col.endswith("_home"):
+            base, team_col = col[:-5], "away_team"
+        elif col.endswith("_away"):
+            base, team_col = col[:-5], "home_team"
+        else:
+            continue
+        sub = ordered.loc[ordered[col].notna(), [team_col, col]]
+        if sub.empty:
+            continue
+        latest = sub.groupby(team_col, sort=False).tail(1)
+        for _, row in latest.iterrows():
+            state.setdefault(str(row[team_col]), {})[base] = float(row[col])
+    return state
+
+
 def _latest_pitcher_state(hist: pd.DataFrame) -> dict[Any, dict[str, float]]:
     """pitcher_id → {sp_* feature base: latest non-null value across starts}.
 
@@ -1383,6 +1434,9 @@ def build_upcoming_slate(
 
     hist = history_df.copy()
     hist["game_date"] = pd.to_datetime(hist["game_date"])
+    # The slate state is strictly pre-game. This also protects partial-day
+    # runs where one target-date game has already become final.
+    hist = hist.loc[hist["game_date"].dt.date < target_date].copy()
     if "start_time_utc" not in hist.columns:
         hist["start_time_utc"] = pd.to_datetime(hist["game_date"])
 
@@ -1397,6 +1451,7 @@ def build_upcoming_slate(
     # expected inputs.)
     _RAW_CARRY = [
         "woba_30g_home", "woba_30g_away",
+        "team_k_rate_30g_home", "team_k_rate_30g_away",
         "rest_days_home", "rest_days_away",
         "team_barrel_15g_home", "team_barrel_15g_away",
         "team_hardhit_15g_home", "team_hardhit_15g_away",
@@ -1414,8 +1469,26 @@ def build_upcoming_slate(
         # Closer availability is also team state (latest observation wins).
         "closer_available_home", "closer_available_away",
     ]
+    # Exp2 sources are carried separately because their home/away suffixes
+    # describe the opposing lineup faced by each starter, not the team slot.
+    _EXP2_GLOBAL = [
+        "league_k_pct",
+        *[f"league_k_pct_cat_{c}" for c in ("fastball", "breaking", "offspeed")],
+        *[f"league_xwoba_cat_{c}" for c in ("fastball", "breaking", "offspeed")],
+        "league_k_pct_fb_vs_l", "league_k_pct_fb_vs_r",
+    ]
+    _EXP2_TEAM_BASES = [
+        *[f"team_k_pct_cat_{c}" for c in ("fastball", "breaking", "offspeed")],
+        *[f"team_xwoba_cat_{c}" for c in ("fastball", "breaking", "offspeed")],
+        "team_k_pct_fb_vs_l", "team_k_pct_fb_vs_r", "opp_lefty_share",
+    ]
+    _EXP2_TEAM_COLS = [f"{base}_{side}"
+                       for base in _EXP2_TEAM_BASES
+                       for side in ("home", "away")]
     carry_cols = [c for c in _RAW_CARRY if c in hist.columns]
     team_state = _latest_side_state(hist, carry_cols)
+    exp2_team_state = _latest_exp2_team_state(hist, _EXP2_TEAM_COLS)
+    exp2_global_state = _latest_global_state(hist, _EXP2_GLOBAL)
     travel_crossings = _travel_crossings(hist, target_date)
     pitcher_state = _latest_pitcher_state(hist)
 
@@ -1468,6 +1541,33 @@ def build_upcoming_slate(
             "team_barrel_15g_home", "team_barrel_15g_away",
             "team_hardhit_15g_home", "team_hardhit_15g_away",
             "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+            # Exp2 opponent-lineup sources; these are populated from the
+            # role-aware carry below, not ordinary same-slot team state.
+            "opp_lefty_share_home", "opp_lefty_share_away",
+            *[f"team_k_pct_cat_{c}_{side}"
+              for c in ("fastball", "breaking", "offspeed")
+              for side in ("home", "away")],
+            *[f"team_xwoba_cat_{c}_{side}"
+              for c in ("fastball", "breaking", "offspeed")
+              for side in ("home", "away")],
+            "team_k_pct_fb_vs_l_home", "team_k_pct_fb_vs_l_away",
+            "team_k_pct_fb_vs_r_home", "team_k_pct_fb_vs_r_away",
+            *[f"league_k_pct_cat_{c}"
+              for c in ("fastball", "breaking", "offspeed")],
+            *[f"league_xwoba_cat_{c}"
+              for c in ("fastball", "breaking", "offspeed")],
+            "league_k_pct", "league_k_pct_fb_vs_l", "league_k_pct_fb_vs_r",
+            *[f"sp_k_pct_cat_{c}_{side}"
+              for c in ("fastball", "breaking", "offspeed")
+              for side in ("home", "away")],
+            *[f"sp_xwoba_cat_{c}_{side}"
+              for c in ("fastball", "breaking", "offspeed")
+              for side in ("home", "away")],
+            *[f"sp_usage_cat_{c}_{side}"
+              for c in ("fastball", "breaking", "offspeed")
+              for side in ("home", "away")],
+            "sp_k_pct_fb_vs_l_home", "sp_k_pct_fb_vs_l_away",
+            "sp_k_pct_fb_vs_r_home", "sp_k_pct_fb_vs_r_away",
             # Per-hand lineup OPS splits — TEAM state (the lineup's own trailing
             # OPS vs L/R starters), re-suffixed onto tonight's batting slot.
             "lineup_ops_vs_l_home", "lineup_ops_vs_l_away",
@@ -1514,7 +1614,15 @@ def build_upcoming_slate(
             # Re-suffix the side-agnostic latest values onto this game's slot
             for base, val in team_state.get(team, {}).items():
                 row[f"{base}_{side}"] = val
+            # Exp2 team inputs describe the lineup faced by the starter in
+            # this slot. Historical *_home values come from away_team rows and
+            # *_away values from home_team rows, so carry the opponent's state
+            # into the corresponding starter slot.
+            opponent = away if side == "home" else home
+            for base, val in exp2_team_state.get(str(opponent), {}).items():
+                row[f"{base}_{side}"] = val
             row[f"time_zones_crossed_last_3d_{side}"] = travel_crossings.get(team, 0)
+        row.update(exp2_global_state)
         row["home_elo"] = elos.get(home, 1500.0)
         row["away_elo"] = elos.get(away, 1500.0)
 
