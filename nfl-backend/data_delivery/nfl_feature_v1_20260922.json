@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-22T00:49:34.282674+00:00",
+ "created_utc": "2026-09-22T13:18:31.860139+00:00",
  "feature_set_version": "nfl-prod-v1",
  "manifest": {
   "elo_diff": {
@@ -202,14 +202,154 @@
    "aggregation": "constant",
    "point_in_time_rule": "structural \u2014 no data dependency",
    "missing_value_policy": "never missing",
-   "representation": "constant anchor (linear/MLP views; trees receive it too)",
+   "representation": "constant anchor (part of the served contract; every family receives it)",
    "model_family_availability": [
     "linear",
     "tree",
     "mlp"
    ],
    "feature_version": 1,
-   "role": "anchor \u2014 reported, included in linear/MLP matrices"
+   "role": "anchor \u2014 in config.MONEYLINE_FEATURE_COLS, so trees receive it too"
+  },
+  "elo_home": {
+   "description": "Home team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (home side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "elo_away": {
+   "description": "Away team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (away side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_home": {
+   "description": "Home team's trailing win percentage",
+   "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_away": {
+   "description": "Away team's trailing win percentage",
+   "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_home": {
+   "description": "Home team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_away": {
+   "description": "Away team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_home": {
+   "description": "Home team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_away": {
+   "description": "Away team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_home": {
+   "description": "Home team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days for the home team",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_away": {
+   "description": "Away team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days for the away team",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
   }
  },
  "served_columns": [
@@ -224,92 +364,180 @@
   "div_game",
   "travel_miles_diff",
   "altitude_home",
-  "prime_time"
+  "prime_time",
+  "elo_home",
+  "elo_away",
+  "win_pct_home",
+  "win_pct_away",
+  "ewm_net_pts_home",
+  "ewm_net_pts_away",
+  "ewm_ypp_home",
+  "ewm_ypp_away",
+  "rest_days_home",
+  "rest_days_away",
+  "is_home"
  ],
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 100.0,
-   "mean": -0.6994447105922458,
-   "std": 137.84075174512134
+   "mean": -0.5906898593292145,
+   "std": 137.9014292380573
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.21,
-   "mean": -0.0005443606681346065,
-   "std": 0.2890786276323018
+   "mean": -0.000349584278155708,
+   "std": 0.2891516631565334
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.21,
-   "mean": -0.060252218589444184,
-   "std": 2.422753074442509
+   "mean": -0.058823529411764705,
+   "std": 2.4230895617836583
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 98.1,
-   "mean": 0.3079829948039679,
-   "std": 0.46176854865540623
+   "mean": 0.3083097261567517,
+   "std": 0.46190429026779606
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.21,
-   "mean": -0.3415318062128524,
-   "std": 10.64162027168884
+   "mean": -0.3443298809691528,
+   "std": 10.639922890798466
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 97.78,
-   "mean": -0.003651535005367088,
-   "std": 0.7203516240094576
+   "mean": -0.0034206317264638773,
+   "std": 0.7202590407208991
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 97.78,
-   "mean": -0.0013458907895158617,
-   "std": 0.12482911943884592
+   "mean": -0.0012822705405513479,
+   "std": 0.12483376317303702
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.21,
-   "mean": 0.01821578701541336,
-   "std": 0.3606131747807036
+   "mean": 0.018207282913165267,
+   "std": 0.36052916371885707
   },
   {
    "feature": "div_game",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 100.0,
-   "mean": 0.36051899907321594,
-   "std": 0.48026235814154006
+   "mean": 0.3603520148216767,
+   "std": 0.48021375592093013
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.77,
-   "mean": -933.7375330568317,
-   "std": 664.138677475513
+   "mean": -934.4411722899656,
+   "std": 664.787017176516
   },
   {
    "feature": "altitude_home",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 99.77,
-   "mean": 608.3534602879703,
-   "std": 967.130731240038
+   "mean": 608.1397400185701,
+   "std": 966.956980244424
   },
   {
    "feature": "prime_time",
-   "n_games": 2158,
+   "n_games": 2159,
    "coverage_pct": 100.0,
-   "mean": 0.20945319740500462,
-   "std": 0.40701267880826636
+   "mean": 0.20981936081519223,
+   "std": 0.4072738940995003
+  },
+  {
+   "feature": "elo_home",
+   "n_games": 2159,
+   "coverage_pct": 100.0,
+   "mean": 1501.420471708389,
+   "std": 98.79754009770076
+  },
+  {
+   "feature": "elo_away",
+   "n_games": 2159,
+   "coverage_pct": 100.0,
+   "mean": 1502.0111615677179,
+   "std": 97.78318810263792
+  },
+  {
+   "feature": "win_pct_home",
+   "n_games": 2159,
+   "coverage_pct": 99.26,
+   "mean": 0.5002844759844293,
+   "std": 0.20920948069589282
+  },
+  {
+   "feature": "win_pct_away",
+   "n_games": 2159,
+   "coverage_pct": 99.21,
+   "mean": 0.5007509064231753,
+   "std": 0.21005862527770722
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "n_games": 2159,
+   "coverage_pct": 99.26,
+   "mean": -0.17215232929841973,
+   "std": 7.713472640930491
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "n_games": 2159,
+   "coverage_pct": 99.21,
+   "mean": 0.18187478212451882,
+   "std": 7.697228494133138
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "n_games": 2159,
+   "coverage_pct": 98.56,
+   "mean": 4.214719772034693,
+   "std": 0.5191360966747777
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "n_games": 2159,
+   "coverage_pct": 98.47,
+   "mean": 4.21893350559475,
+   "std": 0.5140850044695122
+  },
+  {
+   "feature": "rest_days_home",
+   "n_games": 2159,
+   "coverage_pct": 99.26,
+   "mean": 21.868408772748484,
+   "std": 57.37067578799023
+  },
+  {
+   "feature": "rest_days_away",
+   "n_games": 2159,
+   "coverage_pct": 99.21,
+   "mean": 21.816526610644257,
+   "std": 57.15636057279274
+  },
+  {
+   "feature": "is_home",
+   "n_games": 2159,
+   "coverage_pct": 100.0,
+   "mean": 1.0,
+   "std": 0.0
   }
  ],
  "fold_geometry": {
@@ -318,7 +546,7 @@
   "last_val_end": "2026-09-23",
   "min_train": 256,
   "max_train": 2143,
-  "total_val_games": 1294
+  "total_val_games": 1295
  },
  "config": {
   "feature_set_version": "nfl-prod-v1",
@@ -356,7 +584,18 @@
     "div_game",
     "travel_miles_diff",
     "altitude_home",
-    "prime_time"
+    "prime_time",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "is_home"
    ]
   },
   "random_seed": 42,
