@@ -1083,7 +1083,13 @@ def _render_run_engine_drift(
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
     for r, w in zip(records, weight_pcts):
-        psi = r.get("psi", 0.0)
+        psi = r.get("psi")
+        psi_str = "—"
+        try:
+            _p = float(psi)
+            psi_str = "nan" if pd.isna(_p) else f"{_p:.3f}"
+        except (TypeError, ValueError):
+            pass  # None/invalid psi (constant feature) renders as em-dash
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
@@ -1103,7 +1109,7 @@ def _render_run_engine_drift(
             f"margin-top:1px;'>{label}</div></td>"
             f"<td>{r.get('current_mean', '—')}</td>"
             f"<td>{r.get('baseline_mean', '—')}</td>"
-            f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"<td style='color:{psi_color};font-weight:700;'>{psi_str}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>"

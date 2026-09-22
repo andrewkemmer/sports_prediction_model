@@ -66,6 +66,13 @@ def _monitor_record() -> dict:
          "mean_shift": -0.01, "shift_se": 0.02, "location_shift": False,
          "status": "OK", "weight_pct": None,
          "n_baseline": 1930, "n_current": 285},
+        # Constant feature: the emitter ships psi=None (real artifacts do —
+        # e.g. is_home). The page must render '—', never raise TypeError.
+        {"feature": "is_home", "current_mean": 1.0, "baseline_mean": 1.0,
+         "psi": None, "psi_adjusted": None, "noise_floor": 0.004,
+         "mean_shift": 0.0, "shift_se": 0.0, "location_shift": False,
+         "status": "OK", "weight_pct": 0.0,
+         "n_baseline": 1930, "n_current": 285},
     ]
     coverage = [
         {"feature": "elo_diff", "window": "decided pool", "n_games": 1960,

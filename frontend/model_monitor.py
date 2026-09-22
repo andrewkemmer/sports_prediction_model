@@ -49,6 +49,19 @@ def _fmt_drift_mean(value) -> str:
         return "—"
 
 
+def _fmt_psi(value) -> str:
+    """Three-decimal PSI; constant features ship psi=None (and NaN/None can
+    appear in already-published artifacts), which must render as '—' — never
+    a TypeError from a float format on None."""
+    try:
+        value = float(value)
+        if pd.isna(value):
+            return "—"
+        return f"{value:.3f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -161,7 +174,7 @@ if drift:
     weight_header = "<th>MODEL WEIGHT</th>" if has_weights else ""
     rows = []
     for r in drift:
-        psi = r.get("psi", 0.0)
+        psi = r.get("psi")
         status = r.get("status", "OK")
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT
@@ -190,7 +203,7 @@ if drift:
             f"<td style='color:#E2E8F0;'>{feature_cell}</td>"
             f"<td>{_fmt_drift_mean(r.get('current_mean'))}</td>"
             f"<td>{_fmt_drift_mean(r.get('baseline_mean'))}</td>"
-            f"<td style='color:{psi_color};font-weight:700;'>{psi:.3f}</td>"
+            f"<td style='color:{psi_color};font-weight:700;'>{_fmt_psi(psi)}</td>"
             f"{weight_cell}"
             f"<td><span class='fb-status-pill {pill_cls}'>{status}</span>"
             f"<span style='color:#64748B;font-size:0.72rem;margin-left:5px;'>{samples}</span></td></tr>"

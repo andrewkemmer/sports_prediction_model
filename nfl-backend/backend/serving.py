@@ -251,7 +251,18 @@ def write_calibration_json(path, moneyline_metrics: dict,
 # ---------------------------------------------------------------------------
 def write_predictions_history_csv(path, oof: pd.DataFrame,
                                   p_cal: np.ndarray | None) -> pd.DataFrame:
-    df = oof.sort_values("gameday").reset_index(drop=True)
+    # Attach the caller's per-game calibrated array to the frame BEFORE any
+    # reordering: a positional numpy array must never be inserted after a
+    # sort, or calibrated probabilities pair with the wrong games' labels
+    # (the row-scramble defect this guards against — MLB's writer carries
+    # the column on the frame for the same reason).
+    if p_cal is not None:
+        oof = oof.copy()
+        if len(p_cal) != len(oof):
+            raise ValueError(
+                f"p_cal length {len(p_cal)} != oof length {len(oof)}")
+        oof["_p_cal_input"] = np.asarray(p_cal, dtype=float)
+    df = oof.sort_values("gameday", kind="stable").reset_index(drop=True)
     out = pd.DataFrame({
         "game_id": df["game_id"],
         "game_date": pd.to_datetime(df["gameday"]).dt.strftime("%Y-%m-%d"),
@@ -261,7 +272,9 @@ def write_predictions_history_csv(path, oof: pd.DataFrame,
         "away_score": df["away_score"].astype(float),
         "home_win": df["home_win"].astype(float),
         "home_win_prob_model": df["p_ensemble"].astype(float),
-        "home_win_prob_model_calibrated": p_cal if p_cal is not None else df["p_ensemble"].astype(float),
+        "home_win_prob_model_calibrated": (df["_p_cal_input"].astype(float)
+                                           if "_p_cal_input" in df.columns
+                                           else df["p_ensemble"].astype(float)),
         "model_pick": np.where(df["p_ensemble"] >= 0.5, df["home_team"], df["away_team"]),
         "actual_winner": np.where(df["home_win"] > 0.5, df["home_team"],
                                   np.where(df["home_win"] < 0.5, df["away_team"], "TIE")),

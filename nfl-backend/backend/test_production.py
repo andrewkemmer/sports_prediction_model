@@ -739,6 +739,47 @@ try:
 except Exception as exc:  # noqa: BLE001
     check("serving parity checks", False, str(exc))
 
+# 10h. History-CSV writer: raw↔calibrated pairing must survive the writer's
+# internal re-sort (the row-scramble defect). Adversarial: the caller passes
+# p_cal in a DIFFERENT row order than the writer's gameday sort produces, so a
+# positional insert after sorting would pair every value with the wrong game.
+try:
+    rng6 = np.random.default_rng(23)
+    nw = 40
+    day_a = pd.DataFrame({
+        "game_id": [f"A{i}" for i in range(nw)], "gameday": "2026-01-04",
+        "p_ensemble": np.clip(rng6.normal(0.5, 0.18, nw), 0.05, 0.95),
+        "home_win": rng6.integers(0, 2, nw).astype(float),
+        "home_team": [f"HA{i}" for i in range(nw)],
+        "away_team": [f"AA{i}" for i in range(nw)],
+        "home_score": rng6.integers(0, 45, nw).astype(float),
+        "away_score": rng6.integers(0, 45, nw).astype(float),
+    })
+    day_b = day_a.copy()
+    day_b["game_id"] = [f"B{i}" for i in range(nw)]
+    day_b["gameday"] = "2026-01-11"
+    adv = pd.concat([day_b, day_a], ignore_index=True)  # reverse-day order
+    p_cal_adversarial = np.clip(rng6.normal(0.5, 0.15, len(adv)), 0.05, 0.95)
+    with tempfile.TemporaryDirectory() as td:
+        p_hist = Path(td) / "hist.csv"
+        out_df = serve_mod.write_predictions_history_csv(
+            p_hist, adv, p_cal_adversarial)
+        roundtrip = pd.read_csv(p_hist)
+    # Each row's calibrated value must equal the value that entered paired
+    # with ITS game_id (not a value from another same-day row's position).
+    joined = out_df.merge(
+        pd.DataFrame({"game_id": adv["game_id"],
+                      "cal_in": p_cal_adversarial}),
+        on="game_id", how="left", validate="one_to_one")
+    check("history writer keeps calibrated paired with its own game",
+          bool(np.allclose(joined["home_win_prob_model_calibrated"],
+                           joined["cal_in"], equal_nan=True)))
+    check("history writer length + unique game keys preserved",
+          len(roundtrip) == len(adv)
+          and roundtrip["game_id"].is_unique)
+except Exception as exc:  # noqa: BLE001
+    check("history writer alignment checks", False, str(exc))
+
 # ---------------------------------------------------------------------------
 print("\n== 11. RFE feature context (workbook trace contract) ==")
 try:
@@ -767,6 +808,50 @@ try:
           any({p["a"], p["b"]} == {"elo_home", "elo_away"} for p in ctx["redundancy"]))
 except Exception as exc:  # noqa: BLE001
     check("RFE feature context checks", False, str(exc))
+
+# ---------------------------------------------------------------------------
+print("\n== 13. Coverage Gaps sheet — MLB-parity 5-section API-gap catalog ==")
+try:
+    from openpyxl import load_workbook
+    from feature_workbook import generate_workbook
+    rng7 = np.random.default_rng(31)
+    ctx_df2 = pd.DataFrame({
+        "elo_diff": rng7.normal(0, 10, 90),
+        "prime_time": rng7.integers(0, 2, 90).astype(float),
+    })
+    ctx2 = _feature_context(ctx_df2)
+    wb_trace = {"schema": "nfl-rfe-v2", "date": "2026-09-21",
+                "run_mode": "full_history", "n_pool": 2, "n_universe": 2,
+                "candidate_pool": ["elo_diff"], "selected_cols": ["elo_diff"],
+                "steps": [], "feature_context": ctx2}
+    with tempfile.TemporaryDirectory() as td:
+        tp = Path(td) / "trace.json"
+        tp.write_text(json.dumps(wb_trace), encoding="utf-8")
+        out_x = Path(td) / "wb.xlsx"
+        generate_workbook(str(tp), str(out_x))
+        wb2 = load_workbook(out_x)
+        ws = wb2["Coverage Gaps"]
+        first_col = [str(ws.cell(row=rr, column=1).value or "")
+                     for rr in range(1, ws.max_row + 1)]
+        joined = "\n".join(first_col)
+        all_cells = [str(ws.cell(row=rr, column=cc).value or "")
+                     for rr in range(1, ws.max_row + 1) for cc in range(1, 8)]
+        joined_all = "\n".join(all_cells)
+    check("Coverage Gaps renders Sections A–E + per-feature table",
+          all(s in joined for s in ("SECTION A", "SECTION B", "SECTION C",
+                                    "SECTION D", "SECTION E",
+                                    "PER-FEATURE COVERAGE")),
+          joined[:200])
+    check("Section A catalogs the pbp narrow + schedule keep-list",
+          "nflverse play-by-play" in joined and "nflverse schedules" in joined)
+    check("Section B lists kept-but-unaggregated pull columns as candidates",
+          any("epa" in c for c in all_cells))
+    check("Section C catalogs never-loaded nflreadpy endpoints",
+          any("load_injuries" in c for c in all_cells))
+    check("Section D renders the run's declared candidate pool",
+          "elo_diff" in joined)
+except Exception as exc:  # noqa: BLE001
+    check("coverage gaps sheet checks", False, str(exc))
 
 # ---------------------------------------------------------------------------
 print("\n== 12. RFE workbook naming contract ==")
