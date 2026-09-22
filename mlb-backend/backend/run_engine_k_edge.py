@@ -125,6 +125,17 @@ def k_edge_meta(k: float) -> dict:
     }
 
 
+def _oof_identity(frame: pd.DataFrame) -> tuple[int, str, str]:
+    """Cheap identity stamp for an OOF frame: (row count, min date, max
+    date). Two OOF derivations over the same decided frame match; a cache
+    left by a different frame (different slate merge, truncated history,
+    another sport's run) does not."""
+    dates = pd.to_datetime(frame["game_date"], errors="coerce")
+    return (int(len(frame)),
+            str(dates.min().date()),
+            str(dates.max().date()))
+
+
 # ---------------------------------------------------------------------------
 # Wrappers
 # ---------------------------------------------------------------------------
@@ -246,10 +257,38 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     refit policy) and applied to the OOF markets (k_edge into
     derive_markets_v3) and the slate board (seam around predict_slate_runs).
     The fitted k + drift band ALWAYS land in the markets meta
-    (summary['k_edge']). k_edge=1.0 disables the expansion."""
+    (summary['k_edge']). k_edge=1.0 disables the expansion.
+
+    PIT contract (hardened 2026-09-22): the module-level OOF cache may only
+    seed the k fit when its identity (row count + date span) matches THIS
+    run's decided frame. ``_attach_slate_run_margins``'s fallback
+    ``run_oof`` call (pipeline.py) can leave a cached frame in this module;
+    today it coincides with the daily walk's frame, but a silent producer
+    change (different snapshot, truncated history) would otherwise fit k on
+    a foreign λ basis. On any identity mismatch the cache is discarded and
+    k is fit on a fresh run_oof of the run's own decided frame — k can
+    never come from data the run did not derive."""
     global _K_EDGE_ACTIVE
     if k_edge is None:
         oof = _DAILY_OOF_CACHE
+        if oof is not None and not oof.empty:
+            try:
+                _cand = (decided_snapshot.copy()
+                         if decided_snapshot is not None
+                         else _re.get_decided_frame(games))
+                if _oof_identity(oof) != _oof_identity(_cand):
+                    _re.logger.warning(
+                        "Run engine daily (k-edge): cached OOF identity %s "
+                        "does not match this run's decided frame %s — "
+                        "discarding the cache; k will be fit on a fresh "
+                        "walk of the run's own data",
+                        _oof_identity(oof), _oof_identity(_cand))
+                    oof = None
+            except Exception as exc:
+                _re.logger.warning(
+                    "Run engine daily (k-edge): cache identity check failed "
+                    "(%s) — discarding the cache", exc)
+                oof = None
         if oof is None or oof.empty:
             decided = (decided_snapshot.copy() if decided_snapshot is not None
                        else _re.get_decided_frame(games))
