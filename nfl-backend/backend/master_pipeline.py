@@ -809,7 +809,18 @@ def _prune_old_artifacts(out_dir: Path, date_c: str) -> None:
         config.MARKETS_MONITOR_JSON,
         config.QB_MATCHUP_JSON, config.FEATURE_JSON,
         config.MODEL_MONITOR_JSON,
+        # MLB parity (retention_policy.py: 10-day window for both families):
+        # the RFE trace is the prior-verdict memory and the workbook is the
+        # human decision record — both are regenerated per RFE run, so a
+        # bounded window (not forever, not delete-on-sight) matches policy.
+        "nfl_feature_selection_{date}.json",
+        "nfl_feature_workbook_{date}.xlsx",
     ]
+    # NOTE: the RFE STATE file (nfl_feature_selection_state.json) is NOT a
+    # dated family member and must never be pruned — adopt() resolves the
+    # newest trace with a glob that also matches the state filename, but the
+    # state file itself holds the serving contract and is exempt (MLB parity:
+    # retention_policy.py "NEVER DELETE").
     for template in families:
         prefix = template.split("{")[0]
         ext = template.split("}")[1]

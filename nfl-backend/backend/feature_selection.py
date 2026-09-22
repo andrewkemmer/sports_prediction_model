@@ -318,7 +318,21 @@ def maybe_run_rfe(games: pd.DataFrame, day: str) -> dict[str, Any]:
 
 
 def adopt(trace_path: str | None = None) -> dict[str, Any]:
-    path = Path(trace_path) if trace_path else sorted(DELIVERY.glob(f"{TRACE_PREFIX}*.json"))[-1]
+    # Dated traces only: the glob prefix also matches the STATE file's name
+    # ("nfl_feature_selection_state.json"), which sorts last alphabetically —
+    # without the date-shape filter, default adopt() would read JSON state as
+    # a trace and crash on missing keys.
+    def _is_trace(p: Path) -> bool:
+        stem = p.stem[len(TRACE_PREFIX):]
+        return bool(stem) and (stem[-8:].isdigit() or "_targeted" in stem)
+    if trace_path:
+        path = Path(trace_path)
+    else:
+        candidates = sorted(p for p in DELIVERY.glob(f"{TRACE_PREFIX}*.json")
+                            if _is_trace(p))
+        if not candidates:
+            raise FileNotFoundError("no RFE trace in data_delivery to adopt")
+        path = candidates[-1]
     rec = json.loads(path.read_text(encoding="utf-8"))
     cols = rec.get("selected_cols") or []
     if len(cols) < 1:
