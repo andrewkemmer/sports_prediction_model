@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-18T23:01:30.469435+00:00",
+ "created_utc": "2026-09-22T00:49:34.282674+00:00",
  "feature_set_version": "nfl-prod-v1",
  "manifest": {
   "elo_diff": {
@@ -229,87 +229,87 @@
  "coverage": [
   {
    "feature": "elo_diff",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 100.0,
-   "mean": -0.6898639675797833,
-   "std": 137.49815828657034
+   "mean": -0.6994447105922458,
+   "std": 137.84075174512134
   },
   {
    "feature": "win_pct_diff",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 99.21,
-   "mean": -0.0008221953567510709,
-   "std": 0.2888602069214652
+   "mean": -0.0005443606681346065,
+   "std": 0.2890786276323018
   },
   {
    "feature": "rest_days_diff",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 99.21,
-   "mean": -0.0611189468735308,
-   "std": 2.426536283150538
+   "mean": -0.060252218589444184,
+   "std": 2.422753074442509
   },
   {
    "feature": "is_dome_home",
-   "n_games": 2144,
-   "coverage_pct": 98.09,
-   "mean": 0.3076557299096529,
-   "std": 0.4616329879673533
+   "n_games": 2158,
+   "coverage_pct": 98.1,
+   "mean": 0.3079829948039679,
+   "std": 0.46176854865540623
   },
   {
    "feature": "ewm_net_pts_diff",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 99.21,
-   "mean": -0.34208991168892683,
-   "std": 10.635827573294698
+   "mean": -0.3415318062128524,
+   "std": 10.64162027168884
   },
   {
    "feature": "ewm_ypp_diff",
-   "n_games": 2144,
-   "coverage_pct": 97.76,
-   "mean": -0.004250242172502491,
-   "std": 0.7200938687669686
+   "n_games": 2158,
+   "coverage_pct": 97.78,
+   "mean": -0.003651535005367088,
+   "std": 0.7203516240094576
   },
   {
    "feature": "pace_plays_min_diff",
-   "n_games": 2144,
-   "coverage_pct": 97.76,
-   "mean": -0.0014527385741737505,
-   "std": 0.12503732555964975
+   "n_games": 2158,
+   "coverage_pct": 97.78,
+   "mean": -0.0013458907895158617,
+   "std": 0.12482911943884592
   },
   {
    "feature": "rest_short_diff",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 99.21,
-   "mean": 0.017395392571697227,
-   "std": 0.3605397141145925
+   "mean": 0.01821578701541336,
+   "std": 0.3606131747807036
   },
   {
    "feature": "div_game",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 100.0,
-   "mean": 0.3605410447761194,
-   "std": 0.4802694901776927
+   "mean": 0.36051899907321594,
+   "std": 0.48026235814154006
   },
   {
    "feature": "travel_miles_diff",
-   "n_games": 2144,
-   "coverage_pct": 99.81,
-   "mean": -934.0675168762449,
-   "std": 664.432264791384
+   "n_games": 2158,
+   "coverage_pct": 99.77,
+   "mean": -933.7375330568317,
+   "std": 664.138677475513
   },
   {
    "feature": "altitude_home",
-   "n_games": 2144,
-   "coverage_pct": 99.81,
-   "mean": 607.1448598130842,
-   "std": 964.3835556457522
+   "n_games": 2158,
+   "coverage_pct": 99.77,
+   "mean": 608.3534602879703,
+   "std": 967.130731240038
   },
   {
    "feature": "prime_time",
-   "n_games": 2144,
+   "n_games": 2158,
    "coverage_pct": 100.0,
-   "mean": 0.2103544776119403,
-   "std": 0.40765546982691364
+   "mean": 0.20945319740500462,
+   "std": 0.40701267880826636
   }
  ],
  "fold_geometry": {
@@ -318,7 +318,7 @@
   "last_val_end": "2026-09-23",
   "min_train": 256,
   "max_train": 2143,
-  "total_val_games": 1280
+  "total_val_games": 1294
  },
  "config": {
   "feature_set_version": "nfl-prod-v1",
@@ -335,8 +335,30 @@
   "ensemble_members": [
    "xgboost",
    "lightgbm",
-   "logistic"
+   "elasticnet"
   ],
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time"
+   ]
+  },
   "random_seed": 42,
   "market_independence": true
  }

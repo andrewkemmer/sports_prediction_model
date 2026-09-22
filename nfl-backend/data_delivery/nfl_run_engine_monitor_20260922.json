@@ -1,0 +1,195 @@
+{
+ "schema": "run-engine-monitor/v2",
+ "date": "2026-09-22",
+ "markets_persisted": true,
+ "markets_persist_error": null,
+ "winner_cards": {
+  "over_under": {
+   "n": 1259,
+   "actual_win_rate": 0.5131,
+   "win_rate": 0.5131,
+   "predicted_mean": 0.5335,
+   "auc": 0.5525,
+   "ece_raw": 0.0464,
+   "ece_calibrated": 0.0464,
+   "brier": 0.249,
+   "logloss": 0.6914,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "run_line": {
+   "n": 1263,
+   "actual_win_rate": 0.4624,
+   "win_rate": 0.4624,
+   "predicted_mean": 0.4818,
+   "auc": 0.4542,
+   "ece_raw": 0.083,
+   "ece_calibrated": 0.083,
+   "brier": 0.2583,
+   "logloss": 0.7102,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "derived_ml": {
+   "n": 1294,
+   "actual_win_rate": 0.6221,
+   "win_rate": 0.6221,
+   "predicted_mean": 0.6474,
+   "auc": 0.622,
+   "ece_raw": 0.0321,
+   "ece_calibrated": 0.0321,
+   "brier": 0.2263,
+   "logloss": 0.6449,
+   "holdout": {},
+   "source": "oof_decided_store",
+   "ml_reference": {
+    "source": "ml_win_prob",
+    "n": 1294,
+    "win_rate": 0.6252,
+    "predicted_mean": 0.5356
+   }
+  }
+ },
+ "slate_history": [
+  {
+   "card": "over_under",
+   "date": "2026-09-22",
+   "ece_calibrated": 0.0464,
+   "brier": 0.249,
+   "logloss": 0.6914,
+   "predicted_mean": 0.5335,
+   "n": 1259
+  },
+  {
+   "card": "run_line",
+   "date": "2026-09-22",
+   "ece_calibrated": 0.083,
+   "brier": 0.2583,
+   "logloss": 0.7102,
+   "predicted_mean": 0.4818,
+   "n": 1263
+  },
+  {
+   "card": "derived_ml",
+   "date": "2026-09-22",
+   "ece_calibrated": 0.0321,
+   "brier": 0.2263,
+   "logloss": 0.6449,
+   "predicted_mean": 0.6474,
+   "n": 1294
+  }
+ ],
+ "fit": {
+  "total_tail": {
+   "k_ge": 60,
+   "obs_ge": 0.1592,
+   "mod_ge": 0.1673,
+   "k_le": 35,
+   "obs_le": 0.238,
+   "mod_le": 0.2221
+  },
+  "margin_tail": {
+   "obs_home_win": 0.5255,
+   "mod_home_win": 0.5133,
+   "obs_push": 0.0039,
+   "mod_push": 0.0068
+  },
+  "variance_obs": {
+   "home": 9.74,
+   "away": 9.38
+  }
+ },
+ "market_metrics": {
+  "over_38": {
+   "engine_ece_raw": 0.4941,
+   "engine_ece_calibrated": 0.4941,
+   "engine_brier": 0.2135,
+   "engine_logloss": 5.7917,
+   "n": 1269
+  },
+  "over_42": {
+   "engine_ece_raw": 0.4942,
+   "engine_ece_calibrated": 0.4942,
+   "engine_brier": 0.2437,
+   "engine_logloss": 6.6692,
+   "n": 1271
+  },
+  "over_46": {
+   "engine_ece_raw": 0.4877,
+   "engine_ece_calibrated": 0.4877,
+   "engine_brier": 0.2422,
+   "engine_logloss": 6.6844,
+   "n": 1263
+  },
+  "over_50": {
+   "engine_ece_raw": 0.4874,
+   "engine_ece_calibrated": 0.4874,
+   "engine_brier": 0.2219,
+   "engine_logloss": 6.1828,
+   "n": 1269
+  },
+  "over_54": {
+   "engine_ece_raw": 0.4912,
+   "engine_ece_calibrated": 0.4912,
+   "engine_brier": 0.1867,
+   "engine_logloss": 5.2709,
+   "n": 1264
+  },
+  "home_cover_3": {
+   "engine_ece_raw": 0.4595,
+   "engine_ece_calibrated": 0.4595,
+   "engine_brier": 0.2242,
+   "engine_logloss": 6.2257,
+   "n": 1207
+  },
+  "derived_moneyline": {
+   "engine_ece_raw": 0.4444,
+   "engine_ece_calibrated": 0.4444,
+   "engine_brier": 0.2256,
+   "engine_logloss": 6.1324,
+   "n": 1289
+  }
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v1",
+  "warmup_seasons": [
+   2018
+  ],
+  "oof_first_season": 2019,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true
+ }
+}
