@@ -943,7 +943,7 @@ def _attach_weather(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def _attach_pbp_candidate_features(df: pd.DataFrame,
                                    ladder: pd.DataFrame,
-                                   gids: pd.Index) -> None:
+                                   gids: pd.Index) -> pd.DataFrame:
     """Serve every trailing candidate family onto a game frame IN PLACE.
 
     Every PBP_TRAILING_SPECS metric (pbp, the opponent-adjusted series, ps
@@ -954,19 +954,26 @@ def _attach_pbp_candidate_features(df: pd.DataFrame,
     name-for-name identical). Columns the ladder could not derive (absent
     source data / old caches) are served as all-NaN, matching the documented
     missing-value policy.
+
+    Returns the frame with all candidate columns joined in ONE concat
+    (pandas fragmentation otherwise degrades every later operation on this
+    frame — even ``df[list] = frame`` inserts column-by-column internally);
+    per metric the ladder is joined once for the per-side values, and the
+    diff is the home−away difference of those sides (identical to a
+    separate join).
     """
-    new_cols: dict[str, pd.Series | np.ndarray] = {}
+    if not PBP_TRAILING_SPECS:
+        return df
+    sides: dict[str, np.ndarray] = {}
     for metric, windows in PBP_TRAILING_SPECS.items():
         family = _FAMILY_OF.get(metric, "pbp")
         for w in windows:
             col = f"{metric}_{w}"
-            new_cols[f"{family}_{col}_diff"] = _home_minus_away(ladder, gids, col)
             home_v, away_v = _per_side(ladder, gids, col)
-            new_cols[f"{family}_{col}_home"] = home_v
-            new_cols[f"{family}_{col}_away"] = away_v
-    # one concat instead of ~300 column inserts (pandas fragmentation)
-    for name, values in new_cols.items():
-        df[name] = values
+            sides[f"{family}_{col}_diff"] = home_v - away_v
+            sides[f"{family}_{col}_home"] = home_v
+            sides[f"{family}_{col}_away"] = away_v
+    return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
 
 def _records_string(events: pd.DataFrame) -> pd.Series:
@@ -1021,7 +1028,7 @@ def build_game_features(games: pd.DataFrame,
     df["ewm_ypp_diff"] = _home_minus_away(ladder, gids, "ewm_ypp")
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
-    _attach_pbp_candidate_features(df, ladder, gids)
+    df = _attach_pbp_candidate_features(df, ladder, gids)
     if "div_game" in df.columns:
         df["div_game"] = pd.to_numeric(df["div_game"], errors="coerce")
     else:
@@ -1104,7 +1111,7 @@ def build_slate_features(schedule: pd.DataFrame,
     df["ewm_ypp_diff"] = _home_minus_away(ladder, gids, "ewm_ypp")
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
-    _attach_pbp_candidate_features(df, ladder, gids)
+    df = _attach_pbp_candidate_features(df, ladder, gids)
     if "div_game" in df.columns:
         df["div_game"] = pd.to_numeric(df["div_game"], errors="coerce")
     else:

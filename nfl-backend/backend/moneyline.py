@@ -395,8 +395,11 @@ def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
     y, p = y[ok], p[ok]
     n = len(y)
     if n < config.MIN_OOF_FOR_FIT:
-        logger.info("Calibration: %d OOF games < %d minimum — using identity map",
-                    n, config.MIN_OOF_FOR_FIT)
+        # Per-fold diagnostics: DEBUG so a production log shows the summary
+        # (master_pipeline's "prequential per-fold calibration: N fitted, M
+        # identity"), not one line per fold.
+        logger.debug("Calibration: %d OOF games < %d minimum — using identity map",
+                     n, config.MIN_OOF_FOR_FIT)
         return None
     if len(np.unique(y)) < 2:
         logger.warning("Calibration: single-class OOF labels — identity map")
@@ -421,7 +424,7 @@ def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
     # 6-decimal precision so the artifact's Platt params render identically
     # on both sports' dashboards (a=0.931371, not a=0.9313710155066628).
     cal = {"method": "platt", "a": round(a, 6), "b": round(b, 6), "n": int(n)}
-    logger.info("Calibration: Platt fitted on %d OOF games (a=%.4f, b=%.4f)", n, a, b)
+    logger.debug("Calibration: Platt fitted on %d OOF games (a=%.4f, b=%.4f)", n, a, b)
     return cal
 
 
