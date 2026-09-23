@@ -1,6 +1,6 @@
 {
- "created_utc": "2026-09-22T18:52:31.056852+00:00",
- "feature_set_version": "nfl-prod-v1",
+ "created_utc": "2026-09-23T00:35:13.276647+00:00",
+ "feature_set_version": "nfl-prod-v4-air-yards-promoted",
  "manifest": {
   "elo_diff": {
    "description": "Home minus away pre-game Elo rating",
@@ -194,6 +194,150 @@
    ],
    "feature_version": 1
   },
+  "is_turf_home": {
+   "description": "Home venue playing surface is artificial turf",
+   "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+   "source": "nflverse schedule surface field",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when surface is unlisted/blank; never fabricated",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "temp_f": {
+   "description": "Observed game-day temperature (F) at the game venue",
+   "definition": "daily mean temperature on the game date from the committed observed-weather table (build_weather_table.py, Open-Meteo archive); schedule temp payload as fallback",
+   "source": "committed nfl_weather.csv + nflverse schedule temp",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "observed game-day environment, known before kickoff",
+   "missing_value_policy": "NaN for domes/international/missing rows; never fabricated",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "wind_mph": {
+   "description": "Observed game-day wind speed (mph) at the game venue",
+   "definition": "daily max sustained wind speed on the game date from the committed observed-weather table; schedule wind payload as fallback",
+   "source": "committed nfl_weather.csv + nflverse schedule wind",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "observed game-day environment, known before kickoff",
+   "missing_value_policy": "NaN for domes/international/missing rows; never fabricated",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "is_precip": {
+   "description": "Observed precipitation at the game venue (game day)",
+   "definition": "1.0 when observed daily precipitation >= PRECIP_FLAG_IN (0.1 in), 0.0 otherwise; NaN unknown",
+   "source": "committed nfl_weather.csv (Open-Meteo archive precipitation)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "observed game-day environment, known before kickoff",
+   "missing_value_policy": "NaN when the weather table lacks the (stadium, gameday) row; never fabricated",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "is_snow": {
+   "description": "Observed snowfall at the game venue (game day)",
+   "definition": "1.0 when observed daily snowfall >= SNOW_FLAG_IN (0.1 in), 0.0 otherwise; NaN unknown",
+   "source": "committed nfl_weather.csv (Open-Meteo archive snowfall)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "observed game-day environment, known before kickoff",
+   "missing_value_policy": "NaN when the weather table lacks the (stadium, gameday) row; never fabricated",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "inj_qb_out_diff": {
+   "description": "Home minus away QBs ruled Out on the week's report",
+   "definition": "count of QBs with report_status == 'Out' on the week's injury report, home minus away",
+   "source": "nflverse weekly injury reports (load_injuries)",
+   "lookback": 0,
+   "aggregation": "pre-game fact (weekly report)",
+   "point_in_time_rule": "the week's published report \u2014 known before kickoff",
+   "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "inj_tackle_out_diff": {
+   "description": "Home minus away tackles ruled Out on the week's report",
+   "definition": "count of T/OT/LT/RT with report_status == 'Out' on the week's injury report, home minus away",
+   "source": "nflverse weekly injury reports (load_injuries)",
+   "lookback": 0,
+   "aggregation": "pre-game fact (weekly report)",
+   "point_in_time_rule": "the week's published report \u2014 known before kickoff",
+   "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "inj_edge_out_diff": {
+   "description": "Home minus away edge rushers ruled Out on the week's report",
+   "definition": "count of EDGE/DE/OLB/OL with report_status == 'Out' on the week's injury report, home minus away",
+   "source": "nflverse weekly injury reports (load_injuries)",
+   "lookback": 0,
+   "aggregation": "pre-game fact (weekly report)",
+   "point_in_time_rule": "the week's published report \u2014 known before kickoff",
+   "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "inj_starters_out_diff": {
+   "description": "Home minus away players ruled Out on the week's report",
+   "definition": "count of ALL players with report_status == 'Out' on the week's injury report, home minus away",
+   "source": "nflverse weekly injury reports (load_injuries)",
+   "lookback": 0,
+   "aggregation": "pre-game fact (weekly report)",
+   "point_in_time_rule": "the week's published report \u2014 known before kickoff",
+   "missing_value_policy": "NaN when the season's report is unavailable; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
   "is_home": {
    "description": "Constant 1.0 anchor for the home-field edge",
    "definition": "constant 1.0 on every row",
@@ -350,6 +494,53 @@
     "tree"
    ],
    "feature_version": 1
+  },
+  "pbp_air_yards_att_ewm_diff": {
+   "description": "Home minus away trailing air yards per attempt",
+   "definition": "pbp_air_yards_att_ewm_home - pbp_air_yards_att_ewm_away \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_home": {
+   "description": "Home team's trailing air yards per attempt",
+   "definition": "The home team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_away": {
+   "description": "Away team's trailing air yards per attempt",
+   "definition": "The away team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
   }
  },
  "served_columns": [
@@ -365,6 +556,18 @@
   "travel_miles_diff",
   "altitude_home",
   "prime_time",
+  "is_turf_home",
+  "temp_f",
+  "wind_mph",
+  "is_precip",
+  "is_snow",
+  "inj_qb_out_diff",
+  "inj_tackle_out_diff",
+  "inj_edge_out_diff",
+  "inj_starters_out_diff",
+  "pbp_air_yards_att_ewm_diff",
+  "pbp_air_yards_att_ewm_home",
+  "pbp_air_yards_att_ewm_away",
   "elo_home",
   "elo_away",
   "win_pct_home",
@@ -463,6 +666,90 @@
    "std": 0.4072738940995003
   },
   {
+   "feature": "is_turf_home",
+   "n_games": 2159,
+   "coverage_pct": 97.96,
+   "mean": 0.43498817966903075,
+   "std": 0.49587268843285137
+  },
+  {
+   "feature": "temp_f",
+   "n_games": 2159,
+   "coverage_pct": 69.85,
+   "mean": 54.0167771883289,
+   "std": 15.645945932165082
+  },
+  {
+   "feature": "wind_mph",
+   "n_games": 2159,
+   "coverage_pct": 69.85,
+   "mean": 22.715915119363395,
+   "std": 8.4013806665889
+  },
+  {
+   "feature": "is_precip",
+   "n_games": 2159,
+   "coverage_pct": 69.25,
+   "mean": 0.23076923076923078,
+   "std": 0.42146602635152874
+  },
+  {
+   "feature": "is_snow",
+   "n_games": 2159,
+   "coverage_pct": 69.25,
+   "mean": 0.0274247491638796,
+   "std": 0.1633722297843588
+  },
+  {
+   "feature": "inj_qb_out_diff",
+   "n_games": 2159,
+   "coverage_pct": 99.72,
+   "mean": -0.0037157454714352067,
+   "std": 0.3581046982711843
+  },
+  {
+   "feature": "inj_tackle_out_diff",
+   "n_games": 2159,
+   "coverage_pct": 99.72,
+   "mean": -0.014398513701811427,
+   "std": 0.552349512750492
+  },
+  {
+   "feature": "inj_edge_out_diff",
+   "n_games": 2159,
+   "coverage_pct": 99.72,
+   "mean": -0.024616813748258245,
+   "std": 0.518117530583397
+  },
+  {
+   "feature": "inj_starters_out_diff",
+   "n_games": 2159,
+   "coverage_pct": 99.72,
+   "mean": -0.19554110543427775,
+   "std": 2.164116490249535
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "n_games": 2159,
+   "coverage_pct": 97.78,
+   "mean": -0.0017319094635715455,
+   "std": 1.5642851122531594
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "n_games": 2159,
+   "coverage_pct": 98.56,
+   "mean": 7.882433586048094,
+   "std": 1.119809037233774
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "n_games": 2159,
+   "coverage_pct": 98.47,
+   "mean": 7.8849932856787674,
+   "std": 1.1000874831285898
+  },
+  {
    "feature": "elo_home",
    "n_games": 2159,
    "coverage_pct": 100.0,
@@ -549,7 +836,7 @@
   "total_val_games": 1295
  },
  "config": {
-  "feature_set_version": "nfl-prod-v1",
+  "feature_set_version": "nfl-prod-v4-air-yards-promoted",
   "warmup_seasons": [
    2018
   ],
@@ -585,6 +872,18 @@
     "travel_miles_diff",
     "altitude_home",
     "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "inj_qb_out_diff",
+    "inj_tackle_out_diff",
+    "inj_edge_out_diff",
+    "inj_starters_out_diff",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
     "elo_home",
     "elo_away",
     "win_pct_home",
