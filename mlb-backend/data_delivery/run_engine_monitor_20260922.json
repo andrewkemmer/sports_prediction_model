@@ -944,16 +944,16 @@
       "k": 1.0473,
       "fit": "run-oof-refit (pre-holdout)",
       "sampling_se": 0.1125,
-      "reference_k": 1.53,
+      "reference_k": 1.0,
       "drift_band": [
-        1.33,
-        1.73
+        0.8,
+        1.2
       ],
-      "drift_alert": true,
+      "drift_alert": false,
       "out_of_band_policy": "monitor_only_no_action",
       "production_used": false,
       "mode": "monitor_only",
-      "basis": "run-walk-seeded"
+      "basis": "daily-oof"
     },
     "dispersion_chi2_per_df": {
       "home": 2.1879,
