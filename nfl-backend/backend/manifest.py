@@ -598,6 +598,24 @@ FEATURE_MANIFEST = {
         "feature_version": 1,
     },
 }
+# ---------------------------------------------------------------------------
+# RFE promotions: candidates structurally promoted into the served contract
+# (config.MONEYLINE_FEATURE_COLS). Their manifest entries move OUT of the
+# candidate manifest (the trial space excludes served names), so re-home the
+# generated entries here with candidate=False — one documentation source,
+# generated, never re-listed.
+_RFE_PROMOTED = [
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+]
+for _name in _RFE_PROMOTED:
+    _entry = CANDIDATE_MANIFEST.pop(_name, None)
+    if _entry is None:
+        raise RuntimeError(f"promoted feature {_name!r} has no generated manifest entry")
+    _entry["candidate"] = False
+    _entry["feature_version"] = 4
+    FEATURE_MANIFEST[_name] = _entry
 
 
 def validate() -> list[str]:
@@ -627,9 +645,10 @@ def validate() -> list[str]:
     for f in _c.RAW_PER_SIDE_COLS:
         if f not in pool:
             problems.append(f"raw per-side column {f!r} is not in the declared pool")
-    # Candidate documentation must name the declared candidate list exactly.
+    # Candidate documentation must name the effective trial space exactly.
     # (Candidates are triable-but-unserved, so they live in CANDIDATE_MANIFEST,
-    # not FEATURE_MANIFEST — until an adoption promotes them.)
+    # not FEATURE_MANIFEST; structurally promoted names leave both the trial
+    # space and the candidate manifest together.)
     problems.extend(config_assert_candidate_parity(_c))
     required_fields = ("definition", "source", "lookback", "aggregation",
                        "point_in_time_rule", "missing_value_policy",
@@ -647,7 +666,7 @@ def config_assert_candidate_parity(_c) -> list[str]:
     same check runs in validate() and via config.assert_candidate_manifest
     _parity at pipeline time)."""
     problems: list[str] = []
-    declared = list(getattr(_c, "PBP_CANDIDATE_COLS", []))
+    declared = list(getattr(_c, "RFE_CANDIDATE_COLS", []))  # effective trial space
     documented = list(CANDIDATE_MANIFEST)
     for f in declared:
         if f not in documented:

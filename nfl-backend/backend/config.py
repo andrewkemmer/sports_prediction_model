@@ -76,7 +76,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v4-yac-weather-skill-ngs"
+FEATURE_SET_VERSION = "nfl-prod-v4-air-yards-promoted"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -126,6 +126,11 @@ MONEYLINE_FEATURE_COLS = [
     # Out/IR counts by position group)
     "inj_qb_out_diff", "inj_tackle_out_diff", "inj_edge_out_diff",
     "inj_starters_out_diff",
+    # RFE promotion (2026-09-22 sweep, 1-SE gate): trailing passing depth,
+    # the sweep's only committed addition. The diff serves every family; the
+    # raw per-side levels route tree-only via RAW_PER_SIDE_COLS below.
+    "pbp_air_yards_att_ewm_diff", "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
     # raw per-side levels (the tree family's home/away representations).
     # Declared HERE, never synthesized by a view: the served list stays the
     # only place a feature can appear.
@@ -275,8 +280,11 @@ RAW_PER_SIDE_COLS = frozenset({
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
 # be a PIT-safe, pre-game column the feature engine produces and that is NOT
-# already in the universe above.
-RFE_CANDIDATE_COLS: list[str] = list(PBP_CANDIDATE_COLS)
+# already in the universe above — RFE promotions leave the trial space here
+# (the structural promotion lives in MONEYLINE_FEATURE_COLS, not in an RFE
+# adoption record, so the universe stays the single source of truth).
+RFE_CANDIDATE_COLS: list[str] = [c for c in PBP_CANDIDATE_COLS
+                                 if c not in set(MONEYLINE_FEATURE_COLS)]
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record
@@ -331,7 +339,7 @@ def assert_candidate_manifest_parity() -> list[str]:
     except ImportError:  # running as a top-level module
         import manifest as _m
     problems: list[str] = []
-    declared = list(PBP_CANDIDATE_COLS)
+    declared = list(RFE_CANDIDATE_COLS)   # the effective trial space (post-promotion)
     documented = list(_m.CANDIDATE_MANIFEST)
     for f in declared:
         if f not in documented:
