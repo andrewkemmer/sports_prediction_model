@@ -1543,20 +1543,40 @@ def _recovered_board(date_str: str, cand: str):
 
 
 def _build_slate_map(games, date_str: str) -> dict:
-    """Run-engine slate rows resolved across the available dated
+    """Run-engine slate rows resolved across the dated
     run_engine_markets_*.csv artifacts by game_pk (ESPN game_id pre-game --
-    the 145d841 convention), newest-first, instead of keying the lookup to
-    the game's exact date file. A game priced by a later run (artifact date
-    > game date) or a GMT-rollover evening game whose id carries the next
-    day's prefix still resolves here. An unresolvable id is simply absent
-    from the map -> the card renders the quiet 'unavailable' fallback.
+    the 145d841 convention), constrained to a ±1-day window around the board
+    date. The window admits exactly the two legitimate cross-date cases --
+    the GMT-rollover evening game (priced the next calendar day) and its
+    mirror -- and FORBIDS distant-future binding: a historical card must
+    never show prices from a later run that merely re-priced the same
+    matchup (2026-09-23 regression: the Sep 11 board rendering Sep 22
+    prices). An unresolvable id is simply absent from the map -> the card
+    renders the quiet 'unavailable' fallback.
     """
     _frames = {}
-    for _d in [date_str] + [d for d in _run_engine_dates() if d >= date_str]:
+    try:
+        _d0 = int(date_str)
+    except (TypeError, ValueError):
+        _d0 = None
+    _near = {str(_d0 - 1), str(_d0), str(_d0 + 1)} if _d0 is not None else {date_str}
+    for _d in [d for d in _run_engine_dates() if d in _near]:
         if _d not in _frames:
             _frames[_d] = utils.load_run_engine_markets(_d)
     _gids = [str(g.get("game_id", "")) for _, g in games.iterrows()]
     return diag.resolve_slate_across_artifacts(_frames, _gids)
+
+
+def _slate_map_for_view(games, date_str: str, history_view: bool) -> dict:
+    """Cross-artifact slate prices for a board view.
+
+    Production boards resolve across the ±1-day artifact window; archive
+    (OOF-rebuilt) boards get an EMPTY map — OOF rows must never surface as
+    prices, and cross-date binding would show another run's published
+    lines (2026-09-23 regression). The card renders its quiet
+    'unavailable' fallback when the id is absent from the map.
+    """
+    return {} if history_view else _build_slate_map(games, date_str)
 
 
 def main() -> None:
@@ -1646,7 +1666,7 @@ def _render_board(games, date_str: str, valid, history_view: bool = False) -> No
     to a normally-loaded one apart from the recovery notice.
     """
     cal = utils.load_calibration(date_str)
-    slate_map = _build_slate_map(games, date_str)
+    slate_map = _slate_map_for_view(games, date_str, history_view)
 
     # --- header: date + accuracy badge + evening note ---
     record = cal.get("today_record", {})
@@ -1678,9 +1698,10 @@ def _render_board(games, date_str: str, valid, history_view: bool = False) -> No
 
     if history_view:
         st.info(
-            "🗂 Archive view — the full snapshot for this date was never pushed "
-            "(or has been pruned), so cards are rebuilt from prediction history: "
-            "scores, picks and results only (no pitchers, odds or SHAP)."
+            "🗂 Archive view — no production snapshot exists for this date, so "
+            "cards are rebuilt from prediction history: scores, picks and "
+            "results only. OOF rebuilds are never shown as prices — run-engine "
+            "markets and SHAP render as unavailable here."
         )
 
     # --- filter pills ---

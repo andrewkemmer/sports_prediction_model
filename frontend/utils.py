@@ -2049,19 +2049,22 @@ def load_shap(game_id: str, date_str: str,
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = "shap_game" if s == "mlb" else "nfl_shap_game"
     cfg = get_source_config()
-    # Try the requested date first; fall back to latest available snapshot.
-    # SHAP files use a game_id that embeds the date (shap_game_20260821_STL@PHI.csv),
-    # so we can't do a simple prefix lookup — try requested date then latest.
+    # Serve the game's OWN dated file only. SHAP files embed their date in
+    # the game_id, so a date-rewritten id would silently attribute a
+    # DIFFERENT game's predictions to this card (2026-09-23: a Sep 11
+    # card showing `20260922_TB@NYY` attributions). Falls back ±1 day for
+    # the GMT-rollover evening game, nothing further.
     data, _ = _fetch_bytes(f"{prefix}_{game_id}.csv", **cfg, sport=s)
     if data is not None:
         return pd.read_csv(io.BytesIO(data))
-    # Extract date from game_id (first 8 digits) and try latest
-    dates = available_dates(**cfg)
-    if dates and dates[0] != date_str:
-        new_gid = game_id.replace(date_str, dates[0]) if date_str in game_id else game_id
-        data, _ = _fetch_bytes(f"{prefix}_{new_gid}.csv", **cfg, sport=s)
-        if data is not None:
-            return pd.read_csv(io.BytesIO(data))
+    m = re.match(r"^(\d{8})(.*)$", str(game_id))
+    if m:
+        d0 = m.group(1)
+        for dd in (str(int(d0) + 1), str(int(d0) - 1)):
+            new_gid = dd + m.group(2)
+            data, _ = _fetch_bytes(f"{prefix}_{new_gid}.csv", **cfg, sport=s)
+            if data is not None:
+                return pd.read_csv(io.BytesIO(data))
     return pd.DataFrame()
 
 

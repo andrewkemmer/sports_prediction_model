@@ -1764,7 +1764,8 @@ def resolve_matchup_teams(team_map: dict, key: Any) -> tuple:
 
 
 def resolve_slate_across_artifacts(
-        frames_by_date: dict, game_ids: Iterable[Any]) -> dict:
+        frames_by_date: dict, game_ids: Iterable[Any],
+        max_day_gap: int | None = 1) -> dict:
     """Resolve one run-engine slate row per card ``game_id`` across the
     available dated ``run_engine_markets_*.csv`` frames, instead of
     keying the lookup to the game's exact date file.
@@ -1790,6 +1791,14 @@ def resolve_slate_across_artifacts(
       (d) otherwise the id is absent -> the caller renders the quiet
           'unavailable' fallback. Never fabricates rows.
 
+    Distance guard (2026-09-23): passes (b)/(c) consider only frames whose
+    date is within ``max_day_gap`` days of the game_id's own date prefix
+    (default 1 — exactly the GMT-rollover evening game and its mirror).
+    A distant-future run that merely re-priced the same matchup can never
+    reach a historical card (the Sep 11 board showing Sep 22 prices).
+    Pass ``max_day_gap=None`` to restore the unbounded search (no caller
+    should). Non-date-prefixed ids skip the guard (all frames eligible).
+
     Returns ``{str(game_id): slate_record}`` for the resolvable ids.  Each
     record carries the winning frame's date as ``artifact_date`` so the
     card can label cross-date prices (the board date may differ from the
@@ -1799,6 +1808,17 @@ def resolve_slate_across_artifacts(
     frames_by_date = {str(d): f for d, f in frames_by_date.items()
                       if f is not None}
     dates = sorted(frames_by_date, reverse=True)
+
+    def _eligible(g: str, d: str) -> bool:
+        """Distance guard: frame date within max_day_gap of the id's own
+        date prefix (int-comparable compact dates; unparseable -> True)."""
+        if max_day_gap is None:
+            return True
+        try:
+            g_d, f_d = int(g[:8]), int(d)
+        except (ValueError, TypeError):
+            return True
+        return abs(f_d - g_d) <= int(max_day_gap)
 
     def _tag(row: dict, d: str) -> dict:
         """Copy a slate record and stamp the source artifact date onto it,
@@ -1832,18 +1852,23 @@ def resolve_slate_across_artifacts(
             r = _exact(d, g)
             if r is not None:
                 result[g] = _tag(r, d)
-    # (b) newest frame holding the exact game_pk fills the gaps.
+    # (b) newest ELIGIBLE frame holding the exact game_pk fills the gaps.
     for d in dates:
         for g in ids:
             if g in result:
                 continue
+            if not _eligible(g, d):
+                continue
             r = _exact(d, g)
             if r is not None:
                 result[g] = _tag(r, d)
-    # (c) newest frame holding a same-matchup row (GMT rollover reconcile).
+    # (c) newest ELIGIBLE frame holding a same-matchup row (GMT rollover
+    # reconcile — same ±1-day distance guard as (b)).
     for d in dates:
         for g in ids:
             if g in result:
+                continue
+            if not _eligible(g, d):
                 continue
             r = _matchup(d, g)
             if r is not None:

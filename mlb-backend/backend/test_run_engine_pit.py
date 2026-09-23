@@ -32,6 +32,12 @@ import pandas as pd
 
 BACKEND = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND))
+# The card-honesty tests (section 8) exercise the FRONTEND resolver/loader
+# that serves the board — the historical game card's price source lives in
+# frontend/, not in the backend package.
+_FRONTEND = (BACKEND.parent.parent / "frontend").resolve()
+if _FRONTEND.is_dir():
+    sys.path.insert(0, str(_FRONTEND))
 
 import run_engine as re            # noqa: E402
 import run_engine_k_edge as kx     # noqa: E402  (installs wrappers on import)
@@ -472,6 +478,91 @@ def test_totals_history_store_pk_dtype_normalized_and_never_raises():
                            .read_text(encoding="utf-8"))
         assert meta.get("error")
     _th_with_tmp_store(body)
+
+
+# ---------------------------------------------------------------------------
+# 8. Historical game-card price honesty (2026-09-23 regression)
+# ---------------------------------------------------------------------------
+
+def test_retention_never_prunes_card_pricing_families():
+    """A historical card must render the production prices AS PUBLISHED.
+    The three families it reads — dated boards, run-engine markets (+meta),
+    SHAP — are permanent: outside every window, with no anchor and no
+    board tracked, classify_artifact keeps them (the 2026-09-11 card
+    regression showed them Sep 22 prices after the dated files were
+    pruned). Companion board-backed families keep riding their boards."""
+    import retention_policy as rp
+    anchor_now = "20260923"  # after every artifact date: nothing saved by windows
+    keep = {"current", "seen", "protected"}
+    for rel in (
+        "mlb-backend/data_delivery/todays_games_20260911.csv",
+        "mlb-backend/data_delivery/run_engine_markets_20260911.csv",
+        "mlb-backend/data_delivery/run_engine_markets_20260911.meta.json",
+        "mlb-backend/data_delivery/shap_game_20260911_TB@NYY.csv",
+    ):
+        verdict = rp.classify_artifact(
+            rel, seen=set(), retention_dates=set(), recent_dates=set(),
+            board_dates=set(), anchor_date=anchor_now)
+        assert verdict in keep, f"{rel} classified {verdict} — would be pruned"
+    # Companion families keep their board-backed / windowed behavior.
+    no_board = rp.classify_artifact(
+        "mlb-backend/data_delivery/run_engine_oof_20260911.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates=set(), anchor_date=anchor_now)
+    assert no_board == "stale"
+    with_board = rp.classify_artifact(
+        "mlb-backend/data_delivery/run_engine_oof_20260911.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates={"20260911"}, anchor_date=anchor_now)
+    assert with_board == "current"
+
+
+def test_slate_resolver_never_binds_across_a_distant_date():
+    """The resolver may bind a card only to pricing from its own date or
+    the GMT-rollover day: with artifacts from 20260911 and 20260922 only,
+    a Sep 11 card that the Sep 11 artifact cannot price must stay
+    UNRESOLVED — never pick up the Sep 22 run's re-pricing of the same
+    matchup (2026-09-23: the Sep 11 board showing Sep 22 prices). An id
+    the Sep 11 artifact DOES price keeps its exact-date binding."""
+    from market_diagnostics import resolve_slate_across_artifacts
+    priced = pd.DataFrame([{
+        "game_pk": "20260911_NYM@NYY", "kind": "slate",
+        "home_expected_runs": 4.6, "away_expected_runs": 4.1,
+    }])
+    repriced = pd.DataFrame([{
+        "game_pk": "20260922_TB@NYY", "kind": "slate",
+        "home_expected_runs": 3.7, "away_expected_runs": 3.5,
+    }])
+    out = resolve_slate_across_artifacts(
+        {"20260911": priced, "20260922": repriced},
+        ["20260911_NYM@NYY", "20260911_TB@NYY"])
+    # Own-date exact binding survives.
+    assert "20260911_NYM@NYY" in out
+    assert out["20260911_NYM@NYY"]["artifact_date"] == "20260911"
+    # The distant-future re-price of the same matchup is unreachable.
+    assert "20260911_TB@NYY" not in out
+
+
+def test_shap_loader_never_rewrites_the_game_date():
+    """A date-rewritten SHAP id attributes a DIFFERENT game's predictions
+    to a card (2026-09-23: Sep 11 cards rendering 20260922_TB@NYY SHAP).
+    The loader must try only the game's own date and the ±1 rollover day
+    — never the newest run."""
+    import utils as futils
+    calls: list[str] = []
+
+    def fake_fetch(name, **_kw):
+        calls.append(name)
+        return (None, "history")
+
+    with _mock_patch.object(futils, "_fetch_bytes", side_effect=fake_fetch), \
+            _mock_patch.object(futils, "available_dates",
+                               return_value=["20260922"]):
+        out = futils.load_shap("20260911_TB@NYY", "20260911")
+    assert out.empty
+    assert calls == ["shap_game_20260911_TB@NYY.csv",
+                     "shap_game_20260912_TB@NYY.csv",
+                     "shap_game_20260910_TB@NYY.csv"], calls
 
 
 def _run_all() -> int:

@@ -104,6 +104,13 @@ Notes
 - Board-backed families survive as long as a ``todays_games_<date>.csv`` board
   for that date is still tracked (the 2026-08-29 doubleheader regression fix);
   at the 10-day window the slate rule dominates, kept as a safety net.
+- PERMANENT families (2026-09-23 revision): ``todays_games_`` boards,
+  ``run_engine_markets_`` (+ .meta.json), and ``shap_game_`` are never pruned.
+  A historical card must render the production prices AS PUBLISHED that day —
+  pruning the dated board forced the frontend onto OOF-rebuilt boards and
+  cross-date price binding (the 2026-09-11 card regression). Board-backed
+  companions (``run_engine_oof_``, ``predictions_history_``) follow their
+  boards via the board-backed rule.
 - Files dated NEWER than the anchor are never deleted (backfill runs set
   ``MLB_END_DATE`` in the past; present-day artifacts must survive it).
 - Run-dated harness OUTPUTS (``*_ablation_*.json``, ``calibration_ablation_*``,
@@ -187,6 +194,8 @@ class FamilyPolicy:
                                     # for the date is still tracked
     slate_window_days: int = 0      # keep for the recent-slate settle window
                                     # (run date .. run date - N)
+    permanent: bool = False         # never pruned (historical game cards must
+                                    # serve production-as-published prices)
     notes: str = ""
 
 
@@ -207,13 +216,15 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  notes="newest-only + board-backed (available_dates game_dates "
                        "from NEWEST; rolling-brier recompute in-run)"),
     FamilyPolicy("todays_games", "todays_games_", retention_days=None,
-                 allowlisted=True, slate_window_days=10,
-                 notes="board date-navigator loads per date (10-day blanket "
-                       "window)"),
+                 allowlisted=True, slate_window_days=10, permanent=True,
+                 notes="board date-navigator loads per date; PERMANENT "
+                       "(2026-09-23): historical cards need the dated board"),
     FamilyPolicy("run_engine_markets", "run_engine_markets_",
                  retention_days=None, allowlisted=True, board_supported=True,
-                 notes="newest-only + board-backed (markets page family-aware "
-                       "pick; board cards per date; incl. .meta.json)"),
+                 permanent=True,
+                 notes="markets page family-aware pick; board cards per date "
+                       "(incl. .meta.json); PERMANENT (2026-09-23): cards must "
+                       "serve production-as-published prices"),
     FamilyPolicy("run_engine_oof", "run_engine_oof_", retention_days=None,
                  allowlisted=True, board_supported=True,
                  notes="no frontend reader; newest-only + board-backed"),
@@ -246,9 +257,9 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  notes="newest-only; never read standalone (embedded in "
                        "model_monitor); 10-day window"),
     FamilyPolicy("shap_game", "shap_game_", retention_days=None,
-                 allowlisted=True, slate_window_days=10,
-                 notes="board per-game card fetch; newest-only per navigable "
-                       "date (10-day blanket window)"),
+                 allowlisted=True, slate_window_days=10, permanent=True,
+                 notes="board per-game card fetch; PERMANENT (2026-09-23): "
+                       "historical cards need their dated SHAP files"),
     FamilyPolicy("power_rankings", "power_rankings_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (Home / power_rankings "
@@ -364,6 +375,8 @@ def classify_artifact(rel: str, seen: set,
     if art_date is None:
         # Dateless and not never-delete -> stale (no window can save it).
         return "stale"
+    if fam is not None and fam.permanent:
+        return "current"  # permanent family — historical cards need it
     if anchor_date and art_date > anchor_date:
         return "current"  # newer than the run's anchor — backfill-safe keep
     if art_date in retention_dates:
