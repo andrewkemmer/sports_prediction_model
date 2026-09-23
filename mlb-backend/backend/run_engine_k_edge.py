@@ -1,41 +1,27 @@
-"""C2 edge expansion — the k machinery for the run engine (challenger 4feff51).
+"""Run-engine k-edge — MONITOR-ONLY since 2026-09-22 (adoption 0.03/90).
 
-The λ-edge probe showed the run engine retains only ~60% of true margin
-spread (actual_margin ≈ 0.014 + 1.66·λ_edge). Phase A of the challenger
-ablation picked the C2 linear edge expansion:
+The C2 edge expansion is RETIRED from production. The run-engine tuning
+policy's Stage-1 sweep found that lr 0.03 x fixed 90 rounds yields
+k-hat ~= 1.0 on the OOF basis (the endgame configuration): the Poisson
+model no longer systematically shrinks edges, so there is nothing left
+for the transform to correct. All sealed gates (P1/P2/T1) passed, the
+invariants passed (I2 wedge ratio 1.0013), and the totals effect of the
+transform was measured at ~0.0007 CRPS runs even at k=1.79 — noise.
 
-    λ'_H = μ + k(λ_H − μ),  λ'_A = μ + k(λ_A − μ),  μ = (λ_H + λ_A)/2
+What this module still does (per run, in run_engine_daily's wrapper):
+  - fits the diagnostic k-hat on the strictly-prior (pre-holdout) OOF of
+    the run's own decided frame (module cache when its identity matches,
+    else a fresh walk — k can never come from data the run did not derive);
+  - publishes k-hat + its sampling se + the drift band [K_EDGE_REF ± 0.2]
+    into the markets meta (block["k_edge"], mode="monitor_only") WITHOUT
+    applying it — the board prices the RAW λ pair;
+  - keeps an explicit ``k_edge=`` argument for offline A/B runs (wrappers
+    expand OOF markets and the slate board through the same k).
 
-The LEVEL (λ_H + λ_A) is preserved exactly; the EDGE is scaled by k.
-k = 1.0 is the identity (current engine).
-
-Stability analysis (2a/2b/2c of the rollout), verified on the production
-OOF (run_engine_oof_20260901.csv, 6,829 games 2024-04..2026-08):
-  - per-window k (monthly folds) is NOISY: min −0.28, max 2.96, mean
-    1.53, sd 0.71 — small windows cannot anchor k.
-  - season-sliced k is STABLE and holds per season (production α curves,
-    full-season eval): fit-through-2024 → k=1.21 (2025 margin CRPS
-    −0.003), fit-through-2025 → k=1.42 (2026 −0.004); totals delta
-    ≈ 0.0000 (level preserved).
-  - sensitivity: k ∈ {1.3, 1.5, 1.5306, 1.7} is flat (INSENSITIVE):
-    sealed margin CRPS 2.3807–2.3870 vs C0 2.3948 (α fit on each arm's
-    λ, the production path) — every in-band k beats C0 by 0.008–0.014,
-    spread ≤ 0.006. Design: per-run refit on that run's OOF + drift band
-    (fitted k ± 0.2 vs reference 1.53) as the alert signal.
-
-This module monkey-patches run_engine at import (call patch()):
-  - derive_markets_v3(oof, ..., k_edge=None): expands the OOF λ pair
-    BEFORE α-curve fitting + NB MC when k_edge is given; logs k + drift
-    band into summary['k_edge'].
-  - predict_slate_runs(...): re-prices the slate grid from the EXPANDED
-    λ pair through the same curves when the daily seam is active.
-  - run_engine_daily(...): the k-edge aware daily engine — fits k on
-    this run's OOF pre-holdout games (per-run refit policy), applies it
-    to the OOF markets and the slate board, and ALWAYS logs the fitted k
-    + drift band into the markets meta. k_edge=1.0 disables explicitly.
-
-Gate discipline: k is fit on the PRE-HOLDOUT OOF only; sealed games
-never see it. No isotonic-on-ML recalibration is added here.
+Removed with the retirement: the frozen-basis versioning scaffolding (it
+existed solely to stabilize a k reading that is no longer applied) and the
+post-hoc OOF artifact rewrite (the base daily persists the raw λ state it
+prices).
 """
 from __future__ import annotations
 
@@ -49,8 +35,41 @@ import run_engine as _re
 K_EDGE_REF = 1.53          # challenger C2 k on the 2021-2025 pre-sealed OOF
 K_EDGE_BAND = 0.2          # drift alert band: fitted k outside [ref±band]
 
-_K_EDGE_ACTIVE: Optional[float] = None   # daily seam; consumed by the slate
-                                          # path so OOF + slate price the same
+# Original run_engine bindings captured at import (wrappers delegate to
+# these; patch() installs the overrides below onto run_engine).
+_orig_derive_markets_v3 = _re.derive_markets_v3
+_orig_predict_slate_runs = _re.predict_slate_runs
+_orig_run_oof = _re.run_oof
+_orig_run_engine_daily = _re.run_engine_daily
+
+
+def k_edge_meta(k: float, sampling_se: Optional[float] = None,
+                production_used: bool = False) -> dict:
+    """Persist the diagnostic k and its monitoring status.
+
+    MONITOR-ONLY: the fitted k is published for the drift series and is
+    NOT applied to production probabilities (``production_used`` False).
+    The explicit offline A/B arm passes ``production_used=True`` when the
+    k actually priced the markets the meta is attached to.
+    ``sampling_se`` is the classical OLS slope se on the fit pool
+    (sd(resid) / (√n · sd_d)).
+    """
+    out_of_band = bool(abs(k - K_EDGE_REF) > K_EDGE_BAND)
+    return {
+        "k": round(float(k), 4),
+        "fit": "run-oof-refit (pre-holdout)",
+        "sampling_se": (round(float(sampling_se), 4)
+                        if sampling_se is not None else None),
+        "reference_k": K_EDGE_REF,
+        "drift_band": [round(K_EDGE_REF - K_EDGE_BAND, 3),
+                       round(K_EDGE_REF + K_EDGE_BAND, 3)],
+        "drift_alert": out_of_band,
+        "out_of_band_policy": "monitor_only_no_action",
+        "production_used": bool(production_used),
+    }
+
+_K_EDGE_ACTIVE: Optional[float] = None   # explicit-arm seam only (offline
+                                         # A/B); NEVER set by production
 _DAILY_OOF_CACHE: Optional[pd.DataFrame] = None   # last run_oof frame
 
 
@@ -85,46 +104,6 @@ def k_edge_holdout_mask(oof: pd.DataFrame) -> np.ndarray:
     return (dates < cutoff).to_numpy()
 
 
-def _apply_k_edge_to_oof_artifact(oof: pd.DataFrame, k: float) -> pd.DataFrame:
-    """Return the OOF score frame in the same λ state used by markets.
-
-    The market derivation wrapper expands a copy before NB/Monte Carlo, while
-    the base daily function persists its original frame. Normalize the
-    persisted artifact after the daily pass so ``run_engine_oof`` and the OOF
-    rows inside ``run_engine_markets`` cannot disagree about expected runs.
-    """
-    out = oof.copy()
-    if k is None or abs(float(k) - 1.0) <= 1e-9:
-        return out
-    home, away = apply_k_edge(
-        out["home_expected_runs"].to_numpy(float),
-        out["away_expected_runs"].to_numpy(float),
-        float(k),
-    )
-    out["home_expected_runs"] = np.round(home, 4)
-    out["away_expected_runs"] = np.round(away, 4)
-    return out
-
-
-def k_edge_meta(k: float) -> dict:
-    """Persist the fitted k and its monitoring status without changing k.
-
-    Out-of-band values are intentionally still used until the dedicated
-    k-edge study establishes a different production policy.
-    """
-    out_of_band = bool(abs(k - K_EDGE_REF) > K_EDGE_BAND)
-    return {
-        "k": round(float(k), 4),
-        "fit": "run-oof-refit (pre-holdout)",
-        "reference_k": K_EDGE_REF,
-        "drift_band": [round(K_EDGE_REF - K_EDGE_BAND, 3),
-                       round(K_EDGE_REF + K_EDGE_BAND, 3)],
-        "drift_alert": out_of_band,
-        "out_of_band_policy": "continue_using_fitted_value",
-        "production_used": True,
-    }
-
-
 def _oof_identity(frame: pd.DataFrame) -> tuple[int, str, str]:
     """Cheap identity stamp for an OOF frame: (row count, min date, max
     date). Two OOF derivations over the same decided frame match; a cache
@@ -136,24 +115,25 @@ def _oof_identity(frame: pd.DataFrame) -> tuple[int, str, str]:
             str(dates.max().date()))
 
 
+def k_edge_fit_se(oof: pd.DataFrame, mask: np.ndarray, k: float) -> float:
+    """Sampling standard error of the k̂ slope on the masked basis:
+    se = σ_resid / (√n · sd_d), the classical OLS slope se (single-regressor
+    form; homoskedastic approximation — used as a scale, not an exact
+    inference tool)."""
+    d = np.asarray(oof["home_expected_runs"], float)[mask] \
+        - np.asarray(oof["away_expected_runs"], float)[mask]
+    m = np.asarray(oof["home_score"], float)[mask] \
+        - np.asarray(oof["away_score"], float)[mask]
+    n = int(mask.sum())
+    if n < 3 or np.std(d) < 1e-9:
+        return 0.0
+    resid = m - k * d
+    return float(resid.std(ddof=1) / (np.sqrt(n) * d.std(ddof=1)))
+
+
 # ---------------------------------------------------------------------------
 # Wrappers
 # ---------------------------------------------------------------------------
-_orig_derive_markets_v3 = _re.derive_markets_v3
-_orig_predict_slate_runs = _re.predict_slate_runs
-_orig_run_oof = _re.run_oof
-_orig_run_engine_daily = _re.run_engine_daily
-
-
-def _wrapped_run_oof(*args, **kwargs):
-    """Cache the last OOF so the daily wrapper can fit k without a second
-    full walk-forward pass."""
-    global _DAILY_OOF_CACHE
-    res = _orig_run_oof(*args, **kwargs)
-    _DAILY_OOF_CACHE = res.get("oof")
-    return res
-
-
 def derive_markets_v3(oof: pd.DataFrame,
                       moneyline_probs: Optional[pd.DataFrame] = None,
                       n_draws: int = _re.MC_DRAWS,
@@ -161,15 +141,16 @@ def derive_markets_v3(oof: pd.DataFrame,
                       holdout_days: int = _re.HOLDOUT_DAYS,
                       k_edge: Optional[float] = None,
                       ) -> dict[str, Any]:
-    """Phase-3 markets with the optional C2 edge expansion (k_edge).
+    """Phase-3 markets with an OPTIONAL explicit k_edge (offline A/B only).
 
-    When k_edge is not None, the per-side λ columns are expanded AFTER λ
-    prediction and BEFORE α-curve fitting + NB MC (level preserved); the
-    original body then prices the expanded λs. The k + drift band land in
-    ``summary['k_edge']`` so the markets meta ALWAYS records it."""
-    # Daily seam: when run_engine_daily is active (_K_EDGE_ACTIVE set), the
-    # OOF markets MUST expand with the same k as the slate so both sides of
-    # the board price identically. An explicit k_edge argument wins.
+    Monitor-only policy: the daily seam never sets _K_EDGE_ACTIVE, so
+    production prices the RAW λ pair. An explicit k_edge ≠ 1 (offline
+    experiments) expands the per-side λ columns AFTER λ prediction and
+    BEFORE α-curve fitting + NB MC (level preserved); the original body
+    then prices the expanded λs, and k + drift band land in
+    ``summary['k_edge']``."""
+    # Explicit-arm seam only (see module docstring): _K_EDGE_ACTIVE is set
+    # solely by run_engine_daily's explicit-k_edge path.
     if k_edge is None:
         k_edge = _K_EDGE_ACTIVE
     if k_edge is not None and abs(k_edge - 1.0) > 1e-9:
@@ -183,7 +164,8 @@ def derive_markets_v3(oof: pd.DataFrame,
                                   n_draws=n_draws, seed=seed,
                                   holdout_days=holdout_days)
     if k_edge is not None:
-        res["summary"]["k_edge"] = k_edge_meta(k_edge)
+        res["summary"]["k_edge"] = k_edge_meta(
+            k_edge, production_used=abs(k_edge - 1.0) > 1e-9)
     return res
 
 
@@ -217,11 +199,12 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
                        n_draws: int = _re.MC_DRAWS,
                        seed: int = _re.MARKET_SEED,
                        calibration: Optional[dict] = None) -> pd.DataFrame:
-    """Slate λ + market grid through the SAME C2 expansion as the OOF side.
+    """Slate λ + market grid; explicit-arm re-pricing only (offline A/B).
 
-    Calls the original body for the λ + grid, then — when the daily seam is
-    active (module-level _K_EDGE_ACTIVE) — re-prices the grid from the
-    EXPANDED λ pair through the SAME α(λ) curves and NB MC."""
+    Calls the original body for the λ + grid. When an explicit k_edge arm
+    is active (module-level _K_EDGE_ACTIVE, set only by run_engine_daily's
+    explicit path — never in monitor-only production), re-prices the grid
+    from the EXPANDED λ pair through the SAME α(λ) curves and NB MC."""
     out = _orig_predict_slate_runs(decided_games, slate_games,
                                    final_fit_rounds, curves,
                                    n_draws=n_draws, seed=seed,
@@ -249,28 +232,31 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
                      n_draws: int = _re.MC_DRAWS,
                      decided_snapshot: Optional[pd.DataFrame] = None,
                      k_edge: Optional[float] = None,
+                     _fake_walk: Optional[pd.DataFrame] = None,
                      ) -> dict[str, Any]:
-    """Daily Phase-3 pass with the C2 edge expansion (k_edge).
+    """Daily Phase-3 pass — k-edge MONITOR-ONLY (expansion retired).
 
-    Same contract as the original (monitor block + artifact paths). When
-    k_edge is None, k is REFIT on this run's OOF pre-holdout games (per-run
-    refit policy) and applied to the OOF markets (k_edge into
-    derive_markets_v3) and the slate board (seam around predict_slate_runs).
-    The fitted k + drift band ALWAYS land in the markets meta
-    (summary['k_edge']). k_edge=1.0 disables the expansion.
+    The board prices the RAW lambda pair. Each run still fits the
+    diagnostic k-hat on the strictly-prior (pre-holdout) OOF of the run's
+    own decided frame — the module-level OOF cache may seed the fit only
+    when its identity (rows + date span) matches this run's decided frame;
+    on mismatch the cache is discarded and k is fit on a fresh walk. The
+    fitted k + sampling se + drift band are published into the markets
+    meta (block["k_edge"], mode="monitor_only") and never applied.
 
-    PIT contract (hardened 2026-09-22): the module-level OOF cache may only
-    seed the k fit when its identity (row count + date span) matches THIS
-    run's decided frame. ``_attach_slate_run_margins``'s fallback
-    ``run_oof`` call (pipeline.py) can leave a cached frame in this module;
-    today it coincides with the daily walk's frame, but a silent producer
-    change (different snapshot, truncated history) would otherwise fit k on
-    a foreign λ basis. On any identity mismatch the cache is discarded and
-    k is fit on a fresh run_oof of the run's own decided frame — k can
-    never come from data the run did not derive."""
+    An explicit ``k_edge`` argument re-activates the expansion for offline
+    A/B runs only: OOF markets and the slate board then price through the
+    same expanded lambda pair (the wrapper seam). ``k_edge=1.0`` disables
+    explicitly.
+    """
     global _K_EDGE_ACTIVE
+    basis_id = "run-walk"
+    sampling_se = None
+    fitted_k = None
     if k_edge is None:
+        # ---- monitor-only diagnostic: fit k-hat for the record ----
         oof = _DAILY_OOF_CACHE
+        seeded = False
         if oof is not None and not oof.empty:
             try:
                 _cand = (decided_snapshot.copy()
@@ -293,57 +279,58 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
             decided = (decided_snapshot.copy() if decided_snapshot is not None
                        else _re.get_decided_frame(games))
             # P1 projection input (adoption 7e4c529): enrich the fallback
-            # decided the same way the original daily does so k is fit on
-            # the SAME lambda basis the markets are priced on (the daily's
-            # own OOF is P1 after its internal attach).
+            # decided the same way the original daily does so the monitor k
+            # is fit on the SAME lambda basis the markets are priced on.
             decided, _, _ = _re.attach_projection_levels(decided)
-            oof = _orig_run_oof(decided, decided_snapshot=decided)["oof"]
+            oof = (_fake_walk if _fake_walk is not None
+                   else _orig_run_oof(decided,
+                                      decided_snapshot=decided)["oof"])
+            seeded = True
+        basis_id = "run-walk-seeded" if seeded else "run-walk"
         mask = k_edge_holdout_mask(oof)
-        k_edge = fit_k_edge(oof["home_expected_runs"].to_numpy(float),
-                            oof["away_expected_runs"].to_numpy(float),
-                            (oof["home_score"] - oof["away_score"]).to_numpy(
-                                float),
-                            mask)
-        _re.logger.warning("Run engine daily (k-edge): fitted k=%.4f "
-                           "(pre-holdout OOF, n=%d)", k_edge, int(mask.sum()))
-    _K_EDGE_ACTIVE = k_edge
+        fitted_k = fit_k_edge(oof["home_expected_runs"].to_numpy(float),
+                              oof["away_expected_runs"].to_numpy(float),
+                              (oof["home_score"] - oof["away_score"]).to_numpy(
+                                  float),
+                              mask)
+        sampling_se = k_edge_fit_se(oof, mask, fitted_k)
+        _K_EDGE_ACTIVE = None   # expansion retired — diagnostics only
+        _re.logger.warning(
+            "Run engine daily (k-edge): monitor-only k=%.4f (pre-holdout, "
+            "n=%d, basis=%s, sampling_se=%.4f) — NOT applied to prices",
+            fitted_k, int(mask.sum()), basis_id,
+            sampling_se if sampling_se is not None else float("nan"))
+    else:
+        # ---- explicit k_edge arm (offline A/B only) ----
+        _K_EDGE_ACTIVE = (k_edge if k_edge is not None
+                          and abs(float(k_edge) - 1.0) > 1e-9 else None)
     try:
         res = _orig_run_engine_daily(games, target_games, target_date_str,
                                      n_draws=n_draws,
                                      decided_snapshot=decided_snapshot)
     finally:
         _K_EDGE_ACTIVE = None
-    # The base daily function persists the pre-k OOF frame before returning,
-    # while derive_markets_v3 prices a post-k copy. Rewrite the OOF artifact
-    # after the market pass so dashboard consumers see the exact λ state used
-    # for the OOF markets. This is a delivery-contract fix, not a new model.
-    if _DAILY_OOF_CACHE is not None and not _DAILY_OOF_CACHE.empty:
-        adjusted_oof = _apply_k_edge_to_oof_artifact(_DAILY_OOF_CACHE, k_edge)
-        _re.persist_oof(adjusted_oof, target_date_str)
-        # The base writer persisted metadata before the post-k rewrite. Update
-        # the same metadata file now so the published contract describes the
-        # exact score state used by the OOF market rows.
-        meta_path = _re.DATA_DELIVERY_DIR / f"run_engine_markets_{target_date_str}.meta.json"
-        market_path = _re.DATA_DELIVERY_DIR / f"run_engine_markets_{target_date_str}.csv"
-        if meta_path.exists() and market_path.exists():
-            try:
-                meta = __import__("json").loads(meta_path.read_text())
-                market_frame = pd.read_csv(market_path)
-                meta["artifact_contract"] = _re.build_artifact_contract(
-                    adjusted_oof, market_frame)
-                tmp = meta_path.with_suffix(".json.tmp")
-                tmp.write_text(__import__("json").dumps(meta, indent=2))
-                tmp.replace(meta_path)
-            except Exception as exc:
-                _re.logger.warning("Run engine: artifact contract update failed: %s", exc)
-
-    # Log k into the markets meta regardless (the original persisted the
-    # markets + meta inside; re-derive the summary block is NOT needed — the
-    # monitor block carries market_metrics already; inject k for the record).
+    # Publish the k record into the daily block the monitor serves.
     block = res.get("block")
     if block is not None:
-        block["k_edge"] = k_edge_meta(k_edge)
-        block["k_edge"]["k_fitted_run"] = round(float(k_edge), 4)
+        if fitted_k is not None:
+            block["k_edge"] = k_edge_meta(fitted_k, sampling_se=sampling_se)
+            block["k_edge"]["mode"] = "monitor_only"
+            block["k_edge"]["basis"] = basis_id
+        else:
+            block["k_edge"] = k_edge_meta(float(k_edge))
+            block["k_edge"]["mode"] = "explicit_k"
+            block["k_edge"]["production_used"] = (
+                k_edge is not None and abs(float(k_edge) - 1.0) > 1e-9)
+    return res
+
+
+def _wrapped_run_oof(*args, **kwargs):
+    """Cache the last OOF so the daily wrapper can fit k without a second
+    full walk-forward pass."""
+    global _DAILY_OOF_CACHE
+    res = _orig_run_oof(*args, **kwargs)
+    _DAILY_OOF_CACHE = res.get("oof")
     return res
 
 

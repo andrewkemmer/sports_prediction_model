@@ -11,12 +11,18 @@ suite pins every PIT invariant the engine's honesty depends on:
   3. sealed holdout: α(λ) curve fitting never sees the holdout window;
   4. k-edge: fit on the pre-holdout mask only (poisoning sealed margins
      cannot move k); OOF markets and the slate board reprice through the
-     SAME k (the wrapper seam), and the level λ_H+λ_A is preserved.
+     SAME k (the explicit-arm wrapper seam), and the level λ_H+λ_A is
+     preserved;
+  5. k-edge MONITOR-ONLY retirement (2026-09-22): the daily seam fits and
+     publishes the diagnostic k-hat but NEVER applies it — production
+     prices the RAW λ pair (production_used is False; the board-level
+     outcome is identical to k=1).
 
 Run with: python mlb-backend/backend/test_run_engine_pit.py
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch as _mock_patch
@@ -305,6 +311,105 @@ def test_k_edge_daily_cache_accepted_when_identity_matches():
 
 
 # ---------------------------------------------------------------------------
+# 5. k-edge MONITOR-ONLY retirement (2026-09-22): fitted k published,
+#    never applied — production prices the RAW lambda pair
+# ---------------------------------------------------------------------------
+def _fake_daily_cm():
+    """Stub the underlying daily body so k-fit-focused tests don't need a
+    real markets pass (mirrors the older k-edge daily tests)."""
+    return _mock_patch.object(kx, "_orig_run_engine_daily",
+                              lambda *a, **k: {"block": {}})
+
+
+def test_k_edge_daily_fits_and_publishes_k_without_applying_it():
+    """THE retirement property: the monitor-only daily seam fits the
+    diagnostic k-hat and publishes it into block["k_edge"] with
+    production_used=False / mode="monitor_only", while the underlying
+    daily body runs on the RAW lambdas — _K_EDGE_ACTIVE must be None
+    during the daily pass and reset to None afterwards."""
+    oof = _synth_oof(n_days=40)
+    expected_k = kx.fit_k_edge(
+        oof["home_expected_runs"].to_numpy(float),
+        oof["away_expected_runs"].to_numpy(float),
+        (oof["home_score"] - oof["away_score"]).to_numpy(float),
+        kx.k_edge_holdout_mask(oof))
+    seen = {"active": []}
+
+    def _spy_daily(*_a, **_k):
+        seen["active"].append(kx._K_EDGE_ACTIVE)
+        return {"block": {}}
+
+    kx._DAILY_OOF_CACHE = None
+    try:
+        with _mock_patch.object(kx, "_orig_run_oof",
+                                lambda *a, **k: {"oof": oof}), \
+                _mock_patch.object(kx, "_orig_run_engine_daily", _spy_daily):
+            res = kx.run_engine_daily(
+                None, None, "20260922", decided_snapshot=oof.copy(),
+                _fake_walk=oof)
+        meta = res["block"]["k_edge"]
+        assert seen["active"] == [None], (
+            "daily body must run with _K_EDGE_ACTIVE=None (no expansion)")
+        assert kx._K_EDGE_ACTIVE is None, "seam must reset after the run"
+        assert meta["k"] == round(expected_k, 4)
+        assert meta["production_used"] is False
+        assert meta["mode"] == "monitor_only"
+        assert meta["sampling_se"] is not None and meta["sampling_se"] > 0
+        assert "drift_alert" in meta  # monitor contract keys survive
+    finally:
+        kx._DAILY_OOF_CACHE = None
+
+
+def test_k_edge_daily_cache_identity_guard_still_enforced():
+    """The cache-identity guard survives the retirement: a cached OOF from a
+    DIFFERENT decided frame must be discarded (fresh walk seeds the fit)."""
+    cache = _synth_oof(n_days=40)
+    foreign = _synth_oof(n_days=20, games_per_day=6, seed=9)
+    fresh = _synth_oof(n_days=20, games_per_day=6, seed=11)
+    calls = {"n": 0}
+
+    def _fake_run_oof(*_a, **_k):
+        calls["n"] += 1
+        return {"oof": fresh}
+
+    kx._DAILY_OOF_CACHE = cache
+    try:
+        with _mock_patch.object(kx, "_orig_run_oof", _fake_run_oof), \
+                _fake_daily_cm():
+            kx.run_engine_daily(None, None, "20260922",
+                                decided_snapshot=foreign.copy())
+        assert calls["n"] == 1, "cache must be discarded; fresh walk seeds k"
+    finally:
+        kx._DAILY_OOF_CACHE = None
+
+
+def test_k_edge_explicit_arm_still_reprices_both_sides():
+    """The explicit k_edge arm (offline A/B only) keeps the original
+    guarantees: OOF markets and the slate board price through the SAME
+    expanded lambda pair, level preserved, meta marks production_used."""
+    oof = _synth_oof()
+    k = 1.8
+    mk = kx.derive_markets_v3(oof.copy(), k_edge=k)
+    lh2, la2 = kx.apply_k_edge(
+        oof["home_expected_runs"].to_numpy(float),
+        oof["away_expected_runs"].to_numpy(float), k)
+    markets = mk["markets"]
+    np.testing.assert_allclose(
+        markets["home_expected_runs"].to_numpy(float),
+        np.round(lh2, 4), atol=1e-9)
+    np.testing.assert_allclose(
+        markets["away_expected_runs"].to_numpy(float),
+        np.round(la2, 4), atol=1e-9)
+    level_in = (oof["home_expected_runs"]
+                + oof["away_expected_runs"]).to_numpy()
+    level_out = (markets["home_expected_runs"]
+                 + markets["away_expected_runs"]).to_numpy()
+    np.testing.assert_allclose(level_out, level_in, atol=1e-6,
+                               err_msg="k-edge changed the total (level)")
+    assert mk["summary"]["k_edge"]["k"] == k
+    assert mk["summary"]["k_edge"]["production_used"] is True
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

@@ -115,7 +115,7 @@ EARLY_STOPPING_ROUNDS = 20  # matches the tuned LightGBM fold convention
 
 RUN_LGBM_PARAMS = {
     "objective": "poisson",
-    "learning_rate": 0.05,
+    "learning_rate": 0.03,
     "num_leaves": 8,
     "min_child_samples": 40,
     "min_gain_to_split": 0.5,
@@ -128,14 +128,13 @@ RUN_LGBM_PARAMS = {
 
 
 # ---------------------------------------------------------------------------
-# C2 edge expansion (challenger 4feff51) — the k machinery lives in
-# run_engine_k_edge.py (monkey-patch module): fit_k_edge / apply_k_edge /
-# K_EDGE_REF / K_EDGE_BAND / the derive_markets_v3 + predict_slate_runs
-# wrappers / the k-edge aware run_engine_daily. Import it (or call its
-# patch()) to activate the expansion; without it the engine prices the raw
-# λ pair exactly as before. Production: run_engine_k_edge.patch() after
-# importing run_engine (the originals below must load first — this module
-# is the k-edge module's only dependency). See run_engine_k_edge.py.
+# C2 edge expansion — RETIRED to monitor-only (2026-09-22, adoption per the
+# run-engine tuning policy: lr 0.03 x fixed 90 rounds gives k-hat ~= 1.0 on
+# the OOF basis, all sealed gates pass, so the transform is inert by
+# construction). run_engine_k_edge.py still imports/patches this module to
+# FIT and PUBLISH the diagnostic k-hat each run (drift monitoring), but the
+# published probabilities price the RAW lambda pair — no edge expansion.
+# The wrappers remain no-ops at k=1.0. See run_engine_k_edge.py.
 # ---------------------------------------------------------------------------
 
 
@@ -329,12 +328,22 @@ def attach_projection_levels(
 # ---------------------------------------------------------------------------
 # Training / OOF scoring
 # ---------------------------------------------------------------------------
-RUN_FIXED_FIT_ROUNDS = 38
+RUN_FIXED_FIT_ROUNDS = 90
 
 
 def _fit_side_model(params: dict, tr_frame: pd.DataFrame, y_tr: np.ndarray,
                     va_frame: pd.DataFrame, y_va: np.ndarray,
                     fixed_rounds: Optional[int] = None):
+    """Fit one side's Poisson model.
+
+    fixed_rounds (run-engine OOF + production path): train exactly that many
+    rounds with no eval set — the validation frame never selects fold model
+    complexity (db69935 discipline).
+
+    fixed_rounds=None (build_oof_margin's caller-supplied-fold path ONLY): the
+    validation fold early-stops the iteration count, per that module's
+    documented margin-feature contract. Not used by run_engine's own OOF.
+    """
     from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 
     model = LGBMRegressor(**params)
@@ -425,7 +434,6 @@ def run_oof(games: pd.DataFrame,
     params = dict(RUN_LGBM_PARAMS)
 
     out_rows: list[dict] = []
-    best_iters: dict[str, list[int]] = {s: [] for s in ("home", "away")}
     metrics: dict[str, dict[str, list[float]]] = {
         s: {"deviance": [], "rmse": [], "mae": []} for s in ("home", "away")}
     base_metrics: dict[str, dict[str, list[float]]] = {
@@ -451,11 +459,10 @@ def run_oof(games: pd.DataFrame,
             va_frame = va.reindex(columns=cols_all).astype(float)
             y_tr = tr[target].to_numpy(dtype=float)
             y_va = va[target].to_numpy(dtype=float)
-            _, lam, best = _fit_side_model(
+            _, lam, _ = _fit_side_model(
                 params, tr_frame, y_tr, va_frame, y_va,
                 fixed_rounds=RUN_FIXED_FIT_ROUNDS,
             )
-            best_iters[side].append(best)
             key = f"{side}_expected_runs"
             rec_base[key] = np.round(lam, 4)
             rec_base[target] = y_va.astype(int)
@@ -488,7 +495,7 @@ def run_oof(games: pd.DataFrame,
         "away": RUN_FIXED_FIT_ROUNDS,
     }
     summary["final_fit_rounds_note"] = (
-        "fixed 38-round policy shared by OOF and production refits; "
+        "fixed 90-round policy shared by OOF and production refits; "
         "the validation frame never selects fold model complexity")
     for side in ("home", "away"):
         summary[f"{side}_model"] = {
@@ -1042,15 +1049,23 @@ def _normalize_three_way(a: np.ndarray, b: np.ndarray,
 def _fit_market_calibration(mc: dict[str, np.ndarray],
                             total_runs: np.ndarray, margin: np.ndarray,
                             home_scores: np.ndarray, away_scores: np.ndarray,
-                            fold_idx: np.ndarray) -> tuple[dict, dict, dict]:
+                            fold_idx: np.ndarray,
+                            pre_mask: Optional[np.ndarray] = None,
+                            ) -> tuple[dict, dict, dict]:
     """Fit prequential Platt maps for every published NB market.
 
     OOF rows receive the prequential values; the returned calibrator bundle is
-    fit on all OOF rows and is reserved for future slate predictions. This is
-    the same causal calibration contract used by the binary moneyline path.
+    fit on the PRE-HOLDOUT OOF rows only (all rows when ``pre_mask`` is None)
+    and is reserved for future slate predictions. This is the same causal
+    calibration contract used by the binary moneyline path, with the sealed
+    window excluded from the final map so it stays a clean judge of the
+    published artifact (run-engine tuning policy, Stage 4).
     """
+    cal_fit = (np.asarray(pre_mask, dtype=bool)
+               if pre_mask is not None
+               else np.ones(len(total_runs), dtype=bool))
     calibration: dict[str, Any] = {
-        "method": "prequential_platt", "fit_scope": "all_oof",
+        "method": "prequential_platt", "fit_scope": "pre_holdout",
         "totals": {}, "run_lines": {}, "run_lines_away_favorite": {},
         "legacy_run_lines": {}, "derived_moneyline": None,
     }
@@ -1062,12 +1077,15 @@ def _fit_market_calibration(mc: dict[str, np.ndarray],
 
     def binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
         pre = prequential_calibrate(y, raw, fold_idx)
-        final = fit_platt(y, raw)
+        # Final published map: pre-holdout rows only — the sealed window must
+        # not calibrate itself (fit_scope: pre_holdout).
+        final = fit_platt(y[cal_fit], raw[cal_fit])
         return pre, final, _calibration_metrics(raw, pre, y)
 
     def favored_binary(raw: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, dict | None, dict]:
         pre = prequential_favored_calibrate(y, raw, fold_idx)
-        final = fit_favored_platt(y, raw)
+        # Final published map: pre-holdout rows only (fit_scope: pre_holdout).
+        final = fit_favored_platt(y[cal_fit], raw[cal_fit])
         return pre, final, _calibration_metrics(raw, pre, y)
 
     for j, line in enumerate(TOTAL_LINE_GRID):
@@ -1798,11 +1816,21 @@ def derive_markets_v3(oof: pd.DataFrame,
     # vectors for honest OOF scoring; the calibrated vectors become the
     # published market probabilities and are also used for agreement checks.
     mc_raw = {k: np.asarray(v).copy() for k, v in mc.items()}
+    # Two-scope calibration contract (2026-09-22):
+    #   serving — the published bundle is fit on ALL OOF rows (maximum
+    #     history for the board; the deviation from the OOF prequential
+    #     path is known and measured, <=1.2pp per published run-line
+    #     probability).
+    #   gates — Stage-4 sealed evaluation calls this function WITH
+    #     pre_mask so the sealed window never calibrates itself; see
+    #     docs/run_engine_tuning_policy.md.
     mc, calibration_bundle, calibration_metrics = _fit_market_calibration(
         mc, total_runs, hs - as_, hs, as_, fold_idx)
     summary["calibration"] = {
         "method": "prequential_platt",
         "fit_scope": "all_oof",
+        "calibrator_fit_n": int(len(total_runs)),
+        "calibrator_excluded_n": 0,
         "markets_published": "calibrated",
         "calibrators": calibration_bundle,
         "oof_metrics": calibration_metrics,
