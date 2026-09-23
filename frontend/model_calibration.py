@@ -141,7 +141,7 @@ for col, (label, value, color, cap) in zip(kcols, kpi_specs):
 # Post-hoc recalibration banner (raw vs calibrated)
 # ---------------------------------------------------------------------------
 cal_sec = cal.get("calibration") or {}
-if cal_sec.get("method") == "platt":
+if cal_sec.get("method") in ("platt", "favored_platt_floor"):
     _mr = cal_sec.get("metrics_raw") or {}
     _mc = cal_sec.get("metrics_calibrated") or {}
     _params = cal_sec.get("params") or {}
@@ -318,23 +318,16 @@ else:
         st.info("No games in the selected date range.")
     else:
         acc_rng = float(pd.to_numeric(view["correct"], errors="coerce").mean() * 100)
-        # Display probabilities through the DEPLOYED Platt map σ(a·logit(p)+b)
-        # so MODEL PICK % matches Today's Games and the green calibration
-        # curve exactly. Picks are unchanged: the map is monotone increasing,
-        # so argmax(raw) == argmax(calibrated).
-        _cal_sec_h = cal.get("calibration") or {}
-        _p_disp = pd.to_numeric(view["home_win_prob_model"], errors="coerce")
-        try:
-            if _cal_sec_h.get("method") == "platt":
-                _ah = float((_cal_sec_h.get("params") or {}).get("a"))
-                _bh = float((_cal_sec_h.get("params") or {}).get("b"))
-                _pc = _p_disp.clip(1e-6, 1 - 1e-6)
-                _z = _ah * np.log(_pc / (1 - _pc)) + _bh
-                _p_disp = 1.0 / (1.0 + np.exp(-_z))
-                _cal_note = " · probabilities are post-calibration σ(a·logit(p)+b)"
-            else:
-                _cal_note = ""
-        except (TypeError, ValueError):
+        # The history writer persists the per-fold deployed probability. Use
+        # it directly: applying the final pooled map here would make an OOF
+        # row disagree with the probability that was actually evaluated.
+        _p_raw = pd.to_numeric(view["home_win_prob_model"], errors="coerce")
+        if "home_win_prob_model_calibrated" in view.columns:
+            _p_disp = pd.to_numeric(
+                view["home_win_prob_model_calibrated"], errors="coerce").fillna(_p_raw)
+            _cal_note = " · probabilities are stored prequential deployed outputs"
+        else:
+            _p_disp = _p_raw
             _cal_note = ""
         st.caption(
             f"{n_rng:,} games · {acc_rng:.1f}% picks correct · most recent first — "

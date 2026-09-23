@@ -100,6 +100,51 @@ def calibration_buckets(p: np.ndarray, y: np.ndarray,
     return rows
 
 
+def calibration_buckets_pair(p_raw: np.ndarray, p_calibrated: np.ndarray,
+                              y: np.ndarray, n_bins: int = 10) -> list[dict]:
+    """Build raw and calibrated reliability views from the same games.
+
+    Bucket membership is defined by the raw favored probability. The
+    calibrated value is oriented to that same favored side, rather than
+    re-binning the games after calibration. This gives the dashboard one
+    directly comparable raw/calibrated/actual population per row.
+    """
+    raw = np.asarray(p_raw, dtype=float)
+    calibrated = np.asarray(p_calibrated, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if not (len(raw) == len(calibrated) == len(y)):
+        raise ValueError("raw, calibrated, and target arrays must have equal length")
+    ok = np.isfinite(raw) & np.isfinite(calibrated) & np.isfinite(y)
+    raw, calibrated, y = raw[ok], calibrated[ok], y[ok]
+    raw_fav = np.maximum(raw, 1.0 - raw)
+    cal_fav = np.where(raw >= 0.5, calibrated, 1.0 - calibrated)
+    fav_won = np.where(raw >= 0.5, y, 1.0 - y)
+
+    half = max(n_bins // 2, 1)
+    edges = np.linspace(0.5, 1.0, half + 1)
+    rows = []
+    for i in range(len(edges) - 1):
+        mask = (raw_fav >= edges[i]) & (raw_fav < edges[i + 1])
+        if i == len(edges) - 2:
+            mask |= raw_fav == edges[i + 1]
+        if not mask.any():
+            continue
+        mean_raw = float(raw_fav[mask].mean())
+        mean_cal = float(cal_fav[mask].mean())
+        mean_actual = float(fav_won[mask].mean())
+        rows.append({
+            "bucket": f"{edges[i] * 100:.0f}–{edges[i + 1] * 100:.0f}%",
+            "mean_predicted": round(mean_cal, 4),
+            "mean_calibrated": round(mean_cal, 4),
+            "mean_predicted_raw": round(mean_raw, 4),
+            "mean_actual": round(mean_actual, 4),
+            "count": int(mask.sum()),
+            "gap": round(mean_raw - mean_actual, 4),
+            "gap_calibrated": round(mean_cal - mean_actual, 4),
+        })
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Distributional metrics (run line + totals)
 # ---------------------------------------------------------------------------

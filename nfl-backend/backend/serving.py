@@ -199,7 +199,7 @@ def write_calibration_json(path, moneyline_metrics: dict,
             and platt.get("b") is not None:
         n = int(platt.get("n") or n_games or 0)
         cal_sec = {
-            "method": "platt",
+            "method": "favored_platt_floor",
             "params": {"a": _r6(platt.get("a")), "b": _r6(platt.get("b")),
                        "n": n},
             "metrics_raw": {

@@ -554,8 +554,8 @@ def main(argv: list[str] | None = None) -> int:
         p, raw_m, cal_m,
         eval_mod.calibration_buckets(oof_ml["p_ensemble"], y_oof),
         daily, config_meta, platt=platt, run_date=date_c, n_games=int(okp.sum()),
-        calibrated_buckets=eval_mod.calibration_buckets(
-            oof_ml["p_ensemble_calibrated"], y_oof),
+        calibrated_buckets=eval_mod.calibration_buckets_pair(
+            oof_ml["p_ensemble"], oof_ml["p_ensemble_calibrated"], y_oof),
         distribution_calibration=market_calibration)
     artifacts.append(p.name)
 

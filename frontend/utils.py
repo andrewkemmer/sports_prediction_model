@@ -922,7 +922,9 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
     s = normalize_sport_key(sport_key)
     if s == "nfl":
-        return _distinct_game_dates(nfl_frame)
+        dates = set(_distinct_game_dates(nfl_frame))
+        dates.update(history_dates or ())
+        return sorted(dates, reverse=True)
     dates = set(contents_dates or ())
     dates.update(history_dates or ())
     for p in Path(local_dir).glob("todays_games_*.csv"):
@@ -944,6 +946,8 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     cfg = get_source_config()
     contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
     nfl_frame = load_nfl_moneyline("nfl") if s == "nfl" else pd.DataFrame()
+    nfl_history = load_nfl_prediction_history("nfl") if s == "nfl" else pd.DataFrame()
+    nfl_history_dates = _distinct_game_dates(nfl_history) if s == "nfl" else ()
     snap = set(contents)
     for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
         d = p.name[len("todays_games_"):-len(".csv")]
@@ -952,7 +956,9 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     max_snap = max(snap) if snap else None
     history = (_mlb_history_dates(cfg["owner"], cfg["repo"], cfg["branch"],
                                   max_snap) if s == "mlb" else ())
-    return tuple(_valid_dates_impl(s, contents, LOCAL_DATA_DIR, nfl_frame, history))
+    return tuple(_valid_dates_impl(
+        s, contents, LOCAL_DATA_DIR, nfl_frame,
+        list(history or ()) + list(nfl_history_dates)))
 
 
 def nearest_valid_date(valid: list[str] | tuple[str, ...],
@@ -1154,6 +1160,38 @@ def load_nfl_prediction_history(sport: str | None = "nfl") -> pd.DataFrame:
     cols = ["game_date", "home_team", "away_team", "home_win_prob_model",
             "away_win_prob_model", "model_pick", "home_score", "away_score",
             "actual_winner", "correct"]
+    s = normalize_sport_key(sport or "nfl")
+    cfg = get_source_config()
+    # Prediction history is the authoritative retained archive for NFL cards
+    # and calibration. The moneyline JSON is intentionally current-slate-only.
+    history_path = resolve_sport_artifact(s, "predictions_history_csv")
+    _history_dates = sorted(_stamp_suffixes(history_path)) if history_path is not None else []
+    picked = _history_dates[-1] if _history_dates else ""
+    raw = None
+    src = ""
+    if history_path is not None:
+        try:
+            raw = history_path.read_bytes()
+            src = "local"
+        except OSError:
+            raw = None
+    if raw is None:
+        raw, src = _fetch_bytes(
+            f"nfl_predictions_history_{picked}.csv", **cfg, sport=s)
+    if raw is not None:
+        try:
+            hist = pd.read_csv(io.BytesIO(raw))
+            if not hist.empty:
+                out = hist.copy()
+                out["home_win_prob_model"] = pd.to_numeric(
+                    out["home_win_prob_model"], errors="coerce")
+                if "home_win_prob_model_calibrated" in out.columns:
+                    out["home_win_prob_model_calibrated"] = pd.to_numeric(
+                        out["home_win_prob_model_calibrated"], errors="coerce")
+                return out
+        except (ValueError, pd.errors.EmptyDataError):
+            pass
+
     rec = load_nfl_moneyline_record(sport)
     if not rec:
         return pd.DataFrame(columns=cols)
@@ -1209,7 +1247,8 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     MLB/NFL degrades to the MLB path (safe fallback)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     if s == "nfl":
-        return load_nfl_moneyline("nfl")
+        current = load_nfl_moneyline("nfl")
+        return current
     cfg = get_source_config()
     # VERIFY-then-fallback on the board's OWN family (never the union date
     # set): after a fresh push the union's newest entry can be a
@@ -1669,27 +1708,46 @@ def _history_for_date(date_str: str, owner: str, repo: str, branch: str) -> byte
     return None
 
 
+def _history_to_board_frame(hist: pd.DataFrame, date_str: str) -> pd.DataFrame:
+    """Convert retained prediction history rows into board-card columns.
+
+    History stores both raw and prequential deployed probabilities. Cards use
+    the deployed value; the raw value remains available to diagnostics and is
+    never substituted into the displayed pick probability.
+    """
+    if hist is None or hist.empty or "game_date" not in hist.columns:
+        return pd.DataFrame()
+    gd = hist["game_date"].dropna().astype(str).str.replace("-", "")
+    day = hist[gd == date_str].copy()
+    if day.empty:
+        return pd.DataFrame()
+    raw = pd.to_numeric(day["home_win_prob_model"], errors="coerce")
+    deployed = pd.to_numeric(
+        day.get("home_win_prob_model_calibrated", day["home_win_prob_model"]),
+        errors="coerce")
+    day["home_win_prob_model_raw"] = raw
+    day["home_win_prob_model"] = deployed.fillna(raw)
+    day["away_win_prob_model"] = (1.0 - day["home_win_prob_model"]).clip(0, 1)
+    day["model_correct"] = (
+        day["correct"].astype(str).str.lower().isin(("true", "1", "1.0", "yes"))
+        if "correct" in day.columns else False
+    )
+    return normalize_games(day)
+
+
+def load_nfl_history_games(date_str: str) -> pd.DataFrame:
+    """Rebuild an NFL historical card board from retained OOF history."""
+    return _history_to_board_frame(load_nfl_prediction_history("nfl"), date_str)
+
+
 def load_history_games(date_str: str) -> pd.DataFrame:
-    """Rebuild a simplified game board for a past date from prediction history."""
+    """Rebuild a simplified MLB game board for a past date from history."""
     cfg = get_source_config()
     data = _history_for_date(date_str, **cfg)
     if data is None:
         return pd.DataFrame()
     hist = pd.read_csv(io.BytesIO(data))
-    gd = hist["game_date"].dropna().astype(str).str.replace("-", "")
-    day = hist[gd == date_str].copy()
-    if day.empty:
-        return pd.DataFrame()
-
-    # Reshape to what normalize_games + the card builder expect.
-    ph = pd.to_numeric(day["home_win_prob_model"], errors="coerce")
-    day["away_win_prob_model"] = (1.0 - ph).clip(0, 1)
-    day["model_correct"] = (
-        day["correct"].astype(str).str.lower().isin(("true", "1", "1.0", "yes"))
-        if "correct" in day.columns
-        else False
-    )
-    df = normalize_games(day)
+    df = _history_to_board_frame(hist, date_str)
     st.session_state["data_source"] = "history"
     return df
 

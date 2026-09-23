@@ -711,6 +711,14 @@ try:
     check("blue curve regenerates from stored correct column",
           len(blue) > 0 and blue["win_rate"].between(0, 1).all()
           and int(blue["n"].sum()) == n_hist)
+    paired = eval_mod.calibration_buckets_pair(
+        hist_df["home_win_prob_model"].to_numpy(),
+        hist_df["home_win_prob_model_calibrated"].to_numpy(),
+        yh)
+    check("raw and calibrated reliability buckets share game populations",
+          bool(paired) and all(r["count"] > 0 for r in paired)
+          and int(sum(r["count"] for r in paired)) == n_hist
+          and all("gap_calibrated" in r for r in paired))
     # favorite floor holds across the whole served population
     check("served calibrated favorites all >= 0.5",
           bool((np.maximum(pch, 1.0 - pch) >= 0.5 - 1e-12).all()))

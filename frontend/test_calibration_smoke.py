@@ -37,7 +37,7 @@ NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
-ARTIFACT_DATE = "20260909"
+ARTIFACT_DATE = "20260923"
 CALIBRATION_NAME = f"nfl_calibration_{ARTIFACT_DATE}.json"
 HISTORY_NAME = f"nfl_predictions_history_{ARTIFACT_DATE}.csv"
 CALIBRATION_PATH = NFL_DD / CALIBRATION_NAME

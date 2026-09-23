@@ -117,6 +117,16 @@ for pattern in REQUIRED_JSON:
               all(k in rec for k in ("metrics", "daily", "calibration_buckets")))
         check("  calibration metrics carry auc/brier/logloss/ece",
               all(k in rec["metrics"] for k in ("auc", "brier", "logloss", "ece")))
+        cal_buckets = (rec.get("calibration") or {}).get(
+            "calibration_buckets_calibrated") or []
+        raw_buckets = rec.get("calibration_buckets") or []
+        check("  raw/calibrated buckets use identical counts",
+              len(raw_buckets) == len(cal_buckets)
+              and [b.get("count") for b in raw_buckets]
+              == [b.get("count") for b in cal_buckets])
+        check("  calibration provenance preserves favored method",
+              (rec.get("calibration") or {}).get("method")
+              in ("favored_platt_floor", "platt"))
 
 for pattern in REQUIRED_CSV:
     files = sorted(DD.glob(pattern))
@@ -137,6 +147,24 @@ for pattern in REQUIRED_CSV:
                 "actual_winner", "correct"}
         check("  predictions history columns superset of frontend reader",
               need.issubset(df.columns), str(sorted(need - set(df.columns))))
+        check("  history carries stored deployed calibrated probabilities",
+              "home_win_prob_model_calibrated" in df.columns)
+        if "home_win_prob_model_calibrated" in df.columns:
+            check("  deployed probabilities are finite and bounded",
+                  pd.to_numeric(df["home_win_prob_model_calibrated"], errors="coerce")
+                  .between(0, 1).all())
+        dates_2026 = set(df.loc[
+            df["game_date"].astype(str).str.startswith("2026"),
+            "game_date"].astype(str))
+        check("  retained history includes season 2026 dates",
+              {"2026-09-20", "2026-09-21"}.issubset(dates_2026))
+        car = df[(df["game_date"].astype(str) == "2026-09-20")
+                 & (df["home_team"] == "ATL") & (df["away_team"] == "CAR")]
+        if not car.empty:
+            p_car = pd.to_numeric(car["home_win_prob_model_calibrated"],
+                                  errors="coerce").iloc[0]
+            check("  away pick displays the away deployed probability",
+                  car["model_pick"].iloc[0] == "CAR" and float(1.0 - p_car) > 0.5)
     if "power_rankings" in pattern:
         need = {"rank", "team", "team_name", "elo", "wins", "losses", "record"}
         check("  power rankings columns superset of shared page",

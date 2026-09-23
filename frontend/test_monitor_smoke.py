@@ -34,7 +34,7 @@ NFL_DD = REPO_ROOT / "nfl-backend" / "data_delivery"
 
 # Newer than any committed artifact so the fixture is the one the page's
 # newest-date resolution picks up (removed after the run).
-ARTIFACT_DATE = "20260909"
+ARTIFACT_DATE = "20260923"
 MONITOR_NAME = f"nfl_model_monitor_{ARTIFACT_DATE}.json"
 MONITOR_PATH = NFL_DD / MONITOR_NAME
 

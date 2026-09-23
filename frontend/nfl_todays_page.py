@@ -310,11 +310,18 @@ def run() -> None:
         frame = utils.load_nfl_moneyline()
     except Exception:
         frame = pd.DataFrame()
-    if frame is None or frame.empty:
-        st.info("No NFL per-game moneyline rows available.")
-        return
-    frame = frame.dropna(subset=["home_team", "away_team"])
+    frame = frame.dropna(subset=["home_team", "away_team"]) if frame is not None else pd.DataFrame()
     day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
+    history_view = False
+    if day.empty:
+        # The moneyline JSON is current-slate-only. Rebuild retained NFL
+        # season cards from the OOF history CSV instead of making older dates
+        # unreachable or replacing them with the latest slate.
+        try:
+            day = utils.load_nfl_history_games(date_str)
+        except Exception:
+            day = pd.DataFrame()
+        history_view = not day.empty
     if day.empty:
         _render_nearest_valid_fallback(valid, date_str)
         st.stop()
@@ -384,6 +391,14 @@ def run() -> None:
         qb = utils.load_nfl_qb_matchup("nfl")
     except Exception:
         qb = pd.DataFrame()
+
+    if history_view:
+        st.info(
+            "🗂 Archive view — this historical NFL card is rebuilt from the "
+            "retained OOF prediction history. Scores, picks, deployed "
+            "probabilities, and results are preserved; current-slate market "
+            "enrichment is unavailable for this retained date."
+        )
 
     st.divider()
 
