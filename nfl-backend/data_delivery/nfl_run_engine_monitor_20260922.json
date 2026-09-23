@@ -45,8 +45,8 @@
    "ml_reference": {
     "source": "ml_win_prob",
     "n": 1295,
-    "win_rate": 0.6301,
-    "predicted_mean": 0.54
+    "win_rate": 0.6448,
+    "predicted_mean": 0.5397
    }
   }
  },
@@ -167,6 +167,13 @@
    "lightgbm",
    "elasticnet"
   ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
    "away_model": "lightgbm_poisson",

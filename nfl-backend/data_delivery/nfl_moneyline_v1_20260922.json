@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-23T00:35:09.906580+00:00",
+ "created_utc": "2026-09-23T01:26:40.135339+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v4-air-yards-promoted",
   "warmup_seasons": [
@@ -17,6 +17,13 @@
    "lightgbm",
    "elasticnet"
   ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
    "away_model": "lightgbm_poisson",
@@ -82,8 +89,8 @@
    "game_status": "pre",
    "home_score": null,
    "away_score": null,
-   "home_win_prob_model": 0.6277468433597237,
-   "away_win_prob_model": 0.37225315664027625,
+   "home_win_prob_model": 0.6429722113546262,
+   "away_win_prob_model": 0.35702778864537377,
    "model_pick": "GB",
    "model_correct": null
   }

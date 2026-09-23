@@ -1,6 +1,6 @@
 {
  "record": "nfl_run_engine_markets",
- "written_utc": "2026-09-23T00:35:12.255723+00:00",
+ "written_utc": "2026-09-23T01:26:42.564851+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v4-air-yards-promoted",
   "warmup_seasons": [
@@ -18,6 +18,13 @@
    "lightgbm",
    "elasticnet"
   ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
    "away_model": "lightgbm_poisson",

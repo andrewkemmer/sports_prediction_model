@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-23T00:35:13.276647+00:00",
+ "created_utc": "2026-09-23T01:26:43.629230+00:00",
  "feature_set_version": "nfl-prod-v4-air-yards-promoted",
  "manifest": {
   "elo_diff": {
@@ -852,6 +852,13 @@
    "lightgbm",
    "elasticnet"
   ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
    "away_model": "lightgbm_poisson",
