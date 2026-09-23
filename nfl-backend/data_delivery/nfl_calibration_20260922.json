@@ -1,8 +1,8 @@
 {
  "date": "20260922",
- "trained_at": "2026-09-23T01:26:40.144173+00:00",
+ "trained_at": "2026-09-23T03:18:17.344168+00:00",
  "n_games": 1295,
- "created_utc": "2026-09-23T01:26:40.144188+00:00",
+ "created_utc": "2026-09-23T03:18:17.344177+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v4-air-yards-promoted",
   "warmup_seasons": [
@@ -26,6 +26,14 @@
    "prior": "fold0_static_thirds",
    "reearn": "per_fold_pooled_oof_strictly_prior",
    "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
   },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
