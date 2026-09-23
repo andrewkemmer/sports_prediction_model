@@ -238,78 +238,6 @@ def test_k_edge_slate_reprices_through_the_same_k():
         "slate grid identical with and without k-edge — seam is a no-op"
 
 
-def test_k_edge_daily_cache_rejected_on_identity_mismatch():
-    """The daily seam's module-level OOF cache may only seed the k fit when
-    its identity (rows + date span) matches THIS run's decided frame. A
-    cache left by a different frame (e.g. the run_margin_diff fallback's
-    run_oof call) must be discarded and k fit on the fresh walk instead."""
-    cache = _synth_oof(n_days=40)
-    foreign_decided = _synth_oof(n_days=20, games_per_day=6, seed=9)
-    fresh_walk = _synth_oof(n_days=20, games_per_day=6, seed=11)
-    expected_k = kx.fit_k_edge(
-        fresh_walk["home_expected_runs"].to_numpy(float),
-        fresh_walk["away_expected_runs"].to_numpy(float),
-        (fresh_walk["home_score"] - fresh_walk["away_score"]).to_numpy(float),
-        kx.k_edge_holdout_mask(fresh_walk))
-
-    calls = {"fresh_walk": 0}
-
-    def _fake_run_oof(*_a, **_k):
-        calls["fresh_walk"] += 1
-        return {"oof": fresh_walk}
-
-    def _fake_daily(*_a, **_k):
-        return {"block": {}}
-
-    kx._DAILY_OOF_CACHE = cache
-    try:
-        with _mock_patch.object(kx, "_orig_run_oof", _fake_run_oof), \
-                _mock_patch.object(kx, "_orig_run_engine_daily", _fake_daily), \
-                _mock_patch.object(re, "persist_oof",
-                                   lambda *a, **k: Path("/tmp/noop.csv")):
-            res = kx.run_engine_daily(
-                None, None, "20260922", decided_snapshot=foreign_decided)
-        assert calls["fresh_walk"] == 1, "cache should be discarded; fresh " \
-            "walk must seed the k fit"
-        assert res["block"]["k_edge"]["k"] == round(expected_k, 4)
-    finally:
-        kx._DAILY_OOF_CACHE = None
-
-
-def test_k_edge_daily_cache_accepted_when_identity_matches():
-    """When the cached OOF matches the run's decided frame, the seam keeps
-    the zero-extra-walk optimization: no fresh run_oof, and k equals the
-    fit on the cache's pre-holdout mask."""
-    cache = _synth_oof(n_days=40)
-    expected_k = kx.fit_k_edge(
-        cache["home_expected_runs"].to_numpy(float),
-        cache["away_expected_runs"].to_numpy(float),
-        (cache["home_score"] - cache["away_score"]).to_numpy(float),
-        kx.k_edge_holdout_mask(cache))
-
-    calls = {"fresh_walk": 0}
-
-    def _boom(*_a, **_k):
-        calls["fresh_walk"] += 1
-        raise AssertionError("fresh walk must NOT run when cache matches")
-
-    def _fake_daily(*_a, **_k):
-        return {"block": {}}
-
-    kx._DAILY_OOF_CACHE = cache.copy()
-    try:
-        with _mock_patch.object(kx, "_orig_run_oof", _boom), \
-                _mock_patch.object(kx, "_orig_run_engine_daily", _fake_daily), \
-                _mock_patch.object(re, "persist_oof",
-                                   lambda *a, **k: Path("/tmp/noop.csv")):
-            res = kx.run_engine_daily(
-                None, None, "20260922", decided_snapshot=cache.copy())
-        assert calls["fresh_walk"] == 0
-        assert res["block"]["k_edge"]["k"] == round(expected_k, 4)
-    finally:
-        kx._DAILY_OOF_CACHE = None
-
-
 # ---------------------------------------------------------------------------
 # 5. k-edge MONITOR-ONLY retirement (2026-09-22): fitted k published,
 #    never applied — production prices the RAW lambda pair
@@ -323,10 +251,11 @@ def _fake_daily_cm():
 
 def test_k_edge_daily_fits_and_publishes_k_without_applying_it():
     """THE retirement property: the monitor-only daily seam fits the
-    diagnostic k-hat and publishes it into block["k_edge"] with
-    production_used=False / mode="monitor_only", while the underlying
-    daily body runs on the RAW lambdas — _K_EDGE_ACTIVE must be None
-    during the daily pass and reset to None afterwards."""
+    diagnostic k-hat AFTER the daily pass on the daily's own OOF (cached by
+    _wrapped_run_oof — no second walk) and publishes it into
+    block["k_edge"] with production_used=False / mode="monitor_only",
+    while the daily body runs on the RAW lambdas — _K_EDGE_ACTIVE must be
+    None during the pass and reset afterwards."""
     oof = _synth_oof(n_days=40)
     expected_k = kx.fit_k_edge(
         oof["home_expected_runs"].to_numpy(float),
@@ -337,16 +266,20 @@ def test_k_edge_daily_fits_and_publishes_k_without_applying_it():
 
     def _spy_daily(*_a, **_k):
         seen["active"].append(kx._K_EDGE_ACTIVE)
+        # the real daily's _wrapped_run_oof caches the OOF during the pass
+        kx._DAILY_OOF_CACHE = oof
         return {"block": {}}
+
+    def _boom(*_a, **_k):
+        raise AssertionError(
+            "monitor-only k fit must NOT run a second walk-forward")
 
     kx._DAILY_OOF_CACHE = None
     try:
-        with _mock_patch.object(kx, "_orig_run_oof",
-                                lambda *a, **k: {"oof": oof}), \
+        with _mock_patch.object(kx, "_orig_run_oof", _boom), \
                 _mock_patch.object(kx, "_orig_run_engine_daily", _spy_daily):
-            res = kx.run_engine_daily(
-                None, None, "20260922", decided_snapshot=oof.copy(),
-                _fake_walk=oof)
+            res = kx.run_engine_daily(None, None, "20260922",
+                                      decided_snapshot=oof.copy())
         meta = res["block"]["k_edge"]
         assert seen["active"] == [None], (
             "daily body must run with _K_EDGE_ACTIVE=None (no expansion)")
@@ -354,31 +287,48 @@ def test_k_edge_daily_fits_and_publishes_k_without_applying_it():
         assert meta["k"] == round(expected_k, 4)
         assert meta["production_used"] is False
         assert meta["mode"] == "monitor_only"
+        assert meta["basis"] == "daily-oof"
         assert meta["sampling_se"] is not None and meta["sampling_se"] > 0
         assert "drift_alert" in meta  # monitor contract keys survive
     finally:
         kx._DAILY_OOF_CACHE = None
 
 
-def test_k_edge_daily_cache_identity_guard_still_enforced():
-    """The cache-identity guard survives the retirement: a cached OOF from a
-    DIFFERENT decided frame must be discarded (fresh walk seeds the fit)."""
-    cache = _synth_oof(n_days=40)
-    foreign = _synth_oof(n_days=20, games_per_day=6, seed=9)
-    fresh = _synth_oof(n_days=20, games_per_day=6, seed=11)
-    calls = {"n": 0}
-
-    def _fake_run_oof(*_a, **_k):
-        calls["n"] += 1
-        return {"oof": fresh}
-
-    kx._DAILY_OOF_CACHE = cache
+def test_k_edge_daily_provided_walk_fallback_when_no_cache():
+    """When the daily left no cached OOF, the explicit _fake_walk (test
+    harness stand-in) seeds the fit and is labeled basis="provided-walk"."""
+    oof = _synth_oof(n_days=40)
+    expected_k = kx.fit_k_edge(
+        oof["home_expected_runs"].to_numpy(float),
+        oof["away_expected_runs"].to_numpy(float),
+        (oof["home_score"] - oof["away_score"]).to_numpy(float),
+        kx.k_edge_holdout_mask(oof))
+    kx._DAILY_OOF_CACHE = None
     try:
-        with _mock_patch.object(kx, "_orig_run_oof", _fake_run_oof), \
-                _fake_daily_cm():
-            kx.run_engine_daily(None, None, "20260922",
-                                decided_snapshot=foreign.copy())
-        assert calls["n"] == 1, "cache must be discarded; fresh walk seeds k"
+        with _fake_daily_cm():
+            res = kx.run_engine_daily(None, None, "20260922",
+                                      decided_snapshot=oof.copy(),
+                                      _fake_walk=oof)
+        meta = res["block"]["k_edge"]
+        assert meta["mode"] == "monitor_only"
+        assert meta["k"] == round(expected_k, 4)
+        assert meta["basis"] == "provided-walk"
+        assert meta["production_used"] is False
+    finally:
+        kx._DAILY_OOF_CACHE = None
+
+
+def test_k_edge_daily_no_oof_skips_k_record_without_crash():
+    """No cached OOF and no provided walk: the k monitor skips the run with
+    a warning — no k_edge record, no crash (a monitoring gap must never
+    take down the daily pass)."""
+    kx._DAILY_OOF_CACHE = None
+    try:
+        with _fake_daily_cm():
+            res = kx.run_engine_daily(
+                None, None, "20260922",
+                decided_snapshot=_synth_oof(n_days=5))
+        assert "k_edge" not in res["block"]
     finally:
         kx._DAILY_OOF_CACHE = None
 

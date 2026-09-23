@@ -197,7 +197,10 @@ def fit_platt(y_true, y_prob) -> dict | None:
     y, p = y[ok], p[ok]
     n = len(y)
     if n < MIN_OOF_FOR_FIT:
-        logger.info(
+        # DEBUG (not INFO): the prequential market loop calls this ~200x
+        # per run (every fold x every market line) — at INFO it floods the
+        # run log. Bundle/final params land in the markets meta at INFO.
+        logger.debug(
             "Calibration: %d OOF games < %d minimum — using identity map",
             n, MIN_OOF_FOR_FIT,
         )
@@ -220,11 +223,21 @@ def fit_platt(y_true, y_prob) -> dict | None:
     # A pathological fit (slope <= 0 would invert the ranking) falls back
     # to identity: ranking preservation matters more than ECE cosmetics.
     if not (np.isfinite(a) and np.isfinite(b)) or a <= 0:
-        logger.warning("Calibration: degenerate Platt params (a=%s) — identity map", a)
+        # WARNING (degenerate = real signal), rate-limited so the
+        # prequential loop cannot flood the log on early small folds.
+        _degen_n = getattr(fit_platt, "_degen_logged", 0)
+        if _degen_n < 3:
+            logger.warning(
+                "Calibration: degenerate Platt params (a=%s) — identity map",
+                a)
+        fit_platt._degen_logged = _degen_n + 1
         return None
 
     cal = {"method": "platt", "a": round(a, 6), "b": round(b, 6), "n": int(n)}
-    logger.info(
+    # DEBUG: per-fold/prequential fit line (~200x per run); the final bundle
+    # params land in the markets meta ("calibration") — that stays the
+    # INFO-visible record.
+    logger.debug(
         "Calibration: Platt fitted on %d OOF games (a=%.4f, b=%.4f)", n, a, b
     )
     return cal

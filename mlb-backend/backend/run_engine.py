@@ -576,8 +576,8 @@ def build_artifact_contract(oof: pd.DataFrame,
                             markets: pd.DataFrame) -> dict[str, Any]:
     """Compare the persisted OOF score frame with market OOF rows.
 
-    This contract is intentionally based on stable keys and post-k-edge
-    expected runs, not row order. A later frontend can reject an older or
+    This contract is intentionally based on stable keys and the expected
+    runs actually priced, not row order. A later frontend can reject an older or
     partially rewritten artifact without guessing from its filename.
     """
     left = oof.copy() if oof is not None else pd.DataFrame()
@@ -1433,8 +1433,8 @@ def persist_markets(markets: pd.DataFrame, target_date_str: str,
             frame.loc[missing_game_id, "game_id"] = frame.loc[missing_game_id, "game_pk"]
 
     # Persist the contract even for direct callers that do not use the daily
-    # wrapper. The k-edge seam replaces this provisional contract after it
-    # rewrites the score artifact with the post-edge lambdas.
+    # wrapper; the daily path recomputes it over markets + slate before the
+    # final persist (see run_engine_daily).
     summary.setdefault("artifact_contract", build_artifact_contract(frame, frame))
     # Decided-target columns must be populated on OOF rows; slate rows are
     # undecided BY DEFINITION and are exempt from exactly those three.

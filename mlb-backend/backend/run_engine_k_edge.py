@@ -32,7 +32,11 @@ import pandas as pd
 
 import run_engine as _re
 
-K_EDGE_REF = 1.53          # challenger C2 k on the 2021-2025 pre-sealed OOF
+K_EDGE_REF = 1.0           # post-adoption expectation (2026-09-22): the
+                           # adopted 0.03/90 config yields k-hat ~= 1.0 by
+                           # construction, so the drift band centers on 1.0 —
+                           # sustained moves away are the lambda-basis drift
+                           # signal (1.53 was the pre-adoption challenger ref)
 K_EDGE_BAND = 0.2          # drift alert band: fitted k outside [ref±band]
 
 # Original run_engine bindings captured at import (wrappers delegate to
@@ -237,12 +241,10 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     """Daily Phase-3 pass — k-edge MONITOR-ONLY (expansion retired).
 
     The board prices the RAW lambda pair. Each run still fits the
-    diagnostic k-hat on the strictly-prior (pre-holdout) OOF of the run's
-    own decided frame — the module-level OOF cache may seed the fit only
-    when its identity (rows + date span) matches this run's decided frame;
-    on mismatch the cache is discarded and k is fit on a fresh walk. The
-    fitted k + sampling se + drift band are published into the markets
-    meta (block["k_edge"], mode="monitor_only") and never applied.
+    diagnostic k-hat on the strictly-prior (pre-holdout) rows of the
+    daily's own OOF (cached by _wrapped_run_oof — no second walk), and
+    publishes k-hat + sampling se + drift band into the markets meta
+    (block["k_edge"], mode="monitor_only") WITHOUT applying it.
 
     An explicit ``k_edge`` argument re-activates the expansion for offline
     A/B runs only: OOF markets and the slate board then price through the
@@ -250,66 +252,55 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
     explicitly.
     """
     global _K_EDGE_ACTIVE
-    basis_id = "run-walk"
-    sampling_se = None
     fitted_k = None
+    sampling_se = None
+    basis_id = "daily-oof"
     if k_edge is None:
-        # ---- monitor-only diagnostic: fit k-hat for the record ----
+        # Monitor-only: the diagnostic k-hat is fit AFTER the daily pass on
+        # the daily's own OOF (cached by _wrapped_run_oof) — the exact lambda
+        # basis the board was priced on, with no second walk-forward run
+        # (the pre-daily fresh-walk fallback doubled the run's cost and the
+        # cache-identity guard could not hold: build_oof_margin populates
+        # the cache at a different feature width).
+        _K_EDGE_ACTIVE = None
+        try:
+            res = _orig_run_engine_daily(games, target_games, target_date_str,
+                                         n_draws=n_draws,
+                                         decided_snapshot=decided_snapshot)
+        finally:
+            _K_EDGE_ACTIVE = None
         oof = _DAILY_OOF_CACHE
-        seeded = False
-        if oof is not None and not oof.empty:
-            try:
-                _cand = (decided_snapshot.copy()
-                         if decided_snapshot is not None
-                         else _re.get_decided_frame(games))
-                if _oof_identity(oof) != _oof_identity(_cand):
-                    _re.logger.warning(
-                        "Run engine daily (k-edge): cached OOF identity %s "
-                        "does not match this run's decided frame %s — "
-                        "discarding the cache; k will be fit on a fresh "
-                        "walk of the run's own data",
-                        _oof_identity(oof), _oof_identity(_cand))
-                    oof = None
-            except Exception as exc:
-                _re.logger.warning(
-                    "Run engine daily (k-edge): cache identity check failed "
-                    "(%s) — discarding the cache", exc)
-                oof = None
         if oof is None or oof.empty:
-            decided = (decided_snapshot.copy() if decided_snapshot is not None
-                       else _re.get_decided_frame(games))
-            # P1 projection input (adoption 7e4c529): enrich the fallback
-            # decided the same way the original daily does so the monitor k
-            # is fit on the SAME lambda basis the markets are priced on.
-            decided, _, _ = _re.attach_projection_levels(decided)
-            oof = (_fake_walk if _fake_walk is not None
-                   else _orig_run_oof(decided,
-                                      decided_snapshot=decided)["oof"])
-            seeded = True
-        basis_id = "run-walk-seeded" if seeded else "run-walk"
-        mask = k_edge_holdout_mask(oof)
-        fitted_k = fit_k_edge(oof["home_expected_runs"].to_numpy(float),
-                              oof["away_expected_runs"].to_numpy(float),
-                              (oof["home_score"] - oof["away_score"]).to_numpy(
-                                  float),
-                              mask)
-        sampling_se = k_edge_fit_se(oof, mask, fitted_k)
-        _K_EDGE_ACTIVE = None   # expansion retired — diagnostics only
-        _re.logger.warning(
-            "Run engine daily (k-edge): monitor-only k=%.4f (pre-holdout, "
-            "n=%d, basis=%s, sampling_se=%.4f) — NOT applied to prices",
-            fitted_k, int(mask.sum()), basis_id,
-            sampling_se if sampling_se is not None else float("nan"))
+            oof = _fake_walk
+            basis_id = "provided-walk"
+        if oof is not None and not oof.empty:
+            mask = k_edge_holdout_mask(oof)
+            fitted_k = fit_k_edge(oof["home_expected_runs"].to_numpy(float),
+                                  oof["away_expected_runs"].to_numpy(float),
+                                  (oof["home_score"]
+                                   - oof["away_score"]).to_numpy(float),
+                                  mask)
+            sampling_se = k_edge_fit_se(oof, mask, fitted_k)
+            _re.logger.warning(
+                "Run engine daily (k-edge): monitor-only k=%.4f "
+                "(pre-holdout, n=%d, basis=%s, sampling_se=%.4f) — "
+                "NOT applied to prices",
+                fitted_k, int(mask.sum()), basis_id,
+                sampling_se if sampling_se is not None else float("nan"))
+        else:
+            _re.logger.warning(
+                "Run engine daily (k-edge): no OOF available — k monitor "
+                "skipped this run")
     else:
-        # ---- explicit k_edge arm (offline A/B only) ----
+        # Explicit k_edge arm (offline A/B only): wrappers reprice through k.
         _K_EDGE_ACTIVE = (k_edge if k_edge is not None
                           and abs(float(k_edge) - 1.0) > 1e-9 else None)
-    try:
-        res = _orig_run_engine_daily(games, target_games, target_date_str,
-                                     n_draws=n_draws,
-                                     decided_snapshot=decided_snapshot)
-    finally:
-        _K_EDGE_ACTIVE = None
+        try:
+            res = _orig_run_engine_daily(games, target_games, target_date_str,
+                                         n_draws=n_draws,
+                                         decided_snapshot=decided_snapshot)
+        finally:
+            _K_EDGE_ACTIVE = None
     # Publish the k record into the daily block the monitor serves.
     block = res.get("block")
     if block is not None:
@@ -317,11 +308,12 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
             block["k_edge"] = k_edge_meta(fitted_k, sampling_se=sampling_se)
             block["k_edge"]["mode"] = "monitor_only"
             block["k_edge"]["basis"] = basis_id
-        else:
+        elif k_edge is not None:
             block["k_edge"] = k_edge_meta(float(k_edge))
             block["k_edge"]["mode"] = "explicit_k"
-            block["k_edge"]["production_used"] = (
-                k_edge is not None and abs(float(k_edge) - 1.0) > 1e-9)
+            block["k_edge"]["production_used"] = \
+                abs(float(k_edge) - 1.0) > 1e-9
+        # else: no OOF and no explicit k — no k record this run (warned above)
     return res
 
 
