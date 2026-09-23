@@ -315,8 +315,9 @@ def run() -> None:
     history_view = False
     if day.empty:
         # The moneyline JSON is current-slate-only. Rebuild retained NFL
-        # season cards from the OOF history CSV instead of making older dates
-        # unreachable or replacing them with the latest slate.
+        # season cards from the frozen first-publication card store (the
+        # production-as-published prediction — never an OOF re-price);
+        # the OOF history CSV is only a pre-seed fallback.
         try:
             day = utils.load_nfl_history_games(date_str)
         except Exception:
@@ -394,10 +395,11 @@ def run() -> None:
 
     if history_view:
         st.info(
-            "🗂 Archive view — this historical NFL card is rebuilt from the "
-            "retained OOF prediction history. Scores, picks, deployed "
-            "probabilities, and results are preserved; current-slate market "
-            "enrichment is unavailable for this retained date."
+            "🗂 Archive view — this historical NFL card serves the production "
+            "prediction as first published (frozen card store; never an OOF "
+            "re-price). Scores, picks, probabilities, and results are "
+            "preserved; current-slate market and SHAP enrichment is "
+            "unavailable for this retained date."
         )
 
     st.divider()

@@ -1708,6 +1708,46 @@ def _history_for_date(date_str: str, owner: str, repo: str, branch: str) -> byte
     return None
 
 
+def _load_nfl_cards_store() -> pd.DataFrame:
+    """The frozen first-publication NFL card store (MLB parity with the
+    adopted totals-history store): every game's PRODUCTION prediction,
+    priced once at publication and never mutated. Historical cards serve
+    from this store so they can never revert to OOF re-prices."""
+    path = REPO_ROOT / "nfl-backend" / "data_delivery" \
+        / "nfl_production_cards_history.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, dtype={"game_id": str})
+    except Exception:
+        return pd.DataFrame()
+    if df.empty or "game_id" not in df.columns:
+        return pd.DataFrame()
+    df["p_home_win"] = pd.to_numeric(df["p_home_win"], errors="coerce")
+    df["p_away_win"] = pd.to_numeric(df.get("p_away_win"), errors="coerce")
+    return df
+
+
+def _cards_store_to_board_frame(store: pd.DataFrame,
+                                date_str: str) -> pd.DataFrame:
+    """Frozen-store rows for ``date_str`` reshaped into card columns.
+
+    p_home_win IS the production-as-published probability — it maps onto the
+    card contract verbatim (no re-pricing, no OOF substitution)."""
+    if store is None or store.empty:
+        return pd.DataFrame()
+    gd = store["game_date"].dropna().astype(str).str.replace("-", "")
+    day = store[gd == date_str].copy()
+    if day.empty:
+        return pd.DataFrame()
+    day["home_win_prob_model"] = day["p_home_win"]
+    day["away_win_prob_model"] = day.get(
+        "p_away_win", (1.0 - day["p_home_win"]).clip(0, 1))
+    if "game_status" not in day.columns:
+        day["game_status"] = "Final"
+    return normalize_games(day)
+
+
 def _history_to_board_frame(hist: pd.DataFrame, date_str: str) -> pd.DataFrame:
     """Convert retained prediction history rows into board-card columns.
 
@@ -1736,7 +1776,18 @@ def _history_to_board_frame(hist: pd.DataFrame, date_str: str) -> pd.DataFrame:
 
 
 def load_nfl_history_games(date_str: str) -> pd.DataFrame:
-    """Rebuild an NFL historical card board from retained OOF history."""
+    """Rebuild an NFL historical card board for a past date.
+
+    FROZEN STORE FIRST: cards serve the production-as-published prediction
+    (priced once at publication, never mutated — the MLB adopted pattern).
+    The OOF history CSV is only a fallback while the store is absent
+    (pre-seed state); it is never allowed to overwrite frozen picks."""
+    try:
+        frozen = _cards_store_to_board_frame(_load_nfl_cards_store(), date_str)
+    except Exception:
+        frozen = pd.DataFrame()
+    if not frozen.empty:
+        return frozen
     return _history_to_board_frame(load_nfl_prediction_history("nfl"), date_str)
 
 

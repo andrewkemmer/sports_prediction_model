@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote
@@ -564,6 +564,15 @@ def main(argv: list[str] | None = None) -> int:
                                             oof_ml["p_ensemble_calibrated"].to_numpy())
     artifacts.append(p.name)
 
+    # Frozen first-publication card store (MLB parity with the adopted
+    # Game-Totals run_engine_totals_history pattern): every game's
+    # PRODUCTION prediction is priced ONCE and never mutated. Historical
+    # cards serve from this store — they must never revert to OOF re-prices
+    # (the walk-forward column is an evaluation view, not what was served).
+    _card_store = _update_cards_history_store(out_dir, oof_ml, slate, date_c)
+    if _card_store:
+        artifacts.append(_card_store)
+
     p = out_dir / config.POWER_RANKINGS_CSV.format(date=date_c)
     _write_power_rankings(p, game_df)
     artifacts.append(p.name)
@@ -654,8 +663,12 @@ def main(argv: list[str] | None = None) -> int:
         failed = [k for k, v in gates.items() if not v]
         raise RuntimeError(f"validation gates failed: {failed}")
 
-    # retention: keep only the newest 3 dated copies of each family
-    _prune_old_artifacts(out_dir, date_c)
+    # retention: enforce the rolling-retention policy (retention_policy.py;
+    # MLB parity 10-day blanket window). Files staged by THIS run are "seen"
+    # and never touched; the anchor is the run's end date (NFL_END_DATE when
+    # set, else today ET) — identical anchor semantics to MLB's Phase 6.
+    _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
+                         anchor_iso=end_date)
 
     _banner("DONE", f"{len(artifacts)} artifacts in {time.time() - t0:.0f}s")
     summary = {
@@ -918,39 +931,232 @@ def _validate_outputs(out_dir: Path, date_c: str, oof_ml: pd.DataFrame,
     return gates
 
 
-def _prune_old_artifacts(out_dir: Path, date_c: str) -> None:
-    """Keep the newest KEEP dated copies per family; never touch non-dated
-    files or other sports' directories."""
-    KEEP = 3
-    families = [
-        config.MONEYLINE_JSON, config.CALIBRATION_JSON,
-        config.PREDICTIONS_HISTORY_CSV, config.POWER_RANKINGS_CSV,
-        config.MARKETS_CSV, config.MARKETS_META_JSON,
-        config.MARKETS_MONITOR_JSON,
-        config.QB_MATCHUP_JSON, config.FEATURE_JSON,
-        config.MODEL_MONITOR_JSON,
-        # MLB parity (retention_policy.py: 10-day window for both families):
-        # the RFE trace is the prior-verdict memory and the workbook is the
-        # human decision record — both are regenerated per RFE run, so a
-        # bounded window (not forever, not delete-on-sight) matches policy.
-        "nfl_feature_selection_{date}.json",
-        "nfl_feature_workbook_{date}.xlsx",
-    ]
-    # NOTE: the RFE STATE file (nfl_feature_selection_state.json) is NOT a
-    # dated family member and must never be pruned — adopt() resolves the
-    # newest trace with a glob that also matches the state filename, but the
-    # state file itself holds the serving contract and is exempt (MLB parity:
-    # retention_policy.py "NEVER DELETE").
-    for template in families:
-        prefix = template.split("{")[0]
-        ext = template.split("}")[1]
-        dated = sorted(out_dir.glob(f"{prefix}*{ext}"))
-        for old in dated[:-KEEP]:
+def _update_cards_history_store(out_dir: Path, oof_ml: pd.DataFrame,
+                                slate: pd.DataFrame, date_c: str) -> str | None:
+    """Append newly-decided games to the frozen card store (once).
+
+    MLB parity (run_engine.update_totals_history_store): rows are priced at
+    FIRST PUBLICATION and never mutated afterward. Seeding rebuilds from the
+    retained dated predictions-history family (oldest first), whose rows ARE
+    the production predictions as published and graded; subsequent runs
+    append only game_ids the store has never seen. Returns the filename
+    appended to the artifact manifest, or None on any failure (the store
+    must never fail the run).
+    """
+    store_path = out_dir / "nfl_production_cards_history.csv"
+    meta_path = out_dir / "nfl_production_cards_history.meta.json"
+    cols = ["game_id", "game_date", "start_time_utc", "home_team", "away_team",
+            "home_team_name", "away_team_name", "home_record", "away_record",
+            "venue", "p_home_win", "p_away_win", "model_pick", "correct",
+            "home_score", "away_score", "actual_winner", "game_status",
+            "source_artifact_date"]
+    try:
+        known: set[str] = set()
+        if store_path.exists():
+            store = pd.read_csv(store_path, dtype={"game_id": str})
+            known = set(store["game_id"].astype(str))
+        else:
+            # Seed from every retained dated history artifact (oldest first
+            # so first-publication-wins is deterministic).
+            frames = []
+            for art in sorted(out_dir.glob("nfl_predictions_history_*.csv")):
+                try:
+                    df = pd.read_csv(art, dtype={"game_id": str})
+                except Exception:
+                    continue
+                if df.empty or "game_id" not in df.columns:
+                    continue
+                src = art.stem.rsplit("_", 1)[-1]
+                df = df[~df["game_id"].astype(str).isin(known)]
+                known.update(df["game_id"].astype(str))
+                df["source_artifact_date"] = src
+                frames.append(df)
+            store = (pd.concat(frames, ignore_index=True) if frames
+                     else pd.DataFrame())
+        added = 0
+        if oof_ml is not None and len(oof_ml) and "game_id" in oof_ml.columns:
+            dec = oof_ml[oof_ml["game_id"].astype(str).isin(known) == False].copy()
+            dec = dec[dec[["home_score", "away_score"]].notna().all(axis=1)] \
+                if {"home_score", "away_score"}.issubset(dec.columns) else dec
+            if len(dec):
+                ph = pd.to_numeric(dec["p_ensemble_calibrated"], errors="coerce") \
+                    if "p_ensemble_calibrated" in dec.columns \
+                    else pd.to_numeric(dec["p_ensemble"], errors="coerce")
+                pr = pd.to_numeric(dec["p_ensemble"], errors="coerce")
+                pick = np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
+                winner = np.where(dec["home_win"] > 0.5, dec["home_team"],
+                                  np.where(dec["home_win"] < 0.5, dec["away_team"], "TIE"))
+                out = pd.DataFrame({
+                    "game_id": dec["game_id"].astype(str),
+                    "game_date": pd.to_datetime(dec["gameday"]).dt.strftime("%Y-%m-%d"),
+                    "home_team": dec["home_team"], "away_team": dec["away_team"],
+                    "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                    "model_pick": pick,
+                    "correct": np.where(ph >= 0.5, dec["home_team"], dec["away_team"])
+                    == winner,
+                    "home_score": dec["home_score"], "away_score": dec["away_score"],
+                    "actual_winner": winner,
+                    "game_status": "Final",
+                    "source_artifact_date": date_c,
+                })
+                out = out[~out["game_id"].isin(set(store["game_id"].astype(str)))] \
+                    if len(store) else out
+                added += len(out)
+                store = pd.concat([store, out], ignore_index=True)
+        if slate is not None and len(slate):
+            dec_s = slate[slate[["home_score", "away_score"]].notna().all(axis=1)] \
+                if {"home_score", "away_score"}.issubset(slate.columns) \
+                else pd.DataFrame()
+            if len(dec_s):
+                dec_s = dec_s[~dec_s["game_id"].astype(str)
+                              .isin(set(store["game_id"].astype(str)))] \
+                    if len(store) else dec_s
+                if len(dec_s):
+                    ph = pd.to_numeric(dec_s["p_home_win"], errors="coerce")
+                    hw = (pd.to_numeric(dec_s["home_score"], errors="coerce")
+                          > pd.to_numeric(dec_s["away_score"], errors="coerce"))
+                    winner = np.where(hw, dec_s["home_team"],
+                                      np.where(~hw & (pd.to_numeric(dec_s["away_score"], errors="coerce")
+                                                      > pd.to_numeric(dec_s["home_score"], errors="coerce")),
+                                               dec_s["away_team"], "TIE"))
+                    out = pd.DataFrame({
+                        "game_id": dec_s["game_id"].astype(str),
+                        "game_date": pd.to_datetime(dec_s["gameday"]).dt.strftime("%Y-%m-%d"),
+                        "home_team": dec_s["home_team"], "away_team": dec_s["away_team"],
+                        "p_home_win": ph.round(6), "p_away_win": (1.0 - ph).round(6),
+                        "model_pick": np.where(ph >= 0.5, dec_s["home_team"],
+                                               dec_s["away_team"]),
+                        "correct": np.where(ph >= 0.5, dec_s["home_team"],
+                                            dec_s["away_team"]) == winner,
+                        "home_score": dec_s["home_score"],
+                        "away_score": dec_s["away_score"],
+                        "actual_winner": winner,
+                        "game_status": "Final",
+                        "source_artifact_date": date_c,
+                    })
+                    added += len(out)
+                    store = pd.concat([store, out], ignore_index=True)
+        if not len(store):
+            return None
+        store = store.sort_values(["game_date", "game_id"]).reset_index(drop=True)
+        tmp = store_path.with_suffix(".csv.tmp")
+        store.to_csv(tmp, index=False)
+        tmp.replace(store_path)
+        meta_path.write_text(json.dumps(
+            {"run_date": date_c, "rows_added": added, "n_rows": int(len(store))},
+            indent=2), encoding="utf-8")
+        logger.info("cards history store: %d rows (%d added this run) -> %s",
+                    len(store), added, store_path.name)
+        return store_path.name
+    except Exception as exc:  # noqa: BLE001 — the store must never fail the run
+        logger.error("cards history store update FAILED (run continues): %s",
+                     exc, exc_info=True)
+        return None
+
+
+def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
+                         anchor_iso: str | None = None) -> None:
+    """Enforce the rolling-retention policy (retention_policy.py).
+
+    MLB parity: blanket 10-day window anchor..anchor-10 (anchor = the run's
+    end date — NFL_END_DATE when set, else today ET), never-delete masters
+    and series readers untouched, backfill-safe anchor guard, board-backed
+    safety net, and SHAP files aged through the game_id -> game_date map.
+    Replaces the old newest-3-copies count rule. Pure-policy enforcement:
+    every removal flows into the artifact sync's scoped git add as a forward
+    commit, so git history retains every blob.
+    """
+    import retention_policy as rp
+
+    seen = seen or set()
+    anchor = (anchor_iso or date_c).replace("-", "")
+    anchor_obj = datetime.strptime(anchor, "%Y%m%d").date()
+    retention_dates = {(anchor_obj - timedelta(days=i)).strftime("%Y%m%d")
+                       for i in range(11)}
+    recent_dates = {(anchor_obj - timedelta(days=i)).strftime("%Y%m%d")
+                    for i in range(3)}
+
+    # Board dates: every date a navigable board exists (moneyline games[] +
+    # the retained history family) — board-backed families keep those dates.
+    # The moneyline games[] also seed the SHAP game-date map (board games are
+    # authoritative game_id -> game_date rows).
+    board_dates: set[str] = set()
+    game_dates: dict[str, str] = {}
+    for rec in out_dir.glob("nfl_moneyline_v1_*.json"):
+        try:
+            for g in json.loads(rec.read_text(encoding="utf-8")).get("games", []):
+                d = str(g.get("game_date", ""))[:10].replace("-", "")
+                if len(d) == 8 and d.isdigit():
+                    board_dates.add(d)
+                    gid = str(g.get("game_id", ""))
+                    if gid:
+                        game_dates.setdefault(gid, d)
+        except Exception:
+            continue
+    for hist in out_dir.glob("nfl_predictions_history_*.csv"):
+        try:
+            for d in pd.read_csv(hist, usecols=["game_date"])["game_date"] \
+                    .dropna().astype(str):
+                d = d[:10].replace("-", "")
+                if len(d) == 8 and d.isdigit():
+                    board_dates.add(d)
+        except Exception:
+            continue
+
+    # SHAP aging map continued: game_id -> YYYYMMDD (NFL ids embed season+week,
+    # not dates — moneyline boards above, then the frozen card store, then the
+    # newest history artifact; unresolvable ids stay protected, never guessed).
+    cards = out_dir / "nfl_production_cards_history.csv"
+    hist_sources = ([cards] if cards.exists() else []) \
+        + sorted(out_dir.glob("nfl_predictions_history_*.csv"), reverse=True)
+    for src in hist_sources:
+        try:
+            df = pd.read_csv(src, usecols=lambda c: c in ("game_id", "game_date"))
+        except Exception:
+            continue
+        if df.empty or not {"game_id", "game_date"}.issubset(df.columns):
+            continue
+        for gid, gd in zip(df["game_id"].astype(str),
+                           df["game_date"].astype(str)):
+            d = gd[:10].replace("-", "")
+            if len(d) == 8 and d.isdigit() and gid not in game_dates:
+                game_dates[gid] = d
+        if cards.exists() and src == cards:
+            break
+
+    stale: list[Path] = []
+    kept_protected = 0
+    kept_current = 0
+    for p in sorted(out_dir.rglob("*")):
+        if not p.is_file() or p.name.startswith("~$"):
+            continue
+        rel = str(p.relative_to(out_dir.parent))
+        verdict = rp.classify_artifact(
+            rel, seen, retention_dates, recent_dates, board_dates,
+            anchor_date=anchor, game_dates=game_dates)
+        if verdict == "seen":
+            continue
+        if verdict == "protected":
+            kept_protected += 1
+            continue
+        if verdict == "current":
+            kept_current += 1
+            continue
+        stale.append(p)
+    if kept_protected:
+        logger.info("retention: kept %d protected file(s)", kept_protected)
+    logger.info("retention: kept %d artifact(s) within the window (anchor %s -10d)",
+                kept_current, anchor)
+    if stale:
+        for old in stale:
             try:
                 old.unlink()
-                logger.info("pruned stale artifact %s", old.name)
+                logger.info("retention: pruned stale artifact %s", old.name)
             except OSError:
                 pass
+        logger.info("retention: removed %d stale file(s)", len(stale))
+    else:
+        logger.info("retention: no stale files")
 
 
 if __name__ == "__main__":

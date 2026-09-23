@@ -226,7 +226,164 @@ check("frontend _fetch_bytes prefers raw.githubusercontent.com then local",
       and "return local.read_bytes(), \"local\"" in utils_src)
 
 # ---------------------------------------------------------------------------
-print("\n== 6. Persistence failure semantics ==")
+print("\n== 6. Rolling retention policy (MLB parity: 10-day blanket window) ==")
+import tempfile
+import retention_policy as rp
+
+_ANCHOR = "20260922"
+_retention = {(pd.Timestamp(_ANCHOR) - pd.Timedelta(days=i)).strftime("%Y%m%d")
+              for i in range(11)}
+_recent = {(pd.Timestamp(_ANCHOR) - pd.Timedelta(days=i)).strftime("%Y%m%d")
+           for i in range(3)}
+
+check("anchor date kept (window boundary)",
+      rp.classify_artifact("x/nfl_calibration_20260922.json", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "current")
+check("anchor-10 kept (window boundary)",
+      rp.classify_artifact("x/nfl_calibration_20260912.json", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "current")
+check("anchor-11 stale (window boundary)",
+      rp.classify_artifact("x/nfl_calibration_20260911.json", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "stale")
+check("newer than anchor kept (backfill-safe)",
+      rp.classify_artifact("x/nfl_calibration_20260930.json", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "current")
+check("models/ never deleted", rp.is_never_delete("x/models/nfl_ensemble_latest.joblib"))
+check("run-engine monitor series never deleted",
+      rp.classify_artifact("x/nfl_run_engine_monitor_20250101.json", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "protected")
+check("frozen card store never deleted",
+      rp.is_never_delete("x/nfl_production_cards_history.csv"))
+check("RFE state never deleted",
+      rp.is_never_delete("x/nfl_feature_selection_state.json"))
+check("shap file pruned after 10 days past its game (game-date map)",
+      rp.classify_artifact("x/nfl_shap_game_2026_01_ARI_LAC.csv", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR,
+                           game_dates={"2026_01_ARI_LAC": "2026-01-04"})
+      == "stale")
+check("shap file kept while its game is inside the window",
+      rp.classify_artifact("x/nfl_shap_game_2026_02_CAR_ATL.csv", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR,
+                           game_dates={"2026_02_CAR_ATL": "2026-09-20"})
+      == "current")
+check("future-slate shap kept (backfill-safe anchor guard)",
+      rp.classify_artifact("x/nfl_shap_game_2026_14_BUF_NE.csv", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR,
+                           game_dates={"2026_14_BUF_NE": "2026-12-27"})
+      == "current")
+check("unresolvable shap id protected (never guessed)",
+      rp.classify_artifact("x/nfl_shap_game_unknown_id.csv", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR,
+                           game_dates={})
+      == "protected")
+check("board-backed family kept while its board is tracked",
+      rp.classify_artifact("x/nfl_run_engine_markets_20260910.csv", set(),
+                           _retention, _recent, {"20260910"}, anchor_date=_ANCHOR)
+      == "current")
+check("dateless non-master is stale",
+      rp.classify_artifact("x/nfl_random_dateless.csv", set(),
+                           _retention, _recent, set(), anchor_date=_ANCHOR)
+      == "stale")
+
+# Integration: the REAL prune against a temp delivery dir removes exactly
+# the stale set and leaves masters/series/current files untouched.
+try:
+    import master_pipeline as mp_mod
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        (out / "models").mkdir()
+        staged = {"nfl_calibration_20260923.json"}
+        files = {
+            "nfl_calibration_20260922.json": "keep",
+            "nfl_calibration_20260912.json": "keep",
+            "nfl_calibration_20260911.json": "prune",
+            "nfl_moneyline_v1_20260910.json": "prune",
+            "nfl_run_engine_monitor_20260901.json": "keep",   # series
+            "nfl_run_engine_monitor_20260825.json": "keep",   # series
+            "models/nfl_ensemble_latest.joblib": "keep",      # master
+            "nfl_production_cards_history.csv": "keep",        # master
+            "nfl_feature_selection_state.json": "keep",        # master
+            "nfl_shap_game_2026_01_ARI_LAC.csv": "prune",      # aged via map
+            "nfl_shap_game_2026_02_CAR_ATL.csv": "keep",       # in window
+            "nfl_shap_game_2026_14_BUF_NE.csv": "keep",        # future slate
+        }
+        for name in files:
+            q = out / name
+            q.parent.mkdir(parents=True, exist_ok=True)
+            q.write_bytes(b"x")
+        # moneyline record drives board dates + SHAP game-date map
+        (out / "nfl_moneyline_v1_20260922.json").write_text(json.dumps({
+            "games": [
+                {"game_id": "2026_01_ARI_LAC", "game_date": "2026-01-04"},
+                {"game_id": "2026_02_CAR_ATL", "game_date": "2026-09-20"},
+                {"game_id": "2026_14_BUF_NE", "game_date": "2026-12-27"},
+            ]}), encoding="utf-8")
+        mp_mod._prune_old_artifacts(out, "20260922",
+                                    seen=staged, anchor_iso="2026-09-22")
+        remaining = {str(p.relative_to(out).as_posix())
+                     for p in out.rglob("*") if p.is_file()}
+        remaining.add("nfl_calibration_20260923.json")
+        expected_keep = {n for n, v in files.items() if v == "keep"} | staged
+        expected_prune = {n for n, v in files.items() if v == "prune"}
+        check("integration: exactly the stale set removed",
+              expected_prune.isdisjoint(remaining),
+              str(sorted(expected_prune & remaining)))
+        check("integration: every keep/protected/current file survives",
+              expected_keep.issubset(remaining),
+              str(sorted(expected_keep - remaining)))
+except Exception as exc:  # noqa: BLE001
+    check("retention integration probe", False, str(exc))
+
+# ---------------------------------------------------------------------------
+print("\n== 7. Frozen first-publication card store ==")
+try:
+    import master_pipeline as mp_mod
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        oof = pd.DataFrame({
+            "game_id": ["2026_02_CAR_ATL", "2026_02_NO_BAL"],
+            "gameday": ["2026-09-20", "2026-09-20"],
+            "home_team": ["ATL", "BAL"], "away_team": ["CAR", "NO"],
+            "p_ensemble": [0.466087, 0.697600],
+            "p_ensemble_calibrated": [0.460653, 0.700000],
+            "home_win": [0.0, 0.0],
+            "home_score": [3.0, 17.0], "away_score": [34.0, 24.0],
+        })
+        name = mp_mod._update_cards_history_store(out, oof, pd.DataFrame(), "20260923")
+        check("store written and manifested", name == "nfl_production_cards_history.csv")
+        s1 = pd.read_csv(out / name, dtype={"game_id": str})
+        car = s1[s1.game_id == "2026_02_CAR_ATL"].iloc[0]
+        check("deployed calibrated probability frozen (CAR ~0.46)",
+              abs(float(car["p_home_win"]) - 0.460653) < 1e-4)
+        check("away pick recorded (CAR)", car["model_pick"] == "CAR")
+        # Idempotency: re-running appends nothing and never mutates frozen rows.
+        mp_mod._update_cards_history_store(out, oof, pd.DataFrame(), "20260924")
+        s2 = pd.read_csv(out / name, dtype={"game_id": str})
+        check("re-run is idempotent (no duplicate/changed rows)",
+              len(s2) == len(s1)
+              and abs(float(s2[s2.game_id == "2026_02_CAR_ATL"].iloc[0]["p_home_win"])
+                      - 0.460653) < 1e-4)
+        # Slate-decided append: a new decided game enters once.
+        slate = pd.DataFrame({
+            "game_id": ["2026_03_DET_BUF"], "gameday": ["2026-09-27"],
+            "home_team": ["BUF"], "away_team": ["DET"],
+            "p_home_win": [0.6347],
+            "home_score": [41.0], "away_score": [31.0],
+        })
+        mp_mod._update_cards_history_store(out, oof, slate, "20260927")
+        s3 = pd.read_csv(out / name, dtype={"game_id": str})
+        check("slate-decided game appended once",
+              int((s3.game_id == "2026_03_DET_BUF").sum()) == 1)
+except Exception as exc:  # noqa: BLE001
+    check("frozen card store probe", False, str(exc))
+
+# ---------------------------------------------------------------------------
+print("\n== 8. Persistence failure semantics ==")
 mon_src = (BACKEND_DIR / "master_pipeline.py").read_text(encoding="utf-8")
 check("pipeline gates completion on schema validation (no silent success)",
       "validation gates failed" in mon_src and "RuntimeError" in mon_src)
