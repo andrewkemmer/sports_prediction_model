@@ -1,8 +1,8 @@
 {
   "date": "20260922",
   "version": "v2026.09.22",
-  "last_retrained": "2026-09-22",
-  "next_retrain": "2026-09-23",
+  "last_retrained": "2026-09-23",
+  "next_retrain": "2026-09-24",
   "metrics": {
     "auc": 0.5895,
     "brier": 0.2419,
@@ -352,33 +352,33 @@
     },
     {
       "feature": "wind_advantage_flyball_factor",
-      "current_mean": 0.0015,
+      "current_mean": 0.0019,
       "baseline_mean": 0.0116,
-      "psi": 0.132932,
-      "psi_adjusted": 0.062549,
-      "noise_floor": 0.070383,
-      "mean_shift": -0.010072,
-      "shift_se": 0.068647,
+      "psi": 0.138585,
+      "psi_adjusted": 0.068818,
+      "noise_floor": 0.069767,
+      "mean_shift": -0.009655,
+      "shift_se": 0.068247,
       "location_shift": false,
       "status": "OK",
       "weight_pct": 1.447,
       "n_baseline": 258,
-      "n_current": 85
+      "n_current": 86
     },
     {
       "feature": "air_density_velocity_boost",
-      "current_mean": 0.0363,
+      "current_mean": 0.0361,
       "baseline_mean": 0.0443,
-      "psi": 0.10697,
-      "psi_adjusted": 0.037337,
-      "noise_floor": 0.069633,
-      "mean_shift": -0.008064,
-      "shift_se": 0.045522,
+      "psi": 0.099055,
+      "psi_adjusted": 0.030023,
+      "noise_floor": 0.069032,
+      "mean_shift": -0.008266,
+      "shift_se": 0.04526,
       "location_shift": false,
       "status": "OK",
       "weight_pct": 2.17,
       "n_baseline": 260,
-      "n_current": 86
+      "n_current": 87
     },
     {
       "feature": "bullpen_meltdown_risk",
@@ -1198,10 +1198,10 @@
       "feature": "wind_advantage_flyball_factor",
       "window": "current",
       "n_games": 87,
-      "n_nonnull": 85,
-      "pct_nonnull": 97.7,
-      "n_measured": 61,
-      "pct_measured": 70.1,
+      "n_nonnull": 86,
+      "pct_nonnull": 98.9,
+      "n_measured": 62,
+      "pct_measured": 71.3,
       "n_default_zero": 24,
       "status": "LOW_COVERAGE"
     },
@@ -1209,10 +1209,10 @@
       "feature": "air_density_velocity_boost",
       "window": "current",
       "n_games": 87,
-      "n_nonnull": 86,
-      "pct_nonnull": 98.9,
-      "n_measured": 86,
-      "pct_measured": 98.9,
+      "n_nonnull": 87,
+      "pct_nonnull": 100.0,
+      "n_measured": 87,
+      "pct_measured": 100.0,
       "n_default_zero": 0,
       "status": "OK"
     },
@@ -5812,53 +5812,53 @@
     "version": "phase3",
     "winner_cards": {
       "over_under": {
-        "n": 6596,
-        "actual_win_rate": 0.5083,
-        "win_rate": 0.5083,
-        "predicted_mean": 0.506,
-        "ece_raw": 0.00298,
-        "ece_calibrated": 0.0088,
-        "brier": 0.24979,
-        "logloss": 0.69273,
-        "logloss_calibrated": 0.69332,
+        "n": 6580,
+        "actual_win_rate": 0.5053,
+        "win_rate": 0.5053,
+        "predicted_mean": 0.5017,
+        "ece_raw": 0.0059,
+        "ece_calibrated": 0.01086,
+        "brier": 0.24988,
+        "logloss": 0.6929,
+        "logloss_calibrated": 0.69328,
         "beats_baseline_logloss": true,
         "holdout": {
-          "n": 275,
-          "actual_win_rate": 0.4873,
-          "win_rate": 0.4873,
-          "predicted_mean": 0.5053,
-          "ece_raw": 0.02204,
-          "ece_calibrated": 0.05321,
-          "brier": 0.2497,
-          "logloss": 0.69255,
-          "baseline_rate": 0.4873,
-          "baseline_logloss": 0.69282,
+          "n": 273,
+          "actual_win_rate": 0.5165,
+          "win_rate": 0.5165,
+          "predicted_mean": 0.5016,
+          "ece_raw": 0.00681,
+          "ece_calibrated": 0.01904,
+          "brier": 0.24958,
+          "logloss": 0.69232,
+          "baseline_rate": 0.5165,
+          "baseline_logloss": 0.6926,
           "beats_baseline_logloss": true,
-          "auc": 0.56923
+          "auc": 0.51819
         },
-        "auc": 0.51745
+        "auc": 0.51345
       },
       "run_line": {
         "n": 6796,
-        "actual_win_rate": 0.6404,
-        "win_rate": 0.6404,
-        "predicted_mean": 0.6413,
-        "ece_raw": 0.00554,
-        "ece_calibrated": 0.00433,
-        "brier": 0.22838,
-        "logloss": 0.6491,
-        "logloss_calibrated": 0.64985,
+        "actual_win_rate": 0.6399,
+        "win_rate": 0.6399,
+        "predicted_mean": 0.6396,
+        "ece_raw": 0.00675,
+        "ece_calibrated": 0.00498,
+        "brier": 0.22811,
+        "logloss": 0.64849,
+        "logloss_calibrated": 0.64917,
         "beats_baseline_logloss": true,
         "by_pick": {
           "home": {
-            "n": 14,
-            "win_rate": 0.3571,
-            "predicted_mean": 0.5233
+            "n": 49,
+            "win_rate": 0.4286,
+            "predicted_mean": 0.5035
           },
           "away": {
-            "n": 6782,
-            "win_rate": 0.641,
-            "predicted_mean": 0.6416
+            "n": 6747,
+            "win_rate": 0.6415,
+            "predicted_mean": 0.6406
           }
         },
         "holdout": {
@@ -5866,71 +5866,71 @@
           "actual_win_rate": 0.6351,
           "win_rate": 0.6351,
           "predicted_mean": 0.6447,
-          "ece_raw": 0.01303,
-          "ece_calibrated": 0.01731,
-          "brier": 0.22821,
-          "logloss": 0.64857,
+          "ece_raw": 0.01526,
+          "ece_calibrated": 0.00963,
+          "brier": 0.22837,
+          "logloss": 0.64899,
           "baseline_rate": 0.6351,
           "baseline_logloss": 0.65619,
           "beats_baseline_logloss": true,
-          "auc": 0.59698
+          "auc": 0.59453
         },
-        "auc": 0.55228
+        "auc": 0.55616
       },
       "derived_ml": {
         "n": 6796,
-        "actual_win_rate": 0.5418,
-        "win_rate": 0.5418,
-        "predicted_mean": 0.5392,
-        "ece_raw": 0.0068,
-        "ece_calibrated": 0.00259,
-        "brier": 0.24668,
-        "logloss": 0.68644,
-        "logloss_calibrated": 0.68704,
+        "actual_win_rate": 0.5428,
+        "win_rate": 0.5428,
+        "predicted_mean": 0.5424,
+        "ece_raw": 0.00084,
+        "ece_calibrated": 0.00558,
+        "brier": 0.24637,
+        "logloss": 0.68583,
+        "logloss_calibrated": 0.68624,
         "beats_baseline_logloss": true,
         "by_pick": {
           "home": {
-            "n": 5954,
-            "win_rate": 0.5432,
-            "predicted_mean": 0.5402
+            "n": 5573,
+            "win_rate": 0.5467,
+            "predicted_mean": 0.5451
           },
           "away": {
-            "n": 842,
-            "win_rate": 0.5321,
-            "predicted_mean": 0.5321
+            "n": 1223,
+            "win_rate": 0.5249,
+            "predicted_mean": 0.5298
           }
         },
         "holdout": {
           "n": 285,
-          "actual_win_rate": 0.5684,
-          "win_rate": 0.5684,
-          "predicted_mean": 0.5421,
-          "ece_raw": 0.03228,
-          "ece_calibrated": 0.02627,
-          "brier": 0.24216,
-          "logloss": 0.6773,
-          "baseline_rate": 0.5684,
-          "baseline_logloss": 0.68375,
+          "actual_win_rate": 0.5614,
+          "win_rate": 0.5614,
+          "predicted_mean": 0.5387,
+          "ece_raw": 0.0212,
+          "ece_calibrated": 0.03522,
+          "brier": 0.24183,
+          "logloss": 0.67665,
+          "baseline_rate": 0.5614,
+          "baseline_logloss": 0.68559,
           "beats_baseline_logloss": true,
-          "auc": 0.60957
+          "auc": 0.61527
         },
-        "auc": 0.55119,
+        "auc": 0.55557,
         "source": "nb_mc_p_home_win_derived",
         "nb_diagnostic": {
           "n": 6796,
-          "actual_win_rate": 0.5418,
-          "predicted_mean": 0.5392,
-          "ece_raw": 0.0068,
+          "actual_win_rate": 0.5428,
+          "predicted_mean": 0.5424,
+          "ece_raw": 0.00084,
           "by_pick": {
             "home": {
-              "n": 5954,
-              "win_rate": 0.5432,
-              "predicted_mean": 0.5402
+              "n": 5573,
+              "win_rate": 0.5467,
+              "predicted_mean": 0.5451
             },
             "away": {
-              "n": 842,
-              "win_rate": 0.5321,
-              "predicted_mean": 0.5321
+              "n": 1223,
+              "win_rate": 0.5249,
+              "predicted_mean": 0.5298
             }
           }
         },
@@ -5943,141 +5943,58 @@
       }
     },
     "alpha_home": {
-      "form": "piecewise",
-      "lam": [
-        3.9848,
-        4.00799,
-        4.03117,
-        4.05436,
-        4.07755,
-        4.10074,
-        4.12392,
-        4.14711,
-        4.1703,
-        4.19348,
-        4.21667,
-        4.23986,
-        4.26305,
-        4.28623,
-        4.30942,
-        4.33261,
-        4.35579,
-        4.37898,
-        4.40217,
-        4.42536,
-        4.44854,
-        4.47173,
-        4.49492,
-        4.51811,
-        4.54129,
-        4.56448,
-        4.58767,
-        4.61085,
-        4.63404,
-        4.65723,
-        4.68042,
-        4.7036,
-        4.72679,
-        4.74998,
-        4.77316,
-        4.79635,
-        4.81954,
-        4.84273,
-        4.86591,
-        4.8891
-      ],
-      "alpha": [
-        0.3559,
-        0.34864,
-        0.34139,
-        0.33413,
-        0.32687,
-        0.31961,
-        0.31236,
-        0.3051,
-        0.29784,
-        0.29059,
-        0.28626,
-        0.2853,
-        0.28435,
-        0.2834,
-        0.27841,
-        0.26659,
-        0.25477,
-        0.24295,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172,
-        0.24172
-      ],
-      "direction": "falling",
+      "form": "power",
+      "a": 1.8681917834244595,
+      "c": -1.3109404656845183,
       "selection": {
         "piecewise": {
-          "tail_gap_avg": 0.00046,
-          "loglik_avg": -2.44312
+          "tail_gap_avg": 0.00051,
+          "loglik_avg": -2.4419
         },
         "linear": {
           "tail_gap_avg": 0.00053,
-          "loglik_avg": -2.44268
+          "loglik_avg": -2.44173
         },
         "power": {
-          "tail_gap_avg": 0.0006,
-          "loglik_avg": -2.44259
+          "tail_gap_avg": 0.00047,
+          "loglik_avg": -2.44164
         },
-        "chosen": "piecewise",
+        "chosen": "power",
         "bins": [
           {
             "count": 930,
-            "mean_lam": 3.9848,
-            "alpha": 0.3559
-          },
-          {
-            "count": 929,
-            "mean_lam": 4.2059,
-            "alpha": 0.2867
-          },
-          {
-            "count": 929,
-            "mean_lam": 4.3008,
-            "alpha": 0.2828
-          },
-          {
-            "count": 931,
-            "mean_lam": 4.3814,
-            "alpha": 0.215
+            "mean_lam": 3.9471,
+            "alpha": 0.3159
           },
           {
             "count": 930,
-            "mean_lam": 4.4748,
-            "alpha": 0.2573
+            "mean_lam": 4.1861,
+            "alpha": 0.3292
+          },
+          {
+            "count": 929,
+            "mean_lam": 4.2906,
+            "alpha": 0.2355
           },
           {
             "count": 931,
-            "mean_lam": 4.6026,
-            "alpha": 0.2476
+            "mean_lam": 4.3818,
+            "alpha": 0.2442
+          },
+          {
+            "count": 930,
+            "mean_lam": 4.4769,
+            "alpha": 0.2767
+          },
+          {
+            "count": 930,
+            "mean_lam": 4.612,
+            "alpha": 0.2536
           },
           {
             "count": 931,
-            "mean_lam": 4.8891,
-            "alpha": 0.247
+            "mean_lam": 4.9096,
+            "alpha": 0.24
           }
         ]
       },
@@ -6087,57 +6004,57 @@
     },
     "alpha_away": {
       "form": "linear",
-      "a": 0.5801019730295344,
-      "b": -0.0577017345377578,
+      "a": 0.7896555850255955,
+      "b": -0.10494634256457448,
       "selection": {
         "piecewise": {
-          "tail_gap_avg": 0.00242,
-          "loglik_avg": -2.47198
+          "tail_gap_avg": 0.00222,
+          "loglik_avg": -2.4719
         },
         "linear": {
-          "tail_gap_avg": 0.00223,
-          "loglik_avg": -2.47209
+          "tail_gap_avg": 0.00201,
+          "loglik_avg": -2.47271
         },
         "power": {
-          "tail_gap_avg": 0.00261,
-          "loglik_avg": -2.47201
+          "tail_gap_avg": 0.00216,
+          "loglik_avg": -2.47239
         },
         "chosen": "linear",
         "bins": [
           {
             "count": 930,
-            "mean_lam": 3.9116,
-            "alpha": 0.345
+            "mean_lam": 3.8671,
+            "alpha": 0.4204
           },
           {
             "count": 930,
-            "mean_lam": 4.1496,
-            "alpha": 0.3561
-          },
-          {
-            "count": 930,
-            "mean_lam": 4.2652,
-            "alpha": 0.3648
+            "mean_lam": 4.1222,
+            "alpha": 0.3542
           },
           {
             "count": 929,
-            "mean_lam": 4.3629,
-            "alpha": 0.2938
+            "mean_lam": 4.2481,
+            "alpha": 0.3419
           },
           {
             "count": 931,
-            "mean_lam": 4.467,
-            "alpha": 0.3182
+            "mean_lam": 4.3592,
+            "alpha": 0.3028
           },
           {
-            "count": 929,
-            "mean_lam": 4.5932,
-            "alpha": 0.3099
+            "count": 930,
+            "mean_lam": 4.4721,
+            "alpha": 0.2931
           },
           {
-            "count": 932,
-            "mean_lam": 4.8876,
-            "alpha": 0.3051
+            "count": 930,
+            "mean_lam": 4.6154,
+            "alpha": 0.2867
+          },
+          {
+            "count": 931,
+            "mean_lam": 4.9343,
+            "alpha": 0.3152
           }
         ]
       },
@@ -6146,24 +6063,24 @@
       "min_bin_count": 250
     },
     "phase2_single_alpha": {
-      "home": 0.2719,
-      "away": 0.3322
+      "home": 0.2728,
+      "away": 0.3327
     },
     "fit_check_single_alpha": {
       "home": [
         {
           "k": 0,
-          "modeled_p": 0.0552,
+          "modeled_p": 0.0555,
           "observed_p": 0.0596
         },
         {
           "k": 1,
-          "modeled_p": 0.1106,
+          "modeled_p": 0.1109,
           "observed_p": 0.1039
         },
         {
           "k": 2,
-          "modeled_p": 0.141,
+          "modeled_p": 0.1412,
           "observed_p": 0.1299
         },
         {
@@ -6173,12 +6090,168 @@
         },
         {
           "k": 4,
-          "modeled_p": 0.1324,
+          "modeled_p": 0.1323,
           "observed_p": 0.1339
         },
         {
           "k": 5,
+          "modeled_p": 0.1107,
+          "observed_p": 0.1157
+        },
+        {
+          "k": 6,
+          "modeled_p": 0.0873,
+          "observed_p": 0.0992
+        },
+        {
+          "k": 7,
+          "modeled_p": 0.0657,
+          "observed_p": 0.0646
+        },
+        {
+          "k": 8,
+          "modeled_p": 0.0478,
+          "observed_p": 0.0503
+        },
+        {
+          "k": 9,
+          "modeled_p": 0.0338,
+          "observed_p": 0.0346
+        },
+        {
+          "k": 10,
+          "modeled_p": 0.0234,
+          "observed_p": 0.0243
+        },
+        {
+          "k": 11,
+          "modeled_p": 0.0159,
+          "observed_p": 0.0168
+        },
+        {
+          "k": 12,
+          "modeled_p": 0.0106,
+          "observed_p": 0.0097
+        },
+        {
+          "k": "\u226510",
+          "modeled_p": 0.0498,
+          "observed_p": 0.0692
+        },
+        {
+          "k": "\u22641",
+          "modeled_p": 0.1664,
+          "observed_p": 0.1635
+        }
+      ],
+      "away": [
+        {
+          "k": 0,
+          "modeled_p": 0.0672,
+          "observed_p": 0.0708
+        },
+        {
+          "k": 1,
+          "modeled_p": 0.1197,
+          "observed_p": 0.1183
+        },
+        {
+          "k": 2,
+          "modeled_p": 0.1421,
+          "observed_p": 0.1357
+        },
+        {
+          "k": 3,
+          "modeled_p": 0.1406,
+          "observed_p": 0.1413
+        },
+        {
+          "k": 4,
+          "modeled_p": 0.1251,
+          "observed_p": 0.1187
+        },
+        {
+          "k": 5,
+          "modeled_p": 0.1039,
+          "observed_p": 0.1005
+        },
+        {
+          "k": 6,
+          "modeled_p": 0.0822,
+          "observed_p": 0.0821
+        },
+        {
+          "k": 7,
+          "modeled_p": 0.0627,
+          "observed_p": 0.0637
+        },
+        {
+          "k": 8,
+          "modeled_p": 0.0465,
+          "observed_p": 0.0503
+        },
+        {
+          "k": 9,
+          "modeled_p": 0.0337,
+          "observed_p": 0.0415
+        },
+        {
+          "k": 10,
+          "modeled_p": 0.024,
+          "observed_p": 0.0278
+        },
+        {
+          "k": 11,
+          "modeled_p": 0.0168,
+          "observed_p": 0.018
+        },
+        {
+          "k": 12,
+          "modeled_p": 0.0116,
+          "observed_p": 0.0106
+        },
+        {
+          "k": "\u226510",
+          "modeled_p": 0.0524,
+          "observed_p": 0.0771
+        },
+        {
+          "k": "\u22641",
+          "modeled_p": 0.1868,
+          "observed_p": 0.1891
+        }
+      ]
+    },
+    "fit_check_alpha_lambda": {
+      "home": [
+        {
+          "k": 0,
+          "modeled_p": 0.0558,
+          "observed_p": 0.0596
+        },
+        {
+          "k": 1,
           "modeled_p": 0.1109,
+          "observed_p": 0.1039
+        },
+        {
+          "k": 2,
+          "modeled_p": 0.1409,
+          "observed_p": 0.1299
+        },
+        {
+          "k": 3,
+          "modeled_p": 0.1453,
+          "observed_p": 0.1392
+        },
+        {
+          "k": 4,
+          "modeled_p": 0.1323,
+          "observed_p": 0.1339
+        },
+        {
+          "k": 5,
+          "modeled_p": 0.1108,
           "observed_p": 0.1157
         },
         {
@@ -6218,210 +6291,54 @@
         },
         {
           "k": "\u226510",
-          "modeled_p": 0.0499,
-          "observed_p": 0.0692
-        },
-        {
-          "k": "\u22641",
-          "modeled_p": 0.1658,
-          "observed_p": 0.1635
-        }
-      ],
-      "away": [
-        {
-          "k": 0,
-          "modeled_p": 0.067,
-          "observed_p": 0.0708
-        },
-        {
-          "k": 1,
-          "modeled_p": 0.1195,
-          "observed_p": 0.1183
-        },
-        {
-          "k": 2,
-          "modeled_p": 0.142,
-          "observed_p": 0.1357
-        },
-        {
-          "k": 3,
-          "modeled_p": 0.1405,
-          "observed_p": 0.1413
-        },
-        {
-          "k": 4,
-          "modeled_p": 0.1251,
-          "observed_p": 0.1187
-        },
-        {
-          "k": 5,
-          "modeled_p": 0.104,
-          "observed_p": 0.1005
-        },
-        {
-          "k": 6,
-          "modeled_p": 0.0823,
-          "observed_p": 0.0821
-        },
-        {
-          "k": 7,
-          "modeled_p": 0.0627,
-          "observed_p": 0.0637
-        },
-        {
-          "k": 8,
-          "modeled_p": 0.0465,
-          "observed_p": 0.0503
-        },
-        {
-          "k": 9,
-          "modeled_p": 0.0337,
-          "observed_p": 0.0415
-        },
-        {
-          "k": 10,
-          "modeled_p": 0.024,
-          "observed_p": 0.0278
-        },
-        {
-          "k": 11,
-          "modeled_p": 0.0168,
-          "observed_p": 0.018
-        },
-        {
-          "k": 12,
-          "modeled_p": 0.0116,
-          "observed_p": 0.0106
-        },
-        {
-          "k": "\u226510",
-          "modeled_p": 0.0525,
-          "observed_p": 0.0771
-        },
-        {
-          "k": "\u22641",
-          "modeled_p": 0.1865,
-          "observed_p": 0.1891
-        }
-      ]
-    },
-    "fit_check_alpha_lambda": {
-      "home": [
-        {
-          "k": 0,
-          "modeled_p": 0.0553,
-          "observed_p": 0.0596
-        },
-        {
-          "k": 1,
-          "modeled_p": 0.1102,
-          "observed_p": 0.1039
-        },
-        {
-          "k": 2,
-          "modeled_p": 0.1406,
-          "observed_p": 0.1299
-        },
-        {
-          "k": 3,
-          "modeled_p": 0.1454,
-          "observed_p": 0.1392
-        },
-        {
-          "k": 4,
-          "modeled_p": 0.1326,
-          "observed_p": 0.1339
-        },
-        {
-          "k": 5,
-          "modeled_p": 0.1112,
-          "observed_p": 0.1157
-        },
-        {
-          "k": 6,
-          "modeled_p": 0.0878,
-          "observed_p": 0.0992
-        },
-        {
-          "k": 7,
-          "modeled_p": 0.0661,
-          "observed_p": 0.0646
-        },
-        {
-          "k": 8,
-          "modeled_p": 0.0481,
-          "observed_p": 0.0503
-        },
-        {
-          "k": 9,
-          "modeled_p": 0.034,
-          "observed_p": 0.0346
-        },
-        {
-          "k": 10,
-          "modeled_p": 0.0234,
-          "observed_p": 0.0243
-        },
-        {
-          "k": 11,
-          "modeled_p": 0.0158,
-          "observed_p": 0.0168
-        },
-        {
-          "k": 12,
-          "modeled_p": 0.0105,
-          "observed_p": 0.0097
-        },
-        {
-          "k": "\u226510",
-          "modeled_p": 0.0688,
+          "modeled_p": 0.069,
           "observed_p": 0.0692
         },
         {
           "k": "\u226511",
-          "modeled_p": 0.0453,
+          "modeled_p": 0.0456,
           "observed_p": 0.0449
         },
         {
           "k": "\u226512",
-          "modeled_p": 0.0295,
+          "modeled_p": 0.0297,
           "observed_p": 0.0281
         },
         {
           "k": "\u22641",
-          "modeled_p": 0.1654,
+          "modeled_p": 0.1666,
           "observed_p": 0.1635
         }
       ],
       "away": [
         {
           "k": 0,
-          "modeled_p": 0.067,
+          "modeled_p": 0.0679,
           "observed_p": 0.0708
         },
         {
           "k": 1,
-          "modeled_p": 0.1194,
+          "modeled_p": 0.1196,
           "observed_p": 0.1183
         },
         {
           "k": 2,
-          "modeled_p": 0.1419,
+          "modeled_p": 0.1416,
           "observed_p": 0.1357
         },
         {
           "k": 3,
-          "modeled_p": 0.1406,
+          "modeled_p": 0.1401,
           "observed_p": 0.1413
         },
         {
           "k": 4,
-          "modeled_p": 0.1252,
+          "modeled_p": 0.1248,
           "observed_p": 0.1187
         },
         {
           "k": 5,
-          "modeled_p": 0.1041,
+          "modeled_p": 0.1039,
           "observed_p": 0.1005
         },
         {
@@ -6441,27 +6358,27 @@
         },
         {
           "k": 9,
-          "modeled_p": 0.0337,
+          "modeled_p": 0.0338,
           "observed_p": 0.0415
         },
         {
           "k": 10,
-          "modeled_p": 0.024,
+          "modeled_p": 0.0241,
           "observed_p": 0.0278
         },
         {
           "k": 11,
-          "modeled_p": 0.0168,
+          "modeled_p": 0.0169,
           "observed_p": 0.018
         },
         {
           "k": 12,
-          "modeled_p": 0.0116,
+          "modeled_p": 0.0117,
           "observed_p": 0.0106
         },
         {
           "k": "\u226510",
-          "modeled_p": 0.0764,
+          "modeled_p": 0.0765,
           "observed_p": 0.0771
         },
         {
@@ -6476,21 +6393,21 @@
         },
         {
           "k": "\u22641",
-          "modeled_p": 0.1864,
+          "modeled_p": 0.1876,
           "observed_p": 0.1891
         }
       ]
     },
     "variance_check": {
       "home": {
-        "implied_var": 9.561,
+        "implied_var": 9.588,
         "observed_var": 9.724,
         "phase2_implied_var": 9.684
       },
       "away": {
-        "implied_var": 10.639,
+        "implied_var": 10.635,
         "observed_var": 10.663,
-        "phase2_implied_var": 10.741
+        "phase2_implied_var": 10.74
       }
     },
     "year_effect_home": {
@@ -6498,20 +6415,20 @@
         {
           "year": 2024,
           "n_games": 2056,
-          "alpha": 0.2489
+          "alpha": 0.2501
         },
         {
           "year": 2025,
           "n_games": 2418,
-          "alpha": 0.2789
+          "alpha": 0.2796
         },
         {
           "year": 2026,
           "n_games": 2037,
-          "alpha": 0.2861
+          "alpha": 0.2868
         }
       ],
-      "rel_gap": 0.1495,
+      "rel_gap": 0.1467,
       "pooled_with_caveat": false
     },
     "year_effect_away": {
@@ -6519,20 +6436,20 @@
         {
           "year": 2024,
           "n_games": 2056,
-          "alpha": 0.3021
+          "alpha": 0.3028
         },
         {
           "year": 2025,
           "n_games": 2418,
-          "alpha": 0.3602
+          "alpha": 0.3609
         },
         {
           "year": 2026,
           "n_games": 2037,
-          "alpha": 0.3288
+          "alpha": 0.329
         }
       ],
-      "rel_gap": 0.0884,
+      "rel_gap": 0.0865,
       "pooled_with_caveat": false
     },
     "mc_meta": {
@@ -6544,16 +6461,18 @@
     "calibration": {
       "method": "prequential_platt",
       "fit_scope": "all_oof",
+      "calibrator_fit_n": 6796,
+      "calibrator_excluded_n": 0,
       "markets_published": "calibrated",
       "calibrators": {
         "method": "prequential_platt",
-        "fit_scope": "all_oof",
+        "fit_scope": "pre_holdout",
         "totals": {
           "6_5": {
             "over": {
               "method": "platt",
-              "a": 1.325523,
-              "b": -0.128615,
+              "a": 1.035612,
+              "b": 0.067024,
               "n": 6796
             },
             "push": null,
@@ -6563,20 +6482,20 @@
           "7_0": {
             "over": {
               "method": "platt",
-              "a": 1.191258,
-              "b": -0.052706,
+              "a": 0.951667,
+              "b": 0.012675,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.758088,
-              "b": -0.336693,
+              "a": 0.758204,
+              "b": -0.335202,
               "n": 6796
             },
             "under": {
               "method": "platt",
-              "a": 1.325523,
-              "b": 0.128615,
+              "a": 1.035612,
+              "b": -0.067024,
               "n": 6796
             },
             "three_way": true
@@ -6584,8 +6503,8 @@
           "7_5": {
             "over": {
               "method": "platt",
-              "a": 1.191258,
-              "b": -0.052706,
+              "a": 0.951667,
+              "b": 0.012675,
               "n": 6796
             },
             "push": null,
@@ -6595,20 +6514,20 @@
           "8_0": {
             "over": {
               "method": "platt",
-              "a": 1.242911,
-              "b": 0.095743,
+              "a": 0.979771,
+              "b": 0.068358,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.924828,
-              "b": -0.404679,
+              "a": 0.923935,
+              "b": -0.403334,
               "n": 6796
             },
             "under": {
               "method": "platt",
-              "a": 1.191258,
-              "b": 0.052706,
+              "a": 0.951667,
+              "b": -0.012675,
               "n": 6796
             },
             "three_way": true
@@ -6616,8 +6535,8 @@
           "8_5": {
             "over": {
               "method": "platt",
-              "a": 1.242911,
-              "b": 0.095743,
+              "a": 0.979771,
+              "b": 0.068358,
               "n": 6796
             },
             "push": null,
@@ -6627,20 +6546,20 @@
           "9_0": {
             "over": {
               "method": "platt",
-              "a": 1.327014,
-              "b": 0.173611,
+              "a": 0.99969,
+              "b": 0.024666,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.799274,
-              "b": -0.33714,
+              "a": 0.798867,
+              "b": -0.336054,
               "n": 6796
             },
             "under": {
               "method": "platt",
-              "a": 1.242911,
-              "b": -0.095743,
+              "a": 0.979771,
+              "b": -0.068358,
               "n": 6796
             },
             "three_way": true
@@ -6648,8 +6567,8 @@
           "9_5": {
             "over": {
               "method": "platt",
-              "a": 1.327014,
-              "b": 0.173611,
+              "a": 0.99969,
+              "b": 0.024666,
               "n": 6796
             },
             "push": null,
@@ -6659,20 +6578,20 @@
           "10_0": {
             "over": {
               "method": "platt",
-              "a": 1.216967,
-              "b": 0.249865,
+              "a": 0.99687,
+              "b": 0.075578,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.921177,
-              "b": -0.368602,
+              "a": 0.920086,
+              "b": -0.367752,
               "n": 6796
             },
             "under": {
               "method": "platt",
-              "a": 1.327014,
-              "b": -0.173611,
+              "a": 0.99969,
+              "b": -0.024666,
               "n": 6796
             },
             "three_way": true
@@ -6680,8 +6599,8 @@
           "10_5": {
             "over": {
               "method": "platt",
-              "a": 1.216967,
-              "b": 0.249865,
+              "a": 0.99687,
+              "b": 0.075578,
               "n": 6796
             },
             "push": null,
@@ -6691,20 +6610,20 @@
           "11_0": {
             "over": {
               "method": "platt",
-              "a": 1.220731,
-              "b": 0.282216,
+              "a": 0.972467,
+              "b": 0.003408,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.824355,
-              "b": -0.309908,
+              "a": 0.82354,
+              "b": -0.309237,
               "n": 6796
             },
             "under": {
               "method": "platt",
-              "a": 1.216967,
-              "b": -0.249865,
+              "a": 0.99687,
+              "b": -0.075578,
               "n": 6796
             },
             "three_way": true
@@ -6712,8 +6631,8 @@
           "11_5": {
             "over": {
               "method": "platt",
-              "a": 1.220731,
-              "b": 0.282216,
+              "a": 0.972467,
+              "b": 0.003408,
               "n": 6796
             },
             "push": null,
@@ -6723,20 +6642,15 @@
           "12_0": {
             "over": {
               "method": "platt",
-              "a": 1.303108,
-              "b": 0.524382,
+              "a": 1.049629,
+              "b": 0.157707,
               "n": 6796
             },
-            "push": {
-              "method": "platt",
-              "a": 0.93645,
-              "b": -0.328816,
-              "n": 6796
-            },
+            "push": null,
             "under": {
               "method": "platt",
-              "a": 1.220731,
-              "b": -0.282216,
+              "a": 0.972467,
+              "b": -0.003408,
               "n": 6796
             },
             "three_way": true
@@ -6744,8 +6658,8 @@
           "12_5": {
             "over": {
               "method": "platt",
-              "a": 1.303108,
-              "b": 0.524382,
+              "a": 1.049629,
+              "b": 0.157707,
               "n": 6796
             },
             "push": null,
@@ -6757,20 +6671,20 @@
           "1_0": {
             "home": {
               "method": "platt",
-              "a": 1.092536,
-              "b": 0.044197,
+              "a": 1.087384,
+              "b": 0.042899,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.704835,
-              "b": -0.449746,
+              "a": 0.705031,
+              "b": -0.448719,
               "n": 6796
             },
             "away": {
               "method": "platt",
-              "a": 1.085897,
-              "b": 0.011989,
+              "a": 1.101728,
+              "b": 0.011749,
               "n": 6796
             },
             "three_way": true
@@ -6778,8 +6692,8 @@
           "1_5": {
             "home": {
               "method": "favored_platt_floor",
-              "a": 1.106267,
-              "b": -0.052868,
+              "a": 1.112474,
+              "b": -0.058708,
               "n": 6796,
               "floor": 0.5
             },
@@ -6791,20 +6705,20 @@
           "2_0": {
             "home": {
               "method": "platt",
-              "a": 1.069311,
-              "b": 0.035906,
+              "a": 1.063355,
+              "b": 0.031167,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.828782,
-              "b": -0.351331,
+              "a": 0.82741,
+              "b": -0.351385,
               "n": 6796
             },
             "away": {
               "method": "platt",
-              "a": 1.092536,
-              "b": -0.044197,
+              "a": 1.087384,
+              "b": -0.042899,
               "n": 6796
             },
             "three_way": true
@@ -6812,8 +6726,8 @@
           "2_5": {
             "home": {
               "method": "favored_platt_floor",
-              "a": 1.069311,
-              "b": -0.035906,
+              "a": 1.063355,
+              "b": -0.031167,
               "n": 6796,
               "floor": 0.5
             },
@@ -6825,20 +6739,20 @@
           "3_0": {
             "home": {
               "method": "platt",
-              "a": 1.103925,
-              "b": 0.141456,
+              "a": 1.122435,
+              "b": 0.166574,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.898024,
-              "b": -0.351782,
+              "a": 0.896791,
+              "b": -0.351327,
               "n": 6796
             },
             "away": {
               "method": "platt",
-              "a": 1.069311,
-              "b": -0.035906,
+              "a": 1.063355,
+              "b": -0.031167,
               "n": 6796
             },
             "three_way": true
@@ -6846,8 +6760,8 @@
           "3_5": {
             "home": {
               "method": "favored_platt_floor",
-              "a": 1.103925,
-              "b": -0.141456,
+              "a": 1.122435,
+              "b": -0.166574,
               "n": 6796,
               "floor": 0.5
             },
@@ -6859,20 +6773,20 @@
           "4_0": {
             "home": {
               "method": "platt",
-              "a": 1.068455,
-              "b": 0.109802,
+              "a": 1.022744,
+              "b": 0.028092,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 1.320498,
-              "b": 0.917583,
+              "a": 1.402143,
+              "b": 1.147132,
               "n": 6796
             },
             "away": {
               "method": "platt",
-              "a": 1.103925,
-              "b": -0.141456,
+              "a": 1.122435,
+              "b": -0.166574,
               "n": 6796
             },
             "three_way": true
@@ -6882,20 +6796,20 @@
           "1_0": {
             "favorite": {
               "method": "platt",
-              "a": 1.002316,
-              "b": 0.050163,
+              "a": 1.033381,
+              "b": 0.06727,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.775451,
-              "b": -0.343085,
+              "a": 1.637408,
+              "b": 1.600921,
               "n": 6796
             },
             "dog": {
               "method": "platt",
-              "a": 1.071845,
-              "b": -0.122992,
+              "a": 1.091852,
+              "b": -0.125298,
               "n": 6796
             },
             "three_way": true
@@ -6903,8 +6817,8 @@
           "1_5": {
             "favorite": {
               "method": "favored_platt_floor",
-              "a": 1.008518,
-              "b": -0.054417,
+              "a": 1.064586,
+              "b": -0.088765,
               "n": 6796,
               "floor": 0.5
             },
@@ -6916,20 +6830,20 @@
           "2_0": {
             "favorite": {
               "method": "platt",
-              "a": 0.930895,
-              "b": -0.040312,
+              "a": 0.953451,
+              "b": -0.019842,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.829585,
-              "b": -0.34408,
+              "a": 0.830411,
+              "b": -0.343526,
               "n": 6796
             },
             "dog": {
               "method": "platt",
-              "a": 1.002316,
-              "b": -0.050163,
+              "a": 1.033381,
+              "b": -0.06727,
               "n": 6796
             },
             "three_way": true
@@ -6937,8 +6851,8 @@
           "2_5": {
             "favorite": {
               "method": "favored_platt_floor",
-              "a": 0.930895,
-              "b": 0.040312,
+              "a": 0.953451,
+              "b": 0.019842,
               "n": 6796,
               "floor": 0.5
             },
@@ -6950,20 +6864,20 @@
           "3_0": {
             "favorite": {
               "method": "platt",
-              "a": 0.878482,
-              "b": -0.137709,
+              "a": 0.86102,
+              "b": -0.165235,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.870238,
-              "b": -0.33048,
+              "a": 1.347388,
+              "b": 0.917915,
               "n": 6796
             },
             "dog": {
               "method": "platt",
-              "a": 0.930895,
-              "b": 0.040312,
+              "a": 0.953451,
+              "b": 0.019842,
               "n": 6796
             },
             "three_way": true
@@ -6971,8 +6885,8 @@
           "3_5": {
             "favorite": {
               "method": "favored_platt_floor",
-              "a": 0.878482,
-              "b": 0.137709,
+              "a": 0.86102,
+              "b": 0.165235,
               "n": 6796,
               "floor": 0.5
             },
@@ -6984,20 +6898,20 @@
           "4_0": {
             "favorite": {
               "method": "platt",
-              "a": 1.041532,
-              "b": 0.108881,
+              "a": 1.043062,
+              "b": 0.108238,
               "n": 6796
             },
             "push": {
               "method": "platt",
-              "a": 0.13744,
-              "b": -2.461113,
+              "a": 0.016889,
+              "b": -2.808735,
               "n": 6796
             },
             "dog": {
               "method": "platt",
-              "a": 0.878482,
-              "b": 0.137709,
+              "a": 0.86102,
+              "b": 0.165235,
               "n": 6796
             },
             "three_way": true
@@ -7007,8 +6921,8 @@
           "0_5": {
             "calibrator": {
               "method": "favored_platt_floor",
-              "a": 1.334889,
-              "b": -0.078929,
+              "a": 1.223007,
+              "b": -0.043435,
               "n": 6796,
               "floor": 0.5
             },
@@ -7017,8 +6931,8 @@
           "1_5": {
             "calibrator": {
               "method": "favored_platt_floor",
-              "a": 1.106267,
-              "b": -0.052868,
+              "a": 1.112474,
+              "b": -0.058708,
               "n": 6796,
               "floor": 0.5
             },
@@ -7027,8 +6941,8 @@
           "2_5": {
             "calibrator": {
               "method": "favored_platt_floor",
-              "a": 1.069311,
-              "b": -0.035906,
+              "a": 1.063355,
+              "b": -0.031167,
               "n": 6796,
               "floor": 0.5
             },
@@ -7037,8 +6951,8 @@
           "3_5": {
             "calibrator": {
               "method": "favored_platt_floor",
-              "a": 1.103925,
-              "b": -0.141456,
+              "a": 1.122435,
+              "b": -0.166574,
               "n": 6796,
               "floor": 0.5
             },
@@ -7047,8 +6961,8 @@
         },
         "derived_moneyline": {
           "method": "favored_platt_floor",
-          "a": 1.334889,
-          "b": -0.078929,
+          "a": 1.223007,
+          "b": -0.043435,
           "n": 6796,
           "floor": 0.5
         },
@@ -7059,62 +6973,62 @@
           "6_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.626995,
-              "brier": 0.217737,
-              "ece": 0.01847,
-              "auc": 0.5493942834057566
+              "logloss": 0.62707,
+              "brier": 0.217774,
+              "ece": 0.02025,
+              "auc": 0.5474478906487101
             },
             "prequential_calibrated": {
-              "logloss": 0.626829,
-              "brier": 0.217677,
-              "ece": 0.00377,
-              "auc": 0.5464494447329713
+              "logloss": 0.627195,
+              "brier": 0.217843,
+              "ece": 0.00559,
+              "auc": 0.5436882840662053
             }
           },
           "7_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.682689,
-                "brier": 0.244805,
-                "ece": 0.00454,
-                "auc": 0.5433515724868648
+                "logloss": 0.682663,
+                "brier": 0.244788,
+                "ece": 0.00147,
+                "auc": 0.5407724096448301
               },
               "prequential_calibrated": {
-                "logloss": 0.683337,
-                "brier": 0.245119,
-                "ece": 0.00395,
-                "auc": 0.5371308995534332
+                "logloss": 0.683417,
+                "brier": 0.245156,
+                "ece": 0.00179,
+                "auc": 0.5347615048683106
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.357721,
-                "brier": 0.101665,
-                "ece": 0.01989,
-                "auc": 0.4961041429723935
+                "logloss": 0.357468,
+                "brier": 0.101621,
+                "ece": 0.0197,
+                "auc": 0.5158893020664079
               },
               "prequential_calibrated": {
-                "logloss": 0.355789,
+                "logloss": 0.355797,
                 "brier": 0.101323,
-                "ece": 0.00286,
-                "auc": 0.4927841115746084
+                "ece": 0.00254,
+                "auc": 0.5051130450698486
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.626995,
-                "brier": 0.217737,
-                "ece": 0.01847,
-                "auc": 0.549390669256312
+                "logloss": 0.62707,
+                "brier": 0.217774,
+                "ece": 0.02025,
+                "auc": 0.5474492273889157
               },
               "prequential_calibrated": {
-                "logloss": 0.626829,
-                "brier": 0.217677,
-                "ece": 0.00377,
-                "auc": 0.5464489496440064
+                "logloss": 0.627195,
+                "brier": 0.217843,
+                "ece": 0.00559,
+                "auc": 0.5436877394683438
               }
             },
             "prequential_sum_error": 0.0
@@ -7122,62 +7036,62 @@
           "7_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.682689,
-              "brier": 0.244805,
-              "ece": 0.00454,
-              "auc": 0.5433515724868648
+              "logloss": 0.682663,
+              "brier": 0.244788,
+              "ece": 0.00147,
+              "auc": 0.5407724096448301
             },
             "prequential_calibrated": {
-              "logloss": 0.683337,
-              "brier": 0.245119,
-              "ece": 0.00395,
-              "auc": 0.5371308995534332
+              "logloss": 0.683417,
+              "brier": 0.245156,
+              "ece": 0.00179,
+              "auc": 0.5347615048683106
             }
           },
           "8_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.69068,
-                "brier": 0.248767,
-                "ece": 0.01689,
-                "auc": 0.543197775321395
+                "logloss": 0.690762,
+                "brier": 0.248805,
+                "ece": 0.01757,
+                "auc": 0.5401222997842982
               },
               "prequential_calibrated": {
-                "logloss": 0.690617,
-                "brier": 0.248736,
-                "ece": 0.00243,
-                "auc": 0.538509951989618
+                "logloss": 0.690766,
+                "brier": 0.248809,
+                "ece": 0.00608,
+                "auc": 0.5352833066608988
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.267125,
-                "brier": 0.069247,
-                "ece": 0.01779,
-                "auc": 0.4909739721120795
+                "logloss": 0.266963,
+                "brier": 0.06922,
+                "ece": 0.01808,
+                "auc": 0.5006657785430164
               },
               "prequential_calibrated": {
-                "logloss": 0.265683,
-                "brier": 0.069013,
-                "ece": 0.00265,
-                "auc": 0.49139750655095926
+                "logloss": 0.265812,
+                "brier": 0.069021,
+                "ece": 0.00221,
+                "auc": 0.49265114335446814
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.682689,
-                "brier": 0.244805,
-                "ece": 0.00437,
-                "auc": 0.5433451492169594
+                "logloss": 0.682663,
+                "brier": 0.244788,
+                "ece": 0.00173,
+                "auc": 0.5407665583099163
               },
               "prequential_calibrated": {
-                "logloss": 0.683337,
-                "brier": 0.245119,
-                "ece": 0.00395,
-                "auc": 0.5371299756584468
+                "logloss": 0.683417,
+                "brier": 0.245156,
+                "ece": 0.00179,
+                "auc": 0.5347605369783249
               }
             },
             "prequential_sum_error": 0.0
@@ -7185,62 +7099,62 @@
           "8_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.69068,
-              "brier": 0.248767,
-              "ece": 0.01689,
-              "auc": 0.543197775321395
+              "logloss": 0.690762,
+              "brier": 0.248805,
+              "ece": 0.01757,
+              "auc": 0.5401222997842982
             },
             "prequential_calibrated": {
-              "logloss": 0.690617,
-              "brier": 0.248736,
-              "ece": 0.00243,
-              "auc": 0.538509951989618
+              "logloss": 0.690766,
+              "brier": 0.248809,
+              "ece": 0.00608,
+              "auc": 0.5352833066608988
             }
           },
           "9_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.666498,
-                "brier": 0.236834,
-                "ece": 0.00539,
-                "auc": 0.5449574886200026
+                "logloss": 0.666755,
+                "brier": 0.236949,
+                "ece": 0.00768,
+                "auc": 0.5391533718241446
               },
               "prequential_calibrated": {
-                "logloss": 0.666857,
-                "brier": 0.237,
-                "ece": 0.00488,
-                "auc": 0.5399966914384607
+                "logloss": 0.667322,
+                "brier": 0.237224,
+                "ece": 0.00656,
+                "auc": 0.534601281976702
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.318884,
-                "brier": 0.087583,
-                "ece": 0.01145,
-                "auc": 0.5026077026763369
+                "logloss": 0.318787,
+                "brier": 0.087567,
+                "ece": 0.0117,
+                "auc": 0.5123007949878231
               },
               "prequential_calibrated": {
-                "logloss": 0.319102,
-                "brier": 0.087623,
-                "ece": 0.00863,
-                "auc": 0.484196435380375
+                "logloss": 0.31837,
+                "brier": 0.087504,
+                "ece": 0.0068,
+                "auc": 0.508810900454689
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.69068,
-                "brier": 0.248767,
-                "ece": 0.01689,
-                "auc": 0.5431892397957574
+                "logloss": 0.690762,
+                "brier": 0.248805,
+                "ece": 0.01757,
+                "auc": 0.5401236429380787
               },
               "prequential_calibrated": {
-                "logloss": 0.690617,
-                "brier": 0.248736,
-                "ece": 0.00243,
-                "auc": 0.5385096053692875
+                "logloss": 0.690766,
+                "brier": 0.248809,
+                "ece": 0.00608,
+                "auc": 0.5352832200058163
               }
             },
             "prequential_sum_error": 0.0
@@ -7248,62 +7162,62 @@
           "9_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.666498,
-              "brier": 0.236834,
-              "ece": 0.00539,
-              "auc": 0.5449574886200026
+              "logloss": 0.666755,
+              "brier": 0.236949,
+              "ece": 0.00768,
+              "auc": 0.5391533718241446
             },
             "prequential_calibrated": {
-              "logloss": 0.666857,
-              "brier": 0.237,
-              "ece": 0.00488,
-              "auc": 0.5399966914384607
+              "logloss": 0.667322,
+              "brier": 0.237224,
+              "ece": 0.00656,
+              "auc": 0.534601281976702
             }
           },
           "10_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.629881,
-                "brier": 0.219112,
-                "ece": 0.0166,
-                "auc": 0.5407126547170478
+                "logloss": 0.62985,
+                "brier": 0.219078,
+                "ece": 0.0171,
+                "auc": 0.5383111060524324
               },
               "prequential_calibrated": {
-                "logloss": 0.629616,
-                "brier": 0.218987,
-                "ece": 0.00389,
-                "auc": 0.5370093605358532
+                "logloss": 0.62988,
+                "brier": 0.219093,
+                "ece": 0.00468,
+                "auc": 0.5347762776891688
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.241008,
-                "brier": 0.060787,
-                "ece": 0.01122,
-                "auc": 0.5241024707811266
+                "logloss": 0.24102,
+                "brier": 0.060788,
+                "ece": 0.01098,
+                "auc": 0.5175702171768262
               },
               "prequential_calibrated": {
-                "logloss": 0.240544,
-                "brier": 0.060719,
-                "ece": 0.00104,
-                "auc": 0.5024324232709082
+                "logloss": 0.240774,
+                "brier": 0.060747,
+                "ece": 0.00035,
+                "auc": 0.48819594976726594
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.666498,
-                "brier": 0.236834,
-                "ece": 0.00539,
-                "auc": 0.5449451269615043
+                "logloss": 0.666755,
+                "brier": 0.236949,
+                "ece": 0.00783,
+                "auc": 0.5391409647183724
               },
               "prequential_calibrated": {
-                "logloss": 0.666857,
-                "brier": 0.237,
-                "ece": 0.00488,
-                "auc": 0.5399965096493652
+                "logloss": 0.667322,
+                "brier": 0.237224,
+                "ece": 0.00656,
+                "auc": 0.5346013728712498
               }
             },
             "prequential_sum_error": 0.0
@@ -7311,62 +7225,62 @@
           "10_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.629881,
-              "brier": 0.219112,
-              "ece": 0.0166,
-              "auc": 0.5407126547170478
+              "logloss": 0.62985,
+              "brier": 0.219078,
+              "ece": 0.0171,
+              "auc": 0.5383111060524324
             },
             "prequential_calibrated": {
-              "logloss": 0.629616,
-              "brier": 0.218987,
-              "ece": 0.00389,
-              "auc": 0.5370093605358532
+              "logloss": 0.62988,
+              "brier": 0.219093,
+              "ece": 0.00468,
+              "auc": 0.5347762776891688
             }
           },
           "11_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.561041,
-                "brier": 0.18708,
-                "ece": 0.00633,
-                "auc": 0.5445895291887486
+                "logloss": 0.561173,
+                "brier": 0.187113,
+                "ece": 0.00652,
+                "auc": 0.5402468983842832
               },
               "prequential_calibrated": {
-                "logloss": 0.561301,
-                "brier": 0.187169,
-                "ece": 0.00265,
-                "auc": 0.5403064827825291
+                "logloss": 0.56161,
+                "brier": 0.187278,
+                "ece": 0.00259,
+                "auc": 0.5362606790915696
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.26908,
-                "brier": 0.070132,
-                "ece": 0.01026,
-                "auc": 0.5110051426478067
+                "logloss": 0.269113,
+                "brier": 0.070131,
+                "ece": 0.01045,
+                "auc": 0.5089876542446553
               },
               "prequential_calibrated": {
-                "logloss": 0.26857,
-                "brier": 0.07007,
-                "ece": 0.00162,
-                "auc": 0.4995147949664809
+                "logloss": 0.268712,
+                "brier": 0.070083,
+                "ece": 0.00288,
+                "auc": 0.5023805806693944
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.629881,
-                "brier": 0.219112,
-                "ece": 0.0166,
-                "auc": 0.5406992640968031
+                "logloss": 0.62985,
+                "brier": 0.219078,
+                "ece": 0.01703,
+                "auc": 0.5383115491244257
               },
               "prequential_calibrated": {
-                "logloss": 0.629616,
-                "brier": 0.218987,
-                "ece": 0.00389,
-                "auc": 0.5370093605358532
+                "logloss": 0.62988,
+                "brier": 0.219093,
+                "ece": 0.00468,
+                "auc": 0.5347766715309408
               }
             },
             "prequential_sum_error": 0.0
@@ -7374,62 +7288,62 @@
           "11_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.561041,
-              "brier": 0.18708,
-              "ece": 0.00633,
-              "auc": 0.5445895291887486
+              "logloss": 0.561173,
+              "brier": 0.187113,
+              "ece": 0.00652,
+              "auc": 0.5402468983842832
             },
             "prequential_calibrated": {
-              "logloss": 0.561301,
-              "brier": 0.187169,
-              "ece": 0.00265,
-              "auc": 0.5403064827825291
+              "logloss": 0.56161,
+              "brier": 0.187278,
+              "ece": 0.00259,
+              "auc": 0.5362606790915696
             }
           },
           "12_0": {
             "over": {
               "n": 6796,
               "raw": {
-                "logloss": 0.503132,
-                "brier": 0.161375,
-                "ece": 0.01361,
-                "auc": 0.5493239940813962
+                "logloss": 0.50321,
+                "brier": 0.161372,
+                "ece": 0.01389,
+                "auc": 0.5452739761290111
               },
               "prequential_calibrated": {
-                "logloss": 0.502897,
-                "brier": 0.161282,
-                "ece": 0.00423,
-                "auc": 0.5444807949596924
+                "logloss": 0.503234,
+                "brier": 0.161372,
+                "ece": 0.00511,
+                "auc": 0.5415684300121086
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.191788,
-                "brier": 0.045333,
-                "ece": 0.00725,
-                "auc": 0.5084951589814132
+                "logloss": 0.191966,
+                "brier": 0.045352,
+                "ece": 0.00712,
+                "auc": 0.4963707307180721
               },
               "prequential_calibrated": {
-                "logloss": 0.191517,
-                "brier": 0.045304,
-                "ece": 0.00314,
-                "auc": 0.5010677838260285
+                "logloss": 0.191924,
+                "brier": 0.045347,
+                "ece": 0.00703,
+                "auc": 0.4975401513024571
               }
             },
             "under": {
               "n": 6796,
               "raw": {
-                "logloss": 0.561041,
-                "brier": 0.18708,
-                "ece": 0.00633,
-                "auc": 0.5445813464183898
+                "logloss": 0.561173,
+                "brier": 0.187113,
+                "ece": 0.00652,
+                "auc": 0.540258653913531
               },
               "prequential_calibrated": {
-                "logloss": 0.561301,
-                "brier": 0.187169,
-                "ece": 0.00265,
-                "auc": 0.5403070590339628
+                "logloss": 0.56161,
+                "brier": 0.187278,
+                "ece": 0.00259,
+                "auc": 0.5362603909658528
               }
             },
             "prequential_sum_error": 0.0
@@ -7437,16 +7351,16 @@
           "12_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.503132,
-              "brier": 0.161375,
-              "ece": 0.01361,
-              "auc": 0.5493239940813962
+              "logloss": 0.50321,
+              "brier": 0.161372,
+              "ece": 0.01389,
+              "auc": 0.5452739761290111
             },
             "prequential_calibrated": {
-              "logloss": 0.502897,
-              "brier": 0.161282,
-              "ece": 0.00423,
-              "auc": 0.5444807949596924
+              "logloss": 0.503234,
+              "brier": 0.161372,
+              "ece": 0.00511,
+              "auc": 0.5415684300121086
             }
           }
         },
@@ -7455,232 +7369,232 @@
             "home": {
               "n": 6796,
               "raw": {
-                "logloss": 0.648337,
-                "brier": 0.228025,
-                "ece": 0.00427,
-                "auc": 0.5551607261135949
+                "logloss": 0.647949,
+                "brier": 0.227859,
+                "ece": 0.00671,
+                "auc": 0.5572144695840672
               },
               "prequential_calibrated": {
-                "logloss": 0.649207,
-                "brier": 0.22843,
-                "ece": 0.00497,
-                "auc": 0.5507118502461275
+                "logloss": 0.648549,
+                "brier": 0.22814,
+                "ece": 0.00676,
+                "auc": 0.5542170964488402
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.463304,
-                "brier": 0.144214,
-                "ece": 0.00179,
-                "auc": 0.5110887314658712
+                "logloss": 0.463182,
+                "brier": 0.144177,
+                "ece": 0.00194,
+                "auc": 0.5140976004697474
               },
               "prequential_calibrated": {
-                "logloss": 0.463616,
-                "brier": 0.1443,
-                "ece": 0.0014,
-                "auc": 0.5070175422796679
+                "logloss": 0.463537,
+                "brier": 0.144262,
+                "ece": 0.00237,
+                "auc": 0.5115179373381942
               }
             },
             "away": {
               "n": 6796,
               "raw": {
-                "logloss": 0.686028,
-                "brier": 0.246468,
-                "ece": 0.00747,
-                "auc": 0.5550664096867239
+                "logloss": 0.685567,
+                "brier": 0.246241,
+                "ece": 0.00411,
+                "auc": 0.5568496343673783
               },
               "prequential_calibrated": {
-                "logloss": 0.686742,
-                "brier": 0.246819,
-                "ece": 0.00429,
-                "auc": 0.5517845123645495
+                "logloss": 0.686099,
+                "brier": 0.2465,
+                "ece": 0.00297,
+                "auc": 0.5552964526744847
               }
             }
           },
           "1_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.648337,
-              "brier": 0.228025,
-              "ece": 0.00427,
-              "auc": 0.5551607261135949
+              "logloss": 0.647949,
+              "brier": 0.227859,
+              "ece": 0.00671,
+              "auc": 0.5572144695840672
             },
             "prequential_calibrated": {
-              "logloss": 0.649095,
-              "brier": 0.22838,
-              "ece": 0.00568,
-              "auc": 0.5510659877463155
+              "logloss": 0.648486,
+              "brier": 0.228113,
+              "ece": 0.00675,
+              "auc": 0.5540158477472188
             }
           },
           "2_0": {
             "home": {
               "n": 6796,
               "raw": {
-                "logloss": 0.577209,
-                "brier": 0.194511,
-                "ece": 0.00811,
-                "auc": 0.5548456379278712
+                "logloss": 0.576841,
+                "brier": 0.194378,
+                "ece": 0.01065,
+                "auc": 0.5574163416697567
               },
               "prequential_calibrated": {
-                "logloss": 0.577812,
-                "brier": 0.194767,
-                "ece": 0.00832,
-                "auc": 0.5501943353941601
+                "logloss": 0.577262,
+                "brier": 0.194557,
+                "ece": 0.00683,
+                "auc": 0.5546822696111846
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.305384,
-                "brier": 0.082975,
-                "ece": 0.00419,
-                "auc": 0.5310476115968106
+                "logloss": 0.305666,
+                "brier": 0.083021,
+                "ece": 0.00631,
+                "auc": 0.5198062417284386
               },
               "prequential_calibrated": {
-                "logloss": 0.305516,
-                "brier": 0.082997,
-                "ece": 0.00123,
-                "auc": 0.5259267082608043
+                "logloss": 0.305741,
+                "brier": 0.083037,
+                "ece": 0.00324,
+                "auc": 0.5156435682293806
               }
             },
             "away": {
               "n": 6796,
               "raw": {
-                "logloss": 0.648337,
-                "brier": 0.228025,
-                "ece": 0.00436,
-                "auc": 0.5551728631320658
+                "logloss": 0.647949,
+                "brier": 0.227859,
+                "ece": 0.00671,
+                "auc": 0.557205813725933
               },
               "prequential_calibrated": {
-                "logloss": 0.649207,
-                "brier": 0.22843,
-                "ece": 0.00497,
-                "auc": 0.5507122265877855
+                "logloss": 0.648549,
+                "brier": 0.22814,
+                "ece": 0.00676,
+                "auc": 0.5542171905342547
               }
             }
           },
           "2_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.577209,
-              "brier": 0.194511,
-              "ece": 0.00811,
-              "auc": 0.5548456379278712
+              "logloss": 0.576841,
+              "brier": 0.194378,
+              "ece": 0.01065,
+              "auc": 0.5574163416697567
             },
             "prequential_calibrated": {
-              "logloss": 0.577812,
-              "brier": 0.194767,
-              "ece": 0.00832,
-              "auc": 0.5501943353941601
+              "logloss": 0.577262,
+              "brier": 0.194557,
+              "ece": 0.00683,
+              "auc": 0.5546822696111846
             }
           },
           "3_0": {
             "home": {
               "n": 6796,
               "raw": {
-                "logloss": 0.498333,
-                "brier": 0.159455,
-                "ece": 0.00461,
-                "auc": 0.5567779323696507
+                "logloss": 0.497814,
+                "brier": 0.159304,
+                "ece": 0.00082,
+                "auc": 0.5610159517241937
               },
               "prequential_calibrated": {
-                "logloss": 0.498888,
-                "brier": 0.15964,
-                "ece": 0.00485,
-                "auc": 0.552918011481143
+                "logloss": 0.498284,
+                "brier": 0.159465,
+                "ece": 0.00166,
+                "auc": 0.5579689863536721
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.244923,
-                "brier": 0.062217,
-                "ece": 0.00599,
-                "auc": 0.5237958515044483
+                "logloss": 0.245058,
+                "brier": 0.062235,
+                "ece": 0.00579,
+                "auc": 0.5209505951007507
               },
               "prequential_calibrated": {
-                "logloss": 0.245003,
-                "brier": 0.062228,
-                "ece": 0.00109,
-                "auc": 0.5086100719744941
+                "logloss": 0.245195,
+                "brier": 0.062252,
+                "ece": 0.001,
+                "auc": 0.5016289184267024
               }
             },
             "away": {
               "n": 6796,
               "raw": {
-                "logloss": 0.577209,
-                "brier": 0.194511,
-                "ece": 0.00844,
-                "auc": 0.5548451408640274
+                "logloss": 0.576841,
+                "brier": 0.194378,
+                "ece": 0.01024,
+                "auc": 0.5574077811257789
               },
               "prequential_calibrated": {
-                "logloss": 0.577812,
-                "brier": 0.194767,
-                "ece": 0.00832,
-                "auc": 0.55019488768732
+                "logloss": 0.577262,
+                "brier": 0.194557,
+                "ece": 0.00683,
+                "auc": 0.5546820486939206
               }
             }
           },
           "3_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.498333,
-              "brier": 0.159455,
-              "ece": 0.00461,
-              "auc": 0.5567779323696507
+              "logloss": 0.497814,
+              "brier": 0.159304,
+              "ece": 0.00082,
+              "auc": 0.5610159517241937
             },
             "prequential_calibrated": {
-              "logloss": 0.498888,
-              "brier": 0.15964,
-              "ece": 0.00485,
-              "auc": 0.552918011481143
+              "logloss": 0.498284,
+              "brier": 0.159465,
+              "ece": 0.00166,
+              "auc": 0.5579689863536721
             }
           },
           "4_0": {
             "home": {
               "n": 6796,
               "raw": {
-                "logloss": 0.406741,
-                "brier": 0.121486,
-                "ece": 0.00142,
-                "auc": 0.557167822623187
+                "logloss": 0.40665,
+                "brier": 0.121462,
+                "ece": 0.00234,
+                "auc": 0.557830057374771
               },
               "prequential_calibrated": {
-                "logloss": 0.407353,
-                "brier": 0.121645,
-                "ece": 0.00113,
-                "auc": 0.5510237163706699
+                "logloss": 0.407201,
+                "brier": 0.12161,
+                "ece": 0.00141,
+                "auc": 0.5532587586572659
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.222285,
-                "brier": 0.055056,
-                "ece": 0.00126,
-                "auc": 0.5454081520450016
+                "logloss": 0.222168,
+                "brier": 0.055042,
+                "ece": 0.00134,
+                "auc": 0.5485392341513757
               },
               "prequential_calibrated": {
-                "logloss": 0.222541,
-                "brier": 0.055084,
-                "ece": 0.00042,
-                "auc": 0.540173515278801
+                "logloss": 0.222394,
+                "brier": 0.055065,
+                "ece": 0.00018,
+                "auc": 0.5431506548057574
               }
             },
             "away": {
               "n": 6796,
               "raw": {
-                "logloss": 0.498333,
-                "brier": 0.159455,
-                "ece": 0.00496,
-                "auc": 0.5567915490375308
+                "logloss": 0.497814,
+                "brier": 0.159304,
+                "ece": 0.0007,
+                "auc": 0.5610182436385894
               },
               "prequential_calibrated": {
-                "logloss": 0.498888,
-                "brier": 0.15964,
-                "ece": 0.00491,
-                "auc": 0.5529180788903898
+                "logloss": 0.498284,
+                "brier": 0.159465,
+                "ece": 0.00166,
+                "auc": 0.5579687841259312
               }
             }
           }
@@ -7690,232 +7604,232 @@
             "favorite": {
               "n": 6796,
               "raw": {
-                "logloss": 0.647518,
-                "brier": 0.22767,
-                "ece": 0.01249,
-                "auc": 0.5505398048750649
+                "logloss": 0.647057,
+                "brier": 0.227456,
+                "ece": 0.01088,
+                "auc": 0.5534085979119162
               },
               "prequential_calibrated": {
-                "logloss": 0.648117,
-                "brier": 0.227934,
-                "ece": 0.00553,
-                "auc": 0.545325683973725
+                "logloss": 0.647644,
+                "brier": 0.227715,
+                "ece": 0.00458,
+                "auc": 0.5499274672007135
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.347148,
-                "brier": 0.097917,
-                "ece": 0.015,
-                "auc": 0.5182232512795515
+                "logloss": 0.346884,
+                "brier": 0.097872,
+                "ece": 0.01501,
+                "auc": 0.5334655351959763
               },
               "prequential_calibrated": {
-                "logloss": 0.346526,
-                "brier": 0.097813,
-                "ece": 0.00253,
-                "auc": 0.4976636828927836
+                "logloss": 0.345998,
+                "brier": 0.097708,
+                "ece": 0.00081,
+                "auc": 0.5211754148848957
               }
             },
             "dog": {
               "n": 6796,
               "raw": {
-                "logloss": 0.687416,
-                "brier": 0.247157,
-                "ece": 0.02634,
-                "auc": 0.5549659616423329
+                "logloss": 0.686876,
+                "brier": 0.246891,
+                "ece": 0.02635,
+                "auc": 0.556849286344704
               },
               "prequential_calibrated": {
-                "logloss": 0.686768,
-                "brier": 0.246828,
-                "ece": 0.00371,
-                "auc": 0.5514491055121223
+                "logloss": 0.686069,
+                "brier": 0.246483,
+                "ece": 0.00386,
+                "auc": 0.5557705465626497
               }
             }
           },
           "1_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.647518,
-              "brier": 0.22767,
-              "ece": 0.01249,
-              "auc": 0.5505398048750649
+              "logloss": 0.647057,
+              "brier": 0.227456,
+              "ece": 0.01088,
+              "auc": 0.5534085979119162
             },
             "prequential_calibrated": {
-              "logloss": 0.648117,
-              "brier": 0.227935,
-              "ece": 0.00461,
-              "auc": 0.5454553821338235
+              "logloss": 0.647474,
+              "brier": 0.227637,
+              "ece": 0.00458,
+              "auc": 0.5508945397263387
             }
           },
           "2_0": {
             "favorite": {
               "n": 6796,
               "raw": {
-                "logloss": 0.579009,
-                "brier": 0.195383,
-                "ece": 0.00943,
-                "auc": 0.5487264609269314
+                "logloss": 0.578793,
+                "brier": 0.195292,
+                "ece": 0.01017,
+                "auc": 0.5504283646732345
               },
               "prequential_calibrated": {
-                "logloss": 0.57988,
-                "brier": 0.195723,
-                "ece": 0.00228,
-                "auc": 0.5415958802264241
+                "logloss": 0.579475,
+                "brier": 0.195555,
+                "ece": 0.00502,
+                "auc": 0.5459445166490919
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.296946,
-                "brier": 0.079902,
-                "ece": 0.00523,
-                "auc": 0.5122081149828097
+                "logloss": 0.296668,
+                "brier": 0.07986,
+                "ece": 0.00517,
+                "auc": 0.526252745897585
               },
               "prequential_calibrated": {
-                "logloss": 0.296981,
-                "brier": 0.079906,
-                "ece": 0.00288,
-                "auc": 0.5056924947047033
+                "logloss": 0.296735,
+                "brier": 0.079869,
+                "ece": 0.00314,
+                "auc": 0.5203507431032404
               }
             },
             "dog": {
               "n": 6796,
               "raw": {
-                "logloss": 0.647518,
-                "brier": 0.22767,
-                "ece": 0.0124,
-                "auc": 0.55053772819419
+                "logloss": 0.647057,
+                "brier": 0.227456,
+                "ece": 0.01108,
+                "auc": 0.5533974121535672
               },
               "prequential_calibrated": {
-                "logloss": 0.648117,
-                "brier": 0.227934,
-                "ece": 0.00553,
-                "auc": 0.5453256367764325
+                "logloss": 0.647644,
+                "brier": 0.227715,
+                "ece": 0.00458,
+                "auc": 0.5499277503844692
               }
             }
           },
           "2_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.579009,
-              "brier": 0.195383,
-              "ece": 0.00943,
-              "auc": 0.5487264609269314
+              "logloss": 0.578793,
+              "brier": 0.195292,
+              "ece": 0.01017,
+              "auc": 0.5504283646732345
             },
             "prequential_calibrated": {
-              "logloss": 0.57988,
-              "brier": 0.195723,
-              "ece": 0.00228,
-              "auc": 0.5415958802264241
+              "logloss": 0.579475,
+              "brier": 0.195555,
+              "ece": 0.00502,
+              "auc": 0.5459445166490919
             }
           },
           "3_0": {
             "favorite": {
               "n": 6796,
               "raw": {
-                "logloss": 0.498599,
-                "brier": 0.159493,
-                "ece": 0.00855,
-                "auc": 0.5473573686534503
+                "logloss": 0.498751,
+                "brier": 0.159546,
+                "ece": 0.00659,
+                "auc": 0.5461388348879654
               },
               "prequential_calibrated": {
-                "logloss": 0.498918,
-                "brier": 0.159596,
-                "ece": 0.00351,
-                "auc": 0.5434974736215171
+                "logloss": 0.499137,
+                "brier": 0.159661,
+                "ece": 0.0022,
+                "auc": 0.5422393511890382
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.249094,
-                "brier": 0.063686,
-                "ece": 0.00065,
-                "auc": 0.5320870337628634
+                "logloss": 0.248886,
+                "brier": 0.06366,
+                "ece": 0.00063,
+                "auc": 0.5410720078534876
               },
               "prequential_calibrated": {
-                "logloss": 0.249701,
-                "brier": 0.063757,
-                "ece": 0.00089,
-                "auc": 0.512721834699711
+                "logloss": 0.24947,
+                "brier": 0.063734,
+                "ece": 0.00095,
+                "auc": 0.5244643612332557
               }
             },
             "dog": {
               "n": 6796,
               "raw": {
-                "logloss": 0.579009,
-                "brier": 0.195383,
-                "ece": 0.00963,
-                "auc": 0.5487215591621529
+                "logloss": 0.578793,
+                "brier": 0.195292,
+                "ece": 0.0102,
+                "auc": 0.5504295212694182
               },
               "prequential_calibrated": {
-                "logloss": 0.57988,
-                "brier": 0.195723,
-                "ece": 0.00237,
-                "auc": 0.5415954946943629
+                "logloss": 0.579475,
+                "brier": 0.195555,
+                "ece": 0.00502,
+                "auc": 0.5459445717251007
               }
             }
           },
           "3_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.498599,
-              "brier": 0.159493,
-              "ece": 0.00855,
-              "auc": 0.5473573686534503
+              "logloss": 0.498751,
+              "brier": 0.159546,
+              "ece": 0.00659,
+              "auc": 0.5461388348879654
             },
             "prequential_calibrated": {
-              "logloss": 0.498918,
-              "brier": 0.159596,
-              "ece": 0.00351,
-              "auc": 0.5434974736215171
+              "logloss": 0.499137,
+              "brier": 0.159661,
+              "ece": 0.0022,
+              "auc": 0.5422393511890382
             }
           },
           "4_0": {
             "favorite": {
               "n": 6796,
               "raw": {
-                "logloss": 0.412972,
-                "brier": 0.124041,
-                "ece": 0.0062,
-                "auc": 0.5583300751304279
+                "logloss": 0.413151,
+                "brier": 0.124086,
+                "ece": 0.0048,
+                "auc": 0.5582410493999093
               },
               "prequential_calibrated": {
-                "logloss": 0.413361,
-                "brier": 0.124138,
-                "ece": 0.00243,
-                "auc": 0.555292354078064
+                "logloss": 0.413572,
+                "brier": 0.124186,
+                "ece": 0.00126,
+                "auc": 0.5543893416243534
               }
             },
             "push": {
               "n": 6796,
               "raw": {
-                "logloss": 0.211285,
-                "brier": 0.05138,
-                "ece": 0.001,
-                "auc": 0.5051995245329768
+                "logloss": 0.211435,
+                "brier": 0.051394,
+                "ece": 0.00086,
+                "auc": 0.5008237183663263
               },
               "prequential_calibrated": {
-                "logloss": 0.211164,
-                "brier": 0.051365,
-                "ece": 0.00084,
-                "auc": 0.5060807998775491
+                "logloss": 0.211159,
+                "brier": 0.051367,
+                "ece": 0.00055,
+                "auc": 0.5070552627107102
               }
             },
             "dog": {
               "n": 6796,
               "raw": {
-                "logloss": 0.498599,
-                "brier": 0.159493,
-                "ece": 0.00867,
-                "auc": 0.5473482483974021
+                "logloss": 0.498751,
+                "brier": 0.159546,
+                "ece": 0.007,
+                "auc": 0.5461308631086048
               },
               "prequential_calibrated": {
-                "logloss": 0.498918,
-                "brier": 0.159596,
-                "ece": 0.00351,
-                "auc": 0.5434974736215172
+                "logloss": 0.499137,
+                "brier": 0.159661,
+                "ece": 0.0022,
+                "auc": 0.5422395538613948
               }
             }
           }
@@ -7924,77 +7838,77 @@
           "0_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.686028,
-              "brier": 0.246468,
-              "ece": 0.00747,
-              "auc": 0.5550670622292384
+              "logloss": 0.685567,
+              "brier": 0.246241,
+              "ece": 0.00411,
+              "auc": 0.5568501128985555
             },
             "prequential_calibrated": {
-              "logloss": 0.686444,
-              "brier": 0.246675,
-              "ece": 0.00696,
-              "auc": 0.5511909596934059
+              "logloss": 0.685834,
+              "brier": 0.24637,
+              "ece": 0.00186,
+              "auc": 0.5555642996252491
             }
           },
           "1_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.648337,
-              "brier": 0.228025,
-              "ece": 0.00427,
-              "auc": 0.5551607261135949
+              "logloss": 0.647949,
+              "brier": 0.227859,
+              "ece": 0.00671,
+              "auc": 0.5572144695840672
             },
             "prequential_calibrated": {
-              "logloss": 0.649095,
-              "brier": 0.22838,
-              "ece": 0.00568,
-              "auc": 0.5510659877463155
+              "logloss": 0.648486,
+              "brier": 0.228113,
+              "ece": 0.00675,
+              "auc": 0.5540158477472188
             }
           },
           "2_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.577209,
-              "brier": 0.194511,
-              "ece": 0.00811,
-              "auc": 0.5548456379278712
+              "logloss": 0.576841,
+              "brier": 0.194378,
+              "ece": 0.01065,
+              "auc": 0.5574163416697567
             },
             "prequential_calibrated": {
-              "logloss": 0.577812,
-              "brier": 0.194767,
-              "ece": 0.00832,
-              "auc": 0.5501943353941601
+              "logloss": 0.577262,
+              "brier": 0.194557,
+              "ece": 0.00683,
+              "auc": 0.5546822696111846
             }
           },
           "3_5": {
             "n": 6796,
             "raw": {
-              "logloss": 0.498333,
-              "brier": 0.159455,
-              "ece": 0.00461,
-              "auc": 0.5567779323696507
+              "logloss": 0.497814,
+              "brier": 0.159304,
+              "ece": 0.00082,
+              "auc": 0.5610159517241937
             },
             "prequential_calibrated": {
-              "logloss": 0.498888,
-              "brier": 0.15964,
-              "ece": 0.00485,
-              "auc": 0.552918011481143
+              "logloss": 0.498284,
+              "brier": 0.159465,
+              "ece": 0.00166,
+              "auc": 0.5579689863536721
             }
           }
         },
         "derived_moneyline": {
           "n": 6796,
           "raw": {
-            "logloss": 0.686028,
-            "brier": 0.246468,
-            "ece": 0.00747,
-            "auc": 0.5550670622292384
+            "logloss": 0.685567,
+            "brier": 0.246241,
+            "ece": 0.00411,
+            "auc": 0.5568501128985555
           },
           "prequential_calibrated": {
-            "logloss": 0.686444,
-            "brier": 0.246675,
-            "ece": 0.00696,
-            "auc": 0.5511909596934059
+            "logloss": 0.685834,
+            "brier": 0.24637,
+            "ece": 0.00186,
+            "auc": 0.5555642996252491
           }
         }
       }
@@ -8053,9 +7967,9 @@
       "markets": {
         "derived_moneyline_holdout": {
           "n": 285,
-          "engine_logloss": 0.67783,
-          "engine_brier": 0.24241,
-          "engine_ece_raw": 0.0338,
+          "engine_logloss": 0.67743,
+          "engine_brier": 0.24221,
+          "engine_ece_raw": 0.03432,
           "baseline_rate": 0.5509,
           "baseline_logloss": 0.68796,
           "baseline_brier": 0.24741,
@@ -8063,9 +7977,9 @@
         },
         "over_7_5_holdout": {
           "n": 285,
-          "engine_logloss": 0.65928,
-          "engine_brier": 0.23322,
-          "engine_ece_raw": 0.07261,
+          "engine_logloss": 0.65937,
+          "engine_brier": 0.23329,
+          "engine_ece_raw": 0.07319,
           "baseline_rate": 0.6386,
           "baseline_logloss": 0.65422,
           "baseline_brier": 0.23079,
@@ -8073,9 +7987,9 @@
         },
         "over_8_5_holdout": {
           "n": 285,
-          "engine_logloss": 0.69285,
-          "engine_brier": 0.24987,
-          "engine_ece_raw": 0.08305,
+          "engine_logloss": 0.69319,
+          "engine_brier": 0.25006,
+          "engine_ece_raw": 0.0831,
           "baseline_rate": 0.5579,
           "baseline_logloss": 0.68643,
           "baseline_brier": 0.24665,
@@ -8083,9 +7997,9 @@
         },
         "over_9_5_holdout": {
           "n": 285,
-          "engine_logloss": 0.68445,
-          "engine_brier": 0.24573,
-          "engine_ece_raw": 0.0499,
+          "engine_logloss": 0.68439,
+          "engine_brier": 0.24569,
+          "engine_ece_raw": 0.05217,
           "baseline_rate": 0.4421,
           "baseline_logloss": 0.68643,
           "baseline_brier": 0.24665,
@@ -8093,9 +8007,9 @@
         },
         "home_cover_1_5_holdout": {
           "n": 285,
-          "engine_logloss": 0.6489,
-          "engine_brier": 0.22836,
-          "engine_ece_raw": 0.02067,
+          "engine_logloss": 0.64927,
+          "engine_brier": 0.22851,
+          "engine_ece_raw": 0.00609,
           "baseline_rate": 0.3649,
           "baseline_logloss": 0.65619,
           "baseline_brier": 0.23175,
@@ -8103,9 +8017,9 @@
         },
         "home_cover_2_5_holdout": {
           "n": 285,
-          "engine_logloss": 0.5621,
-          "engine_brier": 0.18778,
-          "engine_ece_raw": 0.04517,
+          "engine_logloss": 0.56253,
+          "engine_brier": 0.1879,
+          "engine_ece_raw": 0.03859,
           "baseline_rate": 0.2561,
           "baseline_logloss": 0.56898,
           "baseline_brier": 0.19053,
@@ -8118,108 +8032,108 @@
       "delta_primary": 0.08,
       "n": 6938,
       "mean_abs_diff": 0.0414,
-      "share_gt_primary": 0.1364,
-      "share_gt_0_08": 0.1364,
-      "share_gt_0_10": 0.0784,
-      "n_flagged_primary": 946,
-      "n_flagged_0_08": 946,
-      "n_flagged_0_10": 544
+      "share_gt_primary": 0.1332,
+      "share_gt_0_08": 0.1332,
+      "share_gt_0_10": 0.0744,
+      "n_flagged_primary": 924,
+      "n_flagged_0_08": 924,
+      "n_flagged_0_10": 516
     },
     "agreement_slate": {
       "delta_primary": 0.08,
       "n": 16,
-      "mean_abs_diff": 0.0611,
-      "share_gt_primary": 0.3125,
-      "share_gt_0_08": 0.3125,
-      "share_gt_0_10": 0.25,
-      "n_flagged_primary": 5,
-      "n_flagged_0_08": 5,
-      "n_flagged_0_10": 4,
+      "mean_abs_diff": 0.0705,
+      "share_gt_primary": 0.4375,
+      "share_gt_0_08": 0.4375,
+      "share_gt_0_10": 0.1875,
+      "n_flagged_primary": 7,
+      "n_flagged_0_08": 7,
+      "n_flagged_0_10": 3,
       "scope": "today_slate"
     },
     "agreement_delta": 0.08,
     "market_metrics": {
       "derived_moneyline": {
-        "engine_logloss": 0.68603,
-        "engine_brier": 0.24647,
-        "engine_ece_raw": 0.00747,
+        "engine_logloss": 0.68557,
+        "engine_brier": 0.24624,
+        "engine_ece_raw": 0.00411,
         "baseline_rate": 0.5338,
         "baseline_logloss": 0.69085,
         "baseline_brier": 0.24885,
-        "auc": 0.55507,
-        "engine_logloss_calibrated": 0.68674,
-        "engine_ece_calibrated": 0.00429,
-        "predicted_mean": 0.5355,
+        "auc": 0.55685,
+        "engine_logloss_calibrated": 0.6861,
+        "engine_ece_calibrated": 0.00297,
+        "predicted_mean": 0.5357,
         "n": 6796,
         "beats_baseline_logloss": true
       },
       "over_7_5": {
-        "engine_logloss": 0.68269,
-        "engine_brier": 0.2448,
-        "engine_ece_raw": 0.00454,
+        "engine_logloss": 0.68266,
+        "engine_brier": 0.24479,
+        "engine_ece_raw": 0.00147,
         "baseline_rate": 0.5627,
         "baseline_logloss": 0.68527,
         "baseline_brier": 0.24607,
-        "auc": 0.54335,
-        "engine_logloss_calibrated": 0.68334,
-        "engine_ece_calibrated": 0.00395,
-        "predicted_mean": 0.5631,
+        "auc": 0.54077,
+        "engine_logloss_calibrated": 0.68342,
+        "engine_ece_calibrated": 0.00179,
+        "predicted_mean": 0.5615,
         "n": 6796,
         "beats_baseline_logloss": true
       },
       "over_8_5": {
-        "engine_logloss": 0.69068,
-        "engine_brier": 0.24877,
-        "engine_ece_raw": 0.01689,
+        "engine_logloss": 0.69076,
+        "engine_brier": 0.24881,
+        "engine_ece_raw": 0.01757,
         "baseline_rate": 0.4882,
         "baseline_logloss": 0.69287,
         "baseline_brier": 0.24986,
-        "auc": 0.5432,
-        "engine_logloss_calibrated": 0.69062,
-        "engine_ece_calibrated": 0.00243,
-        "predicted_mean": 0.4882,
+        "auc": 0.54012,
+        "engine_logloss_calibrated": 0.69077,
+        "engine_ece_calibrated": 0.00608,
+        "predicted_mean": 0.4875,
         "n": 6796,
         "beats_baseline_logloss": true
       },
       "over_9_5": {
-        "engine_logloss": 0.6665,
-        "engine_brier": 0.23683,
-        "engine_ece_raw": 0.00539,
+        "engine_logloss": 0.66675,
+        "engine_brier": 0.23695,
+        "engine_ece_raw": 0.00768,
         "baseline_rate": 0.3914,
         "baseline_logloss": 0.66937,
         "baseline_brier": 0.23821,
-        "auc": 0.54496,
-        "engine_logloss_calibrated": 0.66686,
-        "engine_ece_calibrated": 0.00488,
-        "predicted_mean": 0.3865,
+        "auc": 0.53915,
+        "engine_logloss_calibrated": 0.66732,
+        "engine_ece_calibrated": 0.00656,
+        "predicted_mean": 0.3855,
         "n": 6796,
         "beats_baseline_logloss": true
       },
       "home_cover_1_5": {
-        "engine_logloss": 0.64834,
-        "engine_brier": 0.22803,
-        "engine_ece_raw": 0.00427,
+        "engine_logloss": 0.64795,
+        "engine_brier": 0.22786,
+        "engine_ece_raw": 0.00671,
         "baseline_rate": 0.359,
         "baseline_logloss": 0.65286,
         "baseline_brier": 0.23013,
-        "auc": 0.55516,
-        "engine_logloss_calibrated": 0.64921,
-        "engine_ece_calibrated": 0.00497,
-        "predicted_mean": 0.3623,
+        "auc": 0.55721,
+        "engine_logloss_calibrated": 0.64855,
+        "engine_ece_calibrated": 0.00676,
+        "predicted_mean": 0.3625,
         "n": 6796,
         "beats_baseline_logloss": true
       },
       "home_cover_2_5": {
-        "engine_logloss": 0.57721,
-        "engine_brier": 0.19451,
-        "engine_ece_raw": 0.00811,
+        "engine_logloss": 0.57684,
+        "engine_brier": 0.19438,
+        "engine_ece_raw": 0.01065,
         "baseline_rate": 0.2677,
         "baseline_logloss": 0.58091,
         "baseline_brier": 0.19602,
-        "auc": 0.55485,
-        "engine_logloss_calibrated": 0.57781,
-        "engine_ece_calibrated": 0.00832,
-        "predicted_mean": 0.2699,
+        "auc": 0.55742,
+        "engine_logloss_calibrated": 0.57726,
+        "engine_ece_calibrated": 0.00683,
+        "predicted_mean": 0.2702,
         "n": 6796,
         "beats_baseline_logloss": true
       }
@@ -8228,95 +8142,95 @@
       "series": [
         {
           "date": "2024-04-25",
-          "brier": 0.26162
+          "brier": 0.25827
         },
         {
           "date": "2024-04-26",
-          "brier": 0.25048
+          "brier": 0.24791
         },
         {
           "date": "2024-04-27",
-          "brier": 0.25584
+          "brier": 0.25283
         },
         {
           "date": "2024-04-28",
-          "brier": 0.2539
+          "brier": 0.25133
         },
         {
           "date": "2024-04-29",
-          "brier": 0.25285
+          "brier": 0.25129
         },
         {
           "date": "2024-04-30",
-          "brier": 0.25441
+          "brier": 0.2547
         },
         {
           "date": "2024-05-01",
-          "brier": 0.24861
+          "brier": 0.24876
         },
         {
           "date": "2024-05-03",
-          "brier": 0.24457
+          "brier": 0.24372
         },
         {
           "date": "2024-05-04",
-          "brier": 0.24679
+          "brier": 0.24606
         },
         {
           "date": "2024-05-05",
-          "brier": 0.2471
+          "brier": 0.24512
         },
         {
           "date": "2024-05-06",
-          "brier": 0.24534
+          "brier": 0.24267
         },
         {
           "date": "2024-05-07",
-          "brier": 0.24702
+          "brier": 0.24534
         },
         {
           "date": "2024-05-08",
-          "brier": 0.24912
+          "brier": 0.24746
         },
         {
           "date": "2024-05-10",
-          "brier": 0.24728
+          "brier": 0.2456
         },
         {
           "date": "2024-05-11",
-          "brier": 0.24902
+          "brier": 0.24779
         },
         {
           "date": "2024-05-12",
-          "brier": 0.24959
+          "brier": 0.24927
         },
         {
           "date": "2024-05-13",
-          "brier": 0.25027
+          "brier": 0.24998
         },
         {
           "date": "2024-05-14",
-          "brier": 0.24946
+          "brier": 0.24887
         },
         {
           "date": "2024-05-15",
-          "brier": 0.2492
+          "brier": 0.24884
         },
         {
           "date": "2024-05-17",
-          "brier": 0.24941
+          "brier": 0.2488
         },
         {
           "date": "2024-05-18",
-          "brier": 0.24922
+          "brier": 0.24882
         },
         {
           "date": "2024-05-19",
-          "brier": 0.24956
+          "brier": 0.24895
         },
         {
           "date": "2024-05-20",
-          "brier": 0.25022
+          "brier": 0.25035
         },
         {
           "date": "2024-05-21",
@@ -8324,127 +8238,127 @@
         },
         {
           "date": "2024-05-22",
-          "brier": 0.25199
+          "brier": 0.25195
         },
         {
           "date": "2024-05-24",
-          "brier": 0.25218
+          "brier": 0.25246
         },
         {
           "date": "2024-05-25",
-          "brier": 0.25133
+          "brier": 0.25144
         },
         {
           "date": "2024-05-26",
-          "brier": 0.25098
+          "brier": 0.25095
         },
         {
           "date": "2024-05-27",
-          "brier": 0.24979
+          "brier": 0.25
         },
         {
           "date": "2024-05-28",
-          "brier": 0.24877
+          "brier": 0.24928
         },
         {
           "date": "2024-05-29",
-          "brier": 0.2485
+          "brier": 0.24858
         },
         {
           "date": "2024-05-31",
-          "brier": 0.24936
+          "brier": 0.24911
         },
         {
           "date": "2024-06-01",
-          "brier": 0.24974
+          "brier": 0.24957
         },
         {
           "date": "2024-06-02",
-          "brier": 0.25087
+          "brier": 0.25096
         },
         {
           "date": "2024-06-04",
-          "brier": 0.25074
+          "brier": 0.25118
         },
         {
           "date": "2024-06-05",
-          "brier": 0.25164
+          "brier": 0.25269
         },
         {
           "date": "2024-06-06",
-          "brier": 0.2505
+          "brier": 0.25171
         },
         {
           "date": "2024-06-07",
-          "brier": 0.24973
+          "brier": 0.25066
         },
         {
           "date": "2024-06-08",
-          "brier": 0.2499
+          "brier": 0.25061
         },
         {
           "date": "2024-06-09",
-          "brier": 0.25187
+          "brier": 0.25271
         },
         {
           "date": "2024-06-11",
-          "brier": 0.24996
+          "brier": 0.25041
         },
         {
           "date": "2024-06-12",
-          "brier": 0.24985
-        },
-        {
-          "date": "2024-06-13",
           "brier": 0.25011
         },
         {
+          "date": "2024-06-13",
+          "brier": 0.25059
+        },
+        {
           "date": "2024-06-14",
-          "brier": 0.25013
+          "brier": 0.25049
         },
         {
           "date": "2024-06-15",
-          "brier": 0.25016
+          "brier": 0.25051
         },
         {
           "date": "2024-06-16",
-          "brier": 0.25036
+          "brier": 0.2509
         },
         {
           "date": "2024-06-18",
-          "brier": 0.25024
+          "brier": 0.2508
         },
         {
           "date": "2024-06-19",
-          "brier": 0.24912
+          "brier": 0.24903
         },
         {
           "date": "2024-06-21",
-          "brier": 0.24732
+          "brier": 0.24748
         },
         {
           "date": "2024-06-22",
-          "brier": 0.24783
+          "brier": 0.24801
         },
         {
           "date": "2024-06-23",
-          "brier": 0.24765
+          "brier": 0.24713
         },
         {
           "date": "2024-06-24",
-          "brier": 0.24835
+          "brier": 0.24793
         },
         {
           "date": "2024-06-25",
-          "brier": 0.24942
+          "brier": 0.24917
         },
         {
           "date": "2024-06-26",
-          "brier": 0.24953
+          "brier": 0.24912
         },
         {
           "date": "2024-06-28",
-          "brier": 0.25017
+          "brier": 0.25032
         },
         {
           "date": "2024-06-29",
@@ -8452,451 +8366,451 @@
         },
         {
           "date": "2024-06-30",
-          "brier": 0.25047
-        },
-        {
-          "date": "2024-07-02",
-          "brier": 0.25061
-        },
-        {
-          "date": "2024-07-03",
-          "brier": 0.25051
-        },
-        {
-          "date": "2024-07-04",
-          "brier": 0.25026
-        },
-        {
-          "date": "2024-07-05",
-          "brier": 0.25025
-        },
-        {
-          "date": "2024-07-06",
-          "brier": 0.25059
-        },
-        {
-          "date": "2024-07-07",
-          "brier": 0.2505
-        },
-        {
-          "date": "2024-07-09",
-          "brier": 0.24959
-        },
-        {
-          "date": "2024-07-10",
-          "brier": 0.24969
-        },
-        {
-          "date": "2024-07-11",
-          "brier": 0.25033
-        },
-        {
-          "date": "2024-07-12",
-          "brier": 0.24988
-        },
-        {
-          "date": "2024-07-13",
-          "brier": 0.25015
-        },
-        {
-          "date": "2024-07-14",
-          "brier": 0.25038
-        },
-        {
-          "date": "2024-07-19",
-          "brier": 0.25042
-        },
-        {
-          "date": "2024-07-20",
-          "brier": 0.25029
-        },
-        {
-          "date": "2024-07-21",
-          "brier": 0.25011
-        },
-        {
-          "date": "2024-07-22",
-          "brier": 0.24929
-        },
-        {
-          "date": "2024-07-23",
-          "brier": 0.24917
-        },
-        {
-          "date": "2024-07-24",
-          "brier": 0.24885
-        },
-        {
-          "date": "2024-07-26",
-          "brier": 0.24917
-        },
-        {
-          "date": "2024-07-27",
-          "brier": 0.24938
-        },
-        {
-          "date": "2024-07-28",
-          "brier": 0.25043
-        },
-        {
-          "date": "2024-07-29",
-          "brier": 0.2499
-        },
-        {
-          "date": "2024-07-30",
-          "brier": 0.24993
-        },
-        {
-          "date": "2024-07-31",
-          "brier": 0.25002
-        },
-        {
-          "date": "2024-08-02",
-          "brier": 0.24997
-        },
-        {
-          "date": "2024-08-03",
-          "brier": 0.2497
-        },
-        {
-          "date": "2024-08-04",
-          "brier": 0.24983
-        },
-        {
-          "date": "2024-08-06",
-          "brier": 0.25019
-        },
-        {
-          "date": "2024-08-07",
-          "brier": 0.25028
-        },
-        {
-          "date": "2024-08-08",
-          "brier": 0.24989
-        },
-        {
-          "date": "2024-08-09",
-          "brier": 0.24965
-        },
-        {
-          "date": "2024-08-10",
-          "brier": 0.2496
-        },
-        {
-          "date": "2024-08-11",
-          "brier": 0.24946
-        },
-        {
-          "date": "2024-08-12",
-          "brier": 0.24955
-        },
-        {
-          "date": "2024-08-13",
-          "brier": 0.24991
-        },
-        {
-          "date": "2024-08-14",
-          "brier": 0.24926
-        },
-        {
-          "date": "2024-08-16",
-          "brier": 0.24946
-        },
-        {
-          "date": "2024-08-17",
-          "brier": 0.24947
-        },
-        {
-          "date": "2024-08-18",
-          "brier": 0.25009
-        },
-        {
-          "date": "2024-08-19",
-          "brier": 0.25033
-        },
-        {
-          "date": "2024-08-20",
-          "brier": 0.25043
-        },
-        {
-          "date": "2024-08-21",
-          "brier": 0.25077
-        },
-        {
-          "date": "2024-08-22",
-          "brier": 0.25079
-        },
-        {
-          "date": "2024-08-23",
-          "brier": 0.25066
-        },
-        {
-          "date": "2024-08-24",
           "brier": 0.25067
         },
         {
-          "date": "2024-08-25",
+          "date": "2024-07-02",
+          "brier": 0.25073
+        },
+        {
+          "date": "2024-07-03",
+          "brier": 0.2508
+        },
+        {
+          "date": "2024-07-04",
+          "brier": 0.25077
+        },
+        {
+          "date": "2024-07-05",
+          "brier": 0.25052
+        },
+        {
+          "date": "2024-07-06",
+          "brier": 0.25027
+        },
+        {
+          "date": "2024-07-07",
+          "brier": 0.25058
+        },
+        {
+          "date": "2024-07-09",
+          "brier": 0.24978
+        },
+        {
+          "date": "2024-07-10",
+          "brier": 0.24994
+        },
+        {
+          "date": "2024-07-11",
+          "brier": 0.25025
+        },
+        {
+          "date": "2024-07-12",
+          "brier": 0.24999
+        },
+        {
+          "date": "2024-07-13",
+          "brier": 0.25028
+        },
+        {
+          "date": "2024-07-14",
+          "brier": 0.25049
+        },
+        {
+          "date": "2024-07-19",
+          "brier": 0.25077
+        },
+        {
+          "date": "2024-07-20",
+          "brier": 0.25066
+        },
+        {
+          "date": "2024-07-21",
+          "brier": 0.25043
+        },
+        {
+          "date": "2024-07-22",
+          "brier": 0.24961
+        },
+        {
+          "date": "2024-07-23",
+          "brier": 0.24976
+        },
+        {
+          "date": "2024-07-24",
+          "brier": 0.24978
+        },
+        {
+          "date": "2024-07-26",
+          "brier": 0.25019
+        },
+        {
+          "date": "2024-07-27",
+          "brier": 0.25038
+        },
+        {
+          "date": "2024-07-28",
+          "brier": 0.2508
+        },
+        {
+          "date": "2024-07-29",
+          "brier": 0.25036
+        },
+        {
+          "date": "2024-07-30",
+          "brier": 0.25026
+        },
+        {
+          "date": "2024-07-31",
+          "brier": 0.25018
+        },
+        {
+          "date": "2024-08-02",
+          "brier": 0.24993
+        },
+        {
+          "date": "2024-08-03",
+          "brier": 0.24974
+        },
+        {
+          "date": "2024-08-04",
+          "brier": 0.24982
+        },
+        {
+          "date": "2024-08-06",
+          "brier": 0.25018
+        },
+        {
+          "date": "2024-08-07",
           "brier": 0.25015
         },
         {
+          "date": "2024-08-08",
+          "brier": 0.24953
+        },
+        {
+          "date": "2024-08-09",
+          "brier": 0.24906
+        },
+        {
+          "date": "2024-08-10",
+          "brier": 0.24921
+        },
+        {
+          "date": "2024-08-11",
+          "brier": 0.24913
+        },
+        {
+          "date": "2024-08-12",
+          "brier": 0.24898
+        },
+        {
+          "date": "2024-08-13",
+          "brier": 0.24926
+        },
+        {
+          "date": "2024-08-14",
+          "brier": 0.24872
+        },
+        {
+          "date": "2024-08-16",
+          "brier": 0.24879
+        },
+        {
+          "date": "2024-08-17",
+          "brier": 0.24888
+        },
+        {
+          "date": "2024-08-18",
+          "brier": 0.24944
+        },
+        {
+          "date": "2024-08-19",
+          "brier": 0.2497
+        },
+        {
+          "date": "2024-08-20",
+          "brier": 0.24986
+        },
+        {
+          "date": "2024-08-21",
+          "brier": 0.25025
+        },
+        {
+          "date": "2024-08-22",
+          "brier": 0.25034
+        },
+        {
+          "date": "2024-08-23",
+          "brier": 0.25013
+        },
+        {
+          "date": "2024-08-24",
+          "brier": 0.25006
+        },
+        {
+          "date": "2024-08-25",
+          "brier": 0.24964
+        },
+        {
           "date": "2024-08-26",
-          "brier": 0.24979
+          "brier": 0.2493
         },
         {
           "date": "2024-08-27",
-          "brier": 0.24973
-        },
-        {
-          "date": "2024-08-28",
-          "brier": 0.24942
-        },
-        {
-          "date": "2024-08-29",
-          "brier": 0.2494
-        },
-        {
-          "date": "2024-08-30",
           "brier": 0.24922
         },
         {
+          "date": "2024-08-28",
+          "brier": 0.24906
+        },
+        {
+          "date": "2024-08-29",
+          "brier": 0.24898
+        },
+        {
+          "date": "2024-08-30",
+          "brier": 0.24901
+        },
+        {
           "date": "2024-08-31",
-          "brier": 0.24914
+          "brier": 0.24889
         },
         {
           "date": "2024-09-01",
-          "brier": 0.2489
+          "brier": 0.24889
         },
         {
           "date": "2024-09-02",
-          "brier": 0.24919
+          "brier": 0.24909
         },
         {
           "date": "2024-09-03",
-          "brier": 0.24892
+          "brier": 0.24896
         },
         {
           "date": "2024-09-04",
-          "brier": 0.24886
+          "brier": 0.24893
         },
         {
           "date": "2024-09-06",
-          "brier": 0.24864
+          "brier": 0.24884
         },
         {
           "date": "2024-09-07",
-          "brier": 0.24862
+          "brier": 0.24902
         },
         {
           "date": "2024-09-08",
-          "brier": 0.24845
+          "brier": 0.24906
         },
         {
           "date": "2024-09-10",
-          "brier": 0.24949
+          "brier": 0.24974
         },
         {
           "date": "2024-09-11",
-          "brier": 0.24942
+          "brier": 0.24976
         },
         {
           "date": "2024-09-13",
-          "brier": 0.2495
+          "brier": 0.24987
         },
         {
           "date": "2024-09-14",
-          "brier": 0.249
+          "brier": 0.24931
         },
         {
           "date": "2024-09-15",
-          "brier": 0.24883
+          "brier": 0.24945
         },
         {
           "date": "2024-09-16",
-          "brier": 0.24873
+          "brier": 0.24947
         },
         {
           "date": "2024-09-17",
-          "brier": 0.24834
+          "brier": 0.249
         },
         {
           "date": "2024-09-18",
-          "brier": 0.24798
+          "brier": 0.24855
         },
         {
           "date": "2024-09-19",
-          "brier": 0.24774
+          "brier": 0.24817
         },
         {
           "date": "2024-09-20",
-          "brier": 0.24755
+          "brier": 0.2481
         },
         {
           "date": "2024-09-21",
-          "brier": 0.2474
+          "brier": 0.24792
         },
         {
           "date": "2024-09-22",
-          "brier": 0.24699
+          "brier": 0.2475
         },
         {
           "date": "2024-09-24",
-          "brier": 0.24687
+          "brier": 0.24754
         },
         {
           "date": "2024-09-25",
-          "brier": 0.24699
+          "brier": 0.24764
         },
         {
           "date": "2024-09-27",
-          "brier": 0.24668
+          "brier": 0.24738
         },
         {
           "date": "2024-09-28",
-          "brier": 0.24737
+          "brier": 0.24809
         },
         {
           "date": "2024-09-29",
-          "brier": 0.24732
+          "brier": 0.24803
         },
         {
           "date": "2025-03-29",
-          "brier": 0.24342
+          "brier": 0.24232
         },
         {
           "date": "2025-03-30",
-          "brier": 0.24569
+          "brier": 0.24732
         },
         {
           "date": "2025-03-31",
-          "brier": 0.25203
+          "brier": 0.25127
         },
         {
           "date": "2025-04-01",
-          "brier": 0.24875
+          "brier": 0.2484
         },
         {
           "date": "2025-04-02",
-          "brier": 0.24484
+          "brier": 0.24572
         },
         {
           "date": "2025-04-04",
-          "brier": 0.24587
+          "brier": 0.24648
         },
         {
           "date": "2025-04-05",
-          "brier": 0.24707
+          "brier": 0.24761
         },
         {
           "date": "2025-04-06",
-          "brier": 0.2462
+          "brier": 0.24655
         },
         {
           "date": "2025-04-07",
-          "brier": 0.24484
+          "brier": 0.24514
         },
         {
           "date": "2025-04-08",
-          "brier": 0.24483
-        },
-        {
-          "date": "2025-04-09",
-          "brier": 0.24515
-        },
-        {
-          "date": "2025-04-11",
-          "brier": 0.24507
-        },
-        {
-          "date": "2025-04-12",
-          "brier": 0.24536
-        },
-        {
-          "date": "2025-04-13",
-          "brier": 0.24437
-        },
-        {
-          "date": "2025-04-14",
-          "brier": 0.24563
-        },
-        {
-          "date": "2025-04-15",
-          "brier": 0.24564
-        },
-        {
-          "date": "2025-04-16",
           "brier": 0.24475
         },
         {
-          "date": "2025-04-17",
-          "brier": 0.24495
+          "date": "2025-04-09",
+          "brier": 0.24465
         },
         {
-          "date": "2025-04-18",
-          "brier": 0.24589
+          "date": "2025-04-11",
+          "brier": 0.2446
         },
         {
-          "date": "2025-04-19",
-          "brier": 0.24566
+          "date": "2025-04-12",
+          "brier": 0.24519
         },
         {
-          "date": "2025-04-20",
-          "brier": 0.24615
+          "date": "2025-04-13",
+          "brier": 0.24421
         },
         {
-          "date": "2025-04-22",
+          "date": "2025-04-14",
+          "brier": 0.24578
+        },
+        {
+          "date": "2025-04-15",
           "brier": 0.24574
         },
         {
+          "date": "2025-04-16",
+          "brier": 0.24502
+        },
+        {
+          "date": "2025-04-17",
+          "brier": 0.24534
+        },
+        {
+          "date": "2025-04-18",
+          "brier": 0.24617
+        },
+        {
+          "date": "2025-04-19",
+          "brier": 0.24595
+        },
+        {
+          "date": "2025-04-20",
+          "brier": 0.24642
+        },
+        {
+          "date": "2025-04-22",
+          "brier": 0.2459
+        },
+        {
           "date": "2025-04-23",
-          "brier": 0.24486
+          "brier": 0.24524
         },
         {
           "date": "2025-04-25",
-          "brier": 0.245
+          "brier": 0.24543
         },
         {
           "date": "2025-04-26",
-          "brier": 0.24533
+          "brier": 0.2456
         },
         {
           "date": "2025-04-27",
-          "brier": 0.24542
+          "brier": 0.24562
         },
         {
           "date": "2025-04-29",
-          "brier": 0.2464
+          "brier": 0.24641
         },
         {
           "date": "2025-04-30",
-          "brier": 0.24504
+          "brier": 0.24524
         },
         {
           "date": "2025-05-01",
-          "brier": 0.24533
+          "brier": 0.24541
         },
         {
           "date": "2025-05-02",
-          "brier": 0.24596
+          "brier": 0.24557
         },
         {
           "date": "2025-05-03",
-          "brier": 0.24612
+          "brier": 0.24584
         },
         {
           "date": "2025-05-04",
-          "brier": 0.24599
+          "brier": 0.24577
         },
         {
           "date": "2025-05-06",
-          "brier": 0.24618
+          "brier": 0.246
         },
         {
           "date": "2025-05-07",
-          "brier": 0.24614
+          "brier": 0.24587
         },
         {
           "date": "2025-05-09",
-          "brier": 0.24595
+          "brier": 0.24591
         },
         {
           "date": "2025-05-10",
@@ -8904,1101 +8818,1103 @@
         },
         {
           "date": "2025-05-11",
-          "brier": 0.2461
+          "brier": 0.24598
         },
         {
           "date": "2025-05-12",
-          "brier": 0.24569
+          "brier": 0.24551
         },
         {
           "date": "2025-05-13",
-          "brier": 0.24635
+          "brier": 0.24614
         },
         {
           "date": "2025-05-14",
-          "brier": 0.24621
+          "brier": 0.24556
         },
         {
           "date": "2025-05-16",
-          "brier": 0.24711
-        },
-        {
-          "date": "2025-05-17",
-          "brier": 0.24705
-        },
-        {
-          "date": "2025-05-18",
-          "brier": 0.24612
-        },
-        {
-          "date": "2025-05-19",
-          "brier": 0.24632
-        },
-        {
-          "date": "2025-05-20",
-          "brier": 0.24595
-        },
-        {
-          "date": "2025-05-21",
-          "brier": 0.24644
-        },
-        {
-          "date": "2025-05-23",
-          "brier": 0.24749
-        },
-        {
-          "date": "2025-05-24",
-          "brier": 0.24722
-        },
-        {
-          "date": "2025-05-25",
-          "brier": 0.24715
-        },
-        {
-          "date": "2025-05-26",
-          "brier": 0.24705
-        },
-        {
-          "date": "2025-05-27",
-          "brier": 0.24709
-        },
-        {
-          "date": "2025-05-28",
-          "brier": 0.24708
-        },
-        {
-          "date": "2025-05-30",
-          "brier": 0.24635
-        },
-        {
-          "date": "2025-05-31",
-          "brier": 0.24649
-        },
-        {
-          "date": "2025-06-01",
-          "brier": 0.24555
-        },
-        {
-          "date": "2025-06-03",
-          "brier": 0.24547
-        },
-        {
-          "date": "2025-06-04",
-          "brier": 0.24564
-        },
-        {
-          "date": "2025-06-05",
-          "brier": 0.24575
-        },
-        {
-          "date": "2025-06-06",
-          "brier": 0.24601
-        },
-        {
-          "date": "2025-06-07",
-          "brier": 0.24563
-        },
-        {
-          "date": "2025-06-08",
-          "brier": 0.24484
-        },
-        {
-          "date": "2025-06-10",
-          "brier": 0.2449
-        },
-        {
-          "date": "2025-06-11",
-          "brier": 0.24542
-        },
-        {
-          "date": "2025-06-13",
-          "brier": 0.24524
-        },
-        {
-          "date": "2025-06-14",
-          "brier": 0.24483
-        },
-        {
-          "date": "2025-06-15",
-          "brier": 0.24422
-        },
-        {
-          "date": "2025-06-17",
-          "brier": 0.24439
-        },
-        {
-          "date": "2025-06-18",
-          "brier": 0.24457
-        },
-        {
-          "date": "2025-06-19",
-          "brier": 0.24484
-        },
-        {
-          "date": "2025-06-20",
-          "brier": 0.2447
-        },
-        {
-          "date": "2025-06-21",
-          "brier": 0.24537
-        },
-        {
-          "date": "2025-06-22",
-          "brier": 0.24615
-        },
-        {
-          "date": "2025-06-24",
-          "brier": 0.24628
-        },
-        {
-          "date": "2025-06-25",
-          "brier": 0.2453
-        },
-        {
-          "date": "2025-06-27",
-          "brier": 0.24583
-        },
-        {
-          "date": "2025-06-28",
-          "brier": 0.24568
-        },
-        {
-          "date": "2025-06-29",
-          "brier": 0.24675
-        },
-        {
-          "date": "2025-07-01",
-          "brier": 0.24765
-        },
-        {
-          "date": "2025-07-02",
-          "brier": 0.24803
-        },
-        {
-          "date": "2025-07-03",
-          "brier": 0.24812
-        },
-        {
-          "date": "2025-07-04",
-          "brier": 0.24842
-        },
-        {
-          "date": "2025-07-05",
-          "brier": 0.24815
-        },
-        {
-          "date": "2025-07-06",
-          "brier": 0.24809
-        },
-        {
-          "date": "2025-07-07",
-          "brier": 0.24871
-        },
-        {
-          "date": "2025-07-08",
-          "brier": 0.24985
-        },
-        {
-          "date": "2025-07-09",
-          "brier": 0.25003
-        },
-        {
-          "date": "2025-07-10",
-          "brier": 0.25012
-        },
-        {
-          "date": "2025-07-11",
-          "brier": 0.24975
-        },
-        {
-          "date": "2025-07-12",
-          "brier": 0.24982
-        },
-        {
-          "date": "2025-07-13",
-          "brier": 0.24946
-        },
-        {
-          "date": "2025-07-18",
-          "brier": 0.25129
-        },
-        {
-          "date": "2025-07-19",
-          "brier": 0.25164
-        },
-        {
-          "date": "2025-07-20",
-          "brier": 0.25201
-        },
-        {
-          "date": "2025-07-21",
-          "brier": 0.25116
-        },
-        {
-          "date": "2025-07-22",
-          "brier": 0.25036
-        },
-        {
-          "date": "2025-07-23",
-          "brier": 0.24998
-        },
-        {
-          "date": "2025-07-25",
-          "brier": 0.25104
-        },
-        {
-          "date": "2025-07-26",
-          "brier": 0.25086
-        },
-        {
-          "date": "2025-07-27",
-          "brier": 0.24981
-        },
-        {
-          "date": "2025-07-28",
-          "brier": 0.24964
-        },
-        {
-          "date": "2025-07-29",
-          "brier": 0.24929
-        },
-        {
-          "date": "2025-07-30",
-          "brier": 0.24927
-        },
-        {
-          "date": "2025-08-01",
-          "brier": 0.24851
-        },
-        {
-          "date": "2025-08-02",
-          "brier": 0.24862
-        },
-        {
-          "date": "2025-08-03",
-          "brier": 0.24832
-        },
-        {
-          "date": "2025-08-04",
-          "brier": 0.24832
-        },
-        {
-          "date": "2025-08-05",
-          "brier": 0.2491
-        },
-        {
-          "date": "2025-08-06",
-          "brier": 0.24874
-        },
-        {
-          "date": "2025-08-08",
-          "brier": 0.24831
-        },
-        {
-          "date": "2025-08-09",
-          "brier": 0.24813
-        },
-        {
-          "date": "2025-08-10",
-          "brier": 0.24863
-        },
-        {
-          "date": "2025-08-11",
-          "brier": 0.24888
-        },
-        {
-          "date": "2025-08-12",
-          "brier": 0.24897
-        },
-        {
-          "date": "2025-08-13",
-          "brier": 0.24901
-        },
-        {
-          "date": "2025-08-15",
-          "brier": 0.24915
-        },
-        {
-          "date": "2025-08-16",
-          "brier": 0.24904
-        },
-        {
-          "date": "2025-08-17",
-          "brier": 0.24838
-        },
-        {
-          "date": "2025-08-18",
-          "brier": 0.2487
-        },
-        {
-          "date": "2025-08-19",
-          "brier": 0.2483
-        },
-        {
-          "date": "2025-08-20",
-          "brier": 0.24854
-        },
-        {
-          "date": "2025-08-22",
-          "brier": 0.24927
-        },
-        {
-          "date": "2025-08-23",
-          "brier": 0.24912
-        },
-        {
-          "date": "2025-08-24",
-          "brier": 0.24951
-        },
-        {
-          "date": "2025-08-25",
-          "brier": 0.24925
-        },
-        {
-          "date": "2025-08-26",
-          "brier": 0.24958
-        },
-        {
-          "date": "2025-08-27",
-          "brier": 0.25
-        },
-        {
-          "date": "2025-08-29",
-          "brier": 0.24974
-        },
-        {
-          "date": "2025-08-30",
-          "brier": 0.24992
-        },
-        {
-          "date": "2025-08-31",
-          "brier": 0.25058
-        },
-        {
-          "date": "2025-09-01",
-          "brier": 0.25006
-        },
-        {
-          "date": "2025-09-02",
-          "brier": 0.25053
-        },
-        {
-          "date": "2025-09-03",
-          "brier": 0.25011
-        },
-        {
-          "date": "2025-09-05",
-          "brier": 0.24961
-        },
-        {
-          "date": "2025-09-06",
-          "brier": 0.24973
-        },
-        {
-          "date": "2025-09-07",
-          "brier": 0.24988
-        },
-        {
-          "date": "2025-09-08",
-          "brier": 0.25072
-        },
-        {
-          "date": "2025-09-09",
-          "brier": 0.2505
-        },
-        {
-          "date": "2025-09-10",
-          "brier": 0.25021
-        },
-        {
-          "date": "2025-09-12",
-          "brier": 0.2496
-        },
-        {
-          "date": "2025-09-13",
-          "brier": 0.24982
-        },
-        {
-          "date": "2025-09-14",
-          "brier": 0.24965
-        },
-        {
-          "date": "2025-09-16",
-          "brier": 0.24978
-        },
-        {
-          "date": "2025-09-17",
-          "brier": 0.24842
-        },
-        {
-          "date": "2025-09-18",
-          "brier": 0.24801
-        },
-        {
-          "date": "2025-09-19",
-          "brier": 0.24772
-        },
-        {
-          "date": "2025-09-20",
-          "brier": 0.24821
-        },
-        {
-          "date": "2025-09-21",
-          "brier": 0.24859
-        },
-        {
-          "date": "2025-09-23",
-          "brier": 0.24843
-        },
-        {
-          "date": "2025-09-24",
-          "brier": 0.24859
-        },
-        {
-          "date": "2025-09-25",
-          "brier": 0.24957
-        },
-        {
-          "date": "2025-09-26",
-          "brier": 0.24955
-        },
-        {
-          "date": "2025-09-27",
-          "brier": 0.2497
-        },
-        {
-          "date": "2025-09-28",
-          "brier": 0.25009
-        },
-        {
-          "date": "2026-03-28",
-          "brier": 0.25058
-        },
-        {
-          "date": "2026-03-29",
-          "brier": 0.24876
-        },
-        {
-          "date": "2026-03-30",
-          "brier": 0.2468
-        },
-        {
-          "date": "2026-03-31",
-          "brier": 0.25016
-        },
-        {
-          "date": "2026-04-01",
-          "brier": 0.25402
-        },
-        {
-          "date": "2026-04-03",
-          "brier": 0.25316
-        },
-        {
-          "date": "2026-04-04",
-          "brier": 0.2526
-        },
-        {
-          "date": "2026-04-05",
-          "brier": 0.25151
-        },
-        {
-          "date": "2026-04-06",
-          "brier": 0.25037
-        },
-        {
-          "date": "2026-04-07",
-          "brier": 0.24824
-        },
-        {
-          "date": "2026-04-08",
-          "brier": 0.24801
-        },
-        {
-          "date": "2026-04-10",
-          "brier": 0.2489
-        },
-        {
-          "date": "2026-04-11",
-          "brier": 0.24947
-        },
-        {
-          "date": "2026-04-12",
-          "brier": 0.25006
-        },
-        {
-          "date": "2026-04-13",
-          "brier": 0.25151
-        },
-        {
-          "date": "2026-04-14",
-          "brier": 0.25058
-        },
-        {
-          "date": "2026-04-15",
-          "brier": 0.25073
-        },
-        {
-          "date": "2026-04-16",
-          "brier": 0.2505
-        },
-        {
-          "date": "2026-04-17",
-          "brier": 0.25056
-        },
-        {
-          "date": "2026-04-18",
-          "brier": 0.2507
-        },
-        {
-          "date": "2026-04-19",
-          "brier": 0.25021
-        },
-        {
-          "date": "2026-04-20",
-          "brier": 0.24981
-        },
-        {
-          "date": "2026-04-21",
-          "brier": 0.2504
-        },
-        {
-          "date": "2026-04-22",
-          "brier": 0.25034
-        },
-        {
-          "date": "2026-04-24",
-          "brier": 0.24985
-        },
-        {
-          "date": "2026-04-25",
-          "brier": 0.24958
-        },
-        {
-          "date": "2026-04-26",
-          "brier": 0.24933
-        },
-        {
-          "date": "2026-04-28",
-          "brier": 0.24906
-        },
-        {
-          "date": "2026-04-29",
-          "brier": 0.24933
-        },
-        {
-          "date": "2026-04-30",
-          "brier": 0.24903
-        },
-        {
-          "date": "2026-05-01",
-          "brier": 0.24785
-        },
-        {
-          "date": "2026-05-02",
-          "brier": 0.24775
-        },
-        {
-          "date": "2026-05-03",
-          "brier": 0.24742
-        },
-        {
-          "date": "2026-05-04",
-          "brier": 0.24719
-        },
-        {
-          "date": "2026-05-05",
-          "brier": 0.24732
-        },
-        {
-          "date": "2026-05-06",
-          "brier": 0.24765
-        },
-        {
-          "date": "2026-05-07",
-          "brier": 0.24851
-        },
-        {
-          "date": "2026-05-08",
-          "brier": 0.24854
-        },
-        {
-          "date": "2026-05-09",
-          "brier": 0.24854
-        },
-        {
-          "date": "2026-05-10",
-          "brier": 0.24809
-        },
-        {
-          "date": "2026-05-12",
-          "brier": 0.2476
-        },
-        {
-          "date": "2026-05-13",
-          "brier": 0.24674
-        },
-        {
-          "date": "2026-05-14",
-          "brier": 0.24693
-        },
-        {
-          "date": "2026-05-15",
-          "brier": 0.24692
-        },
-        {
-          "date": "2026-05-16",
-          "brier": 0.24664
-        },
-        {
-          "date": "2026-05-17",
-          "brier": 0.24628
-        },
-        {
-          "date": "2026-05-18",
-          "brier": 0.24601
-        },
-        {
-          "date": "2026-05-19",
-          "brier": 0.24593
-        },
-        {
-          "date": "2026-05-20",
-          "brier": 0.24615
-        },
-        {
-          "date": "2026-05-22",
-          "brier": 0.24588
-        },
-        {
-          "date": "2026-05-23",
-          "brier": 0.24524
-        },
-        {
-          "date": "2026-05-24",
-          "brier": 0.24541
-        },
-        {
-          "date": "2026-05-25",
-          "brier": 0.24553
-        },
-        {
-          "date": "2026-05-26",
-          "brier": 0.24641
-        },
-        {
-          "date": "2026-05-27",
-          "brier": 0.24637
-        },
-        {
-          "date": "2026-05-29",
-          "brier": 0.24706
-        },
-        {
-          "date": "2026-05-30",
-          "brier": 0.24748
-        },
-        {
-          "date": "2026-05-31",
-          "brier": 0.24807
-        },
-        {
-          "date": "2026-06-02",
-          "brier": 0.2484
-        },
-        {
-          "date": "2026-06-03",
-          "brier": 0.24853
-        },
-        {
-          "date": "2026-06-05",
-          "brier": 0.24835
-        },
-        {
-          "date": "2026-06-06",
-          "brier": 0.24835
-        },
-        {
-          "date": "2026-06-07",
-          "brier": 0.24848
-        },
-        {
-          "date": "2026-06-09",
-          "brier": 0.24833
-        },
-        {
-          "date": "2026-06-10",
-          "brier": 0.24838
-        },
-        {
-          "date": "2026-06-12",
-          "brier": 0.24818
-        },
-        {
-          "date": "2026-06-13",
-          "brier": 0.24838
-        },
-        {
-          "date": "2026-06-14",
-          "brier": 0.24804
-        },
-        {
-          "date": "2026-06-15",
-          "brier": 0.24787
-        },
-        {
-          "date": "2026-06-16",
-          "brier": 0.24802
-        },
-        {
-          "date": "2026-06-17",
-          "brier": 0.24802
-        },
-        {
-          "date": "2026-06-19",
-          "brier": 0.24894
-        },
-        {
-          "date": "2026-06-20",
-          "brier": 0.24924
-        },
-        {
-          "date": "2026-06-21",
-          "brier": 0.2483
-        },
-        {
-          "date": "2026-06-22",
-          "brier": 0.24949
-        },
-        {
-          "date": "2026-06-23",
-          "brier": 0.25035
-        },
-        {
-          "date": "2026-06-24",
-          "brier": 0.2501
-        },
-        {
-          "date": "2026-06-26",
-          "brier": 0.24967
-        },
-        {
-          "date": "2026-06-27",
-          "brier": 0.24997
-        },
-        {
-          "date": "2026-06-28",
-          "brier": 0.24973
-        },
-        {
-          "date": "2026-06-29",
-          "brier": 0.24959
-        },
-        {
-          "date": "2026-06-30",
-          "brier": 0.24914
-        },
-        {
-          "date": "2026-07-01",
-          "brier": 0.24928
-        },
-        {
-          "date": "2026-07-03",
-          "brier": 0.24948
-        },
-        {
-          "date": "2026-07-04",
-          "brier": 0.24942
-        },
-        {
-          "date": "2026-07-05",
-          "brier": 0.24978
-        },
-        {
-          "date": "2026-07-07",
-          "brier": 0.24996
-        },
-        {
-          "date": "2026-07-08",
-          "brier": 0.25017
-        },
-        {
-          "date": "2026-07-09",
-          "brier": 0.25045
-        },
-        {
-          "date": "2026-07-10",
-          "brier": 0.25062
-        },
-        {
-          "date": "2026-07-11",
-          "brier": 0.25087
-        },
-        {
-          "date": "2026-07-12",
-          "brier": 0.25069
-        },
-        {
-          "date": "2026-07-17",
-          "brier": 0.25213
-        },
-        {
-          "date": "2026-07-18",
-          "brier": 0.25198
-        },
-        {
-          "date": "2026-07-19",
-          "brier": 0.25221
-        },
-        {
-          "date": "2026-07-20",
-          "brier": 0.25231
-        },
-        {
-          "date": "2026-07-21",
-          "brier": 0.25254
-        },
-        {
-          "date": "2026-07-22",
-          "brier": 0.25236
-        },
-        {
-          "date": "2026-07-24",
-          "brier": 0.25338
-        },
-        {
-          "date": "2026-07-25",
-          "brier": 0.25254
-        },
-        {
-          "date": "2026-07-26",
-          "brier": 0.25179
-        },
-        {
-          "date": "2026-07-27",
-          "brier": 0.25234
-        },
-        {
-          "date": "2026-07-28",
-          "brier": 0.25235
-        },
-        {
-          "date": "2026-07-29",
-          "brier": 0.25186
-        },
-        {
-          "date": "2026-07-30",
-          "brier": 0.2516
-        },
-        {
-          "date": "2026-07-31",
-          "brier": 0.25179
-        },
-        {
-          "date": "2026-08-01",
-          "brier": 0.2514
-        },
-        {
-          "date": "2026-08-02",
-          "brier": 0.2516
-        },
-        {
-          "date": "2026-08-04",
-          "brier": 0.2513
-        },
-        {
-          "date": "2026-08-05",
-          "brier": 0.25129
-        },
-        {
-          "date": "2026-08-06",
-          "brier": 0.25143
-        },
-        {
-          "date": "2026-08-07",
-          "brier": 0.25114
-        },
-        {
-          "date": "2026-08-08",
-          "brier": 0.25122
-        },
-        {
-          "date": "2026-08-09",
-          "brier": 0.25089
-        },
-        {
-          "date": "2026-08-10",
-          "brier": 0.25076
-        },
-        {
-          "date": "2026-08-11",
-          "brier": 0.25102
-        },
-        {
-          "date": "2026-08-12",
-          "brier": 0.25066
-        },
-        {
-          "date": "2026-08-14",
-          "brier": 0.25047
-        },
-        {
-          "date": "2026-08-15",
-          "brier": 0.25025
-        },
-        {
-          "date": "2026-08-16",
-          "brier": 0.24977
-        },
-        {
-          "date": "2026-08-17",
-          "brier": 0.24991
-        },
-        {
-          "date": "2026-08-18",
-          "brier": 0.24931
-        },
-        {
-          "date": "2026-08-19",
-          "brier": 0.24923
-        },
-        {
-          "date": "2026-08-21",
-          "brier": 0.24925
-        },
-        {
-          "date": "2026-08-22",
-          "brier": 0.24917
-        },
-        {
-          "date": "2026-08-23",
-          "brier": 0.24807
-        },
-        {
-          "date": "2026-08-24",
-          "brier": 0.24845
-        },
-        {
-          "date": "2026-08-25",
-          "brier": 0.24895
-        },
-        {
-          "date": "2026-08-26",
-          "brier": 0.24828
-        },
-        {
-          "date": "2026-08-28",
-          "brier": 0.24749
-        },
-        {
-          "date": "2026-08-29",
-          "brier": 0.248
-        },
-        {
-          "date": "2026-08-30",
-          "brier": 0.24757
-        },
-        {
-          "date": "2026-08-31",
-          "brier": 0.24801
-        },
-        {
-          "date": "2026-09-01",
-          "brier": 0.24743
-        },
-        {
-          "date": "2026-09-02",
-          "brier": 0.24772
-        },
-        {
-          "date": "2026-09-04",
-          "brier": 0.24771
-        },
-        {
-          "date": "2026-09-05",
-          "brier": 0.24743
-        },
-        {
-          "date": "2026-09-06",
-          "brier": 0.2468
-        },
-        {
-          "date": "2026-09-07",
-          "brier": 0.24665
-        },
-        {
-          "date": "2026-09-08",
-          "brier": 0.24686
-        },
-        {
-          "date": "2026-09-09",
-          "brier": 0.24676
-        },
-        {
-          "date": "2026-09-11",
-          "brier": 0.2466
-        },
-        {
-          "date": "2026-09-12",
           "brier": 0.24677
         },
         {
-          "date": "2026-09-13",
-          "brier": 0.24703
+          "date": "2025-05-17",
+          "brier": 0.24657
         },
         {
-          "date": "2026-09-14",
+          "date": "2025-05-18",
+          "brier": 0.2455
+        },
+        {
+          "date": "2025-05-19",
+          "brier": 0.24571
+        },
+        {
+          "date": "2025-05-20",
+          "brier": 0.2454
+        },
+        {
+          "date": "2025-05-21",
+          "brier": 0.24574
+        },
+        {
+          "date": "2025-05-23",
+          "brier": 0.24681
+        },
+        {
+          "date": "2025-05-24",
+          "brier": 0.24645
+        },
+        {
+          "date": "2025-05-25",
+          "brier": 0.24609
+        },
+        {
+          "date": "2025-05-26",
+          "brier": 0.24631
+        },
+        {
+          "date": "2025-05-27",
+          "brier": 0.24656
+        },
+        {
+          "date": "2025-05-28",
+          "brier": 0.24648
+        },
+        {
+          "date": "2025-05-30",
+          "brier": 0.24572
+        },
+        {
+          "date": "2025-05-31",
+          "brier": 0.24578
+        },
+        {
+          "date": "2025-06-01",
+          "brier": 0.24506
+        },
+        {
+          "date": "2025-06-03",
+          "brier": 0.24477
+        },
+        {
+          "date": "2025-06-04",
+          "brier": 0.24496
+        },
+        {
+          "date": "2025-06-05",
+          "brier": 0.24506
+        },
+        {
+          "date": "2025-06-06",
+          "brier": 0.2454
+        },
+        {
+          "date": "2025-06-07",
+          "brier": 0.24518
+        },
+        {
+          "date": "2025-06-08",
+          "brier": 0.24464
+        },
+        {
+          "date": "2025-06-10",
+          "brier": 0.24472
+        },
+        {
+          "date": "2025-06-11",
+          "brier": 0.24496
+        },
+        {
+          "date": "2025-06-13",
+          "brier": 0.24505
+        },
+        {
+          "date": "2025-06-14",
+          "brier": 0.24444
+        },
+        {
+          "date": "2025-06-15",
+          "brier": 0.24345
+        },
+        {
+          "date": "2025-06-17",
+          "brier": 0.24393
+        },
+        {
+          "date": "2025-06-18",
+          "brier": 0.24422
+        },
+        {
+          "date": "2025-06-19",
+          "brier": 0.24461
+        },
+        {
+          "date": "2025-06-20",
+          "brier": 0.24474
+        },
+        {
+          "date": "2025-06-21",
+          "brier": 0.24518
+        },
+        {
+          "date": "2025-06-22",
+          "brier": 0.24609
+        },
+        {
+          "date": "2025-06-24",
+          "brier": 0.2466
+        },
+        {
+          "date": "2025-06-25",
+          "brier": 0.24544
+        },
+        {
+          "date": "2025-06-27",
+          "brier": 0.24594
+        },
+        {
+          "date": "2025-06-28",
+          "brier": 0.24597
+        },
+        {
+          "date": "2025-06-29",
           "brier": 0.24692
         },
         {
+          "date": "2025-07-01",
+          "brier": 0.24818
+        },
+        {
+          "date": "2025-07-02",
+          "brier": 0.24855
+        },
+        {
+          "date": "2025-07-03",
+          "brier": 0.24854
+        },
+        {
+          "date": "2025-07-04",
+          "brier": 0.24883
+        },
+        {
+          "date": "2025-07-05",
+          "brier": 0.24855
+        },
+        {
+          "date": "2025-07-06",
+          "brier": 0.24824
+        },
+        {
+          "date": "2025-07-07",
+          "brier": 0.24894
+        },
+        {
+          "date": "2025-07-08",
+          "brier": 0.25026
+        },
+        {
+          "date": "2025-07-09",
+          "brier": 0.25023
+        },
+        {
+          "date": "2025-07-10",
+          "brier": 0.25008
+        },
+        {
+          "date": "2025-07-11",
+          "brier": 0.24992
+        },
+        {
+          "date": "2025-07-12",
+          "brier": 0.24972
+        },
+        {
+          "date": "2025-07-13",
+          "brier": 0.24929
+        },
+        {
+          "date": "2025-07-18",
+          "brier": 0.25114
+        },
+        {
+          "date": "2025-07-19",
+          "brier": 0.25127
+        },
+        {
+          "date": "2025-07-20",
+          "brier": 0.25143
+        },
+        {
+          "date": "2025-07-21",
+          "brier": 0.25101
+        },
+        {
+          "date": "2025-07-22",
+          "brier": 0.24984
+        },
+        {
+          "date": "2025-07-23",
+          "brier": 0.24953
+        },
+        {
+          "date": "2025-07-25",
+          "brier": 0.25054
+        },
+        {
+          "date": "2025-07-26",
+          "brier": 0.25035
+        },
+        {
+          "date": "2025-07-27",
+          "brier": 0.24947
+        },
+        {
+          "date": "2025-07-28",
+          "brier": 0.24929
+        },
+        {
+          "date": "2025-07-29",
+          "brier": 0.24932
+        },
+        {
+          "date": "2025-07-30",
+          "brier": 0.24941
+        },
+        {
+          "date": "2025-08-01",
+          "brier": 0.24835
+        },
+        {
+          "date": "2025-08-02",
+          "brier": 0.24864
+        },
+        {
+          "date": "2025-08-03",
+          "brier": 0.24813
+        },
+        {
+          "date": "2025-08-04",
+          "brier": 0.24799
+        },
+        {
+          "date": "2025-08-05",
+          "brier": 0.24897
+        },
+        {
+          "date": "2025-08-06",
+          "brier": 0.24837
+        },
+        {
+          "date": "2025-08-08",
+          "brier": 0.24791
+        },
+        {
+          "date": "2025-08-09",
+          "brier": 0.24821
+        },
+        {
+          "date": "2025-08-10",
+          "brier": 0.24867
+        },
+        {
+          "date": "2025-08-11",
+          "brier": 0.24944
+        },
+        {
+          "date": "2025-08-12",
+          "brier": 0.2498
+        },
+        {
+          "date": "2025-08-13",
+          "brier": 0.24994
+        },
+        {
+          "date": "2025-08-15",
+          "brier": 0.24997
+        },
+        {
+          "date": "2025-08-16",
+          "brier": 0.24967
+        },
+        {
+          "date": "2025-08-17",
+          "brier": 0.24877
+        },
+        {
+          "date": "2025-08-18",
+          "brier": 0.24891
+        },
+        {
+          "date": "2025-08-19",
+          "brier": 0.24839
+        },
+        {
+          "date": "2025-08-20",
+          "brier": 0.24864
+        },
+        {
+          "date": "2025-08-22",
+          "brier": 0.24947
+        },
+        {
+          "date": "2025-08-23",
+          "brier": 0.24929
+        },
+        {
+          "date": "2025-08-24",
+          "brier": 0.24978
+        },
+        {
+          "date": "2025-08-25",
+          "brier": 0.24964
+        },
+        {
+          "date": "2025-08-26",
+          "brier": 0.24944
+        },
+        {
+          "date": "2025-08-27",
+          "brier": 0.24979
+        },
+        {
+          "date": "2025-08-29",
+          "brier": 0.2494
+        },
+        {
+          "date": "2025-08-30",
+          "brier": 0.24942
+        },
+        {
+          "date": "2025-08-31",
+          "brier": 0.25049
+        },
+        {
+          "date": "2025-09-01",
+          "brier": 0.24998
+        },
+        {
+          "date": "2025-09-02",
+          "brier": 0.25034
+        },
+        {
+          "date": "2025-09-03",
+          "brier": 0.25018
+        },
+        {
+          "date": "2025-09-05",
+          "brier": 0.24983
+        },
+        {
+          "date": "2025-09-06",
+          "brier": 0.24994
+        },
+        {
+          "date": "2025-09-07",
+          "brier": 0.24996
+        },
+        {
+          "date": "2025-09-08",
+          "brier": 0.25037
+        },
+        {
+          "date": "2025-09-09",
+          "brier": 0.25026
+        },
+        {
+          "date": "2025-09-10",
+          "brier": 0.24967
+        },
+        {
+          "date": "2025-09-12",
+          "brier": 0.24874
+        },
+        {
+          "date": "2025-09-13",
+          "brier": 0.24916
+        },
+        {
+          "date": "2025-09-14",
+          "brier": 0.24938
+        },
+        {
+          "date": "2025-09-16",
+          "brier": 0.24984
+        },
+        {
+          "date": "2025-09-17",
+          "brier": 0.24856
+        },
+        {
+          "date": "2025-09-18",
+          "brier": 0.2484
+        },
+        {
+          "date": "2025-09-19",
+          "brier": 0.24797
+        },
+        {
+          "date": "2025-09-20",
+          "brier": 0.24841
+        },
+        {
+          "date": "2025-09-21",
+          "brier": 0.2486
+        },
+        {
+          "date": "2025-09-23",
+          "brier": 0.24823
+        },
+        {
+          "date": "2025-09-24",
+          "brier": 0.24832
+        },
+        {
+          "date": "2025-09-25",
+          "brier": 0.24968
+        },
+        {
+          "date": "2025-09-26",
+          "brier": 0.24951
+        },
+        {
+          "date": "2025-09-27",
+          "brier": 0.2496
+        },
+        {
+          "date": "2025-09-28",
+          "brier": 0.24976
+        },
+        {
+          "date": "2026-03-28",
+          "brier": 0.25
+        },
+        {
+          "date": "2026-03-29",
+          "brier": 0.24995
+        },
+        {
+          "date": "2026-03-30",
+          "brier": 0.24806
+        },
+        {
+          "date": "2026-03-31",
+          "brier": 0.25049
+        },
+        {
+          "date": "2026-04-01",
+          "brier": 0.25365
+        },
+        {
+          "date": "2026-04-03",
+          "brier": 0.25213
+        },
+        {
+          "date": "2026-04-04",
+          "brier": 0.25178
+        },
+        {
+          "date": "2026-04-05",
+          "brier": 0.25136
+        },
+        {
+          "date": "2026-04-06",
+          "brier": 0.25033
+        },
+        {
+          "date": "2026-04-07",
+          "brier": 0.2484
+        },
+        {
+          "date": "2026-04-08",
+          "brier": 0.2483
+        },
+        {
+          "date": "2026-04-10",
+          "brier": 0.24922
+        },
+        {
+          "date": "2026-04-11",
+          "brier": 0.24976
+        },
+        {
+          "date": "2026-04-12",
+          "brier": 0.25037
+        },
+        {
+          "date": "2026-04-13",
+          "brier": 0.25193
+        },
+        {
+          "date": "2026-04-14",
+          "brier": 0.25105
+        },
+        {
+          "date": "2026-04-15",
+          "brier": 0.25099
+        },
+        {
+          "date": "2026-04-16",
+          "brier": 0.2511
+        },
+        {
+          "date": "2026-04-17",
+          "brier": 0.25142
+        },
+        {
+          "date": "2026-04-18",
+          "brier": 0.25167
+        },
+        {
+          "date": "2026-04-19",
+          "brier": 0.2512
+        },
+        {
+          "date": "2026-04-20",
+          "brier": 0.25097
+        },
+        {
+          "date": "2026-04-21",
+          "brier": 0.25161
+        },
+        {
+          "date": "2026-04-22",
+          "brier": 0.25143
+        },
+        {
+          "date": "2026-04-24",
+          "brier": 0.25106
+        },
+        {
+          "date": "2026-04-25",
+          "brier": 0.25069
+        },
+        {
+          "date": "2026-04-26",
+          "brier": 0.25043
+        },
+        {
+          "date": "2026-04-28",
+          "brier": 0.25002
+        },
+        {
+          "date": "2026-04-29",
+          "brier": 0.25012
+        },
+        {
+          "date": "2026-04-30",
+          "brier": 0.24984
+        },
+        {
+          "date": "2026-05-01",
+          "brier": 0.24877
+        },
+        {
+          "date": "2026-05-02",
+          "brier": 0.24865
+        },
+        {
+          "date": "2026-05-03",
+          "brier": 0.24869
+        },
+        {
+          "date": "2026-05-04",
+          "brier": 0.24822
+        },
+        {
+          "date": "2026-05-05",
+          "brier": 0.24813
+        },
+        {
+          "date": "2026-05-06",
+          "brier": 0.24861
+        },
+        {
+          "date": "2026-05-07",
+          "brier": 0.24952
+        },
+        {
+          "date": "2026-05-08",
+          "brier": 0.24944
+        },
+        {
+          "date": "2026-05-09",
+          "brier": 0.24951
+        },
+        {
+          "date": "2026-05-10",
+          "brier": 0.24888
+        },
+        {
+          "date": "2026-05-12",
+          "brier": 0.24844
+        },
+        {
+          "date": "2026-05-13",
+          "brier": 0.24741
+        },
+        {
+          "date": "2026-05-14",
+          "brier": 0.24759
+        },
+        {
+          "date": "2026-05-15",
+          "brier": 0.24775
+        },
+        {
+          "date": "2026-05-16",
+          "brier": 0.24745
+        },
+        {
+          "date": "2026-05-17",
+          "brier": 0.24684
+        },
+        {
+          "date": "2026-05-18",
+          "brier": 0.2468
+        },
+        {
+          "date": "2026-05-19",
+          "brier": 0.24687
+        },
+        {
+          "date": "2026-05-20",
+          "brier": 0.24671
+        },
+        {
+          "date": "2026-05-22",
+          "brier": 0.2466
+        },
+        {
+          "date": "2026-05-23",
+          "brier": 0.24585
+        },
+        {
+          "date": "2026-05-24",
+          "brier": 0.24588
+        },
+        {
+          "date": "2026-05-25",
+          "brier": 0.24599
+        },
+        {
+          "date": "2026-05-26",
+          "brier": 0.24693
+        },
+        {
+          "date": "2026-05-27",
+          "brier": 0.24678
+        },
+        {
+          "date": "2026-05-29",
+          "brier": 0.24764
+        },
+        {
+          "date": "2026-05-30",
+          "brier": 0.24802
+        },
+        {
+          "date": "2026-05-31",
+          "brier": 0.24861
+        },
+        {
+          "date": "2026-06-02",
+          "brier": 0.2489
+        },
+        {
+          "date": "2026-06-03",
+          "brier": 0.24934
+        },
+        {
+          "date": "2026-06-05",
+          "brier": 0.24883
+        },
+        {
+          "date": "2026-06-06",
+          "brier": 0.24894
+        },
+        {
+          "date": "2026-06-07",
+          "brier": 0.24925
+        },
+        {
+          "date": "2026-06-09",
+          "brier": 0.24918
+        },
+        {
+          "date": "2026-06-10",
+          "brier": 0.24935
+        },
+        {
+          "date": "2026-06-12",
+          "brier": 0.24921
+        },
+        {
+          "date": "2026-06-13",
+          "brier": 0.24935
+        },
+        {
+          "date": "2026-06-14",
+          "brier": 0.24901
+        },
+        {
+          "date": "2026-06-15",
+          "brier": 0.24883
+        },
+        {
+          "date": "2026-06-16",
+          "brier": 0.24885
+        },
+        {
+          "date": "2026-06-17",
+          "brier": 0.24849
+        },
+        {
+          "date": "2026-06-19",
+          "brier": 0.2495
+        },
+        {
+          "date": "2026-06-20",
+          "brier": 0.24989
+        },
+        {
+          "date": "2026-06-21",
+          "brier": 0.24879
+        },
+        {
+          "date": "2026-06-22",
+          "brier": 0.25021
+        },
+        {
+          "date": "2026-06-23",
+          "brier": 0.25093
+        },
+        {
+          "date": "2026-06-24",
+          "brier": 0.25096
+        },
+        {
+          "date": "2026-06-26",
+          "brier": 0.25053
+        },
+        {
+          "date": "2026-06-27",
+          "brier": 0.25042
+        },
+        {
+          "date": "2026-06-28",
+          "brier": 0.25017
+        },
+        {
+          "date": "2026-06-29",
+          "brier": 0.25008
+        },
+        {
+          "date": "2026-06-30",
+          "brier": 0.24967
+        },
+        {
+          "date": "2026-07-01",
+          "brier": 0.2498
+        },
+        {
+          "date": "2026-07-03",
+          "brier": 0.24975
+        },
+        {
+          "date": "2026-07-04",
+          "brier": 0.24972
+        },
+        {
+          "date": "2026-07-05",
+          "brier": 0.25011
+        },
+        {
+          "date": "2026-07-07",
+          "brier": 0.25005
+        },
+        {
+          "date": "2026-07-08",
+          "brier": 0.25041
+        },
+        {
+          "date": "2026-07-09",
+          "brier": 0.25082
+        },
+        {
+          "date": "2026-07-10",
+          "brier": 0.25095
+        },
+        {
+          "date": "2026-07-11",
+          "brier": 0.25105
+        },
+        {
+          "date": "2026-07-12",
+          "brier": 0.25095
+        },
+        {
+          "date": "2026-07-17",
+          "brier": 0.25244
+        },
+        {
+          "date": "2026-07-18",
+          "brier": 0.25221
+        },
+        {
+          "date": "2026-07-19",
+          "brier": 0.25222
+        },
+        {
+          "date": "2026-07-20",
+          "brier": 0.25213
+        },
+        {
+          "date": "2026-07-21",
+          "brier": 0.25214
+        },
+        {
+          "date": "2026-07-22",
+          "brier": 0.25179
+        },
+        {
+          "date": "2026-07-24",
+          "brier": 0.25242
+        },
+        {
+          "date": "2026-07-25",
+          "brier": 0.2517
+        },
+        {
+          "date": "2026-07-26",
+          "brier": 0.25108
+        },
+        {
+          "date": "2026-07-27",
+          "brier": 0.25213
+        },
+        {
+          "date": "2026-07-28",
+          "brier": 0.25204
+        },
+        {
+          "date": "2026-07-29",
+          "brier": 0.25161
+        },
+        {
+          "date": "2026-07-30",
+          "brier": 0.25125
+        },
+        {
+          "date": "2026-07-31",
+          "brier": 0.25142
+        },
+        {
+          "date": "2026-08-01",
+          "brier": 0.25106
+        },
+        {
+          "date": "2026-08-02",
+          "brier": 0.2514
+        },
+        {
+          "date": "2026-08-04",
+          "brier": 0.25147
+        },
+        {
+          "date": "2026-08-05",
+          "brier": 0.2516
+        },
+        {
+          "date": "2026-08-06",
+          "brier": 0.25166
+        },
+        {
+          "date": "2026-08-07",
+          "brier": 0.25116
+        },
+        {
+          "date": "2026-08-08",
+          "brier": 0.25089
+        },
+        {
+          "date": "2026-08-09",
+          "brier": 0.25051
+        },
+        {
+          "date": "2026-08-10",
+          "brier": 0.2507
+        },
+        {
+          "date": "2026-08-11",
+          "brier": 0.25107
+        },
+        {
+          "date": "2026-08-12",
+          "brier": 0.25081
+        },
+        {
+          "date": "2026-08-14",
+          "brier": 0.25069
+        },
+        {
+          "date": "2026-08-15",
+          "brier": 0.25047
+        },
+        {
+          "date": "2026-08-16",
+          "brier": 0.25
+        },
+        {
+          "date": "2026-08-17",
+          "brier": 0.25023
+        },
+        {
+          "date": "2026-08-18",
+          "brier": 0.24977
+        },
+        {
+          "date": "2026-08-19",
+          "brier": 0.24976
+        },
+        {
+          "date": "2026-08-21",
+          "brier": 0.24996
+        },
+        {
+          "date": "2026-08-22",
+          "brier": 0.24974
+        },
+        {
+          "date": "2026-08-23",
+          "brier": 0.24858
+        },
+        {
+          "date": "2026-08-24",
+          "brier": 0.24899
+        },
+        {
+          "date": "2026-08-25",
+          "brier": 0.24949
+        },
+        {
+          "date": "2026-08-26",
+          "brier": 0.24885
+        },
+        {
+          "date": "2026-08-28",
+          "brier": 0.24838
+        },
+        {
+          "date": "2026-08-29",
+          "brier": 0.24893
+        },
+        {
+          "date": "2026-08-30",
+          "brier": 0.24855
+        },
+        {
+          "date": "2026-08-31",
+          "brier": 0.24903
+        },
+        {
+          "date": "2026-09-01",
+          "brier": 0.24845
+        },
+        {
+          "date": "2026-09-02",
+          "brier": 0.24881
+        },
+        {
+          "date": "2026-09-04",
+          "brier": 0.24863
+        },
+        {
+          "date": "2026-09-05",
+          "brier": 0.24826
+        },
+        {
+          "date": "2026-09-06",
+          "brier": 0.24769
+        },
+        {
+          "date": "2026-09-07",
+          "brier": 0.24787
+        },
+        {
+          "date": "2026-09-08",
+          "brier": 0.2479
+        },
+        {
+          "date": "2026-09-09",
+          "brier": 0.24783
+        },
+        {
+          "date": "2026-09-11",
+          "brier": 0.24745
+        },
+        {
+          "date": "2026-09-12",
+          "brier": 0.24775
+        },
+        {
+          "date": "2026-09-13",
+          "brier": 0.24798
+        },
+        {
+          "date": "2026-09-14",
+          "brier": 0.24792
+        },
+        {
           "date": "2026-09-15",
-          "brier": 0.24711
+          "brier": 0.24794
         },
         {
           "date": "2026-09-16",
-          "brier": 0.24691
+          "brier": 0.24765
         },
         {
           "date": "2026-09-18",
-          "brier": 0.2465
+          "brier": 0.24728
         },
         {
           "date": "2026-09-19",
-          "brier": 0.24668
+          "brier": 0.2475
         },
         {
           "date": "2026-09-20",
-          "brier": 0.24701
+          "brier": 0.24777
         }
       ],
       "window_days": 30,
       "min_games_per_day": 10,
-      "history_mean_brier": 0.24874
+      "history_mean_brier": 0.24881
     },
     "phase1": {
       "n_folds": 73,
       "n_games": 6796,
       "dispersion_ratio": {
-        "home": 2.1897,
-        "away": 2.4036
+        "home": 2.1879,
+        "away": 2.4103
       },
       "final_fit_rounds": {
-        "home": 38,
-        "away": 38
+        "home": 90,
+        "away": 90
       }
     },
     "k_edge": {
-      "k": 1.1768,
+      "k": 1.0473,
       "fit": "run-oof-refit (pre-holdout)",
+      "sampling_se": 0.1125,
       "reference_k": 1.53,
       "drift_band": [
         1.33,
         1.73
       ],
       "drift_alert": true,
-      "out_of_band_policy": "continue_using_fitted_value",
-      "production_used": true,
-      "k_fitted_run": 1.1768
+      "out_of_band_policy": "monitor_only_no_action",
+      "production_used": false,
+      "mode": "monitor_only",
+      "basis": "run-walk-seeded"
     }
   },
   "ensemble": [
@@ -10349,6 +10265,16 @@
     {
       "version": "v2026.09.22",
       "date": "2026-09-22",
+      "auc": 0.5895,
+      "brier": 0.2419,
+      "logloss": 0.6765,
+      "ece": 0.0127,
+      "ece_calibrated": 0.0097,
+      "notes": "walk-forward through 20260922 (7291 games)"
+    },
+    {
+      "version": "v2026.09.22",
+      "date": "2026-09-23",
       "auc": 0.5895,
       "brier": 0.2419,
       "logloss": 0.6765,
@@ -10793,7 +10719,7 @@
     },
     {
       "version": "v2026.09.22",
-      "date": "2026-09-22",
+      "date": "2026-09-23",
       "weights": {
         "xgboost": 1.0,
         "lightgbm": 0.0,
