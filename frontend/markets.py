@@ -449,9 +449,17 @@ def _render_totals_history(tot: pd.DataFrame, teams: dict,
         f" · {stats['n_pushes']:,} push(es) excluded — total == whole-"
         "number line, neither wins nor loses") if stats["n_pushes"] else ""
     side_txt = " · all sides" if side == "All" else f" · {side} picks only"
+    # Semantics label: the frozen store carries per-row provenance; legacy
+    # re-pricing (pre-first-run artifacts) does not.
+    frozen_note = (
+        "OOF record frozen at first publication (prequential) · card shows "
+        "published pre-game prices"
+        if "source_artifact_date" in tot.columns
+        else "OOF predictions re-priced on the current artifact basis "
+             "(legacy)")
     st.caption(
-        f"{stats['n_games']:,} games{side_txt} · {rate_txt} · most recent "
-        f"first — scroll for older results{push_txt}{cal_note}"
+        f"{stats['n_games']:,} games{side_txt} · {rate_txt} · {frozen_note} "
+        f"· most recent first — scroll for older results{push_txt}{cal_note}"
     )
     rows = []
     for _, r in view.iterrows():

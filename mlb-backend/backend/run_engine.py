@@ -2554,6 +2554,11 @@ def run_engine_daily(games: pd.DataFrame, target_games: pd.DataFrame,
             "Run engine: markets persist FAILED — "
             "run_engine_markets_%s.csv NOT written (monitor must flag it): %s",
             target_date_str, exc, exc_info=True)
+    try:
+        update_totals_history_store(combined, target_date_str)
+    except Exception as exc:  # belt-and-braces: store must never fail the run
+        logger.error("Totals history store call-site guard: %s", exc,
+                     exc_info=True)
     totals_brier = compute_rolling_totals_brier(combined)
 
     s1 = result["summary"]
@@ -2638,6 +2643,251 @@ def _print_phase2(s: dict[str, Any],
               f"mean|d|={a['mean_abs_diff']}, flagged@{a['delta_primary']}: "
               f"{a['n_flagged_primary']} ({100*a['share_gt_primary']:.1f}%), "
               f"@0.10: {100*a['share_gt_0_10']:.1f}%")
+
+
+# ---------------------------------------------------------------------------
+# Frozen Game-Totals prediction history (first-publication store)
+#
+# The frontend's totals Prediction History previously re-priced every decided
+# game on the LATEST run's basis each day (and selected each game's own fair
+# line), so its numbers drifted with every basis re-derivation and never
+# matched the card's published pre-game prices. As adopted 2026-09-22, the
+# OOF (prequential fold-model) totals prediction is FROZEN at first
+# publication: the first markets artifact in which a game_pk appears as a
+# decided OOF row prices the history row once, using the same fair-line /
+# re-scaled-pick rules the frontend applies, and the store is append-only
+# thereafter. The moneyline prediction history keeps its existing OOF
+# semantics (predictions_history_*.csv) — totals parity without changing the
+# moneyline contract.
+# ---------------------------------------------------------------------------
+
+TOTALS_HISTORY_SCHEMA_VERSION = 1
+
+
+def _th_line_key(line: float) -> str:
+    """Grid line -> column key, e.g. 8.0 -> '8_0', 8.5 -> '8_5'."""
+    return str(line).replace(".", "_")
+
+
+def _th_iso_date(date_str: str) -> str:
+    """Artifact date stamp -> ISO date string (20260919 -> 2026-09-19) so
+    provenance round-trips CSV as a string, never an int."""
+    s = str(date_str)
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return s
+
+
+def _th_grid_over_under_cols(line: float) -> tuple[str, str]:
+    """p_over / p_under column names for a grid total line (frontend parity:
+    market_diagnostics.grid_over_under_cols)."""
+    key = _th_line_key(line)
+    return f"p_over_{key}", f"p_under_{key}"
+
+
+def _th_round_to_half(x: float) -> float:
+    """Round to nearest 0.5, ties away from zero (frontend parity:
+    market_diagnostics.round_to_half)."""
+    if x < 0:
+        return math.ceil(x * 2 - 0.5) / 2.0
+    return math.floor(x * 2 + 0.5) / 2.0
+
+
+def _th_clamp_to_grid(line: float) -> tuple[float, bool]:
+    """Clamp into the shipped totals grid; returns (line, clamped)."""
+    if line < TOTAL_LINE_GRID[0]:
+        return TOTAL_LINE_GRID[0], True
+    if line > TOTAL_LINE_GRID[-1]:
+        return TOTAL_LINE_GRID[-1], True
+    return line, False
+
+
+def _th_norm_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize a frozen-store frame for identity comparison: game_pk as
+    string (artifact dtype varies across legacy files), line as float,
+    sorted by (game_pk, game_date)."""
+    out = df.copy()
+    out["game_pk"] = out["game_pk"].astype(str)
+    out["line"] = out["line"].astype(float)
+    return out.sort_values(["game_pk", "game_date"]).reset_index(drop=True)
+
+
+def _th_price_history_rows_vectorized(
+        dec: pd.DataFrame,
+        known: set) -> tuple[list[dict], int]:
+    """Price every not-yet-frozen decided OOF row in one vectorized pass.
+
+    Same rules as the frontend's totals_history_frame (fair line = grid
+    argmin of |re-scaled P(over) - 0.5| with lower-line tie-breaks,
+    round-half-up clamped fallback, 2-way re-scaled pick, push-aware
+    grading) but O(grid) numpy passes instead of per-row work — the seed
+    path prices ~6,800 rows and per-row DataFrame ops are O(n^2) there.
+    Returns (rows, n_priced); rows exclude game_pks already in ``known``.
+    """
+    n = len(dec)
+    if not n:
+        return [], 0
+    lam_total = (pd.to_numeric(dec["home_expected_runs"], errors="coerce")
+                 + pd.to_numeric(dec["away_expected_runs"], errors="coerce")
+                 ).to_numpy(float)
+    total = pd.to_numeric(dec["total_runs"], errors="coerce").to_numpy(float)
+    # Fair-line argmin across the grid (ties keep the lower line).
+    best_line = np.full(n, np.nan)
+    best_delta = np.full(n, np.inf)
+    po_map: dict[float, np.ndarray] = {}
+    pu_map: dict[float, np.ndarray] = {}
+    for line in TOTAL_LINE_GRID:
+        over_col, under_col = _th_grid_over_under_cols(line)
+        if over_col not in dec.columns or under_col not in dec.columns:
+            continue
+        po = pd.to_numeric(dec[over_col], errors="coerce").to_numpy(float)
+        pu = pd.to_numeric(dec[under_col], errors="coerce").to_numpy(float)
+        po_map[line], pu_map[line] = po, pu
+        denom = po + pu
+        valid = (np.isfinite(po) & np.isfinite(pu) & np.isfinite(denom)
+                 & (denom > 0))
+        delta = np.full(n, np.inf)
+        delta[valid] = np.abs(po[valid] / denom[valid] - 0.5)
+        take = valid & (delta < best_delta - 1e-12)
+        best_delta[take] = delta[take]
+        best_line[take] = line
+    # Fallback: round-half-up projection clamped to the grid, where no
+    # valid grid pair exists (legacy artifacts / unpriced rows).
+    fallback = np.array([
+        _th_clamp_to_grid(_th_round_to_half(lt))[0] if np.isfinite(lt)
+        else np.nan for lt in lam_total])
+    line = np.where(np.isnan(best_line), fallback, best_line)
+    # Re-scaled probabilities at each row's selected line.
+    po_sel = np.full(n, np.nan)
+    pu_sel = np.full(n, np.nan)
+    for ln in np.unique(line[np.isfinite(line)]):
+        mask = line == ln
+        po_sel[mask] = po_map[float(ln)][mask]
+        pu_sel[mask] = pu_map[float(ln)][mask]
+    denom = po_sel + pu_sel
+    priceable = (np.isfinite(total) & np.isfinite(line) & np.isfinite(po_sel)
+                 & np.isfinite(pu_sel) & np.isfinite(denom) & (denom > 0))
+    if not priceable.any():
+        return [], 0
+    idx = np.where(priceable)[0]
+    p = po_sel[idx] / denom[idx]
+    pick = np.where(p >= 0.5, "Over", "Under")
+    pick_prob = np.where(p >= 0.5, p, 1.0 - p)
+    t_idx, l_idx = total[idx], line[idx]
+    winner = np.where(t_idx == l_idx, "Push",
+                      np.where(t_idx > l_idx, "Over", "Under"))
+    correct = np.where(winner == "Push", np.nan,
+                       (pick == winner).astype(float))
+    rows: list[dict] = []
+    pks = dec["game_pk"].astype(str).to_numpy()
+    for j, i in enumerate(idx):
+        pk = pks[i]
+        if pk in known:
+            continue
+        rows.append({
+            "game_pk": pk,
+            "game_date": str(dec["game_date"].iloc[i]),
+            "home_score": dec["home_score"].iloc[i],
+            "away_score": dec["away_score"].iloc[i],
+            "total_runs": int(total[i]) if float(total[i]).is_integer()
+            else float(total[i]),
+            "line": float(line[i]),
+            "pick": str(pick[j]),
+            "pick_prob": round(float(pick_prob[j]), 6),
+            "winner": str(winner[j]),
+            "correct": float(correct[j]) if np.isfinite(correct[j])
+            else None,
+        })
+    return rows, len(rows)
+
+
+def update_totals_history_store(markets: pd.DataFrame,
+                                target_date_str: str) -> Optional[Path]:
+    """Append newly-decided OOF games to the frozen totals-history store.
+
+    Store: data_delivery/run_engine_totals_history.csv (+ .meta.json). Rows
+    are priced ONCE at first publication (first artifact date in which the
+    game_pk appears as a decided OOF row — the walk-forward's prequential
+    prediction) and never mutated afterward. Idempotent: re-runs and repulls
+    add nothing for game_pks already in the store. A store failure is logged
+    and returned via the meta — it must never fail the daily run.
+    """
+    meta: dict = {"schema_version": TOTALS_HISTORY_SCHEMA_VERSION,
+                  "run_date": target_date_str, "updated": False,
+                  "seeded": False, "rows_added": 0, "conflicts_skipped": 0,
+                  "error": None}
+    store_path = DATA_DELIVERY_DIR / "run_engine_totals_history.csv"
+    try:
+        if store_path.exists():
+            store = _th_norm_scores(pd.read_csv(store_path,
+                                                low_memory=False))
+        else:
+            # Seed from every retained dated markets artifact (oldest first
+            # so first-publication-wins is deterministic).
+            store = pd.DataFrame()
+            legacy = sorted(DATA_DELIVERY_DIR.glob(
+                "run_engine_markets_2026*.csv"))
+            for art in legacy:
+                date_str = art.stem.rsplit("_", 1)[-1]
+                try:
+                    df = pd.read_csv(art, low_memory=False)
+                except Exception:
+                    continue
+                if "kind" not in df.columns:
+                    continue
+                dec = df[(df["kind"] == "oof")].copy()
+                if "total_runs" in dec.columns:
+                    dec = dec[dec["total_runs"].notna()]
+                known = set(store["game_pk"]) if len(store) else set()
+                rows, _ = _th_price_history_rows_vectorized(dec, known)
+                for r in rows:
+                    r["source_artifact_date"] = _th_iso_date(date_str)
+                if rows:
+                    store = pd.concat([store, pd.DataFrame(rows)],
+                                      ignore_index=True)
+                meta["seeded"] = bool(meta["seeded"] or rows)
+                meta["rows_added"] += len(rows)
+        # Append this run's newly-decided OOF rows (first publication only).
+        dec = markets[(markets.get("kind") == "oof")].copy()
+        if "total_runs" in dec.columns:
+            dec = dec[dec["total_runs"].notna()]
+        known = set(store["game_pk"]) if len(store) else set()
+        rows, n_priced = _th_price_history_rows_vectorized(dec, known)
+        conflicts = n_priced - len(rows)  # priced but already frozen
+        for r in rows:
+            r["source_artifact_date"] = _th_iso_date(target_date_str)
+        if rows:
+            store = pd.concat([store, pd.DataFrame(rows)],
+                              ignore_index=True)
+        meta["rows_added"] += len(rows)
+        meta["conflicts_skipped"] = conflicts
+        meta["updated"] = bool(meta["rows_added"] or meta["seeded"])
+        if len(store):
+            store = _th_norm_scores(store)
+            tmp = store_path.with_suffix(".csv.tmp")
+            store.to_csv(tmp, index=False)
+            tmp.replace(store_path)
+            meta["n_rows"] = int(len(store))
+            meta_path = (DATA_DELIVERY_DIR
+                         / "run_engine_totals_history.meta.json")
+            meta_path.write_text(json.dumps(meta, indent=2),
+                                 encoding="utf-8")
+            logger.info("Totals history store: %d rows (%d added this run,"
+                        " seeded=%s) -> %s",
+                        len(store), meta["rows_added"], meta["seeded"],
+                        store_path.name)
+        return store_path if len(store) else None
+    except Exception as exc:
+        meta["error"] = f"{type(exc).__name__}: {exc}"
+        logger.error("Totals history store update FAILED (run continues; "
+                     "frontend falls back to legacy re-pricing): %s", exc,
+                     exc_info=True)
+        try:
+            (DATA_DELIVERY_DIR / "run_engine_totals_history.meta.json"
+             ).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        return None
 
 
 def main() -> None:

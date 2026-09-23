@@ -22,11 +22,18 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import altair as alt
 import numpy as np
 import pandas as pd
+
+try:  # repo-root / data_delivery constants (backend store location)
+    from utils import REPO_ROOT as _REPO_ROOT, REPO_SUBDIR as _DD_SUBDIR
+except Exception:  # pragma: no cover - bare context without frontend/utils.py
+    _REPO_ROOT = Path(__file__).resolve().parents[1]
+    _DD_SUBDIR = "mlb-backend"
 
 # Reuse utils' canonical team-abbreviation normalization for the slate
 # matchup key (AZ<->ARI, CHW<->CWS, ATH<->OAK, TB<->TBA) so the two identity
@@ -1179,10 +1186,44 @@ def _col_or(df: pd.DataFrame, name: str, default: Any = np.nan):
     return df[name] if name in df.columns else default
 
 
+def _frozen_totals_history() -> Optional[pd.DataFrame]:
+    """The backend's frozen Game-Totals OOF prediction history — one row per
+    game_pk, priced ONCE at first publication (prequential: the fold model
+    trained strictly before the game) by the daily pipeline's
+    ``update_totals_history_store`` (run_engine.py), append-only ever since.
+
+    Columns exactly match ``totals_history_frame`` plus provenance
+    (``source_artifact_date``). Returns None when the store is absent or
+    unreadable (pre-first-run state / legacy artifacts) — the caller then
+    falls back to legacy re-pricing on the current basis. Never fabricated.
+    """
+    try:
+        path = (_REPO_ROOT / _DD_SUBDIR / "data_delivery"
+                / "run_engine_totals_history.csv")
+        if not path.exists():
+            return None
+        df = pd.read_csv(path, low_memory=False)
+    except Exception:
+        return None
+    need = {"game_pk", "game_date", "line", "pick", "pick_prob",
+            "winner", "correct"}
+    if not len(df) or need.difference(df.columns):
+        return None
+    df["game_pk"] = df["game_pk"].astype(str)
+    df["line"] = df["line"].astype(float)
+    return df
+
+
 def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
     """Per-game rows for the game-totals prediction-history table.
 
-    Each row is priced at the game's OWN total line = the FAIR line — the
+    AS OF 2026-09-22 the source is the BACKEND'S FROZEN store when present
+    (see _frozen_totals_history): the OOF prediction each game was first
+    published with, frozen prequentially at PIT — never re-priced, so the
+    history can no longer drift with basis re-derivations. When the store
+    is absent (legacy artifacts / pre-first-run), the legacy behavior below
+    applies unchanged: each row priced on the CURRENT artifact's basis at
+    the game's OWN total line = the FAIR line — the
     grid argmin of |re-scaled P(over) − 0.5| (the legal 50/50 anchor) —
     the SAME line the diagnostics' totals-picks chart and the card use, so
     the three agree exactly. pick = Over if the 2-way RE-SCALED
@@ -1201,6 +1242,12 @@ def totals_history_frame(decided: pd.DataFrame) -> pd.DataFrame:
                                   "away_score", "total_runs", "line",
                                   "pick", "pick_prob", "winner",
                                   "correct"])
+    # Frozen prequential store (backend-built, append-only) when present.
+    frozen = _frozen_totals_history()
+    if frozen is not None:
+        return frozen[list(empty.columns) + (
+            [c for c in ("source_artifact_date",)
+             if c in frozen.columns])]
     if not len(decided) or "total_runs" not in decided.columns:
         return empty
     if ({"home_expected_runs", "away_expected_runs"}

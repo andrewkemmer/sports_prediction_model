@@ -360,6 +360,120 @@ def test_k_edge_explicit_arm_still_reprices_both_sides():
     assert mk["summary"]["k_edge"]["production_used"] is True
 
 
+# ---------------------------------------------------------------------------
+# 6. Frozen Game-Totals prediction-history store (first publication, PIT)
+# ---------------------------------------------------------------------------
+def _th_synthetic_oof_frame(game_pk=123, *, p80=(0.46314, 0.46267),
+                            p85=(0.37, 0.63), p90=(0.25, 0.70),
+                            total_runs=9):
+    """One decided OOF row with a small valid totals grid (8.0/8.5/9.0)."""
+    return pd.DataFrame([{
+        "game_pk": game_pk, "game_date": "2026-09-18", "kind": "oof",
+        "home_score": 5, "away_score": 4, "total_runs": total_runs,
+        "home_expected_runs": 4.0, "away_expected_runs": 4.3,
+        "p_over_8_0": p80[0], "p_under_8_0": p80[1],
+        "p_over_8_5": p85[0], "p_under_8_5": p85[1],
+        "p_over_9_0": p90[0], "p_under_9_0": p90[1],
+    }])
+
+
+def _th_with_tmp_store(fn):
+    """Run fn(tmp_path) with the store pointed at a hermetic tmp dir."""
+    import tempfile
+    original = re.DATA_DELIVERY_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="th_store_"))
+    re.DATA_DELIVERY_DIR = tmp
+    try:
+        fn(tmp)
+    finally:
+        re.DATA_DELIVERY_DIR = original
+
+
+def test_totals_history_store_prices_fair_line_and_rescaled_pick():
+    # Re-scaled P(over|8.0) = 0.50025 -> fair line 8.0, Over pick; total 9
+    # beats the line -> winner Over, correct 1.0; provenance ISO-dated.
+    def body(tmp):
+        out = re.update_totals_history_store(
+            _th_synthetic_oof_frame(), "20260919")
+        assert out is not None and out.exists()
+        store = pd.read_csv(out, dtype={"game_pk": str})
+        assert len(store) == 1
+        r = store.iloc[0]
+        assert r["game_pk"] == "123"
+        assert float(r["line"]) == 8.0
+        assert r["pick"] == "Over"
+        assert abs(float(r["pick_prob"]) - 0.500254) < 1e-5
+        assert r["winner"] == "Over"
+        assert float(r["correct"]) == 1.0
+        assert r["source_artifact_date"] == "2026-09-19"
+    _th_with_tmp_store(body)
+
+
+def test_totals_history_store_push_grading():
+    # total_runs == whole-number fair line -> Push, correct excluded (NaN).
+    def body(tmp):
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(total_runs=8), "20260919")
+        store = pd.read_csv(re.DATA_DELIVERY_DIR
+                            / "run_engine_totals_history.csv")
+        r = store.iloc[0]
+        assert r["winner"] == "Push"
+        assert pd.isna(r["correct"])
+    _th_with_tmp_store(body)
+
+
+def test_totals_history_store_first_publication_wins_and_idempotent():
+    # Once frozen, later runs (even with different prices) never mutate the
+    # row; re-runs add nothing; only NEW game_pks append with own provenance.
+    def body(tmp):
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=123), "20260919")
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=123, p80=(0.30, 0.70),
+                                    p85=(0.20, 0.80), p90=(0.10, 0.90)),
+            "20260922")
+        store = pd.read_csv(re.DATA_DELIVERY_DIR
+                            / "run_engine_totals_history.csv",
+                            dtype={"game_pk": str})
+        assert len(store) == 1
+        assert abs(float(store.iloc[0]["pick_prob"]) - 0.500254) < 1e-5
+        assert store.iloc[0]["source_artifact_date"] == "2026-09-19"
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=456), "20260922")
+        store = pd.read_csv(re.DATA_DELIVERY_DIR
+                            / "run_engine_totals_history.csv",
+                            dtype={"game_pk": str})
+        assert len(store) == 2
+        assert set(store["game_pk"]) == {"123", "456"}
+        src = dict(zip(store["game_pk"], store["source_artifact_date"]))
+        assert src == {"123": "2026-09-19", "456": "2026-09-22"}
+    _th_with_tmp_store(body)
+
+
+def test_totals_history_store_pk_dtype_normalized_and_never_raises():
+    # Store pk stored as string; an int-pk artifact row must not duplicate.
+    # A corrupt store must return None (logged), never raise.
+    def body(tmp):
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=123), "20260919")
+        re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=123), "20260920")  # int pk
+        store = pd.read_csv(re.DATA_DELIVERY_DIR
+                            / "run_engine_totals_history.csv")
+        assert len(store) == 1
+        (re.DATA_DELIVERY_DIR
+         / "run_engine_totals_history.csv").write_text("not,a,store\n1,2")
+        out = re.update_totals_history_store(
+            _th_synthetic_oof_frame(game_pk=999), "20260921")
+        assert out is None
+        import json as _json
+        meta = _json.loads((re.DATA_DELIVERY_DIR
+                            / "run_engine_totals_history.meta.json")
+                           .read_text(encoding="utf-8"))
+        assert meta.get("error")
+    _th_with_tmp_store(body)
+
+
 def _run_all() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]
