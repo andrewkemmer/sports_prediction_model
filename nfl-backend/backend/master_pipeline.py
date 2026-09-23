@@ -16,6 +16,7 @@ Run:  python3 master_pipeline.py            (from nfl-backend/backend/)
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import logging
 import os
@@ -103,6 +104,28 @@ def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
 
 
+def _library_stack() -> dict[str, str]:
+    """Versions of the libraries whose numerics shape the ensemble verdict.
+
+    The blend weights are earned by SLSQP on member OOF log-losses, and the
+    members themselves are seeded-but-environment-sensitive (xgboost booster
+    numerics, scipy SLSQP iteration path). Two environments on the same data
+    can therefore ship different weight vectors from the same code. Recording
+    the stack per run makes every weight verdict interpretable against the
+    exact libraries that earned it — drift shows up in the artifact instead
+    of being discoverable only by cross-run forensics.
+    """
+    stack = {}
+    for dist, key in (("scipy", "scipy"), ("scikit-learn", "sklearn"),
+                      ("xgboost", "xgboost"), ("lightgbm", "lightgbm"),
+                      ("pandas", "pandas"), ("numpy", "numpy")):
+        try:
+            stack[key] = importlib.metadata.version(dist)
+        except Exception:  # noqa: BLE001 — absent optional dist must never block a run
+            stack[key] = "unknown"
+    return stack
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="NFL production master pipeline")
     ap.add_argument("--skip-pull", action="store_true",
@@ -133,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     if full_repull:
         ingestion.clear_cache()
         logger.info("NFL_FULL_REPULL=1 — nflverse cache cleared for full rebuild")
+    logger.info("library stack: %s", json.dumps(_library_stack()))
     config_meta = {
         "feature_set_version": config.FEATURE_SET_VERSION,
         "warmup_seasons": config.WARMUP_SEASONS,
@@ -148,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             "reearn": "per_fold_pooled_oof_strictly_prior",
             "gates": "none",
         },
+        # The exact libraries that earned this run's blend weights (see
+        # _library_stack): member numerics and the SLSQP path are
+        # environment-sensitive, so weight verdicts are only interpretable
+        # against the stack that produced them.
+        "library_stack": _library_stack(),
         "run_line_model": {
             "home_model": "lightgbm_poisson",
             "away_model": "lightgbm_poisson",
