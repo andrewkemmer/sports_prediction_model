@@ -354,21 +354,15 @@ def assert_candidate_manifest_parity() -> list[str]:
 # ---------------------------------------------------------------------------
 ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 
-# Fallback prior weights; replaced by adaptive OOF-derived weights when
-# available (see models.moneyline).
+# Fallback prior weights: fold 0 blends on these (1/3 each); after every
+# fold the blend weights are re-earned by moneyline.compute_adaptive_weights
+# (MLB structural parity: simplex SLSQP minimizing pooled OOF log-loss in
+# LOGIT space, re-earned from strictly-prior evidence, no floor/cap).
 ENSEMBLE_WEIGHTS = {
     "xgboost": 1 / 3,
     "lightgbm": 1 / 3,
     "elasticnet": 1 / 3,
 }
-
-# Adaptive blend: softmax over pooled OOF AUC edges (MLB-mirrored, tuned for
-# the wider AUC spread an NFL season produces). FLOOR keeps members alive;
-# CAP prevents domination.
-ADAPTIVE_WEIGHT_METRIC = "logloss"
-ADAPTIVE_WEIGHT_TEMPERATURE = 0.015
-ADAPTIVE_WEIGHT_FLOOR = 0.05
-ADAPTIVE_WEIGHT_CAP = 0.45
 
 XGBOOST_PARAMS = {
     "n_estimators": 300,

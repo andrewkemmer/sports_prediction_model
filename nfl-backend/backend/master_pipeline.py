@@ -141,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
         "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
         "game_types": sorted(config.GAME_TYPES),
         "ensemble_members": config.ENSEMBLE_MEMBERS,
+        "ensemble_blend": {
+            "method": "rolling_logloss_slsqp",
+            "space": "logit",
+            "prior": "fold0_static_thirds",
+            "reearn": "per_fold_pooled_oof_strictly_prior",
+            "gates": "none",
+        },
         "run_line_model": {
             "home_model": "lightgbm_poisson",
             "away_model": "lightgbm_poisson",

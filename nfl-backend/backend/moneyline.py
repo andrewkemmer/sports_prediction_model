@@ -1,6 +1,9 @@
 """Production NFL moneyline: XGBoost / LightGBM / elastic-net logistic
-ensemble with expanding walk-forward OOF, causal per-fold logloss weights,
-and Platt calibration fit ONLY on valid OOF predictions.
+ensemble with expanding walk-forward OOF, MLB-parity rolling blend weights
+(simplex-constrained SLSQP minimizing pooled OOF log-loss in LOGIT space,
+re-earned after every fold from strictly-prior evidence; no floor, no cap —
+a member may earn 0% or 100%), and Platt calibration fit ONLY on valid OOF
+predictions.
 
 Determinism: explicit seeds on every member; preprocessing (median
 imputation + scaling for linear/MLP) is fit on training data only.
@@ -129,9 +132,19 @@ def walk_forward_oof(game_df: pd.DataFrame,
                      fold_list: list | None = None) -> dict:
     """Expanding walk-forward OOF for every ensemble member + the ensemble.
 
+    Rolling per-fold blend weighting (MLB structural parity, 2026-09-23):
+    fold 0 blends on the static ENSEMBLE_WEIGHTS priors (1/3 each); after
+    each fold the blend weights are re-earned by minimizing pooled OOF
+    log-loss over the accumulated prior+current fold member predictions
+    (LOGIT space, simplex-constrained SLSQP, no floor/cap), so the NEXT
+    fold's blend is weighted by evidence strictly before it (causal —
+    never sees what it scores). The final rolling update — the optimum
+    over the whole walk-forward population — is the returned/shipped
+    weight and feeds serving and the dashboard.
+
     Returns a dict with:
       oof: DataFrame (game_id, gameday, fold_id, per-member p_home, ensemble)
-      member_weights: adaptive weights derived from pooled OOF AUC
+      member_weights: last rolling optimized blend weights
       fold_table: per-fold diagnostics
     """
     df = game_df.sort_values(date_col).reset_index(drop=True)
@@ -140,7 +153,11 @@ def walk_forward_oof(game_df: pd.DataFrame,
     oof_parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
     prior_weights = dict(config.ENSEMBLE_WEIGHTS)
-    prior_losses: dict[str, list[float]] = {n: [] for n in config.ENSEMBLE_MEMBERS}
+    # Rolling re-earning state: the accumulated OOF member-probability
+    # window (prior+current folds) the optimizer scores each fold.
+    oof_members: dict[str, list[float]] = {n: [] for n in config.ENSEMBLE_MEMBERS}
+    oof_y: list[float] = []
+    _last_weights: dict[str, float] = dict(prior_weights)
 
     for fold in fold_list:
         train = df.loc[fold.train_idx]
@@ -180,16 +197,22 @@ def walk_forward_oof(game_df: pd.DataFrame,
             # from "this member failed").
             rows[f"p_{name}"] = (np.asarray(p, dtype=float) if p is not None
                                  else np.full(len(val), np.nan))
-        # Blend this fold using only information earned before this fold.
-        fold_weights = _weights_from_loss_history(prior_losses, prior_weights)
+        # Blend this fold using only information earned before this fold
+        # (fold 0 rides the static 1/3 priors).
+        fold_weights = dict(_last_weights)
         rows["p_ensemble"] = _blend(rows, fold_weights)
-        # Only after scoring the fold may its member losses affect the next
-        # fold. This is the causal walk-forward weighting contract.
-        from sklearn.metrics import log_loss
+        # Only after scoring the fold may its outcomes enter the weight
+        # window: accumulate this fold's member predictions, then re-earn
+        # the blend weights for the NEXT fold (causal walk-forward
+        # weighting contract; the optimizer scores the pooled window).
         for name in config.ENSEMBLE_MEMBERS:
             p_member = member_p.get(name)
-            if p_member is not None and len(p_member) and len(np.unique(rows["home_win"])) > 1:
-                prior_losses[name].append(float(log_loss(rows["home_win"], p_member, labels=[0, 1])))
+            if p_member is not None and len(p_member):
+                oof_members[name].extend(np.asarray(p_member, dtype=float).tolist())
+        oof_y.extend(rows["home_win"].astype(float).tolist())
+        rolling = compute_adaptive_weights(oof_members, np.asarray(oof_y, dtype=float))
+        if rolling:
+            _last_weights = rolling
 
         fold_rows.append({
             "fold_id": fold.fold_id,
@@ -205,77 +228,136 @@ def walk_forward_oof(game_df: pd.DataFrame,
 
     oof = pd.concat(oof_parts, ignore_index=True) if oof_parts else pd.DataFrame()
 
-    weights = _weights_from_loss_history(prior_losses, prior_weights)
+    # The last rolling update is the full-population optimum — the shipped
+    # weight for serving and the dashboard.
+    weights = dict(_last_weights)
     return {"oof": oof, "member_weights": weights,
             "fold_table": pd.DataFrame(fold_rows)}
 
 
-def _weights_from_loss_history(history: dict[str, list[float]], prior: dict[str, float]) -> dict[str, float]:
-    losses = {n: float(np.mean(v)) for n, v in history.items() if v}
-    if not losses:
-        return dict(prior)
-    inv = {n: 1.0 / max(losses.get(n, 1.0), 1e-6) for n in config.ENSEMBLE_MEMBERS}
-    total = sum(inv.values())
-    raw = {n: max(config.ADAPTIVE_WEIGHT_FLOOR,
-                  min(config.ADAPTIVE_WEIGHT_CAP, v / total))
-           for n, v in inv.items()}
-    total = sum(raw.values())
-    return {n: w / total for n, w in raw.items()}
+def compute_adaptive_weights(
+    oof_members: dict[str, list[float]], y_oof: np.ndarray
+) -> dict[str, float]:
+    """Blend weights earned by out-of-sample performance (MLB structural
+    parity with mlb-backend/backend/training.py).
 
+    Simplex-constrained SLSQP minimizing POOLED OOF log-loss, applied in
+    LOGIT space (clip -> logit -> weighted mean -> sigmoid). There is NO
+    floor, cap, or temperature: a member may earn 0% or 100% of the
+    weight. A member takes the ENTIRE weight only when its own pooled OOF
+    log-loss beats the optimized blend's; otherwise the optimized weights
+    stand. The caller re-earns these weights after every walk-forward fold
+    (rolling per-fold weighting — each fold's blend is weighted by the
+    PRIOR folds' OOF evidence only), so this function sees the accumulated
+    prior+current OOF window; the last rolling update is the full-
+    population optimum and is what serving and the dashboard ship. The
+    result sums to exactly 1.0.
 
-def _adaptive_weights(oof: pd.DataFrame):
-    """Causal-style weights from member logloss, lower loss earns more weight.
-    The final artifact weight is diagnostics/serving weight; fold predictions
-    are produced with the prior weights until prior OOF evidence exists."""
-    prior = dict(config.ENSEMBLE_WEIGHTS)
-    if oof is None or not len(oof):
-        return prior
-    y = _oof_targets(oof)
-    if y is None or len(y) < 2 or len(np.unique(y)) < 2:
-        return prior
+    A member whose prediction list is absent or shorter than ``y_oof``
+    (it failed to predict on at least one fold in the window) is skipped
+    entirely, exactly as MLB's optimizer skips members that failed — a
+    mid-history member failure therefore drops it from the blend until
+    the next full re-earn.
+    """
+    y = np.asarray(y_oof, dtype=float)
+    if len(y) == 0:
+        return {}
     from sklearn.metrics import log_loss
-    losses: dict[str, float] = {}
-    for name in config.ENSEMBLE_MEMBERS:
-        col = f"p_{name}"
-        if col not in oof.columns:
-            return prior
-        p = oof[col].to_numpy(dtype=float)
+    scores: dict[str, float] = {}
+    for name, preds in oof_members.items():
+        if preds is None:
+            continue
+        p = np.asarray(preds, dtype=float)
+        if p.ndim != 1 or len(p) != len(y):
+            continue
         ok = np.isfinite(p) & np.isfinite(y)
         if ok.sum() < 2 or len(np.unique(y[ok])) < 2:
-            return prior
-        losses[name] = float(log_loss(y[ok], p[ok], labels=[0, 1]))
-    # Inverse-logloss weights are stable, interpretable, and preserve all
-    # members instead of allowing a single noisy fold to dominate.
-    inv = {n: 1.0 / max(v, 1e-6) for n, v in losses.items()}
-    total = sum(inv.values())
-    raw = {n: max(config.ADAPTIVE_WEIGHT_FLOOR,
-                  min(config.ADAPTIVE_WEIGHT_CAP, v / total))
-           for n, v in inv.items()}
-    total = sum(raw.values())
-    return {n: w / total for n, w in raw.items()}
+            continue
+        ll = float(log_loss(y[ok], p[ok], labels=[0, 1]))
+        if not np.isfinite(ll):
+            continue
+        scores[name] = ll
+    if not scores:
+        return {}
+
+    # Optimized blend, no gates. Weights minimize pooled OOF log-loss over
+    # the simplex (w >= 0, sum(w) = 1) — the same rehearsal window the
+    # weights are graded on — and the blend is pooled in LOGIT space,
+    # matching _blend / predict_slate at serve. A member earns the ENTIRE
+    # weight only when it outperforms the optimized blend on the same
+    # pooled OOF window; otherwise the optimized weights stand.
+    names = sorted(scores)
+    arrays = {n: np.asarray(oof_members[n], dtype=float) for n in names}
+
+    def _logloss_of(p):
+        p = np.clip(np.asarray(p, dtype=float), 1e-7, 1 - 1e-7)
+        return float(-(y * np.log(p) + (1 - y) * np.log(1 - p)).mean())
+
+    # Log-loss is optimized in LOGIT space, matching the serving blend.
+    Z = np.column_stack([
+        np.log(np.clip(arrays[n], 1e-7, 1 - 1e-7)
+               / (1 - np.clip(arrays[n], 1e-7, 1 - 1e-7)))
+        for n in names])
+    blend_loss = lambda w: _logloss_of(1.0 / (1.0 + np.exp(-(Z @ w))))
+
+    if len(names) == 1:
+        return {names[0]: 1.0}
+    from scipy.optimize import minimize
+    w0 = np.full(len(names), 1.0 / len(names))
+    res = minimize(blend_loss, w0, method="SLSQP",
+                   bounds=[(0.0, 1.0)] * len(names),
+                   constraints=({"type": "eq",
+                                 "fun": lambda w: float(w.sum() - 1.0)}),
+                   options={"maxiter": 300, "ftol": 1e-9})
+    if not res.success or not np.all(np.isfinite(res.x)):
+        # Fall back to the best single member rather than serve a
+        # malformed weight vector.
+        best = min(names, key=lambda n: scores[n])
+        return {n: (1.0 if n == best else 0.0) for n in names}
+    w = np.clip(np.asarray(res.x, dtype=float), 0.0, None)
+    w = w / w.sum() if w.sum() > 0 else w0
+
+    best_name = min(names, key=lambda n: scores[n])
+    if scores[best_name] < blend_loss(w) - 1e-12:
+        return {n: (1.0 if n == best_name else 0.0) for n in names}
+
+    # Round without breaking the exact 1.0 total: give the rounding
+    # remainder to the largest weight.
+    rounded = {n: round(float(v), 4) for n, v in zip(names, w)}
+    drift = round(1.0 - sum(rounded.values()), 4)
+    if drift:
+        top = max(rounded, key=lambda n: rounded[n])
+        rounded[top] = round(rounded[top] + drift, 4)
+    return rounded
 
 
-def _oof_targets(oof: pd.DataFrame) -> np.ndarray | None:
-    """home_win for OOF rows; None when unavailable."""
-    if oof is None or not len(oof):
-        return None
-    if "home_win" in oof.columns:
-        return oof["home_win"].astype(int).to_numpy()
-    return None
+def _logit_blend_matrix(P: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """LOGIT-space blend of a member-probability matrix: clip -> logit ->
+    weighted mean -> sigmoid. Zero-weight members drop out; per-row NaN
+    members are skipped (their weight renormalizes across active members),
+    mirroring MLB's ensemble_predict pooling."""
+    W = np.asarray(w, dtype=float)
+    mask = np.isfinite(P)
+    active = (W > 0)[None, :] & mask
+    Pc = np.clip(np.where(mask, P, 0.5), 1e-7, 1 - 1e-7)
+    Z = np.log(Pc / (1 - Pc))
+    wv = np.where(active, W[None, :], 0.0)
+    wsum = wv.sum(axis=1)
+    z = np.divide((Z * wv).sum(axis=1), wsum,
+                  out=np.full(len(P), np.nan), where=wsum > 0)
+    out = 1.0 / (1.0 + np.exp(-z))
+    return np.clip(np.where(wsum > 0, out, np.nan), CLIP, 1.0 - CLIP)
 
 
 def _blend(oof: pd.DataFrame, weights: dict[str, float]) -> np.ndarray:
-    """Weighted ensemble probability; NaN members skipped per row."""
+    """Weighted ensemble probability in LOGIT space (the space the blend
+    weights are optimized in — identical ensemble logic at serve); NaN
+    members skipped per row."""
     cols = [f"p_{n}" for n in config.ENSEMBLE_MEMBERS
             if f"p_{n}" in oof.columns]
     P = oof[cols].to_numpy(dtype=float)
     w = np.array([weights.get(c[2:], 0.0) for c in cols])
-    mask = np.isfinite(P)
-    wv = np.where(mask, w[None, :], 0.0)
-    wsum = wv.sum(axis=1)
-    out = np.divide((P * wv).sum(axis=1), wsum,
-                    out=np.full(len(P), np.nan), where=wsum > 0)
-    return np.clip(out, CLIP, 1.0 - CLIP)
+    return _logit_blend_matrix(P, w)
 
 
 # ---------------------------------------------------------------------------
@@ -319,12 +401,7 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
         return np.full(len(slate_df), np.nan)
     P = np.column_stack([member_p[n] for n in cols])
     w = np.array([weights.get(n, 0.0) for n in cols])
-    mask = np.isfinite(P)
-    wv = np.where(mask, w[None, :], 0.0)
-    wsum = wv.sum(axis=1)
-    out = np.divide((P * wv).sum(axis=1), wsum,
-                    out=np.full(len(P), np.nan), where=wsum > 0)
-    return np.clip(out, CLIP, 1.0 - CLIP)
+    return _logit_blend_matrix(P, w)
 
 
 # ---------------------------------------------------------------------------

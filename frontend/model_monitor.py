@@ -410,7 +410,7 @@ if ensemble:
     ens_rows.append(
         f"<tr>"
         f"<td style='font-weight:800;color:#E2E8F0;'>TOTAL (blended ensemble)</td>"
-        f"<td style='color:#64748B;'>Probability blend of deployed members; weights renormalize when a candidate fails to train.</td>"
+        f"<td style='color:#64748B;'>Logit-space blend of deployed members, weights re-earned per fold by SLSQP log-loss optimization; per-row weights renormalize when a member fails.</td>"
         f"<td style='font-weight:800;color:{total_color};'>{total_weight * 100:.0f}%</td>"
         f"<td colspan='3'></td>"
         f"</tr>"
