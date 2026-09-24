@@ -279,7 +279,12 @@ def _feature_context(games: pd.DataFrame) -> dict[str, Any]:
             "n_rows": int(n_rows)}
 
 
-def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any]:
+def run_rfe(games: pd.DataFrame, day: str, max_steps: int | None = None) -> dict[str, Any]:
+    # Scored-trial budget defaults to config.RFE_MAX_STEPS (MLB parity: the
+    # sweep budget lives with the other RFE gates in config, not on a
+    # hardcoded default that predates the candidate pool).
+    if max_steps is None:
+        max_steps = int(getattr(config, "RFE_MAX_STEPS", 40))
     base, candidates, pool = _trial_space(games)
     adds, unresolved_add = _resolve(_list_env("NFL_RFE_ADDITION_MONEYLINE_LIST"), candidates)
     removes, unresolved_remove = _resolve(_list_env("NFL_RFE_REMOVAL_MONEYLINE_LIST"), base)
@@ -330,6 +335,12 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int = 40) -> dict[str, Any
     best = baseline
     steps = []
     budget = max_steps
+    if targeted:
+        logger.info("NFL RFE: targeted run, budget=%d trials=%d", budget, len(order))
+    else:
+        logger.info("NFL RFE: full sweep, budget=%d, trial space = %d removals "
+                    "(incumbent width) + %d candidates (declared pool)",
+                    budget, len(base), len(candidates))
     for item in order:
         if budget <= 0:
             break

@@ -58,6 +58,14 @@ OPP_ADJ_SHRINKAGE = 8.0  # games of opponent-defensive evidence before the prior
 # stays visible in the trace/workbook either way.
 RFE_COMMIT_SE_MULTIPLE = 1.0
 
+# Scored-trial budget for one RFE sweep (feature_selection.run_rfe). Must
+# cover the full trial space — every incumbent removal plus every declared
+# candidate addition — or the sweep exhausts its budget before scoring the
+# tail of the trial list (the hardcoded 40 predates the 105-candidate pool
+# and silently starved additions). 200 = 35 incumbents + 105 candidates,
+# with headroom for pool growth.
+RFE_MAX_STEPS = 220
+
 # Precipitation thresholds for the committed weather table (inches).
 PRECIP_FLAG_IN = 0.1
 SNOW_FLAG_IN = 0.1
@@ -76,7 +84,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v4-air-yards-promoted"
+FEATURE_SET_VERSION = "nfl-prod-v6-tree-team-categories"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -197,6 +205,25 @@ PBP_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "shotgun_rate": ("ewm",),
     "no_huddle_rate": ("ewm",),
     "drives_pg": ("roll",),
+    # ------------------------------------------------------------------
+    # Platoon-style families (2026-09-23 expansion): personnel-grouping
+    # tendencies, situational splits. FTN-charting inputs ride the
+    # separate "ftn" family (2022+ source coverage, NaN before — honest
+    # degradation, same policy as NGS pre-2016).
+    # ------------------------------------------------------------------
+    # Two-minute tendency: share of plays run while trailing in the
+    # final 2 minutes of a half (hurry-up offense; needs qtr +
+    # half_seconds_remaining + score_differential).
+    "two_min_trail_share": ("ewm",),
+    # Fourth-down aggression: share of fourth downs with ydstogo <= 2
+    # that were gone-for (needs down/ydstogo/play_type).
+    "fourth_go_rate": ("ewm", "roll"),
+    # Fourth-down volume: fourth-down plays per game (how often a team
+    # faces - and stays in - fourth downs).
+    "fourth_downs_pg": ("roll",),
+    # Scoring-context plays: share of run on non-goal-to-go snaps with
+    # |score_differential| <= 8 (scripted early-down balance under pressure).
+    "close_run_rate": ("ewm",),
 }
 
 # ---------------------------------------------------------------------------
@@ -219,6 +246,53 @@ PBP_OPP_ADJ_METRICS: dict[str, str] = {
 # the flat window is the long-standing OPP_ADJ_WINDOW knob, finally armed).
 PBP_OPP_ADJ_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "epa_play_opp_adj": ("ewm", "roll_opp"),
+}
+
+# FTN charting (nflreadpy.load_ftn_charting, 2022+): per-play offensive
+# structure/tendency flags rolled up per (game, posteam) and trailed like
+# every per-game metric. Family prefix ftn_. Seasons without charting
+# (pre-2022) degrade to NaN per the documented missing-value policy — the
+# same honest degradation as NGS before 2016. These are the charted
+# personnel/structure signals (nflverse pbp does not publish personnel_o/d):
+# box count, backfield shape, motion, play action, RPO, screen.
+FTN_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    # Defensive box density: defenders in the box per play (stacked boxes
+    # vs light boxes — the run-fit commitment the offense faces).
+    "def_box": ("ewm", "roll"),
+    # Backfield shape: offensive players in the backfield per play
+    # (11/12 personnel essence: single-back vs two-back sets).
+    "off_backfield": ("ewm", "roll"),
+    # Pre-snap motion share of plays (movement-based offense).
+    "motion_rate": ("ewm",),
+    # Play-action share of dropbacks (deception tendency).
+    "play_action_rate": ("ewm",),
+    # RPO share of plays (run-pass option usage).
+    "rpo_rate": ("ewm",),
+    # Screen share of passes (throw-length tendency).
+    "screen_rate": ("ewm",),
+}
+
+# Snap-count participation (nflreadpy.load_snap_counts, 2013+): per-(game,
+# team) shares of offensive/defensive snaps by position group, trailed like
+# every per-game metric. Family prefix sc_. These are the snap-share
+# complements to the ps_ production shares (carries/targets): personnel
+# grouping by actual participation — backfield/TE heaviness, WR1 workload,
+# QB availability, and defensive sub-package rates.
+SC_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
+    # RB+FB snap share of team offensive snaps (backfield commitment)
+    "rb_snap_share": ("ewm", "roll"),
+    # TE snap share (12/13-personnel heaviness proxy)
+    "te_snap_share": ("ewm",),
+    # snaps by TEs beyond the team's most-used TE / total (true multi-TE usage)
+    "te2_snap_share": ("ewm",),
+    # most-used WR snap share (WR1 workload/availability)
+    "wr1_snap_share": ("ewm",),
+    # QB snap share (mid-game switches / health proxy; 1.0 = every snap)
+    "qb_snap_share": ("ewm",),
+    # DB snap share of team defensive snaps (nickel/dime sub-package rate)
+    "db_snap_share": ("ewm",),
+    # DL snap share of team defensive snaps (big-body rotation; flat window)
+    "dl_snap_share": ("roll",),
 }
 
 # Skill-position usage (weekly player stats): per-(game, team) shares served
@@ -248,7 +322,67 @@ CANDIDATE_FAMILIES: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
     },
     "ps": {"base": PS_CANDIDATE_TRAILING_SPECS},
     "ngs": {"base": NGS_CANDIDATE_TRAILING_SPECS},
+    "ftn": {"base": FTN_CANDIDATE_TRAILING_SPECS},
+    "sc": {"base": SC_CANDIDATE_TRAILING_SPECS},
 }
+
+# ---------------------------------------------------------------------------
+# Tree-member categorical context (MLB structural parity: training.py
+# TREE_CATEGORICAL_COLS). Team identifiers for the tree family ONLY — NOT in
+# MONEYLINE_FEATURE_COLS and never seen by the linear/MLP family, exactly
+# like MLB's adopted team-ID pair. The tree family consumes them through
+# features.tree_view, which appends this pair AFTER the served contract.
+# ---------------------------------------------------------------------------
+
+# Stable abbreviation -> integer ID map, declared ONCE and never derived from
+# data order. Deliberately NOT MLB's lazy auto-ID assignment: NFL bundles
+# (nfl_ensemble_latest.joblib) must map teams to the same IDs across
+# processes and retrains, so the map is part of the versioned config. 32
+# nflverse franchise abbreviations, fixed alphabetical order.
+NFL_TEAM_ID: dict[str, int] = {
+    "ARI": 0, "ATL": 1, "BAL": 2, "BUF": 3, "CAR": 4, "CHI": 5,
+    "CIN": 6, "CLE": 7, "DAL": 8, "DEN": 9, "DET": 10, "GB": 11,
+    "HOU": 12, "IND": 13, "JAX": 14, "KC": 15, "LA": 16, "LAC": 17,
+    "LV": 18, "MIA": 19, "MIN": 20, "NE": 21, "NO": 22, "NYG": 23,
+    "NYJ": 24, "PHI": 25, "PIT": 26, "SEA": 27, "SF": 28, "TB": 29,
+    "TEN": 30, "WAS": 31,
+}
+
+# Reserved "unknown" category: every historical/abandoned abbreviation
+# (JST, SD, OAK, STL), international/missing values, and any unseen label
+# maps here — a dedicated near-zero-presence category trees learn a neutral
+# weight for, never a silent alias of a real team.
+UNK_TEAM_ID = 99
+
+
+def team_category_id(abbr: object) -> int:
+    """Map a team abbreviation to its categorical ID (UNK_TEAM_ID fallback)."""
+    if not isinstance(abbr, str):
+        return UNK_TEAM_ID
+    return NFL_TEAM_ID.get(abbr.strip().upper(), UNK_TEAM_ID)
+
+
+# The adopted categorical set (tree members only; ordering is contractual:
+# home first, away second, so positional consumers stay stable).
+TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+
+# ---------------------------------------------------------------------------
+# Static per-side candidate facts (2026-09-23 expansion): per-side levels of
+# served DIFF-only features. The 2026-09-23 sweep + drift table show the diffs
+# carrying the model weight (travel 3.7%, inj_qb 6.4%, form/ypp 16-13%), and
+# the trees can only split on the sides separately if the sides exist. The
+# already-served raws (elo/win_pct/rest_days/ewm levels, air-yards levels) are
+# NOT re-declared: they sit in the universe and are re-tested every sweep as
+# removal trials. Each base here is attached per-side by
+# features._attach_static_team_facts (pre-game facts: weekly injury reports,
+# venue geometry) — 10 new candidates in the trial space.
+STATIC_SIDE_CANDIDATES: list[str] = [
+    "travel_miles",
+    "inj_qb_out",
+    "inj_tackle_out",
+    "inj_edge_out",
+    "inj_starters_out",
+]
 
 # Served candidate names, derived from the specs — never hand-listed.
 PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
@@ -275,7 +409,8 @@ RAW_PER_SIDE_COLS = frozenset({
 } | {f"{family}_{m}_{w}_{s}"
      for family, specs in CANDIDATE_FAMILIES.items()
      for spec in specs.values()
-     for m, ws in spec.items() for w in ws for s in ("home", "away")})
+     for m, ws in spec.items() for w in ws for s in ("home", "away")}
+    | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
@@ -283,8 +418,9 @@ RAW_PER_SIDE_COLS = frozenset({
 # already in the universe above — RFE promotions leave the trial space here
 # (the structural promotion lives in MONEYLINE_FEATURE_COLS, not in an RFE
 # adoption record, so the universe stays the single source of truth).
-RFE_CANDIDATE_COLS: list[str] = [c for c in PBP_CANDIDATE_COLS
-                                 if c not in set(MONEYLINE_FEATURE_COLS)]
+RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
+    [c for c in PBP_CANDIDATE_COLS if c not in set(MONEYLINE_FEATURE_COLS)]
+    + [f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")]))
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record

@@ -1,0 +1,2267 @@
+{
+ "last_retrained": "2026-09-23",
+ "last_retrained_note": null,
+ "next_retrain": "2026-09-23",
+ "next_retrain_note": null,
+ "upset_note": null,
+ "feature_drift": [
+  {
+   "feature": "elo_diff",
+   "current_mean": 12.890178481106098,
+   "baseline_mean": -0.5906898593292145,
+   "psi": 0.21858951511284663,
+   "psi_adjusted": 0.21858951511284663,
+   "status": "WARN",
+   "weight_pct": 20.53,
+   "n_baseline": 2159,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_diff",
+   "current_mean": 0.023611111111111107,
+   "baseline_mean": -0.000349584278155708,
+   "psi": 0.09679260645488172,
+   "psi_adjusted": 0.09679260645488172,
+   "status": "OK",
+   "weight_pct": 7.74,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_diff",
+   "current_mean": -0.26666666666666666,
+   "baseline_mean": -0.058823529411764705,
+   "psi": 0.1633722720902251,
+   "psi_adjusted": 0.1633722720902251,
+   "status": "WARN",
+   "weight_pct": 1.19,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "is_dome_home",
+   "current_mean": 0.36666666666666664,
+   "baseline_mean": 0.3083097261567517,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 2.59,
+   "n_baseline": 2118,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "current_mean": 1.4174666770257713,
+   "baseline_mean": -0.3443298809691528,
+   "psi": 0.22419865314757603,
+   "psi_adjusted": 0.22419865314757603,
+   "status": "WARN",
+   "weight_pct": 16.01,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "current_mean": -0.04503793132165819,
+   "baseline_mean": -0.0034206317264638773,
+   "psi": 0.2634768066421763,
+   "psi_adjusted": 0.2634768066421763,
+   "status": "ALERT",
+   "weight_pct": 12.79,
+   "n_baseline": 2111,
+   "n_current": 60
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "current_mean": 0.01040223450098989,
+   "baseline_mean": -0.0012822705405513479,
+   "psi": 0.23784730109188124,
+   "psi_adjusted": 0.23784730109188124,
+   "status": "WARN",
+   "weight_pct": 1.8,
+   "n_baseline": 2111,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_short_diff",
+   "current_mean": 0.1,
+   "baseline_mean": 0.018207282913165267,
+   "psi": 0.6157403214602278,
+   "psi_adjusted": 0.6157403214602278,
+   "status": "ALERT",
+   "weight_pct": 0.6,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "div_game",
+   "current_mean": 0.48333333333333334,
+   "baseline_mean": 0.3603520148216767,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 0.02,
+   "n_baseline": 2159,
+   "n_current": 60
+  },
+  {
+   "feature": "travel_miles_diff",
+   "current_mean": -867.9247851764495,
+   "baseline_mean": -934.4411722899656,
+   "psi": 0.10035277975210047,
+   "psi_adjusted": 0.10035277975210047,
+   "status": "WARN",
+   "weight_pct": 4.07,
+   "n_baseline": 2154,
+   "n_current": 55
+  },
+  {
+   "feature": "altitude_home",
+   "current_mean": 699.4727272727273,
+   "baseline_mean": 608.1397400185701,
+   "psi": 0.09574509092229448,
+   "psi_adjusted": 0.09574509092229448,
+   "status": "OK",
+   "weight_pct": 0.57,
+   "n_baseline": 2154,
+   "n_current": 55
+  },
+  {
+   "feature": "prime_time",
+   "current_mean": 0.18333333333333332,
+   "baseline_mean": 0.20981936081519223,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 0.78,
+   "n_baseline": 2159,
+   "n_current": 60
+  },
+  {
+   "feature": "is_turf_home",
+   "current_mean": 0.48333333333333334,
+   "baseline_mean": 0.43498817966903075,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 0.11,
+   "n_baseline": 2115,
+   "n_current": 60
+  },
+  {
+   "feature": "temp_f",
+   "current_mean": 58.21282051282052,
+   "baseline_mean": 54.0167771883289,
+   "psi": 1.6713163880905602,
+   "psi_adjusted": 1.6713163880905602,
+   "status": "ALERT",
+   "weight_pct": 1.77,
+   "n_baseline": 1508,
+   "n_current": 39
+  },
+  {
+   "feature": "wind_mph",
+   "current_mean": 16.564102564102566,
+   "baseline_mean": 22.715915119363395,
+   "psi": 0.8281664975186032,
+   "psi_adjusted": 0.8281664975186032,
+   "status": "ALERT",
+   "weight_pct": 0.91,
+   "n_baseline": 1508,
+   "n_current": 39
+  },
+  {
+   "feature": "is_precip",
+   "current_mean": 0.3333333333333333,
+   "baseline_mean": 0.23076923076923078,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 0.06,
+   "n_baseline": 1495,
+   "n_current": 27
+  },
+  {
+   "feature": "is_snow",
+   "current_mean": 0.037037037037037035,
+   "baseline_mean": 0.0274247491638796,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 1495,
+   "n_current": 27
+  },
+  {
+   "feature": "inj_qb_out_diff",
+   "current_mean": -0.05,
+   "baseline_mean": -0.0037157454714352067,
+   "psi": 0.007962374924557937,
+   "psi_adjusted": 0.007962374924557937,
+   "status": "OK",
+   "weight_pct": 6.3,
+   "n_baseline": 2153,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_tackle_out_diff",
+   "current_mean": -0.1,
+   "baseline_mean": -0.014398513701811427,
+   "psi": 0.0410706674580324,
+   "psi_adjusted": 0.0410706674580324,
+   "status": "OK",
+   "weight_pct": 0.12,
+   "n_baseline": 2153,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_edge_out_diff",
+   "current_mean": 0.08333333333333333,
+   "baseline_mean": -0.024616813748258245,
+   "psi": 0.13823525012195734,
+   "psi_adjusted": 0.13823525012195734,
+   "status": "WARN",
+   "weight_pct": 0.07,
+   "n_baseline": 2153,
+   "n_current": 60
+  },
+  {
+   "feature": "inj_starters_out_diff",
+   "current_mean": -0.18333333333333332,
+   "baseline_mean": -0.19554110543427775,
+   "psi": 0.02377659762760734,
+   "psi_adjusted": 0.02377659762760734,
+   "status": "OK",
+   "weight_pct": 6.93,
+   "n_baseline": 2153,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "current_mean": -0.24648670366455763,
+   "baseline_mean": -0.0017319094635715455,
+   "psi": 1.3449999168054796,
+   "psi_adjusted": 1.3449999168054796,
+   "status": "ALERT",
+   "weight_pct": 5.68,
+   "n_baseline": 2111,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "current_mean": 7.496596063452159,
+   "baseline_mean": 7.882433586048094,
+   "psi": 0.4743845617880255,
+   "psi_adjusted": 0.4743845617880255,
+   "status": "ALERT",
+   "weight_pct": 0.96,
+   "n_baseline": 2128,
+   "n_current": 60
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "current_mean": 7.743082767116719,
+   "baseline_mean": 7.8849932856787674,
+   "psi": 0.0665556574507517,
+   "psi_adjusted": 0.0665556574507517,
+   "status": "OK",
+   "weight_pct": 0.86,
+   "n_baseline": 2126,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_home",
+   "current_mean": 1504.6139248126372,
+   "baseline_mean": 1501.420471708389,
+   "psi": 0.34160528298800813,
+   "psi_adjusted": 0.34160528298800813,
+   "status": "ALERT",
+   "weight_pct": 1.01,
+   "n_baseline": 2159,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_away",
+   "current_mean": 1491.7237463315314,
+   "baseline_mean": 1502.0111615677179,
+   "psi": 0.1280645972084772,
+   "psi_adjusted": 0.1280645972084772,
+   "status": "WARN",
+   "weight_pct": 1.0,
+   "n_baseline": 2159,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_home",
+   "current_mean": 0.5111111111111112,
+   "baseline_mean": 0.5002844759844293,
+   "psi": 0.1431184631706377,
+   "psi_adjusted": 0.1431184631706377,
+   "status": "WARN",
+   "weight_pct": 0.27,
+   "n_baseline": 2143,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_away",
+   "current_mean": 0.4875,
+   "baseline_mean": 0.5007509064231753,
+   "psi": 0.11972316448352445,
+   "psi_adjusted": 0.11972316448352445,
+   "status": "WARN",
+   "weight_pct": 0.38,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "current_mean": 0.8548460566526738,
+   "baseline_mean": -0.17215232929841973,
+   "psi": 0.1826894675513373,
+   "psi_adjusted": 0.1826894675513373,
+   "status": "WARN",
+   "weight_pct": 0.93,
+   "n_baseline": 2143,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "current_mean": -0.5626206203730977,
+   "baseline_mean": 0.18187478212451882,
+   "psi": 0.361853830676765,
+   "psi_adjusted": 0.361853830676765,
+   "status": "ALERT",
+   "weight_pct": 1.0,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "current_mean": 4.101625329567832,
+   "baseline_mean": 4.214719772034693,
+   "psi": 0.20306072820793442,
+   "psi_adjusted": 0.20306072820793442,
+   "status": "WARN",
+   "weight_pct": 1.35,
+   "n_baseline": 2128,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "current_mean": 4.146663260889491,
+   "baseline_mean": 4.21893350559475,
+   "psi": 0.08196693990926099,
+   "psi_adjusted": 0.08196693990926099,
+   "status": "OK",
+   "weight_pct": 1.32,
+   "n_baseline": 2126,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_home",
+   "current_mean": 72.38333333333334,
+   "baseline_mean": 21.868408772748484,
+   "psi": 0.27605033003906043,
+   "psi_adjusted": 0.27605033003906043,
+   "status": "ALERT",
+   "weight_pct": 0.14,
+   "n_baseline": 2143,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_away",
+   "current_mean": 72.65,
+   "baseline_mean": 21.816526610644257,
+   "psi": 0.2847947413266233,
+   "psi_adjusted": 0.2847947413266233,
+   "status": "ALERT",
+   "weight_pct": 0.15,
+   "n_baseline": 2142,
+   "n_current": 60
+  },
+  {
+   "feature": "is_home",
+   "current_mean": 1.0,
+   "baseline_mean": 1.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 2159,
+   "n_current": 60
+  }
+ ],
+ "features_metadata": {
+  "elo_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "win_pct_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "rest_days_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "is_dome_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_net_pts_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_ypp_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "pace_plays_min_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "rest_short_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "div_game": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "travel_miles_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "altitude_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "prime_time": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "is_turf_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "temp_f": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "wind_mph": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "is_precip": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "is_snow": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "inj_qb_out_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "inj_tackle_out_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "inj_edge_out_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "inj_starters_out_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "pbp_air_yards_att_ewm_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "pbp_air_yards_att_ewm_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "pbp_air_yards_att_ewm_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "elo_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "elo_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "win_pct_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "win_pct_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_net_pts_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_net_pts_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_ypp_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "ewm_ypp_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "rest_days_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "rest_days_away": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  },
+  "is_home": {
+   "definition": "see backend/manifest.py",
+   "source": "nflverse / stadiums table"
+  }
+ },
+ "feature_coverage": [
+  {
+   "feature": "elo_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_dome_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 98.1,
+   "pct_nonnull": 98.1,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 97.78,
+   "pct_nonnull": 97.78,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 97.78,
+   "pct_nonnull": 97.78,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_short_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "div_game",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "travel_miles_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.77,
+   "pct_nonnull": 99.77,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "altitude_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.77,
+   "pct_nonnull": 99.77,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "prime_time",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_turf_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 97.96,
+   "pct_nonnull": 97.96,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "temp_f",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 69.85,
+   "pct_nonnull": 69.85,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "wind_mph",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 69.85,
+   "pct_nonnull": 69.85,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_precip",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 69.25,
+   "pct_nonnull": 69.25,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "is_snow",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 69.25,
+   "pct_nonnull": 69.25,
+   "n_default_zero": 0,
+   "status": "LOW_COVERAGE"
+  },
+  {
+   "feature": "inj_qb_out_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.72,
+   "pct_nonnull": 99.72,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_tackle_out_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.72,
+   "pct_nonnull": 99.72,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_edge_out_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.72,
+   "pct_nonnull": 99.72,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "inj_starters_out_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.72,
+   "pct_nonnull": 99.72,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 97.78,
+   "pct_nonnull": 97.78,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 98.56,
+   "pct_nonnull": 98.56,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 98.47,
+   "pct_nonnull": 98.47,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.26,
+   "pct_nonnull": 99.26,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.26,
+   "pct_nonnull": 99.26,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 98.56,
+   "pct_nonnull": 98.56,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 98.47,
+   "pct_nonnull": 98.47,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.26,
+   "pct_nonnull": 99.26,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 99.21,
+   "pct_nonnull": 99.21,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "decided pool",
+   "n_games": 2159,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  }
+ ],
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.0,
+   "auc": 0.6656454629377184,
+   "brier": 0.2368241642334807,
+   "logloss": 0.676445401390146,
+   "n_eval": 1295
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.2056,
+   "auc": 0.6720022767820842,
+   "brier": 0.23400699755694768,
+   "logloss": 0.6682508457225672,
+   "n_eval": 1295
+  },
+  {
+   "name": "elasticnet",
+   "weight": 0.7944,
+   "auc": 0.695193406898267,
+   "brier": 0.22276127087268255,
+   "logloss": 0.6366641951419862,
+   "n_eval": 1295
+  }
+ ],
+ "rolling_brier": [
+  {
+   "date": "2019-09-05",
+   "brier": 0.6683966934230463,
+   "games": 1
+  },
+  {
+   "date": "2019-09-08",
+   "brier": 0.17543223364126642,
+   "games": 13
+  },
+  {
+   "date": "2019-09-09",
+   "brier": 0.14990123699943292,
+   "games": 2
+  },
+  {
+   "date": "2019-09-12",
+   "brier": 0.4699612665562817,
+   "games": 1
+  },
+  {
+   "date": "2019-09-15",
+   "brier": 0.24054339208580494,
+   "games": 14
+  },
+  {
+   "date": "2019-09-16",
+   "brier": 0.434858573223185,
+   "games": 1
+  },
+  {
+   "date": "2019-09-19",
+   "brier": 0.2577311414107811,
+   "games": 1
+  },
+  {
+   "date": "2019-09-22",
+   "brier": 0.1876098869940217,
+   "games": 14
+  },
+  {
+   "date": "2019-09-23",
+   "brier": 0.1704762960564086,
+   "games": 1
+  },
+  {
+   "date": "2019-09-26",
+   "brier": 0.4214414504268341,
+   "games": 1
+  },
+  {
+   "date": "2019-09-29",
+   "brier": 0.32969035607768316,
+   "games": 13
+  },
+  {
+   "date": "2019-09-30",
+   "brier": 0.15975490981947793,
+   "games": 1
+  },
+  {
+   "date": "2019-10-03",
+   "brier": 0.1995662073900412,
+   "games": 1
+  },
+  {
+   "date": "2019-10-06",
+   "brier": 0.28142730981687925,
+   "games": 13
+  },
+  {
+   "date": "2019-10-07",
+   "brier": 0.24520091688098458,
+   "games": 1
+  },
+  {
+   "date": "2019-10-24",
+   "brier": 0.06643705248983878,
+   "games": 1
+  },
+  {
+   "date": "2019-10-27",
+   "brier": 0.1725385400075707,
+   "games": 13
+  },
+  {
+   "date": "2019-10-28",
+   "brier": 0.0850805356081524,
+   "games": 1
+  },
+  {
+   "date": "2019-11-28",
+   "brier": 0.23669551046953008,
+   "games": 3
+  },
+  {
+   "date": "2019-12-01",
+   "brier": 0.2541876602693484,
+   "games": 12
+  },
+  {
+   "date": "2019-12-02",
+   "brier": 0.15961782046960687,
+   "games": 1
+  },
+  {
+   "date": "2019-12-05",
+   "brier": 0.16674686090978824,
+   "games": 1
+  },
+  {
+   "date": "2019-12-08",
+   "brier": 0.21422179042647443,
+   "games": 14
+  },
+  {
+   "date": "2019-12-09",
+   "brier": 0.08608073556916306,
+   "games": 1
+  },
+  {
+   "date": "2019-12-12",
+   "brier": 0.04041578361306519,
+   "games": 1
+  },
+  {
+   "date": "2019-12-15",
+   "brier": 0.2729224696743984,
+   "games": 14
+  },
+  {
+   "date": "2019-12-16",
+   "brier": 0.09272105059866084,
+   "games": 1
+  },
+  {
+   "date": "2019-12-21",
+   "brier": 0.19031263441602517,
+   "games": 3
+  },
+  {
+   "date": "2019-12-22",
+   "brier": 0.2460841850630011,
+   "games": 12
+  },
+  {
+   "date": "2019-12-23",
+   "brier": 0.3829289524945679,
+   "games": 1
+  },
+  {
+   "date": "2019-12-29",
+   "brier": 0.23940817269828035,
+   "games": 16
+  },
+  {
+   "date": "2020-09-10",
+   "brier": 0.087301640550032,
+   "games": 1
+  },
+  {
+   "date": "2020-09-13",
+   "brier": 0.22471901368081987,
+   "games": 13
+  },
+  {
+   "date": "2020-09-14",
+   "brier": 0.22483561679196434,
+   "games": 2
+  },
+  {
+   "date": "2020-09-17",
+   "brier": 0.18855367322202007,
+   "games": 1
+  },
+  {
+   "date": "2020-09-20",
+   "brier": 0.1426769094759216,
+   "games": 14
+  },
+  {
+   "date": "2020-09-21",
+   "brier": 0.36957258755077615,
+   "games": 1
+  },
+  {
+   "date": "2020-09-24",
+   "brier": 0.38402536646077984,
+   "games": 1
+  },
+  {
+   "date": "2020-09-27",
+   "brier": 0.26350457887198525,
+   "games": 14
+  },
+  {
+   "date": "2020-09-28",
+   "brier": 0.41470674854614176,
+   "games": 1
+  },
+  {
+   "date": "2020-10-01",
+   "brier": 0.2865149987816511,
+   "games": 1
+  },
+  {
+   "date": "2020-10-04",
+   "brier": 0.23095346519885449,
+   "games": 12
+  },
+  {
+   "date": "2020-10-05",
+   "brier": 0.09023970339166681,
+   "games": 2
+  },
+  {
+   "date": "2020-11-26",
+   "brier": 0.2579863543352821,
+   "games": 2
+  },
+  {
+   "date": "2020-11-29",
+   "brier": 0.18161056928166341,
+   "games": 12
+  },
+  {
+   "date": "2020-11-30",
+   "brier": 0.16040648042954095,
+   "games": 1
+  },
+  {
+   "date": "2020-12-02",
+   "brier": 0.1343259841150575,
+   "games": 1
+  },
+  {
+   "date": "2020-12-06",
+   "brier": 0.19915258522988835,
+   "games": 12
+  },
+  {
+   "date": "2020-12-07",
+   "brier": 0.41164975653334385,
+   "games": 2
+  },
+  {
+   "date": "2020-12-08",
+   "brier": 0.049485112574166094,
+   "games": 1
+  },
+  {
+   "date": "2020-12-10",
+   "brier": 0.2431534791616409,
+   "games": 1
+  },
+  {
+   "date": "2020-12-13",
+   "brier": 0.2581158032128,
+   "games": 14
+  },
+  {
+   "date": "2020-12-14",
+   "brier": 0.2611745051289325,
+   "games": 1
+  },
+  {
+   "date": "2020-12-17",
+   "brier": 0.3925286306078366,
+   "games": 1
+  },
+  {
+   "date": "2020-12-19",
+   "brier": 0.09572771264077717,
+   "games": 2
+  },
+  {
+   "date": "2020-12-20",
+   "brier": 0.2062497601754112,
+   "games": 12
+  },
+  {
+   "date": "2020-12-21",
+   "brier": 0.6800207018066008,
+   "games": 1
+  },
+  {
+   "date": "2020-12-25",
+   "brier": 0.09652061870509748,
+   "games": 1
+  },
+  {
+   "date": "2020-12-26",
+   "brier": 0.20472911937928315,
+   "games": 3
+  },
+  {
+   "date": "2020-12-27",
+   "brier": 0.22549129330998816,
+   "games": 11
+  },
+  {
+   "date": "2020-12-28",
+   "brier": 0.1689953217571658,
+   "games": 1
+  },
+  {
+   "date": "2021-01-03",
+   "brier": 0.18036817810766306,
+   "games": 16
+  },
+  {
+   "date": "2021-09-09",
+   "brier": 0.08009870267333549,
+   "games": 1
+  },
+  {
+   "date": "2021-09-12",
+   "brier": 0.25302799905723444,
+   "games": 14
+  },
+  {
+   "date": "2021-09-13",
+   "brier": 0.5162352212124458,
+   "games": 1
+  },
+  {
+   "date": "2021-09-16",
+   "brier": 0.14841524870726167,
+   "games": 1
+  },
+  {
+   "date": "2021-09-19",
+   "brier": 0.23990619794564605,
+   "games": 14
+  },
+  {
+   "date": "2021-09-20",
+   "brier": 0.08593460999180577,
+   "games": 1
+  },
+  {
+   "date": "2021-09-23",
+   "brier": 0.16655724026075733,
+   "games": 1
+  },
+  {
+   "date": "2021-09-26",
+   "brier": 0.2252036545971344,
+   "games": 14
+  },
+  {
+   "date": "2021-09-27",
+   "brier": 0.15768007599638645,
+   "games": 1
+  },
+  {
+   "date": "2021-09-30",
+   "brier": 0.10976513253304614,
+   "games": 1
+  },
+  {
+   "date": "2021-10-03",
+   "brier": 0.24126195472124318,
+   "games": 14
+  },
+  {
+   "date": "2021-10-04",
+   "brier": 0.3495336433027436,
+   "games": 1
+  },
+  {
+   "date": "2021-10-07",
+   "brier": 0.3795476837285276,
+   "games": 1
+  },
+  {
+   "date": "2021-10-10",
+   "brier": 0.179994242842499,
+   "games": 14
+  },
+  {
+   "date": "2021-10-11",
+   "brier": 0.1179413271041935,
+   "games": 1
+  },
+  {
+   "date": "2021-10-28",
+   "brier": 0.16067055718010392,
+   "games": 1
+  },
+  {
+   "date": "2021-10-31",
+   "brier": 0.2351708372737464,
+   "games": 13
+  },
+  {
+   "date": "2021-11-01",
+   "brier": 0.09602113104634213,
+   "games": 1
+  },
+  {
+   "date": "2021-11-18",
+   "brier": 0.08975203598510598,
+   "games": 1
+  },
+  {
+   "date": "2021-11-21",
+   "brier": 0.2986395339533818,
+   "games": 13
+  },
+  {
+   "date": "2021-11-22",
+   "brier": 0.10509143892954251,
+   "games": 1
+  },
+  {
+   "date": "2021-11-25",
+   "brier": 0.2500443744256576,
+   "games": 3
+  },
+  {
+   "date": "2021-11-28",
+   "brier": 0.24467225612330773,
+   "games": 11
+  },
+  {
+   "date": "2021-11-29",
+   "brier": 0.3443361184258549,
+   "games": 1
+  },
+  {
+   "date": "2021-12-16",
+   "brier": 0.11431787186791469,
+   "games": 1
+  },
+  {
+   "date": "2021-12-18",
+   "brier": 0.32729449971545127,
+   "games": 1
+  },
+  {
+   "date": "2021-12-19",
+   "brier": 0.2344318795507898,
+   "games": 10
+  },
+  {
+   "date": "2021-12-20",
+   "brier": 0.2838229833996331,
+   "games": 2
+  },
+  {
+   "date": "2021-12-21",
+   "brier": 0.13976643267065758,
+   "games": 2
+  },
+  {
+   "date": "2021-12-23",
+   "brier": 0.18601209363544932,
+   "games": 1
+  },
+  {
+   "date": "2021-12-25",
+   "brier": 0.1114735208831418,
+   "games": 2
+  },
+  {
+   "date": "2021-12-26",
+   "brier": 0.23163804234991592,
+   "games": 12
+  },
+  {
+   "date": "2021-12-27",
+   "brier": 0.3560078381401435,
+   "games": 1
+  },
+  {
+   "date": "2022-01-02",
+   "brier": 0.17154491320914292,
+   "games": 15
+  },
+  {
+   "date": "2022-01-03",
+   "brier": 0.17427215337810625,
+   "games": 1
+  },
+  {
+   "date": "2022-01-08",
+   "brier": 0.2018749969165651,
+   "games": 2
+  },
+  {
+   "date": "2022-01-09",
+   "brier": 0.295157968774555,
+   "games": 14
+  },
+  {
+   "date": "2022-09-08",
+   "brier": 0.16559828128438858,
+   "games": 1
+  },
+  {
+   "date": "2022-09-11",
+   "brier": 0.2315043394819389,
+   "games": 14
+  },
+  {
+   "date": "2022-09-12",
+   "brier": 0.1059243264174876,
+   "games": 1
+  },
+  {
+   "date": "2022-09-15",
+   "brier": 0.09077124832784055,
+   "games": 1
+  },
+  {
+   "date": "2022-09-18",
+   "brier": 0.2850811843525975,
+   "games": 13
+  },
+  {
+   "date": "2022-09-19",
+   "brier": 0.15915687483043597,
+   "games": 2
+  },
+  {
+   "date": "2022-09-22",
+   "brier": 0.18205437683471712,
+   "games": 1
+  },
+  {
+   "date": "2022-09-25",
+   "brier": 0.2924721910461249,
+   "games": 14
+  },
+  {
+   "date": "2022-09-26",
+   "brier": 0.1304589225721131,
+   "games": 1
+  },
+  {
+   "date": "2022-09-29",
+   "brier": 0.3478055808716265,
+   "games": 1
+  },
+  {
+   "date": "2022-10-02",
+   "brier": 0.21627324940118792,
+   "games": 14
+  },
+  {
+   "date": "2022-10-03",
+   "brier": 0.3223389078807414,
+   "games": 1
+  },
+  {
+   "date": "2022-10-06",
+   "brier": 0.17984575204339373,
+   "games": 1
+  },
+  {
+   "date": "2022-10-09",
+   "brier": 0.23190375464254626,
+   "games": 14
+  },
+  {
+   "date": "2022-10-10",
+   "brier": 0.09793440496763936,
+   "games": 1
+  },
+  {
+   "date": "2022-10-27",
+   "brier": 0.3234216541570578,
+   "games": 1
+  },
+  {
+   "date": "2022-10-30",
+   "brier": 0.2003972938175981,
+   "games": 13
+  },
+  {
+   "date": "2022-10-31",
+   "brier": 0.3488381093392152,
+   "games": 1
+  },
+  {
+   "date": "2022-11-24",
+   "brier": 0.18220935908246036,
+   "games": 3
+  },
+  {
+   "date": "2022-11-27",
+   "brier": 0.214955027488043,
+   "games": 12
+  },
+  {
+   "date": "2022-11-28",
+   "brier": 0.3588526459471378,
+   "games": 1
+  },
+  {
+   "date": "2022-12-01",
+   "brier": 0.1947347632447257,
+   "games": 1
+  },
+  {
+   "date": "2022-12-04",
+   "brier": 0.16734175964200718,
+   "games": 13
+  },
+  {
+   "date": "2022-12-05",
+   "brier": 0.1444584372291291,
+   "games": 1
+  },
+  {
+   "date": "2022-12-15",
+   "brier": 0.1722242382722318,
+   "games": 1
+  },
+  {
+   "date": "2022-12-17",
+   "brier": 0.18347136847824097,
+   "games": 3
+  },
+  {
+   "date": "2022-12-18",
+   "brier": 0.2340833105685877,
+   "games": 11
+  },
+  {
+   "date": "2022-12-19",
+   "brier": 0.08839294929567147,
+   "games": 1
+  },
+  {
+   "date": "2022-12-22",
+   "brier": 0.16766744362366776,
+   "games": 1
+  },
+  {
+   "date": "2022-12-24",
+   "brier": 0.19821703538604718,
+   "games": 11
+  },
+  {
+   "date": "2022-12-25",
+   "brier": 0.26370719145289806,
+   "games": 3
+  },
+  {
+   "date": "2022-12-26",
+   "brier": 0.13424620335392004,
+   "games": 1
+  },
+  {
+   "date": "2022-12-29",
+   "brier": 0.11132093912489978,
+   "games": 1
+  },
+  {
+   "date": "2023-01-01",
+   "brier": 0.16851134814844587,
+   "games": 14
+  },
+  {
+   "date": "2023-01-07",
+   "brier": 0.11438101322906491,
+   "games": 2
+  },
+  {
+   "date": "2023-01-08",
+   "brier": 0.2325255667004654,
+   "games": 14
+  },
+  {
+   "date": "2023-09-07",
+   "brier": 0.44342557267901306,
+   "games": 1
+  },
+  {
+   "date": "2023-09-10",
+   "brier": 0.22217596203066065,
+   "games": 14
+  },
+  {
+   "date": "2023-09-11",
+   "brier": 0.4994132760737811,
+   "games": 1
+  },
+  {
+   "date": "2023-09-14",
+   "brier": 0.33601313899625995,
+   "games": 1
+  },
+  {
+   "date": "2023-09-17",
+   "brier": 0.20529492844001748,
+   "games": 13
+  },
+  {
+   "date": "2023-09-18",
+   "brier": 0.1571824642662251,
+   "games": 2
+  },
+  {
+   "date": "2023-09-21",
+   "brier": 0.06172404746566315,
+   "games": 1
+  },
+  {
+   "date": "2023-09-24",
+   "brier": 0.23347949490737813,
+   "games": 13
+  },
+  {
+   "date": "2023-09-25",
+   "brier": 0.2374358813034952,
+   "games": 2
+  },
+  {
+   "date": "2023-09-28",
+   "brier": 0.19455326911044749,
+   "games": 1
+  },
+  {
+   "date": "2023-10-01",
+   "brier": 0.2065351310724899,
+   "games": 14
+  },
+  {
+   "date": "2023-10-02",
+   "brier": 0.13440227981638775,
+   "games": 1
+  },
+  {
+   "date": "2023-10-12",
+   "brier": 0.047968357894901247,
+   "games": 1
+  },
+  {
+   "date": "2023-10-15",
+   "brier": 0.23877067468798308,
+   "games": 13
+  },
+  {
+   "date": "2023-10-16",
+   "brier": 0.3637806577431588,
+   "games": 1
+  },
+  {
+   "date": "2023-10-26",
+   "brier": 0.08599927313725088,
+   "games": 1
+  },
+  {
+   "date": "2023-10-29",
+   "brier": 0.2233180366177276,
+   "games": 14
+  },
+  {
+   "date": "2023-10-30",
+   "brier": 0.109723181045557,
+   "games": 1
+  },
+  {
+   "date": "2023-11-23",
+   "brier": 0.19857693515230565,
+   "games": 3
+  },
+  {
+   "date": "2023-11-24",
+   "brier": 0.09866105149666701,
+   "games": 1
+  },
+  {
+   "date": "2023-11-26",
+   "brier": 0.20529789417291663,
+   "games": 11
+  },
+  {
+   "date": "2023-11-27",
+   "brier": 0.5328658705068026,
+   "games": 1
+  },
+  {
+   "date": "2023-12-07",
+   "brier": 0.43982646642491474,
+   "games": 1
+  },
+  {
+   "date": "2023-12-10",
+   "brier": 0.22254042978009583,
+   "games": 12
+  },
+  {
+   "date": "2023-12-11",
+   "brier": 0.5234380911463035,
+   "games": 2
+  },
+  {
+   "date": "2023-12-14",
+   "brier": 0.30759736218331685,
+   "games": 1
+  },
+  {
+   "date": "2023-12-16",
+   "brier": 0.194967605750051,
+   "games": 3
+  },
+  {
+   "date": "2023-12-17",
+   "brier": 0.22192587625412286,
+   "games": 11
+  },
+  {
+   "date": "2023-12-18",
+   "brier": 0.38186904321524956,
+   "games": 1
+  },
+  {
+   "date": "2023-12-21",
+   "brier": 0.16134696899597542,
+   "games": 1
+  },
+  {
+   "date": "2023-12-23",
+   "brier": 0.28696959711084563,
+   "games": 2
+  },
+  {
+   "date": "2023-12-24",
+   "brier": 0.2170016228034926,
+   "games": 10
+  },
+  {
+   "date": "2023-12-25",
+   "brier": 0.3152044180056312,
+   "games": 3
+  },
+  {
+   "date": "2023-12-28",
+   "brier": 0.051635988829171545,
+   "games": 1
+  },
+  {
+   "date": "2023-12-30",
+   "brier": 0.3019006531978917,
+   "games": 1
+  },
+  {
+   "date": "2023-12-31",
+   "brier": 0.20969129510948895,
+   "games": 14
+  },
+  {
+   "date": "2024-01-06",
+   "brier": 0.3739024646706443,
+   "games": 2
+  },
+  {
+   "date": "2024-01-07",
+   "brier": 0.23131226029040544,
+   "games": 14
+  },
+  {
+   "date": "2024-09-05",
+   "brier": 0.17844802406226684,
+   "games": 1
+  },
+  {
+   "date": "2024-09-06",
+   "brier": 0.39431938924743365,
+   "games": 1
+  },
+  {
+   "date": "2024-09-08",
+   "brier": 0.20171476806050284,
+   "games": 13
+  },
+  {
+   "date": "2024-09-09",
+   "brier": 0.08216947533703291,
+   "games": 1
+  },
+  {
+   "date": "2024-09-12",
+   "brier": 0.1776873481891366,
+   "games": 1
+  },
+  {
+   "date": "2024-09-15",
+   "brier": 0.2621810243752902,
+   "games": 14
+  },
+  {
+   "date": "2024-09-16",
+   "brier": 0.5082817214107784,
+   "games": 1
+  },
+  {
+   "date": "2024-09-19",
+   "brier": 0.16920454145852204,
+   "games": 1
+  },
+  {
+   "date": "2024-09-22",
+   "brier": 0.27880286913089464,
+   "games": 13
+  },
+  {
+   "date": "2024-09-23",
+   "brier": 0.2725148178398952,
+   "games": 2
+  },
+  {
+   "date": "2024-09-26",
+   "brier": 0.13308052905133602,
+   "games": 1
+  },
+  {
+   "date": "2024-09-29",
+   "brier": 0.25459852511787523,
+   "games": 13
+  },
+  {
+   "date": "2024-09-30",
+   "brier": 0.30226649461057753,
+   "games": 2
+  },
+  {
+   "date": "2024-10-17",
+   "brier": 0.31371362262782293,
+   "games": 1
+  },
+  {
+   "date": "2024-10-20",
+   "brier": 0.15077796122815065,
+   "games": 12
+  },
+  {
+   "date": "2024-10-21",
+   "brier": 0.22300875990762487,
+   "games": 2
+  },
+  {
+   "date": "2024-10-24",
+   "brier": 0.32335723954920703,
+   "games": 1
+  },
+  {
+   "date": "2024-10-27",
+   "brier": 0.22001420029032073,
+   "games": 14
+  },
+  {
+   "date": "2024-10-28",
+   "brier": 0.07420704992766643,
+   "games": 1
+  },
+  {
+   "date": "2024-10-31",
+   "brier": 0.40062426591579947,
+   "games": 1
+  },
+  {
+   "date": "2024-11-03",
+   "brier": 0.18734203628209406,
+   "games": 13
+  },
+  {
+   "date": "2024-11-04",
+   "brier": 0.1056549451657643,
+   "games": 1
+  },
+  {
+   "date": "2024-11-28",
+   "brier": 0.10351110694152217,
+   "games": 3
+  },
+  {
+   "date": "2024-11-29",
+   "brier": 0.058446535959545395,
+   "games": 1
+  },
+  {
+   "date": "2024-12-01",
+   "brier": 0.21496524125858008,
+   "games": 11
+  },
+  {
+   "date": "2024-12-02",
+   "brier": 0.07812810014206131,
+   "games": 1
+  },
+  {
+   "date": "2024-12-12",
+   "brier": 0.32568689834399955,
+   "games": 1
+  },
+  {
+   "date": "2024-12-15",
+   "brier": 0.19368157194600857,
+   "games": 13
+  },
+  {
+   "date": "2024-12-16",
+   "brier": 0.11921932168878731,
+   "games": 2
+  },
+  {
+   "date": "2024-12-19",
+   "brier": 0.37419066197371537,
+   "games": 1
+  },
+  {
+   "date": "2024-12-21",
+   "brier": 0.06827972313023888,
+   "games": 2
+  },
+  {
+   "date": "2024-12-22",
+   "brier": 0.19633342972303502,
+   "games": 12
+  },
+  {
+   "date": "2024-12-23",
+   "brier": 0.03024933537818398,
+   "games": 1
+  },
+  {
+   "date": "2024-12-25",
+   "brier": 0.13491959468506776,
+   "games": 2
+  },
+  {
+   "date": "2025-01-04",
+   "brier": 0.11558385010308672,
+   "games": 2
+  },
+  {
+   "date": "2025-01-05",
+   "brier": 0.3045403968336443,
+   "games": 14
+  },
+  {
+   "date": "2025-09-04",
+   "brier": 0.11848325099492037,
+   "games": 1
+  },
+  {
+   "date": "2025-09-05",
+   "brier": 0.28906516395542525,
+   "games": 1
+  },
+  {
+   "date": "2025-09-07",
+   "brier": 0.17544690847056305,
+   "games": 13
+  },
+  {
+   "date": "2025-09-08",
+   "brier": 0.10728491287788662,
+   "games": 1
+  },
+  {
+   "date": "2025-09-11",
+   "brier": 0.1868547709286954,
+   "games": 1
+  },
+  {
+   "date": "2025-09-14",
+   "brier": 0.1732574628884445,
+   "games": 13
+  },
+  {
+   "date": "2025-09-15",
+   "brier": 0.12091167428002937,
+   "games": 2
+  },
+  {
+   "date": "2025-09-18",
+   "brier": 0.05007938707526146,
+   "games": 1
+  },
+  {
+   "date": "2025-09-21",
+   "brier": 0.23452971010860266,
+   "games": 14
+  },
+  {
+   "date": "2025-09-22",
+   "brier": 0.16606490948284444,
+   "games": 1
+  },
+  {
+   "date": "2025-09-25",
+   "brier": 0.15564047325911365,
+   "games": 1
+  },
+  {
+   "date": "2025-09-28",
+   "brier": 0.2148911247912079,
+   "games": 13
+  },
+  {
+   "date": "2025-09-29",
+   "brier": 0.1424733380287002,
+   "games": 2
+  },
+  {
+   "date": "2025-10-09",
+   "brier": 0.48115410124851077,
+   "games": 1
+  },
+  {
+   "date": "2025-10-12",
+   "brier": 0.14243309318107067,
+   "games": 12
+  },
+  {
+   "date": "2025-10-13",
+   "brier": 0.5015872564417931,
+   "games": 2
+  },
+  {
+   "date": "2025-10-16",
+   "brier": 0.3756127783553939,
+   "games": 1
+  },
+  {
+   "date": "2025-10-19",
+   "brier": 0.18822212946833608,
+   "games": 12
+  },
+  {
+   "date": "2025-10-20",
+   "brier": 0.16006304368282642,
+   "games": 2
+  },
+  {
+   "date": "2025-11-13",
+   "brier": 0.04794643035805408,
+   "games": 1
+  },
+  {
+   "date": "2025-11-16",
+   "brier": 0.20278312935999593,
+   "games": 13
+  },
+  {
+   "date": "2025-11-17",
+   "brier": 0.09815494407713747,
+   "games": 1
+  },
+  {
+   "date": "2025-11-27",
+   "brier": 0.46181404369073764,
+   "games": 3
+  },
+  {
+   "date": "2025-11-28",
+   "brier": 0.46202210294818363,
+   "games": 1
+  },
+  {
+   "date": "2025-11-30",
+   "brier": 0.19128323866150929,
+   "games": 11
+  },
+  {
+   "date": "2025-12-01",
+   "brier": 0.05149696064742073,
+   "games": 1
+  },
+  {
+   "date": "2025-12-11",
+   "brier": 0.398933457930476,
+   "games": 1
+  },
+  {
+   "date": "2025-12-14",
+   "brier": 0.17929985457090986,
+   "games": 14
+  },
+  {
+   "date": "2025-12-15",
+   "brier": 0.19425816132205304,
+   "games": 1
+  },
+  {
+   "date": "2025-12-18",
+   "brier": 0.29481171583267785,
+   "games": 1
+  },
+  {
+   "date": "2025-12-20",
+   "brier": 0.10117841086683196,
+   "games": 2
+  },
+  {
+   "date": "2025-12-21",
+   "brier": 0.26491300230246456,
+   "games": 12
+  },
+  {
+   "date": "2025-12-22",
+   "brier": 0.10215310007281982,
+   "games": 1
+  },
+  {
+   "date": "2025-12-25",
+   "brier": 0.2318376883090969,
+   "games": 3
+  },
+  {
+   "date": "2025-12-27",
+   "brier": 0.257074466153578,
+   "games": 2
+  },
+  {
+   "date": "2025-12-28",
+   "brier": 0.1952055795504315,
+   "games": 10
+  },
+  {
+   "date": "2025-12-29",
+   "brier": 0.5527141626480914,
+   "games": 1
+  },
+  {
+   "date": "2026-01-03",
+   "brier": 0.20973571758719678,
+   "games": 2
+  },
+  {
+   "date": "2026-01-04",
+   "brier": 0.27204895906517995,
+   "games": 14
+  },
+  {
+   "date": "2026-09-10",
+   "brier": 0.3429731130647048,
+   "games": 1
+  },
+  {
+   "date": "2026-09-13",
+   "brier": 0.20405233517419336,
+   "games": 13
+  },
+  {
+   "date": "2026-09-14",
+   "brier": 0.481739850478786,
+   "games": 1
+  },
+  {
+   "date": "2026-09-17",
+   "brier": 0.13342930232716055,
+   "games": 1
+  },
+  {
+   "date": "2026-09-20",
+   "brier": 0.2304232950370199,
+   "games": 14
+  },
+  {
+   "date": "2026-09-21",
+   "brier": 0.13747171985885107,
+   "games": 1
+  }
+ ],
+ "brier_baseline": 0.4741312741312741,
+ "brier_baseline_label": "Constant home-edge",
+ "rolling_brier_meta": {
+  "window_days": 30,
+  "min_games_per_day": 1,
+  "excluded_sparse_days": 0,
+  "calibrator_is_identity": false,
+  "map_scope_note": "Points use the deployed Platt map (fit on all OOF games)."
+ },
+ "version_history": [
+  {
+   "version": "20260923",
+   "date": "2026-09-23",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.2056,
+    "elasticnet": 0.7944
+   },
+   "auc": 0.6907642047764593,
+   "logloss": 0.6372185670050271,
+   "ece_calibrated": 0.03301656226138318,
+   "note": "rebuild run",
+   "calibration": {
+    "a": 0.820943,
+    "b": 0.137551
+   }
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 82,
+  "first_val_start": "2019-09-05",
+  "last_val_end": "2026-09-23",
+  "min_train": 256,
+  "max_train": 2143,
+  "total_val_games": 1295
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v5-platoon-static-sides",
+  "warmup_seasons": [
+   2018
+  ],
+  "oof_first_season": 2019,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.18.0",
+   "sklearn": "1.9.0",
+   "xgboost": "3.4.0",
+   "lightgbm": "4.7.0",
+   "pandas": "3.0.1",
+   "numpy": "2.4.3"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "inj_qb_out_diff",
+    "inj_tackle_out_diff",
+    "inj_edge_out_diff",
+    "inj_starters_out_diff",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "is_home"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true
+ }
+}

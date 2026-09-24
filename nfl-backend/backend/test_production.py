@@ -150,9 +150,9 @@ tr = feat_mod.tree_view(feats)
 check("linear view = contract minus raw per-side levels",
       list(lin.columns) == [c for c in config.active_moneyline_feature_cols()
                             if c not in config.RAW_PER_SIDE_COLS and c in feats.columns])
-check("tree view = the served contract verbatim",
+check("tree view = the served contract + appended team-ID pair",
       list(tr.columns) == [c for c in config.active_moneyline_feature_cols()
-                           if c in feats.columns])
+                           if c in feats.columns] + config.TREE_CATEGORICAL_COLS)
 check("tree view has per-side columns", any(c.endswith("_home") for c in tr.columns))
 check("no view emits a duplicate column (single-list projection)",
       len(set(tr.columns)) == len(tr.columns) and len(set(lin.columns)) == len(lin.columns))

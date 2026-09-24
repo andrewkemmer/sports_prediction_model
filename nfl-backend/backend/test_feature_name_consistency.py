@@ -139,6 +139,26 @@ print("\n== 2. Representation contract ==")
 tree_cols = list(feat_mod.tree_view(feats).columns)
 lin_cols = list(feat_mod.linear_view(feats).columns)
 
+# The tree view appends the categorical team-ID pair AFTER the served
+# contract; the linear view never sees it (MLB TREE_CATEGORICAL_COLS parity).
+check("tree view appends home/away team-ID pair last",
+      tree_cols[-len(config.TREE_CATEGORICAL_COLS):] == config.TREE_CATEGORICAL_COLS,
+      f"tail={tree_cols[-3:]}")
+check("linear view excludes the team-ID pair",
+      all(c not in lin_cols for c in config.TREE_CATEGORICAL_COLS))
+check("tree numeric prefix is the served contract projection",
+      tree_cols[:-len(config.TREE_CATEGORICAL_COLS)]
+      == [c for c in config.active_moneyline_feature_cols() if c in feats.columns])
+check("team IDs are stable ints with UNK fallback",
+      config.team_category_id("KC") == config.NFL_TEAM_ID["KC"]
+      and config.team_category_id("OAK") == config.UNK_TEAM_ID
+      and config.team_category_id(None) == config.UNK_TEAM_ID)
+_ids = feat_mod.team_category_ids(feats)
+check("team_category_ids maps home/away from the frame",
+      list(_ids.columns) == config.TREE_CATEGORICAL_COLS
+      and set(_ids["home_team_id"].unique())
+      <= set(config.NFL_TEAM_ID.values()) | {config.UNK_TEAM_ID})
+
 # The lightgbm member of the LAST fold's fit must carry the named tree view.
 # Re-fit one fold exactly as the production loop does and assert the
 # fitted feature names match the tree-view columns.
@@ -200,15 +220,18 @@ with warnings_as_errors():
         check("ScoreRegressor fit+predict with zero feature-name warnings", True)
         check("ScoreRegressor preserves native LightGBM NaN routing",
               not hasattr(reg, "feature_medians"))
-        check("ScoreRegressor uses the moneyline tree feature contract",
-              list(reg.feature_columns) == tree_cols)
+        check("ScoreRegressor uses the NUMERIC tree contract (no team-ID pair)",
+              list(reg.feature_columns) == feat_mod.tree_numeric_columns()
+              and all(c not in reg.feature_columns
+                      for c in config.TREE_CATEGORICAL_COLS))
     except Warning as exc:
         check("ScoreRegressor fit+predict with zero feature-name warnings",
               False, f"warning escalated: {exc}")
 check("mu_h/mu_a finite", np.isfinite(mu_h).all() and np.isfinite(mu_a).all())
 lgb_names = list(getattr(reg.away_model, "feature_names_in_", []))
-check("LGBMRegressor fitted with tree-view feature names", lgb_names == tree_cols)
-
+lgb_names = list(getattr(reg.away_model, "feature_names_in_", []))
+check("LGBMRegressor fitted with the numeric tree contract",
+      lgb_names == feat_mod.tree_numeric_columns())
 # ---------------------------------------------------------------------------
 print("\n== 5. Model-output invariance (ndarray vs named-DataFrame fit) ==")
 # The representation change must not alter model outputs: LightGBM fits on
@@ -283,7 +306,8 @@ sub_lin = list(feat_mod.linear_view(feats).columns)
 config.reset_feature_subset()
 check("subset views stay unique and pool-ordered",
       len(set(sub_tree)) == len(sub_tree) and len(set(sub_lin)) == len(sub_lin)
-      and sub_tree == [c for c in subset if c in feats.columns]
+      and sub_tree == ([c for c in subset if c in feats.columns]
+                       + config.TREE_CATEGORICAL_COLS)
       and sub_lin == [c for c in subset
                       if c not in config.RAW_PER_SIDE_COLS and c in feats.columns])
 check("unknown subset names are rejected, not silently intersected",

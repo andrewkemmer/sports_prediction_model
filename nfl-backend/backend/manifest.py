@@ -140,6 +140,74 @@ def _build_candidate_manifest() -> None:
             "Trailing NGS separation",
             "Per-team targets-weighted mean of Next-Gen-Stats avg_separation across the week's WR/TEs (weekly tracking)",
             "tracking"),
+        "two_min_trail_share": (
+            "Trailing two-minute trailing play share",
+            "Per-team trailing share of plays with the team BEHIND in the final 2 minutes of a half (qtr 2/4, half_seconds_remaining <= 120, score_differential < 0) - hurry-up tendency",
+            "situational"),
+        "fourth_go_rate": (
+            "Trailing fourth-down aggression",
+            "Per-team trailing share of 4th downs with <= 2 yards to go that were gone-for (pass/run) - fourth-down aggressiveness",
+            "situational"),
+        "fourth_downs_pg": (
+            "Trailing fourth-down volume",
+            "Per-team trailing 4-game sum of 4th-down plays (how often a team faces - and stays in - fourth down)",
+            "situational"),
+        "close_run_rate": (
+            "Trailing close-game run rate",
+            "Per-team trailing share of run plays on snaps with |score_differential| <= 8 outside goal-to-go - run balance under scoreboard pressure",
+            "situational"),
+        "def_box": (
+            "Trailing defenders-in-the-box",
+            "Per-team trailing mean of charted defenders in the box per offensive play (run-fit commitment faced; FTN charting)",
+            "platoon"),
+        "off_backfield": (
+            "Trailing backfield count",
+            "Per-team trailing mean of charted offensive players in the backfield per play (single-back vs two-back shape; FTN charting)",
+            "platoon"),
+        "motion_rate": (
+            "Trailing pre-snap motion rate",
+            "Per-team trailing share of plays with pre-snap motion (FTN charting)",
+            "platoon"),
+        "play_action_rate": (
+            "Trailing play-action rate",
+            "Per-team trailing share of plays with play action (FTN charting)",
+            "platoon"),
+        "rpo_rate": (
+            "Trailing RPO rate",
+            "Per-team trailing share of run-pass-option plays (FTN charting)",
+            "platoon"),
+        "screen_rate": (
+            "Trailing screen rate",
+            "Per-team trailing share of screen passes (FTN charting)",
+            "platoon"),
+        "rb_snap_share": (
+            "Trailing RB/FB snap share",
+            "Per-team trailing share of offensive snaps taken by RBs+FBs (backfield commitment by participation)",
+            "platoon"),
+        "te_snap_share": (
+            "Trailing TE snap share",
+            "Per-team trailing share of offensive snaps taken by TEs (multi-TE personnel heaviness proxy)",
+            "platoon"),
+        "te2_snap_share": (
+            "Trailing secondary-TE snap share",
+            "Per-team trailing share of offensive snaps taken by TEs beyond the team's most-used TE that game (true two-TE usage)",
+            "platoon"),
+        "wr1_snap_share": (
+            "Trailing WR1 snap share",
+            "Per-team trailing share of offensive snaps taken by the team's most-used WR (WR1 workload/availability)",
+            "platoon"),
+        "qb_snap_share": (
+            "Trailing QB snap share",
+            "Per-team trailing share of offensive snaps taken by QBs (starter availability/health proxy; 1.0 = one QB all game)",
+            "platoon"),
+        "db_snap_share": (
+            "Trailing DB snap share",
+            "Per-team trailing share of defensive snaps taken by defensive backs (nickel/dime sub-package rate)",
+            "platoon"),
+        "dl_snap_share": (
+            "Trailing DL snap share",
+            "Per-team trailing 4-game share of defensive snaps taken by defensive linemen (front rotation)",
+            "platoon"),
     }
     window_doc = {
         "ewm": "decaying (halflife=2 games)",
@@ -150,6 +218,8 @@ def _build_candidate_manifest() -> None:
         "pbp": "nflverse play-by-play (per-game rollup)",
         "ps": "nflverse weekly player stats (per-game rollup)",
         "ngs": "nflverse Next-Gen Stats weekly tracking (per-game rollup)",
+        "ftn": "nflverse FTN charting (per-game rollup; published 2022+)",
+        "sc": "nflverse snap counts (per-game rollup; published 2013+)",
     }
     for _family, family_specs in _c.CANDIDATE_FAMILIES.items():
         for _spec_name, spec in family_specs.items():
@@ -205,6 +275,72 @@ def _build_candidate_manifest() -> None:
 
 
 _build_candidate_manifest()
+
+# ---------------------------------------------------------------------------
+# Static per-side candidate facts (config.STATIC_SIDE_CANDIDATES): raw
+# home/away levels of served DIFF-only pre-game facts, attached by
+# features._attach_static_team_facts from the weekly injury reports and the
+# venue geometry table. The served diff remains the primary signal; these
+# levels give the tree members the sides separately.
+_STATIC_SIDE_DOC = {
+    "travel_miles": (
+        "Distance to game venue",
+        "Great-circle (haversine) miles from the team's home stadium to the game venue",
+        "nflverse stadium geography (committed venue table)",
+        "pre-game static fact",
+        "NaN when either stadium is unlisted"),
+    "inj_qb_out": (
+        "QB Out count on the weekly report",
+        "Count of QBs listed Out on the team's weekly injury report",
+        "nflverse weekly injury reports",
+        "report entering the game week",
+        "NaN when the team-week is absent from the reports entirely"),
+    "inj_tackle_out": (
+        "Tackle Out count on the weekly report",
+        "Count of tackles (T/OT/LT/RT) listed Out on the team's weekly injury report",
+        "nflverse weekly injury reports",
+        "report entering the game week",
+        "NaN when the team-week is absent from the reports entirely"),
+    "inj_edge_out": (
+        "Edge Out count on the weekly report",
+        "Count of edge defenders (EDGE/DE/OLB) listed Out on the team's weekly injury report",
+        "nflverse weekly injury reports",
+        "report entering the game week",
+        "NaN when the team-week is absent from the reports entirely"),
+    "inj_starters_out": (
+        "Total Out count on the weekly report",
+        "Count of ALL players listed Out on the team's weekly injury report",
+        "nflverse weekly injury reports",
+        "report entering the game week",
+        "NaN when the team-week is absent from the reports entirely"),
+}
+
+
+def _build_static_side_manifest() -> None:
+    """Document config.STATIC_SIDE_CANDIDATES name-for-name (5 bases x 2 sides)."""
+    try:
+        from backend import config as _c
+    except ImportError:  # running as a top-level module
+        import config as _c
+    for _base in _c.STATIC_SIDE_CANDIDATES:
+        desc, definition, source, pit, mvp = _STATIC_SIDE_DOC[_base]
+        for side, rep_name in (("home", "raw home level"), ("away", "raw away level")):
+            CANDIDATE_MANIFEST[f"{_base}_{side}"] = {
+                "description": f"{side.capitalize()} team's {desc.lower()}",
+                "definition": f"The {side} team's {definition}",
+                "source": source,
+                "lookback": "current week only",
+                "aggregation": "per-side weekly fact",
+                "point_in_time_rule": pit,
+                "missing_value_policy": mvp + "; in-model handling",
+                "representation": f"{rep_name} (tree members)",
+                "model_family_availability": ["tree"],
+                "feature_version": 3,
+                "candidate": True,
+            }
+
+
+_build_static_side_manifest()
 
 # One entry per served feature. Field order mirrors the spec (section 11).
 FEATURE_MANIFEST = {

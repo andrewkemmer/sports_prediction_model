@@ -135,6 +135,8 @@ PBP_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     **config.PBP_OPP_ADJ_TRAILING_SPECS,
     **config.PS_CANDIDATE_TRAILING_SPECS,
     **config.NGS_CANDIDATE_TRAILING_SPECS,
+    **config.FTN_CANDIDATE_TRAILING_SPECS,
+    **config.SC_CANDIDATE_TRAILING_SPECS,
 }
 
 # metric -> the family prefix its served candidates carry (pbp_ / ps_ / ngs_)
@@ -423,6 +425,59 @@ def _add_pbp_metrics(p: pd.DataFrame, g: pd.DataFrame) -> pd.DataFrame:
     _rate(shotgun, plays, "shotgun_rate")
     nh = _num("no_huddle")
     _rate(nh, plays, "no_huddle_rate")
+
+    # ------------------------------------------------------------------
+    # Situational / platoon rollups (2026-09-23): two-minute tendency,
+    # fourth-down aggression/volume, close-game run balance. Shares are
+    # sums over a play mask (mean of a 0/1 mask); rows missing context
+    # stay NaN and are skipped by the aggregation — never fabricated to 0.
+    # ------------------------------------------------------------------
+    qtr = _num("qtr")
+    half_sec = _num("half_seconds_remaining")
+    score_diff = _num("score_differential")
+    down = _num("down")
+    ydstogo = _num("ydstogo")
+    g2g = _num("goal_to_go")
+    pt = (p["play_type"].astype(str).str.lower()
+          if "play_type" in p.columns else None)
+    idx = pd.MultiIndex.from_frame(g[["game_id", "posteam"]])
+
+    def _share(mask: pd.Series, out: str) -> None:
+        """Group-mean of a 0/1 series with NaN context rows skipped."""
+        v = mask.where(plays.notna())
+        g[out] = (v.groupby([p["game_id"], p["posteam"]]).mean()
+                  .reindex(idx).to_numpy())
+
+    def _count(mask: pd.Series, out: str) -> None:
+        """Group-sum of a 0/1 series (0 where context valid but absent)."""
+        v = mask.where(plays.notna()).fillna(0.0)
+        g[out] = (v.groupby([p["game_id"], p["posteam"]]).sum()
+                  .reindex(idx).to_numpy())
+
+    if qtr is not None and half_sec is not None and score_diff is not None:
+        ctx_ok = qtr.notna() & half_sec.notna() & score_diff.notna()
+        _share(((qtr.isin([2, 4])) & (half_sec <= 120) & (score_diff < 0))
+               .where(ctx_ok), "two_min_trail_share")
+    else:
+        g["two_min_trail_share"] = np.nan
+
+    if down is not None and ydstogo is not None and pt is not None:
+        is_fourth = down.eq(4)
+        short_fourth = is_fourth & ydstogo.le(2)
+        went_for = (short_fourth & pt.isin(["pass", "run"])
+                    ).where(down.notna() & ydstogo.notna())
+        _share(went_for, "fourth_go_rate")
+        _count(is_fourth, "fourth_downs_pg")
+    else:
+        g["fourth_go_rate"] = np.nan
+        g["fourth_downs_pg"] = np.nan
+
+    if score_diff is not None and g2g is not None and pt is not None:
+        close = (score_diff.abs().le(8) & ~g2g.eq(1).fillna(False)
+                 ).where(score_diff.notna() & g2g.notna())
+        _share(close & pt.eq("run"), "close_run_rate")
+    else:
+        g["close_run_rate"] = np.nan
     return g
 
 
@@ -434,7 +489,9 @@ PBP_AGG_COLS = ["game_id", "team", "total_yards", "n_plays", "elapsed_min",
                 "yac_epa_att", "turnovers", "takeaways", "sack_rate",
                 "dropback_rate", "third_down_rate", "penalty_yards_pg",
                 "penalties_pg", "redzone_td_rate", "start_field_pos",
-                "fg_accuracy", "shotgun_rate", "no_huddle_rate", "drives_pg"]
+                "fg_accuracy", "shotgun_rate", "no_huddle_rate", "drives_pg",
+                "two_min_trail_share", "fourth_go_rate", "fourth_downs_pg",
+                "close_run_rate"]
 
 
 def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
@@ -464,6 +521,125 @@ def pbp_team_agg(pbp: pd.DataFrame | None) -> pd.DataFrame:
         g["elapsed_min"] = np.nan
     g = _add_pbp_metrics(p, g)
     return g.rename(columns={"posteam": "team"})[cols]
+
+
+# ---------------------------------------------------------------------------
+# FTN charting rollup — per (game_id, team) structure/tendency aggregates
+# ---------------------------------------------------------------------------
+FTN_AGG_COLS = ["game_id", "team", "def_box", "off_backfield", "motion_rate",
+                "play_action_rate", "rpo_rate", "screen_rate"]
+
+
+def ftn_team_agg(ftn: pd.DataFrame | None,
+                 game_teams: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Per-(game_id, team) charting aggregates (functions of that game only;
+    the trailing shift downstream keeps them strictly-prior).
+
+    The charting payload is game-level (no posteam), so ``game_teams`` — the
+    pbp rollup's (game_id, team) pairs — resolves each game's two offenses;
+    every (game, team) row carries the game's charted means. Absent source
+    or mapping degrades to an empty frame (metrics stay NaN downstream)."""
+    cols = list(FTN_AGG_COLS)
+    if (ftn is None or ftn.empty or game_teams is None or game_teams.empty
+            or "nflverse_game_id" not in ftn.columns):
+        return pd.DataFrame(columns=cols)
+    p = ftn.rename(columns={"nflverse_game_id": "game_id"}).copy()
+    if "game_id" not in p.columns:
+        return pd.DataFrame(columns=cols)
+    for src in ("n_defense_box", "n_offense_backfield", "is_motion",
+                "is_play_action", "is_rpo", "is_screen_pass"):
+        p[src] = (pd.to_numeric(p[src], errors="coerce")
+                  if src in p.columns else np.nan)
+    per_game = (p.dropna(subset=["game_id"])
+                 .groupby("game_id", as_index=False)
+                 .agg(def_box=("n_defense_box", "mean"),
+                      off_backfield=("n_offense_backfield", "mean"),
+                      motion_rate=("is_motion", "mean"),
+                      play_action_rate=("is_play_action", "mean"),
+                      rpo_rate=("is_rpo", "mean"),
+                      screen_rate=("is_screen_pass", "mean")))
+    out = per_game.merge(
+        game_teams[["game_id", "team"]].drop_duplicates(),
+        on="game_id", how="inner")
+    return out[cols]
+
+
+# ---------------------------------------------------------------------------
+# Snap-count rollup — per (game_id, team) participation shares by position
+# ---------------------------------------------------------------------------
+SC_AGG_COLS = ["game_id", "team", "rb_snap_share", "te_snap_share",
+               "te2_snap_share", "wr1_snap_share", "qb_snap_share",
+               "db_snap_share", "dl_snap_share"]
+
+_RB_POS = {"RB", "FB"}
+_TE_POS = {"TE"}
+_WR_POS = {"WR"}
+_QB_POS = {"QB"}
+_DB_POS = {"CB", "DB", "S", "FS", "SS", "NB"}
+_DL_POS = {"DE", "DT", "NT", "DL", "EDGE"}
+
+
+def snap_counts_team_agg(snaps: pd.DataFrame | None) -> pd.DataFrame:
+    """Per-(game_id, team) snap-share aggregates (functions of that game
+    only; the trailing shift downstream keeps them strictly-prior).
+
+    Offense: RB/FB, TE, TE-beyond-the-most-used, most-used WR and QB snap
+    shares of team offensive snaps. Defense: DB (sub-package rate) and DL
+    snap shares of team defensive snaps. Absent source degrades to an empty
+    frame; a group with zero snaps at a side yields NaN shares (never 0)."""
+    cols = list(SC_AGG_COLS)
+    if (snaps is None or snaps.empty
+            or not {"game_id", "team", "position", "offense_snaps",
+                    "defense_snaps"} <= set(snaps.columns)):
+        return pd.DataFrame(columns=cols)
+    p = snaps.copy()
+    for c in ("offense_snaps", "defense_snaps"):
+        p[c] = pd.to_numeric(p[c], errors="coerce")
+    p["_pos"] = p["position"].astype(str).str.upper().str.strip()
+
+    off = p[p["offense_snaps"].gt(0).fillna(False)]
+    defn = p[p["defense_snaps"].gt(0).fillna(False)]
+
+    def _side_shares(df: pd.DataFrame, snap_col: str,
+                     shares: dict[str, set[str] | str]) -> pd.DataFrame:
+        """shares: name -> position set, or 'te2' / 'wr1' special forms."""
+        g = df.groupby(["game_id", "team"])[snap_col]
+        tot = g.sum()
+        parts = {}
+        for name, positions in shares.items():
+            if isinstance(positions, set):
+                sub = df[df["_pos"].isin(positions)]
+                s = sub.groupby(["game_id", "team"])[snap_col].sum()
+                parts[name] = s.reindex(tot.index) / tot.where(tot.gt(0))
+            elif positions == "te2":
+                te = df[df["_pos"].isin({"TE"})]
+                s = te.groupby(["game_id", "team"])[snap_col].sum().reindex(tot.index).fillna(0.0)
+                m = te.groupby(["game_id", "team"])[snap_col].max().reindex(tot.index).fillna(0.0)
+                parts[name] = (s - m) / tot.where(tot.gt(0))
+            elif positions == "wr1":
+                wr = df[df["_pos"].isin({"WR"})]
+                m = wr.groupby(["game_id", "team"])[snap_col].max().reindex(tot.index)
+                parts[name] = m / tot.where(tot.gt(0))
+        frame = pd.concat(list(parts.values()), axis=1)
+        frame.columns = list(parts.keys())
+        return frame.reset_index()
+
+    out = pd.DataFrame(columns=["game_id", "team"])
+    if len(off):
+        off_shares = _side_shares(
+            off, "offense_snaps",
+            {"rb_snap_share": _RB_POS, "te_snap_share": _TE_POS,
+             "te2_snap_share": "te2", "wr1_snap_share": "wr1",
+             "qb_snap_share": _QB_POS})
+        out = off_shares if out.empty else out.merge(off_shares, on=["game_id", "team"], how="outer")
+    if len(defn):
+        def_shares = _side_shares(
+            defn, "defense_snaps",
+            {"db_snap_share": _DB_POS, "dl_snap_share": _DL_POS})
+        out = def_shares if out.empty else out.merge(def_shares, on=["game_id", "team"], how="outer")
+    if out.empty:
+        return pd.DataFrame(columns=cols)
+    return out[cols]
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +1023,13 @@ def _attach_static_team_facts(df: pd.DataFrame,
                 [ssn, wk, df[team_col].astype(str)]))[name].to_numpy(dtype=float)
 
         for n in names:
-            df[f"{n}_diff"] = _side("home_team", n) - _side("away_team", n)
+            home_v = _side("home_team", n)
+            away_v = _side("away_team", n)
+            df[f"{n}_diff"] = home_v - away_v
+            # Per-side candidate levels (config.STATIC_SIDE_CANDIDATES):
+            # the tree family's raw representations of the served diffs.
+            df[f"{n}_home"] = home_v
+            df[f"{n}_away"] = away_v
 
     # Venue geometry (travel distance, altitude) and prime-time flag.
     facts = _venue_facts()
@@ -866,6 +1048,10 @@ def _attach_static_team_facts(df: pd.DataFrame,
     away_lat, away_lon = _team_fact("away_team", "lat"), _team_fact("away_team", "lon")
     df["travel_miles_diff"] = (_haversine_miles(home_lat, home_lon, game_lat, game_lon)
                                - _haversine_miles(away_lat, away_lon, game_lat, game_lon))
+    # Per-side candidate levels (config.STATIC_SIDE_CANDIDATES): each team's
+    # own distance to the game venue.
+    df["travel_miles_home"] = _haversine_miles(home_lat, home_lon, game_lat, game_lon)
+    df["travel_miles_away"] = _haversine_miles(away_lat, away_lon, game_lat, game_lon)
     df["altitude_home"] = _game_fact("altitude_ft")
 
     gametime = (df["gametime"].astype(str) if "gametime" in df.columns
@@ -884,9 +1070,6 @@ def _attach_static_team_facts(df: pd.DataFrame,
                                   np.where(surface.eq("grass"), 0.0, np.nan))
 
     # Observed game-day weather (committed table + schedule fallback).
-    df = _attach_weather(df)
-    return df
-
     df = _attach_weather(df)
     return df
 
@@ -1001,7 +1184,9 @@ def build_game_features(games: pd.DataFrame,
                         pbp: pd.DataFrame | None = None,
                         ps: pd.DataFrame | None = None,
                         ngs: pd.DataFrame | None = None,
-                        inj: pd.DataFrame | None = None) -> pd.DataFrame:
+                        inj: pd.DataFrame | None = None,
+                        snaps: pd.DataFrame | None = None,
+                        ftn: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
@@ -1012,10 +1197,13 @@ def build_game_features(games: pd.DataFrame,
     diff features + the per-side values the tree view needs.
     """
     ev = compute_elo(team_events(games))
+    agg = pbp_team_agg(pbp)
     ladder = team_stats_ladder(
-        ev, pbp_team_agg(pbp),
+        ev, agg,
         extra_per_game={"ps": player_stats_team_agg(ps),
-                        "ngs": ngs_team_agg(ngs)})
+                        "ngs": ngs_team_agg(ngs),
+                        "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
+                        "sc": snap_counts_team_agg(snaps)})
     inj_facts = injuries_week_facts(inj)
 
     df = games.copy().reset_index(drop=True)
@@ -1068,7 +1256,9 @@ def build_slate_features(schedule: pd.DataFrame,
                          pbp: pd.DataFrame | None,
                          ps: pd.DataFrame | None = None,
                          ngs: pd.DataFrame | None = None,
-                         inj: pd.DataFrame | None = None) -> pd.DataFrame:
+                         inj: pd.DataFrame | None = None,
+                         snaps: pd.DataFrame | None = None,
+                         ftn: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full decided timeline; the scheduled rows are the
@@ -1089,10 +1279,13 @@ def build_slate_features(schedule: pd.DataFrame,
     ev_pending["elo_entering"] = ev_pending["team"].map(
         lambda t: ratings.get(t, config.ELO_PRIOR))
     combined = pd.concat([ev_decided, ev_pending], ignore_index=True)
+    agg = pbp_team_agg(pbp)
     ladder = team_stats_ladder(
-        combined, pbp_team_agg(pbp),
+        combined, agg,
         extra_per_game={"ps": player_stats_team_agg(ps),
-                        "ngs": ngs_team_agg(ngs)})
+                        "ngs": ngs_team_agg(ngs),
+                        "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
+                        "sc": snap_counts_team_agg(snaps)})
     inj_facts = injuries_week_facts(inj)
 
     df = pending.copy().reset_index(drop=True)
@@ -1158,16 +1351,54 @@ def linear_view(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def tree_view(df: pd.DataFrame) -> pd.DataFrame:
-    """Tree-family matrix: the active contract verbatim.
+def team_category_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """The config.TREE_CATEGORICAL_COLS pair from home/away abbreviations.
 
-    No column is synthesized here — diffs, raw per-side levels and the anchor
-    all come from config.MONEYLINE_FEATURE_COLS (the run-line/totals
-    regressors pull this same view), so the matrix is unique and
-    drift-free by construction.
+    Stable integer IDs (config.NFL_TEAM_ID) with the reserved UNK_TEAM_ID
+    slot for historical/abandoned/international/missing labels — never a
+    silent alias of a real team. Tree-family context ONLY: never in
+    MONEYLINE_FEATURE_COLS, never seen by the linear/MLP family.
+    """
+    out = pd.DataFrame(index=df.index)
+    if "home_team" in df.columns:
+        out["home_team_id"] = df["home_team"].map(config.team_category_id).astype("int64")
+    else:
+        out["home_team_id"] = config.UNK_TEAM_ID
+    if "away_team" in df.columns:
+        out["away_team_id"] = df["away_team"].map(config.team_category_id).astype("int64")
+    else:
+        out["away_team_id"] = config.UNK_TEAM_ID
+    return out
+
+
+def tree_numeric_columns() -> list[str]:
+    """The numeric part of the tree view (the served contract projection).
+
+    The run-line/totals regressors slice to this: LightGBM Poisson regressors
+    are plain numeric models, so their numeric matrix must stay purely
+    numeric (MLB parity — ScoreRegressor-equivalents there consume the
+    numeric matrix, not the categorical context).
+    """
+    return [c for c in config.active_moneyline_feature_cols()]
+
+
+def tree_view(df: pd.DataFrame) -> pd.DataFrame:
+    """Tree-family matrix: the served contract + the team-ID categorical pair.
+
+    The numeric block comes from config.MONEYLINE_FEATURE_COLS (the one
+    master list — no column is synthesized here). The categorical pair is
+    APPENDED after it for the tree members only, exactly like MLB's adopted
+    TREE_CATEGORICAL_COLS routing: the linear/MLP family (linear_view) never
+    receives these, and no view emits a duplicate. Diffs, raw per-side
+    levels and the anchor all come from the master list, so the matrix is
+    unique and drift-free by construction.
     """
     cols = [c for c in config.active_moneyline_feature_cols() if c in df.columns]
     out = df.reindex(columns=cols).astype(float)
+    cats = team_category_ids(df)
+    for c in config.TREE_CATEGORICAL_COLS:
+        if c not in out.columns:
+            out[c] = cats[c]
     return out
 
 

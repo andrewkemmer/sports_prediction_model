@@ -93,12 +93,16 @@ class ScoreRegressor:
         self.feature_columns: list[str] = []
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        # tree_view is the exact representation used by the binary moneyline
-        # tree members: it projects config.MONEYLINE_FEATURE_COLS, the one
-        # master list. This module never owns a run-line feature list, so the
-        # run line PULLS the moneyline contract by construction. Do not fill
+        # The NUMERIC part of the binary moneyline tree view: it projects
+        # config.MONEYLINE_FEATURE_COLS, the one master list. This module
+        # never owns a run-line feature list, so the run line PULLS the
+        # moneyline contract by construction. The tree-view's categorical
+        # team-ID pair is sliced OFF here — these Poisson regressors are
+        # plain numeric LightGBM models (MLB parity: the run-line/totals
+        # regressors do not consume the categorical context). Do not fill
         # NaN: LightGBM handles missing values natively, like MLB's run engine.
-        X = feat_mod.tree_view(df).astype(float)
+        X = feat_mod.tree_view(df).reindex(
+            columns=feat_mod.tree_numeric_columns()).astype(float)
         if not self.feature_columns:
             self.feature_columns = list(X.columns)
         return X.reindex(columns=self.feature_columns)

@@ -99,6 +99,12 @@ PBP_NEEDS = [
     # yac_epa replaces the never-available raw "yac" (nflreadpy does not
     # publish it) — separation is served as EPA per attempt instead.
     "air_yards", "yac_epa", "cpoe", "shotgun", "no_huddle", "play_id", "td_team",
+    # 2026-09-23 platoon/situational expansion: quarter, down/distance and
+    # scoring context for the two-minute / fourth-down / close-game rollups
+    # (features._add_pbp_metrics). personnel_o/d are NOT published by the
+    # nflreadpy pbp release — charting structure rides the ftn family instead.
+    "qtr", "down", "ydstogo", "goal_to_go", "score_differential",
+    "half_seconds_remaining", "play_type",
 ]
 
 # Cache schema version for the pbp parquets. Bump whenever PBP_NEEDS widens:
@@ -107,8 +113,10 @@ PBP_NEEDS = [
 # the missing columns would degrade to all-NaN and read like evidence).
 # "v1" = the original 21-column set; "v2" adds the candidate-pool columns;
 # "v3" swaps the never-available raw "yac" for "yac_epa" (the YAC-as-EPA
-# decomposition nflreadpy actually publishes).
-PBP_CACHE_VERSION = "v3"
+# decomposition nflreadpy actually publishes); "v4" adds the situational
+# columns (qtr/down/ydstogo/goal_to_go/score_differential/half_seconds_
+# remaining) behind the platoon rollups.
+PBP_CACHE_VERSION = "v4"
 
 
 def load_pbp(seasons: list[int] | None = None,
@@ -278,6 +286,86 @@ def load_nextgen(seasons: list[int] | None = None,
                 df = df[pd.to_numeric(df["week"], errors="coerce").fillna(0) > 0]
             df.to_parquet(path, index=False)
             frames.append(df)
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
+
+# Snap counts: per (game, team, player, position) offense/defense snap
+# totals + shares. Available 2013+ (full coverage of the configured window;
+# a season without the endpoint is warned and skipped). Cache SNAPS cache v1.
+SNAPS_NEEDS = ["game_id", "season", "week", "team", "opponent", "position",
+               "offense_snaps", "offense_pct", "defense_snaps", "defense_pct"]
+
+
+def load_snap_counts(seasons: list[int] | None = None,
+                     use_cache: bool = True) -> pd.DataFrame | None:
+    """nflverse snap counts narrowed to the participation rollup needs.
+
+    Per-season parquet caches (SNAPS cache v1); a failed season is warned
+    and skipped, never fatal. Returns None only when NO season loaded."""
+    seasons = seasons or config.ALL_SEASONS
+    frames: list[pd.DataFrame] = []
+    for season in seasons:
+        path = _cache_path(f"snaps_v1_{season}.parquet")
+        if use_cache and path.exists():
+            try:
+                frames.append(pd.read_parquet(path))
+                continue
+            except Exception as exc:  # corrupt cache → re-pull
+                logger.warning("snap-counts cache %s unreadable (%s)", path.name, exc)
+        try:
+            from nflreadpy import load_snap_counts
+            logger.info("loading snap counts season %s", season)
+            df = _polars_to_pandas(load_snap_counts(season))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("snap counts unavailable for %s: %s", season, exc)
+            continue
+        keep = [c for c in SNAPS_NEEDS if c in df.columns]
+        df = df[keep]
+        df.to_parquet(path, index=False)
+        frames.append(df)
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
+
+
+# FTN charting: per-play offensive structure/tendency flags (box count,
+# backfield, motion, play action, RPO, screen). Published 2022+; earlier
+# seasons are simply unavailable (the ftn candidate family degrades to NaN
+# there — the documented policy). Cache FTN cache v1.
+FTN_NEEDS = ["nflverse_game_id", "nflverse_play_id", "season", "week",
+             "n_defense_box", "n_offense_backfield", "is_motion",
+             "is_play_action", "is_rpo", "is_screen_pass"]
+
+
+def load_ftn_charting(seasons: list[int] | None = None,
+                      use_cache: bool = True) -> pd.DataFrame | None:
+    """nflverse FTN charting narrowed to the platoon rollup needs.
+
+    Per-season parquet caches (FTN cache v1); seasons outside the 2022+
+    publication window (and any failed season) are warned and skipped,
+    never fatal. Returns None only when NO season loaded."""
+    seasons = seasons or config.ALL_SEASONS
+    frames: list[pd.DataFrame] = []
+    for season in seasons:
+        path = _cache_path(f"ftn_v1_{season}.parquet")
+        if use_cache and path.exists():
+            try:
+                frames.append(pd.read_parquet(path))
+                continue
+            except Exception as exc:  # corrupt cache → re-pull
+                logger.warning("ftn cache %s unreadable (%s)", path.name, exc)
+        try:
+            from nflreadpy import load_ftn_charting
+            logger.info("loading ftn charting season %s", season)
+            df = _polars_to_pandas(load_ftn_charting(season))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ftn charting unavailable for %s: %s", season, exc)
+            continue
+        keep = [c for c in FTN_NEEDS if c in df.columns]
+        df = df[keep]
+        df.to_parquet(path, index=False)
+        frames.append(df)
     if not frames:
         return None
     return pd.concat(frames, ignore_index=True)

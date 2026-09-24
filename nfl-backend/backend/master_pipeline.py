@@ -219,10 +219,19 @@ def main(argv: list[str] | None = None) -> int:
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
     injuries = ingestion.load_injuries(seasons=seasons,
                                        use_cache=not full_repull)
+    # Snap-count participation (2013+) and FTN charting (2022+): the platoon
+    # candidate sources. Trailing windows need the warmup season for snaps.
+    snaps = ingestion.load_snap_counts(
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    ftn = ingestion.load_ftn_charting(seasons=seasons,
+                                      use_cache=not full_repull)
     logger.info("player stats rows: %s | ngs rows: %s | injury report rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs),
                 0 if injuries is None else len(injuries))
+    logger.info("snap count rows: %s | ftn charting rows: %s",
+                0 if snaps is None else len(snaps),
+                0 if ftn is None else len(ftn))
 
     decided_all = schedule[schedule["home_score"].notna()
                            & schedule["away_score"].notna()].copy()
@@ -234,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
     game_df = feat_mod.build_game_features(decided_all, pbp, ps=ps, ngs=ngs,
-                                           inj=injuries)
+                                           inj=injuries, snaps=snaps, ftn=ftn)
     game_df = game_df.sort_values("gameday").reset_index(drop=True)
     logger.info("feature frame: %d decided games, %d columns",
                 len(game_df), game_df.shape[1])
@@ -455,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
     slate = feat_mod.build_slate_features(schedule, pbp, ps=ps, ngs=ngs,
-                                          inj=injuries)
+                                          inj=injuries, snaps=snaps, ftn=ftn)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
@@ -715,8 +724,18 @@ def _sync_data_delivery(repo_root: Path, branch: str = "main") -> dict:
     """
     delivery_rel = Path("nfl-backend") / "data_delivery"
     delivery_dir = repo_root / delivery_rel
+    # Local-run guard: NFL_NO_PUSH=1 (or an absent GITHUB_TOKEN) skips the
+    # git delivery entirely. Kaggle runs always set the token and never set
+    # the flag, so scheduled delivery is unchanged; local runs — RFE sweeps,
+    # research — keep their artifacts on disk (the trace/workbook are written
+    # BEFORE this step, so they exist either way).
+    if _env_flag("NFL_NO_PUSH"):
+        logger.info("NFL_NO_PUSH=1 — artifact delivery skipped (local run)")
+        return {"staged_files": [], "skipped": "NFL_NO_PUSH=1"}
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
+        logger.warning("GITHUB_TOKEN absent — artifact delivery skipped (local run)")
+        return {"staged_files": [], "skipped": "GITHUB_TOKEN absent"}
         raise RuntimeError("GITHUB_TOKEN is required for NFL artifact delivery")
     if not delivery_dir.is_dir():
         raise RuntimeError(f"NFL delivery directory does not exist: {delivery_dir}")

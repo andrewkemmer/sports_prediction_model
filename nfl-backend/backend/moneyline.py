@@ -94,6 +94,18 @@ def member_matrix(name: str, df: pd.DataFrame) -> pd.DataFrame:
     return feat_mod.linear_view(df) if name in LINEAR_MEMBERS else feat_mod.tree_view(df)
 
 
+def member_matrix_ndarray(name: str, df: pd.DataFrame,
+                          pre: "TrainFoldPreprocessor | None" = None) -> np.ndarray:
+    """The member's matrix as a plain ndarray (explainers, diagnostics).
+
+    Tree members: the named tree_view frame (which now carries the
+    categorical team-ID pair) passed through member_fit_input unchanged.
+    Linear members: the fitted preprocessor's imputed+scaled ndarray —
+    callers MUST pass the member's own ``pre``.
+    """
+    return np.asarray(member_fit_input(name, member_matrix(name, df), pre))
+
+
 def member_fit_input(name: str, X_raw: pd.DataFrame,
                      pre: "TrainFoldPreprocessor | None"):
     """The ONE authoritative representation handed to member.fit().
