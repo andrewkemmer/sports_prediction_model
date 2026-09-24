@@ -64,7 +64,7 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 # tail of the trial list (the hardcoded 40 predates the 105-candidate pool
 # and silently starved additions). 200 = 35 incumbents + 105 candidates,
 # with headroom for pool growth.
-RFE_MAX_STEPS = 228
+RFE_MAX_STEPS = 220
 
 # Precipitation thresholds for the committed weather table (inches).
 PRECIP_FLAG_IN = 0.1
@@ -313,22 +313,6 @@ NGS_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     "sep": ("ewm", "roll"),       # NGS avg separation (WR/TE receiving)
 }
 
-# Starter-QB player-linked series (2026-09-24 expansion): the MLB-parity
-# answer to "the QB is the starting pitcher". The schedule's ANNOUNCED
-# starting QB (home/away_qb_id, published pre-game) keys each game to a
-# PLAYER, and the trailing series is that player's OWN weekly player-stats
-# line (passing_epa / passing_cpoe), trailed on the player's start timeline
-# with the same shift(1) discipline — so a backup start carries the backup's
-# level, a returning starter his own history, and an unknown starter degrades
-# to NaN (the team-mean pbp_qb_epa_dropback_* candidates remain in the pool
-# for the RFE to weigh against these). Family prefix qbs_.
-QBS_CANDIDATE_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
-    # Announced starter's trailing EPA per game (player-linked)
-    "epa_starter": ("ewm", "roll"),
-    # Announced starter's trailing completion % over expectation (rate)
-    "cpoe_starter": ("ewm",),
-}
-
 # family prefix -> the trailing specs behind it (served candidate names are
 # DERIVED from this — never hand-listed).
 CANDIDATE_FAMILIES: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
@@ -340,7 +324,6 @@ CANDIDATE_FAMILIES: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
     "ngs": {"base": NGS_CANDIDATE_TRAILING_SPECS},
     "ftn": {"base": FTN_CANDIDATE_TRAILING_SPECS},
     "sc": {"base": SC_CANDIDATE_TRAILING_SPECS},
-    "qbs": {"base": QBS_CANDIDATE_TRAILING_SPECS},
 }
 
 # ---------------------------------------------------------------------------

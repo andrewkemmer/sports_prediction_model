@@ -169,11 +169,6 @@ def load_pbp(seasons: list[int] | None = None,
 PS_NEEDS = [
     "game_id", "team", "position", "carries", "rushing_yards", "targets",
     "receptions", "receiving_yards", "receiving_tds", "season_type",
-    # 2026-09-24 starter-QB expansion: per-player identity + passing
-    # efficiency so the qbs family can trail the STARTER's own series
-    # (features.starter_qb_series) — the announced schedule QB joins the
-    # game to the player he actually is, not the team's blended mean.
-    "player_id", "passing_epa", "passing_cpoe", "week", "season",
 ]
 
 # The availability signal is the weekly report_status field ("Out" = ruled
@@ -196,14 +191,14 @@ NGS_NEEDS = {
 
 def load_player_stats(seasons: list[int] | None = None,
                       use_cache: bool = True) -> pd.DataFrame | None:
-    """nflverse weekly player stats narrowed to the usage + starter-QB needs.
+    """nflverse weekly player stats narrowed to the usage rollup needs.
 
-    Per-season parquet caches (PS cache v2); a failed season is warned and
+    Per-season parquet caches (PS cache v1); a failed season is warned and
     skipped, never fatal. Returns None only when NO season could be loaded."""
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
-        path = _cache_path(f"ps_v2_{season}.parquet")
+        path = _cache_path(f"ps_v1_{season}.parquet")
         if use_cache and path.exists():
             try:
                 frames.append(pd.read_parquet(path))
@@ -219,16 +214,6 @@ def load_player_stats(seasons: list[int] | None = None,
             continue
         keep = [c for c in PS_NEEDS if c in df.columns]
         df = df[keep]
-        # Cache schema guard: the narrowed frame must carry every column a
-        # consumer derives from (a stale partial pull would silently degrade
-        # the qbs family to NaN and read like evidence).
-        missing = [c for c in ("player_id", "passing_epa", "passing_cpoe",
-                               "week", "season", "game_id", "team")
-                   if c not in df.columns]
-        if missing:
-            logger.warning("player stats %s missing %s — season skipped",
-                           season, missing)
-            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:

@@ -56,14 +56,6 @@ def _build_candidate_manifest() -> None:
             "Trailing QB EPA per dropback",
             "Per-team trailing mean of QB EPA on dropbacks (pass attempts + sacks); QB play quality beyond volume",
             "efficiency"),
-        "epa_starter": (
-            "Trailing announced-starter EPA per start (player-linked)",
-            "The announced starting QB's OWN trailing passing EPA per start (weekly player stats keyed by player_id through the schedule's pre-game home/away_qb_id), EWM halflife-2 or rolling-4 on the player's start timeline; a backup start carries the backup's level, an unknown starter degrades to NaN",
-            "efficiency"),
-        "cpoe_starter": (
-            "Trailing announced-starter completion % over expectation (player-linked)",
-            "The announced starting QB's OWN trailing passing_cpoe per start (weekly player stats keyed by player_id through the schedule's pre-game home/away_qb_id), EWM halflife-2 on the player's start timeline",
-            "efficiency"),
         "cpoe_play": (
             "Trailing completion percentage over expectation",
             "Per-team trailing mean of nflverse cpoe on dropbacks — accuracy over expectation (qb play quality)",
@@ -228,7 +220,6 @@ def _build_candidate_manifest() -> None:
         "ngs": "nflverse Next-Gen Stats weekly tracking (per-game rollup)",
         "ftn": "nflverse FTN charting (per-game rollup; published 2022+)",
         "sc": "nflverse snap counts (per-game rollup; published 2013+)",
-        "qbs": "nflverse weekly player stats keyed to the schedule's announced starting QB (player-linked series)",
     }
     for _family, family_specs in _c.CANDIDATE_FAMILIES.items():
         for _spec_name, spec in family_specs.items():
