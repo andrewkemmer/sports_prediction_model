@@ -1,6 +1,5 @@
 {
- "record": "nfl_run_engine_markets",
- "written_utc": "2026-09-24T02:42:02.544545+00:00",
+ "created_utc": "2026-09-24T02:42:00.313164+00:00",
  "config": {
   "feature_set_version": "nfl-prod-v6-tree-team-categories",
   "warmup_seasons": [
@@ -81,22 +80,27 @@
   "random_seed": 42,
   "market_independence": true
  },
- "columns": 241,
- "n_rows": 1296,
- "n_oof": 1295,
- "n_slate": 1,
- "grids": {
-  "spread": [
-   -14,
-   14
-  ],
-  "total": [
-   24,
-   66
-  ],
-  "half_stops": [
-   -0.5,
-   0.5
-  ]
- }
+ "slate_date": "2026-09-24",
+ "n_games": 1,
+ "games": [
+  {
+   "game_id": "2026_03_ATL_GB",
+   "game_date": "2026-09-24",
+   "start_time_utc": "2026-09-24T20:15:00Z",
+   "home_team": "GB",
+   "away_team": "ATL",
+   "home_team_name": "Green Bay Packers",
+   "away_team_name": "Atlanta Falcons",
+   "home_record": "83-50-2",
+   "away_record": "55-80",
+   "venue": "Lambeau Field",
+   "game_status": "pre",
+   "home_score": null,
+   "away_score": null,
+   "home_win_prob_model": 0.6487425077261162,
+   "away_win_prob_model": 0.3512574922738838,
+   "model_pick": "GB",
+   "model_correct": null
+  }
+ ]
 }
