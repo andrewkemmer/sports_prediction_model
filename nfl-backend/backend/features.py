@@ -156,6 +156,145 @@ def pbp_ladder_columns() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Starter-QB player-linked series (2026-09-24, MLB starting-pitcher parity)
+# ---------------------------------------------------------------------------
+# The announced starting QB (schedule home/away_qb_id — published BEFORE the
+# game, so the join is point-in-time-safe) keys each game to a PLAYER. The
+# trailing series is that player's OWN weekly player-stats line
+# (passing_epa / passing_cpoe), trailed on the PLAYER's start timeline with
+# the same shift(1) primitives the team machinery uses — NOT the per-team
+# ladder loop, whose rows are team-games. A backup start therefore carries
+# the backup's own level and an unknown/missing starter degrades to NaN;
+# the team-mean pbp_qb_epa_dropback_* candidates remain in the pool as the
+# always-populated complement.
+
+def starter_qb_series(ps: pd.DataFrame | None,
+                      games: pd.DataFrame) -> pd.DataFrame:
+    """Per-(game_id, team) announced-starter trailing metrics.
+
+    Rows: every (game_id, home/away team) pair whose announced QB id exists.
+    Columns: qbs_epa_starter_ewm, qbs_epa_starter_roll, qbs_cpoe_starter_ewm
+    — the player's strictly-prior trailing values at his OWN announcement.
+    Determinism: identical (player, gameday) inputs produce identical
+    series; no randomness anywhere.
+    """
+    empty = pd.DataFrame(columns=["game_id", "team", "qbs_epa_starter_ewm",
+                                  "qbs_epa_starter_roll",
+                                  "qbs_cpoe_starter_ewm"])
+    if ps is None or not len(ps):
+        return empty
+    need = {"player_id", "passing_epa", "passing_cpoe", "week", "season",
+            "game_id", "team"}
+    if not need <= set(ps.columns):
+        return empty
+    if not {"home_qb_id", "away_qb_id"} <= set(games.columns):
+        return empty
+
+    gd = pd.to_datetime(games["gameday"], errors="coerce")
+
+    def _qid(series: pd.Series) -> pd.Series:
+        """Normalize GSIS-style QB ids ('00-0033873') to clean strings."""
+        return (series.astype("string").str.strip()
+                .replace({"": pd.NA, "None": pd.NA, "nan": pd.NA, "NA": pd.NA}))
+
+    rows = pd.DataFrame({
+        "game_id": pd.concat([games["game_id"], games["game_id"]],
+                             ignore_index=True),
+        "gameday": pd.concat([gd, gd], ignore_index=True),
+        "team": pd.concat([games["home_team"], games["away_team"]],
+                          ignore_index=True).to_numpy(),
+        "qb_id": pd.concat([_qid(games["home_qb_id"]),
+                            _qid(games["away_qb_id"])],
+                           ignore_index=True).to_numpy(),
+    }).dropna(subset=["qb_id", "gameday"])
+
+    # Per-player per-game efficiency lines from the weekly stats payload.
+    # The narrowed ps cache never carries gameday — the date comes from the
+    # decided game map (game_id -> gameday), then each player's start
+    # timeline is his own rows sorted by that date.
+    p = ps.copy()
+    p["player_id"] = p["player_id"].astype("string").str.strip()
+    p = p.drop(columns=[c for c in ("gameday",) if c in p.columns]).merge(
+        pd.DataFrame({"game_id": games["game_id"], "gameday": gd}),
+        on="game_id", how="left")
+    p["epa"] = pd.to_numeric(p["passing_epa"], errors="coerce")
+    p["cpoe"] = pd.to_numeric(p["passing_cpoe"], errors="coerce")
+    p = p[p["player_id"].notna()]
+
+    # One row per player-start: sum is the safe per-game aggregator (a
+    # player's weekly row is his single game; splits would double-count).
+    pg = (p.dropna(subset=["gameday"])
+           .groupby(["player_id", "game_id", "gameday"], as_index=False)
+           .agg(epa=("epa", "sum"), cpoe=("cpoe", "mean"),
+                team=("team", "first")))
+
+    out_parts = []
+    for (qb, team), grp in rows.groupby(["qb_id", "team"], sort=False):
+        starts = (pg[(pg["player_id"] == qb) & (pg["team"] == team)]
+                  .sort_values("gameday"))
+        if not len(starts):
+            continue
+        # NO shift(1) here: the merge_asof below (backward,
+        # allow_exact_matches=False) already guarantees the joined value is
+        # the latest start STRICTLY BEFORE the announced game — the player's
+        # most recent completed performance is included, and the announced
+        # game's own result never is. (A shift here would double-protect and
+        # drop that most-recent start — the off-by-one the 2026-09-24 PIT
+        # spot-check caught.)
+        idx = pd.Index(starts["gameday"])
+        ewm = starts["epa"].ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean()
+        roll = starts["epa"].rolling(config.PBP_ROLL_WINDOW, min_periods=1).mean()
+        cp = starts["cpoe"].ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean()
+        ser = pd.DataFrame({"qbs_epa_starter_ewm": ewm.to_numpy(),
+                            "qbs_epa_starter_roll": roll.to_numpy(),
+                            "qbs_cpoe_starter_ewm": cp.to_numpy()}, index=idx)
+        # Join THIS player's series onto his announced games at the game date
+        # (merge_asof backward = the latest start STRICTLY BEFORE gameday).
+        mine = rows[(rows["qb_id"] == qb) & (rows["team"] == team)].copy()
+        mine = mine.sort_values("gameday")
+        joined = pd.merge_asof(mine, ser.reset_index().rename(
+            columns={"index": "gameday"}),
+            on="gameday", direction="backward",
+            allow_exact_matches=False)
+        out_parts.append(joined)
+    if not out_parts:
+        return empty
+    out = pd.concat(out_parts, ignore_index=True)
+    return out[["game_id", "team", "qbs_epa_starter_ewm",
+                "qbs_epa_starter_roll", "qbs_cpoe_starter_ewm"]]
+
+
+def _attach_starter_qb_features(df: pd.DataFrame,
+                                qbs: pd.DataFrame | None) -> pd.DataFrame:
+    """Serve the qbs_ candidate family onto the game frame (diff + sides).
+
+    One concat; games without an announced/known starter keep NaN (the
+    documented degradation — never the team mean masquerading as a player).
+    """
+    cols = [f"qbs_{m}_{w}_{r}"
+            for m, ws in config.QBS_CANDIDATE_TRAILING_SPECS.items()
+            for w in ws for r in ("diff", "home", "away")]
+    if qbs is None or not len(qbs):
+        return pd.concat([df, pd.DataFrame(
+            {c: np.nan for c in cols}, index=df.index)], axis=1)
+    idx = pd.MultiIndex.from_frame(qbs[["game_id", "team"]])
+    lut = {c: qbs.set_index(["game_id", "team"])[c] for c in
+           ("qbs_epa_starter_ewm", "qbs_epa_starter_roll",
+            "qbs_cpoe_starter_ewm")}
+    home_idx = pd.MultiIndex.from_arrays([df["game_id"], df["home_team"]])
+    away_idx = pd.MultiIndex.from_arrays([df["game_id"], df["away_team"]])
+    sides = {}
+    for col, series in lut.items():
+        h = series.reindex(home_idx).to_numpy(dtype=float)
+        a = series.reindex(away_idx).to_numpy(dtype=float)
+        sides[f"{col}_diff"] = h - a
+        sides[f"{col}_home"] = h
+        sides[f"{col}_away"] = a
+    frame = pd.DataFrame(sides, index=df.index)
+    return pd.concat([df, frame.reindex(columns=cols)], axis=1)
+
+
+# ---------------------------------------------------------------------------
 # Venue facts (committed stadiums table)
 # ---------------------------------------------------------------------------
 VENUE_FILE = config.BACKEND_DIR / "nfl_stadiums.csv"
@@ -1186,15 +1325,17 @@ def build_game_features(games: pd.DataFrame,
                         ngs: pd.DataFrame | None = None,
                         inj: pd.DataFrame | None = None,
                         snaps: pd.DataFrame | None = None,
-                        ftn: pd.DataFrame | None = None) -> pd.DataFrame:
+                        ftn: pd.DataFrame | None = None,
+                        qbs: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
     real priors; every trailing value is shifted strictly prior. ``ps``/
-    ``ngs``/``inj`` are the optional skill/availability sources (weekly
-    player stats, Next-Gen Stats, injury reports); absent sources degrade
-    their features to NaN per the missing-value policy. Returns the served
-    diff features + the per-side values the tree view needs.
+    ``ngs``/``inj``/``qbs`` are the optional skill/availability sources
+    (weekly player stats, Next-Gen Stats, injury reports, starter-QB series
+    from the announced schedule QB ids); absent sources degrade their
+    features to NaN per the missing-value policy. Returns the served diff
+    features + the per-side values the tree view needs.
     """
     ev = compute_elo(team_events(games))
     agg = pbp_team_agg(pbp)
@@ -1217,6 +1358,7 @@ def build_game_features(games: pd.DataFrame,
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
     df = _attach_pbp_candidate_features(df, ladder, gids)
+    df = _attach_starter_qb_features(df, qbs)
     if "div_game" in df.columns:
         df["div_game"] = pd.to_numeric(df["div_game"], errors="coerce")
     else:
@@ -1258,7 +1400,8 @@ def build_slate_features(schedule: pd.DataFrame,
                          ngs: pd.DataFrame | None = None,
                          inj: pd.DataFrame | None = None,
                          snaps: pd.DataFrame | None = None,
-                         ftn: pd.DataFrame | None = None) -> pd.DataFrame:
+                         ftn: pd.DataFrame | None = None,
+                         qbs: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full decided timeline; the scheduled rows are the
@@ -1305,6 +1448,7 @@ def build_slate_features(schedule: pd.DataFrame,
     df["pace_plays_min_diff"] = _home_minus_away(ladder, gids, "pace_plays_min")
     df["rest_short_diff"] = _home_minus_away(ladder, gids, "short_rest")
     df = _attach_pbp_candidate_features(df, ladder, gids)
+    df = _attach_starter_qb_features(df, qbs)
     if "div_game" in df.columns:
         df["div_game"] = pd.to_numeric(df["div_game"], errors="coerce")
     else:

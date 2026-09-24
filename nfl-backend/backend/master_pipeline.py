@@ -230,6 +230,12 @@ def main(argv: list[str] | None = None) -> int:
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
     ftn = ingestion.load_ftn_charting(seasons=seasons,
                                       use_cache=not full_repull)
+    # Starter-QB player-linked series: derived ONCE here from the weekly
+    # player-stats pull against the FULL schedule's announced home/away_qb_id
+    # (decided games supply the player's own start timeline; slate games join
+    # it in build_slate_features). The feature engine's attach step consumes
+    # the derived (game_id, team, qbs_*) frame — not the raw stats payload.
+    qbs = feat_mod.starter_qb_series(ps, schedule)
     logger.info("player stats rows: %s | ngs rows: %s | injury report rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs),
@@ -248,7 +254,8 @@ def main(argv: list[str] | None = None) -> int:
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
     game_df = feat_mod.build_game_features(decided_all, pbp, ps=ps, ngs=ngs,
-                                           inj=injuries, snaps=snaps, ftn=ftn)
+                                           inj=injuries, snaps=snaps, ftn=ftn,
+                                           qbs=qbs)
     game_df = game_df.sort_values("gameday").reset_index(drop=True)
     logger.info("feature frame: %d decided games, %d columns",
                 len(game_df), game_df.shape[1])
@@ -469,7 +476,8 @@ def main(argv: list[str] | None = None) -> int:
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
     slate = feat_mod.build_slate_features(schedule, pbp, ps=ps, ngs=ngs,
-                                          inj=injuries, snaps=snaps, ftn=ftn)
+                                          inj=injuries, snaps=snaps, ftn=ftn,
+                                          qbs=qbs)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)
