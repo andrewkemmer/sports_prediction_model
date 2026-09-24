@@ -76,6 +76,80 @@ RUN_EXTRA_EXCLUSIONS = {
     # test_categorical_venue_starters.py).
     "venue", "home_starter_id", "away_starter_id",
 }
+
+# ── Tree-member team-ID categoricals (2026-09-23 ADOPT) ────────────────────
+# The moneyline trees have carried the team-ID pair since the categorical
+# ablation (training.TREE_CATEGORICAL_COLS); the run engine's Poisson side
+# models were numeric-only. The scratch A/B (scratch/runengine_teamid_
+# ablation.json, 2026-09-23, 6,811 OOF games / 74 canonical folds, paired
+# per-fold deltas) measured BOTH sides improving on the production contract:
+#   home: deviance −0.00890 (SE 0.00480)  CRPS −0.00525 (SE 0.00235)
+#   away: deviance −0.02061 (SE 0.00669)  CRPS −0.00995 (SE 0.00319)
+# derived-ML (diagnostic conversion) logloss −0.00114, AUC +0.00806; the
+# trees took ~37k splits on the pair (real usage, not noise), mean |Δλ|
+# 0.27 runs, spread +33%. venue_id / starter categories stay EXCLUDED —
+# the moneyline's DON'T-ADOPT verdict for that arm stands untested here.
+#
+# Mechanism: the pair rides ALONGSIDE the numeric contract as LightGBM
+# native categoricals (same member mechanism as the moneyline LGB head).
+# Frames are built float-only as before; the ID columns are attached by
+# _materialize_side_frame at the LAST moment (opt-in via the flag below),
+# so every astype(float) consumer site keeps working unchanged and the
+# numeric kept/dropped lists stay byte-identical.
+RUN_TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
+RUN_WITH_TEAM_IDS = True          # the adopted production config
+
+
+def _materialize_side_frame(games: pd.DataFrame, cols: list[str],
+                            side: str) -> tuple[pd.DataFrame, list[str]]:
+    """Final frame materialization — unchanged numeric contract.
+
+    The returned columns are the NUMERIC view exactly as before (the
+    kept/dropped contract stays byte-identical); the ID pair is NOT in the
+    frame here. Every fitting site reindexes its fold/slate slices on the
+    returned column list and float-casts, which would flatten category
+    dtypes — so the pair is attached AFTER that by
+    :func:`_apply_categorical_ids`. This function only validates the flag's
+    preconditions (source columns present or attachable) so a mis-wired
+    caller fails loud here rather than silently training numeric-only.
+    """
+    frame = games.reindex(columns=cols).astype(float)
+    return frame, list(cols)
+
+
+def _apply_categorical_ids(*frames: pd.DataFrame,
+                           rows: pd.DataFrame,
+                           ) -> None:
+    """Attach the team-ID pair as LightGBM categoricals, in place.
+
+    Called at the fitting sites AFTER the float reindex (which would cast a
+    categorical back to float) and after the side-view slice has dropped
+    the raw ``home_team``/``away_team`` name columns — so the caller must
+    pass the PRE-SLICE rows (``rows``) that positionally correspond 1:1 to
+    each model frame (the fold's train/val games or the slate). IDs resolve
+    from those rows' own ``home_team``/``away_team`` values via
+    ``training._add_team_ids``: the mapper is process-stable, so the same
+    abbreviation always maps to the same integer across train/val/slate,
+    and values it has never seen (plus missing name columns on privacy-
+    stripped slate fixtures) map to the reserved UNK slot — the moneyline's
+    own UNK contract. In-place: category dtype on both ID columns.
+    """
+    if not (RUN_WITH_TEAM_IDS and RUN_TREE_CATEGORICAL_COLS):
+        return
+    if rows is None:
+        raise ValueError(
+            "_apply_categorical_ids requires rows= (the pre-slice frame) so "
+            "team abbreviations can resolve — a positional 1:1 match with "
+            "every model frame passed alongside")
+    from training import _add_team_ids
+    for f in frames:
+        if len(f) != len(rows):
+            raise ValueError(
+                f"frame length {len(f)} != rows length {len(rows)} — the "
+                "model frame and its source rows must align positionally")
+        ids = _add_team_ids(rows)
+        for c in RUN_TREE_CATEGORICAL_COLS:
+            f[c] = pd.Categorical(ids[c].to_numpy())
 # The one sanctioned _diff survivor: a PARK context multiplier, not a matchup gap.
 RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
 
@@ -249,8 +323,14 @@ def build_side_frame(games: pd.DataFrame, side: str,
             cols = list(cols) + [proj_col]
             logger.info("Run engine: %s view += P1 projection opponent level %s",
                         side, proj_col)
-    frame = games.reindex(columns=cols).astype(float)
-    return frame, cols
+    frame, out_cols = _materialize_side_frame(games, cols, side)
+    # Record the pair on the returned list (contract metadata for callers
+    # that need the full model width) — but NOT in the frame; the fitting
+    # sites attach the categorical columns post-reindex via
+    # _apply_categorical_ids.
+    if RUN_WITH_TEAM_IDS and RUN_TREE_CATEGORICAL_COLS:
+        out_cols = list(out_cols) + list(RUN_TREE_CATEGORICAL_COLS)
+    return frame, out_cols
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +537,11 @@ def run_oof(games: pd.DataFrame,
             _, cols_all = frames[side]
             tr_frame = tr.reindex(columns=cols_all).astype(float)
             va_frame = va.reindex(columns=cols_all).astype(float)
+            # Team-ID categoricals (2026-09-23 ADOPT): attach AFTER the float
+            # reindex (which would cast a category back to float), resolved
+            # from each fold slice's own team abbreviations.
+            _apply_categorical_ids(tr_frame, rows=tr)
+            _apply_categorical_ids(va_frame, rows=va)
             y_tr = tr[target].to_numpy(dtype=float)
             y_va = va[target].to_numpy(dtype=float)
             _, lam, _ = _fit_side_model(
@@ -485,6 +570,9 @@ def run_oof(games: pd.DataFrame,
                                    "mode": "strict_active_moneyline",
                                    "n_features": len(active_moneyline_feature_cols()),
                                    "feature_cols": list(active_moneyline_feature_cols()),
+                                   "tree_categorical_cols": (
+                                       list(RUN_TREE_CATEGORICAL_COLS)
+                                       if RUN_WITH_TEAM_IDS else []),
                                },
                                "postseason_policy": "include"}
     # OOF and production share one explicit model-complexity policy. This
@@ -2387,10 +2475,17 @@ def predict_slate_runs(decided_games: pd.DataFrame, slate_games: pd.DataFrame,
         _, cols = build_side_frame(decided_games, side,
                                    strict_feature_parity=True)
         tr = decided_games.reindex(columns=cols).astype(float)
+        va = slate_games.reindex(columns=cols).astype(float)
+        # Team-ID categoricals (2026-09-23 ADOPT): attach AFTER the float
+        # reindex, resolved from each frame's own team abbreviations. Slate
+        # rows carry abbreviations (ESPN slates) or nothing at all —
+        # _add_team_ids degrades to the reserved UNK slot per the
+        # moneyline's own contract.
+        _apply_categorical_ids(tr, rows=decided_games)
+        _apply_categorical_ids(va, rows=slate_games)
         model = LGBMRegressor(**RUN_LGBM_PARAMS)
         model.set_params(n_estimators=int(final_fit_rounds[side]))
         model.fit(tr, decided_games[f"{side}_score"].to_numpy(dtype=float))
-        va = slate_games.reindex(columns=cols).astype(float)
         out[f"{side}_expected_runs"] = np.round(
             np.clip(model.predict(va), 1e-6, None), 4)
     alpha_h = alpha_of(out["home_expected_runs"].to_numpy(float), curves["home"])

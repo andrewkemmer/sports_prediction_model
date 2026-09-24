@@ -485,6 +485,66 @@ def test_totals_history_store_pk_dtype_normalized_and_never_raises():
 #    rolling 10-day board window (2026-09-23 rev 2, owner decision)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 9. Run-engine team-ID categoricals (2026-09-23 ADOPT)
+# ---------------------------------------------------------------------------
+
+def test_run_engine_team_id_seam_contract():
+    """The run engine's Poisson side models carry the moneyline's team-ID
+    pair as LightGBM-native categoricals (scratch/runengine_teamid_
+    ablation.json: both sides improve on deviance AND CRPS with paired
+    per-fold SEs). Contract pinned here:
+      * the numeric kept/dropped view is UNCHANGED — the pair is never in
+        build_side_frame's frame, only appended to its column list;
+      * _apply_categorical_ids attaches both columns as category dtype,
+        resolved from the pre-slice rows 1:1 (length mismatch = loud error);
+      * with the flag off, nothing is attached (numeric-only contract).
+    """
+    import pandas as pd
+    import run_engine as re
+
+    assert re.RUN_TREE_CATEGORICAL_COLS == ["home_team_id", "away_team_id"]
+    assert re.RUN_WITH_TEAM_IDS is True
+
+    games = pd.DataFrame({
+        "game_pk": [1, 2, 3],
+        "game_date": ["2026-09-20"] * 3,
+        "home_team": ["NYY", "BOS", "NYY"],
+        "away_team": ["BOS", "NYY", "BOS"],
+        "home_score": [5, 3, 2], "away_score": [2, 4, 1],
+        "home_win": [1.0, 0.0, 1.0],
+    })
+    numeric_cols = ["elo_diff"]
+    games["elo_diff"] = [0.1, -0.2, 0.3]
+    frame, cols = re.build_side_frame(games, "home")
+    assert "home_team_id" not in frame.columns  # frame stays numeric
+    assert cols[-2:] == ["home_team_id", "away_team_id"]  # list metadata
+
+    tr = games.reindex(columns=cols).astype(float)
+    re._apply_categorical_ids(tr, rows=games)
+    for c in re.RUN_TREE_CATEGORICAL_COLS:
+        assert str(tr[c].dtypes) == "category"
+    # Same abbreviation -> same integer across rows (mapper stability).
+    nyy = tr.loc[games["home_team"] == "NYY", "home_team_id"]
+    assert set(nyy.astype(str)) == {str(nyy.iloc[0])}
+
+    # Length mismatch must fail loud (positional 1:1 contract).
+    import pytest
+    with pytest.raises(ValueError):
+        re._apply_categorical_ids(tr, rows=games.iloc[:2])
+
+    # Flag off -> numeric-only contract restored.
+    re.RUN_WITH_TEAM_IDS = False
+    try:
+        frame2, cols2 = re.build_side_frame(games, "home")
+        assert cols2[-2:] != ["home_team_id", "away_team_id"]
+        tr2 = games.reindex(columns=cols2).astype(float)
+        re._apply_categorical_ids(tr2, rows=games)  # no-op
+        assert "home_team_id" not in tr2.columns
+    finally:
+        re.RUN_WITH_TEAM_IDS = True
+
+
 def test_retention_board_families_age_out_on_the_10_day_window():
     """REV 2 (2026-09-23): the dated board families ride the blanket 10-day
     window — the Today's Games dashboard serves a ROLLING 10 DAYS of
