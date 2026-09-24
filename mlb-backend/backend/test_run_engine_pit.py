@@ -481,40 +481,86 @@ def test_totals_history_store_pk_dtype_normalized_and_never_raises():
 
 
 # ---------------------------------------------------------------------------
-# 8. Historical game-card price honesty (2026-09-23 regression)
+# 8. Historical game-card price honesty (2026-09-23 regression) + the
+#    rolling 10-day board window (2026-09-23 rev 2, owner decision)
 # ---------------------------------------------------------------------------
 
-def test_retention_never_prunes_card_pricing_families():
-    """A historical card must render the production prices AS PUBLISHED.
-    The three families it reads — dated boards, run-engine markets (+meta),
-    SHAP — are permanent: outside every window, with no anchor and no
-    board tracked, classify_artifact keeps them (the 2026-09-11 card
-    regression showed them Sep 22 prices after the dated files were
-    pruned). Companion board-backed families keep riding their boards."""
+def test_retention_board_families_age_out_on_the_10_day_window():
+    """REV 2 (2026-09-23): the dated board families ride the blanket 10-day
+    window — the Today's Games dashboard serves a ROLLING 10 DAYS of
+    predictions, never a historical archive.
+
+    The permanence test (rev 1, the 2026-09-11 card regression) is
+    preserved for dates INSIDE the window: board + run-engine markets
+    (+meta) + SHAP all keep together, so a served card still renders the
+    production prices AS PUBLISHED (never an OOF re-price or cross-date
+    binding). Beyond the window every card family is stale together and
+    the frontend never offers the date (its own same-anchor filter).
+    Series/never-delete families are untouched."""
     import retention_policy as rp
-    anchor_now = "20260923"  # after every artifact date: nothing saved by windows
+
     keep = {"current", "seen", "protected"}
+
+    # Inside the blanket window (anchor -10 .. anchor): card pricing
+    # families all keep, and their board-backed companions keep with them.
+    retention_dates = {"20260914", "20260920", "20260923"}
+    for rel in (
+        "mlb-backend/data_delivery/todays_games_20260920.csv",
+        "mlb-backend/data_delivery/run_engine_markets_20260920.csv",
+        "mlb-backend/data_delivery/run_engine_markets_20260920.meta.json",
+        "mlb-backend/data_delivery/shap_game_20260920_TB@NYY.csv",
+        "mlb-backend/data_delivery/run_engine_oof_20260920.csv",
+        "mlb-backend/data_delivery/predictions_history_20260920.csv",
+    ):
+        verdict = rp.classify_artifact(
+            rel, seen=set(), retention_dates=retention_dates,
+            recent_dates=set(), board_dates=set(), anchor_date="20260923")
+        assert verdict in keep, f"{rel} classified {verdict} — in-window keep broken"
+
+    # Older than the window (no anchor guard, no board tracked): every
+    # card family is stale TOGETHER — the pipeline prunes them; a served
+    # card can never outlive its pricing companions.
     for rel in (
         "mlb-backend/data_delivery/todays_games_20260911.csv",
         "mlb-backend/data_delivery/run_engine_markets_20260911.csv",
         "mlb-backend/data_delivery/run_engine_markets_20260911.meta.json",
         "mlb-backend/data_delivery/shap_game_20260911_TB@NYY.csv",
+        "mlb-backend/data_delivery/run_engine_oof_20260911.csv",
+        "mlb-backend/data_delivery/predictions_history_20260911.csv",
     ):
         verdict = rp.classify_artifact(
             rel, seen=set(), retention_dates=set(), recent_dates=set(),
-            board_dates=set(), anchor_date=anchor_now)
-        assert verdict in keep, f"{rel} classified {verdict} — would be pruned"
-    # Companion families keep their board-backed / windowed behavior.
-    no_board = rp.classify_artifact(
-        "mlb-backend/data_delivery/run_engine_oof_20260911.csv",
-        seen=set(), retention_dates=set(), recent_dates=set(),
-        board_dates=set(), anchor_date=anchor_now)
-    assert no_board == "stale"
+            board_dates=set(), anchor_date="20260923")
+        assert verdict == "stale", f"{rel} classified {verdict} — survives the window"
+
+    # A board STILL TRACKED keeps its companions (board-backed rule) even
+    # outside the blanket window — a navigable board never loses the
+    # run-engine data its cards need (the 2026-08-29 doubleheader fix).
     with_board = rp.classify_artifact(
-        "mlb-backend/data_delivery/run_engine_oof_20260911.csv",
+        "mlb-backend/data_delivery/run_engine_markets_20260911.csv",
         seen=set(), retention_dates=set(), recent_dates=set(),
-        board_dates={"20260911"}, anchor_date=anchor_now)
+        board_dates={"20260911"}, anchor_date="20260923")
     assert with_board == "current"
+
+    # Backfill safety: artifacts dated NEWER than the run's anchor keep
+    # regardless of windows (present-day artifacts survive a past-anchored
+    # backfill run).
+    backfill = rp.classify_artifact(
+        "mlb-backend/data_delivery/todays_games_20260930.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates=set(), anchor_date="20260923")
+    assert backfill == "current"
+
+    # Series / never-delete families are unaffected by the revision.
+    for rel in (
+        "mlb-backend/data_delivery/run_engine_monitor_20260911.json",
+        "mlb-backend/data_delivery/models/ensemble_latest.joblib",
+        "mlb-backend/data_delivery/game_level_features.csv",
+    ):
+        verdict = rp.classify_artifact(
+            rel, seen=set(), retention_dates=set(), recent_dates=set(),
+            board_dates=set(), anchor_date="20260923")
+        assert verdict == "protected", f"{rel} classified {verdict} — must be protected"
 
 
 def test_slate_resolver_never_binds_across_a_distant_date():

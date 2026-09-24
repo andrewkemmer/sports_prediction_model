@@ -6,8 +6,8 @@ Covers the pure decision logic behind MLB_RFE_ADDITION_REMOVAL_GRID_MODE=1:
                          round-robin adds/removes; overflow recorded, never
                          dropped; env list order must not matter).
   * _grid_edge_verdict — the paired-difference commit bar (identical math
-                         to a normal run: max(floor, 2 x paired SE) plus the
-                         AUC/ECE guards) on synthetic loss vectors.
+                         to a normal run: max(floor, sigma x paired SE) plus
+                         the AUC/ECE guards) on synthetic loss vectors.
   * _state_label       — human labels for lattice states.
 
 Run:  python mlb-backend/backend/test_grid_rfe.py
@@ -164,6 +164,46 @@ def test_edge_handles_failed_state():
     e = _grid_edge_verdict("baseline", "trial", None, None, None, None,
                            0.0005, 2.0, 0.003, 0.005, 0.0032)
     assert e["committed"] is False and "not scored" in e["verdict"]
+
+
+# ── 1σ COMMIT BAR (2026-09-23, NFL parity) ─────────────────────────────────
+
+def test_config_pins_one_sigma_bar():
+    """The MLB RFE commit bar is 1 standard error of the PAIRED per-game
+    logloss difference — numeric parity with the NFL RFE bar
+    (nfl config RFE_COMMIT_SE_MULTIPLE = 1.0, same 0.0005 floor and
+    AUC/ECE guards). The paired construction self-calibrates junk features
+    to a high bar, so the looser multiple does not admit noise commits."""
+    import config
+
+    assert config.RFE_NOISE_SIGMA == 1.0
+    # NFL parity, verified in-tree: the two knobs must agree.
+    nfl_config_path = BACKEND_DIR.parents[1] / "nfl-backend" / "backend" / "config.py"
+    assert nfl_config_path.exists()
+    text = nfl_config_path.read_text(encoding="utf-8", errors="replace")
+    import re as _re
+    m = _re.search(r"RFE_COMMIT_SE_MULTIPLE\s*=\s*([0-9.]+)", text)
+    assert m and float(m.group(1)) == 1.0, "NFL RFE bar drifted from 1σ"
+
+
+def test_edge_one_sigma_commits_and_rejects():
+    """At sigma=1.0 the paired bar is ~0.003 (SE ≈ 0.0032 on these vectors):
+    a real 0.02 gain commits with the truthful 1σ label; a 0.002 gain
+    (≈0.6σ) is rejected."""
+    frm, to = _vectors(shift=0.02)
+    fm = {"logloss": 0.69, "auc": 0.58, "ece": 0.010}
+    tm = {"logloss": 0.67, "auc": 0.58, "ece": 0.010}
+    e = _grid_edge_verdict("baseline", "trial", frm, to, fm, tm,
+                           0.0005, 1.0, 0.003, 0.005, 0.0032)
+    assert e["committed"] is True
+    assert e["bar_basis"] == "paired_diff_1sigma"
+
+    frm2, to2 = _vectors(shift=0.002)
+    tm2 = {"logloss": 0.688, "auc": 0.58, "ece": 0.010}
+    e2 = _grid_edge_verdict("baseline", "trial", frm2, to2, fm, tm2,
+                            0.0005, 1.0, 0.003, 0.005, 0.0032)
+    assert e2["committed"] is False
+    assert e2["commit_threshold"] > 0.002
 
 
 # ── _state_label ────────────────────────────────────────────────────────────

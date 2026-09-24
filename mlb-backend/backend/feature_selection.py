@@ -226,8 +226,9 @@ def _score_splits(splits: list[dict[str, Any]],
     y_prob = np.concatenate(p_all)
     metrics = compute_metrics(y_true, y_prob)
     # Standard error of the pooled logloss estimate: a commit threshold of
-    # ~2*SE is what separates real signal from val-window chance (fixed
-    # floors cannot — see RFE_NOISE_SIGMA).
+    # noise_sigma*SE (1.0 — NFL parity, 2026-09-23) is what separates real
+    # signal from val-window chance (fixed floors cannot — see
+    # RFE_NOISE_SIGMA).
     eps = 1e-7
     p = np.clip(y_prob, eps, 1 - eps)
     losses = -(y_true * np.log(p) + (1 - y_true) * np.log(1 - p))
@@ -688,7 +689,7 @@ def run_rfe(
                     inc_threshold = fallback_threshold
                 incumbent_check = {
                     "metrics": {k: v for k, v in im.items() if k != "per_fold"},
-                    "bar_basis": "paired_diff_2sigma",
+                    "bar_basis": f"paired_diff_{noise_sigma:g}sigma",
                     "beats_universe": bool(
                         float(im["logloss"]) <= baseline_ll - inc_threshold),
                     "note": ("adopted subset still earns its keep"
@@ -736,7 +737,7 @@ def run_rfe(
         "targeted_trials": ({"additions": list(forced_add),
                              "removals": list(forced_rm)} if targeted else None),
         "guards": {"auc_drop_max": auc_guard, "ece_rise_max": ece_guard},
-        "bar_basis": "paired_diff_2sigma",
+        "bar_basis": f"paired_diff_{noise_sigma:g}sigma",
         "commit_threshold": round(threshold, 4),  # legacy fallback bar (baseline SE)
         "incumbent_check": incumbent_check,
     }
@@ -906,7 +907,7 @@ def _grid_edge_verdict(name_from: str, name_to: str,
         paired_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
         threshold = max(float(min_logloss_gain), noise_sigma * paired_se)
         edge["paired_se"] = round(paired_se, 6)
-        edge["bar_basis"] = "paired_diff_2sigma"
+        edge["bar_basis"] = f"paired_diff_{noise_sigma:g}sigma"
     else:
         threshold = fallback_threshold
         edge["bar_basis"] = "baseline_se_fallback"
@@ -1144,7 +1145,7 @@ def run_grid_rfe(
             beats = float(im["logloss"]) <= baseline_ll - inc_threshold
             incumbent_check = {
                 "metrics": {k: v for k, v in im.items()},
-                "bar_basis": "paired_diff_2sigma",
+                "bar_basis": f"paired_diff_{noise_sigma:g}sigma",
                 "beats_universe": bool(beats),
                 "note": ("adopted subset still earns its keep" if beats
                          else "regressed vs universe — consider --reset"),
@@ -1392,7 +1393,7 @@ def run_grid_rfe(
         "targeted_trials": {"additions": list(forced_add),
                             "removals": list(forced_rm)},
         "guards": {"auc_drop_max": auc_guard, "ece_rise_max": ece_guard},
-        "bar_basis": "paired_diff_2sigma",
+        "bar_basis": f"paired_diff_{noise_sigma:g}sigma",
         "commit_threshold": round(fallback_threshold, 4),
         "incumbent_check": incumbent_check,
     }
@@ -1461,7 +1462,7 @@ def confirm_candidate(
             diff = c_losses - u_losses
             paired_se = float(np.std(diff, ddof=1) / np.sqrt(len(diff)))
             threshold = max(float(min_logloss_gain), noise_sigma * paired_se)
-            bar_basis = "paired_diff_2sigma"
+            bar_basis = f"paired_diff_{noise_sigma:g}sigma"
         else:
             threshold = max(float(min_logloss_gain),
                             noise_sigma * float(out["universe"].get("logloss_se", 0.0)))

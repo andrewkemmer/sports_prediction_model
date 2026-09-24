@@ -66,8 +66,8 @@ Consumer audit (traced at HEAD 827de1b):
                                   |   available_dates game_dates from NEWEST;    |                                     |
                                   |   rolling-brier recompute (in-run, newest)   |                                     |
   todays_games_*.csv              | board date navigator (loads per date)        | newest-only per navigable date      | 10-day window
-  run_engine_markets_*.csv(+meta) | markets page (family-aware newest); board    | newest-only + board-backed          | keep-while-board
-                                  |   cards (market_diagnostics per date)        |                                     |
+                                  |                                              |                                     | (2026-09-23 rev 2: rolling only)  run_engine_markets_*.csv(+meta) | markets page (family-aware newest); board    | newest-only + board-backed          | keep-while-board
+                                  | cards (market_diagnostics per date)          |                                     | (2026-09-23 rev 2: board-backed)
   run_engine_oof_*.csv            | no frontend reader; backend monitor rebuild/ | newest-only + board-backed          | keep-while-board
                                   |   harnesses                                 |                                     |
   run_engine_monitor_*.json       | markets page (newest per date); **producer   | **SERIES** (producer folds ALL      | NEVER DELETE
@@ -80,7 +80,7 @@ Consumer audit (traced at HEAD 827de1b):
   feature_drift_*.csv             | never read standalone (embedded in monitor)  | newest-only                         | 10-day window
   feature_coverage_*.csv          | never read standalone                        | newest-only                         | 10-day window
   features_metadata_*.json        | never read standalone (embedded in monitor)  | newest-only                         | 10-day window
-  shap_game_*.csv                 | board per-game card fetch (per date)         | newest-only per navigable date      | 10-day window
+  shap_game_*.csv                 | board per-game card fetch (per date)         | newest-only per navigable date      | board-backed
   power_rankings_*.csv            | Home / power_rankings page (newest)          | newest-only                         | 10-day window
   pbp_defense_*.parquet(+meta)    | defense ablation harnesses GLOB ALL dated    | **SERIES (research)**               | NEVER DELETE
                                   |   files (ablation_defense / runline defense) |                                     |
@@ -104,13 +104,20 @@ Notes
 - Board-backed families survive as long as a ``todays_games_<date>.csv`` board
   for that date is still tracked (the 2026-08-29 doubleheader regression fix);
   at the 10-day window the slate rule dominates, kept as a safety net.
-- PERMANENT families (2026-09-23 revision): ``todays_games_`` boards,
-  ``run_engine_markets_`` (+ .meta.json), and ``shap_game_`` are never pruned.
-  A historical card must render the production prices AS PUBLISHED that day —
-  pruning the dated board forced the frontend onto OOF-rebuilt boards and
-  cross-date price binding (the 2026-09-11 card regression). Board-backed
-  companions (``run_engine_oof_``, ``predictions_history_``) follow their
-  boards via the board-backed rule.
+- Rolling 10-day boards (2026-09-23 revision 2, owner decision): the
+  2026-09-23 revision made ``todays_games_`` boards, ``run_engine_markets_``
+  (+ .meta.json), and ``shap_game_`` permanent so a historical card could
+  render the production prices AS PUBLISHED that day (the 2026-09-11 card
+  regression). That permanence is REVERSED: every dated board family now
+  rides the blanket 10-day window — the Today's Games dashboard shows a
+  ROLLING 10 DAYS of predictions, never a historical archive. The
+  price-honesty invariant is preserved for every date still inside the
+  window: board + markets + SHAP age out TOGETHER (SHAP and markets are
+  board-backed), so a card never falls back to an OOF-rebuilt board or
+  cross-date price binding while its date is served. Beyond the window the
+  date is not offered anywhere (frontend valid-date filter, same anchor),
+  and git history retains every pruned blob. Board-backed companions
+  (``run_engine_oof_``, ``predictions_history_``) follow their boards.
 - Files dated NEWER than the anchor are never deleted (backfill runs set
   ``MLB_END_DATE`` in the past; present-day artifacts must survive it).
 - Run-dated harness OUTPUTS (``*_ablation_*.json``, ``calibration_ablation_*``,
@@ -215,16 +222,17 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  retention_days=None, allowlisted=True, board_supported=True,
                  notes="newest-only + board-backed (available_dates game_dates "
                        "from NEWEST; rolling-brier recompute in-run)"),
-    FamilyPolicy("todays_games", "todays_games_", retention_days=None,
-                 allowlisted=True, slate_window_days=10, permanent=True,
-                 notes="board date-navigator loads per date; PERMANENT "
-                       "(2026-09-23): historical cards need the dated board"),
+    FamilyPolicy("todays_games", "todays_games_", retention_days=10,
+                 allowlisted=True,
+                 notes="board date-navigator loads per date; 10-day blanket "
+                       "window (2026-09-23 rev 2: rolling boards — the "
+                       "dashboard serves a rolling 10 days of predictions)"),
     FamilyPolicy("run_engine_markets", "run_engine_markets_",
                  retention_days=None, allowlisted=True, board_supported=True,
-                 permanent=True,
                  notes="markets page family-aware pick; board cards per date "
-                       "(incl. .meta.json); PERMANENT (2026-09-23): cards must "
-                       "serve production-as-published prices"),
+                       "(incl. .meta.json); board-backed — kept while its "
+                       "todays_games board is tracked (2026-09-23 rev 2: "
+                       "ages out with the 10-day board window)"),
     FamilyPolicy("run_engine_oof", "run_engine_oof_", retention_days=None,
                  allowlisted=True, board_supported=True,
                  notes="no frontend reader; newest-only + board-backed"),
@@ -257,9 +265,10 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  notes="newest-only; never read standalone (embedded in "
                        "model_monitor); 10-day window"),
     FamilyPolicy("shap_game", "shap_game_", retention_days=None,
-                 allowlisted=True, slate_window_days=10, permanent=True,
-                 notes="board per-game card fetch; PERMANENT (2026-09-23): "
-                       "historical cards need their dated SHAP files"),
+                 allowlisted=True, board_supported=True,
+                 notes="board per-game card fetch; board-backed — kept while "
+                       "its todays_games board is tracked (2026-09-23 rev 2: "
+                       "ages out with the 10-day board window)"),
     FamilyPolicy("power_rankings", "power_rankings_", retention_days=10,
                  allowlisted=True,
                  notes="newest-only (Home / power_rankings "

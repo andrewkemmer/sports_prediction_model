@@ -686,10 +686,10 @@ def sheet_dashboard(wb, rows, trace) -> None:
         ("Baseline logloss (lower is better)", round(bm.get("logloss", float("nan")), 4)),
         ("Baseline AUC (higher is better)", round(bm.get("auc", float("nan")), 4)),
         ("Baseline ECE (calibration error; lower is better)", round(bm.get("ece", float("nan")), 4)),
-        ("Noise bar per test (2 × paired SE of the logloss change)"
-         if trace.get("bar_basis") == "paired_diff_2sigma"
-         else "Noise bar per test (2 × baseline SE — legacy bar)",
-         bm.get("commit_threshold") or round(max(0.002, 2 * (bm.get("logloss_se") or 0)), 4)),
+        ("Noise bar per test (1 × paired SE of the logloss change)"
+         if trace.get("bar_basis") == "paired_diff_1sigma"
+         else "Noise bar per test (baseline SE — legacy bar)",
+         bm.get("commit_threshold") or round(max(0.002, 1 * (bm.get("logloss_se") or 0)), 4)),
         ("Folds used (walk-forward windows)", bm.get("folds_used")),
     ]
     grid = trace.get("grid") or {}
@@ -1135,8 +1135,8 @@ def sheet_glossary(wb) -> None:
                 "(e.g., does the model win 60% of games it calls 60%?) — lower is better."),
         ("Brier", "A squared-error cousin of logloss for probabilities — lower is better."),
         ("Noise bar (commit threshold)", "The minimum improvement a trial must show before the "
-                                         "engine believes it — set at twice the standard error of the "
-                                         "baseline, so luck can't pass."),
+                                         "engine believes it — set at one standard error of the "
+                                         "paired change (NFL parity, 2026-09-23), so luck can't pass."),
         ("Walk-forward fold", "One train-then-test window in time order — the test always comes "
                               "after the training period, like real predictions."),
         ("Standard error (SE)", "How much the logloss number would wobble if history were rerun — "

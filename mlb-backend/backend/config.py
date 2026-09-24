@@ -293,15 +293,18 @@ RFE_ECE_GUARD = 0.005          # adopt step only if pooled ECE rise <= this
                                # e.g. the rest_days_diff 0.0138 rise)
 RFE_MIN_LOGLOSS_GAIN = 0.0005  # floor on the commit threshold (never commit on
                                # a smaller measured gain, even at huge n)
-RFE_NOISE_SIGMA = 2.0          # commit threshold = max(floor, this many
+RFE_NOISE_SIGMA = 1.0          # commit threshold = max(floor, this many
                                # standard errors of the PAIRED per-game
                                # logloss difference (trial - baseline, same
                                # folds/games scored twice). Paired differencing
                                # cancels shared per-game difficulty, so the SE
-                               # reflects the CHANGE's noise, not the level's —
-                               # real ~0.001 effects clear a legitimate 2-sigma
-                               # bar while junk features self-calibrate a high
-                               # one (their per-game diffs bounce randomly).
+                               # reflects the CHANGE's noise, not the level's.
+                               # 1.0 as of 2026-09-23 (owner decision): parity
+                               # with the NFL RFE bar (RFE_COMMIT_SE_MULTIPLE
+                               # = 1.0) — the paired construction still makes
+                               # junk features self-calibrate a high bar (their
+                               # per-game diffs bounce randomly), so the looser
+                               # multiple does not admit noise commits.
 RFE_MAX_STEPS = 40             # walk-forward scoring evaluations per RFE run
 RFE_REDUNDANCY_R = 0.9         # |r| above which two pool features are flagged
                                # redundant_with each other (informational: they

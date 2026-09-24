@@ -911,6 +911,21 @@ def _distinct_game_dates(frame: pd.DataFrame) -> list[str]:
     return sorted(out, reverse=True)
 
 
+def _mlb_retention_window(days: int = 10) -> set[str]:
+    """The ROLLING RETENTION WINDOW as YYYYMMDD strings: today (ET) ..
+    today−``days`` — the same anchor convention the backend's blanket
+    window uses (retention_policy.py rev 2 anchors on today ET). Pure and
+    test-importable; never raises (a clock/timezone failure degrades to an
+    empty set, which callers must treat as "no filter")."""
+    try:
+        today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+        base = datetime.strptime(today, "%Y%m%d").date()
+        return {(base - timedelta(days=i)).strftime("%Y%m%d")
+                for i in range(days + 1)}
+    except (ValueError, OSError):
+        return set()
+
+
 def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
                       nfl_frame: pd.DataFrame, history_dates=()) -> list[str]:
     """Pure per-sport valid-date derivation (testable without Streamlit/net).
@@ -918,8 +933,12 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     MLB: a date is valid when a ``todays_games_<YYYYMMDD>.csv`` board exists
     (contents listing + local dir) OR the walk-forward history can rebuild it
     from calibration ``daily`` entries / prediction-history game dates
-    (``history_dates``). NFL: distinct ``game_date`` from the moneyline
-    ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
+    (``history_dates``) — then bounded to the ROLLING 10-DAY RETENTION
+    WINDOW (today ET .. today−10; retention_policy.py rev 2 anchors the
+    backend on the same ET day). Historical dates are never offered, so the
+    calendar, date rail, prev/next stepping and the board render gate all
+    expose exactly the rolling window. NFL: distinct ``game_date`` from the
+    moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
     s = normalize_sport_key(sport_key)
     if s == "nfl":
         dates = set(_distinct_game_dates(nfl_frame))
@@ -931,6 +950,15 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
         d = p.name[len("todays_games_"):-len(".csv")]
         if len(d) == 8 and d.isdigit():
             dates.add(d)
+    # Rolling 10-day retention window (today ET .. today−10) — mirrors the
+    # backend's blanket window (retention_policy.py rev 2), whose anchor is
+    # the same ET day. Boards older than the window are pruned by Phase 6,
+    # so a date outside it has no board to render; keeping it in the valid
+    # set would only offer a dead-end. MLB-only: the NFL branch above is
+    # untouched.
+    window = _mlb_retention_window()
+    if window:
+        dates &= window
     return sorted(dates, reverse=True)
 
 
