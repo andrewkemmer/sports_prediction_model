@@ -650,6 +650,32 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
     # Ties/postponements carry home_win = NULL -- they are not wins or losses
     # and must not crash int() conversion or distort percentages.
     decided = games[games["home_win"].notna()]
+
+    # Derive the displayed run differential from the same decided game rows
+    # used for the rest of the ranking.  The slate can contain NULL scores
+    # before first pitch, so only completed games with both score fields are
+    # eligible; missing scores must not be converted into fabricated runs.
+    team_run_diffs: dict[str, int] = {}
+    if {"home_score", "away_score"} <= set(decided.columns):
+        decided_scores = decided.copy()
+        decided_scores["home_score"] = pd.to_numeric(
+            decided_scores["home_score"], errors="coerce"
+        )
+        decided_scores["away_score"] = pd.to_numeric(
+            decided_scores["away_score"], errors="coerce"
+        )
+        scored = decided_scores[
+            decided_scores["home_score"].notna()
+            & decided_scores["away_score"].notna()
+        ]
+        for _, game in scored.iterrows():
+            home = game["home_team"]
+            away = game["away_team"]
+            home_runs = int(game["home_score"])
+            away_runs = int(game["away_score"])
+            team_run_diffs[home] = team_run_diffs.get(home, 0) + home_runs - away_runs
+            team_run_diffs[away] = team_run_diffs.get(away, 0) + away_runs - home_runs
+
     rankings = []
     for team in teams:
         home_games = decided[decided["home_team"] == team]
@@ -689,7 +715,7 @@ def _power_rankings_csv(games: pd.DataFrame, target_date_str: str) -> Path:
             "losses": losses,
             "record": f"{wins}-{losses}",
             "pct": pct,
-            "run_diff": 0,
+            "run_diff": team_run_diffs.get(team, 0),
             "l10": l10,
             "home_pct": home_pct,
             "away_pct": away_pct,
