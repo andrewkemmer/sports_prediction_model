@@ -220,18 +220,17 @@ with warnings_as_errors():
         check("ScoreRegressor fit+predict with zero feature-name warnings", True)
         check("ScoreRegressor preserves native LightGBM NaN routing",
               not hasattr(reg, "feature_medians"))
-        check("ScoreRegressor uses the NUMERIC tree contract (no team-ID pair)",
+        check("ScoreRegressor carries the team-ID pair (run-line parity)",
               list(reg.feature_columns) == feat_mod.tree_numeric_columns()
-              and all(c not in reg.feature_columns
-                      for c in config.TREE_CATEGORICAL_COLS))
+              + config.TREE_CATEGORICAL_COLS)
     except Warning as exc:
         check("ScoreRegressor fit+predict with zero feature-name warnings",
               False, f"warning escalated: {exc}")
 check("mu_h/mu_a finite", np.isfinite(mu_h).all() and np.isfinite(mu_a).all())
 lgb_names = list(getattr(reg.away_model, "feature_names_in_", []))
 lgb_names = list(getattr(reg.away_model, "feature_names_in_", []))
-check("LGBMRegressor fitted with the numeric tree contract",
-      lgb_names == feat_mod.tree_numeric_columns())
+check("LGBMRegressor fitted with the numeric contract + team-ID pair",
+      lgb_names == feat_mod.tree_numeric_columns() + config.TREE_CATEGORICAL_COLS)
 # ---------------------------------------------------------------------------
 print("\n== 5. Model-output invariance (ndarray vs named-DataFrame fit) ==")
 # The representation change must not alter model outputs: LightGBM fits on
