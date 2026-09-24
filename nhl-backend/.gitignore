@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# The production serving families ARE repository-delivered: the pipeline
+# writes them to data_delivery/, commits/pushes them, and the frontend's
+# readers resolve the newest dated artifact from GitHub first (local disk is
+# the fallback). Negate ONLY these exact families; every other generated
+# file stays ignored (regenerated per run — OOF stores, caches, research).
+!data_delivery/models/
+!data_delivery/models/*.joblib
+!data_delivery/nhl_moneyline_v1_*.json
+!data_delivery/nhl_calibration_*.json
+!data_delivery/nhl_predictions_history_*.csv
+!data_delivery/nhl_power_rankings_*.csv
+!data_delivery/nhl_run_engine_markets_*.csv
+!data_delivery/nhl_run_engine_markets_*.meta.json
+!data_delivery/nhl_run_engine_monitor_*.json
+!data_delivery/nhl_goalie_matchup_*.json
+!data_delivery/nhl_feature_v1_*.json
+!data_delivery/nhl_model_monitor_*.json
+!data_delivery/nhl_shap_game_*.csv
+!data_delivery/nhl_production_cards_history.csv
+!data_delivery/nhl_production_cards_history.meta.json
+
+# Generated per-run internals — re-created by the pipeline, never committed.
+data_delivery/nhl_oof_*.csv
+data_delivery/nhl_pipeline_summary.json
+data_delivery/nhl_fold_table.csv
+data_delivery/nhl_feature_selection_state.json

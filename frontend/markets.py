@@ -41,6 +41,13 @@ if utils.get_sport() == "nfl":
     nfl_markets_page.run()
     st.stop()
 
+# NHL Totals & Run Lines — the same page-module delegation (the NHL run-engine
+# artifact family ships the markets grid inside the dated moneyline-v1 board).
+if utils.get_sport() == "nhl":
+    import nhl_markets_page  # noqa: E402 (page module, imported lazily)
+    nhl_markets_page.run()
+    st.stop()
+
 utils.inject_css()
 
 # Resolve the newest reachable artifact that actually contains OOF rows.

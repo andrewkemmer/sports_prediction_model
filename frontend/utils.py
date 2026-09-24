@@ -566,7 +566,7 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                             branch: str) -> list[str]:
     """Per-sport artifact dates (cache key includes ``sport``):
     MLB enumerates todays_games_*.csv + merges calibration ``daily`` and
-    prediction-history game dates; NFL enumerates the dated moneyline /
+    prediction-history game dates; NFL/NHL enumerate the dated moneyline /
     calibration / prediction-history families."""
     s = normalize_sport_key(sport)
     subdir = resolve_sport(s)["repo_subdir"]
@@ -611,14 +611,21 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                 pass
         return sorted(dates, reverse=True)
 
-    # NFL: the named dated families the calibration/history/monitor/markets
-    # pages use (the run-engine slate-serve families included so the NFL
-    # Totals & Run Lines page resolves its latest artifact date).
-    prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
-                ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json"),
-                ("nfl_power_rankings_", ".csv"),
-                ("nfl_run_engine_markets_", ".csv"),
-                ("nfl_run_engine_monitor_", ".json")]
+    # NFL/NHL: the named dated families the calibration/history/monitor/
+    # markets pages use (the run-engine slate-serve families included so
+    # the Totals & Run Lines page resolves its latest artifact date).
+    if s == "nhl":
+        prefixes = [("nhl_moneyline_v1_", ".json"), ("nhl_calibration_", ".json"),
+                    ("nhl_predictions_history_", ".csv"), ("nhl_model_monitor_", ".json"),
+                    ("nhl_power_rankings_", ".csv"),
+                    ("nhl_run_engine_markets_", ".csv"),
+                    ("nhl_run_engine_monitor_", ".json")]
+    else:
+        prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
+                    ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json"),
+                    ("nfl_power_rankings_", ".csv"),
+                    ("nfl_run_engine_markets_", ".csv"),
+                    ("nfl_run_engine_monitor_", ".json")]
     if owner and repo:
         # Rate-limit aware listing (shared helper): a 403/429 degrades this
         # family set but is retried once, logged loudly, and never mistaken
@@ -937,10 +944,10 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     WINDOW (today ET .. today−10; retention_policy.py rev 2 anchors the
     backend on the same ET day). Historical dates are never offered, so the
     calendar, date rail, prev/next stepping and the board render gate all
-    expose exactly the rolling window. NFL: distinct ``game_date`` from the
-    moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
+    expose exactly the rolling window. NFL/NHL: distinct ``game_date`` from
+    the moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
     s = normalize_sport_key(sport_key)
-    if s == "nfl":
+    if s in ("nfl", "nhl"):
         dates = set(_distinct_game_dates(nfl_frame))
         dates.update(history_dates or ())
         return sorted(dates, reverse=True)
@@ -968,14 +975,14 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     user can actually land on, cached so per-rerun enumeration is cheap.
 
     MLB: ``todays_games_YYYYMMDD.csv`` artifacts (contents API + local).
-    NFL: distinct per-game ``game_date`` from the resolved moneyline
+    NFL/NHL: distinct per-game ``game_date`` from the resolved moneyline
     ``games[]`` array (empty when the shipped record is aggregate-only)."""
     s = normalize_sport_key(sport_key if sport_key is not None else get_sport())
     cfg = get_source_config()
     contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
-    nfl_frame = load_nfl_moneyline("nfl") if s == "nfl" else pd.DataFrame()
-    nfl_history = load_nfl_prediction_history("nfl") if s == "nfl" else pd.DataFrame()
-    nfl_history_dates = _distinct_game_dates(nfl_history) if s == "nfl" else ()
+    nfl_frame = load_nfl_moneyline(s) if s in ("nfl", "nhl") else pd.DataFrame()
+    nfl_history = load_nfl_prediction_history(s) if s in ("nfl", "nhl") else pd.DataFrame()
+    nfl_history_dates = _distinct_game_dates(nfl_history) if s in ("nfl", "nhl") else ()
     snap = set(contents)
     for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
         d = p.name[len("todays_games_"):-len(".csv")]
@@ -1174,7 +1181,7 @@ def load_nfl_moneyline_record(sport: str | None = "nfl") -> dict:
 
 
 def load_nfl_prediction_history(sport: str | None = "nfl") -> pd.DataFrame:
-    """Per-game (predicted, outcome) frame for the NFL Calibration page.
+    """Per-game (predicted, outcome) frame for the NFL/NHL Calibration page.
 
     Mirrors ``load_prediction_history``'s column contract so the per-1%
     favored-team curve (``mlc.favored_calibration_pts``) and the history
@@ -1205,7 +1212,7 @@ def load_nfl_prediction_history(sport: str | None = "nfl") -> pd.DataFrame:
             raw = None
     if raw is None:
         raw, src = _fetch_bytes(
-            f"nfl_predictions_history_{picked}.csv", **cfg, sport=s)
+            f"{s}_predictions_history_{picked}.csv", **cfg, sport=s)
     if raw is not None:
         try:
             hist = pd.read_csv(io.BytesIO(raw))
@@ -1271,12 +1278,18 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
 
     MLB (default): byte-identical to today — fetches ``todays_games_<date>.csv``
     through ``normalize_games``. NFL: adapts the latest moneyline v1 JSON
-    through the resolver/adapter (no MLB CSV exists). Any sport other than
-    MLB/NFL degrades to the MLB path (safe fallback)."""
+    through the resolver/adapter (no MLB CSV exists). NHL: resolves the
+    ``nhl_moneyline_v1_*.json`` record — the current-slate path adapts the
+    moneyline ``games[]``; a past date rebuilds from the frozen production
+    card store (the v1-history path, since no ``todays_games_*.csv`` board
+    exists for NHL). Any sport other than MLB/NFL/NHL degrades to the MLB
+    path (safe fallback)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     if s == "nfl":
         current = load_nfl_moneyline("nfl")
         return current
+    if s == "nhl":
+        return load_history_games_v1(date_str, "nhl")
     cfg = get_source_config()
     # VERIFY-then-fallback on the board's OWN family (never the union date
     # set): after a fresh push the union's newest entry can be a
@@ -1389,23 +1402,41 @@ def _family_dated_dates(sport: str | None,
     return sorted(dates, reverse=True)
 
 
-def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
-    """Available YYYYMMDD dates (newest first) for an NFL run-engine family.
+def _run_engine_family_dates(sport: str | None = None, family: str = "markets_csv",
+                             board_family: str | None = None) -> list[str]:
+    """Available YYYYMMDD dates (newest first) for a sport's run-engine family.
 
     Enumerates the GitHub data_delivery contents API (when a repo is
     configured) plus the local dir, exactly like the MLB per-sport loaders
     — the family name/pattern maps to ``markets_csv`` /
-    ``markets_monitor_json`` in the registry."""
+    ``markets_monitor_json`` in the registry. ``board_family`` optionally
+    unions a board-family pattern (NHL moneyline snapshots carry a full
+    date's grid under the moneyline filename — see
+    ``load_nhl_run_engine_markets``) so a slate-only date still resolves.
+
+    Kept as ``_nfl_run_engine_family_dates`` alias for compatibility."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     pat = artifact_patterns(s).get(family)
     prefix, ext = None, None
     if family == "markets_csv":
-        prefix, ext = "nfl_run_engine_markets_", ".csv"
+        prefix, ext = (("nfl_run_engine_markets_", ".csv") if s == "nfl"
+                       else ("nhl_run_engine_markets_", ".csv"))
     elif family == "markets_monitor_json":
-        prefix, ext = "nfl_run_engine_monitor_", ".json"
+        prefix, ext = (("nfl_run_engine_monitor_", ".json") if s == "nfl"
+                       else ("nhl_run_engine_monitor_", ".json"))
     if not pat or not prefix:
         return []
-    return _family_dated_dates(s, [(prefix, ext)])
+    families = [(prefix, ext)]
+    if s == "nhl" and board_family:
+        bpat = artifact_patterns(s).get(board_family)
+        if bpat and "*." in bpat:
+            families.append((bpat.split("*")[0], ".json"))
+    return _family_dated_dates(s, families)
+
+
+def _nfl_run_engine_family_dates(sport: str | None, family: str) -> list[str]:
+    """NFL-only compatibility shim: delegates to ``_run_engine_family_dates``."""
+    return _run_engine_family_dates(sport, family, board_family=None)
 
 
 def run_engine_page_dates(owner: str = "", repo: str = "",
@@ -1414,7 +1445,9 @@ def run_engine_page_dates(owner: str = "", repo: str = "",
     """Newest-first YYYYMMDD dates for the run-engine Totals & Run Lines
     page: the union of the page's OWN artifact families
     (``run_engine_markets_*.csv`` + ``run_engine_monitor_*.json`` on MLB;
-    the ``nfl_run_engine_*`` twins on NFL).
+    the ``nfl_run_engine_*`` twins on NFL; the ``nhl_run_engine_*`` twins
+    UNION the dated ``nhl_moneyline_v1_*`` board, which carries the NHL
+    markets grid).
 
     ``available_dates()`` builds its union from todays_games_*,
     calibration_* and predictions_history_* and NEVER enumerates the
@@ -1433,6 +1466,13 @@ def run_engine_page_dates(owner: str = "", repo: str = "",
     if s == "nfl":
         prefixes = [("nfl_run_engine_markets_", ".csv"),
                     ("nfl_run_engine_monitor_", ".json")]
+    elif s == "nhl":
+        # The NHL serving layer writes the markets grid under the dated
+        # moneyline-v1 filename — union that board family so a slate-only
+        # date still resolves for the Totals & Run Lines page.
+        prefixes = [("nhl_run_engine_markets_", ".csv"),
+                    ("nhl_run_engine_monitor_", ".json"),
+                    ("nhl_moneyline_v1_", ".json")]
     else:
         prefixes = [("run_engine_markets_", ".csv"),
                     ("run_engine_monitor_", ".json")]
@@ -1546,12 +1586,15 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
     artifact is reachable — never fabricated. The MLB-only
     ``load_run_engine_markets`` stays untouched (the run-engine slate is a
     per-sport family: MLB ``run_engine_markets_*``, NFL
-    ``nfl_run_engine_markets_*``)."""
+    ``nfl_run_engine_markets_*``, NHL ``nhl_run_engine_markets_*``).
+    NHL additionally accepts the serving layer's board-carried grid (the
+    markets rows written under ``nhl_moneyline_v1_<date>.json``) when no
+    standalone NHL markets CSV exists — same columns, different vessel."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     cfg = get_source_config()
-    for d in _nfl_run_engine_family_dates(s, "markets_csv"):
-        raw, _src = _fetch_bytes(f"nfl_run_engine_markets_{d}.csv",
-                                 **cfg, sport=s)
+    prefix = "nfl_run_engine_markets" if s == "nfl" else "nhl_run_engine_markets"
+    for d in _run_engine_family_dates(s, "markets_csv"):
+        raw, _src = _fetch_bytes(f"{prefix}_{d}.csv", **cfg, sport=s)
         if raw is None:
             continue
         try:
@@ -1559,7 +1602,10 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
             # A markets file is usable for Today's Games only when its current
             # slate rows carry the complete MC grid. Older pipeline runs can
             # contain the file but have null negative spread columns; skip
-            # those snapshots so the board never renders NaN%.
+            # those snapshots so the board never renders NaN% (NHL standalone
+            # CSVs carry the NHL grid, not the NFL one — the NHL serving
+            # layer ships its grid in the moneyline-v1 board, handled by
+            # ``load_nhl_run_engine_markets``).
             slate = frame[frame.get("kind", pd.Series(dtype=str)).eq("slate")]
             required = []
             for line in range(-14, 15):
@@ -1568,6 +1614,17 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
             for line in range(24, 67):
                 required.extend([f"p_over_{line}", f"p_under_{line}",
                                  f"p_push_{line}"])
+            if s == "nhl":
+                # NHL grid: spreads −8..+8 (labels m8..0..8) + totals 4..12
+                # with pushes in the p_push_total_{U} namespace — the serving
+                # layer's own published contract (serving.write_markets_csv).
+                required = []
+                for line in range(-8, 9):
+                    label = f"m{-line}" if line < 0 else str(line)
+                    required.extend([f"p_home_cover_{label}", f"p_push_{label}"])
+                for line in (5, 6, 7):
+                    required.extend([f"p_over_{line}", f"p_under_{line}",
+                                     f"p_push_total_{line}"])
             usable = bool(len(slate) and all(c in slate.columns for c in required)
                           and not slate[required].isna().any().any())
             if usable:
@@ -1577,9 +1634,41 @@ def load_nfl_run_engine_markets(sport: str | None = "nfl") -> tuple[pd.DataFrame
     return pd.DataFrame(), None
 
 
+def load_nhl_run_engine_markets(sport: str | None = "nhl") -> tuple[pd.DataFrame, str | None]:
+    """Newest NHL run-engine slate-serve markets artifact + its date.
+
+    The NHL serving layer writes the markets grid under the dated
+    ``nhl_moneyline_v1_<date>.json`` board filename, so this loader reads
+    that record's ``markets`` rows (falling back to a standalone
+    ``nhl_run_engine_markets_<date>.csv`` when one exists) and returns the
+    same (frame, date) contract as ``load_nfl_run_engine_markets`` — a
+    frame that may be empty (no standalone artifact AND no board-carried
+    grid) but never fabricated."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    # 1) Standalone markets CSV, exactly the NFL contract.
+    frame, d = load_nfl_run_engine_markets(s)
+    if not frame.empty:
+        return frame, d
+    # 2) Board-carried grid: the moneyline-v1 record's markets rows.
+    for bd in _run_engine_family_dates(s, "markets_csv", "moneyline_json"):
+        raw, _src = _fetch_bytes(f"nhl_moneyline_v1_{bd}.json", **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        rows = rec.get("markets") if isinstance(rec, dict) else None
+        if isinstance(rows, list) and rows:
+            return pd.DataFrame([r for r in rows if isinstance(r, dict)]), bd
+    return pd.DataFrame(), None
+
+
 # The QB-matchup card contract (the NFL substitute for MLB's starting-pitcher
-# matchup card): one row per board game, twin per-side stat blocks. Stats the
-# emitter cannot resolve (no published QB1 / no prior starts) stay None —
+# matchup card; NHL's substitute is the starting-goalie card below): one row
+# per board game, twin per-side stat blocks. Stats the emitter cannot resolve
+# (no published QB1 / no prior starts) stay None —
 # the card renders those as '—', never fabricated.
 NFL_QB_MATCHUP_COLUMNS = [
     "game_id", "gameday", "home_team", "away_team",
@@ -1590,24 +1679,30 @@ NFL_QB_MATCHUP_COLUMNS = [
 ]
 
 
-def _nfl_qb_matchup_family_dates(sport: str | None) -> list[str]:
-    """Available YYYYMMDD dates (newest first) for the ``nfl_qb_matchup_*``
-    family — same enumeration path as the NFL run-engine families."""
+def _nfl_qb_matchup_family_dates(sport: str | None = None) -> list[str]:
+    """Available YYYYMMDD dates (newest first) for a sport's QB/goalie
+    matchup family — same enumeration path as the run-engine families
+    (``nfl_qb_matchup_*`` on NFL; ``nhl_goalie_matchup_*`` on NHL)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    prefix, ext = "nfl_qb_matchup_", ".json"
+    prefix, ext = (("nfl_qb_matchup_", ".json") if s == "nfl"
+                   else ("nhl_goalie_matchup_", ".json"))
     return _family_dated_dates(s, [(prefix, ext)])
 
 
 def load_nfl_qb_matchup(sport: str | None = "nfl") -> pd.DataFrame:
-    """Newest NFL starting-QB matchup record as a per-game frame.
+    """Newest starting-QB matchup record as a per-game frame.
 
-    Reads the newest ``nfl_qb_matchup_*.json`` through the shared fetch
-    fallback and flattens the twin per-side QB stat blocks into one row per
+    NFL: reads the newest ``nfl_qb_matchup_*.json``; NHL: resolves the
+    ``nhl_goalie_matchup_*`` family into the same shared twin-stat card
+    frame (see ``load_nhl_goalie_matchup``). Reads through the shared fetch
+    fallback and flattens the twin per-side stat blocks into one row per
     game (columns pinned by ``NFL_QB_MATCHUP_COLUMNS``). Missing/invalid →
     empty frame WITH the full schema (never fabricated), exactly like the
     moneyline adapter."""
-    cols = NFL_QB_MATCHUP_COLUMNS
     s = normalize_sport_key(sport if sport is not None else get_sport())
+    if s == "nhl":
+        return load_nhl_goalie_matchup(s)
+    cols = NFL_QB_MATCHUP_COLUMNS
     cfg = get_source_config()
     for d in _nfl_qb_matchup_family_dates(s):
         raw, _src = _fetch_bytes(f"nfl_qb_matchup_{d}.json", **cfg, sport=s)
@@ -1711,11 +1806,12 @@ def load_prediction_history(date_str: str,
                             sport: str | None = None) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table).
 
-    Sport-dispatched: MLB reads ``predictions_history_*.csv``; NFL reads
-    ``nfl_predictions_history_*.csv``. Both carry the same per-game contract
+    Sport-dispatched: MLB reads ``predictions_history_*.csv``; NFL/NHL read
+    ``{sport}_predictions_history_*.csv``. All carry the same per-game contract
     (home_win_prob_model / correct / actual_winner / game_status ...)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    prefix = "predictions_history" if s == "mlb" else "nfl_predictions_history"
+    prefix = {"mlb": "predictions_history", "nfl": "nfl_predictions_history",
+              "nhl": "nhl_predictions_history"}.get(s, "predictions_history")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.csv",
@@ -1752,13 +1848,17 @@ def _history_for_date(date_str: str, owner: str, repo: str, branch: str) -> byte
     return None
 
 
-def _load_nfl_cards_store() -> pd.DataFrame:
-    """The frozen first-publication NFL card store (MLB parity with the
+def _load_cards_store(sport: str | None = None) -> pd.DataFrame:
+    """The frozen first-publication card store (MLB parity with the
     adopted totals-history store): every game's PRODUCTION prediction,
     priced once at publication and never mutated. Historical cards serve
-    from this store so they can never revert to OOF re-prices."""
-    path = REPO_ROOT / "nfl-backend" / "data_delivery" \
-        / "nfl_production_cards_history.csv"
+    from this store so they can never revert to OOF re-prices. Resolves
+    the store path through the active sport's registry subdir
+    (``{sport}_production_cards_history.csv``); keep
+    ``_load_nfl_cards_store`` as an NFL-compatible alias."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    path = REPO_ROOT / resolve_sport(s)["repo_subdir"] / "data_delivery" \
+        / f"{s}_production_cards_history.csv"
     if not path.exists():
         return pd.DataFrame()
     try:
@@ -1770,6 +1870,11 @@ def _load_nfl_cards_store() -> pd.DataFrame:
     df["p_home_win"] = pd.to_numeric(df["p_home_win"], errors="coerce")
     df["p_away_win"] = pd.to_numeric(df.get("p_away_win"), errors="coerce")
     return df
+
+
+def _load_nfl_cards_store() -> pd.DataFrame:
+    """NFL-only compatibility shim: delegates to ``_load_cards_store``."""
+    return _load_cards_store("nfl")
 
 
 def _cards_store_to_board_frame(store: pd.DataFrame,
@@ -1819,20 +1924,31 @@ def _history_to_board_frame(hist: pd.DataFrame, date_str: str) -> pd.DataFrame:
     return normalize_games(day)
 
 
-def load_nfl_history_games(date_str: str) -> pd.DataFrame:
-    """Rebuild an NFL historical card board for a past date.
+def load_history_games_v1(date_str: str,
+                          sport: str | None = None) -> pd.DataFrame:
+    """Rebuild a v1-sport (NFL/NHL) historical card board for a past date.
 
     FROZEN STORE FIRST: cards serve the production-as-published prediction
     (priced once at publication, never mutated — the MLB adopted pattern).
     The OOF history CSV is only a fallback while the store is absent
-    (pre-seed state); it is never allowed to overwrite frozen picks."""
+    (pre-seed state); it is never allowed to overwrite frozen picks.
+    ``load_nfl_history_games`` stays as an NFL-compatible alias."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
     try:
-        frozen = _cards_store_to_board_frame(_load_nfl_cards_store(), date_str)
+        frozen = _cards_store_to_board_frame(_load_cards_store(s), date_str)
     except Exception:
         frozen = pd.DataFrame()
     if not frozen.empty:
         return frozen
-    return _history_to_board_frame(load_nfl_prediction_history("nfl"), date_str)
+    return _history_to_board_frame(load_nfl_prediction_history(s), date_str)
+
+
+def load_nfl_history_games(date_str: str) -> pd.DataFrame:
+    """Rebuild an NFL historical card board for a past date.
+
+    NFL-only compatibility shim: delegates to ``load_history_games_v1``
+    (the shared frozen-store-first v1-history path, now used by NHL too)."""
+    return load_history_games_v1(date_str, "nfl")
 
 
 def load_history_games(date_str: str) -> pd.DataFrame:
@@ -1851,9 +1967,11 @@ def load_power_rankings(date_str: str,
                          sport: str | None = None) -> pd.DataFrame:
     s = normalize_sport_key(sport if sport is not None else get_sport())
     cfg = get_source_config()
-    # Sport-specific prefix: MLB ``power_rankings_*.csv``, NFL
-    # ``nfl_power_rankings_*.csv`` (same shared page, same 1-based rank shape).
-    prefix = "power_rankings" if s == "mlb" else "nfl_power_rankings"
+    # Sport-specific prefix: MLB ``power_rankings_*.csv``, NFL/NHL
+    # ``{sport}_power_rankings_*.csv`` (same shared page, same 1-based rank
+    # shape).
+    prefix = {"mlb": "power_rankings", "nfl": "nfl_power_rankings",
+              "nhl": "nhl_power_rankings"}.get(s, "power_rankings")
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.csv", **cfg, sport=s)
     st.session_state["data_source"] = src
@@ -1892,10 +2010,12 @@ def load_calibration(date_str: str, use_daily: bool = True,
                       sport: str | None = None) -> dict:
     """The latest Calibration record for the active sport.
 
-    Sport-dispatched: MLB ``calibration_*.json``; NFL ``nfl_calibration_*.json``
-    (identical shape, so the shared page renders both with one code path)."""
+    Sport-dispatched: MLB ``calibration_*.json``; NFL ``nfl_calibration_*.json``;
+    NHL ``nhl_calibration_*.json`` (identical shapes, so the shared page
+    renders all three with one code path)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    prefix = "calibration" if s == "mlb" else "nfl_calibration"
+    prefix = {"mlb": "calibration", "nfl": "nfl_calibration",
+              "nhl": "nhl_calibration"}.get(s, "calibration")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
@@ -2070,11 +2190,12 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
 def load_model_monitor(date_str: str,
                         sport: str | None = None) -> dict:
     """Sport-dispatched model-monitor record. MLB ``model_monitor_*.json``;
-    NFL ``nfl_model_monitor_*.json`` (the same MLB-shaped schema emitted by
-    nfl_monitor.build_model_monitor), so the shared Model Monitor page runs
-    both sports unchanged."""
+    NFL/NHL ``{sport}_model_monitor_*.json`` (the same MLB-shaped schema emitted
+    by nfl_monitor.build_model_monitor / the NHL monitor writer), so the shared
+    Model Monitor page runs all sports unchanged."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    prefix = "model_monitor" if s == "mlb" else "nfl_model_monitor"
+    prefix = {"mlb": "model_monitor", "nfl": "nfl_model_monitor",
+              "nhl": "nhl_model_monitor"}.get(s, "model_monitor")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
@@ -2087,11 +2208,12 @@ def load_model_monitor(date_str: str,
 def load_shap(game_id: str, date_str: str,
               sport: str | None = None) -> pd.DataFrame:
     """Per-game SHAP attributions (feature, shap_value, signed_effect,
-    perspective_team) — MLB ``shap_game_<game_id>.csv``; NFL emits the same
-    schema as ``nfl_shap_game_<game_id>.csv`` (game_id namespaces differ, so
-    the NFL prefix prevents cross-sport collisions)."""
+    perspective_team) — MLB ``shap_game_<game_id>.csv``; NFL/NHL emit the same
+    schema as ``{sport}_shap_game_<game_id>.csv`` (game_id namespaces differ, so
+    the sport prefix prevents cross-sport collisions)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
-    prefix = "shap_game" if s == "mlb" else "nfl_shap_game"
+    prefix = {"mlb": "shap_game", "nfl": "nfl_shap_game",
+              "nhl": "nhl_shap_game"}.get(s, "shap_game")
     cfg = get_source_config()
     # Serve the game's OWN dated file only. SHAP files embed their date in
     # the game_id, so a date-rewritten id would silently attribute a
@@ -2432,7 +2554,9 @@ def _is_snapshot_record(name: str) -> bool:
     Only a sport's primary snapshot families carry the data refresh — the
     pipeline output the sidebar reports (MLB: ``calibration_``,
     ``model_monitor_``, ``run_engine_monitor_``, ``run_engine_markets_``
-    meta; NFL: ``nfl_moneyline_v1_``, ``nfl_feature_v1_``). Stand-alone
+    meta; NFL: ``nfl_moneyline_v1_``, ``nfl_feature_v1_``; NHL:
+    ``nhl_moneyline_v1_``, ``nhl_feature_v1_``, ``nhl_run_engine_monitor_``,
+    ``nhl_run_engine_markets_``). Stand-alone
     read-only diagnostics — ``margin_reliability_*``, ``deep_over_recheck_*``,
     ``*_cull_diagnostic_*``, ``rolling_brier_*``, ``features_metadata_*`` —
     are EXCLUDED: their ``generated`` field records when the analysis was
@@ -2443,6 +2567,8 @@ def _is_snapshot_record(name: str) -> bool:
     return name.startswith((
         "calibration_", "model_monitor_", "run_engine_monitor_",
         "run_engine_markets_", "nfl_moneyline_v1_", "nfl_feature_v1_",
+        "nhl_moneyline_v1_", "nhl_feature_v1_", "nhl_run_engine_monitor_",
+        "nhl_run_engine_markets_",
     ))
 
 
@@ -2451,11 +2577,14 @@ def _is_snapshot_artifact(name: str) -> bool:
 
     ``_is_snapshot_record`` covers the JSON record families (their
     ``created_utc``/``generated`` set the sidebar time); this adds the dated
-    ``todays_games_*`` / ``predictions_history_*`` CSV snapshot artifacts so
-    their file mtime can stand in for freshness too. Stand-alone diagnostics
+    ``todays_games_*`` / ``predictions_history_*`` CSV snapshot artifacts (and
+    their sport-prefixed twins) so their file mtime can stand in for
+    freshness too. Stand-alone diagnostics
     are excluded (their mtime is likewise never the data refresh)."""
     return _is_snapshot_record(name) or name.startswith((
         "todays_games_", "predictions_history_",
+        "nfl_predictions_history_", "nhl_predictions_history_",
+        "nfl_power_rankings_", "nhl_power_rankings_",
     ))
 
 
@@ -2687,16 +2816,29 @@ def describe_feature(name: str, sport: str = "mlb") -> str:
     so existing callers (and MLB-only pages) are byte-unchanged.
     """
     s = str(name or "").strip()
-    table = NFL_FEATURE_DESCRIPTIONS if sport == "nfl" else FEATURE_DESCRIPTIONS
+    table = FEATURE_DESCRIPTIONS
+    if sport == "nfl":
+        table = NFL_FEATURE_DESCRIPTIONS
+    elif sport == "nhl":
+        table = NHL_FEATURE_DESCRIPTIONS
     base = table.get(s)
     if base is not None:
         return base
     for suf in ("_home", "_away"):
         if s.endswith(suf):
-            base = table.get(s[: -len(suf)])
+            base_name = s[: -len(suf)]
+            base = table.get(base_name)
+            if base is None:
+                # Per-side drift rows are the raw-level twins of the served
+                # diff feature (goalie_gaa_home ↔ goalie_gaa_diff): the
+                # side-stripped base itself ('goalie_gaa') is not a served
+                # name, so fall through to the diff twin's description.
+                base = table.get(base_name + "_diff")
             if base is not None:
                 return f"{base} — home team" if suf == "_home" else f"{base} — away team"
-            break
+            # No break: try the other side suffix before giving up (e.g.
+            # 'goalie_gaa_away' has no '_home' suffix, so an early break
+            # would skip the '_away' lookup and leak the raw name).
     for k, v in table.items():
         if s.startswith(k):
             return v
@@ -2710,3 +2852,273 @@ def feature_weight_pct(row: dict) -> str:
         return f"{float(v):.2f}%"
     except (TypeError, ValueError):
         return "—"
+
+
+# ==========================================================================
+# NHL adapter — nhl_moneyline_v1_*.json → the shared card DataFrame contract
+# ==========================================================================
+
+NHL_CARD_COLUMNS = [
+    "game_id", "home_team", "away_team", "home_win_prob_model",
+    "away_win_prob_model", "home_record", "away_record", "edge_home",
+    "edge_away", "start_time_utc", "venue", "model_pick", "home_score",
+    "away_score", "game_status", "game_date", "home_team_name",
+    "away_team_name",
+]
+
+
+def nhl_moneyline_to_frame(data) -> pd.DataFrame:
+    """Adapt an ``nhl_moneyline_v1_*.json`` record into the shared card frame.
+
+    Structural mirror of ``nfl_moneyline_to_frame``: the canonical per-game
+    list is read from ``games`` (or ``predictions``); each entry maps onto
+    the MLB moneyline/card contract. MLB-only fields (pitchers, run-engine
+    projection, venue, records) are present but null — never fabricated.
+    The serving layer also writes flat per-side goalie fields (``g_home_*`` /
+    ``g_away_*``); this adapter DOES copy them through as extra columns so
+    the NHL Today's Games card can render the starting goalies (SV% · GAA).
+    When the record carries no per-game list, the frame is returned empty
+    WITH the full column schema so downstream card code never KeyErrors.
+    """
+    if not isinstance(data, dict):
+        return pd.DataFrame(columns=NHL_CARD_COLUMNS)
+    rows = data.get("games") or data.get("predictions") or []
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        home = str(r.get("home_team", "") or "").strip()
+        away = str(r.get("away_team", "") or "").strip()
+        ph = _nl(r.get("home_win_prob", r.get("home_win_prob_model",
+                                              r.get("p_home"))))
+        if ph is None and _nl(r.get("away_win_prob")) is not None:
+            ph = 1.0 - _nl(r.get("away_win_prob"))
+        if ph is not None:
+            ph = min(1.0, max(0.0, ph))
+        pa = None if ph is None else 1.0 - ph
+        game_id = r.get("game_id") or r.get("game_pk") or ""
+        game_date = _norm_game_date(r.get("game_date") or r.get("gameday") or "")
+        if not game_id and (home or away):
+            game_id = f"{game_date.replace('-', '')}_{away}@{home}"
+
+        hs, as_ = _nl(r.get("home_score")), _nl(r.get("away_score"))
+        status = r.get("game_status") or r.get("game_state")
+        if not status:
+            status = "Final" if (hs is not None and as_ is not None) else "Scheduled"
+        status = {"post": "Final", "in": "Live", "pre": "Scheduled"}.get(
+            str(status).lower(), str(status).title())
+
+        pick = r.get("model_pick") or (home if (ph is not None and ph >= 0.5) else away)
+        row = {
+            "game_id": game_id,
+            "home_team": home,
+            "away_team": away,
+            "home_win_prob_model": ph,
+            "away_win_prob_model": pa,
+            "home_record": r.get("home_record"),
+            "away_record": r.get("away_record"),
+            "edge_home": _nl(r.get("edge_home")),
+            "edge_away": _nl(r.get("edge_away")),
+            "start_time_utc": _repair_start_iso(r.get("start_time_utc"))
+            or (f"{game_date}T00:00:00Z" if game_date else ""),
+            "venue": r.get("venue") or r.get("stadium") or r.get("roof") or "",
+            "model_pick": pick or "",
+            "home_score": hs,
+            "away_score": as_,
+            "game_status": status,
+            "game_date": game_date,
+            "home_team_name": r.get("home_team_name") or "",
+            "away_team_name": r.get("away_team_name") or "",
+        }
+        # Starting-goal enrichment (serving.write_goalie_matchup_json contract
+        # — flat g_<side>_<field> columns; enrichment only, never fabricated).
+        for field in ("name", "sv_pct", "gaa", "starts"):
+            for side in ("home", "away"):
+                row[f"g_{side}_{field}"] = r.get(f"g_{side}_{field}")
+        out.append(row)
+    cols = NHL_CARD_COLUMNS + [f"g_{side}_{field}"
+                               for field in ("name", "sv_pct", "gaa", "starts")
+                               for side in ("home", "away")]
+    return pd.DataFrame(out, columns=cols)
+
+
+def load_nhl_moneyline(sport: str | None = "nhl") -> pd.DataFrame:
+    """Load the latest NHL moneyline v1 artifact through the adapter.
+
+    Resolves the newest ``nhl_moneyline_v1_*.json`` in the NHL data_delivery
+    dir, reads it, and adapts to the shared card frame. Missing/invalid →
+    empty frame with the full card schema (never fabricated)."""
+    path = resolve_sport_artifact(sport or "nhl", "moneyline_json")
+    if path is None:
+        return pd.DataFrame(columns=NHL_CARD_COLUMNS)
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return pd.DataFrame(columns=NHL_CARD_COLUMNS)
+    return nhl_moneyline_to_frame(data)
+
+
+def load_nhl_moneyline_record(sport: str | None = "nhl") -> dict:
+    """Load the newest NHL moneyline v1 JSON as its RAW dict record.
+
+    The Calibration page reads the aggregate sections directly off this
+    dict; the card adapter (``load_nhl_moneyline``) stays the games[] →
+    DataFrame path. Missing / invalid / non-dict → {} (never raises)."""
+    path = resolve_sport_artifact(sport or "nhl", "moneyline_json")
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+# The starting-goalie card contract (the NHL substitute for NFL's QB
+# matchup): one row per board game, twin per-side goalie stat blocks. The
+# card renders SV% · GAA — the pitcher ERA · K/9 analog. Stats the emitter
+# cannot resolve (no confirmed starter / no prior starts) stay None — the
+# card renders those as '—', never fabricated.
+NHL_GOALIE_MATCHUP_COLUMNS = [
+    "game_id", "gameday", "home_team", "away_team",
+    "g_home_name", "g_home_sv_pct", "g_home_gaa", "g_home_starts",
+    "g_away_name", "g_away_sv_pct", "g_away_gaa", "g_away_starts",
+]
+
+
+def load_nhl_goalie_matchup(sport: str | None = "nhl") -> pd.DataFrame:
+    """Newest NHL starting-goalie matchup record as a per-game frame.
+
+    Reads the newest ``nhl_goalie_matchup_*.json`` through the shared fetch
+    fallback and flattens the twin per-side goalie blocks into one row per
+    game (columns pinned by ``NHL_GOALIE_MATCHUP_COLUMNS``). Missing/invalid
+    → empty frame WITH the full schema (never fabricated), exactly like the
+    moneyline adapter."""
+    cols = NHL_GOALIE_MATCHUP_COLUMNS
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    for d in _family_dated_dates(s, [("nhl_goalie_matchup_", ".json")]):
+        raw, _src = _fetch_bytes(f"nhl_goalie_matchup_{d}.json", **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        games = rec.get("games") if isinstance(rec, dict) else None
+        if not isinstance(games, list):
+            continue
+        out = []
+        for g in games:
+            if not isinstance(g, dict):
+                continue
+            # The emitter (serving.write_goalie_matchup_json) writes FLAT
+            # g_<side>_<field> columns; accept the nested per-side block
+            # form too so older/alternate emitters still resolve.
+            def _g(side: str, field: str):
+                block = g.get(side)
+                if isinstance(block, dict):
+                    return block.get(field)
+                return g.get(f"{side}_{field}")
+            out.append({
+                "game_id": str(g.get("game_id", "") or ""),
+                "gameday": str(g.get("gameday", "") or ""),
+                "home_team": str(g.get("home_team", "") or ""),
+                "away_team": str(g.get("away_team", "") or ""),
+                "g_home_name": _g("g_home", "name") or "",
+                "g_home_sv_pct": _g("g_home", "sv_pct"),
+                "g_home_gaa": _g("g_home", "gaa"),
+                "g_home_starts": _g("g_home", "starts"),
+                "g_away_name": _g("g_away", "name") or "",
+                "g_away_sv_pct": _g("g_away", "sv_pct"),
+                "g_away_gaa": _g("g_away", "gaa"),
+                "g_away_starts": _g("g_away", "starts"),
+            })
+        return pd.DataFrame(out, columns=cols)
+    return pd.DataFrame(columns=cols)
+
+
+def load_nhl_run_engine_monitor(sport: str | None = "nhl") -> dict | None:
+    """Newest NHL run-engine monitor JSON (``nhl_run_engine_monitor_*.json``).
+
+    Walks the family dates (newest first) and parses the JSON through the
+    shared fetch fallback. Returns None when missing/unparseable — the page
+    then shows the honest artifact-missing state (never fabricated
+    calibration)."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    for d in _run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _src = _fetch_bytes(f"nhl_run_engine_monitor_{d}.json",
+                                 **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        return data if isinstance(data, dict) else None
+    return None
+
+
+def load_nhl_run_engine_monitor_series(
+        sport: str | None = "nhl",
+        max_files: int = 30) -> list[dict]:
+    """All dated NHL run-engine monitor dicts, NEWEST first (bounded).
+
+    Walks the ``nhl_run_engine_monitor_*`` family dates (newest first) and
+    parses each JSON through the shared fetch fallback — the accumulating
+    slate-history fold needs EVERY dated monitor, not just the newest.
+    Returns [] when none parse (the page then renders the first-build
+    empty-state wording — never fabricated). ``max_files`` bounds the walk
+    so a long history stays cheap."""
+    s = normalize_sport_key(sport if sport is not None else get_sport())
+    cfg = get_source_config()
+    out: list[dict] = []
+    for d in _run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _src = _fetch_bytes(f"nhl_run_engine_monitor_{d}.json",
+                                 **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            out.append(data)
+        if len(out) >= max_files:
+            break
+    return out
+
+
+def _nhl_cards_store() -> pd.DataFrame:
+    """The frozen first-publication NHL card store: every game's PRODUCTION
+    prediction, priced once at publication and never mutated (the shared
+    frozen-store contract — same semantics as the NFL store)."""
+    return _load_cards_store("nhl")
+
+
+# ---------------------------------------------------------------------------
+# NHL feature descriptions (Model Monitor PSI table)
+# ---------------------------------------------------------------------------
+
+NHL_FEATURE_DESCRIPTIONS = {
+    # The served 20-feature market-free pool (config.MONEYLINE_FEATURE_COLS)
+    # — plain-language twins of the NHL manifest, kept on the frontend so the
+    # shared Feature Drift table renders descriptions for all sports.
+    "is_home": "Constant 1 — anchors the home-ice edge",
+    "elo_diff": "Home Elo − away Elo (point-in-time rating gap, updated each game)",
+    "win_pct_diff": "Home trailing win% (last 12 games) − away",
+    "rest_days_diff": "Home days since prior game − away (schedule fatigue)",
+    "ewm_net_goals_diff": "Home−away net goals/game, exponentially weighted (recent form)",
+    "ewm_goal_share_diff": "Home−away goal share (GF share of total goals), exponentially weighted",
+    "ga_per_game_diff": "Home−away goals allowed per game (lower = stingier defense)",
+    "shots_for_per_game_diff": "Home−away shots on goal per game (offense volume)",
+    "shots_against_per_game_diff": "Home−away shots allowed per game (defense)",
+    "pp_success_diff": "Home−away power-play conversion rate (special teams)",
+    "faceoff_win_diff": "Home−away faceoff win rate (possession starts)",
+    "back_to_back_diff": "Home on 0 days rest − away flag (back-to-back fatigue)",
+    "goalie_sv_pct_diff": "Home − away expected-starting-goalie save% (season to date)",
+    "goalie_gaa_diff": "Home − away expected-starting-goalie GAA (lower = better)",
+    "goalie_starts_diff": "Home − away goalie season starts (workload/experience)",
+    "is_playoffs": "1 for playoff games (postseason intensity/regime shift)",
+}

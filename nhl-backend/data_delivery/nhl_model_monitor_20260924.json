@@ -1,0 +1,838 @@
+{
+ "last_retrained": "2026-09-24",
+ "last_retrained_note": null,
+ "next_retrain": "2026-09-24",
+ "next_retrain_note": null,
+ "upset_note": null,
+ "feature_drift": [
+  {
+   "feature": "elo_diff",
+   "current_mean": 6.071978401210057,
+   "baseline_mean": 1.7456085843433928,
+   "psi": 1.5052625837050073,
+   "psi_adjusted": 1.5052625837050073,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_diff",
+   "current_mean": 0.028661616161616166,
+   "baseline_mean": 0.0250989898989899,
+   "psi": 0.32873165074790534,
+   "psi_adjusted": 0.32873165074790534,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_diff",
+   "current_mean": 0.4166666666666667,
+   "baseline_mean": 0.256,
+   "psi": 0.03027146717976123,
+   "psi_adjusted": 0.03027146717976123,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "current_mean": 0.21222646009331775,
+   "baseline_mean": 0.14798485986456386,
+   "psi": 0.07926277385484609,
+   "psi_adjusted": 0.07926277385484609,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "current_mean": 0.006122015583166505,
+   "baseline_mean": 0.009404090345529099,
+   "psi": 0.2906275694558476,
+   "psi_adjusted": 0.2906275694558476,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "current_mean": -0.016666666666666705,
+   "baseline_mean": 0.015133333333333311,
+   "psi": 0.3283156317543299,
+   "psi_adjusted": 0.3283156317543299,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_diff",
+   "current_mean": -0.1,
+   "baseline_mean": -0.092,
+   "psi": 0.00028713612706581106,
+   "psi_adjusted": 0.00028713612706581106,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 250,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "current_mean": 0.0006821950147476384,
+   "baseline_mean": 0.002838189932132191,
+   "psi": 0.19518126305224204,
+   "psi_adjusted": 0.19518126305224204,
+   "status": "WARN",
+   "weight_pct": 0.0,
+   "n_baseline": 221,
+   "n_current": 58
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "current_mean": 0.11666666666666667,
+   "baseline_mean": 0.09259259259259259,
+   "psi": 0.4729166470117912,
+   "psi_adjusted": 0.4729166470117912,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  },
+  {
+   "feature": "is_playoffs",
+   "current_mean": 0.0,
+   "baseline_mean": 0.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_home",
+   "current_mean": 1503.75488964529,
+   "baseline_mean": 1500.4612343730926,
+   "psi": 0.28048342985879227,
+   "psi_adjusted": 0.28048342985879227,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_away",
+   "current_mean": 1497.6829112440796,
+   "baseline_mean": 1498.715625788749,
+   "psi": 1.4869211210922448,
+   "psi_adjusted": 1.4869211210922448,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_home",
+   "current_mean": 0.5210858585858585,
+   "baseline_mean": 0.5074576938213302,
+   "psi": 1.194570086840605,
+   "psi_adjusted": 1.194570086840605,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 253,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_away",
+   "current_mean": 0.49242424242424243,
+   "baseline_mean": 0.49324986560280676,
+   "psi": 0.6033431019189525,
+   "psi_adjusted": 0.6033431019189525,
+   "status": "ALERT",
+   "weight_pct": 0.0,
+   "n_baseline": 255,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "current_mean": 0.15284003145206898,
+   "baseline_mean": 0.06391351455208624,
+   "psi": 0.15417388828918172,
+   "psi_adjusted": 0.15417388828918172,
+   "status": "WARN",
+   "weight_pct": 0.0,
+   "n_baseline": 253,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "current_mean": -0.059386428641248726,
+   "baseline_mean": -0.06185912624576879,
+   "psi": 0.2346761598002962,
+   "psi_adjusted": 0.2346761598002962,
+   "status": "WARN",
+   "weight_pct": 0.0,
+   "n_baseline": 255,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_home",
+   "current_mean": 2.533333333333333,
+   "baseline_mean": 2.4071146245059287,
+   "psi": 0.01606688571493709,
+   "psi_adjusted": 0.01606688571493709,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 253,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_away",
+   "current_mean": 2.1166666666666667,
+   "baseline_mean": 2.1372549019607843,
+   "psi": 0.017626262137118365,
+   "psi_adjusted": 0.017626262137118365,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 255,
+   "n_current": 60
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "current_mean": 0.8904657638980362,
+   "baseline_mean": 0.8915455391468623,
+   "psi": 0.17571381867487487,
+   "psi_adjusted": 0.17571381867487487,
+   "status": "WARN",
+   "weight_pct": 0.0,
+   "n_baseline": 233,
+   "n_current": 59
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "current_mean": 0.8900039199770209,
+   "baseline_mean": 0.8880696041969457,
+   "psi": 0.1720041333364771,
+   "psi_adjusted": 0.1720041333364771,
+   "status": "WARN",
+   "weight_pct": 0.0,
+   "n_baseline": 235,
+   "n_current": 59
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "is_home",
+   "current_mean": 1.0,
+   "baseline_mean": 1.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": 0.0,
+   "n_baseline": 270,
+   "n_current": 60
+  }
+ ],
+ "features_metadata": {
+  "elo_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "win_pct_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "rest_days_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "ewm_net_goals_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "ewm_goal_share_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "ga_per_game_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "shots_for_per_game_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "shots_against_per_game_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "pp_success_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "faceoff_win_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "back_to_back_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_sv_pct_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_gaa_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_starts_diff": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "is_playoffs": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "elo_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "elo_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "win_pct_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "win_pct_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "ewm_net_goals_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "ewm_net_goals_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "rest_days_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "rest_days_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_sv_pct_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_sv_pct_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_gaa_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "goalie_gaa_away": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  },
+  "is_home": {
+   "definition": "see backend/manifest.py",
+   "source": "official NHL API"
+  }
+ },
+ "feature_coverage": [
+  {
+   "feature": "elo_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_goal_share_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ga_per_game_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "shots_for_per_game_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "shots_against_per_game_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pp_success_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "faceoff_win_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "back_to_back_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 92.59,
+   "pct_nonnull": 92.59,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 81.85,
+   "pct_nonnull": 81.85,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "goalie_starts_diff",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_playoffs",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 93.7,
+   "pct_nonnull": 93.7,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 94.44,
+   "pct_nonnull": 94.44,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 93.7,
+   "pct_nonnull": 93.7,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_goals_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 94.44,
+   "pct_nonnull": 94.44,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 93.7,
+   "pct_nonnull": 93.7,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 94.44,
+   "pct_nonnull": 94.44,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 86.3,
+   "pct_nonnull": 86.3,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_sv_pct_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 87.04,
+   "pct_nonnull": 87.04,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "goalie_gaa_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "goalie_gaa_away",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "is_home",
+   "window": "decided pool",
+   "n_games": 270,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  }
+ ],
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.0,
+   "auc": 0.41729323308270677,
+   "brier": 0.2824816607788527,
+   "logloss": 0.7643248916726663,
+   "n_eval": 87
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.0,
+   "auc": 0.49355531686358756,
+   "brier": 0.24644018331149292,
+   "logloss": 0.6860146889097504,
+   "n_eval": 87
+  },
+  {
+   "name": "elasticnet",
+   "weight": 1.0,
+   "auc": 0.49355531686358756,
+   "brier": 0.2464192747671698,
+   "logloss": 0.6859725146807599,
+   "n_eval": 87
+  }
+ ],
+ "rolling_brier": [
+  {
+   "date": "2024-11-03",
+   "brier": 0.22463767003585228,
+   "games": 7
+  },
+  {
+   "date": "2024-11-04",
+   "brier": 0.2827578439271681,
+   "games": 2
+  },
+  {
+   "date": "2024-11-05",
+   "brier": 0.23735649480955665,
+   "games": 11
+  },
+  {
+   "date": "2024-11-06",
+   "brier": 0.27573937866923454,
+   "games": 3
+  },
+  {
+   "date": "2024-11-07",
+   "brier": 0.25805981687229035,
+   "games": 12
+  },
+  {
+   "date": "2024-11-08",
+   "brier": 0.2537222055602275,
+   "games": 4
+  },
+  {
+   "date": "2024-11-09",
+   "brier": 0.24581135934517548,
+   "games": 12
+  },
+  {
+   "date": "2024-11-10",
+   "brier": 0.23598600022678295,
+   "games": 3
+  },
+  {
+   "date": "2024-11-11",
+   "brier": 0.252435179484177,
+   "games": 6
+  },
+  {
+   "date": "2024-11-12",
+   "brier": 0.2594848277373458,
+   "games": 7
+  },
+  {
+   "date": "2024-11-13",
+   "brier": 0.2623046870386133,
+   "games": 5
+  },
+  {
+   "date": "2024-11-14",
+   "brier": 0.2326961643753042,
+   "games": 10
+  },
+  {
+   "date": "2024-11-15",
+   "brier": 0.24256567192974057,
+   "games": 5
+  }
+ ],
+ "brier_baseline": 0.4367816091954023,
+ "brier_baseline_label": "Constant home-edge",
+ "rolling_brier_meta": {
+  "window_days": 30,
+  "min_games_per_day": 1,
+  "excluded_sparse_days": 0,
+  "calibrator_is_identity": false,
+  "map_scope_note": "Points use the deployed Platt map (fit on all OOF games)."
+ },
+ "version_history": [
+  {
+   "version": "20260924",
+   "date": "2026-09-24",
+   "weights": {
+    "xgboost": 0.0,
+    "lightgbm": 0.0,
+    "elasticnet": 1.0
+   },
+   "auc": 0.4709989258861439,
+   "logloss": 0.6880016928050651,
+   "ece_calibrated": 0.014874586261359075,
+   "note": "rebuild run"
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 2,
+  "first_val_start": "2024-11-03",
+  "last_val_end": "2024-11-16",
+  "min_train": 183,
+  "max_train": 234,
+  "total_val_games": 87
+ },
+ "config": {
+  "feature_set_version": "nhl-prod-v1.0-goalies-team-categories",
+  "warmup_days": 30,
+  "first_season": 2024,
+  "oof_first_season": 2024,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 40,
+  "game_types": [
+   2,
+   3
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.18.0",
+   "sklearn": "1.9.0",
+   "xgboost": "3.4.0",
+   "lightgbm": "4.7.0",
+   "pandas": "3.0.1",
+   "numpy": "2.4.3"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "ewm_net_goals_diff",
+    "ewm_goal_share_diff",
+    "ga_per_game_diff",
+    "shots_for_per_game_diff",
+    "shots_against_per_game_diff",
+    "pp_success_diff",
+    "faceoff_win_diff",
+    "back_to_back_diff",
+    "goalie_sv_pct_diff",
+    "goalie_gaa_diff",
+    "goalie_starts_diff",
+    "is_playoffs",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_goals_home",
+    "ewm_net_goals_away",
+    "rest_days_home",
+    "rest_days_away",
+    "goalie_sv_pct_home",
+    "goalie_sv_pct_away",
+    "goalie_gaa_home",
+    "goalie_gaa_away",
+    "is_home"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true
+ }
+}

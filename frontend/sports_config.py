@@ -86,6 +86,35 @@ SPORTS = {
             "qb_matchup_json": "nfl_qb_matchup_*.json",
         },
     },
+    "nhl": {
+        "label": "NHL",
+        "emoji": "🏒",
+        "title": "NHL Predictions",
+        "subtitle": "NHL betting model dashboard",
+        "repo_subdir": "nhl-backend",
+        # NHL mirrors the NFL layout: run-engine slate-serve artifacts (Totals
+        # & Run Lines — market-free model product) plus the moneyline pool;
+        # Today's Games keeps a moneyline-first board whose game cards show
+        # the starting goalies (SV% · GAA) in place of NFL's QB box.
+        "has_run_engine": True,
+        "pages": [
+            "todays-games",
+            "power-rankings",
+            "calibration",
+            "model-monitor",
+            "markets",
+        ],
+        "artifacts": {
+            "moneyline_json": "nhl_moneyline_v1_*.json",
+            "feature_json": "nhl_feature_v1_*.json",
+            "calibration_json": "nhl_calibration_*.json",
+            "predictions_history_csv": "nhl_predictions_history_*.csv",
+            "power_rankings_csv": "nhl_power_rankings_*.csv",
+            "markets_csv": "nhl_run_engine_markets_*.csv",
+            "markets_monitor_json": "nhl_run_engine_monitor_*.json",
+            "goalie_matchup_json": "nhl_goalie_matchup_*.json",
+        },
+    },
 }
 
 DEFAULT_SPORT = "mlb"
