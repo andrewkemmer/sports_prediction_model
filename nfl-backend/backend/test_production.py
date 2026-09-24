@@ -425,16 +425,16 @@ check("market-independence (no odds inputs)", mk_ok, mk_detail)
 
 # ---------------------------------------------------------------------------
 print("\n== 9. Phase 4 production fold regression ==")
-# Representative eligible NFL historical data: 2018 warmup + 2019..2021 core,
-# REG-only, settled, NFL-like weekly cadence, run through the same production
-# generators (ingestion.eligible_games -> features.build_game_features ->
-# folds.make_folds).
+# Representative eligible NFL historical data: the configured warmup season
+# + the first three core seasons, REG-only, settled, NFL-like weekly cadence,
+# run through the same production generators (ingestion.eligible_games ->
+# features.build_game_features -> folds.make_folds).
 def _eligible_nfl_history() -> pd.DataFrame:
     rng = np.random.default_rng(config.RANDOM_SEED)
     teams = ["T%02d" % i for i in range(32)]
     rows = []
     gid = 0
-    for season in (2018, 2019, 2020, 2021):
+    for season in (config.WARMUP_SEASONS + config.CORE_SEASONS[:3]):
         for wk in range(1, 19):  # 16 games/week x 18 weeks = 288 per season
             day = pd.Timestamp(f"{season}-09-05") + pd.Timedelta(weeks=wk - 1)
             order = teams.copy()
@@ -464,11 +464,12 @@ hist = hist.sort_values("gameday").reset_index(drop=True)
 # Phase 4 objects exactly as the production pipeline generates them
 folds_prod = folds_mod.make_folds(hist, date_col="gameday")
 check("n_folds > 0", len(folds_prod) > 0, str(len(folds_prod)))
-check("first OOF validation year >= 2019",
-      all(pd.to_numeric(hist.loc[f.val_idx, "season"]).ge(2019).all()
+check("first OOF validation year >= OOF_FIRST_SEASON",
+      all(pd.to_numeric(hist.loc[f.val_idx, "season"]).ge(config.OOF_FIRST_SEASON).all()
           for f in folds_prod))
-check("2018 is warmup only (never validated)",
-      all(not (pd.to_numeric(hist.loc[f.val_idx, "season"]) == 2018).any()
+check("warmup seasons are training-only (never validated)",
+      all(not pd.to_numeric(hist.loc[f.val_idx, "season"])
+          .isin(config.WARMUP_SEASONS).any()
           for f in folds_prod))
 check("training strictly before validation start",
       all((pd.to_datetime(hist.loc[f.train_idx, "gameday"]) < f.val_start).all()
@@ -545,16 +546,17 @@ except Exception as exc:  # noqa: BLE001
     check("moneyline OOF runs on Phase 4 fold objects", False, str(exc))
 
 # ---- Reconciliation invariants (protect against the 1871/1984-style
-# misread: sum(n_validation) must equal the eligible 2019+ population, and
-# validation game IDs must be unique — no double-count, no orphan games). ---
+# misread: sum(n_validation) must equal the eligible OOF-season population
+# (season >= OOF_FIRST_SEASON), and validation game IDs must be unique —
+# no double-count, no orphan games). ---
 all_val_ids = [gid for f in folds_prod for gid in hist.loc[f.val_idx, "game_id"]]
 check("sum(n_validation) == unique validation game IDs (no duplicates)",
       len(all_val_ids) == len(set(all_val_ids)))
-check("unique validation game IDs == eligible 2019+ population",
-      len(set(all_val_ids)) == int(pd.to_numeric(hist["season"]).ge(2019).sum()))
-check("sum(n_validation) == eligible 2019+ population",
+check("unique validation game IDs == eligible OOF-season population",
+      len(set(all_val_ids)) == int(pd.to_numeric(hist["season"]).ge(config.OOF_FIRST_SEASON).sum()))
+check("sum(n_validation) == eligible OOF-season population",
       sum(len(f.val_idx) for f in folds_prod)
-      == int(pd.to_numeric(hist["season"]).ge(2019).sum()))
+      == int(pd.to_numeric(hist["season"]).ge(config.OOF_FIRST_SEASON).sum()))
 check("OOF row counts match Phase 4 n_validation per fold",
       all(int((oof["fold_id"] == f.fold_id).sum()) == len(f.val_idx)
           for f in small_folds))

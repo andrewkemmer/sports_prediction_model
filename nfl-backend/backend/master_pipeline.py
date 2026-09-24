@@ -143,10 +143,15 @@ def main(argv: list[str] | None = None) -> int:
     run_date = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
     date_c = run_date.replace("-", "")
 
-    # MLB-style date controls. Warm-up remains 2018 by default; OOF still
-    # begins in config.OOF_FIRST_SEASON. Legacy *_SEASON aliases are accepted.
+    # MLB-style date controls. The window START follows the eligibility
+    # contract: min(config.WARMUP_SEASONS) — the warmup season supplies the
+    # trailing priors, so the delivered game timeline must reach back to it
+    # (a hardcoded 2018 starved a 2016 warmup of its season). Legacy
+    # *_SEASON aliases are accepted.
     full_repull = _env_flag("NFL_FULL_REPULL")
-    start_date = _env_date("NFL_START_DATE", "NFL_START_SEASON", "2018-01-01")
+    start_date = _env_date(
+        "NFL_START_DATE", "NFL_START_SEASON",
+        f"{min(config.WARMUP_SEASONS)}-01-01")
     end_date, window_end = _env_end_bounds()
     if start_date > window_end:
         raise SystemExit(f"invalid date window: {start_date} > {window_end}")

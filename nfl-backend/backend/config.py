@@ -29,9 +29,9 @@ NUMPY_SEED = 42
 # ---------------------------------------------------------------------------
 # Historical eligibility policy
 # ---------------------------------------------------------------------------
-WARMUP_SEASONS = [2018]          # trailing priors only — never OOF-evaluated
-OOF_FIRST_SEASON = 2019          # OOF population starts here
-CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2019..2026 inclusive
+WARMUP_SEASONS = [2016]          # trailing priors only — never OOF-evaluated
+OOF_FIRST_SEASON = 2017          # OOF population starts here
+CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2027))   # 2017..2026 inclusive
 ALL_SEASONS = WARMUP_SEASONS + CORE_SEASONS
 GAME_TYPES = {"REG", "POST"}       # regular season + postseason; preseason excluded
 
