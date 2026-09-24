@@ -587,7 +587,12 @@ def _run_engine_line_pairs(df: pd.DataFrame, line_kind: str,
                 continue
             ps.append(ml / (ml + (1.0 - ml)))
             ys.append(float(margin > 0))
-    return np.asarray(ps, dtype=float), np.asarray(ys, dtype=float)
+    # Return order is (y, p) — outcomes first, model probabilities second —
+    # the contract every _run_engine_market_metrics call site unpacks. The
+    # 2026-09-24 artifact bug: this returned (p, y), so the metrics computed
+    # logloss/ECE with labels and predictions swapped (Brier survived — it
+    # is symmetric — while logloss exploded to ~5-7 and ECE sat near 0.5).
+    return np.asarray(ys, dtype=float), np.asarray(ps, dtype=float)
 
 
 def _run_engine_market_metrics(oof_market_rows: pd.DataFrame) -> dict:

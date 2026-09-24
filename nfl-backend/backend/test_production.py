@@ -342,6 +342,37 @@ check("calibration metrics keys",
       all(k in cal_rec["metrics"] for k in ("auc", "brier", "logloss", "ece")))
 
 # ---------------------------------------------------------------------------
+print("\n== 7b. Run-engine per-line metrics: (y, p) pair order + binary range ==")
+# The 2026-09-24 artifact bug: _run_engine_line_pairs returned (p, y) while
+# every _run_engine_market_metrics call site unpacked (y, p) — Brier (symmetric)
+# stayed sane while per-line logloss exploded to ~5-7 and ECE sat near 0.5.
+# This pins the pair contract and the binary metric range on a synthetic line.
+import monitoring  # noqa: E402
+_rng = np.random.default_rng(11)
+_n = 400
+_mu_h = pd.Series(_rng.normal(24, 4, _n)).clip(3, 45)
+_mu_a = pd.Series(_rng.normal(21, 4, _n)).clip(3, 45)
+_dd = dist_mod.apply_distribution(
+    pd.DataFrame({"game_id": [f"G{i}" for i in range(_n)],
+                  "mu_h": _mu_h, "mu_a": _mu_a}),
+    {"alpha_home": 0.12, "alpha_away": 0.12})
+_dd["fold_id"] = 0  # pass-through: no prequential refit on the synthetic frame
+_dd["total"] = ((_mu_h + _mu_a).round().to_numpy()
+                + _rng.integers(-6, 7, _n).astype(float))
+_yv, _pv = monitoring._run_engine_line_pairs(_dd, "over", 42.0)
+check("run-engine line pairs return (y, p): y binary, p in (0,1)",
+      len(_yv) > 0 and set(np.unique(_yv)).issubset({0.0, 1.0})
+      and float(_pv.min()) > 0 and float(_pv.max()) < 1,
+      f"y unique={sorted(set(np.unique(_yv)))[:4]} p=[{_pv.min():.3f},{_pv.max():.3f}]")
+_mm = monitoring._markets_card_metrics(_yv, _pv)
+check("run-engine per-line logloss in binary range",
+      _mm["logloss"] is not None and 0.3 < _mm["logloss"] < 1.0,
+      f"logloss={_mm['logloss']} (the swapped-pairs bug read ~5-7)")
+check("run-engine per-line ECE small on the synthetic line",
+      _mm["ece_raw"] is not None and _mm["ece_raw"] < 0.2,
+      f"ece={_mm['ece_raw']} (the swapped-pairs bug read ~0.49)")
+
+# ---------------------------------------------------------------------------
 print("\n== 8. Dependency-isolation tests ==")
 src = {p.name: p.read_text(encoding="utf-8") for p in BACKEND_DIR.glob("*.py")}
 obsolete_modules = [

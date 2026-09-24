@@ -1,8 +1,8 @@
 {
  "record": "nfl_run_engine_markets",
- "written_utc": "2026-09-24T02:42:02.544545+00:00",
+ "written_utc": "2026-09-24T03:17:37.268438+00:00",
  "config": {
-  "feature_set_version": "nfl-prod-v6-tree-team-categories",
+  "feature_set_version": "nfl-prod-v6.1-runline-team-categories",
   "warmup_seasons": [
    2018
   ],
@@ -26,12 +26,12 @@
    "gates": "none"
   },
   "library_stack": {
-   "scipy": "1.16.3",
-   "sklearn": "1.6.1",
-   "xgboost": "3.2.0",
-   "lightgbm": "4.6.0",
-   "pandas": "2.3.3",
-   "numpy": "2.0.2"
+   "scipy": "1.18.0",
+   "sklearn": "1.9.0",
+   "xgboost": "3.4.0",
+   "lightgbm": "4.7.0",
+   "pandas": "3.0.1",
+   "numpy": "2.4.3"
   },
   "run_line_model": {
    "home_model": "lightgbm_poisson",
@@ -82,9 +82,9 @@
   "market_independence": true
  },
  "columns": 241,
- "n_rows": 1296,
+ "n_rows": 1295,
  "n_oof": 1295,
- "n_slate": 1,
+ "n_slate": 0,
  "grids": {
   "spread": [
    -14,
