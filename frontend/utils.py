@@ -1285,6 +1285,22 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
     # 2026-09-14 "No game board exists" outage). Same contract the
     # Calibration/Model Monitor/Power Rankings pages already use.
     picked = _pick_artifact_date(date_str, "todays_games")
+    # DATE HONESTY (2026-09-24 regression): the nearest-date fallback must
+    # never surface ANOTHER date's board under this date's header. A stale
+    # selected_date (Sep 1) silently rendered Sep 23's snapshot — scores,
+    # picks, run-engine boxes and SHAP expanders all from the wrong day
+    # (the SHAP labels gave it away: 20260923_WSH@DET under a September 1
+    # header). Return empty so the page's own recovery/archive paths take
+    # over with honest labeling; the board family is the ONE family where a
+    # substitution is user-visible as mislabeled content (Calibration/
+    # Monitor/Power Rankings keep their documented newest-fallback).
+    if picked != date_str:
+        import logging
+        logging.getLogger("utils.todays_games").warning(
+            "Board date honesty: no todays_games artifact for %s (nearest "
+            "fallback resolved %s) — returning empty rather than serving "
+            "another date's board", date_str, picked)
+        return pd.DataFrame()
     data, src = _fetch_bytes(f"todays_games_{picked}.csv", **cfg)
     st.session_state["data_source"] = src
     if data is None:

@@ -1524,7 +1524,15 @@ def _recovered_board(date_str: str, cand: str):
     when the frame was empty. Exceptions (transient CDN 404s surface as
     RerunException-free streamlit DownloadErrors in some hosts) degrade to
     None — the walk continues to the next candidate, never crashes.
+
+    Candidates outside the valid set (stale or retention-pruned dates) are
+    refused outright — a stale date must never render another date's board.
     """
+    if utils.get_sport() == "mlb" and cand not in utils.valid_dates("mlb"):
+        # Retention-window gate: an out-of-window candidate never renders
+        # under any header, including this walk's recovery notice.
+        # valid_dates is cached (ttl=120s), so this is cheap per candidate.
+        return None
     key = f"_recovered_board_{cand}_{date_str}"
     if key in st.session_state and st.session_state[key] is not None:
         return st.session_state[key]
@@ -1613,6 +1621,11 @@ def main() -> None:
     date_str = st.session_state["selected_date"]
 
     if date_str not in valid_set:
+        # A requested date outside the valid set NEVER renders a board —
+        # directly or via recovery: _recovered_board refuses any candidate
+        # outside the valid set, so a stale/pruned date (e.g. before the
+        # retention cutoff) falls through to the nearest-valid fallback
+        # below, which labels the substitute honestly.
         for _cand in _recovery_dates(date_str):
             if _cand == date_str:
                 continue
@@ -1634,6 +1647,10 @@ def main() -> None:
     if games.empty:
         # Union-listed date whose snapshot fetch failed (CDN lag): try the
         # history rebuild, then the recovery walk, before the empty state.
+        # Safe for any valid date: the history rebuild filters to rows whose
+        # game_date == date_str, so a pruned date can never leak a later
+        # slate here — load_todays_games now returns empty rather than a
+        # substitute board, and only in-set dates reach this branch.
         games = utils.load_history_games(date_str)
         if not games.empty:
             _render_board(games, date_str, valid, history_view=True)
