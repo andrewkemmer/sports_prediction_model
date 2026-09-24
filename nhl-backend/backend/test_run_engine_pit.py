@@ -38,6 +38,7 @@ import features as feat_mod                          # noqa: E402
 import distributions as dist_mod                     # noqa: E402
 import moneyline as ml_mod                           # noqa: E402
 import monitoring as mon                             # noqa: E402
+import ingestion as ing                               # noqa: E402
 from evaluation import nb_distribution_metrics       # noqa: E402
 
 
@@ -401,6 +402,56 @@ def test_markets_winner_cards_price_fair_lines_with_honest_outcomes():
         assert card["brier"] is not None and np.isfinite(card["brier"])
         # n plus excluded whole-line pushes covers the decided pool.
         assert card["n"] <= len(rows)
+
+
+def test_markets_winner_cards_handle_away_favorite_run_line():
+    """The away-favorite branch must score the favorite-side cover leg."""
+    line = 1
+    rows = pd.DataFrame([
+        {
+            "fair_spread": line, "margin": -2.0, "derived_ml": 0.40,
+            "p_home_cover_m1": 0.30, "p_push_m1": 0.10,
+        },
+        {
+            "fair_spread": line, "margin": -2.0, "derived_ml": 0.40,
+            "p_home_cover_m1": None, "p_push_m1": None,
+        },
+    ])
+    cards = mon.markets_winner_cards(rows)
+    assert cards["run_line"]["n"] == 1
+    assert cards["run_line"]["predicted_mean"] == round(2.0 / 3.0, 4)
+    assert cards["run_line"]["actual_win_rate"] == 1.0
+
+
+def test_nhl_goalies_toi_parser_handles_api_clock_values():
+    assert ing._parse_toi_minutes("25:00") == 25.0
+    assert ing._parse_toi_minutes("1:02:30") == 62.5
+    assert ing._parse_toi_minutes(18.25) == 18.25
+    for malformed in (None, "", "unknown", "1:xx", "-1:00", "1:2:3:4"):
+        assert np.isnan(ing._parse_toi_minutes(malformed))
+
+
+def test_goalie_state_populates_gaa_from_ingested_minutes():
+    games = pd.DataFrame([
+        {"game_id": "g1", "gameday": "2025-10-01", "home_team": "ANA", "away_team": "BOS"},
+        {"game_id": "g2", "gameday": "2025-10-03", "home_team": "ANA", "away_team": "BOS"},
+    ])
+    boxscores = pd.DataFrame([
+        {"game_id": "g1", "home_goalie_id": 1, "away_goalie_id": 2,
+         "home_goalie_name": "Home One", "away_goalie_name": "Away One",
+         "home_goalie_toi": 60.0, "away_goalie_toi": 60.0,
+         "home_goals_against": 2, "away_goals_against": 3,
+         "home_sog": 30, "away_sog": 28},
+        {"game_id": "g2", "home_goalie_id": 1, "away_goalie_id": 2,
+         "home_goalie_name": "Home One", "away_goalie_name": "Away One",
+         "home_goalie_toi": 60.0, "away_goalie_toi": 58.0,
+         "home_goals_against": 1, "away_goals_against": 1,
+         "home_sog": 30, "away_sog": 28},
+    ])
+    states, _ = feat_mod.goalie_state(boxscores, games)
+    assert pd.isna(states.loc[0, "goalie_gaa_home"])
+    assert states.loc[1, "goalie_gaa_home"] == 2.0
+    assert states.loc[1, "goalie_gaa_away"] == 3.0
 
 
 def test_monitor_line_pairs_use_canonical_lines_only():

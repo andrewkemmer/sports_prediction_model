@@ -356,15 +356,21 @@ def markets_winner_cards(oof_rows: pd.DataFrame) -> dict[str, dict]:
                 m = int(max(abs(fs), 0.5))
                 if home_fav:
                     cov = r.get(_grid_col("p_home_cover", m))
-                    push_p = r.get(_grid_col("p_push", m))
                 else:
-                    ph = r.get(_grid_col("p_home_cover", -m))
-                    push_p = r.get(_grid_col("p_push", -m))
+                    # The artifact stores home-cover probabilities on one
+                    # orientation. For an away favorite, read the negative
+                    # spread line, then transform its complement below.
+                    cov = r.get(_grid_col("p_home_cover", -m))
+                push_p = r.get(_grid_col("p_push", m if home_fav else -m))
                 try:
                     cov, push_p = float(cov), float(push_p)
-                    if not home_fav:
-                        cov = 1.0 - cov - push_p   # away-favored cover leg
                 except (TypeError, ValueError):
+                    continue
+                if not all(np.isfinite(v) for v in (cov, push_p)):
+                    continue
+                if not home_fav:
+                    cov = 1.0 - cov - push_p   # away-favored cover leg
+                if not np.isfinite(cov) or cov < 0 or cov > 1 or push_p < 0:
                     continue
                 dog = 1.0 - cov - push_p
                 if not (cov + dog) > 0:

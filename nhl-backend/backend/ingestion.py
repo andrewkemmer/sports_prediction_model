@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 try:  # package-relative import when used as backend.ingestion
     from backend import config  # type: ignore
@@ -187,6 +188,38 @@ def eligible_games(schedule: pd.DataFrame) -> pd.DataFrame:
 # Boxscore ingestion — per-game team + goalie + skater stats
 # ---------------------------------------------------------------------------
 
+def _parse_toi_minutes(value) -> float:
+    """Parse an NHL API goalie TOI value into minutes.
+
+    The boxscore endpoint commonly returns a clock string such as ``"25:00"``
+    or ``"1:02:30"``; older payloads may provide a numeric minute value. Keep
+    malformed values as NaN so downstream features degrade honestly.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return float("nan")
+    raw = str(value).strip()
+    if not raw:
+        return float("nan")
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    parts = raw.split(":")
+    if len(parts) not in (2, 3):
+        return float("nan")
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return float("nan")
+    if any(number < 0 for number in numbers):
+        return float("nan")
+    if len(numbers) == 2:
+        minutes, seconds = numbers
+        return minutes + seconds / 60.0
+    hours, minutes, seconds = numbers
+    return hours * 60.0 + minutes + seconds / 60.0
+
+
 def _parse_boxscore(bs: dict) -> dict:
     """One /v1/gamecenter/{id}/boxscore -> per-game team rollup row.
 
@@ -233,10 +266,8 @@ def _parse_boxscore(bs: dict) -> dict:
         decision_goalies = [g for g in goalies if g.get("decision") in ("W", "L", "OTL", "SOL")]
         starter = decision_goalies[0] if decision_goalies else (
             goalies[0] if goalies else {})
-        toi = None
-        try:
-            toi = float(starter.get("toi", ""))
-        except (TypeError, ValueError):
+        toi = _parse_toi_minutes(starter.get("toi"))
+        if not np.isfinite(toi):
             toi = None
         out[f"{side}_sog"] = sog
         out[f"{side}_pp_goals"] = pp_goals if pp_goals == pp_goals else None
