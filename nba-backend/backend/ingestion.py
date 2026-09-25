@@ -729,6 +729,162 @@ def _read_tables(root: Path, names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
     return found
 
 
+def _mirror_root(root: Path) -> Path | None:
+    """Return the bundle directory that also ships a flat export mirror.
+
+    A resolved SQL file is one representation of a bundle that also publishes
+    Parquet and CSV copies.  Source discovery must pick a single populated
+    catalog, but picking one file is not the same as trusting it alone: the
+    pinned bundle's SQL copy and its flat export can cover different seasons.
+    """
+    if not root.is_file():
+        return None
+    parent = root.parent
+    try:
+        has_mirror = any(
+            child.is_dir() and child.name.lower() in {"parquet", "csv"}
+            for child in parent.iterdir())
+    except OSError:
+        return None
+    return parent if has_mirror else None
+
+
+def _dedupe_key(frame: pd.DataFrame, name: str) -> tuple[str, ...] | None:
+    """Row identity for a table, or ``None`` when it cannot be trusted.
+
+    A team box-score table holds one row per team per game, so collapsing it on
+    ``game_id`` alone would silently discard every team but one.  When the full
+    identity is unavailable the caller keeps a single copy instead of merging.
+    """
+    if name in TEAM_BOX_TABLES:
+        wanted = ("game_id", "team")
+    elif name in PLAYER_TABLES:
+        wanted = ("game_id", "player_id")
+    else:
+        wanted = ("game_id",)
+    if any(column not in frame.columns for column in wanted):
+        return None
+    return wanted
+
+
+def _recency(frame: pd.DataFrame) -> pd.Series:
+    """Order rows by coverage so the freshest copy of a game survives a merge."""
+    if "gameday" in frame.columns:
+        values = pd.to_datetime(frame["gameday"], errors="coerce", utc=True)
+        return values.astype("int64", errors="ignore").fillna(0)
+    if "season" in frame.columns:
+        return pd.to_numeric(frame["season"], errors="coerce").fillna(0)
+    return pd.Series(np.zeros(len(frame)), index=frame.index)
+
+
+def _merge_representations(primary: pd.DataFrame, secondary: pd.DataFrame,
+                           name: str) -> pd.DataFrame:
+    """Union two copies of one table, keeping the freshest row per identity."""
+    key = _dedupe_key(primary, name) or _dedupe_key(secondary, name)
+    # A key that repeats inside one copy marks sibling rows this reader cannot
+    # tell apart, so collapsing on it would delete data.  Keep a single copy.
+    untrusted = (key is None
+                 or primary.duplicated(subset=list(key)).any()
+                 or secondary.duplicated(subset=list(key)).any())
+    if untrusted:
+        logger.warning(
+            "NBA table %s exists in two representations without a unique row "
+            "identity; keeping the larger copy (%d vs %d rows)",
+            name, len(primary), len(secondary))
+        return primary if len(primary) >= len(secondary) else secondary
+    out = pd.concat([primary, secondary], ignore_index=True)
+    out = out.assign(**{"__nba_recency__": _recency(out)})
+    out = out.sort_values("__nba_recency__", kind="stable")
+    return (out.drop_duplicates(subset=list(key), keep="last")
+            .drop(columns="__nba_recency__").reset_index(drop=True))
+
+
+def _log_table(name: str, origin: str, frame: pd.DataFrame | None) -> None:
+    """Report what was read, from where, and how far it reaches."""
+    if frame is None or frame.empty:
+        return
+    seasons = _season(_coalesce_column(
+        frame, "season_year", "season", "seasonId", "season_id"))
+    years = sorted(set(seasons.dropna().tolist()))
+    span = f"{years[0]:g}-{years[-1]:g}" if years else "unknown"
+    for column in ("gameday", "game_date", "gameDate"):
+        if column in frame.columns:
+            dates = pd.to_datetime(frame[column], errors="coerce", utc=True)
+            if dates.notna().any():
+                span += f", dates {dates.min().date()}..{dates.max().date()}"
+            break
+    logger.info("NBA table %s read from %s: %d rows, seasons %s",
+                name, origin, len(frame), span)
+
+
+def _raw_game_ids(frame: pd.DataFrame) -> set[str]:
+    """Normalized game ids of a raw table, for representation comparisons."""
+    if frame is None or frame.empty:
+        return set()
+    ids = _coalesce_column(frame, "game_id", "gameId", "game_pk", "gameid", "id")
+    return {value for value in ids.map(_game_id).astype(str) if value}
+
+
+def _select_result(game_frames: dict[str, pd.DataFrame],
+                   identity_name: str | None,
+                   identity: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Choose a result/scoreboard table that actually covers the identity rows.
+
+    When a bundle exposes a current game identity beside a stale result table,
+    joining them would blank the scores of every uncovered game and quietly
+    drop it from the schedule.  A result table from a different source is
+    therefore only accepted when it covers the identity games.
+    """
+    candidates = ("fact_game_result", "fact_scoreboard_v3", "stg_league_game_log",
+                  "game", "game_summary")
+    identity_ids = _raw_game_ids(identity)
+    for name in candidates:
+        frame = game_frames.get(name)
+        if frame is None or frame.empty:
+            continue
+        if name == identity_name or not identity_ids:
+            return frame
+        coverage = len(_raw_game_ids(frame) & identity_ids) / len(identity_ids)
+        if coverage >= 0.5:
+            return frame
+        logger.warning(
+            "NBA result table %s covers only %.0f%% of the identity games; "
+            "ignoring it so uncovered games keep their own scores", name,
+            coverage * 100)
+    return None
+
+
+def _read_tables_merged(root: Path, names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    """Read each table from every representation the bundle provides.
+
+    Source discovery returns one populated catalog because a bundle can ship an
+    empty primary file.  Reading is deliberately wider than discovery: a table
+    present in two representations is merged on its row identity so the newest
+    rows win, and every choice is logged.
+    """
+    primary = _read_tables(root, names)
+    mirror = _mirror_root(root)
+    if mirror is None:
+        for name in names:
+            _log_table(name, "sql" if root.is_file() else "export",
+                       primary.get(name))
+        return primary
+    secondary = _read_tables(mirror, names)
+    merged: dict[str, pd.DataFrame] = {}
+    for name in names:
+        left, right = primary.get(name), secondary.get(name)
+        if left is None or left.empty:
+            chosen, origin = right, "mirror"
+        elif right is None or right.empty:
+            chosen, origin = left, "sql"
+        else:
+            chosen, origin = _merge_representations(left, right, name), "sql+mirror"
+        if chosen is not None and not chosen.empty:
+            merged[name] = chosen
+        _log_table(name, origin, chosen)
+    return merged
+
+
 def _match_export_files(root: Path, name: str) -> list[Path]:
     """Find a table's export by case-insensitive stem, Parquet before CSV."""
     if not root.is_dir():
@@ -748,7 +904,7 @@ def _match_export_files(root: Path, name: str) -> list[Path]:
 
 def _load_team_maps(root: Path) -> tuple[dict[str, str], dict[str, str]]:
     """Return ``(raw team key -> abbreviation, abbreviation -> full name)``."""
-    frames = _read_tables(root, TEAM_TABLES)
+    frames = _read_tables_merged(root, TEAM_TABLES)
     raw_to_abbr: dict[str, str] = {}
     abbr_to_name: dict[str, str] = {}
     for df in frames.values():
@@ -793,7 +949,7 @@ def _load_player_names(root: Path) -> dict[str, str]:
     ``family_name``).  Combining those fields here keeps player enrichment
     independent of the export revision.
     """
-    frames = _read_tables(root, PLAYER_DIM_TABLES)
+    frames = _read_tables_merged(root, PLAYER_DIM_TABLES)
     out: dict[str, str] = {}
     for df in frames.values():
         if df.empty:
@@ -1332,31 +1488,28 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
             "Do not pass None as a --source-path value."
         )
     lookup, team_names = _load_team_maps(root)
-    game_frames = _read_tables(root, GAME_TABLES)
+    game_frames = _read_tables_merged(root, GAME_TABLES)
     # dim_game is the identity source; result/scoreboard tables are joined by
     # game_id.  If only a result table exists it is used as the identity source.
-    identity = next((game_frames[name] for name in (
+    identity_name, identity = next(((name, game_frames[name]) for name in (
         "dim_game", "games", "stg_league_game_log", "fact_game", "game",
         "game_summary")
-        if name in game_frames and not game_frames[name].empty), None)
-    result = next((game_frames[name] for name in (
-        "fact_game_result", "fact_scoreboard_v3", "stg_league_game_log", "game",
-        "game_summary")
-        if name in game_frames and not game_frames[name].empty), None)
+        if name in game_frames and not game_frames[name].empty), (None, None))
+    result = _select_result(game_frames, identity_name, identity)
     if identity is None and result is None:
         raise RuntimeError("wyattowalsh/basketball is missing dim_game/fact_game_result")
     games = _normalize_games(identity if identity is not None else result, lookup,
                              result=result, team_names=team_names)
     if games.empty:
         raise RuntimeError("NBA warehouse produced no usable game rows")
-    team_frames = list(_read_tables(root, TEAM_BOX_TABLES).values())
+    team_frames = list(_read_tables_merged(root, TEAM_BOX_TABLES).values())
     team_raw = pd.concat(team_frames, ignore_index=True) if team_frames else pd.DataFrame()
     team_stats = _normalize_team_stats(team_raw, games, lookup)
     legacy_game = game_frames.get("game")
     if team_stats.empty and legacy_game is not None and not legacy_game.empty:
         legacy_raw = _legacy_game_team_stats(legacy_game, games, lookup)
         team_stats = _normalize_team_stats(legacy_raw, games, lookup)
-    player_frames = list(_read_tables(root, PLAYER_TABLES).values())
+    player_frames = list(_read_tables_merged(root, PLAYER_TABLES).values())
     player_raw = pd.concat(player_frames, ignore_index=True) if player_frames else pd.DataFrame()
     player_stats = _normalize_player_stats(player_raw, games, lookup,
                                            _load_player_names(root))

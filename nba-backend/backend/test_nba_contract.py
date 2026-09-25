@@ -246,6 +246,128 @@ def test_upper_case_export_file_names_are_discovered(tmp_path: Path) -> None:
     assert "fact_box_score_team" in box
 
 
+def _stale_sql_current_mirror_bundle(root: Path) -> Path:
+    """A bundle whose SQL catalog stops in 2023 beside a current flat export."""
+    source = root / "stale-sql-bundle"
+    source.mkdir(parents=True, exist_ok=True)
+    team_ids = {abbr: 1610612737 + i for i, abbr in enumerate(TEAMS)}
+    stale_rows = []
+    for i, home in enumerate(TEAMS):
+        away = TEAMS[(i + 1) % len(TEAMS)]
+        stale_rows.append({
+            "game_id": f"00220000{i:02d}", "season_id": 22023,
+            "game_date": "2023-04-10",
+            "team_id_home": team_ids[home], "team_abbreviation_home": home,
+            "team_id_away": team_ids[away], "team_abbreviation_away": away,
+            "pts_home": 110 + i, "pts_away": 100 + i,
+        })
+    with sqlite3.connect(source / "nba.sqlite") as con:
+        con.execute("CREATE TABLE TEAM (ID INTEGER, ABBREVIATION TEXT, "
+                    "FULL_NAME TEXT)")
+        con.executemany("INSERT INTO TEAM VALUES (?, ?, ?)",
+                        [(team_ids[a], a, f"{a} Club") for a in TEAMS])
+        columns = ", ".join(stale_rows[0])
+        con.execute(f"CREATE TABLE GAME ({columns})")
+        con.executemany(
+            f"INSERT INTO GAME VALUES ({', '.join('?' * len(stale_rows[0]))})",
+            [tuple(row.values()) for row in stale_rows])
+
+    current = []
+    box = []
+    for i, home in enumerate(TEAMS):
+        away = TEAMS[(i + 1) % len(TEAMS)]
+        game_id = f"00224000{i:02d}"
+        current.append({
+            "game_id": game_id, "season_year": 2024, "game_date": "2024-10-22",
+            "home_team": home, "away_team": away,
+            "home_score": 112 + i, "away_score": 101 + i,
+        })
+        for team, points in ((home, 112 + i), (away, 101 + i)):
+            box.append({
+                "game_id": game_id, "team": team, "points_for": points,
+                "field_goals_made": 40, "field_goals_attempted": 88,
+                "three_pointers_made": 12, "three_pointers_attempted": 35,
+                "free_throws_made": 16, "free_throws_attempted": 20,
+                "offensive_rebounds": 10, "defensive_rebounds": 30,
+                "rebounds": 40, "assists": 25, "turnovers": 12,
+                "steals": 7, "blocks": 4,
+            })
+    parquet_root = source / "parquet"
+    for table, rows in (("dim_game", current), ("fact_box_score_team", box)):
+        target = parquet_root / table
+        target.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(rows).to_parquet(target / f"{table}.parquet", index=False)
+    return source
+
+
+def test_current_flat_export_supersedes_stale_sql_catalog(tmp_path: Path) -> None:
+    """Discovery picks one catalog; reading must use every representation."""
+    source = _stale_sql_current_mirror_bundle(tmp_path)
+    wh = ing.load_dataset(source, use_cache=False)
+    assert set(wh.games.season) == {2024.0}
+    assert len(wh.games) == len(TEAMS)
+    assert set(wh.games.home_team) | set(wh.games.away_team) == set(TEAMS)
+    assert len(wh.team_stats) == 2 * len(TEAMS)
+    assert set(wh.team_stats.team) == set(TEAMS)
+
+
+def test_stale_result_table_is_not_joined_onto_current_games(
+        tmp_path: Path) -> None:
+    """A result table that misses the identity games would blank their scores."""
+    identity = pd.DataFrame([{
+        "game_id": f"00224000{i:02d}", "season_year": 2024,
+        "game_date": "2024-10-22", "home_team": "BOS", "away_team": "NYK",
+        "home_score": 112, "away_score": 101,
+    } for i in range(10)])
+    stale = pd.DataFrame([{
+        "game_id": "0022000001", "pts_home": 100, "pts_away": 90,
+    }])
+    frames = {"dim_game": identity, "game": stale}
+    assert ing._select_result(frames, "dim_game", identity) is None
+    assert ing._select_result({"dim_game": identity}, "dim_game", identity) is None
+    covered = ing._select_result(
+        {"dim_game": identity, "fact_game_result": identity.copy()},
+        "dim_game", identity)
+    assert covered is not None and len(covered) == len(identity)
+
+
+def test_team_facts_from_two_representations_keep_every_team(
+        tmp_path: Path, caplog) -> None:
+    """Merging must not collapse sibling team rows onto one game id."""
+    primary = pd.DataFrame([
+        {"game_id": "0022400001", "team": team, "points_for": 110}
+        for team in TEAMS[:5]
+    ])
+    secondary = pd.DataFrame([
+        {"game_id": "0022400001", "team": team, "points_for": 110}
+        for team in TEAMS[5:]
+    ])
+    merged = ing._merge_representations(primary, secondary,
+                                        "fact_box_score_team")
+    assert len(merged) == len(TEAMS)
+    assert set(merged.team) == set(TEAMS)
+    # Without a unique key the rows are siblings this reader cannot tell apart,
+    # so the merge must decline and hand back one intact copy.
+    unkeyed = ing._merge_representations(
+        primary.rename(columns={"team": "team_id"}), secondary, "dim_game")
+    assert len(unkeyed) == len(secondary) == len(TEAMS) - 5
+    assert set(unkeyed.team) == set(TEAMS[5:])
+
+
+def test_read_logs_which_representation_supplied_each_table(
+        tmp_path: Path, caplog) -> None:
+    """A production run must say what it read and how far it reaches."""
+    import logging
+
+    source = _stale_sql_current_mirror_bundle(tmp_path)
+    with caplog.at_level(logging.INFO, logger="ingestion"):
+        ing.load_dataset(source, use_cache=False)
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "NBA table dim_game read from" in messages
+    assert "NBA table fact_box_score_team read from" in messages
+    assert "seasons 2024-2024" in messages
+
+
 def test_coverage_failure_reports_observed_evidence() -> None:
     """A coverage gate must say what it read, not only what it wanted."""
     games = pd.DataFrame([{
