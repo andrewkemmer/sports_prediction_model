@@ -159,7 +159,7 @@ def walk_forward_oof(game_df: pd.DataFrame,
       member_weights: last rolling optimized blend weights
       fold_table: per-fold diagnostics
     """
-    df = game_df.sort_values(date_col).reset_index(drop=True)
+    df = folds_mod.canonical_sort(game_df, date_col)
     fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
 
     oof_parts: list[pd.DataFrame] = []

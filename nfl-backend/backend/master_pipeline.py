@@ -271,7 +271,11 @@ def main(argv: list[str] | None = None) -> int:
     game_df = feat_mod.build_game_features(
         decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather)
-    game_df = game_df.sort_values("gameday").reset_index(drop=True)
+    # Canonical (date_col, game_id) order: the one order every fold index is
+    # valid for. See folds.canonical_sort for why a single-column sort is not
+    # enough — fold labels are positional and the tree members are
+    # row-order sensitive under a fixed seed.
+    game_df = folds_mod.canonical_sort(game_df, "gameday")
     logger.info("feature frame: %d decided games, %d columns",
                 len(game_df), game_df.shape[1])
     cov = feat_mod.feature_coverage_report(game_df)

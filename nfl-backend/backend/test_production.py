@@ -1022,7 +1022,11 @@ sched = _eligible_nfl_history()
 eligible = ingest_mod.eligible_games(sched)
 check("eligible_games keeps settled REG rows", len(eligible) == len(sched))
 hist = feat_mod.build_game_features(eligible, pbp=None)
-hist = hist.sort_values("gameday").reset_index(drop=True)
+# Same row order Phase 4 uses in production (folds.canonical_sort), so the fold
+# objects below are built on the frame their labels are valid for. A frame that
+# ARRIVES in a different order must canonicalize to this one.
+hist = folds_mod.canonical_sort(hist, "gameday")
+hist_arrival = hist.sample(frac=1.0, random_state=7).reset_index(drop=True)
 
 # Phase 4 objects exactly as the production pipeline generates them
 folds_prod = folds_mod.make_folds(hist, date_col="gameday")
@@ -1073,8 +1077,8 @@ sig_p4 = _folds_sig(folds_prod)
 import moneyline as ml_mod2  # noqa: E402
 import distributions as dist_mod2  # noqa: E402
 ml_folds_probe = folds_mod.make_folds(
-    hist.sort_values("gameday").reset_index(drop=True), date_col="gameday")
-check("downstream regeneration identical to Phase 4 folds",
+    folds_mod.canonical_sort(hist_arrival, "gameday"), date_col="gameday")
+check("downstream regeneration identical to Phase 4 folds (arrival order irrelevant)",
       _folds_sig(ml_folds_probe) == sig_p4)
 import inspect  # noqa: E402
 ml_sig = inspect.signature(ml_mod2.walk_forward_oof)
@@ -1160,6 +1164,56 @@ except Exception as exc:  # noqa: BLE001
           False, str(exc))
 finally:
     folds_mod.make_folds = _orig_make
+
+
+# ---- Fold-index ordering contract (label-vs-position hazard) -------------
+# make_folds returns index LABELS; the OOF consumers look those rows up
+# POSITIONALLY after their own reset_index. Before folds.canonical_sort every
+# caller sorted on the date column ALONE, and a single-column sort_values is an
+# unstable quicksort, so two callers over the same data disagreed on the order
+# of same-date games (2206 of 2671 real rows changed position). The right games
+# stayed in every fold; the boosting members were simply handed them in a
+# different order under a fixed seed, so a run stopped being reproducible.
+_cs_arr = folds_mod.canonical_sort(hist_arrival, "gameday")
+check("canonical_sort is a total order (arrival order is irrelevant)",
+      _cs_arr["game_id"].tolist() == hist["game_id"].tolist())
+check("canonical_sort returns a fresh RangeIndex (fold labels are positions)",
+      _cs_arr.index.tolist() == list(range(len(hist))))
+check("canonical_sort breaks same-date ties on game_id (stable mergesort)",
+      bool(_cs_arr.groupby("gameday")["game_id"]
+           .apply(lambda s: s.is_monotonic_increasing).all()))
+# Membership is a SET property (make_folds selects by DATE), which is why the
+# damage was never a wrong fold -- it was the wrong order inside a right fold.
+_arr_folds = folds_mod.make_folds(hist_arrival, date_col="gameday")
+check("fold membership is unchanged by arrival order (train/val game sets equal)",
+      len(_arr_folds) == len(folds_prod) and all(
+          set(hist_arrival.loc[_arr_folds[i].train_idx, "game_id"])
+          == set(hist.loc[folds_prod[i].train_idx, "game_id"])
+          and set(hist_arrival.loc[_arr_folds[i].val_idx, "game_id"])
+          == set(hist.loc[folds_prod[i].val_idx, "game_id"])
+          for i in range(len(folds_prod))))
+# The behavioural guardrail: the same games handed over in a different row order
+# must come back as the same member probabilities, game for game.
+_pcols = [f"p_{m}" for m in config.ENSEMBLE_MEMBERS] + ["p_ensemble"]
+try:
+    oof_arr = ml_mod2.walk_forward_oof(
+        small.sample(frac=1.0, random_state=11).reset_index(drop=True))["oof"]
+    _a = oof_arr.set_index("game_id").sort_index()
+    _r = res["oof"].set_index("game_id").sort_index()
+    _maxdiff = max(
+        (float(np.abs(_a[c].to_numpy(float) - _r[c].to_numpy(float)).max())
+         if _a.index.tolist() == _r.index.tolist() else float("inf"))
+        for c in _pcols)
+    check("member OOF is unchanged under a different arrival row order",
+          _maxdiff <= 1e-12, f"max_abs_diff={_maxdiff:.3e}")
+except Exception as exc:  # noqa: BLE001
+    check("member OOF is unchanged under a different arrival row order", False, str(exc))
+# No consumer may reintroduce a bare date-only sort ahead of make_folds.
+for _name, _mod in (("moneyline", ml_mod2), ("distributions", dist_mod2)):
+    _src = inspect.getsource(_mod)
+    _i = _src.find("folds_mod.canonical_sort")
+    check(f"{_name} OOF canonicalizes the frame before generating fold labels",
+          _i != -1 and _i < _src.find("folds_mod.make_folds"))
 
 
 # ---- Shipped-weight blend diagnostic -------------------------------------
