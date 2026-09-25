@@ -23,7 +23,9 @@ Run with: python nhl-backend/backend/test_run_engine_pit.py
 from __future__ import annotations
 
 import sys
+import logging
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch as _mock_patch
 
@@ -247,6 +249,72 @@ def test_score_dates_chunking_covers_every_date_once():
     assert len(flat) == len(set(flat))
     # 60-day windows over a calendar year -> 7, not 12 (the chunking is real).
     assert 5 <= len(windows) <= 8, [label for label, _ in windows]
+
+
+def test_unplayed_past_game_settles_after_the_posting_lag_grace():
+    """A null score means two different things either side of the grace window.
+
+    Inside it, the game simply has not posted yet and the page must stay
+    uncached or the game becomes permanently invisible. Past it, the game was
+    cancelled or postponed and the null is PERMANENT — caching it stops the
+    page being re-pulled forever (game 2024010044 has sat in gameState=FUT
+    since the shortened 2024-25 season, so "re-pulled until it settles" was a
+    promise that could never be kept).
+    """
+    def _game(gid, played):
+        return {"id": gid, "gameDate": "2024-10-07", "season": 2024,
+                "awayTeam": {"id": 1, "name": {"default": "A"}, "abbrev": "AAA",
+                             "score": 1 if played else None, "record": "1-1"},
+                "homeTeam": {"id": 2, "name": {"default": "H"}, "abbrev": "HHH",
+                             "score": 2 if played else None, "record": "1-1"},
+                "venue": {"default": "V"}, "gameState": "OFF" if played else "FUT",
+                "gameType": 2}
+
+    today = date.today()
+    inside = (today - timedelta(days=1)).isoformat()      # within the lag
+    past = (today - timedelta(days=ing.SETTLE_GRACE_DAYS + 30)).isoformat()
+    cases = [("inside grace -> NOT cached", inside, [_game(1, True), _game(2, False)], False),
+             ("past grace   -> CACHED", past, [_game(1, True), _game(2, False)], True),
+             ("all played   -> CACHED", past, [_game(1, True), _game(2, True)], True)]
+    for label, day, games, expect in cases:
+        stamp = day.replace("-", "")
+        path = BACKEND / f"settle_{stamp}.parquet"
+        path.unlink(missing_ok=True)
+        with _mock_patch.object(ing, "_http_json", return_value={"games": games}), \
+                _mock_patch.object(ing, "_cache_path", side_effect=lambda n: path):
+            ing.load_score_dates([day])
+        got = path.exists()
+        path.unlink(missing_ok=True)
+        assert got is expect, f"{label}: cached={got}, expected {expect}"
+
+
+def test_game_with_no_result_is_accounted_for_in_the_log(caplog=None):
+    """A cancelled game silently shrinks the decided population, so it must be
+    named rather than quietly dropped."""
+    day = (date.today() - timedelta(days=ing.SETTLE_GRACE_DAYS + 30)).isoformat()
+    stamp = day.replace("-", "")
+    path = BACKEND / f"noresult_{stamp}.parquet"
+    path.unlink(missing_ok=True)
+    games = [{"id": 2024010044, "gameDate": day, "season": 2024,
+              "awayTeam": {"id": 1, "name": {"default": "A"}, "abbrev": "NSH",
+                           "score": None, "record": "1-1"},
+              "homeTeam": {"id": 2, "name": {"default": "H"}, "abbrev": "TBL",
+                           "score": None, "record": "1-1"},
+              "venue": {"default": "V"}, "gameState": "FUT", "gameType": 1}]
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    ing.logger.addHandler(handler)
+    ing.logger.setLevel(logging.INFO)
+    try:
+        with _mock_patch.object(ing, "_http_json", return_value={"games": games}), \
+                _mock_patch.object(ing, "_cache_path", side_effect=lambda n: path):
+            ing.load_score_dates([day])
+    finally:
+        ing.logger.removeHandler(handler)
+    path.unlink(missing_ok=True)
+    text = " ".join(r.getMessage() for r in records)
+    assert "2024010044" in text, f"the no-result game was not named: {text[:200]}"
 
 
 def test_pit_fold_labels_are_valid_for_the_frame_the_oof_rebuilds():

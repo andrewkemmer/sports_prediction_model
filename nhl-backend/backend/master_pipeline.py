@@ -46,8 +46,18 @@ import evaluation as eval_mod  # noqa: E402
 import serving as serve_mod  # noqa: E402
 import monitoring  # noqa: E402
 
+# Logs go to STDOUT, the same stream as the phase banners. They used to go to
+# stderr while _banner printed to stdout, and the two are separate file
+# descriptors, so a merged capture (2>&1) interleaved them arbitrarily: in a
+# real run the "folds:", "prequential per-fold calibration" and "moneyline OOF
+# raw" records all appeared under the PREVIOUS phase's banner, because they
+# belong to phases 4, 8 and 9. Reading such a log sends you to the wrong phase
+# with three phases of work misplaced. One stream means one true order, and it
+# also means `> run.log` captures the log instead of silently dropping every
+# record to the terminal. Nothing parses this stream.
 logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(message)s")
+                    format="%(asctime)s %(levelname)s %(message)s",
+                    stream=sys.stdout)
 logger = logging.getLogger("nhl_master_pipeline")
 
 

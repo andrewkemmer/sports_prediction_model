@@ -75,6 +75,13 @@ MP_CACHE_VERSION = "v1"
 # is unchanged; raising it is the lever if the API ever rate-limits.
 PULL_CHUNK_DAYS = 60
 PULL_CHUNK_PAUSE_SEC = 0.0
+# A score page is treated as settled once its date is older than this many
+# days. Posting lags game completion by hours, so a null score inside the
+# window is provisional; past it the game was cancelled or postponed and the
+# null is permanent. Without this, one such game makes its page uncacheable
+# forever and every run re-pulls it (the 2024-10-07 page, game 2024010044,
+# has sat in gameState=FUT since the shortened 2024-25 season).
+SETTLE_GRACE_DAYS = 2
 
 
 def _progress_bar(total: int, desc: str):
@@ -231,18 +238,22 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
     the NHL's natural unit — unlike league sports there is no per-season
     schedule endpoint). A failed date is warned and skipped, never fatal.
 
-    A page is cached only once it is SETTLED. Two cases, opposite in sign:
+    A page is cached once it can no longer change:
 
-      * a page with an UNPLAYED game (null score) is provisional. Those
-        scores fill in later, and the pipeline filters on
-        home_score.notna(), so a cached null is a permanently invisible game —
-        every future run would silently drop decided games.
-      * a page with no games at all is a final answer only once the date is
-        PAST; caching an empty future page would hide games that land later.
+      * a page where every game posted a score is settled immediately.
+      * a page with an UNPLAYED game (null score) is provisional while the
+        date is inside the posting-lag grace window — those scores fill in
+        within hours, and the pipeline filters on home_score.notna(), so
+        caching the null early would make the game permanently invisible.
+      * once the date is older than SETTLE_GRACE_DAYS the null is PERMANENT:
+        the game was cancelled or postponed and will never be played. Cache it
+        so the page stops being re-pulled on every run forever, and account
+        for the game by id so a shrunken OOF population is visible.
     """
     frames: list[pd.DataFrame] = []
     today = date.today()
     fetched = hits = 0
+    no_result: list[tuple[str, str]] = []
     windows = _date_windows(dates, PULL_CHUNK_DAYS)
     for w, (wlabel, wdates) in enumerate(windows, 1):
         logger.info("score chunk %d/%d [%s]: %d dates",
@@ -264,13 +275,25 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
             fetched += 1
             rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
             df = pd.DataFrame(rows, columns=SCORE_KEEP)
-            settled = bool(len(df)) and bool(df["home_score"].notna().all())
-            if settled or (df.empty and date.fromisoformat(d) < today):
+            unplayed = (df[df["home_score"].isna()] if len(df) else df)
+            n_unplayed = int(len(unplayed))
+            game_day = date.fromisoformat(d)
+            # Past the posting-lag window a null score is permanent, so the
+            # page is cacheable and the game is accounted for, not re-pulled.
+            past_grace = game_day < today - timedelta(days=SETTLE_GRACE_DAYS)
+            if n_unplayed == 0 or past_grace:
                 df.to_parquet(path, index=False)
-            elif len(df):
+                if n_unplayed:
+                    for gid in unplayed.get("game_id", pd.Series(dtype=str)):
+                        no_result.append((d, str(gid)))
+                    logger.info("score page %s: %d game(s) never produced a "
+                                "result (cancelled/postponed) — page cached, "
+                                "games excluded from the decided population",
+                                d, n_unplayed)
+            else:
                 logger.info("score page %s carries %d unplayed game(s) — not "
-                            "cached, it will be re-pulled until it settles",
-                            d, int(df["home_score"].isna().sum()))
+                            "cached, within the %d-day posting lag",
+                            d, n_unplayed, SETTLE_GRACE_DAYS)
             frames.append(df)
             # Progress, so a slow or rate-limited pull is VISIBLE. Without this
             # the loop between the Phase 2 banner and its result line emits
@@ -282,6 +305,10 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
     logger.info("score dates resolved: %d requested in %d chunk(s), "
                 "%d cache hits, %d fetched",
                 len(dates), len(windows), hits, fetched)
+    if no_result:
+        logger.info("games with no result (excluded from the decided "
+                    "population): %d — %s", len(no_result),
+                    ", ".join(f"{gid}@{day}" for day, gid in no_result[:10]))
     if not frames:
         return pd.DataFrame(columns=SCORE_KEEP)
     return pd.concat(frames, ignore_index=True)
