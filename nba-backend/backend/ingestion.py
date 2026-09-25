@@ -11,18 +11,15 @@ NBA.com publishes two unauthenticated surfaces, and both are used here.
 
 ``cdn.nba.com``
     The same JSON NBA.com itself serves: per-game box scores and play-by-play.
-    Used to rebuild the window when the season log cannot be read.
+    It is the fallback when the season log cannot be read: the box score
+    carries the schedule, the team lines, and the player lines, so one route
+    rebuilds the whole window where the season log rebuilds it in one call.
 
-If every NBA.com surface refuses us — cloud hosts block them at the IP level —
-the window is rebuilt from ESPN instead, which needs no key either:
-
-``site.web.api.espn.com``
-    The schedule comes from here: the league scoreboard and the per-team
-    schedules, since NBA.com's own schedule endpoint is no longer read.  One
-    ``summary`` box score per game supplies the player lines.  That is ~5,700
-    requests for a full window against ~10 for the season log, so they are
-    cached to ``espn_player_stats.parquet`` and a later run only asks for the
-    games the cache has not seen.  It is a fallback, not the backbone.
+There is no third route.  A backstop outside NBA.com cannot rescue a run
+whose actual problem is that this host cannot reach NBA.com, and every route
+added is a contract to keep alive.  The game index, the team lines, and the
+player lines all come from the two surfaces above, so if both refuse, the
+error says so and the remedy is the network, not another vendor.
 
 No key, quota, or paid tier is involved on any route.  The season log costs ~10
 requests for any window, so it is re-read every run.  Play-by-play is one
@@ -45,6 +42,7 @@ code serves an incremental daily run and an explicit rebuild:
 """
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import logging
 import os
@@ -96,6 +94,68 @@ _HTTP_HEADERS = {
 _STATS_HEADERS = {**_HTTP_HEADERS, "Host": "stats.nba.com",
                   "x-nba-stats-origin": "stats", "x-nba-stats-token": "true"}
 
+# stats.nba.com sits behind Akamai Bot Manager, and the /stats/ tree is the one
+# path on the whole site it drops unauthenticated: without a session the edge
+# accepts the TLS handshake and then never answers, so every request costs a
+# full timeout and the season log — a whole season of player lines in one call,
+# and the backbone of the whole pipeline — is unreachable.  It is not a rate
+# limit and not a header problem: the host root answers 200 in half a second
+# and /stats/ times out at any rate, with any headers, from any rung.
+#
+# A cookie jar primed once from nba.com carries _abck and friends, and the same
+# request that timed out for the whole timeout budget then answers in about
+# three seconds.  So the session is primed before the first stats request and
+# re-primed if a stats request ever comes back silent, since an expired _abck
+# looks exactly like the blocked case.
+_SESSION_URL = "https://www.nba.com/"
+_SESSION_HOSTS = ("stats.nba.com",)
+_session_cookies: http.cookiejar.CookieJar | None = None
+_session_primed_at = 0.0
+SESSION_TTL_SEC = 1800.0
+
+
+def _prime_nba_session(force: bool = False) -> int:
+    """Fetch nba.com once and keep the cookies the stats edge wants.
+
+    Returns the number of cookies now available.  Failure is not an error: the
+    caller still tries the request, because a host that has stopped demanding a
+    session would answer perfectly well without one, and refusing to ask would
+    turn a passing tolerance into an outage.
+    """
+    global _session_cookies, _session_primed_at
+    if not force and _session_cookies is not None and (
+            time.monotonic() - _session_primed_at < SESSION_TTL_SEC):
+        return len(_session_cookies)
+    jar: http.cookiejar.CookieJar | None = None
+    try:
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(jar))
+        request = urllib.request.Request(_SESSION_URL, headers=dict(_HTTP_HEADERS))
+        with opener.open(request, timeout=20) as response:
+            response.read(2048)
+    except Exception as exc:  # noqa: BLE001 - a missing session is survivable
+        logger.debug("could not prime an nba.com session (%s)", exc)
+    if jar is not None:
+        _session_cookies = jar
+        _session_primed_at = time.monotonic()
+        if jar:
+            logger.info("primed an nba.com session: %d cookie(s) for the "
+                        "stats edge", len(jar))
+    return len(_session_cookies) if _session_cookies is not None else 0
+
+
+def _session_header() -> dict[str, str]:
+    """The ``Cookie`` line for a primed session, or an empty header set."""
+    if _session_cookies is None or not len(_session_cookies):
+        return {}
+    request = urllib.request.Request(_SESSION_URL)
+    try:
+        _session_cookies.add_cookie_header(request)
+    except Exception:  # noqa: BLE001
+        return {}
+    return {"Cookie": request.get_header("Cookie")} if request.has_header("Cookie") else {}
+
 START_DATE_ENV = "NBA_START_DATE"
 END_DATE_ENV = "NBA_END_DATE"
 FULL_REPULL_ENV = "NBA_FULL_REPULL"
@@ -124,14 +184,10 @@ _HOST_POLICY: dict[str, dict[str, Any]] = {
                 "retry_forbidden": False},
 }
 
-# Headers are a PER-HOST contract, and the three hosts disagree about it. The
+# Headers are a PER-HOST contract, and the two hosts disagree about it. The
 # order below was measured, not guessed - each rung is the request that host
 # actually answered with:
 #
-#   site.api.espn.com  serves urllib's DEFAULT request and answers 403 in ~70ms
-#                      to every User-Agent we supply - the browser costume, an
-#                      honest "sports-prediction-model/1.0", or anything between.
-#                      So the first thing it hears is no User-Agent at all.
 #   cdn.nba.com        serves the full browser costume, and 403s a bare
 #                      User-Agent - which is why the costume stays first here.
 #   stats.nba.com      needs the same costume plus its own x-nba-stats-* tokens.
@@ -143,7 +199,6 @@ _HOST_POLICY: dict[str, dict[str, Any]] = {
 # remembered for the run, so a season of thousands of box scores is asked once
 # in the right voice instead of re-probed on every request.
 _HEADER_LADDERS: dict[str, tuple[dict[str, str], ...]] = {
-    "site.api.espn.com": ({}, _HTTP_HEADERS),
     "cdn.nba.com": (_HTTP_HEADERS, {}),
     "stats.nba.com": (_STATS_HEADERS, {}),
 }
@@ -205,14 +260,14 @@ def _reprobe_refusal(url: str, host: str) -> bool:
 DNS_GRACE_SEC = 30
 PULL_DEADLINE_ENV = "NBA_PULL_DEADLINE_SEC"
 DEFAULT_PULL_DEADLINE_SEC = 600.0
-# The ESPN player walk asks about every game in the window, so it needs a far
-# larger budget than the season-log pull above: a full window is a few thousand
+# The CDN fallback asks about every game in the window, so it needs a far larger
+# budget than the season-log pull above: a full window is a few thousand
 # requests, and this is the only source of player lines on a host that blocks
-# NBA.com.  The cap exists to stop a slow host running a session dry, not to
-# interrupt a run that is making progress — the lines already fetched are
-# cached, so a run that exhausts it resumes where it left off.
-ESPN_PLAYER_BUDGET_ENV = "NBA_ESPN_PLAYER_BUDGET_SEC"
-DEFAULT_ESPN_PLAYER_BUDGET_SEC = 5400.0
+# stats.nba.com.  The cap exists to stop a slow host running a session dry, not
+# to interrupt a run that is making progress - the box scores already fetched
+# are cached, so a run that exhausts it resumes where it left off.
+CDN_WALK_BUDGET_ENV = "NBA_CDN_WALK_BUDGET_SEC"
+DEFAULT_CDN_WALK_BUDGET_SEC = 5400.0
 # A healthy pull answers all eight season requests in seconds.  When the host
 # is actually down, repeating the same doomed request for every remaining
 # season buys nothing but another few minutes of the user watching a still run,
@@ -381,12 +436,18 @@ def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
     resolves would otherwise block the run indefinitely.  Running the call on a
     thread and abandoning it at the deadline makes "hung" indistinguishable
     from "slow" impossible to reach.
+
+    The stats edge is handed a primed session cookie when there is one; every
+    other host is asked exactly as it was before.
     """
     outcome: dict[str, Any] = {}
+    sent = dict(headers)
+    if urllib.parse.urlparse(url).netloc in _SESSION_HOSTS:
+        sent.update(_session_header())
 
     def worker() -> None:
         try:
-            request = urllib.request.Request(url, headers=headers)
+            request = urllib.request.Request(url, headers=sent)
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 outcome["payload"] = json.loads(response.read())
         except BaseException as exc:  # noqa: BLE001 - reported to the caller
@@ -417,9 +478,9 @@ HOST_VERDICT_CACHE_SEC = 5.0
 # should not write the host off over what may be a single absent artifact.  But
 # ``allow_missing`` callers keep asking, and a walk over a season's game ids
 # turns that into thousands of requests that were never going to succeed: the
-# 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell through to
-# ESPN, and then asked the same blocked host again for 3,474 play-by-play
-# files.  Sixteen in a row is a statement about the client, not about the
+# 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell back to
+# per-game CDN reads, and then asked the same blocked host again for 3,474
+# play-by-play files.  Sixteen in a row is a statement about the client, not about the
 # artifact, and it is a statement the rest of the run needs to inherit.
 REFUSAL_VERDICT_COUNT = 16
 
@@ -592,6 +653,10 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     host = urllib.parse.urlparse(url).netloc
     path = urllib.parse.urlparse(url).path
     policy = _HOST_POLICY.get(host, _HOST_POLICY["default"])
+    if host in _SESSION_HOSTS:
+        # The session is what makes this path answer at all, so it is primed
+        # before the first request rather than discovered by a timeout.
+        _prime_nba_session()
     blocked = _known_blocked_host(host)
     if blocked is not None:
         # "Never answered" would be a lie here: a refused host answers, it just
@@ -614,6 +679,7 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     reason = "unknown"
     made = 0
     used_budget = 0
+    _session_reprimed = False
     # A header retry is not a budget retry. It gets its own request outside the
     # ``attempts`` count, so a host configured for one attempt still gets the
     # second chance when what is refused is plausibly what we sent.
@@ -621,9 +687,15 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     while True:
         made += 1
         if rerung:
+            # Consumed here. Leaving it set would make every later iteration a
+            # "free" profile retry, so ``used_budget`` would stop climbing and
+            # the loop would never reach its own exit. cdn.nba.com sets
+            # ``retry_forbidden``, so the 403 below does not break out either,
+            # and the walk spins on a host that is refusing every request.
             logger.log(logging.INFO if verbose else logging.DEBUG,
                        "NBA next-header-profile retry to %s (timeout %ds)",
                        host, timeout + DNS_GRACE_SEC)
+            rerung = False
         else:
             used_budget += 1
             logger.log(logging.INFO if verbose else logging.DEBUG,
@@ -673,6 +745,15 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
                 # Silence, not a refusal: this is the one verdict worth
                 # remembering, because a re-run would otherwise re-pay the
                 # whole timeout budget to learn the same thing.
+                if host in _SESSION_HOSTS:
+                    # An expired _abck is indistinguishable from the blocked
+                    # case from out here, so the session is re-primed and the
+                    # request retried once.  Only if that is also silent is
+                    # the host actually written off.
+                    if not _session_reprimed:
+                        _session_reprimed = True
+                        _prime_nba_session(force=True)
+                        continue
                 _record_host_verdict(host, f"no response: {reason}")
         logger.warning("NBA request %s/%s to %s failed: %s", used_budget,
                        budget, host, reason)
@@ -1382,7 +1463,8 @@ def _untag_rows(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _pull_season_from_cdn(season_year: int, pause: float, start: date,
-                          end: date, rerunged: bool = False) -> pd.DataFrame | None:
+                          end: date, deadline: float,
+                          rerunged: bool = False) -> pd.DataFrame | None:
     """Read every game of a season from per-game box scores, chunk by chunk.
 
     The regular season is a contiguous run of ids; the postseason is a sparse
@@ -1395,6 +1477,11 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     1,723 refusals of this client look the same from here - so that verdict is
     settled with one request in a different voice before the season is written
     off.  ``rerunged`` bounds that to a single retry.
+
+    ``deadline`` is the window's absolute wall clock, shared by every season in
+    the fallback so the cap bounds the whole walk rather than each season.  A
+    walk that runs out returns what it stored, and the probe ledger means the
+    next run resumes at the first id it has not seen.
     """
     days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
     full = _flag(FULL_REPULL_ENV, False)
@@ -1416,6 +1503,13 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
                                  f"{season_year} box scores", unit="game"):
         if game_id in known or game_id in probed:
             continue
+        if time.monotonic() > deadline:
+            logger.warning(
+                "%d-%s: box-score walk exhausted its budget after %d/%d ids; "
+                "the remaining %d will retry next run (raise %s).",
+                season_year, season_year + 1, asked, len(candidates),
+                len(candidates) - asked, CDN_WALK_BUDGET_ENV)
+            break
         probed.add(game_id)
         asked += 1
         try:
@@ -1455,8 +1549,8 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
                 # first would decide nothing.
                 if not rerunged and first_refusal and _reprobe_refusal(
                         first_refusal, "cdn.nba.com"):
-                    return _pull_season_from_cdn(season_year, pause, start, end,
-                                                 rerunged=True)
+                    return _pull_season_from_cdn(season_year, pause, start,
+                                                 end, deadline, rerunged=True)
                 _record_refusal_verdict("cdn.nba.com",
                                         _HOST_REFUSALS.get("cdn.nba.com", 0))
                 raise CdnUnavailable(
@@ -1498,7 +1592,7 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         if not rerunged and first_refusal and _reprobe_refusal(first_refusal,
                                                                "cdn.nba.com"):
             return _pull_season_from_cdn(season_year, pause, start, end,
-                                         rerunged=True)
+                                         deadline, rerunged=True)
         raise CdnUnavailable(
             f"cdn.nba.com refused all {asked} box scores for "
             f"{season_year}-{season_year + 1}, including a re-probe with "
@@ -1523,508 +1617,6 @@ def _cdn_seasons_in(start: date, end: date) -> list[int]:
     return [year for year in range(first, end.year + 1)
             if date(year, 10, 1) <= end and date(year + 1, 6, 30) >= start]
 
-
-# ---------------------------------------------------------------------------
-# ESPN schedules and box scores
-#
-# The last resort, and the cheapest complete source by an order of magnitude.
-# A cloud host that refuses both nba.com hosts can still be refused this one,
-# but when it answers, one request per team per season type rebuilds the whole
-# league slate: 2024-25 is 1,236 regular-season and 84 postseason games in
-# 60 requests and about twenty seconds, against 1,723 requests for the same
-# season one box score at a time. The schedule carries the game index, the
-# sides, the tip-off and the final score, which is everything the games frame
-# and the team box scores need.
-#
-# It carries no player detail, so player_stats used to come back empty and
-# every player-derived feature degraded to its default - which is why an ESPN
-# run could never be published. The per-game summary endpoint does carry the
-# box score, so the player lines are fetched there, one request per game.
-# That is slower than the sixty-request slate build, and it is the only way to
-# see the players on a host that refuses NBA.com, so it is what runs.
-# ---------------------------------------------------------------------------
-ESPN_TEAMS_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
-                  "basketball/nba/teams")
-ESPN_SCHEDULE_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
-                     "basketball/nba/teams/{team}/schedule"
-                     "?season={season}&seasontype={kind}")
-ESPN_SUMMARY_URL = ("https://site.web.api.espn.com/apis/site/v2/sports/"
-                    "basketball/nba/summary?event={event}")
-ESPN_REGULAR = 2
-ESPN_POSTSEASON = 3
-# ESPN's abbreviations differ from ours for six clubs.
-_ESPN_ABBR = {"GS": "GSW", "NO": "NOP", "NY": "NYK", "SA": "SAS",
-              "UTAH": "UTA", "WSH": "WAS"}
-
-
-def _espn_abbr(abbreviation: Any) -> str:
-    text = str(abbreviation or "").strip().upper()
-    return _ESPN_ABBR.get(text, text)
-
-
-def _gameday_et(stamp: Any) -> pd.Timestamp | None:
-    """The local game date for an ISO instant.
-
-    ESPN reports tip-off in UTC, and a 7pm Eastern game is the next calendar
-    day there, so taking the UTC date would misfile roughly half the league's
-    games onto the wrong day.
-    """
-    text = str(stamp or "").strip()
-    if not text:
-        return None
-    try:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    try:
-        from zoneinfo import ZoneInfo
-        local = moment.astimezone(ZoneInfo("America/New_York"))
-    except Exception:  # noqa: BLE001 - no tzdata is not a reason to lose a game
-        local = moment.astimezone(timezone(timedelta(hours=-5)))
-        logger.warning("no tzdata; falling back to a fixed Eastern offset")
-    return pd.Timestamp(local.date())
-
-
-def _espn_teams() -> dict[str, str]:
-    """Our 30 abbreviations mapped to ESPN team ids, fetched once and cached."""
-    path = config.CACHE_DIR / "espn_teams.json"
-    if path.exists() and not _flag(FULL_REPULL_ENV, False):
-        try:
-            cached = json.loads(path.read_text())
-            if all(team in config.NBA_TEAM_ID for team in cached):
-                return cached
-        except Exception:  # noqa: BLE001 - re-fetch below
-            pass
-    payload = _get_json(ESPN_TEAMS_URL, pause=0.0)
-    ids: dict[str, str] = {}
-    for league in ((payload or {}).get("sports") or [{}])[0].get("leagues") or [{}]:
-        for entry in league.get("teams") or []:
-            team = entry.get("team") or {}
-            ours = _espn_abbr(team.get("abbreviation"))
-            if ours in config.NBA_TEAM_ID and team.get("id"):
-                ids[ours] = str(team["id"])
-    missing = sorted(set(config.NBA_TEAM_ID) - set(ids))
-    if missing:
-        raise RuntimeError(f"ESPN did not list these current teams: {missing}")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(ids, indent=1))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("could not cache the ESPN team map (%s)", exc)
-    return ids
-
-
-def _frames_from_espn_events(events: list[dict], season: int,
-                            game_type: int) -> pd.DataFrame | None:
-    """ESPN schedule events -> the same blob shape the other sources produce."""
-    games: list[dict[str, Any]] = []
-    team_rows: list[dict[str, Any]] = []
-    for event in events:
-        competition = (event.get("competitions") or [{}])[0]
-        sides = {side.get("homeAway"): side
-                 for side in competition.get("competitors") or []}
-        home, away = sides.get("home"), sides.get("away")
-        if not home or not away:
-            continue
-        gameday = _gameday_et(event.get("date"))
-        game_id = str(event.get("id") or "")
-        if gameday is None or not game_id:
-            continue
-        try:
-            home_score = float(home["score"]["value"])
-            away_score = float(away["score"]["value"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        home_abbr = _espn_abbr((home.get("team") or {}).get("abbreviation"))
-        away_abbr = _espn_abbr((away.get("team") or {}).get("abbreviation"))
-        if home_abbr not in config.NBA_TEAM_ID or away_abbr not in config.NBA_TEAM_ID:
-            continue
-        games.append({
-            "game_id": game_id, "gameday": gameday, "season": float(season),
-            "home_team": home_abbr, "away_team": away_abbr,
-            "home_score": home_score, "away_score": away_score,
-            "game_type": game_type, "margin": home_score - away_score,
-            "total": home_score + away_score,
-            "home_win": 1.0 if home_score > away_score else 0.0,
-        })
-        for abbreviation, points_for, points_against, is_home in (
-                (home_abbr, home_score, away_score, True),
-                (away_abbr, away_score, home_score, False)):
-            team_rows.append({
-                "game_id": game_id, "gameday": gameday,
-                "team": abbreviation,
-                "opponent": away_abbr if is_home else home_abbr,
-                "is_home": is_home, "points_for": points_for,
-                "points_against": points_against,
-                "net_points": points_for - points_against,
-            })
-    if not games:
-        return None
-    return pd.concat([pd.DataFrame(games), pd.DataFrame(team_rows)],
-                     ignore_index=True)
-
-
-def _espn_number(value: Any) -> float | None:
-    """One of ESPN's stat cells, which are strings and sometimes compound.
-
-    ``MIN`` and ``PTS`` are plain numbers, but a player who did not dress
-    comes back empty and a shooting line comes back ``13-22``.  Anything that
-    is not a number is missing data, not zero, and must not become a zero:
-    a fabricated 0 is a real minutes/playoff-availability signal.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text or text in {"-", "--"}:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-# ESPN's box score names its columns and returns shooting lines already
-# reduced to ``made-attempted``.  Each entry is the canonical column, and the
-# optional second element is the attempts column the same cell also carries.
-_ESPN_PLAYER_STATS: dict[str, tuple[str, str | None]] = {
-    "MIN": ("minutes", None),
-    "PTS": ("points", None),
-    "FG": ("fgm", "fga"),
-    "3PT": ("fg3m", "fg3a"),
-    "FT": ("ftm", "fta"),
-    "REB": ("reb", None),
-    "AST": ("ast", None),
-    "TO": ("tov", None),
-    "STL": ("stl", None),
-    "BLK": ("blk", None),
-    "OREB": ("oreb", None),
-    "DREB": ("dreb", None),
-    "PF": ("pf", None),
-    "+/-": ("plus_minus", None),
-}
-
-
-def _espn_split(value: Any) -> tuple[float | None, float | None]:
-    """One of ESPN's ``made-attempted`` cells, e.g. ``'13-22'``.
-
-    A player who shot nothing comes back ``'0-0'``, which is a real zero on
-    both sides and must not be confused with a cell that never arrived.
-    """
-    made, separator, attempted = str(value or "").strip().partition("-")
-    if not separator:
-        return None, None
-    return _espn_number(made), _espn_number(attempted)
-
-
-def _player_lines_from_espn_summary(payload: Any, event_id: str,
-                                    home_abbr: str, away_abbr: str,
-                                    home_score: float | None = None,
-                                    away_score: float | None = None,
-                                    ) -> list[dict[str, Any]]:
-    """One game's player box score, in the normalized player_stats shape.
-
-    ESPN names its columns rather than fixing their order, so the indices are
-    read from the payload instead of assumed.  Every stat the model consumes is
-    read, not just minutes and points: this frame feeds the same assists,
-    rebounds, turnovers and shooting percentages as the season-log route, and a
-    fallback that quietly omitted them would train every one of those features
-    on a default while still looking like a successful run.
-    """
-    rows: list[dict[str, Any]] = []
-    boxscore = (payload or {}).get("boxscore") or {}
-    for block in boxscore.get("players") or []:
-        team = _espn_abbr((block.get("team") or {}).get("abbreviation"))
-        if team not in config.NBA_TEAM_ID:
-            continue
-        is_home = team == home_abbr
-        opponent = away_abbr if is_home else home_abbr
-        scored, conceded = ((home_score, away_score) if is_home
-                            else (away_score, home_score))
-        won = (None if scored is None or conceded is None
-               else float(scored > conceded))
-        for group in block.get("statistics") or []:
-            names = [str(name).upper() for name in (group.get("names") or [])]
-            if "MIN" not in names or "PTS" not in names:
-                continue
-            for athlete in group.get("athletes") or []:
-                who = athlete.get("athlete") or {}
-                player_id = who.get("id")
-                stats = athlete.get("stats") or []
-                if player_id is None or len(stats) < len(names):
-                    continue
-                row: dict[str, Any] = {
-                    "game_id": str(event_id),
-                    "player_id": str(player_id),
-                    "player_name": (who.get("fullName")
-                                    or who.get("displayName")
-                                    or who.get("shortName")
-                                    or str(player_id)),
-                    "team": team, "opponent": opponent, "is_home": is_home,
-                    "win": won,
-                }
-                for position, name in enumerate(names):
-                    target = _ESPN_PLAYER_STATS.get(name)
-                    if target is None:
-                        continue
-                    made_column, attempted_column = target
-                    if attempted_column is None:
-                        row[made_column] = _espn_number(stats[position])
-                    else:
-                        made, attempted = _espn_split(stats[position])
-                        row[made_column] = made
-                        row[attempted_column] = attempted
-                rows.append(row)
-            break
-    return rows
-
-
-def _player_slices(missing: pd.DataFrame, days: int
-                   ) -> list[tuple[date, date, pd.DataFrame]]:
-    """The games still to fetch, cut into the pull's own slices.
-
-    The player walk is the longest per-game loop in the backend — a full window
-    is a few thousand requests — so it reports itself the way every other slice
-    does: one line per slice with its game count.  A log reader can watch it
-    move rather than only seeing that it started, which matters because the
-    drawable bar is suppressed anywhere stderr is captured.  Games whose date
-    could not be read come back as a final unslotted pass rather than being
-    dropped: a missing date is not a reason to skip a request.
-    """
-    dated = pd.to_datetime(missing["gameday"], errors="coerce")
-    undated = missing[dated.isna()]
-    dated_rows = missing[dated.notna()]
-    if dated_rows.empty:
-        return [(missing["gameday"].min(), missing["gameday"].min(), undated)]
-    first = dated[dated.notna()].min().date()
-    last = dated[dated.notna()].max().date()
-    slices: list[tuple[date, date, pd.DataFrame]] = []
-    cursor = first
-    while cursor <= last:
-        _, chunk_end = _chunk_bounds(cursor, last, days)
-        # Half-open at the top, exactly as _report_chunk_gaps slices: the
-        # boundary day belongs to the next slice only. Closing both ends would
-        # count it twice and pay for the same game twice.
-        gamedays = pd.to_datetime(dated_rows["gameday"], errors="coerce")
-        rows = dated_rows[(gamedays >= pd.Timestamp(cursor))
-                          & (gamedays < pd.Timestamp(chunk_end)
-                             + pd.Timedelta(days=1))]
-        slices.append((cursor, chunk_end, rows))
-        cursor = chunk_end + timedelta(days=1)
-    if not undated.empty:
-        slices.append((last, last, undated))
-    return slices
-
-
-def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float, path: Path,
-                                 *, budget_sec: float | None = None
-                                 ) -> pd.DataFrame:
-    """Fetch the player box score for every game the window does not have yet.
-
-    One request per game, which is the cost of seeing players on a host that
-    refuses NBA.com.  It is incremental in the same way everything else here
-    is: games already in the cache are never asked about again, so a daily run
-    is a handful of games rather than a rebuild.  A refusal streak ends the
-    walk the same way the per-game CDN walk ends, and the verdict it leaves
-    behind means the next run does not pay for the discovery twice.
-
-    Walked in the pull's own 60-day slices with a game-count line each and a
-    bar across the whole walk, so the run is visibly moving rather than silent
-    for half an hour.
-
-    Budget-capped, following MLB's ``_topup_roof_cache``: the walk stops when
-    the budget runs out, logs how far it got, and returns the lines it has.
-    They are cached, so the next run resumes from there rather than starting
-    over.  A slow host can therefore cost a run its budget but not its place.
-    """
-    if budget_sec is None:
-        budget_sec = _float_env(ESPN_PLAYER_BUDGET_ENV,
-                                DEFAULT_ESPN_PLAYER_BUDGET_SEC)
-    cached = _read_cache(path)
-    have = set(cached.game_id.astype(str)) if not cached.empty else set()
-    columns = ["game_id", "gameday", "home_team", "away_team", "game_type"]
-    # ``win`` is a per-player fact but lives on the game, so the scores travel
-    # with the request instead of being looked up from a frame that may have
-    # been trimmed by the caller.
-    for extra in ("home_score", "away_score"):
-        if extra in games.columns:
-            columns.append(extra)
-    wanted = (games[columns]
-              .drop_duplicates("game_id")
-              .reset_index(drop=True))
-    missing = wanted[~wanted.game_id.astype(str).isin(have)]
-    logger.info("ESPN player box scores: %d games cached, %d to fetch",
-                len(have), len(missing))
-    if missing.empty:
-        return _derive_player_shooting(cached)
-    frames: list[pd.DataFrame] = [] if cached.empty else [cached]
-    asked = 0
-    fetched = 0
-    start = time.monotonic()
-    days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
-    stopped = ""
-    with progress.track(len(missing), desc="ESPN box scores", unit="game") as bar:
-        for cursor, chunk_end, rows in _player_slices(missing, days):
-            if stopped:
-                break
-            logger.info("  chunk %s -> %s: %d games", cursor, chunk_end,
-                        len(rows))
-            bar.set_postfix(f"{cursor}..{chunk_end} {len(rows)}g")
-            for row in rows.itertuples(index=False):
-                if time.monotonic() - start >= budget_sec:
-                    stopped = ("ESPN player box scores: budget exhausted after "
-                               f"{fetched}/{len(missing)} fetches — remaining "
-                               f"{len(missing) - fetched} will retry next run")
-                    break
-                try:
-                    payload = _get_json(
-                        ESPN_SUMMARY_URL.format(event=row.game_id),
-                        allow_missing=True, retries=2, pause=pause,
-                        verbose=False)
-                except HostBlocked as exc:
-                    stopped = (f"ESPN player box scores stopped after {asked} "
-                               f"of {len(missing)} games: {exc}")
-                    break
-                asked += 1
-                lines = _player_lines_from_espn_summary(
-                    payload, str(row.game_id), row.home_team, row.away_team,
-                    home_score=getattr(row, "home_score", None),
-                    away_score=getattr(row, "away_score", None))
-                if lines:
-                    fetched += 1
-                    frames.append(pd.DataFrame(lines).assign(
-                        gameday=pd.to_datetime(row.gameday, errors="coerce"),
-                        game_type=row.game_type))
-                bar.update(1)
-    if stopped:
-        logger.info(stopped)
-    merged = (pd.concat(frames, ignore_index=True) if frames
-              else cached)
-    if not merged.empty:
-        merged = _derive_player_shooting(merged)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            merged.to_parquet(path, index=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("could not cache %s (%s)", path.name, exc)
-    logger.info("ESPN player box scores: %d player lines across %d games",
-                len(merged), merged.game_id.nunique() if len(merged) else 0)
-    return merged
-
-
-def _pull_season_from_espn(season_year: int, pause: float) -> pd.DataFrame | None:
-    """One season of league-wide games from the per-team schedules."""
-    path = config.CACHE_DIR / f"espn_season_{season_year}.parquet"
-    if path.exists() and not _flag(FULL_REPULL_ENV, False):
-        cached = _read_chunk(path)
-        if not cached.empty:
-            logger.info("%d-%s from ESPN cache (%d rows)", season_year,
-                        season_year + 1, len(cached))
-            return cached
-    teams = _espn_teams()
-    frames: list[pd.DataFrame] = []
-    for kind, game_type in ((ESPN_REGULAR, config.GAME_TYPE_REG),
-                            (ESPN_POSTSEASON, config.GAME_TYPE_POST)):
-        events: dict[str, dict] = {}
-        for team_id in teams.values():
-            # ESPN's ``season`` is the year the season ENDS: season=2025 opens
-            # on 2024-10-23, so a season that starts in ``season_year`` is
-            # requested as season_year + 1.
-            payload = _get_json(
-                ESPN_SCHEDULE_URL.format(team=team_id, season=season_year + 1,
-                                         kind=kind),
-                pause=pause, allow_missing=True, verbose=False)
-            for event in (payload or {}).get("events") or []:
-                if event.get("id"):
-                    events[str(event["id"])] = event
-        built = _frames_from_espn_events(list(events.values()), season_year,
-                                         game_type)
-        if built is None:
-            logger.info("%d-%s ESPN season=%d seasontype=%d returned no games",
-                        season_year, season_year + 1, season_year + 1, kind)
-            continue
-        logger.info("%d-%s ESPN season=%d seasontype=%d: %d games",
-                    season_year, season_year + 1, season_year + 1, kind,
-                    built.home_score.notna().sum())
-        frames.append(built)
-    if not frames:
-        return None
-    merged = pd.concat(frames, ignore_index=True)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        merged.drop_duplicates(["game_id", "team"], keep="first").to_parquet(
-            path, index=False)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("could not cache %s (%s)", path.name, exc)
-    return merged
-
-
-def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
-                                                            pd.DataFrame, dict[str, str]]:
-    """Build the window from ESPN's per-team schedules."""
-    years = _cdn_seasons_in(start, end)
-    pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
-    logger.warning("NBA pulling %s..%s via ESPN schedules (%d-day slices)",
-                   start, end, _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
-    collected: list[pd.DataFrame] = []
-    dead_years: list[str] = []
-    for year in progress.wrap(years, len(years), "ESPN schedules", unit="season"):
-        try:
-            frame = _pull_season_from_espn(year, pause)
-        except CdnUnavailable:
-            raise
-        except RuntimeError as exc:
-            logger.error("ESPN season %d unavailable: %s", year, exc)
-            dead_years.append(f"{year} {_failure_verdict(exc)}")
-            continue
-        if frame is not None and not frame.empty:
-            collected.append(frame)
-    if not collected:
-        raise RuntimeError(
-            f"No NBA data could be read for {start}..{end} from stats.nba.com, "
-            "cdn.nba.com or ESPN. "
-            + ("ESPN: " + ", ".join(dead_years) + ". " if dead_years else "")
-            + "The pipeline cannot run on an empty window.")
-    blob = _untag_rows(pd.concat(collected, ignore_index=True))
-    if "home_score" not in blob.columns or not len(blob):
-        raise RuntimeError(
-            f"The ESPN pull for {start}..{end} returned no game data, so "
-            "site.api.espn.com is unreachable from this host as well.")
-    games = (blob[blob.home_score.notna()].drop_duplicates("game_id")
-             .copy())
-    games = games[(pd.to_datetime(games.gameday) >= pd.Timestamp(start))
-                  & (pd.to_datetime(games.gameday) <= pd.Timestamp(end)
-                     + pd.Timedelta(days=1))]
-    _abort_on_empty_core_chunks(_report_chunk_gaps(games, start, end), start, end)
-    team_stats = blob[blob["team"].notna() & blob["points_for"].notna()]
-    team_stats = team_stats[team_stats.game_id.isin(set(games.game_id))]
-    if "team_name" not in team_stats.columns:
-        team_stats = team_stats.assign(team_name=None)
-    regular = int((games.game_type == config.GAME_TYPE_REG).sum())
-    logger.warning(
-        "NBA rebuilt from ESPN schedules: %d games (%d regular, %d postseason), "
-        "%d team rows", len(games), regular, len(games) - regular,
-        len(team_stats))
-    # Only the games the model can actually train on are worth a request each.
-    # A window that reaches back into a pre-eligibility season would otherwise
-    # pay full per-game price for lines that eligible_games() discards before
-    # the features are built, which is the same filter MLB applies to
-    # retractable-roof games before it tops that cache up.
-    trainable = eligible_games(games)
-    if len(trainable) < len(games):
-        logger.info("ESPN player box scores: %d of %d window games fall "
-                    "outside the eligible seasons, so they are not asked for",
-                    len(games) - len(trainable), len(games))
-    player_stats = _pull_player_stats_from_espn(
-        trainable, pause, config.CACHE_DIR / "espn_player_stats.parquet")
-    if player_stats.empty:
-        logger.warning(
-            "ESPN supplied no player lines for %d games, so player-derived "
-            "features will fall back to their defaults and the run will be "
-            "refused rather than published.", len(games))
-    return (games.reset_index(drop=True), team_stats.reset_index(drop=True),
-            player_stats, {})
 
 def _report_chunk_gaps(games: pd.DataFrame, start: date, end: date) -> list[str]:
     """Name the window slices that came back with no games at all.
@@ -2089,13 +1681,17 @@ def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.Dat
     """Build the normalized frames from cached per-game box scores alone."""
     years = _cdn_seasons_in(start, end)
     pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    # One budget for the whole fallback, not one per season: a window of five
+    # seasons is five walks, and a cap that resets per walk is no cap at all.
+    deadline = time.monotonic() + _float_env(CDN_WALK_BUDGET_ENV,
+                                             DEFAULT_CDN_WALK_BUDGET_SEC)
     logger.warning("NBA pulling %s..%s via cdn.nba.com in %d-day slices "
                    "(stats.nba.com answered nothing)", start, end,
                    _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
     collected: list[pd.DataFrame] = []
     for year in years:
         try:
-            frame = _pull_season_from_cdn(year, pause, start, end)
+            frame = _pull_season_from_cdn(year, pause, start, end, deadline)
         except CdnUnavailable:
             # The host itself is gone: walking the remaining seasons would
             # only repeat the same timeout, so name it and stop.
@@ -2313,31 +1909,25 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                 "needs no key but can be slow or blocked by cloud hosts. Retry, or "
                 "narrow NBA_START_DATE/NBA_END_DATE to a window whose seasons are "
                 f"already cached, or set {CDN_FALLBACK_ENV}=0 to use the CDN.")
-        # Ranked fallbacks. Each leg either serves the whole window or is named
-        # in the error, so a host that refuses us is never a mystery.
+        # The one remaining fallback. cdn.nba.com carries no season log, so
+        # this is one request per game instead of one per season - slow, but it
+        # is still NBA.com, and it is the last surface that answers at all.
         logger.warning("No season log could be read; rebuilding the window "
                        "from per-game box scores instead.")
-        dead_ends: list[str] = []
-        for label, route in (("cdn.nba.com box scores", _pull_seasons_from_cdn),
-                             ("ESPN schedules and box scores",
-                              _pull_seasons_from_espn)):
-            try:
-                result = route(start, end)
-            except (CdnUnavailable, RuntimeError) as exc:
-                logger.error("%s route unavailable: %s", label, exc)
-                dead_ends.append(f"{label} {_failure_verdict(exc)}")
-                continue
-            SOURCE_USED["source"] = label
-            return result
-        raise RuntimeError(
-            f"NBA could not read {start}..{end} from any source. "
-            f"stats.nba.com: every season log failed "
-            f"({', '.join(unavailable) or 'none attempted'}). "
-            + "; ".join(dead_ends)
-            + ". A host that never answers is a network block, not a bad "
+        try:
+            result = _pull_seasons_from_cdn(start, end)
+        except (CdnUnavailable, RuntimeError) as exc:
+            raise RuntimeError(
+                f"NBA could not read {start}..{end} from any source. "
+                f"stats.nba.com: every season log failed "
+                f"({', '.join(unavailable) or 'none attempted'}). "
+                f"cdn.nba.com box scores {_failure_verdict(exc)}."
+                ". A host that never answers is a network block, not a bad "
               "request: nothing this pipeline sends will change it, so run "
               "where these hosts are reachable, or warm the cache here. "
-            + _NO_SOURCE_REMEDY)
+            + _NO_SOURCE_REMEDY) from exc
+        SOURCE_USED["source"] = "cdn.nba.com box scores"
+        return result
     log = pd.concat(logs, ignore_index=True)
     SOURCE_USED["source"] = "stats.nba.com LeagueGameLog"
     log = log[(log.gameday >= pd.Timestamp(start))

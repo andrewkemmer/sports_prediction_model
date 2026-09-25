@@ -17,7 +17,7 @@ cannot be pointed at a directory of tables it never produced.
 
 ## Sources
 
-Three routes, tried in order. The first that can serve the whole window wins,
+Two routes, tried in order. The first that can serve the whole window wins,
 and the manifest records which one answered.
 
 1. **`stats.nba.com/stats/LeagueGameLog`** — the backbone. One request returns a
@@ -25,29 +25,41 @@ and the manifest records which one answered.
    player line arrive in the same call. Regular season and playoffs are separate
    calls, which is where the game type comes from; nothing is inferred from
    dates. ~10 requests for any window, re-read every run.
-2. **`cdn.nba.com`** — the same JSON NBA.com serves its own site: the league
-   schedule, plus per-game box scores and play-by-play. Used to rebuild the
-   window when the season log cannot be read.
-3. **`site.web.api.espn.com`** — the last resort. The ESPN scoreboard for the
-   schedule and one `summary` box score per game. Cloud hosts block both NBA.com
-   surfaces at the IP level; ESPN is what serves the window there. It costs
-   ~5,700 requests for a full window against ~10 for the season log, so the
-   player lines it yields are cached to `espn_player_stats.parquet` and a later
-   run asks only for the games the cache has not seen.
+2. **`cdn.nba.com`** — the same JSON NBA.com serves its own site: per-game box
+   scores and play-by-play. A box score carries the schedule, the team lines and
+   the player lines, so this route rebuilds the whole window when the season log
+   cannot be read, at one request per game instead of one per season.
 
-No key, quota, or paid tier is involved on any route.
+There is no third route. Both remaining surfaces are NBA.com, and a backstop
+outside it cannot rescue a run whose actual problem is that the host cannot
+reach NBA.com. If both refuse, the error says so and the remedy is the network.
+
+No key, quota, or paid tier is involved on either route.
+
+### stats.nba.com needs a session
+
+`/stats/*` sits behind Akamai Bot Manager and will not answer a client with no
+cookie: the same request returns 500, or 302s to `/error/`, or hangs until the
+socket gives up, depending only on the shape of the call. A cookie jar primed
+once from `https://www.nba.com/` (`_abck`, `bm_*`) turns that into a 200 — a
+full season in about two seconds, against roughly 24 minutes of per-game walks.
+The session is primed before the first stats request, cached for
+`SESSION_TTL_SEC`, and re-primed once if a request ever comes back silent, since
+an expired cookie is indistinguishable from a block from out here. The cookie
+goes to `stats.nba.com` only.
 
 A host that answers with refusals is detected, not retried into a loop: after
-`REFUSAL_VERDICT_COUNT` consecutive 403s the walk stops and the run falls
-through to the next route rather than spending its whole request budget being
-told no.
+`REFUSAL_VERDICT_COUNT` consecutive 403s the walk stops rather than spending its
+whole request budget being told no. The per-game CDN walk is additionally
+bounded by `NBA_CDN_WALK_BUDGET_SEC` across the whole window, not per season,
+and resumes from its probe ledger on the next run.
 
 ## Player detail is required
 
 The pipeline refuses to publish a window that has games but no player lines,
-rather than training every player-derived feature on its default. That gate is
-the reason the ESPN route exists: on a host where NBA.com is blocked, a run that
-could only read schedules would otherwise look successful and be silently wrong.
+rather than training every player-derived feature on its default. Both routes
+carry player lines — the season log per game in bulk, the CDN box score per game
+on request — so a run that reaches either one has real player detail.
 
 ## Cache
 

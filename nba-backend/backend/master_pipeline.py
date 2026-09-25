@@ -1,8 +1,9 @@
 """The single authoritative NBA production pipeline.
 
 Run from ``nba-backend/backend``.  Every artifact and delivery path is NBA-only;
-no other sport backend is imported.  Data comes from NBA.com's public APIs and,
-when those are unreachable, ESPN's schedules and per-game box scores.
+no other sport backend is imported.  Data comes from NBA.com's public APIs: the
+stats.nba.com season log, or cdn.nba.com per-game box scores when the season log
+cannot be read.  There is no third source.
 """
 from __future__ import annotations
 

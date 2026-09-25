@@ -7,9 +7,11 @@ must fail the run loudly.
 """
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import logging
 import sys
+import time
 import urllib.error
 from datetime import date
 from pathlib import Path
@@ -103,6 +105,13 @@ def _isolated_cache(tmp_path, monkeypatch):
             "ing.urllib.request.urlopen in this test")
 
     monkeypatch.setattr(ing.urllib.request, "urlopen", fenced)
+    # Session priming opens nba.com through its OWN cookie-aware opener, which
+    # the urlopen fence above does not cover, and the jar it fills is a module
+    # global.  Fence that opener too and start every test with no session, or
+    # a test reaches the real internet and its neighbour inherits the cookies.
+    monkeypatch.setattr(ing.urllib.request, "build_opener", fenced)
+    monkeypatch.setattr(ing, "_session_cookies", None)
+    monkeypatch.setattr(ing, "_session_primed_at", 0.0)
     return cache
 
 
@@ -310,7 +319,9 @@ class _Response:
     def __init__(self, payload: bytes):
         self._payload = payload
 
-    def read(self) -> bytes:
+    def read(self, *_args) -> bytes:
+        # The session prime reads a bounded prefix (``read(2048)``) rather
+        # than the whole body, so the stub takes the argument too.
         return self._payload
 
     def __enter__(self):
@@ -384,23 +395,51 @@ def test_a_fast_refusal_advances_one_rung_of_the_host_ladder(monkeypatch) -> Non
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     ing._HEADER_RUNG.clear()
     with pytest.raises(RuntimeError, match="HTTP 403"):
-        ing._get_json("https://site.api.espn.com/apis/site/v2/sports/"
-                      "basketball/nba/teams")
-    assert len(sent) == 2, "one rung walk, not a retry storm"
+        ing._get_json("https://cdn.nba.com/static/json/liveData/scoreboard/scoreboard.json")
+    assert len(sent) == 3, "one rung walk on top of the two budget attempts"
     assert sent[0] != sent[1], "the retry has to actually change what we send"
-    assert sent[1] == {k.lower(): v for k, v in ing._HTTP_HEADERS.items()}
+    assert sent[0] == {k.lower(): v for k, v in ing._HTTP_HEADERS.items()}, \
+        "cdn.nba.com's first rung is the full browser costume"
+    assert sent[1] == {}, "the second rung sends no browser costume at all"
 
 
-def test_espn_is_asked_as_a_plain_client_not_a_browser(monkeypatch) -> None:
-    """Measured: ESPN 403s in 70ms to any User-Agent we supply, and serves none.
+def test_a_refused_profile_walk_is_bounded_by_the_attempt_budget(
+        monkeypatch) -> None:
+    """A header retry that never re-arms the budget is an infinite walk.
 
-    This is the refusal the Kaggle log recorded as "answered and refused us",
-    and the fix is to stop impersonating Chrome rather than to invent a subtler
-    browser string.
+    cdn.nba.com sets ``retry_forbidden``, so a 403 does not break the retry
+    loop; the attempt budget is the only thing that ends it.  When a
+    profile retry is spent, ``used_budget`` stops climbing, the loop never
+    reaches its own exit, and the run spins on a host that is refusing every
+    single request - the 1,723-refusal storm this suite exists to prevent.
     """
-    assert ing._header_ladder("site.api.espn.com")[0] == {}, \
-        "ESPN's first rung must send no User-Agent at all"
-    # The nba.com hosts are the opposite: they need the full costume.
+    sent: list[str] = []
+
+    def rejected(request, timeout=None):
+        sent.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
+
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        ing._get_json(CDN_BOXSCORE_URL, pause=0)
+
+    attempts = ing._HOST_POLICY["cdn.nba.com"]["attempts"]
+    assert len(sent) == attempts + 1, (
+        f"asked {len(sent)} times for a host that refuses everything; the "
+        "budget is the loop's only exit")
+    assert ing._HEADER_RUNG == {} or "cdn.nba.com" not in ing._HEADER_RUNG, (
+        "a host that answered with 403 has not been learned as a working rung")
+
+
+def test_each_host_is_asked_in_the_voice_it_measured(monkeypatch) -> None:
+    """Two hosts, two contracts, both measured rather than guessed.
+
+    cdn.nba.com 403s a bare User-Agent and serves the full costume.
+    stats.nba.com needs the same costume plus its own x-nba-stats-* tokens.
+    """
     assert ing._header_ladder("cdn.nba.com")[0] == ing._HTTP_HEADERS
     assert ing._header_ladder("stats.nba.com")[0] == ing._STATS_HEADERS
 
@@ -412,8 +451,8 @@ def test_espn_is_asked_as_a_plain_client_not_a_browser(monkeypatch) -> None:
             return _Response(json.dumps({"ok": True}).encode())
 
     monkeypatch.setattr(ing.urllib.request, "urlopen", FakeOpener().open)
-    ing._get_json("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams")
-    assert "user-agent" not in sent[0], "urllib's default is the profile that works"
+    ing._get_json("https://cdn.nba.com/static/json/liveData/scoreboard/scoreboard.json")
+    assert "user-agent" in sent[0], "the costume is the profile that answers"
 
 
 def test_the_rung_that_answers_is_reused_for_the_rest_of_the_run(monkeypatch) -> None:
@@ -488,11 +527,10 @@ def test_a_host_configured_for_one_attempt_still_gets_the_header_retry(monkeypat
     assert attempts["n"] == 2
 
 
-def test_espn_is_asked_as_espn_and_never_as_nba(monkeypatch) -> None:
-    """ESPN is not a CORS peer of nba.com, and the run must not pretend it is."""
-    first = ing._header_ladder("site.api.espn.com")[0]
-    assert "Origin" not in first and "Referer" not in first
+def test_every_nba_request_carries_the_nba_origin(monkeypatch) -> None:
+    """The stats edge is a peer of nba.com and answers nothing as anyone else."""
     assert ing._HTTP_HEADERS["Origin"] == "https://www.nba.com"
+    assert ing._header_ladder("stats.nba.com")[0]["Origin"] == "https://www.nba.com"
 
 
 def test_only_silence_is_remembered_against_a_host(monkeypatch, tmp_path) -> None:
@@ -505,8 +543,8 @@ def test_only_silence_is_remembered_against_a_host(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     with pytest.raises(RuntimeError):
-        ing._get_json("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams")
-    assert ing._known_blocked_host("site.api.espn.com") is None
+        ing._get_json("https://cdn.nba.com/static/json/liveData/boxscore/boxscore_0022500001.json")
+    assert ing._known_blocked_host("cdn.nba.com") is None
 
     def silent(request, timeout=None):
         raise TimeoutError("The read operation timed out")
@@ -525,13 +563,13 @@ def test_the_final_error_says_silence_where_there_was_silence() -> None:
                      "(TimeoutError: The read operation timed out)")) == \
         "never answered (no response before the timeout)"
     assert ing._failure_verdict(
-        ing.CdnUnavailable("site.api.espn.com failed (HTTP 403): Forbidden")) == \
+        ing.CdnUnavailable("cdn.nba.com failed (HTTP 403): Forbidden")) == \
         "answered and refused us (HTTP 403)"
     assert ing._failure_verdict(
         ing.CdnUnavailable("cdn.nba.com refused all 1723 box scores")) == \
         "answered and served nothing"
     assert "never answered" not in ing._failure_verdict(
-        ing.CdnUnavailable("site.api.espn.com failed (HTTP 403)"))
+        ing.CdnUnavailable("cdn.nba.com failed (HTTP 403)"))
 
 
 def test_cdn_forbidden_is_treated_as_a_missing_game(monkeypatch) -> None:
@@ -917,7 +955,8 @@ def test_the_cdn_walk_reads_the_regular_season_and_the_bracket(monkeypatch) -> N
     monkeypatch.setattr(ing, "_get_json",
                         lambda url, **kw: served.get(url.rsplit("_", 1)[-1][:-5]))
     frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
-                                      date(2025, 7, 1))
+                                      date(2025, 7, 1),
+                                      time.monotonic() + 3600)
     assert frame is not None
     games = frame[frame.home_score.notna()]
     assert set(games.game_id) == {"0022400001", "0042400407"}
@@ -943,7 +982,8 @@ def test_a_blackholed_cdn_stops_the_walk_instead_of_hammering_it(monkeypatch) ->
 
     monkeypatch.setattr(ing, "_get_json", dead)
     with pytest.raises(ing.CdnUnavailable, match="cdn.nba.com"):
-        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     assert len(asked) == ing.MAX_CONSECUTIVE_FAILURES
 
 
@@ -971,94 +1011,14 @@ def test_a_cached_cdn_season_keeps_its_team_and_player_rows(monkeypatch) -> None
         return None
 
     monkeypatch.setattr(ing, "_get_json", cdn)
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     stored = ing._read_chunk(ing._cdn_chunk_path(2024, date(2024, 10, 1)))
     assert len(stored[stored.row_kind == "game"]) == 1
     assert len(stored[stored.row_kind == "team"]) == 2
     assert len(stored[stored.row_kind == "player"]) == 2
-
-
-# --------------------------------------------------------------------------
-# ESPN schedules
-# --------------------------------------------------------------------------
-
-
-def espn_events(count: int = 2, postseason: bool = False) -> list[dict]:
-    """Schedule events shaped like ESPN's per-team ``/schedule`` payload."""
-    events = []
-    for index in range(count):
-        home, away = TEAMS[index % len(TEAMS)], TEAMS[(index + 1) % len(TEAMS)]
-        events.append({
-            "id": f"40170{index:04d}",
-            # 7pm Eastern on the 22nd is 23:00/00:00Z on the 23rd, so a UTC
-            # date would file this game a day late.
-            "date": "2024-10-22T23:00Z",
-            "competitions": [{"competitors": [
-                {"homeAway": "home", "team": {"abbreviation": home},
-                 "score": {"value": 112.0}},
-                {"homeAway": "away", "team": {"abbreviation": away},
-                 "score": {"value": 104.0}},
-            ]}],
-        })
-    return events
-
-
-def test_espn_uses_our_abbreviations_not_theirs() -> None:
-    assert ing._espn_abbr("LAL") == "LAL"
-    assert ing._espn_abbr("GS") == "GSW"
-    assert ing._espn_abbr("no") == "NOP"
-    assert ing._espn_abbr("NY") == "NYK"
-    assert ing._espn_abbr("UTAH") == "UTA"
-    assert ing._espn_abbr("WSH") == "WAS"
-
-
-def test_a_utc_tipoff_is_filed_on_its_eastern_date() -> None:
-    # 2024-10-22T23:00Z is 7pm Eastern on the 22nd. Taking the UTC date
-    # would put roughly half the league's games on the wrong day.
-    assert ing._gameday_et("2024-10-22T23:00Z") == pd.Timestamp("2024-10-22")
-    assert ing._gameday_et("2024-10-23T00:30Z") == pd.Timestamp("2024-10-22")
-    assert ing._gameday_et("2024-11-03T01:00Z") == pd.Timestamp("2024-11-02")
-    assert ing._gameday_et("") is None
-    assert ing._gameday_et(None) is None
-    assert ing._gameday_et("not a date") is None
-
-
-def test_espn_events_become_games_and_team_rows() -> None:
-    built = ing._frames_from_espn_events(espn_events(2), 2024,
-                                         config.GAME_TYPE_REG)
-    assert built is not None
-    games = built[built.home_score.notna()]
-    teams = built[built.team.notna()]
-    assert len(games) == 2
-    assert set(games.gameday) == {pd.Timestamp("2024-10-22")}
-    assert set(games.season) == {2024.0}
-    assert len(teams) == 4
-    assert teams.points_for.sum() == 2 * (112.0 + 104.0)
-    assert set(teams.net_points) == {8.0, 8.0, -8.0, -8.0}
-
-
-def test_an_unscored_espn_event_is_not_invented() -> None:
-    events = espn_events(1)
-    events[0]["competitions"][0]["competitors"][0]["score"] = {}
-    assert ing._frames_from_espn_events(events, 2024,
-                                        config.GAME_TYPE_REG) is None
-
-
-def test_the_espn_season_requests_the_year_the_season_ends(monkeypatch) -> None:
-    asked: list[str] = []
-
-    def fake(url, **kwargs):
-        asked.append(url)
-        return {"events": espn_events(1)} if "seasontype=2" in url else {"events": []}
-
-    monkeypatch.setattr(ing, "_get_json", fake)
-    monkeypatch.setattr(ing, "_espn_teams", lambda: {t: t for t in TEAMS})
-    ing._pull_season_from_espn(2024, 0.0)
-    # ESPN season=2025 opens on 2024-10-23, so a 2024 start means season 2025.
-    assert all("season=2025" in url for url in asked)
-    assert ing._read_chunk(ing.config.CACHE_DIR / "espn_season_2024.parquet") \
-        .game_id.nunique() == 1
 
 
 def test_a_blocked_host_is_not_probed_again() -> None:
@@ -1170,7 +1130,8 @@ def test_a_host_that_refuses_everything_says_so(monkeypatch) -> None:
     monkeypatch.setattr(ing, "_reprobe_refusal", lambda url, host: False)
     monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
     with pytest.raises(ing.CdnUnavailable, match="refused"):
-        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
 
 
 def test_a_season_refused_by_one_client_is_re_asked_by_another(monkeypatch) -> None:
@@ -1198,7 +1159,8 @@ def test_a_season_refused_by_one_client_is_re_asked_by_another(monkeypatch) -> N
     monkeypatch.setattr(ing.urllib.request, "urlopen", refused_by_the_bare_client_only)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
-                                      date(2025, 7, 1))
+                                      date(2025, 7, 1),
+                                      time.monotonic() + 3600)
     bare = [h for h in asked if "user-agent" not in h]
     assert frame is not None and not frame.empty, "the season was written off"
     assert frame.game_id.nunique() == 1
@@ -1220,7 +1182,8 @@ def test_a_season_refused_by_every_client_is_not_retried_forever(monkeypatch) ->
     monkeypatch.setattr(ing, "_get_json", lambda url, **kw: None)
     monkeypatch.setattr(ing, "_reprobe_refusal", re_asked_but_refused)
     with pytest.raises(ing.CdnUnavailable, match="different headers"):
-        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     assert len(calls) == 1
 
 
@@ -1235,9 +1198,11 @@ def test_a_warm_run_never_asks_about_an_id_twice(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(ing, "_get_json", cdn)
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     first = len(asked)
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     # A 403 is as durable a fact as a 200, so nothing is re-asked.
     assert len(asked) == first
 
@@ -1253,9 +1218,11 @@ def test_a_cdn_season_is_cached_after_the_walk(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(ing, "_get_json", cdn)
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     assert ing._cdn_chunk_path(2024, date(2024, 10, 1)).exists()
-    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     assert len(asked) == 1, "a stored game must never be requested twice"
 
 
@@ -1622,10 +1589,10 @@ def test_the_pipeline_names_every_phase_it_advances() -> None:
 # --------------------------------------------------------------------------
 # A refused host is a verdict, not a fact the run keeps re-buying
 #
-# The 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell through to
-# ESPN, and then asked the same blocked host again for 3,474 play-by-play
-# files.  The refusals were cheap; asking for them was not.  These tests pin
-# the two places the walk is allowed to stop.
+# The 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell back to
+# per-game CDN reads, and then asked the same blocked host again for 3,474
+# play-by-play files.  The refusals were cheap; asking for them was not.  These
+# tests pin the two places the walk is allowed to stop.
 # --------------------------------------------------------------------------
 
 
@@ -1677,7 +1644,8 @@ def test_a_refused_season_stops_in_sixteen_ids_not_1723(monkeypatch,
     monkeypatch.setattr(ing.urllib.request, "urlopen", refused)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     with pytest.raises(ing.CdnUnavailable):
-        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1),
+                                                time.monotonic() + 3600)
     # The re-probe is the one request that could still overturn this, so the
     # budget is the streak plus that request, not the whole season.
     assert len(asked) <= ing.REFUSAL_VERDICT_COUNT + 4, (
@@ -1713,7 +1681,8 @@ def test_the_re_probe_still_gets_its_chance_before_a_verdict(
                         served_by_the_bare_client_only)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
-                                      date(2025, 7, 1))
+                                      date(2025, 7, 1),
+                                      time.monotonic() + 3600)
     assert frame is not None and not frame.empty, "the season was written off"
     assert frame.game_id.nunique() == 1
     assert ing._known_blocked_host("cdn.nba.com") is None, (
@@ -1764,317 +1733,383 @@ def test_play_by_play_stops_after_a_conclusive_run_of_refusals(
     assert ing._known_blocked_host("cdn.nba.com") is not None, (
         "the verdict must outlive the run that earned it")
 
-
 # --------------------------------------------------------------------------
-# ESPN's per-game box score, which is where the players come from now
+# The stats edge is behind a bot manager, and a cookie is what gets in
 #
-# The 2026-09-25 Kaggle run reached the ESPN route because both NBA.com hosts
-# refused it, and the ESPN route carried no player detail, so the run published
-# artifacts whose every player-derived feature was a default. The schedules
-# endpoint cannot fix that - but the per-game summary endpoint carries the box
-# score, so that is where the player lines are fetched.
+# Measured on 2026-09-25: with no session cookie ``leaguegamelog`` answers 500,
+# or 302s to /error/, or sits until the socket gives up, depending only on the
+# shape of the request.  With ``_abck``/``bm_*`` primed from www.nba.com the
+# identical call returns 4.5 MB of real rows in under three seconds.  The host
+# was never blocked and never rate limited: six probes ten seconds apart all
+# timed out identically while the same host served its root page in 0.6s.
+# --------------------------------------------------------------------------
+
+STATS_URL = "https://stats.nba.com/stats/LeagueGameLog?Season=2023-24"
+CDN_BOXSCORE_URL = ("https://cdn.nba.com/static/json/liveData/boxscore/"
+                     "boxscore_0022400001.json")
+
+
+def _nba_cookie(name: str, value: str) -> http.cookiejar.Cookie:
+    return http.cookiejar.Cookie(
+        version=0, name=name, value=value, port=None, port_specified=False,
+        domain="www.nba.com", domain_specified=True, domain_initial_dot=False,
+        path="/", path_specified=True, secure=False, expires=None, discard=True,
+        comment=None, comment_url=None, rest={"HttpOnly": None}, rfc2109=False)
+
+
+def _stub_prime(monkeypatch, names: tuple[str, ...] = ("_abck", "bm_sz")):
+    """Stand in for www.nba.com and watch what the real priming does with it.
+
+    Only the opener is replaced.  ``_prime_nba_session`` itself runs for real,
+    because stubbing it is the mistake this helper exists to prevent: the jar
+    it fills is the jar the stats request is later handed, and a stub returns a
+    cookie count without producing a cookie.
+
+    Returns a record of the two things worth asserting on: how many times
+    nba.com was actually opened, and which calls were forced re-primes.
+    """
+    seen = {"opens": 0, "forces": []}
+
+    class FakeOpener:
+        def __init__(self, jar):
+            self._jar = jar
+
+        def open(self, request, timeout=None):
+            for name in names:
+                self._jar.set_cookie(_nba_cookie(name, f"{name}-value"))
+            return _Response(b"")
+
+    def build(processor):
+        seen["opens"] += 1
+        return FakeOpener(processor.cookiejar)
+
+    real_prime = ing._prime_nba_session
+
+    def spy(force: bool = False) -> int:
+        seen["forces"].append(force)
+        return real_prime(force)
+
+    monkeypatch.setattr(ing.urllib.request, "build_opener", build)
+    monkeypatch.setattr(ing, "_prime_nba_session", spy)
+    return seen
+
+
+def _capture_headers(monkeypatch, payload: bytes) -> list[dict]:
+    sent: list[dict] = []
+
+    def capture(request, timeout=None):
+        sent.append({k.lower(): v for k, v in request.header_items()})
+        return _Response(payload)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", capture)
+    return sent
+
+
+def test_a_primed_session_cookie_reaches_the_stats_request(monkeypatch) -> None:
+    """Without the cookie this is the 500; with it this is a whole season."""
+    seen = _stub_prime(monkeypatch)
+    sent = _capture_headers(monkeypatch, json.dumps({"resultSets": []}).encode())
+
+    ing._get_json(STATS_URL, pause=0)
+
+    assert seen["opens"] == 1, "nba.com is opened once, to get the cookie"
+    assert len(sent) == 1
+    assert "cookie" in sent[0], (
+        "a stats request sent with no cookie is the 500 this priming exists to "
+        "fix: the session has to be attached to the request, not merely fetched")
+    assert "_abck" in sent[0]["cookie"]
+    assert "bm_sz" in sent[0]["cookie"]
+
+
+def test_a_cdn_request_is_never_given_the_stats_session(monkeypatch) -> None:
+    """The session is stats.nba.com's; handing it to another host is a leak."""
+    _stub_prime(monkeypatch)
+    sent = _capture_headers(monkeypatch, json.dumps({"game": {}}).encode())
+
+    ing._get_json(CDN_BOXSCORE_URL, pause=0)
+
+    assert "cookie" not in sent[0], (
+        "a stats.nba.com cookie is not a cdn.nba.com credential")
+
+
+def test_a_stats_timeout_re_primes_the_session_once_before_a_verdict(
+        monkeypatch) -> None:
+    """An expired _abck is indistinguishable from a block from out here.
+
+    Silence is the only symptom, and the run's answer to silence is a verdict
+    that outlives the run.  Re-priming is the one cheap move between the two
+    readings, so it gets exactly one turn, and only on this host.
+    """
+    seen = _stub_prime(monkeypatch)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
+
+    def silent(request, timeout=None):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", silent)
+    with pytest.raises(RuntimeError):
+        ing._get_json(STATS_URL, retries=2, pause=0)
+
+    assert seen["forces"].count(True) == 1, (
+        "one forced re-prime, then the host is written off for this run")
+    assert seen["forces"] and seen["forces"][0] is False, (
+        "the first prime is a login, not a retry")
+    assert seen["opens"] == 2, "the login, then the one retry of it"
+
+
+def test_a_warm_session_is_not_re_fetched_per_request(monkeypatch) -> None:
+    """A season is many requests and one login, not one login per request."""
+    seen = _stub_prime(monkeypatch)
+    _capture_headers(monkeypatch, json.dumps({"resultSets": []}).encode())
+
+    ing._get_json(STATS_URL, pause=0)
+    ing._get_json(STATS_URL, pause=0)
+    ing._get_json(STATS_URL, pause=0)
+
+    assert seen["opens"] == 1, (
+        "the jar has a TTL precisely so the per-game season does not re-login")
+
+
+# --------------------------------------------------------------------------
+# The per-game walk is bounded by a clock, the way MLB's top-up is
 # --------------------------------------------------------------------------
 
 
-def _espn_block(team: str, athlete_ids: list[str]) -> dict:
-    return {
-        "team": {"abbreviation": team},
-        "statistics": [{
-            "names": ["MIN", "PTS", "FG", "3PT", "FT", "REB", "AST", "TO",
-                      "STL", "BLK", "OREB", "DREB", "PF", "+/-"],
-            "athletes": [
-                {"athlete": {"id": pid, "fullName": f"Player {pid}"},
-                 "stats": ["36", "24", "10-18", "2-5", "4-5", "7", "5", "3",
-                           "1", "0", "2", "5", "3", "+6"]}
-                for pid in athlete_ids
-            ],
-        }],
-    }
+def test_the_cdn_walk_stops_at_its_budget_and_names_what_is_left(
+        monkeypatch, caplog) -> None:
+    """MLB's ``_topup_roof_cache`` stops on a wall clock and keeps what it got.
 
-
-def _espn_summary(home: str, away: str) -> dict:
-    return {"boxscore": {"players": [_espn_block(home, ["101", "102"]),
-                                     _espn_block(away, ["201"])]}}
-
-
-def test_the_summary_box_score_becomes_player_lines() -> None:
-    """One game's summary, in the normalized player_stats shape."""
-    rows = ing._player_lines_from_espn_summary(
-        _espn_summary("BOS", "NYK"), "401584693", "BOS", "NYK")
-    assert len(rows) == 3
-    home_row = next(r for r in rows if r["player_id"] == "101")
-    assert home_row == {
-        "game_id": "401584693", "player_id": "101", "player_name": "Player 101",
-        "team": "BOS", "opponent": "NYK", "is_home": True, "win": None,
-        "minutes": 36.0, "points": 24.0, "fgm": 10.0, "fga": 18.0,
-        "fg3m": 2.0, "fg3a": 5.0, "ftm": 4.0, "fta": 5.0, "reb": 7.0,
-        "ast": 5.0, "tov": 3.0, "stl": 1.0, "blk": 0.0, "oreb": 2.0,
-        "dreb": 5.0, "pf": 3.0, "plus_minus": 6.0,
-    }
-    away_row = next(r for r in rows if r["player_id"] == "201")
-    assert away_row["is_home"] is False and away_row["opponent"] == "BOS"
-
-
-def test_the_espn_route_supplies_every_player_stat_the_model_reads(
-        monkeypatch, tmp_path) -> None:
-    """A fallback may not quietly drop the features it exists to rescue.
-
-    The ESPN route is what serves a host that refuses NBA.com.  If it returns
-    fewer player columns than the season log, the run still succeeds while
-    every assists/rebounds/shooting feature trains on a default, which is the
-    exact silent degradation the player gate exists to prevent — one layer up.
+    The per-game walk is the same shape: thousands of requests, partial results
+    worth more than a clean failure, and a probe ledger so the next run resumes
+    rather than restarts.  An exhausted budget must be visible, not silent.
     """
-    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: _espn_summary("BOS", "NYK"))
-    games = pd.DataFrame([{"game_id": "1", "gameday": "2024-10-22",
-                           "home_team": "BOS", "away_team": "NYK",
-                           "game_type": 1, "home_score": 112.0,
-                           "away_score": 104.0}])
-    produced = ing._pull_player_stats_from_espn(
-        games, 0.0, tmp_path / "espn_player_stats.parquet")
-    reference = set(ing._player_stats_frame(pd.DataFrame([{
-        "game_id": "1", "gameday": pd.Timestamp("2024-10-22"),
-        "player_id": "101", "player_name": "Player 101", "team": "BOS",
-        "minutes": 36.0, "points": 24.0, "fgm": 10, "fga": 18,
-        "fg3m": 2, "fg3a": 5, "ftm": 4, "fta": 5, "oreb": 2, "dreb": 5,
-        "reb": 7, "ast": 5, "tov": 3, "stl": 1, "blk": 0, "pf": 3,
-        "plus_minus": 6, "win": 1.0, "game_type": 1,
-    }])).columns)
-    missing = reference - set(produced.columns)
-    assert not missing, f"the ESPN route omits player stats: {sorted(missing)}"
-    # And the numbers have to survive, not just the column names.
-    home = produced[produced.team == "BOS"].iloc[0]
-    assert home.assists == 5.0 and home.rebounds == 7.0
-    assert home.fg_pct == 10 / 18 and home.three_point_pct == 2 / 5
-    assert home.win == 1.0
-
-
-def test_the_shooting_percentages_are_derived_not_parsed() -> None:
-    """Made-over-attempted is the rule; a bare cell is not a percentage."""
-    frame = ing._derive_player_shooting(pd.DataFrame([
-        {"fgm": 10.0, "fga": 18.0, "fg3m": 2.0, "fg3a": 5.0,
-         "ftm": 4.0, "fta": 5.0, "reb": 7.0, "ast": 5.0},
-        {"fgm": 0.0, "fga": 0.0, "fg3m": 0.0, "fg3a": 0.0,
-         "ftm": 0.0, "fta": 0.0, "reb": 0.0, "ast": 0.0},
-    ]))
-    assert frame.fg_pct.tolist()[:1] == [10 / 18]
-    assert frame.three_point_pct.iloc[0] == 2 / 5
-    assert frame.free_throw_pct.iloc[0] == 4 / 5
-    assert frame.rebounds.tolist() == [7.0, 0.0]
-    assert frame.assists.tolist() == [5.0, 0.0]
-    # Nobody who played took no shots; that is missing, not 0%.
-    assert pd.isna(frame.fg_pct.iloc[1])
-
-
-def test_win_is_read_from_the_score_the_caller_carries() -> None:
-    """``win`` lives on the game, so the scores have to travel with the ask."""
-    rows = ing._player_lines_from_espn_summary(
-        _espn_summary("BOS", "NYK"), "1", "BOS", "NYK",
-        home_score=112, away_score=104)
-    assert next(r for r in rows if r["team"] == "BOS")["win"] == 1.0
-    assert next(r for r in rows if r["team"] == "NYK")["win"] == 0.0
-    lost = ing._player_lines_from_espn_summary(
-        _espn_summary("BOS", "NYK"), "1", "BOS", "NYK",
-        home_score=99, away_score=110)
-    assert next(r for r in lost if r["team"] == "BOS")["win"] == 0.0
-
-
-def test_stat_columns_are_read_by_name_not_position() -> None:
-    """ESPN names its columns, so the parser must not assume an order."""
-    payload = _espn_summary("BOS", "NYK")
-    group = payload["boxscore"]["players"][0]["statistics"][0]
-    group["names"] = ["REB", "AST", "MIN", "FG", "PTS"]
-    for athlete in group["athletes"]:
-        athlete["stats"] = ["7", "5", "36", "10-18", "24"]
-    rows = ing._player_lines_from_espn_summary(payload, "1", "BOS", "NYK")
-    assert rows[0]["minutes"] == 36.0 and rows[0]["points"] == 24.0
-    assert rows[0]["reb"] == 7.0 and rows[0]["ast"] == 5.0
-    assert rows[0]["fgm"] == 10.0 and rows[0]["fga"] == 18.0
-
-
-def test_a_did_not_play_line_is_missing_not_zero() -> None:
-    """A fabricated 0 is a real availability signal, so blanks stay missing."""
-    payload = _espn_summary("BOS", "NYK")
-    athletes = payload["boxscore"]["players"][0]["statistics"][0]["athletes"]
-    athletes[0]["stats"] = [""] * len(
-        payload["boxscore"]["players"][0]["statistics"][0]["names"])
-    rows = ing._player_lines_from_espn_summary(payload, "1", "BOS", "NYK")
-    assert rows[0]["minutes"] is None and rows[0]["points"] is None
-    assert rows[0]["reb"] is None and rows[0]["ast"] is None
-    assert rows[0]["fgm"] is None and rows[0]["fga"] is None
-
-
-def test_a_shooting_zero_is_a_real_zero_not_a_missing_cell() -> None:
-    """``0-0`` means the player shot nothing, which is not the same as blank."""
-    made, attempted = ing._espn_split("0-0")
-    assert (made, attempted) == (0.0, 0.0)
-    assert ing._espn_split("13-22") == (13.0, 22.0)
-    assert ing._espn_split("") == (None, None)
-    assert ing._espn_split(None) == (None, None)
-    assert ing._espn_split("5") == (None, None), "a bare cell is not a pair"
-
-
-def test_a_summary_without_player_blocks_yields_nothing() -> None:
-    assert ing._player_lines_from_espn_summary({}, "1", "BOS", "NYK") == []
-    assert ing._player_lines_from_espn_summary(
-        {"boxscore": {"players": []}}, "1", "BOS", "NYK") == []
-
-
-def test_the_player_pull_asks_only_for_games_it_lacks(monkeypatch, tmp_path) -> None:
-    """One request per game is expensive; re-asking is not allowed."""
-    ing._HOST_REFUSALS.clear()
-    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    monkeypatch.setenv(ing.CDN_WALK_BUDGET_ENV, "-1")
     asked: list[str] = []
-
-    def summary(event: str, **_kwargs):
-        asked.append(event)
-        return _espn_summary("BOS", "NYK")
-
-    monkeypatch.setattr(ing, "_get_json", summary)
-    cache = tmp_path / "espn_player_stats.parquet"
-    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
-                           "home_team": "BOS", "away_team": "NYK",
-                           "game_type": 1} for i in range(3)])
-    first = ing._pull_player_stats_from_espn(games, 0.0, cache)
-    assert sorted(url.rsplit("=", 1)[-1] for url in asked) == ["g0", "g1", "g2"]
-    assert len(first) == 9, "three players per game, three games"
-    # Second pass: the cache answers, so nothing is asked again.
-    asked.clear()
-    second = ing._pull_player_stats_from_espn(games, 0.0, cache)
-    assert asked == [], "a cached game was fetched again"
-    assert len(second) == len(first)
-
-
-def test_the_player_walk_reports_itself_in_sixty_day_slices(
-        monkeypatch, tmp_path, caplog) -> None:
-    """The walk is the longest per-game loop here, so it has to be visible.
-
-    The drawable bar is suppressed anywhere stderr is captured, which is exactly
-    where this runs.  A log line per slice, with its game count, is what makes
-    a multi-thousand-request walk look alive instead of stalled.
-    """
-    ing._HOST_REFUSALS.clear()
-    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     monkeypatch.setattr(ing, "_get_json",
-                        lambda url, **kw: _espn_summary("BOS", "NYK"))
-    days = pd.date_range("2024-10-22", periods=150, freq="D")
-    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": d,
-                           "home_team": "BOS", "away_team": "NYK",
-                           "game_type": 1} for i, d in enumerate(days)])
-    with caplog.at_level(logging.INFO, logger="ingestion"):
-        out = ing._pull_player_stats_from_espn(
-            games, 0.0, tmp_path / "espn_player_stats.parquet")
-    chunks = [line for line in caplog.text.splitlines() if "chunk" in line]
-    assert len(chunks) == 3, f"150 days is three 60-day slices, got {len(chunks)}"
-    assert "2024-10-22 -> 2024-12-20: 60 games" in caplog.text
-    assert len(out) == 150 * 3, "every game must be walked exactly once"
+                        lambda url, **kw: asked.append(url) or {})
+
+    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
+        ing._pull_seasons_from_cdn(date(2024, 10, 1), date(2025, 7, 1))
+
+    assert asked == [], "an exhausted budget must not spend a single request"
+    assert ing.CDN_WALK_BUDGET_ENV in caplog.text, (
+        "the operator has to be told which knob to turn")
+    assert "budget" in caplog.text.lower()
+    assert "retry next run" in caplog.text, (
+        "a capped walk resumes from the probe ledger; the log must say so")
 
 
-def test_a_boundary_day_belongs_to_one_slice_and_not_two() -> None:
-    """Closing both ends of a slice pays for the same game twice."""
-    rows = pd.DataFrame([
-        {"game_id": "a", "gameday": "2024-03-01", "home_team": "BOS",
-         "away_team": "NYK", "game_type": 1},
-        {"game_id": "b", "gameday": "2024-03-02", "home_team": "BOS",
-         "away_team": "NYK", "game_type": 1},
-    ])
-    slices = ing._player_slices(rows, 1)
-    seen = [r.game_id for _, _, frame in slices for r in frame.itertuples()]
-    assert sorted(seen) == ["a", "b"], f"a game was sliced twice: {seen}"
+def test_the_budget_covers_the_whole_fallback_not_each_season(
+        monkeypatch) -> None:
+    """A cap that resets per season is not a cap; five seasons must not be five.
 
-
-def test_a_game_with_no_readable_date_is_still_asked_about() -> None:
-    """A missing date is a reason to log oddly, never to skip a request."""
-    rows = pd.DataFrame([
-        {"game_id": "ok", "gameday": "2024-10-22", "home_team": "BOS",
-         "away_team": "NYK", "game_type": 1},
-        {"game_id": "bad", "gameday": "not-a-date", "home_team": "BOS",
-         "away_team": "NYK", "game_type": 1},
-    ])
-    seen = [r.game_id for _, _, frame in ing._player_slices(rows, 60)
-            for r in frame.itertuples()]
-    assert sorted(seen) == ["bad", "ok"]
-
-
-def test_a_slow_host_cannot_spend_the_whole_run_on_the_player_walk(
-        monkeypatch, tmp_path, caplog) -> None:
-    """A host that is slow rather than refusing must still hit a ceiling.
-
-    The refusal verdict bounds a host that says no.  A host that accepts the
-    connection and then takes its time says nothing wrong, so nothing ends the
-    walk except a budget — without one, a full window is a few thousand
-    sequential requests and the session runs dry.  MLB bounds the same shape of
-    walk in ``_topup_roof_cache``.
+    The window's deadline is computed once and handed to every season, so a run
+    that spends its budget on the first walk does not get a fresh allowance for
+    each of the seasons behind it.
     """
-    ing._HOST_REFUSALS.clear()
+    seen: list[float] = []
+
+    def walk(season_year, pause, start, end, deadline, rerunged=False):
+        seen.append(deadline)
+        return None
+
+    monkeypatch.setattr(ing, "_pull_season_from_cdn", walk)
+    monkeypatch.setenv(ing.CDN_WALK_BUDGET_ENV, "600")
+    with pytest.raises(RuntimeError):
+        ing._pull_seasons_from_cdn(date(2019, 10, 1), date(2025, 7, 1))
+
+    assert len(seen) > 1, "the window spans several seasons"
+    assert len(set(seen)) == 1, (
+        "every season in one window must share one deadline, not reset it")
+
+
+# --------------------------------------------------------------------------
+# The stats edge is behind a bot manager, and a cookie is what gets in
+#
+# Measured on 2026-09-25: with no session cookie ``leaguegamelog`` answers 500,
+# or 302s to /error/, or sits until the socket gives up, depending only on the
+# shape of the request.  With ``_abck``/``bm_*`` primed from www.nba.com the
+# identical call returns 4.5 MB of real rows in under three seconds.  The host
+# was never blocked and never rate limited: six probes ten seconds apart all
+# timed out identically while the same host served its root page in 0.6s.
+# --------------------------------------------------------------------------
+
+STATS_URL = "https://stats.nba.com/stats/LeagueGameLog?Season=2023-24"
+CDN_BOXSCORE_URL = ("https://cdn.nba.com/static/json/liveData/boxscore/"
+                     "boxscore_0022400001.json")
+
+
+def _nba_cookie(name: str, value: str) -> http.cookiejar.Cookie:
+    return http.cookiejar.Cookie(
+        version=0, name=name, value=value, port=None, port_specified=False,
+        domain="www.nba.com", domain_specified=True, domain_initial_dot=False,
+        path="/", path_specified=True, secure=False, expires=None, discard=True,
+        comment=None, comment_url=None, rest={"HttpOnly": None}, rfc2109=False)
+
+
+def _stub_prime(monkeypatch, names: tuple[str, ...] = ("_abck", "bm_sz")):
+    """Stand in for www.nba.com and watch what the real priming does with it.
+
+    Only the opener is replaced.  ``_prime_nba_session`` itself runs for real,
+    because stubbing it is the mistake this helper exists to prevent: the jar
+    it fills is the jar the stats request is later handed, and a stub returns a
+    cookie count without producing a cookie.
+
+    Returns a record of the two things worth asserting on - how many times
+    nba.com was actually opened, and which calls were forced re-primes.
+    """
+    seen = {"opens": 0, "forces": []}
+
+    class FakeOpener:
+        def __init__(self, jar):
+            self._jar = jar
+
+        def open(self, request, timeout=None):
+            for name in names:
+                self._jar.set_cookie(_nba_cookie(name, f"{name}-value"))
+            return _Response(b"")
+
+    def build(processor):
+        seen["opens"] += 1
+        return FakeOpener(processor.cookiejar)
+
+    real_prime = ing._prime_nba_session
+
+    def spy(force: bool = False) -> int:
+        seen["forces"].append(force)
+        return real_prime(force)
+
+    monkeypatch.setattr(ing.urllib.request, "build_opener", build)
+    monkeypatch.setattr(ing, "_prime_nba_session", spy)
+    return seen
+
+
+def _capture_headers(monkeypatch, payload: bytes) -> list[dict]:
+    sent: list[dict] = []
+
+    def capture(request, timeout=None):
+        sent.append({k.lower(): v for k, v in request.header_items()})
+        return _Response(payload)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", capture)
+    return sent
+
+
+def test_a_primed_session_cookie_reaches_the_stats_request(monkeypatch) -> None:
+    """Without the cookie this is the 500; with it this is a whole season."""
+    seen = _stub_prime(monkeypatch)
+    sent = _capture_headers(monkeypatch, json.dumps({"resultSets": []}).encode())
+
+    ing._get_json(STATS_URL, pause=0)
+
+    assert seen["opens"] == 1, "nba.com is opened once, to get the cookie"
+    assert len(sent) == 1
+    assert "cookie" in sent[0], (
+        "a stats request sent with no cookie is the 500 this priming exists to "
+        "fix: the session has to be attached to the request, not merely fetched")
+    assert "_abck" in sent[0]["cookie"]
+    assert "bm_sz" in sent[0]["cookie"]
+
+
+def test_a_cdn_request_is_never_given_the_stats_session(monkeypatch) -> None:
+    """The session is stats.nba.com's; handing it to another host is a leak."""
+    _stub_prime(monkeypatch)
+    sent = _capture_headers(monkeypatch, json.dumps({"game": {}}).encode())
+
+    ing._get_json(CDN_BOXSCORE_URL, pause=0)
+
+    assert "cookie" not in sent[0], (
+        "a stats.nba.com cookie is not a cdn.nba.com credential")
+
+
+def test_a_stats_timeout_re_primes_the_session_once_before_a_verdict(
+        monkeypatch) -> None:
+    """An expired _abck is indistinguishable from a block from out here.
+
+    Silence is the only symptom, and the run's answer to silence is a verdict
+    that outlives the run.  Re-priming is the one cheap move between the two
+    readings, so it gets exactly one turn, and only on this host.
+    """
+    seen = _stub_prime(monkeypatch)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
-    asked: list[str] = []
+    ing._HEADER_RUNG.clear()
 
-    def summary(event: str, **_kwargs):
-        asked.append(event)
-        return _espn_summary("BOS", "NYK")
+    def silent(request, timeout=None):
+        raise TimeoutError("timed out")
 
-    monkeypatch.setattr(ing, "_get_json", summary)
-    # One tick for the start stamp, four for the walk, then the clock jumps.
-    ticks = iter([0.0, 0.0, 0.0, 0.0, 0.0, 100.0] + [100.0] * 100)
-    monkeypatch.setattr(ing.time, "monotonic", lambda: next(ticks))
-    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
-                           "home_team": "BOS", "away_team": "NYK",
-                           "game_type": 1} for i in range(20)])
-    cache = tmp_path / "espn_player_stats.parquet"
-    with caplog.at_level(logging.INFO, logger="ingestion"):
-        out = ing._pull_player_stats_from_espn(games, 0.0, cache, budget_sec=60.0)
-    banked = len(asked)
-    assert 0 < banked < 20, "the budget did not stop the walk"
-    assert "budget exhausted" in caplog.text
-    assert "will retry next run" in caplog.text
-    # What it did fetch is kept and cached, so the next run resumes from there.
-    assert not out.empty
-    assert cache.exists(), "a budgeted walk must still bank its progress"
-    asked.clear()
-    monkeypatch.setattr(ing.time, "monotonic", lambda: 0.0)
-    resumed = ing._pull_player_stats_from_espn(games, 0.0, cache, budget_sec=60.0)
-    assert len(asked) == 20 - banked, "the next run re-asked for cached games"
-    assert len(resumed) == 20 * 3, "the resumed walk did not finish the window"
+    monkeypatch.setattr(ing.urllib.request, "urlopen", silent)
+    with pytest.raises(RuntimeError):
+        ing._get_json(STATS_URL, retries=2, pause=0)
+
+    assert seen["forces"].count(True) == 1, (
+        "one forced re-prime, then the host is written off for this run")
+    assert seen["forces"] and seen["forces"][0] is False, (
+        "the first prime is a login, not a retry")
+    assert seen["opens"] == 2, "the login, then the one retry of it"
 
 
-def test_the_player_walk_never_asks_about_a_game_the_model_cannot_train_on() -> None:
-    """Player lines cost a request each, so do not buy the ineligible ones.
+def test_a_warm_session_is_not_re_fetched_per_request(monkeypatch) -> None:
+    """A season is many requests and one login, not one login per request."""
+    seen = _stub_prime(monkeypatch)
+    _capture_headers(monkeypatch, json.dumps({"resultSets": []}).encode())
 
-    A window that reaches back before the first eligible season would otherwise
-    pay full per-game price for lines that eligible_games() discards before
-    any feature is built.
+    ing._get_json(STATS_URL, pause=0)
+    ing._get_json(STATS_URL, pause=0)
+    ing._get_json(STATS_URL, pause=0)
+
+    assert seen["opens"] == 1, (
+        "the jar has a TTL precisely so a per-game season does not re-login")
+
+
+# --------------------------------------------------------------------------
+# The per-game walk is bounded by a clock, the way MLB's top-up is
+# --------------------------------------------------------------------------
+
+
+def test_the_cdn_walk_stops_at_its_budget_and_names_what_is_left(
+        monkeypatch, caplog) -> None:
+    """MLB's ``_topup_roof_cache`` stops on a wall clock and keeps what it got.
+
+    The per-game walk is the same shape: thousands of requests, partial results
+    worth more than a clean failure, and a probe ledger so the next run resumes
+    rather than restarts.  An exhausted budget must be visible, not silent.
     """
-    window = pd.DataFrame([
-        {"game_id": "old", "gameday": "2024-01-05", "season": 2023.0,
-         "home_team": "BOS", "away_team": "NYK", "game_type": 1,
-         "home_score": 1.0, "away_score": 2.0},
-        {"game_id": "new", "gameday": "2024-10-22", "season": 2024.0,
-         "home_team": "BOS", "away_team": "NYK", "game_type": 1,
-         "home_score": 1.0, "away_score": 2.0},
-    ])
-    assert list(ing.eligible_games(window).game_id) == ["new"]
-
-
-def test_a_refused_summary_endpoint_stops_the_walk(monkeypatch, tmp_path) -> None:
-    """Same discipline as every other per-game walk: bound it, then stop.
-
-    The real ``_get_json`` has to run here.  Stubbing it would stub away the
-    very guard under test, which is the mistake this test exists to prevent.
-    """
-    ing._HOST_REFUSALS.clear()
-    ing._record_host_verdict("site.web.api.espn.com", "refused us")
-    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    monkeypatch.setenv(ing.CDN_WALK_BUDGET_ENV, "-1")
     asked: list[str] = []
+    monkeypatch.setattr(ing, "_get_json",
+                        lambda url, **kw: asked.append(url) or {})
 
-    def opener(request, timeout=None):
-        asked.append(request.full_url)
-        return urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
+        ing._pull_seasons_from_cdn(date(2024, 10, 1), date(2025, 7, 1))
 
-    monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
-    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
-                           "home_team": "BOS", "away_team": "NYK",
-                           "game_type": 1} for i in range(500)])
-    out = ing._pull_player_stats_from_espn(games, 0.0,
-                                           tmp_path / "p.parquet")
-    assert asked == [], "a host with a fresh verdict was asked anyway"
-    assert out.empty
+    assert asked == [], "an exhausted budget must not spend a single request"
+    assert ing.CDN_WALK_BUDGET_ENV in caplog.text, (
+        "the operator has to be told which knob to turn")
+    assert "budget" in caplog.text.lower()
+    assert "retry next run" in caplog.text, (
+        "a capped walk resumes from the probe ledger; the log must say so")
+
+
+def test_the_budget_covers_the_whole_fallback_not_each_season(
+        monkeypatch) -> None:
+    """A cap that resets per season is not a cap; five seasons must not be five.
+
+    The window's deadline is computed once and handed to every season, so a run
+    that spends its budget on the first walk does not get a fresh allowance for
+    each of the seasons behind it.
+    """
+    seen: list[float] = []
+
+    def walk(season_year, pause, start, end, deadline, rerunged=False):
+        seen.append(deadline)
+        return None
+
+    monkeypatch.setattr(ing, "_pull_season_from_cdn", walk)
+    monkeypatch.setenv(ing.CDN_WALK_BUDGET_ENV, "600")
+    with pytest.raises(RuntimeError):
+        ing._pull_seasons_from_cdn(date(2019, 10, 1), date(2025, 7, 1))
+
+    assert len(seen) > 1, "the window spans several seasons"
+    assert len(set(seen)) == 1, (
+        "every season in one window must share one deadline, not reset it")
