@@ -177,6 +177,22 @@ def main(argv: list[str] | None = None) -> int:
         dates.update(pd.date_range(serving_start, serving_end, freq="D")
                      .strftime("%Y-%m-%d"))
     dates = sorted(dates)
+    # Never request a date the window filter below will discard anyway. A run
+    # builds season spans for every season in range, so a September run also
+    # asks for the whole not-yet-started season (288 dates today). Those pages
+    # carry the published but UNPLAYED schedule, so their games have null
+    # scores, never reach decided_all, and are dropped by the gameday <=
+    # window_end filter regardless — the clip is provably behaviour-preserving
+    # and saves a round trip per day, growing with every season. The real cost
+    # of that span is invisible in the log, which is what made the cold-cache
+    # pull below read as a hang.
+    horizon = pd.Timestamp(window_end)
+    requested = len(dates)
+    dates = [d for d in dates if pd.Timestamp(d) <= horizon]
+    if len(dates) < requested:
+        logger.info("score-date span clipped to the %s window: %d dates "
+                    "(dropped %d dates the window would discard anyway)",
+                    window_end, len(dates), requested - len(dates))
     schedule = ingestion.load_score_dates(dates, use_cache=args.skip_pull and not full_repull)
     schedule = ingestion.eligible_games(schedule)
     schedule["gameday"] = pd.to_datetime(schedule["game_date"], errors="coerce")
@@ -198,8 +214,14 @@ def main(argv: list[str] | None = None) -> int:
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
     decided_ids = decided_all["game_id"].astype(str).tolist()
+    # The gameday mapping only groups the pull into 60-day windows for
+    # progress reporting (MLB's _chunked_statcast shape); load_boxscores
+    # restores the caller's id order, so the frame is unchanged by it.
+    gameday_by_id = dict(zip(decided_all["game_id"].astype(str),
+                             pd.to_datetime(decided_all["gameday"], errors="coerce")))
     boxscores = ingestion.load_boxscores(
-        decided_ids, use_cache=args.skip_pull and not full_repull)
+        decided_ids, use_cache=args.skip_pull and not full_repull,
+        gameday_by_id=gameday_by_id)
     logger.info("boxscore rows: %d", len(boxscores))
     game_df = feat_mod.build_game_features(decided_all, boxscores)
     # Canonical (date_col, game_id) order: the one order every fold index is

@@ -23,6 +23,7 @@ Run with: python nhl-backend/backend/test_run_engine_pit.py
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch as _mock_patch
 
@@ -108,6 +109,144 @@ def test_dist_oof_folds_are_expanding_and_strictly_prior():
     # First validation window sits behind the 30-day warm-up boundary.
     first_core = pd.Timestamp("2025-10-01")
     assert folds[0].val_start == first_core + pd.Timedelta(days=config.WARMUP_DAYS)
+
+
+# ---------------------------------------------------------------------------
+# 9. Ingestion pull shape: 60-day chunks + progress, with NO data impact
+# ---------------------------------------------------------------------------
+def test_pull_chunks_cover_every_game_exactly_once():
+    """Chunking is presentational, so it must never drop or duplicate a game.
+
+    A dropped id would silently remove that game from the feature frame, which
+    is the one way a progress/observability change could corrupt production.
+    """
+    start = pd.Timestamp("2024-10-01")
+    ids, gamedays = [], {}
+    for d in range(400):
+        day = start + pd.Timedelta(days=d)
+        for k in range(3):
+            gid = f"{day:%Y%m%d}_{k}"
+            ids.append(gid)
+            gamedays[gid] = day
+    chunks = ing._chunk_games(ids, gamedays)
+    flat = [g for _, group in chunks for g in group]
+    assert sorted(flat) == sorted(ids), "chunking dropped or duplicated a game"
+    assert len(flat) == len(set(flat))
+    # 400 days at 60 days/chunk -> 7 windows, ascending.
+    assert len(chunks) == 7, [label for label, _ in chunks]
+    for label, group in chunks:
+        lo, hi = (pd.Timestamp(x) for x in label.split(".."))
+        assert hi - lo == pd.Timedelta(days=ing.PULL_CHUNK_DAYS - 1), label
+        for g in group:
+            assert lo <= gamedays[g] <= hi, \
+                f"{g} ({gamedays[g].date()}) sits outside its own chunk {label}"
+    starts = [pd.Timestamp(label.split("..")[0]) for label, _ in chunks]
+    assert starts == sorted(starts), "chunks are not in ascending order"
+
+    # A game with no known gameday must still be fetched, not dropped.
+    undated = ids[:3]
+    with_undated = ing._chunk_games(undated, {}, 60)
+    assert [g for _, group in with_undated for g in group] == undated
+    partial = dict(gamedays)
+    for g in undated:
+        partial.pop(g, None)
+    flat2 = [g for _, group in ing._chunk_games(undated, partial) for g in group]
+    assert sorted(flat2) == sorted(undated), "an undated game was dropped"
+
+
+def test_boxscore_pull_is_identical_chunked_or_unchunked():
+    """The guardrail: chunking + the progress bar must not change the frame.
+
+    Fetches are stubbed, so this compares the actual returned rows under a
+    deliberately date-SHUFFLED id list (where chunking genuinely reorders the
+    work) against the same call with chunking disabled.
+    """
+    base = pd.Timestamp("2024-10-01")
+    ids = [f"{base + pd.Timedelta(days=d):%Y%m%d}_{k}" for d in range(200) for k in range(2)]
+    gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
+    shuffled = list(ids)
+    np.random.default_rng(3).shuffle(shuffled)
+
+    def _fake_http(url):
+        # Echo the id back verbatim: _parse_boxscore stores str(payload["id"]),
+        # so the row's game_id matches the caller's id exactly.
+        gid = url.rsplit("/", 2)[-2]
+        return {"id": gid, "away": {"abbrev": "AAA", "goals": 1},
+                "home": {"abbrev": "HHH", "goals": 2}}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                _mock_patch.object(ing, "_cache_path", side_effect=lambda n: Path(tmp) / n), \
+                _mock_patch.object(ing, "_progress_bar", return_value=None):
+            chunked = ing.load_boxscores(shuffled, use_cache=False, gameday_by_id=gamedays)
+            plain = ing.load_boxscores(shuffled, use_cache=False)
+
+    assert len(chunked) == len(plain) == len(shuffled)
+    # Same rows, same values, SAME ORDER — the caller's id order survives.
+    assert chunked["game_id"].astype(str).tolist() == shuffled
+    assert plain["game_id"].astype(str).tolist() == shuffled
+    pd.testing.assert_frame_equal(chunked, plain)
+
+
+def test_pull_progress_bar_never_breaks_a_run():
+    """The bar is decoration: it must never be able to fail a run, it must
+    stay off when stderr is redirected, and the pull's data must be identical
+    with a bar driving it and with no bar at all."""
+    # Real helper under a non-tty stderr (every piped / CI run): no bar.
+    assert ing._progress_bar(10, "x") is None
+    # Even a tqdm that explodes on attribute access must not escape.
+    class _BoomModule:
+        def __getattr__(self, name):
+            raise RuntimeError("boom")
+    with _mock_patch.dict(sys.modules, {"tqdm": _BoomModule()}):
+        with _mock_patch.object(sys.stderr, "isatty", return_value=True, create=True):
+            assert ing._progress_bar(10, "x") is None
+
+    ids = ["2024010101", "2024010201"]
+    gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
+
+    def _fake_http(url):
+        gid = url.rsplit("/", 2)[-2]
+        return {"id": gid, "away": {"abbrev": "AAA", "goals": 1},
+                "home": {"abbrev": "HHH", "goals": 2}}
+
+    class _Recorder:
+        def __init__(self):
+            self.updates = 0
+            self.closed = 0
+        def update(self, n=1):
+            self.updates += n
+        def set_postfix(self, **kw):
+            pass
+        def close(self):
+            self.closed += 1
+
+    runs = []
+    for bar in (None, _Recorder()):
+        def _bar(total, desc, _b=bar):
+            return _b
+        with tempfile.TemporaryDirectory() as tmp:
+            with _mock_patch.object(ing, "_http_json", side_effect=_fake_http), \
+                    _mock_patch.object(ing, "_cache_path", side_effect=lambda n: Path(tmp) / n), \
+                    _mock_patch.object(ing, "_progress_bar", side_effect=_bar):
+                runs.append((bar, ing.load_boxscores(
+                    ids, use_cache=False, gameday_by_id=gamedays)))
+    quiet, shown = runs[0][1], runs[1][1]
+    assert len(quiet) == len(ids)
+    pd.testing.assert_frame_equal(quiet, shown)
+    rec = runs[1][0]
+    assert rec.updates == len(ids) and rec.closed == 1, \
+        f"the bar did not track the pull (updates={rec.updates}, closed={rec.closed})"
+
+
+def test_score_dates_chunking_covers_every_date_once():
+    dates = [f"2024-{m:02d}-{d:02d}" for m in range(1, 13) for d in (1, 15)]
+    windows = ing._date_windows(dates, ing.PULL_CHUNK_DAYS)
+    flat = [d for _, group in windows for d in group]
+    assert sorted(flat) == sorted(dates)
+    assert len(flat) == len(set(flat))
+    # 60-day windows over a calendar year -> 7, not 12 (the chunking is real).
+    assert 5 <= len(windows) <= 8, [label for label, _ in windows]
 
 
 def test_pit_fold_labels_are_valid_for_the_frame_the_oof_rebuilds():

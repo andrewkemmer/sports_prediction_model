@@ -64,6 +64,79 @@ SCORE_CACHE_VERSION = "v1"
 BOXSCORE_CACHE_VERSION = "v4"
 MP_CACHE_VERSION = "v1"
 
+# Structural mirror of MLB's ``_chunked_statcast``: the pull is grouped into
+# fixed calendar windows so a multi-thousand-game pull reports progress per
+# window instead of running as one silent loop, and so MLB's ``pause_sec``
+# knob has somewhere to act between windows.
+#
+# This is PRESENTATION ONLY. The same games are requested, the returned frame
+# is re-ordered to the caller's input order, and no production result depends
+# on where the window boundaries fall. The pause defaults to 0.0 so wall-clock
+# is unchanged; raising it is the lever if the API ever rate-limits.
+PULL_CHUNK_DAYS = 60
+PULL_CHUNK_PAUSE_SEC = 0.0
+
+
+def _progress_bar(total: int, desc: str):
+    """A tqdm bar when tqdm is installed AND stderr is a terminal, else None.
+
+    Total best-effort by design: it writes nothing to stdout, never raises
+    (a missing, broken, or absent tqdm must not fail a run), and stays off
+    when stderr is redirected so a piped log collects no control characters.
+    The logger lines are the durable record of progress either way.
+    """
+    try:
+        from tqdm import tqdm
+        import sys
+        if not getattr(sys.stderr, "isatty", lambda: False)():
+            return None
+        return tqdm(total=total, desc=desc, unit="game", leave=False)
+    except Exception:  # noqa: BLE001 — decoration must never break ingestion
+        return None
+
+
+def _chunk_games(game_ids: list[str], gameday_by_id: dict | None,
+                 chunk_days: int = PULL_CHUNK_DAYS) -> list[tuple[str, list[str]]]:
+    """Group game ids into ascending ``chunk_days`` calendar windows.
+
+    Returns ``[(label, [game_id, ...]), ...]``. Every input id lands in exactly
+    one chunk: ids with no known gameday go to a trailing ``undated`` chunk
+    rather than being dropped, because dropping a game here would silently
+    remove it from the feature frame. With no mapping (or a non-positive
+    ``chunk_days``) the ids stay in a single chunk, so an unchunked call
+    fetches exactly what it always did.
+    """
+    if not game_ids:
+        return []
+    if not gameday_by_id or chunk_days <= 0:
+        return [("all", list(game_ids))]
+
+    dated: list[tuple[pd.Timestamp, str]] = []
+    for gid in game_ids:
+        raw = gameday_by_id.get(gid)
+        ts = pd.to_datetime(raw, errors="coerce") if raw is not None else None
+        if ts is not None and not pd.isna(ts):
+            dated.append((pd.Timestamp(ts).normalize(), gid))
+    if not dated:
+        return [("all", list(game_ids))]
+
+    lo = min(ts for ts, _ in dated)
+    hi = max(ts for ts, _ in dated)
+    chunks: list[tuple[str, list[str]]] = []
+    placed: set[str] = set()
+    cursor = lo
+    while cursor <= hi:
+        end = cursor + pd.Timedelta(days=chunk_days - 1)
+        in_chunk = [g for ts, g in dated if cursor <= ts <= end]
+        if in_chunk:
+            chunks.append((f"{cursor.date()}..{end.date()}", in_chunk))
+            placed.update(in_chunk)
+        cursor = end + pd.Timedelta(days=1)
+    missing = [g for g in game_ids if g not in placed]
+    if missing:
+        chunks.append(("undated", missing))
+    return chunks
+
 
 def _cache_path(name: str) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,12 +152,18 @@ def clear_cache() -> None:
 
 def _http_json(url: str, retries: int = 3, timeout: float = 30.0):
     """GET a JSON document with retry/backoff (the official API is free but
-    rate-limited; a transient 5xx must not fail a run)."""
+    rate-limited; a transient 5xx must not fail a run).
+
+    ``timeout`` is the READ budget; the connect/TLS handshake gets a shorter
+    one. A single float applies to each socket operation, so a host that
+    accepts the TCP connection and then stalls mid-handshake otherwise costs
+    the full read budget on every attempt — 3 x 30s for one unusable URL.
+    """
     import requests
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            resp = requests.get(url, timeout=timeout,
+            resp = requests.get(url, timeout=(min(10.0, timeout), timeout),
                                 headers={"User-Agent": "sports-prediction-model/1.0"})
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries:
                 time.sleep(2.0 * attempt)
@@ -125,32 +204,84 @@ def _parse_score_game(g: dict) -> dict:
     }
 
 
+def _date_windows(dates: list[str], chunk_days: int) -> list[tuple[str, list[str]]]:
+    """Group an ascending date list into ``chunk_days`` calendar windows."""
+    if not dates:
+        return []
+    if chunk_days <= 0:
+        return [("all", list(dates))]
+    out: list[tuple[str, list[str]]] = []
+    ordered = sorted(dates)
+    cursor = pd.Timestamp(ordered[0]).normalize()
+    last = pd.Timestamp(ordered[-1]).normalize()
+    while cursor <= last:
+        end = cursor + pd.Timedelta(days=chunk_days - 1)
+        in_win = [d for d in ordered
+                  if cursor <= pd.Timestamp(d).normalize() <= end]
+        if in_win:
+            out.append((f"{cursor.date()}..{end.date()}", in_win))
+        cursor = end + pd.Timedelta(days=1)
+    return out
+
+
 def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
     """Fetch /v1/score/{date} for each date and return the combined rows.
 
     Per-date parquet caches keyed by the date (an incremental daily pull is
     the NHL's natural unit — unlike league sports there is no per-season
     schedule endpoint). A failed date is warned and skipped, never fatal.
+
+    A page is cached only once it is SETTLED. Two cases, opposite in sign:
+
+      * a page with an UNPLAYED game (null score) is provisional. Those
+        scores fill in later, and the pipeline filters on
+        home_score.notna(), so a cached null is a permanently invisible game —
+        every future run would silently drop decided games.
+      * a page with no games at all is a final answer only once the date is
+        PAST; caching an empty future page would hide games that land later.
     """
     frames: list[pd.DataFrame] = []
-    for d in dates:
-        path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
-        if use_cache and path.exists():
+    today = date.today()
+    fetched = hits = 0
+    windows = _date_windows(dates, PULL_CHUNK_DAYS)
+    for w, (wlabel, wdates) in enumerate(windows, 1):
+        logger.info("score chunk %d/%d [%s]: %d dates",
+                    w, len(windows), wlabel, len(wdates))
+        for i, d in enumerate(wdates, 1):
+            path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    hits += 1
+                    continue
+                except Exception as exc:  # corrupt cache → re-pull
+                    logger.warning("score cache %s unreadable (%s)", path.name, exc)
             try:
-                frames.append(pd.read_parquet(path))
+                payload = _http_json(f"{NHL_API_BASE}/score/{d}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("score page unavailable for %s: %s", d, exc)
                 continue
-            except Exception as exc:  # corrupt cache → re-pull
-                logger.warning("score cache %s unreadable (%s)", path.name, exc)
-        try:
-            payload = _http_json(f"{NHL_API_BASE}/score/{d}")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("score page unavailable for %s: %s", d, exc)
-            continue
-        rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
-        df = pd.DataFrame(rows, columns=SCORE_KEEP)
-        if not df.empty:
-            df.to_parquet(path, index=False)
-        frames.append(df)
+            fetched += 1
+            rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
+            df = pd.DataFrame(rows, columns=SCORE_KEEP)
+            settled = bool(len(df)) and bool(df["home_score"].notna().all())
+            if settled or (df.empty and date.fromisoformat(d) < today):
+                df.to_parquet(path, index=False)
+            elif len(df):
+                logger.info("score page %s carries %d unplayed game(s) — not "
+                            "cached, it will be re-pulled until it settles",
+                            d, int(df["home_score"].isna().sum()))
+            frames.append(df)
+            # Progress, so a slow or rate-limited pull is VISIBLE. Without this
+            # the loop between the Phase 2 banner and its result line emits
+            # nothing, and a multi-minute network stall is indistinguishable
+            # from a hang.
+            if fetched and (i % 50 == 0 or i == len(wdates)):
+                logger.info("  score pull %d/%d dates in chunk (%d cached, %d fetched)",
+                            i, len(wdates), hits, fetched)
+    logger.info("score dates resolved: %d requested in %d chunk(s), "
+                "%d cache hits, %d fetched",
+                len(dates), len(windows), hits, fetched)
     if not frames:
         return pd.DataFrame(columns=SCORE_KEEP)
     return pd.concat(frames, ignore_index=True)
@@ -160,8 +291,11 @@ def season_dates(season: int) -> list[str]:
     """The calendar date span that can hold a season's games.
 
     The NHL regular season runs Oct..mid-April and the playoffs into June;
-    a generous Oct 1 .. Jul 15 span covers both without wasted requests
-    (empty score pages are cheap and cached as empty).
+    a generous Oct 1 .. Jul 15 span covers both. For an unstarted season the
+    tail is entirely future dates, which carry the published but UNPLAYED
+    schedule (null scores) and so can never reach the OOF population.
+    Callers should clip this span to their own window end rather than pay a
+    round trip per future day for rows they will discard.
     """
     start = date(season, 10, 1)
     end = date(season + 1, 7, 15)
@@ -389,33 +523,73 @@ BOXSCORE_COLS = [
 ]
 
 
-def load_boxscores(game_ids: list[str], use_cache: bool = True) -> pd.DataFrame:
+def load_boxscores(game_ids: list[str], use_cache: bool = True,
+                   gameday_by_id: dict | None = None,
+                   chunk_days: int = PULL_CHUNK_DAYS,
+                   pause_sec: float = PULL_CHUNK_PAUSE_SEC) -> pd.DataFrame:
     """Fetch /v1/gamecenter/{id}/boxscore for each game and return the
     combined per-game rollup rows. Per-game parquet caches; a failed game
     is warned and skipped (downstream features degrade to NaN), never fatal.
+
+    ``gameday_by_id`` groups the pull into ``chunk_days`` calendar windows
+    (MLB's ``_chunked_statcast`` shape) and drives the progress bar. Chunking
+    is presentational: the returned rows are re-ordered to the caller's input
+    order, so the frame is identical whether or not a mapping is supplied.
     """
+    chunks = _chunk_games(game_ids, gameday_by_id, chunk_days)
     frames: list[pd.DataFrame] = []
-    for gid in game_ids:
-        path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
-        if use_cache and path.exists():
+    hits = fetched = 0
+    for n, (label, chunk_ids) in enumerate(chunks, 1):
+        logger.info("boxscore chunk %d/%d [%s]: %d games",
+                    n, len(chunks), label, len(chunk_ids))
+        bar = _progress_bar(len(chunk_ids), f"boxscores {n}/{len(chunks)}")
+        for gid in chunk_ids:
+            path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    hits += 1
+                    if bar is not None:
+                        bar.update(1)
+                        bar.set_postfix(cached=hits, fetched=fetched)
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
             try:
-                frames.append(pd.read_parquet(path))
-                continue
+                bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
+                row = _parse_boxscore(bs)
+                df = pd.DataFrame([row], columns=BOXSCORE_COLS)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
-        try:
-            bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
-            row = _parse_boxscore(bs)
-            df = pd.DataFrame([row], columns=BOXSCORE_COLS)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("boxscore unavailable for game %s: %s", gid, exc)
-            continue
-        if not df.empty:
-            df.to_parquet(path, index=False)
-        frames.append(df)
+                logger.warning("boxscore unavailable for game %s: %s", gid, exc)
+                if bar is not None:
+                    bar.update(1)
+                continue
+            fetched += 1
+            if not df.empty:
+                df.to_parquet(path, index=False)
+            frames.append(df)
+            if bar is not None:
+                bar.update(1)
+                bar.set_postfix(cached=hits, fetched=fetched)
+        if bar is not None:
+            bar.close()
+        if pause_sec and n < len(chunks):
+            time.sleep(pause_sec)
+    logger.info("boxscores resolved: %d requested in %d chunk(s), "
+                "%d cache hits, %d fetched",
+                len(game_ids), len(chunks), hits, fetched)
     if not frames:
         return pd.DataFrame(columns=BOXSCORE_COLS)
-    return pd.concat(frames, ignore_index=True)
+    out = pd.concat(frames, ignore_index=True)
+    # Chunking may reorder the fetch; restore the caller's order so the frame
+    # is byte-identical to an unchunked pull of the same id list.
+    if "game_id" in out.columns:
+        rank = {str(g): i for i, g in enumerate(game_ids)}
+        out = (out.assign(_ord=out["game_id"].astype(str).map(rank))
+                  .sort_values("_ord", kind="mergesort", na_position="last")
+                  .drop(columns="_ord")
+                  .reset_index(drop=True))
+    return out
 
 
 # ---------------------------------------------------------------------------
