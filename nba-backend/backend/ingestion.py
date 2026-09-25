@@ -345,6 +345,18 @@ class CdnUnavailable(RuntimeError):
     """The per-game CDN stopped answering; the whole fallback is over."""
 
 
+class HostBlocked(RuntimeError):
+    """This run already established that a host will not serve it.
+
+    A verdict, not a failure.  The host is not down — it answered, and the
+    answer was "no" — so the distinction matters to the callers: a walk that is
+    still storing games should stop asking and keep what it has, while a caller
+    with nothing to lose should fall through to the next source.  Both are
+    ``RuntimeError``s, so any handler that only catches the base type behaves
+    exactly as it did before this existed.
+    """
+
+
 def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
     """Perform one request under a hard wall clock.
 
@@ -379,6 +391,59 @@ def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
 
 HOST_VERDICT_TTL_HOURS = 24.0
 HOST_VERDICT_FILE = "host_verdicts.json"
+# The verdict is consulted once per request, and a per-game walk makes that
+# thousands of times.  Reading and parsing the file each time is wasted I/O
+# for data that changes at most once a run, so it is memoized for a moment.
+HOST_VERDICT_CACHE_SEC = 5.0
+# How many refusals in a row make a host's verdict worth recording.  A refusal
+# is cheap on its own — it arrives in milliseconds — so a run that meets one
+# should not write the host off over what may be a single absent artifact.  But
+# ``allow_missing`` callers keep asking, and a walk over a season's game ids
+# turns that into thousands of requests that were never going to succeed: the
+# 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell through to
+# ESPN, and then asked the same blocked host again for 3,474 play-by-play
+# files.  Sixteen in a row is a statement about the client, not about the
+# artifact, and it is a statement the rest of the run needs to inherit.
+REFUSAL_VERDICT_COUNT = 16
+
+# Consecutive refusals per host, for this run.  Reset by any success.
+_HOST_REFUSALS: dict[str, int] = {}
+
+
+def _note_refusal(host: str, code: int) -> None:
+    """Count a refusal.  Only counting — the caller decides what it means.
+
+    Only 403 counts.  A 404 is the host saying an artifact is absent, which is
+    the expected answer for most of the game ids a season probe asks about, so
+    counting it here would condemn a perfectly healthy host.  A 403 is the host
+    saying it will not serve this client at all.
+
+    Counting rather than recording is deliberate.  A run of refusals only means
+    something next to what the caller was trying to do: the box-score walk
+    owes a season a re-probe before it will condemn a host, and the
+    play-by-play sweep does not.  Let each escalate where it holds the evidence.
+    """
+    if code != 403:
+        return
+    _HOST_REFUSALS[host] = _HOST_REFUSALS.get(host, 0) + 1
+
+
+def _refusals_conclusive(host: str) -> bool:
+    """Whether a host has refused enough in a row to stop asking."""
+    return _HOST_REFUSALS.get(host, 0) >= REFUSAL_VERDICT_COUNT
+
+
+def _record_refusal_verdict(host: str, streak: int) -> None:
+    """Turn a conclusive run of refusals into a verdict the run will honour."""
+    _record_host_verdict(
+        host, f"answered and refused us (HTTP 403) on {streak} "
+              "consecutive requests")
+
+
+def _note_success(host: str) -> None:
+    """A served request clears the host's refusal streak."""
+    if host in _HOST_REFUSALS:
+        _HOST_REFUSALS[host] = 0
 
 
 def _verdicts_path() -> Path:
@@ -386,17 +451,37 @@ def _verdicts_path() -> Path:
 
 
 def _host_verdicts() -> dict[str, str]:
+    """The recorded verdicts, memoized briefly.
+
+    The returned dict is the live one: ``_record_host_verdict`` mutates it and
+    writes it out, so a verdict recorded in this process is visible to the next
+    caller here without touching the disk again.
+
+    The memo is keyed on the verdicts file itself, so pointing ``CACHE_DIR``
+    somewhere else reads somewhere else rather than serving another location's
+    verdicts from memory.
+    """
+    global _VERDICT_MEMO
+    path = _verdicts_path()
+    stamp, where, memo = _VERDICT_MEMO
+    if (memo is not None and where == path
+            and time.time() - stamp < HOST_VERDICT_CACHE_SEC):
+        return memo
+    loaded: dict[str, str] = {}
     try:
-        stored = json.loads(_verdicts_path().read_text())
+        stored = json.loads(path.read_text())
         if isinstance(stored, dict):
-            return stored
+            loaded = stored
     except Exception:  # noqa: BLE001 - no verdict file is the normal case
         pass
-    return {}
+    _VERDICT_MEMO = (time.time(), path, loaded)
+    return loaded
 
 
 _SILENCE_MARKERS = ("timed out", "timeout", "did not resolve",
                     "name or service not known", "unreachable")
+
+_VERDICT_MEMO: tuple[float, Path, dict[str, str] | None] = (0.0, Path("."), None)
 
 
 def _failure_verdict(exc: BaseException) -> str:
@@ -420,13 +505,18 @@ def _failure_verdict(exc: BaseException) -> str:
 
 
 def _record_host_verdict(host: str, reason: str) -> None:
-    """Remember that a host went silent, so the next season does not re-pay.
+    """Remember what a host just told us, so the rest of the run does not re-pay.
 
-    A blackholed host costs a full timeout budget per season log. On Kaggle
-    that is four minutes of the run spent re-proving a fact, so the verdict is
-    written next to the cache and honoured for a day.  A refusal is not
-    recorded: it arrives in milliseconds, costs nothing to re-ask, and may be
-    about headers rather than the machine.
+    A blackholed host costs a full timeout budget per season log, and on Kaggle
+    that is minutes of the run spent re-proving a fact.  A refused host is the
+    same problem wearing a faster mask: the cost per request is small, but the
+    callers that walk thousands of ids — the per-game box-score route and the
+    play-by-play sweep — will happily spend half an hour collecting it.  So
+    both verdicts are written next to the cache and honoured for a day.
+
+    What is NOT recorded is a lone refusal.  It arrives in milliseconds and may
+    be about headers rather than the machine, so it only becomes a verdict once
+    ``_note_refusal`` has seen a run of them long enough to mean the client.
     """
     verdicts = _host_verdicts()
     verdicts[host] = f"{time.time():.0f}|{reason}"[:400]
@@ -479,9 +569,11 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     policy = _HOST_POLICY.get(host, _HOST_POLICY["default"])
     blocked = _known_blocked_host(host)
     if blocked is not None:
-        raise RuntimeError(
-            f"NBA request to {host} skipped; it never answered recently "
-            f"({blocked}) and the verdict is still fresh")
+        # "Never answered" would be a lie here: a refused host answers, it just
+        # answers "no".  Name the verdict and let it speak for itself.
+        raise HostBlocked(
+            f"NBA request to {host} skipped; this run's verdict against it "
+            f"still stands: {blocked}")
     attempts = retries if retries is not None else _int_env(
         RETRIES_ENV, policy["attempts"])
     budget = max(attempts, 1)
@@ -514,6 +606,7 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
                        used_budget, budget, host, timeout + DNS_GRACE_SEC)
         try:
             payload = _request_json(url, profile, timeout)
+            _note_success(host)
             if headers is None and rung:
                 # This profile answered, so the run has learned the host's
                 # preferred voice; stop re-deriving it per request.
@@ -523,6 +616,7 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
             last = exc
             reason = f"HTTP {exc.code}"
             if exc.code in (403, 404) and allow_missing:
+                _note_refusal(host, exc.code)
                 return None
             if exc.code in (403, 404) and headers is None:
                 following = _next_rung(host, rung)
@@ -1297,6 +1391,16 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         try:
             payload = _get_json(BOXSCORE_URL.format(game_id=game_id),
                                 allow_missing=True, pause=pause, verbose=False)
+        except HostBlocked as exc:
+            # The host's verdict landed mid-walk.  That is not a failure of
+            # this season: anything already stored is real, and the walk stops
+            # at the bottom of the function with the chunks it wrote.  Counting
+            # it as a failure here would throw away games this run did get,
+            # because MAX_CONSECUTIVE_FAILURES is 1.
+            logger.warning("%d-%s: stopping the box-score walk after %d ids "
+                           "and %d stored: %s", season_year,
+                           season_year + 1, asked, stored, exc)
+            break
         except Exception as exc:  # noqa: BLE001 - the walk decides what to do
             probed.discard(game_id)
             failures += 1
@@ -1312,6 +1416,26 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         if built is None:
             refused += 1
             first_refusal = first_refusal or BOXSCORE_URL.format(game_id=game_id)
+            if stored == 0 and _refusals_conclusive("cdn.nba.com"):
+                # A season in which nothing at all has been stored, and a host
+                # that has now refused every id asked of it, has one more thing
+                # to prove before it is written off: that this is about the
+                # client rather than about the artifacts.  One request in
+                # another voice decides that.  Asking the remaining 1,700 ids
+                # first would decide nothing.
+                if not rerunged and first_refusal and _reprobe_refusal(
+                        first_refusal, "cdn.nba.com"):
+                    return _pull_season_from_cdn(season_year, pause, start, end,
+                                                 rerunged=True)
+                _record_refusal_verdict("cdn.nba.com",
+                                        _HOST_REFUSALS.get("cdn.nba.com", 0))
+                raise CdnUnavailable(
+                    f"cdn.nba.com refused all {refused} box scores asked for in "
+                    f"{season_year}-{season_year + 1}, including a re-probe "
+                    "with different headers: the host answers instantly and "
+                    "serves nothing to this client. It is blocked from this "
+                    "machine the same way stats.nba.com is, so the per-game "
+                    "CDN cannot rescue the run here.")
             continue
         frame = pd.concat(built, ignore_index=True)
         gameday = pd.to_datetime(frame.gameday.iloc[0], errors="coerce")
@@ -1950,11 +2074,26 @@ def _pull_play_by_play(games: pd.DataFrame, start: date, end: date,
     the difference between an increment and a rebuild.  Games the cache has not
     seen are fetched, and a short trailing window is always re-pulled because a
     run that overlapped a live game would otherwise keep that partial file.
+
+    It is enrichment, not a dependency: the window, the features and every
+    artifact train and publish without it, and player-derived features fall
+    back to their defaults.  So a host that refuses the sweep is a reason to
+    stop asking, never a reason to stop the run — which is the whole difference
+    between degrading and hanging.  A host already recorded as refused is not
+    asked at all, and a verdict that lands mid-sweep ends it rather than
+    escaping as an exception.
     """
     if games.empty or not enabled:
         return _read_cache(path)
     cached = _read_cache(path)
     have = set(cached.game_id.astype(str)) if not cached.empty else set()
+    host = urllib.parse.urlparse(PLAY_BY_PLAY_URL).netloc
+    blocked = _known_blocked_host(host)
+    if blocked is not None:
+        logger.warning(
+            "play-by-play skipped: %s %s, and the verdict is still fresh; "
+            "keeping the %d games already cached", host, blocked, len(have))
+        return cached
     wanted = (games[["game_id", "gameday"]]
               .drop_duplicates("game_id")
               .reset_index(drop=True))
@@ -1968,18 +2107,51 @@ def _pull_play_by_play(games: pd.DataFrame, start: date, end: date,
     pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
     frames: list[pd.DataFrame] = []
     failures = 0
-    for row in missing.itertuples(index=False):
-        payload = _get_json(PLAY_BY_PLAY_URL.format(game_id=row.game_id),
-                            allow_missing=True, retries=2, pause=pause)
-        frame = _play_by_play_frame(payload, str(row.game_id), row.gameday)
-        if frame.empty:
-            failures += 1
-        else:
-            frames.append(frame)
-        time.sleep(pause)
+    asked = 0
+    # A bulk walk, so it says so: one INFO line per request buries the summary,
+    # and the bar is the progress signal instead.  This is the same rule the
+    # per-game box-score walk already follows.
+    with progress.track(len(missing), desc="play-by-play", unit="game") as bar:
+        for row in missing.itertuples(index=False):
+            if _known_blocked_host(host) is not None:
+                # Another route already established this run's verdict.
+                logger.warning("play-by-play stopped after %d of %d games: %s",
+                               asked, len(missing), _known_blocked_host(host))
+                break
+            try:
+                payload = _get_json(PLAY_BY_PLAY_URL.format(game_id=row.game_id),
+                                    allow_missing=True, retries=2, pause=pause,
+                                    verbose=False)
+            except HostBlocked as exc:
+                # A recorded verdict surfaces here.  This is enrichment: the
+                # run continues without it.
+                logger.warning("play-by-play stopped after %d of %d games: %s",
+                               asked, len(missing), exc)
+                break
+            asked += 1
+            frame = _play_by_play_frame(payload, str(row.game_id), row.gameday)
+            if frame.empty:
+                failures += 1
+            else:
+                frames.append(frame)
+            if _refusals_conclusive(host) and not frames:
+                # Every game asked for so far came back empty, and the host has
+                # refused every one of them.  There is no profile left to try
+                # and no artifact to wait for: asking for the other 3,400
+                # would only make this line true slower.  Record the verdict so
+                # the rest of the run inherits the finding.
+                _record_refusal_verdict(host, _HOST_REFUSALS.get(host, 0))
+                logger.warning(
+                    "play-by-play stopped after %d of %d games: %s has refused "
+                    "every one of them. Player features fall back to their "
+                    "defaults; the run continues.", asked, len(missing), host)
+                break
+            bar.set_postfix(f"{len(frames)} ok {failures} empty")
+            bar.update(1)
+            time.sleep(pause)
     if failures:
         logger.warning("play-by-play empty for %d of %d requested games",
-                       failures, len(missing))
+                       failures, asked)
     if not frames:
         return cached
     increment = pd.concat(frames, ignore_index=True)

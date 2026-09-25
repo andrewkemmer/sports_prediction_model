@@ -104,8 +104,10 @@ class _Counter:
 
     def close(self) -> None:
         suffix = f" of {self.total}" if self.total else ""
-        logger.info("  %s: %d%s %s done", self._label, self.count, suffix,
-                    self.unit or "step")
+        unit = self.unit or "step"
+        plural = "" if self.count == 1 else "s"
+        logger.info("  %s: %d%s %s%s done", self._label, self.count, suffix,
+                    unit, plural)
 
 
 class _Bar:

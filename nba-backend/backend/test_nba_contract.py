@@ -1064,7 +1064,7 @@ def test_the_espn_season_requests_the_year_the_season_ends(monkeypatch) -> None:
 def test_a_blocked_host_is_not_probed_again() -> None:
     ing._record_host_verdict("stats.nba.com", "sinkholed")
     assert ing._known_blocked_host("stats.nba.com") == "sinkholed"
-    with pytest.raises(RuntimeError, match="never answered recently"):
+    with pytest.raises(ing.HostBlocked, match="verdict against it still stands"):
         ing._get_json("https://stats.nba.com/stats/LeagueGameLog")
     assert ing._known_blocked_host("cdn.nba.com") is None
 
@@ -1621,3 +1621,149 @@ def test_the_pipeline_names_every_phase_it_advances() -> None:
     for _ in mp.PHASES:
         phases.advance()
     phases.close()
+
+
+# --------------------------------------------------------------------------
+# A refused host is a verdict, not a fact the run keeps re-buying
+#
+# The 2026-09-25 Kaggle run answered 1,723 box-score refusals, fell through to
+# ESPN, and then asked the same blocked host again for 3,474 play-by-play
+# files.  The refusals were cheap; asking for them was not.  These tests pin
+# the two places the walk is allowed to stop.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clean_refusal_state():
+    """Refusal streaks are per-run state, and tests must not inherit them."""
+    ing._HOST_REFUSALS.clear()
+    yield
+    ing._HOST_REFUSALS.clear()
+
+
+def test_a_404_storm_never_condemns_a_host(clean_refusal_state) -> None:
+    """Most probed game ids do not exist, and that is the host working.
+
+    A season walk asks about 1,723 ids for roughly 1,230 games; the rest are
+    404s by construction.  Counting those as refusals would condemn a host that
+    is answering correctly, so only 403 moves the streak.
+    """
+    for _ in range(ing.REFUSAL_VERDICT_COUNT * 5):
+        ing._note_refusal("cdn.nba.com", 404)
+    assert ing._refusals_conclusive("cdn.nba.com") is False
+    assert ing._known_blocked_host("cdn.nba.com") is None
+
+
+def test_a_run_of_403s_is_conclusive_and_a_success_clears_it(
+        clean_refusal_state) -> None:
+    for _ in range(ing.REFUSAL_VERDICT_COUNT - 1):
+        ing._note_refusal("cdn.nba.com", 403)
+    assert ing._refusals_conclusive("cdn.nba.com") is False
+    ing._note_refusal("cdn.nba.com", 403)
+    assert ing._refusals_conclusive("cdn.nba.com") is True
+    # A host that serves one request after a run of refusals is a host with
+    # some absent artifacts, not a host that refuses this client.
+    ing._note_success("cdn.nba.com")
+    assert ing._refusals_conclusive("cdn.nba.com") is False
+
+
+def test_a_refused_season_stops_in_sixteen_ids_not_1723(monkeypatch,
+                                                        clean_refusal_state) -> None:
+    """The walk must not buy 1,723 refusals to learn what 16 already said."""
+    monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "400")
+    ing._HEADER_RUNG.clear()
+    asked: list[str] = []
+
+    def refused(request, timeout=None):
+        asked.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    with pytest.raises(ing.CdnUnavailable):
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    # The re-probe is the one request that could still overturn this, so the
+    # budget is the streak plus that request, not the whole season.
+    assert len(asked) <= ing.REFUSAL_VERDICT_COUNT + 4, (
+        f"{len(asked)} requests to conclude what 16 refusals settled")
+    assert ing._known_blocked_host("cdn.nba.com") is not None, (
+        "a host this run proved it cannot use must be recorded, or the next "
+        "route pays for the same lesson")
+
+
+def test_the_re_probe_still_gets_its_chance_before_a_verdict(
+        monkeypatch, clean_refusal_state) -> None:
+    """A client refused by one voice and served by another is not blocked.
+
+    This is the case the short-circuit must not swallow: the streak is
+    conclusive, but the season is still there for the asking, and one request
+    in the next profile is what tells the two apart.
+    """
+    monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
+    ing._HEADER_RUNG.clear()
+    asked: list[dict] = []
+
+    def served_by_the_bare_client_only(request, timeout=None):
+        headers = {k.lower(): v for k, v in request.header_items()}
+        asked.append(headers)
+        if "user-agent" in headers:
+            raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+        if request.full_url.endswith("0022400001.json"):
+            return _Response(json.dumps(boxscore_payload(
+                "0022400001", "20241022", TEAMS[0], TEAMS[1], 112, 104)).encode())
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen",
+                        served_by_the_bare_client_only)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
+                                      date(2025, 7, 1))
+    assert frame is not None and not frame.empty, "the season was written off"
+    assert frame.game_id.nunique() == 1
+    assert ing._known_blocked_host("cdn.nba.com") is None, (
+        "a host that answered in the next voice is not condemned")
+
+
+def test_play_by_play_is_not_asked_at_all_for_a_blocked_host(
+        monkeypatch, clean_refusal_state) -> None:
+    """The 3,474-request sweep, reduced to zero by an earlier verdict."""
+    ing._record_host_verdict("cdn.nba.com", "answered and refused us (HTTP 403)")
+    asked: list[str] = []
+
+    def opener(request, timeout=None):
+        asked.append(request.full_url)
+        return _Response(b"{}")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
+    games = pd.DataFrame({"game_id": [f"00224000{n:02d}" for n in range(50)],
+                          "gameday": pd.Timestamp("2024-10-22")})
+    out = ing._pull_play_by_play(games, date(2024, 10, 1), date(2025, 7, 1),
+                                 config.CACHE_DIR / "play_by_play.parquet",
+                                 enabled=True)
+    assert asked == [], "a host with a fresh verdict must not be asked again"
+    assert out.empty, "there is no cache to return yet, and none is invented"
+
+
+def test_play_by_play_stops_after_a_conclusive_run_of_refusals(
+        monkeypatch, clean_refusal_state) -> None:
+    """Enrichment is not worth half an hour of requests that cannot succeed."""
+    ing._HEADER_RUNG.clear()
+    asked: list[str] = []
+
+    def refused(request, timeout=None):
+        asked.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    games = pd.DataFrame({"game_id": [f"00224000{n:02d}" for n in range(3474)],
+                          "gameday": pd.Timestamp("2024-10-22")})
+    out = ing._pull_play_by_play(games, date(2024, 10, 1), date(2025, 7, 1),
+                                 config.CACHE_DIR / "play_by_play.parquet",
+                                 enabled=True)
+    assert len(asked) <= ing.REFUSAL_VERDICT_COUNT + 1, (
+        f"{len(asked)} play-by-play requests against a host refusing all of "
+        "them; the run that shipped this bug asked for 3,474")
+    assert out.empty
+    assert ing._known_blocked_host("cdn.nba.com") is not None, (
+        "the verdict must outlive the run that earned it")
