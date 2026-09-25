@@ -294,10 +294,57 @@ def _stale_sql_current_mirror_bundle(root: Path) -> Path:
             })
     parquet_root = source / "parquet"
     for table, rows in (("dim_game", current), ("fact_box_score_team", box)):
-        target = parquet_root / table
+        # The publisher partitions by season, which is also how the source
+        # audit learns the mirror's coverage without reading a row.
+        target = parquet_root / table / "season_year=2024"
         target.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows).to_parquet(target / f"{table}.parquet", index=False)
     return source
+
+
+def test_source_audit_names_a_stale_bundle(tmp_path: Path, caplog) -> None:
+    """A bundle that cannot satisfy the gate must say so and say why."""
+    import logging
+
+    source = tmp_path / "stale-only"
+    source.mkdir()
+    with sqlite3.connect(source / "nba.sqlite") as con:
+        con.execute("CREATE TABLE GAME (GAME_ID TEXT, GAME_DATE TEXT, "
+                    "SEASON_ID INTEGER)")
+        con.executemany("INSERT INTO GAME VALUES (?, ?, ?)",
+                        [("0022400001", "2023-04-10", 22023),
+                         ("0022400002", "2023-06-12", 22023)])
+    with caplog.at_level(logging.WARNING, logger="ingestion"):
+        audit = ing.audit_source(source)
+    assert audit["meets_window"] is False
+    assert audit["newest_game_date"] == "2023-06-12"
+    # A five-digit season id decodes to its start year, not to year 22023.
+    assert audit["newest_season"] == 2023.0
+    assert audit["sql_tables"]["nba.sqlite"]["game"]["rows"] == 2
+    assert any(item["path"] == "nba.sqlite" for item in audit["bundle"])
+    assert "repin the version" in "\n".join(
+        record.getMessage() for record in caplog.records)
+
+
+def test_source_audit_reads_mirror_seasons_from_partitions(tmp_path: Path) -> None:
+    """A current mirror satisfies the window even when the SQL copy is stale."""
+    source = _stale_sql_current_mirror_bundle(tmp_path)
+    audit = ing.audit_source(source)
+    assert audit["parquet_seasons"]["dim_game"] == ["2024"]
+    assert audit["meets_window"] is True
+    assert audit["newest_season"] == 2024.0
+    # The date comes from the stale SQL copy; only the season is rescued.
+    assert audit["newest_game_date"] == "2023-04-10"
+
+
+def test_manifest_carries_the_source_audit(tmp_path: Path) -> None:
+    """The published manifest records what the run actually read."""
+    source = _stale_sql_current_mirror_bundle(tmp_path)
+    wh = ing.load_dataset(source, use_cache=False)
+    audit = wh.manifest["source_audit"]
+    assert audit["source"] == str(source / "nba.sqlite")
+    assert audit["meets_window"] is True
+    assert any(item["path"].startswith("parquet/") for item in audit["bundle"])
 
 
 def test_current_flat_export_supersedes_stale_sql_catalog(tmp_path: Path) -> None:

@@ -113,6 +113,11 @@ _WAREHOUSE_MARKER_NAMES = frozenset({
 _WAREHOUSE_MARKER_DIRS = frozenset({
     "dim_game", "fact_game_result", "game", "team",
 })
+# Columns a source-audit probe accepts as a game's date.  Compared after
+# folding, so they are lower case.
+_AUDIT_DATE_COLUMNS = frozenset({
+    "game_date", "gameday", "date", "game_datetime", "tipoff", "game_date_time",
+})
 KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
 KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
 
@@ -1347,8 +1352,222 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _bundle_inventory(root: Path) -> list[dict[str, Any]]:
+    """Size the bundle beside a resolved warehouse, including flat mirrors."""
+    base = root if root.is_dir() else root.parent
+    if not base.is_dir():
+        return []
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    for child in children:
+        try:
+            if child.is_file():
+                out.append({"path": child.name,
+                            "mb": round(child.stat().st_size / 1e6, 1)})
+                continue
+            files = [p for p in child.rglob("*") if p.is_file()]
+            out.append({"path": child.name + "/", "files": len(files),
+                        "mb": round(sum(p.stat().st_size for p in files) / 1e6, 1)})
+        except OSError:
+            continue
+    return out
+
+
+def _mirror_partitions(root: Path) -> dict[str, list[str]]:
+    """Season values a Parquet mirror advertises, read from its paths.
+
+    Partitioned exports encode the season in the directory name, so a mirror's
+    coverage is known without reading a single row.  That distinction matters
+    when a bundle's SQL copy and its Parquet export disagree about how far
+    they reach.
+    """
+    base = root if root.is_dir() else root.parent
+    parquet = base / "parquet"
+    if not parquet.is_dir():
+        return {}
+    out: dict[str, set[str]] = {}
+    try:
+        paths = list(parquet.glob("**/*.parquet"))
+    except OSError:
+        return {}
+    for path in paths:
+        seasons = {part.split("=", 1)[1] for part in path.parts
+                   if "=" in part and "season" in part.split("=", 1)[0].lower()}
+        if not seasons:
+            continue
+        table = path.relative_to(parquet).parts[0]
+        out.setdefault(table, set()).update(seasons)
+    return {table: sorted(values) for table, values in sorted(out.items())}
+
+
+def _audit_sql(path: Path, names: Iterable[str],
+               probe_rows: bool) -> dict[str, dict[str, Any]]:
+    """Catalog the tables this reader uses, probing the game tables in depth.
+
+    Only game-identity tables are scanned for row counts and dates.  Box-score
+    tables can hold millions of rows each, and a full-table aggregate over them
+    would cost minutes on every run to answer a question the coverage gate
+    never asks.  Their presence and shape are enough.
+    """
+    report: dict[str, dict[str, Any]] = {}
+    if path.suffix.lower() == ".duckdb":
+        try:
+            import duckdb
+        except ImportError:
+            return report
+        try:
+            con = duckdb.connect(str(path), read_only=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NBA source audit could not open %s: %s", path, exc)
+            return report
+        try:
+            available = [str(r[0]) for r in con.execute("SHOW TABLES").fetchall()]
+            for name, actual in _match_table_names(available, names).items():
+                columns = [str(r[0]) for r in
+                           con.execute(f'DESCRIBE "{actual}"').fetchall()]
+                report[name] = _audit_entry(
+                    lambda sql: con.execute(sql).fetchone()[0],
+                    f'"{actual}"', columns,
+                    deep=probe_rows and name in GAME_TABLES)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NBA source audit failed for %s: %s", path, exc)
+        finally:
+            con.close()
+        return report
+    if path.suffix.lower() not in {".sqlite", ".db"}:
+        return report
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("NBA source audit could not open %s: %s", path, exc)
+        return report
+    try:
+        available = [str(r[0]) for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        for name, actual in _match_table_names(available, names).items():
+            columns = [str(r[1]) for r in con.execute(
+                f'PRAGMA table_info("{actual}")').fetchall()]
+            report[name] = _audit_entry(
+                lambda sql: con.execute(sql).fetchone()[0],
+                f'"{actual}"', columns,
+                deep=probe_rows and name in GAME_TABLES)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("NBA source audit failed for %s: %s", path, exc)
+    finally:
+        con.close()
+    return report
+
+
+def _audit_entry(scalar: Any, quoted: str, columns: list[str],
+                 deep: bool) -> dict[str, Any]:
+    """Summarize one table: row count, newest game date, newest season."""
+    entry: dict[str, Any] = {"columns": len(columns)}
+    if not deep:
+        return entry
+    date_col = next((c for c in columns if c.strip().lower() in _AUDIT_DATE_COLUMNS),
+                    None)
+    season_col = next((c for c in columns if "season" in c.strip().lower()), None)
+    try:
+        entry["rows"] = int(scalar(f"SELECT COUNT(*) FROM {quoted}") or 0)
+        if date_col:
+            newest = scalar(f'SELECT MAX("{date_col}") FROM {quoted}')
+            entry["max_date"] = str(newest)[:10] if newest is not None else None
+        if season_col:
+            entry["max_season"] = scalar(f'SELECT MAX("{season_col}") FROM {quoted}')
+    except Exception as exc:  # noqa: BLE001
+        entry["error"] = str(exc)[:120]
+    return entry
+
+
+def audit_source(root: Path | None) -> dict[str, Any]:
+    """Report what a bundle actually contains, per representation.
+
+    A coverage gate is only trustworthy when the run states what it read: which
+    files, which tables, how many rows, and how far each representation
+    reaches.  This never relaxes a gate; it is the evidence the gates report,
+    so a stale or half-exported dataset is named instead of guessed at.
+    """
+    if root is None or not root.exists():
+        return {"source": None, "meets_window": False, "reason": "no source"}
+    audit: dict[str, Any] = {
+        "source": str(root),
+        "bundle": _bundle_inventory(root),
+        "parquet_seasons": _mirror_partitions(root),
+        "sql_tables": {},
+    }
+    probe_rows = os.environ.get("NBA_SOURCE_AUDIT", "1").lower() not in {
+        "0", "false", "no"}
+    names = tuple(dict.fromkeys(
+        GAME_TABLES + TEAM_BOX_TABLES + TEAM_TABLES + PLAYER_DIM_TABLES))
+    for candidate in ([root] if root.is_file()
+                      else sorted(p for p in root.glob("*")
+                                  if p.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES)):
+        if not candidate.is_file():
+            continue
+        audit["sql_tables"][candidate.name] = _audit_sql(
+            candidate, names, probe_rows)
+    newest_date, newest_season = None, None
+    for tables in audit["sql_tables"].values():
+        for entry in tables.values():
+            if entry.get("max_date"):
+                newest_date = max(filter(None, [newest_date, entry["max_date"]]))
+            if entry.get("max_season") is None:
+                continue
+            # Decode with the same rule the reader applies, so a five-digit
+            # season id cannot masquerade as a year four digits ahead.
+            decoded = _season(pd.Series([entry["max_season"]])).iloc[0]
+            if pd.notna(decoded):
+                newest_season = max(filter(None, [newest_season, float(decoded)]))
+    for seasons in audit["parquet_seasons"].values():
+        for value in seasons:
+            if value[:4].isdigit():
+                newest_season = max(filter(None, [newest_season, float(value[:4])]))
+    audit["newest_game_date"] = newest_date
+    audit["newest_season"] = newest_season
+    audit["first_eligible_season"] = config.OOF_FIRST_SEASON
+    audit["meets_window"] = bool(
+        newest_season is not None and newest_season >= config.OOF_FIRST_SEASON)
+    _log_audit(audit)
+    return audit
+
+
+def _log_audit(audit: dict[str, Any]) -> None:
+    """Log the source inventory once, loudly when it falls short."""
+    if audit.get("reason"):
+        logger.warning("NBA source audit: %s", audit["reason"])
+        return
+    for name, tables in audit["sql_tables"].items():
+        for table, entry in tables.items():
+            logger.info("NBA source audit: %s.%s rows=%s max_date=%s "
+                        "max_season=%s", name, table, entry.get("rows"),
+                        entry.get("max_date"), entry.get("max_season"))
+    for table, seasons in audit["parquet_seasons"].items():
+        logger.info("NBA source audit: parquet/%s seasons %s..%s", table,
+                    seasons[0], seasons[-1])
+    for item in audit["bundle"]:
+        logger.info("NBA source audit: bundle entry %s %s", item,
+                    f"{item.get('mb')} MB")
+    if audit["meets_window"]:
+        logger.info("NBA source audit: coverage reaches %s, meets the %s window",
+                    audit["newest_season"], audit["first_eligible_season"])
+    else:
+        logger.warning(
+            "NBA source audit: no representation in %s reaches the %s season "
+            "window (newest date %s, newest season %s). The pinned dataset "
+            "version no longer contains eligible history; repin the version or "
+            "obtain a newer export rather than relaxing the gate.",
+            audit["source"], audit["first_eligible_season"],
+            audit.get("newest_game_date") or "unknown",
+            audit.get("newest_season") or "unknown")
+
+
 def _manifest(root: Path | None, tables: dict[str, pd.DataFrame],
-              team_names: dict[str, str] | None = None) -> dict:
+              team_names: dict[str, str] | None = None,
+              audit: dict[str, Any] | None = None) -> dict:
     files = []
     if root:
         paths = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
@@ -1395,8 +1614,30 @@ def _manifest(root: Path | None, tables: dict[str, pd.DataFrame],
         "coverage": coverage,
         "team_names": team_names or {},
         "files": files,
+        "source_audit": audit or {},
         "schema_version": "nba-normalized-v2",
     }
+
+
+def _audit_summary(audit: dict[str, Any] | None) -> str:
+    """One-line rendering of the source audit for an error message."""
+    if not audit:
+        return "not run"
+    if audit.get("reason"):
+        return str(audit["reason"])
+    reached = []
+    for name, tables in (audit.get("sql_tables") or {}).items():
+        for table, entry in tables.items():
+            if entry.get("max_season") is not None or entry.get("max_date"):
+                reached.append(f"{name}.{table}="
+                               f"{entry.get('max_date') or entry.get('max_season')}")
+    for table, seasons in (audit.get("parquet_seasons") or {}).items():
+        reached.append(f"parquet/{table}={seasons[0]}..{seasons[-1]}")
+    verdict = "meets" if audit.get("meets_window") else "does not meet"
+    return (f"newest_game_date={audit.get('newest_game_date')}, "
+            f"newest_season={audit.get('newest_season')}, {verdict} the "
+            f"{audit.get('first_eligible_season')} window; " +
+            (", ".join(reached[:8]) or "no dated tables found"))
 
 
 def _validate_dataset(wh: Warehouse) -> None:
@@ -1420,7 +1661,8 @@ def _validate_dataset(wh: Warehouse) -> None:
             f"(rows={len(wh.games)}, observed_seasons={observed or 'none'}, "
             f"gamedays={window}, "
             f"source={wh.manifest.get('source_path')}, "
-            f"game_columns={list(wh.games.columns)})"
+            f"game_columns={list(wh.games.columns)}); "
+            f"source audit: {_audit_summary(wh.manifest.get('source_audit'))}"
         )
     eligible = wh.games[pd.to_numeric(wh.games.season, errors="coerce") >= config.OOF_FIRST_SEASON]
     observed_teams = (set(eligible.home_team.dropna().astype(str))
@@ -1488,6 +1730,7 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
             "Do not pass None as a --source-path value."
         )
     lookup, team_names = _load_team_maps(root)
+    audit = audit_source(root)
     game_frames = _read_tables_merged(root, GAME_TABLES)
     # dim_game is the identity source; result/scoreboard tables are joined by
     # game_id.  If only a result table exists it is used as the identity source.
@@ -1515,7 +1758,8 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
                                            _load_player_names(root))
     wh = Warehouse(games, team_stats, player_stats, team_names,
                    _manifest(root, {"games": games, "team_stats": team_stats,
-                                    "player_stats": player_stats}, team_names))
+                                    "player_stats": player_stats}, team_names,
+                             audit=audit))
     _validate_dataset(wh)
     if use_cache:
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
