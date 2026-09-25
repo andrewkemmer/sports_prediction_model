@@ -550,15 +550,49 @@ XGBOOST_PARAMS = {
     "eval_metric": "logloss",
     "verbosity": 0,
 }
+# Moneyline lightgbm member — TUNED 2026-09-25 under docs/model_tuning_policy.md.
+# Optuna, 40 TPE trials, seed 42, pooled OOF log-loss objective, on the
+# identical production walk-forward folds/seeds/frame. Evidence:
+# .adhoc/nfl_lgbm_tune.json (uncommitted by design).
+#
+# Diagnosis: the previous config (200 trees @ lr 0.05, depth 4, 12 leaves) was
+# underfit, and reg_alpha/reg_lambda/min_split_gain were never set at all. 31
+# of 40 trials beat it; best pooled log-loss 0.633796 vs 0.676888.
+#
+# Gate verdicts, under the canonical row order (folds.canonical_sort):
+#   MEMBER GATE  5/6 — pooled OOF logloss -0.043093, auc +0.034026, ece
+#               -0.046127 (3/3 PASS); sealed 28d logloss -0.017737 and ece
+#               -0.113216 pass, auc -0.020833 FAILS at n=31.
+#   BLEND  GATE  3/4 — auc +0.000294, logloss -0.000083, brier -0.000063 and
+#               member ece -0.046127 all PASS; blend ECE +0.000054 FAILS.
+#               Paired 568 better / 694 worse of 1657.
+#
+# The blend gain here is real in sign but ~20x smaller than xgboost's, and this
+# member is REDUNDANT: the shipped blend already gives lightgbm 0.0000 weight
+# (xgboost 0.5192, elasticnet 0.4808), because two GBDTs on the same tree view
+# plus the linear view saturate the signal. An order band over four legitimate
+# deterministic row orders confirms the three blend deltas are sign-stable
+# (so this is a genuine if tiny effect, not measurement noise) while the ECE
+# delta is noise (range 0.002136, sign-flipping) and cannot decide anything.
+#
+# ADOPTED 2026-09-25 on the member-level win, which is the same order of
+# magnitude as xgboost's (-0.043 vs -0.038) and turns the worst-calibrated
+# member into the second best (ece 0.0705 -> 0.0243). The tuned config also
+# earns lightgbm a 0.1077 seat in the blend instead of zero. The small blend
+# delta and the paired 568/694 split are recorded deliberately, not buried.
+# RE-TUNE AT SEASON END 2026 with a properly sized sealed holdout.
 LIGHTGBM_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 4,
-    "num_leaves": 12,
-    "min_child_samples": 30,
-    "learning_rate": 0.05,
-    "subsample": 0.8,
-    "subsample_freq": 1,
-    "colsample_bytree": 0.8,
+    "n_estimators": 363,
+    "max_depth": 2,
+    "num_leaves": 35,
+    "min_child_samples": 18,
+    "learning_rate": 0.008009278323632461,
+    "subsample": 0.750334329272111,
+    "subsample_freq": 3,
+    "colsample_bytree": 0.4452810820437231,
+    "reg_alpha": 0.010526477985542971,
+    "reg_lambda": 0.00012983616609580498,
+    "min_split_gain": 0.238659514337898,
     "random_state": RANDOM_SEED,
     "verbose": -1,
 }
