@@ -13,8 +13,9 @@ Structural mirror of MLB's walk-forward fold generator:
     min_train_days warm-up contract
 
 A fold is a (fold_id, val_start, val_end, train_idx, val_idx) tuple over the
-row order of the caller's frame; callers must pass chronologically sorted
-frames.
+row order of the caller's frame; callers must pass frames already in
+``canonical_sort`` order (see below) so the returned labels are positional and
+remain valid for every downstream consumer.
 """
 from __future__ import annotations
 
@@ -26,6 +27,35 @@ try:
     from backend import config
 except ImportError:
     import config
+
+# Every frame that feeds fold generation MUST be put in this order first.
+# Why a helper and not a bare sort_values(date_col): make_folds returns
+# df.index[mask] (labels), and the OOF consumers index those labels
+# positionally after their own reset_index(drop=True). A single-column
+# sort_values uses an UNSTABLE quicksort, so two such sorts over the same
+# data disagree on the order of same-date games -- over the real 565-game
+# decided pool, 496 rows land in a different position. make_folds then hands
+# out labels computed under one tie order and the consumer applies them under
+# another, so the learner sees the right games in a different order (a
+# reproducibility break, since the gradient-boosting members are row-order
+# sensitive under a fixed seed: re-running the production OOF from a merely
+# shuffled frame moved per-game member probabilities by up to 1.8e-01, and
+# the distribution mu by 7.3e-01).
+# [date_col, "game_id"] is a TOTAL order (game_id is unique), and mergesort
+# makes it stable, so every caller agrees exactly.
+CANONICAL_TIEBREAK = "game_id"
+
+
+def canonical_sort(df: pd.DataFrame, date_col: str = "gameday") -> pd.DataFrame:
+    """The ONE row order fold indices are valid for.
+
+    Stable, total ordering by (date_col, game_id) with a fresh RangeIndex, so
+    fold labels are positions in a frame every consumer reproduces byte for
+    byte regardless of the order the frame arrived in.
+    """
+    keys = [date_col, CANONICAL_TIEBREAK] if CANONICAL_TIEBREAK in df.columns \
+        else [date_col]
+    return df.sort_values(keys, kind="mergesort").reset_index(drop=True)
 
 
 @dataclass

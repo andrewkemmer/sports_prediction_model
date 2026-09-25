@@ -249,6 +249,11 @@ def run_rfe(games: pd.DataFrame, day: str, max_steps: int | None = None) -> dict
     targeted = bool(adds or removes)
     if (unresolved_add or unresolved_remove) and _truthy("NHL_RFE_ADDITION_REMOVAL_GRID_MODE"):
         raise ValueError(f"unresolvable grid feature names: {unresolved_add + unresolved_remove}")
+    # Fold labels are POSITIONS in the frame the OOF consumer rebuilds, and
+    # walk_forward_oof canonicalizes internally — so the frame that GENERATES
+    # the labels must already be that order, or the labels select the wrong
+    # GAMES (not merely the wrong order). See folds.canonical_sort.
+    games = folds_mod.canonical_sort(games, "gameday")
     folds = folds_mod.make_folds(games, date_col="gameday")
     if not folds:
         raise RuntimeError("NHL RFE has no production folds")

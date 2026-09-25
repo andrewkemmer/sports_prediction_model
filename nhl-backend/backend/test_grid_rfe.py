@@ -7,6 +7,11 @@ Mirrors ``mlb-backend/backend/test_grid_rfe.py`` structurally:
                          date + WARMUP_DAYS), expanding trains, strict
                          train<val ordering, MIN_VAL_FOLD_GAMES skipping,
                          final-partial-window retention;
+  * folds.canonical_sort — the ONE row order the fold labels are valid for
+                         (fold indices are POSITIONS): a total order whose
+                         result is independent of arrival order, whose fold
+                         membership survives a shuffle, and which every OOF
+                         consumer applies before generating fold labels;
   * feature views      — linear/tree routing over the ONE master list (the
                          raw per-side block is tree-only; the categorical
                          team-ID pair is tree-only; linear_view is a pure
@@ -37,6 +42,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 import config                                        # noqa: E402
 import folds as folds_mod                            # noqa: E402
+import features as feat_mod                          # noqa: E402
 import distributions as dist_mod                     # noqa: E402
 import moneyline as ml_mod                           # noqa: E402
 import manifest                                      # noqa: E402
@@ -134,6 +140,153 @@ def test_min_val_fold_games_skips_sparse_windows_but_keeps_the_final_tail():
     dense_folds = folds_mod.make_folds(dense, date_col="gameday")
     assert all(len(f.val_idx) >= config.MIN_VAL_FOLD_GAMES
                for f in dense_folds[:-1])
+
+
+# ── folds: the ONE row order the fold labels are valid for ────────────────
+# make_folds returns index LABELS, and the OOF consumers look those rows up
+# POSITIONALLY after their own reset_index(drop=True). Every caller used to sort
+# on the date column ALONE, and a single-column sort_values is an UNSTABLE
+# quicksort — so two callers over the same data disagreed on the order of
+# same-date games. The right games stayed in every fold (make_folds selects by
+# DATE, so membership was never at risk); the boosting members were simply
+# handed them in a different order under a fixed seed, which made a run
+# unreproducible. canonical_sort is the one order both sides agree on.
+
+
+def test_canonical_sort_is_a_total_order_independent_of_arrival_order():
+    df = _synth_games(n_days=60, games_per_day=6)
+    canonical = folds_mod.canonical_sort(df, "gameday")
+    # Same games, same order, from any arrival order.
+    arrived = df.sample(frac=1.0, random_state=3)
+    shuffled = folds_mod.canonical_sort(arrived, "gameday")
+    assert canonical["game_id"].tolist() == shuffled["game_id"].tolist(), \
+        "canonical_sort is not order-independent — its labels are not a total order"
+    # Fresh RangeIndex: fold labels are POSITIONS in exactly this frame.
+    assert canonical.index.tolist() == list(range(len(df)))
+    # Same-date ties break on the tiebreaker column, not on arrival order.
+    assert bool(canonical.groupby("gameday")["game_id"]
+                .apply(lambda s: s.is_monotonic_increasing).all())
+    # The hazard itself: over a frame that ARRIVES in another order, a
+    # date-only sort does NOT agree with it.
+    date_only = arrived.sort_values("gameday").reset_index(drop=True)
+    assert canonical["game_id"].tolist() != date_only["game_id"].tolist(), \
+        "a date-only sort now agrees with canonical_sort — the pin is vacuous"
+
+
+def test_fold_membership_survives_a_shuffled_arrival_order():
+    df = _synth_games(n_days=60, games_per_day=6)
+    canonical = folds_mod.canonical_sort(df, "gameday")
+    shuffled = canonical.sample(frac=1.0, random_state=5).reset_index(drop=True)
+    ref_folds = folds_mod.make_folds(canonical, date_col="gameday")
+    arr_folds = folds_mod.make_folds(shuffled, date_col="gameday")
+    assert len(arr_folds) == len(ref_folds)
+    for ref, arr in zip(ref_folds, arr_folds):
+        # Membership is a SET property; the ORDER inside a fold is what
+        # canonical_sort pins. Same games either way.
+        assert (set(canonical.loc[ref.train_idx, "game_id"])
+                == set(shuffled.loc[arr.train_idx, "game_id"]))
+        assert (set(canonical.loc[ref.val_idx, "game_id"])
+                == set(shuffled.loc[arr.val_idx, "game_id"]))
+    # Regenerating the labels on the canonicalized arrival frame reproduces
+    # the production fold objects exactly — labels included.
+    regen = folds_mod.make_folds(
+        folds_mod.canonical_sort(shuffled, "gameday"), date_col="gameday")
+    assert [f.val_idx.tolist() for f in regen] == \
+           [f.val_idx.tolist() for f in ref_folds]
+
+
+def test_no_fold_consumer_reintroduces_a_date_only_sort():
+    """A bare sort_values(date_col) anywhere ahead of make_folds reopens the
+    label-vs-position gap, so the canonical order is pinned at each call site
+    by an ASSIGNMENT (a comment mentioning it does not satisfy this)."""
+    import re
+    pattern = re.compile(r"=\s*folds_mod\.canonical_sort\(")
+    for fname in ("moneyline.py", "distributions.py",
+                  "master_pipeline.py", "feature_selection.py"):
+        src = (BACKEND_DIR / fname).read_text(encoding="utf-8")
+        canonical_at = pattern.search(src)
+        make_at = src.find("folds_mod.make_folds")
+        assert canonical_at is not None, \
+            f"{fname} never canonicalizes — its fold labels are positions "\
+            f"under an order it does not pin"
+        assert make_at != -1 and canonical_at.start() < make_at, \
+            f"{fname} generates fold labels before canonicalizing the frame"
+
+
+def test_member_oof_is_invariant_to_the_arrival_row_order():
+    """Behavioural guardrail, not a decorative one.
+
+    The stand-in members below are deliberately ROW-ORDER SENSITIVE (they
+    weight training rows by position), which is the property the real fixed-seed
+    boosters share. If walk_forward_oof generated fold labels under one row
+    order and applied them under another, every training set is permuted and
+    every prediction moves. Reverting moneyline.py to the date-only sort — or
+    leaving a consumer un-canonicalized — fails this.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=40))
+    canonical = folds_mod.canonical_sort(games, "gameday")
+    shuffled = canonical.sample(frac=1.0, random_state=11).reset_index(drop=True)
+
+    class _OrderSensitiveModel:
+        def __init__(self, name):
+            self.name = name
+
+        def fit(self, X, y, **kwargs):
+            w = np.arange(1, len(y) + 1, dtype=float)
+            self.p = float(np.average(np.asarray(y, dtype=float), weights=w))
+            return self
+
+        def predict_proba(self, X):
+            p = np.full(len(X), self.p, dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    class _OrderSensitiveRegressor:
+        def fit(self, df):
+            w = np.arange(1, len(df) + 1, dtype=float)
+            self.h = float(np.average(df["home_score"].to_numpy(float), weights=w))
+            self.a = float(np.average(df["away_score"].to_numpy(float), weights=w))
+            return self
+
+        def predict(self, df):
+            return (np.full(len(df), self.h), np.full(len(df), self.a))
+
+    def _fake_member(name, fold=False):
+        return _OrderSensitiveModel(name)
+
+    # The production path: each OOF canonicalizes the frame it is HANDED and
+    # generates its own folds from that same canonical order.
+    from unittest.mock import patch as _patch
+    with _patch.object(ml_mod, "_make_member", side_effect=_fake_member), \
+            _patch.object(dist_mod, "ScoreRegressor", _OrderSensitiveRegressor):
+        ref = ml_mod.walk_forward_oof(canonical)["oof"]
+        arr = ml_mod.walk_forward_oof(shuffled)["oof"]
+        ref_d = dist_mod.walk_forward_oof(canonical)["oof"]
+        arr_d = dist_mod.walk_forward_oof(shuffled)["oof"]
+
+    # The order-sensitive members are actually sensitive — otherwise the
+    # invariance below would be vacuously true.
+    assert not np.allclose(ref["p_xgboost"].to_numpy(float),
+                           np.full(len(ref), 0.5)), \
+        "the stand-in member is not row-order sensitive; the pin proves nothing"
+
+    pcols = [f"p_{m}" for m in config.ENSEMBLE_MEMBERS] + ["p_ensemble"]
+    a = arr.set_index("game_id").sort_index()
+    r = ref.set_index("game_id").sort_index()
+    assert a.index.tolist() == r.index.tolist()
+    for col in pcols:
+        np.testing.assert_allclose(a[col].to_numpy(float), r[col].to_numpy(float),
+                                   rtol=0, atol=1e-12,
+                                   err_msg=f"{col} moved under a different "
+                                           f"arrival row order")
+
+    ad = arr_d.set_index("game_id").sort_index()
+    rd = ref_d.set_index("game_id").sort_index()
+    assert ad.index.tolist() == rd.index.tolist()
+    for col in ("mu_h", "mu_a"):
+        np.testing.assert_allclose(ad[col].to_numpy(float), rd[col].to_numpy(float),
+                                   rtol=0, atol=1e-12,
+                                   err_msg=f"{col} moved under a different "
+                                           f"arrival row order")
 
 
 # ── feature views: the ONE list, routed per model family ──────────────────

@@ -110,6 +110,24 @@ def test_dist_oof_folds_are_expanding_and_strictly_prior():
     assert folds[0].val_start == first_core + pd.Timedelta(days=config.WARMUP_DAYS)
 
 
+def test_pit_fold_labels_are_valid_for_the_frame_the_oof_rebuilds():
+    """The pins in this suite hand fold labels to walk_forward_oof, which
+    canonicalizes the frame it is given. Those labels are POSITIONS, so the
+    frame they were generated over must already BE the canonical order — today
+    that holds only because the synth pool is generated in date order. Pin it,
+    so changing the generator forces the call sites to canonicalize instead of
+    silently scoring the wrong games."""
+    games = feat_mod.build_game_features(_synth_games(n_days=40))
+    ref = folds_mod.make_folds(
+        folds_mod.canonical_sort(games, "gameday"), date_col="gameday")
+    probe = folds_mod.make_folds(games, date_col="gameday")
+    assert [f.val_idx.tolist() for f in probe] == \
+           [f.val_idx.tolist() for f in ref], \
+        "this suite generates fold labels over a NON-canonical frame; " \
+        "walk_forward_oof rebuilds it in canonical order, so the labels would " \
+        "select the wrong games — canonicalize at the make_folds call sites"
+
+
 def test_mlb_observed_date_fold_geometry_handles_schedule_gaps():
     """NHL folds use seven observed dates, not seven arithmetic days."""
     dates = [pd.Timestamp("2025-10-01") + pd.Timedelta(days=i)
