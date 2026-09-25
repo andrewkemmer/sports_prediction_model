@@ -956,7 +956,8 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Wa
         raise FileNotFoundError(
             "NBA warehouse not found "
             f"(source={raw_source!r}; searched: {', '.join(searched)}). "
-            "Attach wyattowalsh/basketball version 238 in Kaggle, or set "
+            "Attach wyattowalsh/basketball version 238 in Kaggle and run "
+            "kaggle_nba_run.ipynb (not kaggle_mlb_run.ipynb), or set "
             "NBA_KAGGLE_DATASET_PATH to its extracted directory/DuckDB file. "
             "Do not pass None as a --source-path value."
         )

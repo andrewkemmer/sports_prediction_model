@@ -88,8 +88,9 @@ def test_source_discovery_handles_nested_kaggle_exports(tmp_path: Path) -> None:
 
 def test_missing_source_error_rejects_literal_none(tmp_path: Path) -> None:
     with patch.object(ing, "_source_root", return_value=None):
-        with pytest.raises(FileNotFoundError, match="Do not pass None"):
+        with pytest.raises(FileNotFoundError, match="kaggle_nba_run.ipynb") as exc:
             ing.load_dataset("None", use_cache=False)
+    assert "Do not pass None" in str(exc.value)
 
 
 def test_folds_are_observed_date_expanding_and_prior_only() -> None:
