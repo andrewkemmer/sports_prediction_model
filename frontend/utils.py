@@ -158,12 +158,17 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
       final_inning    empty (inning detail not in pipeline artifacts yet)
     """
     df = df.copy()
+    active_sport = get_sport()
 
     # Reconcile stale boards against authoritative finals FIRST, so the
     # derived win/status/grading columns below are computed from real results
     # (todays_games_<date>.csv is a point-in-time snapshot -- a day's later
     # games can still say 'pre'/'in' at 0-0 even after they are final).
-    df = _reconcile_board_finals(df)
+    # NBA archives have their own result facts; consulting MLB's
+    # ``game_level_features.csv`` here can only cross-bind an unrelated game
+    # id. Existing sports retain the original reconciliation path unchanged.
+    if active_sport != "nba":
+        df = _reconcile_board_finals(df)
 
     # Outcome flag: 1.0 home won, 0.0 away won, NaN no result yet
     win = pd.to_numeric(df.get("home_win"), errors="coerce")
@@ -194,7 +199,8 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
     for abbr_col, name_col in (("home_team", "home_team_name"),
                                ("away_team", "away_team_name")):
         if name_col not in df.columns and abbr_col in df.columns:
-            df[name_col] = df[abbr_col].map(MLB_TEAM_NAMES).fillna("")
+            names = NBA_TEAM_NAMES if active_sport == "nba" else MLB_TEAM_NAMES
+            df[name_col] = df[abbr_col].map(names).fillna("")
 
     if "final_inning" not in df.columns:
         df["final_inning"] = ""
@@ -224,7 +230,7 @@ def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     # Fill missing final scores from game_level_features.csv (keyed by game_id)
-    if "game_id" in df.columns:
+    if "game_id" in df.columns and active_sport != "nba":
         scores = _load_scores()
         if not scores.empty:
             df = df.merge(scores, on="game_id", how="left", suffixes=("", "_feat"))
@@ -620,6 +626,12 @@ def _available_dates_cached(sport: str, owner: str, repo: str,
                     ("nhl_power_rankings_", ".csv"),
                     ("nhl_run_engine_markets_", ".csv"),
                     ("nhl_run_engine_monitor_", ".json")]
+    elif s == "nba":
+        prefixes = [("nba_moneyline_v1_", ".json"), ("nba_calibration_", ".json"),
+                    ("nba_predictions_history_", ".csv"), ("nba_model_monitor_", ".json"),
+                    ("nba_power_rankings_", ".csv"),
+                    ("nba_run_engine_markets_", ".csv"),
+                    ("nba_run_engine_monitor_", ".json")]
     else:
         prefixes = [("nfl_moneyline_v1_", ".json"), ("nfl_calibration_", ".json"),
                     ("nfl_predictions_history_", ".csv"), ("nfl_model_monitor_", ".json"),
@@ -947,7 +959,7 @@ def _valid_dates_impl(sport_key: str, contents_dates, local_dir,
     expose exactly the rolling window. NFL/NHL: distinct ``game_date`` from
     the moneyline ``games[]`` frame. Missing/empty artifacts → [] (graceful)."""
     s = normalize_sport_key(sport_key)
-    if s in ("nfl", "nhl"):
+    if s in ("nfl", "nhl", "nba"):
         dates = set(_distinct_game_dates(nfl_frame))
         dates.update(history_dates or ())
         return sorted(dates, reverse=True)
@@ -980,9 +992,22 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     s = normalize_sport_key(sport_key if sport_key is not None else get_sport())
     cfg = get_source_config()
     contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
-    nfl_frame = load_nfl_moneyline(s) if s in ("nfl", "nhl") else pd.DataFrame()
-    nfl_history = load_nfl_prediction_history(s) if s in ("nfl", "nhl") else pd.DataFrame()
-    nfl_history_dates = _distinct_game_dates(nfl_history) if s in ("nfl", "nhl") else ()
+    if s in ("nfl", "nhl"):
+        board_frame = load_nfl_moneyline(s)
+        history_frame = load_nfl_prediction_history(s)
+    elif s == "nba":
+        board_frame = load_nba_moneyline("nba")
+        history_frame = load_nba_prediction_history("nba")
+    else:
+        board_frame = pd.DataFrame()
+        history_frame = pd.DataFrame()
+    history_dates = _distinct_game_dates(history_frame)
+    if s == "nba":
+        # A moneyline record can be a current slate while its retained
+        # history spans older dates.  Include the union of both sources so
+        # the NBA date rail never loses a valid historical game day.
+        history_dates = sorted(set(history_dates) | set(_distinct_game_dates(board_frame)),
+                               reverse=True)
     snap = set(contents)
     for p in LOCAL_DATA_DIR.glob("todays_games_*.csv"):
         d = p.name[len("todays_games_"):-len(".csv")]
@@ -992,8 +1017,8 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     history = (_mlb_history_dates(cfg["owner"], cfg["repo"], cfg["branch"],
                                   max_snap) if s == "mlb" else ())
     return tuple(_valid_dates_impl(
-        s, contents, LOCAL_DATA_DIR, nfl_frame,
-        list(history or ()) + list(nfl_history_dates)))
+        s, contents, LOCAL_DATA_DIR, board_frame,
+        list(history or ()) + list(history_dates)))
 
 
 def nearest_valid_date(valid: list[str] | tuple[str, ...],
@@ -1181,85 +1206,86 @@ def load_nfl_moneyline_record(sport: str | None = "nfl") -> dict:
 
 
 def load_nfl_prediction_history(sport: str | None = "nfl") -> pd.DataFrame:
-    """Per-game (predicted, outcome) frame for the NFL/NHL Calibration page.
+    """Load a v1 sport's dated prediction-history CSV or moneyline fallback.
 
-    Mirrors ``load_prediction_history``'s column contract so the per-1%
-    favored-team curve (``mlc.favored_calibration_pts``) and the history
-    table can be reused verbatim. Derives one row per moneyline record game
-    that carries a DETERMINABLE outcome (both scores present or an explicit
-    ``home_win``); only those decide per-game calibration points — scheduled
-    'pre' games are skipped. The shipped v1 record is a 2026 scheduled slate
-    with no outcomes, so this returns an empty frame WITH the full schema;
-    the page then gates the curve / reliability / history sections behind a
-    presence check (honest info lines when absent)."""
+    The dated CSV is the authoritative archive.  Resolution works for local
+    committed files and raw GitHub files; a local path is never treated as a
+    remote path.  Scheduled rows without an outcome are excluded from the
+    fallback record, while a valid CSV is returned unchanged so calibrated
+    and raw columns remain available to the shared calibration page.
+    """
     cols = ["game_date", "home_team", "away_team", "home_win_prob_model",
             "away_win_prob_model", "model_pick", "home_score", "away_score",
             "actual_winner", "correct"]
     s = normalize_sport_key(sport or "nfl")
     cfg = get_source_config()
-    # Prediction history is the authoritative retained archive for NFL cards
-    # and calibration. The moneyline JSON is intentionally current-slate-only.
-    history_path = resolve_sport_artifact(s, "predictions_history_csv")
-    _history_dates = sorted(_stamp_suffixes(history_path)) if history_path is not None else []
-    picked = _history_dates[-1] if _history_dates else ""
-    raw = None
-    src = ""
-    if history_path is not None:
-        try:
-            raw = history_path.read_bytes()
-            src = "local"
-        except OSError:
-            raw = None
-    if raw is None:
-        raw, src = _fetch_bytes(
-            f"{s}_predictions_history_{picked}.csv", **cfg, sport=s)
-    if raw is not None:
+    pattern = f"{s}_predictions_history_"
+    local_path = resolve_sport_artifact(s, "predictions_history_csv")
+    dates = _family_dated_dates(s, [(pattern, ".csv")], cfg)
+    if local_path is not None:
+        dates = sorted(set(dates) | _stamp_suffixes(local_path), reverse=True)
+    else:
+        dates = sorted(set(dates), reverse=True)
+
+    for date_str in dates:
+        raw = None
+        if local_path is not None and date_str in _stamp_suffixes(local_path):
+            try:
+                raw = local_path.read_bytes()
+            except OSError:
+                raw = None
+        if raw is None:
+            raw, _src = _fetch_bytes(f"{pattern}{date_str}.csv", **cfg, sport=s)
+        if raw is None:
+            continue
         try:
             hist = pd.read_csv(io.BytesIO(raw))
-            if not hist.empty:
-                out = hist.copy()
-                out["home_win_prob_model"] = pd.to_numeric(
-                    out["home_win_prob_model"], errors="coerce")
-                if "home_win_prob_model_calibrated" in out.columns:
-                    out["home_win_prob_model_calibrated"] = pd.to_numeric(
-                        out["home_win_prob_model_calibrated"], errors="coerce")
-                return out
         except (ValueError, pd.errors.EmptyDataError):
-            pass
+            continue
+        if hist.empty:
+            continue
+        out = hist.copy()
+        if "home_win_prob_model" in out:
+            out["home_win_prob_model"] = pd.to_numeric(
+                out["home_win_prob_model"], errors="coerce")
+        if "home_win_prob_model_calibrated" in out:
+            out["home_win_prob_model_calibrated"] = pd.to_numeric(
+                out["home_win_prob_model_calibrated"], errors="coerce")
+        return out
 
+    # Older deployments may only have the current moneyline record.  Keep
+    # this fallback shared by NFL/NHL/NBA; scheduled games remain excluded.
     rec = load_nfl_moneyline_record(sport)
     if not rec:
         return pd.DataFrame(columns=cols)
-    rows = (rec.get("games") or rec.get("predictions")
-            or rec.get("oof_games") or [])
+    rows = rec.get("games") or rec.get("predictions") or rec.get("oof_games") or []
     out = []
-    for g in rows:
-        if not isinstance(g, dict):
+    for game in rows:
+        if not isinstance(game, dict):
             continue
-        home = str(g.get("home_team", "") or "").strip()
-        away = str(g.get("away_team", "") or "").strip()
-        hs = _nl(g.get("home_score"))
-        as_ = _nl(g.get("away_score"))
-        hw = g.get("home_win")
+        home = str(game.get("home_team", "") or "").strip()
+        away = str(game.get("away_team", "") or "").strip()
+        hs, as_ = _nl(game.get("home_score")), _nl(game.get("away_score"))
+        hw = game.get("home_win")
         if hw is None:
             if hs is None or as_ is None:
-                continue  # scheduled/pre — no outcome yet
+                continue
             hw = 1.0 if hs > as_ else 0.0
         else:
             try:
                 hw = 1.0 if float(hw) == 1.0 else 0.0
             except (TypeError, ValueError):
                 continue
-        ph = _nl(g.get("home_win_prob"))
+        ph = _nl(game.get("home_win_prob"))
         if ph is None:
-            ph = _nl(g.get("home_win_prob_model"))
+            ph = _nl(game.get("home_win_prob_model"))
         pa = None if ph is None else 1.0 - ph
-        pick = str(g.get("model_pick") or "").strip()
+        pick = str(game.get("model_pick") or "").strip()
         if not pick and ph is not None:
             pick = home if ph >= 0.5 else away
         winner = home if hw == 1.0 else away
         out.append({
-            "game_date": g.get("game_date", ""),
+            "game_date": game.get("game_date", ""),
             "home_team": home,
             "away_team": away,
             "home_win_prob_model": ph,
@@ -1290,6 +1316,21 @@ def load_todays_games(date_str: str, sport: str | None = None) -> pd.DataFrame:
         return current
     if s == "nhl":
         return load_history_games_v1(date_str, "nhl")
+    if s == "nba":
+        current = load_nba_moneyline("nba")
+        if not current.empty:
+            # Do not silently show a different slate when a caller asks for
+            # an unavailable date.  The dedicated NBA page resolves its own
+            # archive path explicitly; this shared loader is for today's
+            # board only.
+            requested = str(date_str or "").replace("-", "")
+            dates = set(_distinct_game_dates(current))
+            if requested and requested not in dates:
+                return pd.DataFrame(columns=NBA_CARD_COLUMNS)
+            if requested:
+                return current[current.game_date.astype(str).str.replace("-", "") == requested]
+            return current
+        return current
     cfg = get_source_config()
     # VERIFY-then-fallback on the board's OWN family (never the union date
     # set): after a fresh push the union's newest entry can be a
@@ -1419,11 +1460,15 @@ def _run_engine_family_dates(sport: str | None = None, family: str = "markets_cs
     pat = artifact_patterns(s).get(family)
     prefix, ext = None, None
     if family == "markets_csv":
-        prefix, ext = (("nfl_run_engine_markets_", ".csv") if s == "nfl"
-                       else ("nhl_run_engine_markets_", ".csv"))
+        prefix, ext = (("run_engine_markets_", ".csv") if s == "mlb"
+                       else ("nfl_run_engine_markets_", ".csv") if s == "nfl"
+                       else ("nhl_run_engine_markets_", ".csv") if s == "nhl"
+                       else ("nba_run_engine_markets_", ".csv"))
     elif family == "markets_monitor_json":
-        prefix, ext = (("nfl_run_engine_monitor_", ".json") if s == "nfl"
-                       else ("nhl_run_engine_monitor_", ".json"))
+        prefix, ext = (("run_engine_monitor_", ".json") if s == "mlb"
+                       else ("nfl_run_engine_monitor_", ".json") if s == "nfl"
+                       else ("nhl_run_engine_monitor_", ".json") if s == "nhl"
+                       else ("nba_run_engine_monitor_", ".json"))
     if not pat or not prefix:
         return []
     families = [(prefix, ext)]
@@ -1473,6 +1518,9 @@ def run_engine_page_dates(owner: str = "", repo: str = "",
         prefixes = [("nhl_run_engine_markets_", ".csv"),
                     ("nhl_run_engine_monitor_", ".json"),
                     ("nhl_moneyline_v1_", ".json")]
+    elif s == "nba":
+        prefixes = [("nba_run_engine_markets_", ".csv"),
+                    ("nba_run_engine_monitor_", ".json")]
     else:
         prefixes = [("run_engine_markets_", ".csv"),
                     ("run_engine_monitor_", ".json")]
@@ -1806,12 +1854,13 @@ def load_prediction_history(date_str: str,
                             sport: str | None = None) -> pd.DataFrame:
     """Per-game walk-forward predictions + results (Calibration page table).
 
-    Sport-dispatched: MLB reads ``predictions_history_*.csv``; NFL/NHL read
+    Sport-dispatched: MLB reads ``predictions_history_*.csv``; NFL/NHL/NBA read
     ``{sport}_predictions_history_*.csv``. All carry the same per-game contract
     (home_win_prob_model / correct / actual_winner / game_status ...)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = {"mlb": "predictions_history", "nfl": "nfl_predictions_history",
-              "nhl": "nhl_predictions_history"}.get(s, "predictions_history")
+              "nhl": "nhl_predictions_history", "nba": "nba_predictions_history"}.get(
+                  s, "predictions_history")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.csv",
@@ -1971,7 +2020,7 @@ def load_power_rankings(date_str: str,
     # ``{sport}_power_rankings_*.csv`` (same shared page, same 1-based rank
     # shape).
     prefix = {"mlb": "power_rankings", "nfl": "nfl_power_rankings",
-              "nhl": "nhl_power_rankings"}.get(s, "power_rankings")
+              "nhl": "nhl_power_rankings", "nba": "nba_power_rankings"}.get(s, "power_rankings")
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.csv", **cfg, sport=s)
     st.session_state["data_source"] = src
@@ -2015,7 +2064,7 @@ def load_calibration(date_str: str, use_daily: bool = True,
     renders all three with one code path)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = {"mlb": "calibration", "nfl": "nfl_calibration",
-              "nhl": "nhl_calibration"}.get(s, "calibration")
+              "nhl": "nhl_calibration", "nba": "nba_calibration"}.get(s, "calibration")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
@@ -2155,7 +2204,7 @@ def _normalize_calibration(cal: dict, date_str: str, use_daily: bool = True,
     # lifetime OOF history is never presented as "today". It feeds the
     # chart/reliability/history sections (lifetime by design on both
     # sports) but NOT the summary card.
-    if normalize_sport_key(sport if sport is not None else get_sport()) == "nfl":
+    if normalize_sport_key(sport if sport is not None else get_sport()) in ("nfl", "nba"):
         cal.setdefault("today_record",
                        {"wins": 0, "losses": 0, "completed": 0})
         cal.setdefault("upsets", [])
@@ -2195,7 +2244,7 @@ def load_model_monitor(date_str: str,
     Model Monitor page runs all sports unchanged."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = {"mlb": "model_monitor", "nfl": "nfl_model_monitor",
-              "nhl": "nhl_model_monitor"}.get(s, "model_monitor")
+              "nhl": "nhl_model_monitor", "nba": "nba_model_monitor"}.get(s, "model_monitor")
     cfg = get_source_config()
     picked = _pick_artifact_date(date_str, prefix)
     data, src = _fetch_bytes(f"{prefix}_{picked}.json", **cfg, sport=s)
@@ -2213,7 +2262,7 @@ def load_shap(game_id: str, date_str: str,
     the sport prefix prevents cross-sport collisions)."""
     s = normalize_sport_key(sport if sport is not None else get_sport())
     prefix = {"mlb": "shap_game", "nfl": "nfl_shap_game",
-              "nhl": "nhl_shap_game"}.get(s, "shap_game")
+              "nhl": "nhl_shap_game", "nba": "nba_shap_game"}.get(s, "shap_game")
     cfg = get_source_config()
     # Serve the game's OWN dated file only. SHAP files embed their date in
     # the game_id, so a date-rewritten id would silently attribute a
@@ -2568,7 +2617,8 @@ def _is_snapshot_record(name: str) -> bool:
         "calibration_", "model_monitor_", "run_engine_monitor_",
         "run_engine_markets_", "nfl_moneyline_v1_", "nfl_feature_v1_",
         "nhl_moneyline_v1_", "nhl_feature_v1_", "nhl_run_engine_monitor_",
-        "nhl_run_engine_markets_",
+        "nhl_run_engine_markets_", "nba_moneyline_v1_", "nba_feature_v1_",
+        "nba_run_engine_monitor_", "nba_run_engine_markets_",
     ))
 
 
@@ -2584,7 +2634,8 @@ def _is_snapshot_artifact(name: str) -> bool:
     return _is_snapshot_record(name) or name.startswith((
         "todays_games_", "predictions_history_",
         "nfl_predictions_history_", "nhl_predictions_history_",
-        "nfl_power_rankings_", "nhl_power_rankings_",
+        "nfl_power_rankings_", "nhl_power_rankings_", "nba_predictions_history_",
+        "nba_power_rankings_",
     ))
 
 
@@ -2821,6 +2872,8 @@ def describe_feature(name: str, sport: str = "mlb") -> str:
         table = NFL_FEATURE_DESCRIPTIONS
     elif sport == "nhl":
         table = NHL_FEATURE_DESCRIPTIONS
+    elif sport == "nba":
+        table = NBA_FEATURE_DESCRIPTIONS
     base = table.get(s)
     if base is not None:
         return base
@@ -3121,4 +3174,228 @@ NHL_FEATURE_DESCRIPTIONS = {
     "goalie_gaa_diff": "Home − away expected-starting-goalie GAA (lower = better)",
     "goalie_starts_diff": "Home − away goalie season starts (workload/experience)",
     "is_playoffs": "1 for playoff games (postseason intensity/regime shift)",
+}
+
+
+# ---------------------------------------------------------------------------
+# NBA adapters — the same v1/card/monitor contracts, NBA-prefixed artifacts.
+# ---------------------------------------------------------------------------
+
+NBA_TEAM_NAMES = {
+    "ATL": "Atlanta Hawks", "BOS": "Boston Celtics", "BKN": "Brooklyn Nets",
+    "CHA": "Charlotte Hornets", "CHI": "Chicago Bulls", "CLE": "Cleveland Cavaliers",
+    "DAL": "Dallas Mavericks", "DEN": "Denver Nuggets", "DET": "Detroit Pistons",
+    "GSW": "Golden State Warriors", "HOU": "Houston Rockets", "IND": "Indiana Pacers",
+    "LAC": "LA Clippers", "LAL": "Los Angeles Lakers", "MEM": "Memphis Grizzlies",
+    "MIA": "Miami Heat", "MIL": "Milwaukee Bucks", "MIN": "Minnesota Timberwolves",
+    "NOP": "New Orleans Pelicans", "NYK": "New York Knicks", "OKC": "Oklahoma City Thunder",
+    "ORL": "Orlando Magic", "PHI": "Philadelphia 76ers", "PHX": "Phoenix Suns",
+    "POR": "Portland Trail Blazers", "SAC": "Sacramento Kings", "SAS": "San Antonio Spurs",
+    "TOR": "Toronto Raptors", "UTA": "Utah Jazz", "WAS": "Washington Wizards",
+}
+NBA_CARD_COLUMNS = NFL_CARD_COLUMNS + [
+    "p_home_name", "p_home_ppg", "p_home_apg", "p_home_games",
+    "p_away_name", "p_away_ppg", "p_away_apg", "p_away_games",
+]
+
+
+def nba_moneyline_to_frame(data) -> pd.DataFrame:
+    """Adapt an NBA moneyline v1 record without discarding player fields."""
+    if not isinstance(data, dict):
+        return pd.DataFrame(columns=NBA_CARD_COLUMNS)
+    rows = data.get("games") or data.get("predictions") or []
+    out = []
+    for record in rows:
+        if not isinstance(record, dict):
+            continue
+        home = str(record.get("home_team", "") or "").strip().upper()
+        away = str(record.get("away_team", "") or "").strip().upper()
+        ph = _nl(record.get("home_win_prob_model", record.get("home_win_prob", record.get("p_home"))))
+        if ph is None:
+            pa0 = _nl(record.get("away_win_prob_model", record.get("away_win_prob")))
+            ph = None if pa0 is None else 1.0 - pa0
+        if ph is not None:
+            ph = min(1.0, max(0.0, ph))
+        game_id = str(record.get("game_id") or record.get("game_pk") or "")
+        game_date = _norm_game_date(record.get("game_date") or record.get("gameday") or "")
+        if not game_id and (home or away):
+            game_id = f"{game_date.replace('-', '')}_{away}@{home}"
+        hs, as_ = _nl(record.get("home_score")), _nl(record.get("away_score"))
+        status = record.get("game_status") or record.get("game_state")
+        if not status:
+            status = "Final" if hs is not None and as_ is not None else "Scheduled"
+        status = {"post": "Final", "in": "Live", "pre": "Scheduled"}.get(
+            str(status).lower(), str(status).title())
+        pick = record.get("model_pick") or (home if ph is not None and ph >= 0.5 else away)
+        row = {
+            "game_id": game_id, "home_team": home, "away_team": away,
+            "home_win_prob_model": ph, "away_win_prob_model": None if ph is None else 1 - ph,
+            "home_record": record.get("home_record"), "away_record": record.get("away_record"),
+            "edge_home": _nl(record.get("edge_home")), "edge_away": _nl(record.get("edge_away")),
+            "start_time_utc": _repair_start_iso(record.get("start_time_utc")) or (f"{game_date}T00:00:00Z" if game_date else ""),
+            "venue": record.get("venue") or record.get("arena") or "",
+            "model_pick": pick or "", "home_score": hs, "away_score": as_,
+            "game_status": status, "game_date": game_date,
+            "home_team_name": record.get("home_team_name") or NBA_TEAM_NAMES.get(home, home),
+            "away_team_name": record.get("away_team_name") or NBA_TEAM_NAMES.get(away, away),
+        }
+        for field in ("name", "ppg", "apg", "games"):
+            for side in ("home", "away"):
+                row[f"p_{side}_{field}"] = record.get(f"p_{side}_{field}")
+        out.append(row)
+    return pd.DataFrame(out, columns=NBA_CARD_COLUMNS)
+
+
+def _load_nba_moneyline_record(sport: str | None = "nba") -> dict:
+    """Load the newest NBA card record from local or GitHub raw storage."""
+    s = normalize_sport_key(sport or "nba")
+    path = resolve_sport_artifact(s, "moneyline_json")
+    if path is not None:
+        try:
+            value = json.loads(path.read_text())
+            if isinstance(value, dict):
+                st.session_state["data_source"] = "local"
+                return value
+        except Exception:
+            pass
+    cfg = get_source_config()
+    for date_str in _family_dated_dates(
+            s, [("nba_moneyline_v1_", ".json")], cfg):
+        raw, source = _fetch_bytes(
+            f"nba_moneyline_v1_{date_str}.json", **cfg, sport=s)
+        if raw is None:
+            continue
+        try:
+            value = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            st.session_state["data_source"] = source
+            return value
+    return {}
+
+
+def load_nba_moneyline(sport: str | None = "nba") -> pd.DataFrame:
+    return nba_moneyline_to_frame(_load_nba_moneyline_record(sport))
+
+
+def load_nba_moneyline_record(sport: str | None = "nba") -> dict:
+    return _load_nba_moneyline_record(sport)
+
+
+def load_nba_player_matchup(sport: str | None = "nba") -> pd.DataFrame:
+    player_fields = [c for c in NBA_CARD_COLUMNS if c.startswith("p_")]
+    cols = ["game_id", "gameday", "home_team", "away_team", *player_fields]
+    s = normalize_sport_key(sport or "nba")
+    for d in _family_dated_dates(s, [("nba_player_leader_matchup_", ".json")]):
+        raw, _ = _fetch_bytes(f"nba_player_leader_matchup_{d}.json", **get_source_config(), sport=s)
+        if raw is None:
+            continue
+        try:
+            games = json.loads(raw).get("games", [])
+        except Exception:
+            continue
+        rows = [{c: game.get(c) for c in cols}
+                for game in games if isinstance(game, dict)]
+        return pd.DataFrame(rows, columns=cols)
+    return pd.DataFrame(columns=cols)
+
+
+def _nba_required_market_columns() -> list[str]:
+    """Return the complete persisted NBA market-grid contract."""
+    spread_labels = [
+        f"m{-line}" if line < 0 else (str(line) if line else "0")
+        for line in range(-20, 21)
+    ]
+    spread_labels += ["m0_5", "0_5"]
+    totals = list(range(180, 281))
+    return (
+        ["mu_h", "mu_a", "mu_margin", "mu_total", "fair_spread", "fair_total",
+         "p_tie", "p_home_win_derived", "p_away_win_derived"]
+        + [f"p_home_cover_{label}" for label in spread_labels]
+        + [f"p_away_cover_{label}" for label in spread_labels]
+        + [f"p_push_{label}" for label in spread_labels]
+        + [f"p_over_{line}" for line in totals]
+        + [f"p_under_{line}" for line in totals]
+        + [f"p_push_total_{line}" for line in totals]
+    )
+
+
+def load_nba_run_engine_markets(sport: str | None = "nba") -> tuple[pd.DataFrame, str | None]:
+    s = normalize_sport_key(sport or "nba")
+    required = _nba_required_market_columns()
+    for d in _run_engine_family_dates(s, "markets_csv"):
+        raw, _ = _fetch_bytes(f"nba_run_engine_markets_{d}.csv", **get_source_config(), sport=s)
+        if raw is None:
+            continue
+        try:
+            frame = pd.read_csv(io.BytesIO(raw))
+            if frame.empty or not set(required).issubset(frame.columns):
+                continue
+            kind = frame.get("kind", pd.Series(index=frame.index, dtype=str))
+            slate = frame[kind.eq("slate")]
+            check = slate if len(slate) else frame[kind.eq("oof")]
+            if len(check) and not check[required].isna().any().any():
+                return frame, d
+        except Exception:
+            continue
+    return pd.DataFrame(), None
+
+
+def load_nba_run_engine_monitor(sport: str | None = "nba") -> dict | None:
+    s = normalize_sport_key(sport or "nba")
+    for d in _run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _ = _fetch_bytes(f"nba_run_engine_monitor_{d}.json", **get_source_config(), sport=s)
+        if raw is not None:
+            try:
+                value = json.loads(raw)
+                if isinstance(value, dict):
+                    return value
+            except Exception:
+                pass
+    return None
+
+
+def load_nba_run_engine_monitor_series(sport: str | None = "nba", max_files: int = 30) -> list[dict]:
+    s = normalize_sport_key(sport or "nba")
+    out = []
+    for d in _run_engine_family_dates(s, "markets_monitor_json"):
+        raw, _ = _fetch_bytes(f"nba_run_engine_monitor_{d}.json", **get_source_config(), sport=s)
+        if raw is None:
+            continue
+        try:
+            value = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            out.append(value)
+        if len(out) >= max_files:
+            break
+    return out
+
+
+def load_nba_prediction_history(sport: str | None = "nba") -> pd.DataFrame:
+    return load_nfl_prediction_history(sport or "nba")
+
+
+def load_nba_history_games(date_str: str) -> pd.DataFrame:
+    """Load an NBA archive card without falling back to another sport."""
+    return load_history_games_v1(date_str, "nba")
+
+
+NBA_FEATURE_DESCRIPTIONS = {
+    "is_home": "Constant 1 — anchors the home-court edge",
+    "elo_diff": "Home Elo − away Elo (pre-game rating gap)",
+    "win_pct_diff": "Home trailing win% − away trailing win%",
+    "rest_days_diff": "Home rest days − away rest days",
+    "back_to_back_diff": "Home back-to-back indicator − away indicator",
+    "ewm_net_points_diff": "Home−away exponentially weighted point differential",
+    "ewm_off_rating_diff": "Home−away exponentially weighted offensive rating",
+    "ewm_def_rating_diff": "Home−away exponentially weighted defensive rating",
+    "ewm_pace_diff": "Home−away exponentially weighted pace",
+    "ewm_efg_pct_diff": "Home−away exponentially weighted effective shooting",
+    "ewm_turnover_margin_diff": "Home−away turnover margin",
+    "ewm_rebound_margin_diff": "Home−away rebound margin",
+    "ewm_ast_per_game_diff": "Home−away assists per game",
+    "is_playoffs": "1 for postseason games",
 }

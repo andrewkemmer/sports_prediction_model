@@ -48,6 +48,13 @@ if utils.get_sport() == "nhl":
     nhl_markets_page.run()
     st.stop()
 
+# NBA Totals & Point Spread — the same page-module delegation with the
+# NBA-prefixed score/line artifact family.
+if utils.get_sport() == "nba":
+    import nba_markets_page  # noqa: E402 (page module, imported lazily)
+    nba_markets_page.run()
+    st.stop()
+
 utils.inject_css()
 
 # Resolve the newest reachable artifact that actually contains OOF rows.

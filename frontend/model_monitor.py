@@ -315,7 +315,9 @@ def _xgb_desc() -> str:
     try:
         import sys
         from pathlib import Path
-        _backend = Path(__file__).resolve().parents[1] / "backend"
+        sport = utils.get_sport()
+        repo_subdir = utils.resolve_sport(sport).get("repo_subdir", "")
+        _backend = Path(__file__).resolve().parents[1] / repo_subdir / "backend"
         if str(_backend) not in sys.path:
             sys.path.insert(0, str(_backend))
         from config import XGBOOST_PARAMS  # type: ignore[import-untyped]
@@ -337,7 +339,9 @@ def _lgbm_desc() -> str:
     try:
         import sys
         from pathlib import Path
-        _backend = Path(__file__).resolve().parents[1] / "backend"
+        sport = utils.get_sport()
+        repo_subdir = utils.resolve_sport(sport).get("repo_subdir", "")
+        _backend = Path(__file__).resolve().parents[1] / repo_subdir / "backend"
         if str(_backend) not in sys.path:
             sys.path.insert(0, str(_backend))
         from config import LIGHTGBM_PARAMS  # type: ignore[import-untyped]

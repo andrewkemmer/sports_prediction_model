@@ -14,10 +14,11 @@ import utils
 
 utils.inject_css()
 
-dates = utils.available_dates(**utils.get_source_config())
+sport = utils.get_sport()
+dates = utils.available_dates(**utils.get_source_config(), sport=sport)
 date_str = st.session_state.get("selected_date", dates[0] if dates else "20260809")
 
-rankings = utils.load_power_rankings(date_str)
+rankings = utils.load_power_rankings(date_str, sport=sport)
 if rankings.empty:
     st.warning(f"No power rankings found for {date_str}.")
     st.stop()
@@ -40,9 +41,11 @@ for _, r in top15.iterrows():
     color = r.get("color", "#64748B")
     w, l = int(r["w"]), int(r["l"])
     elo_color = "#38BDF8" if r["elo"] >= 1520 else ("#FBBF24" if r["elo"] >= 1500 else "#94A3B8")
-    rd = int(r["run_diff"])
+    diff_key = "point_diff" if sport == "nba" and "point_diff" in rankings.columns else "run_diff"
+    rd = int(r.get(diff_key, r.get("run_diff", 0)) or 0)
     rd_color = utils.PRIMARY if rd > 0 else (utils.RED if rd < 0 else "#94A3B8")
     rd_str = f"{rd:+d}" if rd != 0 else "0"
+    diff_header = "POINT DIFF" if sport == "nba" else "RUN DIFF"
     team_cell = (
         f'<span class="fb-accent-cell">'
         f'<span class="fb-accent-line" style="background:{color};"></span>'
@@ -70,7 +73,7 @@ st.markdown(
       <table class="fb-table">
         <thead>
           <tr><th>RANK</th><th>TEAM</th><th>ELO</th><th>W-L</th><th>PCT</th>
-              <th>RUN DIFF</th><th>L10</th><th>HOME%</th><th>AWAY%</th></tr>
+              <th>{diff_header}</th><th>L10</th><th>HOME%</th><th>AWAY%</th></tr>
         </thead>
         <tbody>{''.join(rows)}</tbody>
       </table>

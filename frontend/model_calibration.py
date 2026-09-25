@@ -85,7 +85,7 @@ st.markdown(
 wins, losses = record.get("wins", 0), record.get("losses", 0)
 completed = record.get("completed", wins + losses)
 acc = (wins / completed * 100) if completed else 0.0
-if utils.get_sport() == "nfl" and len(upsets) > NFL_UPSET_CAP:
+if utils.get_sport() in {"nfl", "nba"} and len(upsets) > NFL_UPSET_CAP:
     # Biggest upsets first = the winner with the LOWEST model probability.
     top = sorted(upsets, key=lambda u: float(u.get("prob", 1.0) or 1.0))[:NFL_UPSET_CAP]
     upset_text = " · ".join(f"{u['team']} {u['prob']:.0%} upset" for u in top)

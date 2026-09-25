@@ -1,0 +1,895 @@
+"""Read and normalize the pinned ``wyattowalsh/basketball`` NBA warehouse.
+
+The Kaggle export is a star-schema warehouse rather than an API client.  This
+module accepts its documented DuckDB, SQLite, Parquet, and CSV layouts, joins
+the game identity/result tables, normalizes team IDs to abbreviations, and
+writes only a derived cache outside the repository.  No live feed or alternate
+source is silently substituted.
+"""
+from __future__ import annotations
+
+import glob as _glob
+import hashlib
+import json
+import logging
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable
+
+import numpy as np
+import pandas as pd
+
+try:
+    from backend import config
+except ImportError:
+    import config
+
+logger = logging.getLogger(__name__)
+
+GAME_TABLES = (
+    "dim_game", "fact_game_result", "fact_scoreboard_v3", "games",
+    "stg_league_game_log", "fact_game",
+)
+# The Kaggle export currently publishes the star-schema box-score families
+# under the names below.  Older mirrors used ``fact_box_score_team`` and
+# several deployments expose the staging names instead.  Keep the complete,
+# explicit list here rather than relying on a prefix glob: silently selecting
+# the first table would make a source-layout change look like valid data.
+TEAM_BOX_TABLES = (
+    "fact_box_score_traditional_team",
+    "fact_box_score_team",
+    "fact_box_score_advanced_team",
+    "fact_box_score_hustle_team",
+    "fact_box_score_defensive_team",
+    "fact_box_score_four_factors_team",
+    "fact_box_score_scoring_team",
+    "fact_box_score_usage_team",
+    "fact_box_score_misc_team",
+    "fact_box_score_player_track_team",
+    "fact_team_game", "fact_team_game_log", "team_boxscores",
+    "stg_box_score_traditional_team", "stg_box_score_team",
+    "stg_box_score_advanced_team", "stg_box_score_hustle_team",
+    "stg_box_score_defensive_team", "stg_box_score_four_factors_team",
+)
+PLAYER_TABLES = (
+    "fact_box_score_traditional_player",
+    "fact_player_game_traditional", "player_game_stats",
+    "fact_box_score_advanced_player",
+    "fact_player_game_advanced",
+    "fact_box_score_hustle_player", "fact_box_score_defensive_player",
+    "fact_box_score_four_factors_player", "fact_box_score_player_track_player",
+    "fact_player_game", "stg_box_score_traditional_player",
+    "stg_box_score_advanced_player", "stg_box_score_hustle_player",
+    "stg_box_score_defensive_player", "stg_box_score_four_factors_player",
+)
+TEAM_TABLES = (
+    "dim_team", "dim_team_history", "dim_team_extended", "fact_static_teams",
+    "stg_static_teams", "stg_team_info_common", "teams",
+)
+PLAYER_DIM_TABLES = (
+    "dim_player", "dim_all_players", "fact_static_players",
+    "stg_player_info", "raw_common_player_info",
+)
+
+# CSV has no schema metadata, so pandas otherwise guesses that canonical
+# zero-padded NBA game/team/player identifiers are integers and irreversibly
+# drops their leading zeroes.  Keep identity columns textual at the reader
+# boundary; numeric normalization remains explicit in the feature layer.
+_CSV_ID_COLUMNS = frozenset({
+    "id", "game_id", "gameid", "game_pk", "person_id",
+    "player_id", "playerid", "player_sk", "team_id", "teamid",
+    "home_team_id", "visitor_team_id", "away_team_id", "franchise_id",
+    "from_team_id", "to_team_id",
+})
+
+
+def _read_csv(path: Path) -> pd.DataFrame:
+    """Read a CSV while preserving warehouse identity spelling."""
+    header = pd.read_csv(path, nrows=0)
+    identity = {
+        column: str for column in header.columns
+        if str(column).strip().lower() in _CSV_ID_COLUMNS
+    }
+    return pd.read_csv(path, dtype=identity)
+
+
+@dataclass
+class Warehouse:
+    games: pd.DataFrame
+    team_stats: pd.DataFrame
+    player_stats: pd.DataFrame
+    team_names: dict[str, str]
+    manifest: dict[str, Any]
+
+
+def _first(df: pd.DataFrame, *names: str, default: Any = None) -> Any:
+    for name in names:
+        if name in df.columns:
+            return name
+    return default
+
+
+def _column(df: pd.DataFrame, *names: str, default: Any = np.nan) -> pd.Series:
+    name = _first(df, *names)
+    if name is not None:
+        return df[name]
+    return pd.Series([default] * len(df), index=df.index)
+
+
+def _coalesce_column(df: pd.DataFrame, *names: str,
+                     default: Any = np.nan) -> pd.Series:
+    """Return the first non-blank value across alias columns, row-wise.
+
+    Warehouse dimensions and result facts often expose the same logical field
+    under different names.  Selecting the first *existing* column is not enough:
+    an identity table may contain ``home_score`` as an all-null placeholder
+    while ``fact_game_result`` carries ``pts_home``.  This helper is the
+    normalization boundary for that layout and keeps the result join causal and
+    deterministic.
+    """
+    out = pd.Series([default] * len(df), index=df.index, dtype=object)
+    filled = pd.Series(False, index=df.index)
+    for name in names:
+        if name not in df.columns:
+            continue
+        values = df[name]
+        blank = values.isna()
+        if values.dtype == object or pd.api.types.is_string_dtype(values):
+            blank = blank | values.astype("string").str.strip().eq("").fillna(True)
+        take = (~filled) & (~blank)
+        if take.any():
+            out.loc[take] = values.loc[take]
+            filled.loc[take] = True
+    return out
+
+
+def _text(value: Any) -> str:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return ""
+    return str(value).strip()
+
+
+def _number(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce")
+
+
+def _date(series: pd.Series) -> pd.Series:
+    values = pd.to_datetime(series, errors="coerce", utc=True)
+    return values.dt.tz_localize(None)
+
+
+def _season(series: pd.Series) -> pd.Series:
+    """Normalize warehouse season-year values to a starting year.
+
+    ``2024-25``, ``2024``, and compact season IDs such as ``002024`` all map
+    to 2024.  Missing values remain NaN and are rejected by coverage gates.
+    """
+    text = series.astype("string").str.strip()
+    four = text.str.extract(r"((?:19|20)\d{2})", expand=False)
+    compact = text.str.extract(r"^(\d{4})", expand=False)
+    out = pd.to_numeric(four.fillna(compact), errors="coerce")
+    # A numeric 202425-style value is occasionally exported as a float.
+    alt = pd.to_numeric(text, errors="coerce")
+    valid_alt = alt.between(1900, 2100).fillna(False)
+    out = out.fillna(pd.Series(np.where(valid_alt, alt, np.nan), index=series.index))
+    return out.astype(float)
+
+
+def _game_id(value: Any) -> str:
+    """Canonicalize scalar IDs without destroying warehouse identity.
+
+    NBA game IDs are commonly ten-character strings such as ``0022400001``.
+    Converting them through ``float`` silently drops their leading zeroes, so
+    only an actual floating-point spelling (for example ``22400001.0``) is
+    normalized; otherwise the source token is preserved verbatim.
+    """
+    text = _text(value)
+    if not text:
+        return ""
+    if re.fullmatch(r"[+-]?\d+\.0+", text):
+        return text.split(".", 1)[0]
+    return text
+
+
+def _source_root() -> Path | None:
+    raw = (os.environ.get("NBA_KAGGLE_DATASET_PATH")
+           or os.environ.get("NBA_SOURCE_PATH")
+           or os.environ.get("NBA_DATA_PATH") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    for candidate in (config.CACHE_DIR / "source" / "nba.duckdb",
+                      config.CACHE_DIR / "source" / "nba.sqlite",
+                      config.CACHE_DIR / "nba.duckdb", config.CACHE_DIR / "nba.sqlite"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_sql_tables(path: Path, names: Iterable[str]) -> dict[str, pd.DataFrame]:
+    """Read a DuckDB or SQLite warehouse without changing the source.
+
+    DuckDB is the declared production reader.  The stdlib SQLite fallback
+    keeps small/offline exports usable and, importantly, gives tests a real
+    SQL-path fixture without requiring a DuckDB installation.
+    """
+    names = tuple(names)
+    try:
+        import duckdb
+    except ImportError:
+        duckdb = None
+    out: dict[str, pd.DataFrame] = {}
+    if duckdb is not None:
+        try:
+            con = duckdb.connect(str(path), read_only=True)
+            try:
+                available = {str(row[0]) for row in con.execute("SHOW TABLES").fetchall()}
+                for name in names:
+                    if name in available:
+                        out[name] = con.execute(f'SELECT * FROM "{name}"').fetch_df()
+            finally:
+                con.close()
+            if out:
+                return out
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read DuckDB warehouse %s: %s", path, exc)
+
+    if path.suffix.lower() not in {".sqlite", ".db"}:
+        return out
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            available = {
+                str(row[0]) for row in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            for name in names:
+                if name in available:
+                    # Names are internal constants, but quote them anyway so
+                    # a future alias containing a quote cannot become SQL.
+                    escaped = name.replace('"', '""')
+                    out[name] = pd.read_sql_query(
+                        f'SELECT * FROM "{escaped}"', con
+                    )
+        finally:
+            con.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not read SQLite warehouse %s: %s", path, exc)
+    return out
+
+
+def _read_table(root: Path, names: tuple[str, ...]) -> pd.DataFrame:
+    """Backward-compatible single-table reader used by small fixtures."""
+    frames = _read_tables(root, names)
+    return next(iter(frames.values()), pd.DataFrame())
+
+
+def _read_tables(root: Path, names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    """Read each available named table from a warehouse export.
+
+    Kaggle's canonical bundle places ``nba.duckdb`` / ``nba.sqlite`` at the
+    extracted root, with Parquet and CSV mirrors below it.  Prefer the SQL
+    catalog when present, then fill names unavailable there from partitioned
+    or flat exports.  Both Parquet and CSV paths may contain an extra
+    ``season_year=YYYY`` partition directory, hence recursive globbing.
+    """
+    if root.is_file():
+        if root.suffix.lower() in {".duckdb", ".db", ".sqlite"}:
+            return _read_sql_tables(root, names)
+        try:
+            frame = (pd.read_parquet(root) if root.suffix.lower() == ".parquet"
+                     else _read_csv(root))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read %s: %s", root, exc)
+            return {}
+        return {names[0]: frame} if names else {}
+
+    found: dict[str, pd.DataFrame] = {}
+    sql_candidates = [root / "nba.duckdb", root / "nba.sqlite"]
+    if not any(path.is_file() for path in sql_candidates):
+        sql_candidates.extend(sorted(
+            path for path in root.glob("*")
+            if path.is_file() and path.suffix.lower() in {".duckdb", ".db", ".sqlite"}
+        ))
+    for sql_path in sql_candidates:
+        if sql_path.is_file():
+            found.update(_read_sql_tables(sql_path, names))
+            if len(found) == len(names):
+                break
+    for name in names:
+        if name in found:
+            continue
+        patterns = [
+            root / f"{name}.parquet", root / f"{name}.csv",
+            root / "parquet" / f"{name}.parquet",
+            root / "parquet" / name / "**" / "*.parquet",
+            root / "csv" / f"{name}.csv",
+            root / "csv" / name / "**" / "*.csv",
+            root / name / "**" / "*.parquet",
+            root / name / "**" / "*.csv",
+        ]
+        matches: list[Path] = []
+        for pattern in patterns:
+            if any(ch in str(pattern) for ch in "*?["):
+                matches.extend(Path(match) for match in sorted(
+                    _glob.glob(str(pattern), recursive=True)))
+            elif Path(pattern).exists():
+                matches.append(Path(pattern))
+        matches = list(dict.fromkeys(matches))
+        frames: list[pd.DataFrame] = []
+        for path in matches:
+            try:
+                frames.append(pd.read_parquet(path)
+                              if path.suffix.lower() == ".parquet"
+                              else _read_csv(path))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not read %s: %s", path, exc)
+        if frames:
+            found[name] = pd.concat(frames, ignore_index=True)
+    return found
+
+
+def _load_team_maps(root: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Return ``(raw team key -> abbreviation, abbreviation -> full name)``."""
+    frames = _read_tables(root, TEAM_TABLES)
+    raw_to_abbr: dict[str, str] = {}
+    abbr_to_name: dict[str, str] = {}
+    for df in frames.values():
+        if df.empty:
+            continue
+        id_col = _first(df, "team_id", "id", "franchise_id", "from_team_id",
+                        "to_team_id")
+        abbr_col = _first(df, "team_abbreviation", "team_abbr", "abbreviation",
+                          "team", "team_code")
+        name_col = _first(df, "team_name", "full_name", "name", "nickname")
+        city_col = _first(df, "city", "team_city")
+        for _, row in df.iterrows():
+            abbr = config.normalize_team_abbr(_text(row.get(abbr_col)))
+            # A dimension may use the numeric ID in the team column.
+            if not abbr and id_col is not None:
+                abbr = config.normalize_team_abbr(row.get(id_col))
+            if not abbr:
+                continue
+            display = _text(row.get(name_col)) if name_col else ""
+            if not display and city_col:
+                display = _text(row.get(city_col))
+            if not display:
+                display = abbr
+            abbr_to_name[abbr] = display
+            if id_col is not None:
+                raw_to_abbr[_text(row.get(id_col))] = abbr
+            raw_to_abbr[abbr] = abbr
+            raw_to_abbr[display.upper()] = abbr
+    return raw_to_abbr, abbr_to_name
+
+
+def _load_dim_teams(root: Path) -> dict[str, str]:
+    """Compatibility wrapper returning raw-key-to-abbreviation lookup."""
+    return _load_team_maps(root)[0]
+
+
+def _load_player_names(root: Path) -> dict[str, str]:
+    """Build a player-id → display-name lookup across canonical dimensions.
+
+    ``dim_player`` uses ``full_name`` today, while several released exports
+    expose only ``first_name``/``last_name`` (and the staging tables use
+    ``family_name``).  Combining those fields here keeps player enrichment
+    independent of the export revision.
+    """
+    frames = _read_tables(root, PLAYER_DIM_TABLES)
+    out: dict[str, str] = {}
+    for df in frames.values():
+        if df.empty:
+            continue
+        pid = _first(df, "player_id", "person_id", "player_sk", "id")
+        if pid is None:
+            continue
+        full = _first(df, "player_name", "full_name", "display_name", "name")
+        first = _first(df, "first_name", "firstname")
+        last = _first(df, "last_name", "family_name", "lastname", "surname")
+        short = _first(df, "name_i", "short_name")
+        for _, row in df.iterrows():
+            value = _text(row.get(pid))
+            if not value:
+                continue
+            display = _text(row.get(full)) if full else ""
+            if not display and first and last:
+                display = f"{_text(row.get(first))} {_text(row.get(last))}".strip()
+            if not display and short:
+                display = _text(row.get(short))
+            out[value] = display or value
+    return out
+
+
+def _team_key(value: Any, lookup: dict[str, str]) -> str:
+    text = _text(value).upper()
+    if text in lookup:
+        return lookup[text]
+    # Numeric IDs are occasionally serialized as 1610612737.0.
+    try:
+        numeric = float(text)
+        if numeric.is_integer() and str(int(numeric)) in lookup:
+            return lookup[str(int(numeric))]
+    except (TypeError, ValueError):
+        pass
+    return config.normalize_team_abbr(text)
+
+
+def _team_name(value: Any, lookup: dict[str, str], names: dict[str, str]) -> str:
+    key = _team_key(value, lookup)
+    return names.get(key, key or _text(value))
+
+
+def _merge_result_table(games: pd.DataFrame, result: pd.DataFrame) -> pd.DataFrame:
+    """Join result facts while coalescing overlapping identity columns.
+
+    A simple pandas merge with ``suffixes`` is not sufficient here: the
+    canonical game dimension and result fact often both expose a score/team
+    column, and selecting the dimension's null would silently discard the
+    result score.  Fill only missing/blank values from the result fact and
+    retain non-overlapping result aliases for the normalizers below.
+    """
+    if result.empty:
+        return games.copy()
+    base = games.copy().reset_index(drop=True)
+    fact = result.copy().reset_index(drop=True)
+    base_id = _first(base, "game_id", "gameId", "game_pk", "gameid", "id")
+    fact_id = _first(fact, "game_id", "gameId", "game_pk", "gameid", "id")
+    if base_id is None or fact_id is None:
+        return base
+    base["game_id"] = base[base_id].map(_game_id)
+    fact["game_id"] = fact[fact_id].map(_game_id)
+    # Identity and result facts are independently ordered exports.  Reindex
+    # the result fact by game_id before coalescing; positional assignment can
+    # attach another game's score when their CSV/SQL row orders differ.
+    fact = (fact.drop_duplicates("game_id", keep="first")
+            .set_index("game_id", drop=False))
+    aligned = fact.reindex(base["game_id"].to_numpy())
+    for col in aligned.columns:
+        if col == "game_id":
+            continue
+        if col not in base.columns:
+            base[col] = aligned[col].to_numpy()
+            continue
+        left = base[col]
+        right = aligned[col].to_numpy()
+        left_blank = left.isna()
+        if left.dtype == object or pd.api.types.is_string_dtype(left):
+            left_blank = left_blank | left.astype("string").str.strip().eq("").fillna(True)
+        if left_blank.any():
+            base.loc[left_blank, col] = right[left_blank.to_numpy()]
+    return base
+
+
+def _normalize_games(raw: pd.DataFrame, team_lookup: dict[str, str],
+                     result: pd.DataFrame | None = None,
+                     team_names: dict[str, str] | None = None) -> pd.DataFrame:
+    if raw.empty and (result is None or result.empty):
+        return pd.DataFrame()
+    team_names = team_names or {}
+    if raw.empty:
+        raw = result
+    elif result is not None and not result.empty:
+        raw = _merge_result_table(raw, result)
+    df = raw.copy()
+    gid = _coalesce_column(df, "game_id", "gameId", "game_pk", "gameid", "id")
+    date = _date(_coalesce_column(
+        df, "gameday", "game_date", "gameDate", "date", "game_datetime",
+        "tipoff_date", "datetime"))
+    home_raw = _coalesce_column(
+        df, "home_team", "homeTeam", "home_team_abbrev", "home_abbr",
+        "home_team_id", "team_id_home", "home_id", "home_team_name",
+    )
+    away_raw = _coalesce_column(
+        df, "away_team", "awayTeam", "visitor_team", "away_team_abbrev",
+        "away_abbr", "away_team_id", "team_id_away", "visitor_team_id",
+        "away_id", "away_team_name",
+    )
+    hs = _number(_coalesce_column(
+        df, "home_score", "homeScore", "home_points", "home_pts", "pts_home",
+        "home_team_score", "team_home_points", "home_team_pts",
+    ))
+    as_ = _number(_coalesce_column(
+        df, "away_score", "awayScore", "away_points", "away_pts",
+        "visitor_score", "pts_away", "away_team_score", "team_away_points",
+        "away_team_pts",
+    ))
+    season = _season(_coalesce_column(
+        df, "season_year", "season", "seasonYear", "season_id", "seasonId"))
+    game_type = _coalesce_column(
+        df, "game_type", "gameType", "season_type", "seasonType",
+        "season_phase", "game_type_id")
+    type_numeric = pd.to_numeric(game_type, errors="coerce")
+    type_text = game_type.astype("string").str.strip().str.lower()
+    type_text = type_text.str.replace(r"[_-]+", " ", regex=True)
+    regular_text = type_text.str.contains(
+        r"(^|\b)(regular|reg|regular season)(\b|$)", regex=True, na=False
+    )
+    post_text = type_text.str.contains(
+        r"(playoff|playoffs|postseason|post season)", regex=True, na=False
+    )
+    # Missing phase is a regular-season source omission and is normalized to
+    # 1.  Unknown textual phases remain NaN so they are excluded by
+    # ``eligible_games`` instead of being silently treated as regular games.
+    type_numeric = type_numeric.mask(regular_text, config.GAME_TYPE_REG)
+    type_numeric = type_numeric.mask(post_text, config.GAME_TYPE_POST)
+    missing_type = game_type.isna() | type_text.eq("") | type_text.eq("<na>")
+    type_numeric = type_numeric.mask(missing_type, config.GAME_TYPE_REG)
+    out = pd.DataFrame({
+        "game_id": gid.map(_game_id),
+        "gameday": date,
+        "season": season,
+        "home_team": home_raw.map(lambda x: _team_key(x, team_lookup)),
+        "away_team": away_raw.map(lambda x: _team_key(x, team_lookup)),
+        "home_score": hs,
+        "away_score": as_,
+        "game_type": type_numeric,
+        "venue": _coalesce_column(df, "venue", "arena", "arena_name",
+                                   "game_venue", "arena_full_name", default=""),
+        "start_time_utc": _coalesce_column(
+            df, "start_time_utc", "startTimeUTC", "game_datetime",
+            "tipoff_time", "start_time", default=""),
+        "game_status": _coalesce_column(
+            df, "game_status", "status", "game_state", "game_status_text",
+            default=""),
+    })
+    # Preserve a source-provided full name when it is more informative than
+    # the dimension display name, while canonicalizing the team key.
+    out["home_team_name"] = [
+        _text(v) or _team_name(k, team_lookup, team_names)
+        for v, k in zip(_coalesce_column(df, "home_team_name", "home_name"),
+                        out.home_team)
+    ]
+    out["away_team_name"] = [
+        _text(v) or _team_name(k, team_lookup, team_names)
+        for v, k in zip(_coalesce_column(df, "away_team_name", "away_name"),
+                        out.away_team)
+    ]
+    # Unknown textual phases remain NaN and are filtered by eligible_games;
+    # do not turn a pre-season/exhibition marker into a regular-season game.
+    out["game_type"] = pd.to_numeric(out["game_type"], errors="coerce")
+    out = out[out.gameday.notna() & out.home_team.ne("") & out.away_team.ne("")].copy()
+    out["home_win"] = np.where(out.home_score > out.away_score, 1.0, 0.0)
+    out.loc[out.home_score.isna() | out.away_score.isna(), "home_win"] = np.nan
+    # Some canonical result revisions carry the result flag but temporarily
+    # leave one score null.  Preserve that settled label rather than turning
+    # it into an unlabelled training row.
+    wl_home = _coalesce_column(df, "wl_home", "home_win", "home_result")
+    if wl_home is not None:
+        wl_text = wl_home.astype("string").str.strip().str.lower()
+        out["home_win"] = out["home_win"].fillna(
+            wl_text.map({"w": 1.0, "win": 1.0, "l": 0.0, "loss": 0.0})
+        )
+    out["margin"] = out.home_score - out.away_score
+    out["total"] = out.home_score + out.away_score
+    status = out.game_status.astype("string").str.lower()
+    out["game_status"] = np.where(
+        out.home_score.notna() & out.away_score.notna(), "Final",
+        np.where(status.str.contains("live|in progress", regex=True, na=False),
+                 "Live", "Scheduled"))
+    return (out.drop_duplicates("game_id").sort_values(["gameday", "game_id"])
+            .reset_index(drop=True))
+
+
+def _minutes(series: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    # NBA exports sometimes use MM:SS for minutes.
+    text = series.astype("string").str.strip()
+    clock = text.str.extract(r"^(\d+):(\d{1,2})$")
+    if not clock.empty:
+        converted = (pd.to_numeric(clock[0], errors="coerce")
+                     + pd.to_numeric(clock[1], errors="coerce") / 60.0)
+        numeric = numeric.fillna(converted)
+    return numeric
+
+
+def _normalize_team_stats(raw: pd.DataFrame, games: pd.DataFrame,
+                         lookup: dict[str, str]) -> pd.DataFrame:
+    if raw.empty or games.empty:
+        return pd.DataFrame()
+    df = raw.copy()
+    gid = _coalesce_column(df, "game_id", "gameId", "game_pk", "gameid", "id")
+    team = _coalesce_column(df, "team_abbrev", "team_abbr", "team", "team_name",
+                            "team_id", "teamId")
+    out = pd.DataFrame({"game_id": gid.map(_game_id),
+                        "team": team.map(lambda x: _team_key(x, lookup))})
+    aliases = {
+        "points_for": ("points_for", "team_points", "team_pts", "points", "pts", "PTS"),
+        "points_against": ("points_against", "opp_points", "opponent_points",
+                           "opp_pts", "opponent_pts"),
+        "off_rating": ("off_rating", "offensive_rating", "ortg", "offensive_rating"),
+        "def_rating": ("def_rating", "defensive_rating", "drtg", "defensive_rating"),
+        "pace": ("pace", "possessions", "pace_rating", "pace_estimate"),
+        "efg_pct": ("efg_pct", "eFG%", "effective_field_goal_pct", "effective_fg_pct"),
+        "fg_pct": ("fg_pct", "FG%", "field_goal_pct", "fg_percentage"),
+        "three_point_pct": ("three_point_pct", "fg3_pct", "three_pct", "FG3%"),
+        "free_throw_pct": ("free_throw_pct", "ft_pct", "FT%"),
+        "oreb": ("oreb", "offensive_rebounds", "off_reb"),
+        "dreb": ("dreb", "defensive_rebounds", "def_reb"),
+        "reb": ("reb", "team_reb", "rebounds", "total_rebounds", "REB"),
+        "ast": ("ast", "team_ast", "assists", "AST"),
+        "tov": ("tov", "team_tov", "turnovers", "TOV"),
+        "stl": ("stl", "team_stl", "steals", "STL"),
+        "blk": ("blk", "team_blk", "blocks", "BLK"),
+        "fgm": ("fgm", "field_goals_made", "FGM"),
+        "fga": ("fga", "field_goals_attempted", "FGA"),
+        "fg3m": ("fg3m", "three_pointers_made", "FG3M"),
+        "fg3a": ("fg3a", "three_pointers_attempted", "FG3A"),
+        "ftm": ("ftm", "free_throws_made", "FTM"),
+        "fta": ("fta", "free_throws_attempted", "FTA"),
+    }
+    for name, candidates in aliases.items():
+        out[name] = _number(_coalesce_column(df, *candidates))
+    game_map = games.set_index("game_id")[["gameday", "home_team", "away_team",
+                                            "home_score", "away_score"]]
+    out = out.merge(game_map, left_on="game_id", right_index=True, how="left")
+    out = out[out.gameday.notna() & out.team.ne("")].copy()
+    out["is_home"] = out.team.eq(out.home_team)
+    out["opponent"] = np.where(out.is_home, out.away_team, out.home_team)
+    out["points_for"] = out.points_for.fillna(pd.Series(
+        np.where(out.is_home, out.home_score, out.away_score), index=out.index))
+    out["points_against"] = out.points_against.fillna(pd.Series(
+        np.where(out.is_home, out.away_score, out.home_score), index=out.index))
+    out["net_points"] = out.points_for - out.points_against
+    # Team ratings are per-100 possessions in the warehouse.  If absent, use
+    # a neutral, explicitly derived point-differential proxy rather than the
+    # misleading 100x-points scale.
+    out["off_rating"] = out.off_rating.fillna(100.0 + out.net_points)
+    out["def_rating"] = out.def_rating.fillna(100.0 - out.net_points)
+    out["pace"] = out.pace.fillna((out.home_score + out.away_score).clip(lower=1))
+    out["efg_pct"] = out.efg_pct.fillna(
+        ((out.fgm + 0.5 * out.fg3m) / out.fga.replace(0, np.nan)).fillna(0.5))
+    out["fg_pct"] = out.fg_pct.fillna((out.fgm / out.fga.replace(0, np.nan)).fillna(0.45))
+    out["three_point_pct"] = out.three_point_pct.fillna(
+        (out.fg3m / out.fg3a.replace(0, np.nan)).fillna(0.35))
+    out["free_throw_pct"] = out.free_throw_pct.fillna(
+        (out.ftm / out.fta.replace(0, np.nan)).fillna(0.78))
+    for c in ("oreb", "dreb", "reb", "ast", "tov", "stl", "blk"):
+        out[c] = out[c].fillna(0.0)
+    keep = ["game_id", "gameday", "team", "opponent", "is_home", "points_for",
+            "points_against", "net_points", "off_rating", "def_rating", "pace",
+            "efg_pct", "fg_pct", "three_point_pct", "free_throw_pct", "oreb",
+            "dreb", "reb", "ast", "tov", "stl", "blk"]
+    # A traditional/advanced/staging export can expose several rows for the
+    # same game/team.  Prefer the most complete/point-bearing row rather than
+    # whichever alias happened to be concatenated first.
+    out["_quality"] = out[["points_for", "points_against", "ast", "tov", "reb"]].notna().sum(axis=1)
+    out = (out.sort_values(["game_id", "team", "_quality"],
+                            ascending=[True, True, False])
+           .drop_duplicates(["game_id", "team"], keep="first"))
+    opp = out[["game_id", "team", "tov", "reb"]].rename(
+        columns={"team": "opponent", "tov": "opp_tov", "reb": "opp_reb"})
+    out = out.merge(opp, on=["game_id", "opponent"], how="left")
+    out["turnover_margin"] = out.opp_tov - out.tov
+    out["rebound_margin"] = out.reb - out.opp_reb
+    out = out.drop(columns="_quality", errors="ignore")
+    return out.sort_values(["gameday", "game_id", "team"]).reset_index(drop=True)
+
+
+def _normalize_player_stats(raw: pd.DataFrame, games: pd.DataFrame,
+                            lookup: dict[str, str],
+                            player_names: dict[str, str] | None = None) -> pd.DataFrame:
+    if raw.empty or games.empty:
+        return pd.DataFrame()
+    player_names = player_names or {}
+    df = raw.copy()
+    pid = _coalesce_column(df, "player_id", "playerId", "person_id", "player_sk", "id")
+    pname = _coalesce_column(
+        df, "player_name", "playerName", "name", "display_name", "full_name")
+    first = _coalesce_column(df, "first_name", "firstname")
+    last = _coalesce_column(df, "last_name", "family_name", "lastname", "surname")
+    name_blank = pname.isna() | pname.astype("string").str.strip().eq("").fillna(True)
+    if name_blank.any():
+        combined = (first.astype("string").fillna("") + " "
+                    + last.astype("string").fillna("")).str.strip()
+        pname.loc[name_blank] = combined.loc[name_blank]
+    team = _coalesce_column(df, "team_abbrev", "team_abbr", "team", "team_name", "team_id")
+    out = pd.DataFrame({
+        "game_id": _coalesce_column(df, "game_id", "gameId", "game_pk", "id").map(_game_id),
+        "team": team.map(lambda x: _team_key(x, lookup)),
+        "player_id": pid.map(_game_id),
+        "player_name": [player_names.get(_game_id(p), _text(n))
+                        for p, n in zip(pid, pname)],
+        "points": _number(_coalesce_column(df, "points", "pts", "PTS", "player_points")),
+        "assists": _number(_coalesce_column(df, "assists", "ast", "AST", "player_assists")),
+        "minutes": _minutes(_coalesce_column(df, "minutes", "min", "MIN", "minutes_played")),
+    })
+    out = out.merge(games[["game_id", "gameday"]], on="game_id", how="inner")
+    # Prefer the most complete row when a warehouse join supplied both
+    # traditional and advanced player facts.
+    out["_quality"] = out[["points", "assists", "minutes"]].notna().sum(axis=1)
+    out = (out.sort_values(["game_id", "player_id", "_quality"], ascending=[True, True, False])
+           .drop_duplicates(["game_id", "player_id"], keep="first")
+           .drop(columns="_quality"))
+    return out.sort_values(["gameday", "game_id", "player_id"]).reset_index(drop=True)
+
+
+def _cache_paths() -> tuple[Path, Path, Path, Path]:
+    d = config.CACHE_DIR
+    return (d / "games.parquet", d / "team_stats.parquet",
+            d / "player_stats.parquet", d / "warehouse_manifest.json")
+
+
+def _manifest(root: Path | None, tables: dict[str, pd.DataFrame],
+              team_names: dict[str, str] | None = None) -> dict:
+    files = []
+    if root:
+        paths = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
+        for path in paths[:5000]:
+            try:
+                files.append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                              "bytes": path.stat().st_size})
+            except OSError:
+                continue
+    coverage: dict[str, Any] = {}
+    games = tables.get("games")
+    if games is not None and len(games):
+        coverage = {
+            "min_date": str(pd.to_datetime(games.gameday).min().date()),
+            "max_date": str(pd.to_datetime(games.gameday).max().date()),
+            "seasons": sorted(pd.to_numeric(games.season, errors="coerce").dropna().unique().tolist()),
+            "teams": sorted(set(games.home_team) | set(games.away_team)),
+            "eligible_team_count": int(len({
+                config.normalize_team_abbr(team)
+                for team in set(games.loc[
+                    pd.to_numeric(games.season, errors="coerce") >= config.OOF_FIRST_SEASON,
+                    "home_team",
+                ].astype(str)) | set(games.loc[
+                    pd.to_numeric(games.season, errors="coerce") >= config.OOF_FIRST_SEASON,
+                    "away_team",
+                ].astype(str))
+            })),
+        }
+    return {
+        "dataset_id": "wyattowalsh/basketball",
+        "dataset_version": os.environ.get(
+            "NBA_KAGGLE_DATASET_VERSION", config.NBA_DATASET_VERSION),
+        "source_path": str(root) if root else None,
+        "retrieved_at_utc": pd.Timestamp.utcnow().isoformat(),
+        "tables": {k: int(len(v)) for k, v in tables.items()},
+        "schemas": {
+            name: {
+                "columns": [str(column) for column in frame.columns],
+                "dtypes": {str(column): str(dtype)
+                           for column, dtype in frame.dtypes.items()},
+            }
+            for name, frame in tables.items()
+        },
+        "coverage": coverage,
+        "team_names": team_names or {},
+        "files": files,
+        "schema_version": "nba-normalized-v2",
+    }
+
+
+def _validate_dataset(wh: Warehouse) -> None:
+    required_games = {"game_id", "gameday", "season", "home_team", "away_team"}
+    missing = required_games - set(wh.games.columns)
+    if missing:
+        raise RuntimeError(f"NBA warehouse games missing required columns: {sorted(missing)}")
+    if wh.games.empty:
+        raise RuntimeError("NBA warehouse has no usable game rows")
+    seasons = pd.to_numeric(wh.games.season, errors="coerce")
+    if not (seasons >= config.OOF_FIRST_SEASON).any():
+        raise RuntimeError("NBA warehouse has no 2024-25-or-later season coverage")
+    eligible = wh.games[pd.to_numeric(wh.games.season, errors="coerce") >= config.OOF_FIRST_SEASON]
+    observed_teams = (set(eligible.home_team.dropna().astype(str))
+                      | set(eligible.away_team.dropna().astype(str)))
+    observed_teams = {config.normalize_team_abbr(team) for team in observed_teams}
+    required_teams = set(config.NBA_TEAM_ID)
+    missing_teams = sorted(required_teams - observed_teams)
+    if missing_teams:
+        raise RuntimeError(
+            "NBA warehouse is missing required current-team coverage: "
+            + ", ".join(missing_teams)
+        )
+    # Team facts are required for the production feature graph.  A deliberate
+    # opt-out exists for schema-only fixture inspection, never as a silent
+    # source switch.
+    degraded = os.environ.get("NBA_ALLOW_DEGRADED_INPUT", "").lower() in {"1", "true", "yes"}
+    if not degraded and wh.team_stats.empty:
+        raise RuntimeError("NBA warehouse is missing required team box-score coverage")
+    if not degraded and not wh.team_stats.empty:
+        # Team facts are keyed by game_id; require a usable fact for every
+        # current team represented by the eligible schedule.  This catches a
+        # truncated export that still has a non-empty but useless table.
+        fact_games = set(wh.team_stats.game_id.astype(str))
+        eligible_games = set(eligible.game_id.astype(str))
+        covered_games = fact_games & eligible_games
+        covered_teams = set(
+            wh.team_stats[wh.team_stats.game_id.astype(str).isin(covered_games)]
+            .team.astype(str).map(config.normalize_team_abbr)
+        )
+        missing_fact_teams = sorted(set(config.NBA_TEAM_ID) - covered_teams)
+        if missing_fact_teams:
+            raise RuntimeError(
+                "NBA warehouse is missing required team box-score coverage for: "
+                + ", ".join(missing_fact_teams)
+            )
+
+
+def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Warehouse:
+    root = Path(source).expanduser() if source else _source_root()
+    gp, tp, pp, mp = _cache_paths()
+    if use_cache and source is None and mp.exists() and gp.exists() and tp.exists() and pp.exists():
+        try:
+            manifest = json.loads(mp.read_text())
+            wh = Warehouse(pd.read_parquet(gp), pd.read_parquet(tp), pd.read_parquet(pp),
+                           dict(manifest.get("team_names", {})), manifest)
+            _validate_dataset(wh)
+            return wh
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("invalid NBA cache, rebuilding: %s", exc)
+    if root is None or not root.exists():
+        raise FileNotFoundError(
+            "NBA warehouse not found. Attach wyattowalsh/basketball in Kaggle or set "
+            "NBA_KAGGLE_DATASET_PATH to its extracted directory/DuckDB file."
+        )
+    lookup, team_names = _load_team_maps(root)
+    game_frames = _read_tables(root, GAME_TABLES)
+    # dim_game is the identity source; result/scoreboard tables are joined by
+    # game_id.  If only a result table exists it is used as the identity source.
+    identity = next((game_frames[name] for name in (
+        "dim_game", "games", "stg_league_game_log", "fact_game")
+        if name in game_frames and not game_frames[name].empty), None)
+    result = next((game_frames[name] for name in (
+        "fact_game_result", "fact_scoreboard_v3", "stg_league_game_log")
+        if name in game_frames and not game_frames[name].empty), None)
+    if identity is None and result is None:
+        raise RuntimeError("wyattowalsh/basketball is missing dim_game/fact_game_result")
+    games = _normalize_games(identity if identity is not None else result, lookup,
+                             result=result, team_names=team_names)
+    if games.empty:
+        raise RuntimeError("NBA warehouse produced no usable game rows")
+    team_frames = list(_read_tables(root, TEAM_BOX_TABLES).values())
+    team_raw = pd.concat(team_frames, ignore_index=True) if team_frames else pd.DataFrame()
+    team_stats = _normalize_team_stats(team_raw, games, lookup)
+    player_frames = list(_read_tables(root, PLAYER_TABLES).values())
+    player_raw = pd.concat(player_frames, ignore_index=True) if player_frames else pd.DataFrame()
+    player_stats = _normalize_player_stats(player_raw, games, lookup,
+                                           _load_player_names(root))
+    wh = Warehouse(games, team_stats, player_stats, team_names,
+                   _manifest(root, {"games": games, "team_stats": team_stats,
+                                    "player_stats": player_stats}, team_names))
+    _validate_dataset(wh)
+    if use_cache:
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        games.to_parquet(gp, index=False)
+        team_stats.to_parquet(tp, index=False)
+        player_stats.to_parquet(pp, index=False)
+        mp.write_text(json.dumps(
+            wh.manifest, indent=2, default=str, allow_nan=False))
+    return wh
+
+
+def eligible_games(games: pd.DataFrame) -> pd.DataFrame:
+    df = games.copy()
+    df["season"] = pd.to_numeric(df["season"], errors="coerce")
+    df = df[df["season"] >= config.OOF_FIRST_SEASON].copy()
+    if "game_type" in df:
+        # Keep textual postseason flags normalized by ingestion as 2; invalid
+        # types are not silently treated as regular-season games.
+        df = df[pd.to_numeric(df["game_type"], errors="coerce").isin(config.GAME_TYPES)]
+    return df.sort_values(["gameday", "game_id"]).reset_index(drop=True)
+
+
+def load_games(source: str | Path | None = None, use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(source, use_cache).games
+
+
+def load_team_stats(source: str | Path | None = None, use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(source, use_cache).team_stats
+
+
+def load_player_stats(source: str | Path | None = None, use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(source, use_cache).player_stats
+
+
+def load_team_names(source: str | Path | None = None) -> dict[str, str]:
+    try:
+        return dict(load_dataset(source).team_names)
+    except Exception:
+        return {}

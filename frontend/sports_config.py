@@ -115,6 +115,31 @@ SPORTS = {
             "goalie_matchup_json": "nhl_goalie_matchup_*.json",
         },
     },
+    "nba": {
+        "label": "NBA",
+        "emoji": "🏀",
+        "title": "NBA Predictions",
+        "subtitle": "NBA betting model dashboard",
+        "repo_subdir": "nba-backend",
+        "has_run_engine": True,
+        "pages": [
+            "todays-games",
+            "power-rankings",
+            "calibration",
+            "model-monitor",
+            "markets",
+        ],
+        "artifacts": {
+            "moneyline_json": "nba_moneyline_v1_*.json",
+            "feature_json": "nba_feature_v1_*.json",
+            "calibration_json": "nba_calibration_*.json",
+            "predictions_history_csv": "nba_predictions_history_*.csv",
+            "power_rankings_csv": "nba_power_rankings_*.csv",
+            "markets_csv": "nba_run_engine_markets_*.csv",
+            "markets_monitor_json": "nba_run_engine_monitor_*.json",
+            "player_matchup_json": "nba_player_leader_matchup_*.json",
+        },
+    },
 }
 
 DEFAULT_SPORT = "mlb"

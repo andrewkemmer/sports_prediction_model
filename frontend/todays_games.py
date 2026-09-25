@@ -1616,6 +1616,10 @@ def main() -> None:
         import nhl_todays_page  # noqa: PLC0415 (page module, imported lazily)
         nhl_todays_page.run()
         return
+    if sport == "nba":
+        import nba_todays_page  # noqa: PLC0415 (page module, imported lazily)
+        nba_todays_page.run()
+        return
 
     # Sport reset / first visit -> nearest valid date to today (ET).
     if (st.session_state.get("_nav_sport") != "mlb"
