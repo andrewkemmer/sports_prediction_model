@@ -805,6 +805,111 @@ def test_a_cached_cdn_season_keeps_its_team_and_player_rows(monkeypatch) -> None
     assert len(stored[stored.row_kind == "player"]) == 2
 
 
+# --------------------------------------------------------------------------
+# ESPN schedules
+# --------------------------------------------------------------------------
+
+
+def espn_events(count: int = 2, postseason: bool = False) -> list[dict]:
+    """Schedule events shaped like ESPN's per-team ``/schedule`` payload."""
+    events = []
+    for index in range(count):
+        home, away = TEAMS[index % len(TEAMS)], TEAMS[(index + 1) % len(TEAMS)]
+        events.append({
+            "id": f"40170{index:04d}",
+            # 7pm Eastern on the 22nd is 23:00/00:00Z on the 23rd, so a UTC
+            # date would file this game a day late.
+            "date": "2024-10-22T23:00Z",
+            "competitions": [{"competitors": [
+                {"homeAway": "home", "team": {"abbreviation": home},
+                 "score": {"value": 112.0}},
+                {"homeAway": "away", "team": {"abbreviation": away},
+                 "score": {"value": 104.0}},
+            ]}],
+        })
+    return events
+
+
+def test_espn_uses_our_abbreviations_not_theirs() -> None:
+    assert ing._espn_abbr("LAL") == "LAL"
+    assert ing._espn_abbr("GS") == "GSW"
+    assert ing._espn_abbr("no") == "NOP"
+    assert ing._espn_abbr("NY") == "NYK"
+    assert ing._espn_abbr("UTAH") == "UTA"
+    assert ing._espn_abbr("WSH") == "WAS"
+
+
+def test_a_utc_tipoff_is_filed_on_its_eastern_date() -> None:
+    # 2024-10-22T23:00Z is 7pm Eastern on the 22nd. Taking the UTC date
+    # would put roughly half the league's games on the wrong day.
+    assert ing._gameday_et("2024-10-22T23:00Z") == pd.Timestamp("2024-10-22")
+    assert ing._gameday_et("2024-10-23T00:30Z") == pd.Timestamp("2024-10-22")
+    assert ing._gameday_et("2024-11-03T01:00Z") == pd.Timestamp("2024-11-02")
+    assert ing._gameday_et("") is None
+    assert ing._gameday_et(None) is None
+    assert ing._gameday_et("not a date") is None
+
+
+def test_espn_events_become_games_and_team_rows() -> None:
+    built = ing._frames_from_espn_events(espn_events(2), 2024,
+                                         config.GAME_TYPE_REG)
+    assert built is not None
+    games = built[built.home_score.notna()]
+    teams = built[built.team.notna()]
+    assert len(games) == 2
+    assert set(games.gameday) == {pd.Timestamp("2024-10-22")}
+    assert set(games.season) == {2024.0}
+    assert len(teams) == 4
+    assert teams.points_for.sum() == 2 * (112.0 + 104.0)
+    assert set(teams.net_points) == {8.0, 8.0, -8.0, -8.0}
+
+
+def test_an_unscored_espn_event_is_not_invented() -> None:
+    events = espn_events(1)
+    events[0]["competitions"][0]["competitors"][0]["score"] = {}
+    assert ing._frames_from_espn_events(events, 2024,
+                                        config.GAME_TYPE_REG) is None
+
+
+def test_the_espn_season_requests_the_year_the_season_ends(monkeypatch) -> None:
+    asked: list[str] = []
+
+    def fake(url, **kwargs):
+        asked.append(url)
+        return {"events": espn_events(1)} if "seasontype=2" in url else {"events": []}
+
+    monkeypatch.setattr(ing, "_get_json", fake)
+    monkeypatch.setattr(ing, "_espn_teams", lambda: {t: t for t in TEAMS})
+    ing._pull_season_from_espn(2024, 0.0)
+    # ESPN season=2025 opens on 2024-10-23, so a 2024 start means season 2025.
+    assert all("season=2025" in url for url in asked)
+    assert ing._read_chunk(ing.config.CACHE_DIR / "espn_season_2024.parquet") \
+        .game_id.nunique() == 1
+
+
+def test_a_blocked_host_is_not_probed_again() -> None:
+    ing._record_host_verdict("stats.nba.com", "sinkholed")
+    assert ing._known_blocked_host("stats.nba.com") == "sinkholed"
+    with pytest.raises(RuntimeError, match="refused this host recently"):
+        ing._get_json("https://stats.nba.com/stats/LeagueGameLog")
+    assert ing._known_blocked_host("cdn.nba.com") is None
+
+
+def test_the_pull_falls_through_to_espn_when_both_nba_hosts_fail(monkeypatch) -> None:
+    monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "1")
+    monkeypatch.setattr(ing, "_fetch_season_log",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            ing.SeasonUnavailable("stats.nba.com is not answering")))
+    monkeypatch.setattr(ing, "_pull_seasons_from_cdn", lambda *a: (_ for _ in ()).throw(
+        ing.CdnUnavailable("cdn.nba.com refused every box score")))
+    monkeypatch.setattr(ing, "_pull_seasons_from_espn",
+                        lambda *a: ("espn-games", "espn-teams", "espn-players", {}))
+    games, teams, players, names = ing._pull_seasons(date(2024, 1, 1),
+                                                     date(2024, 6, 30))
+    assert games == "espn-games" and teams == "espn-teams"
+    assert ing.SOURCE_USED["source"] == "ESPN schedules"
+
+
 def test_a_pull_with_no_game_rows_is_named_not_crashed(monkeypatch) -> None:
     """The failure the Kaggle run hit must read as a blocked host."""
     monkeypatch.setattr(ing, "_pull_season_from_cdn",

@@ -65,6 +65,10 @@ PLAY_BY_PLAY_URL = ("https://cdn.nba.com/static/json/liveData/playbyplay/"
                     "playbyplay_{game_id}.json")
 
 SOURCE_ID = "nba.com"
+# Which upstream actually answered. Cloud hosts refuse nba.com at the IP
+# level and something else has to serve the window, so the manifest records
+# the route that won rather than claiming NBA.com every time.
+SOURCE_USED: dict[str, str] = {"source": "nba.com"}
 
 # NBA.com rejects requests that do not look like the browser its own site
 # makes.  Trimming any of these is what turns a 200 into a 403.
@@ -284,6 +288,55 @@ def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
     return outcome["payload"]
 
 
+HOST_VERDICT_TTL_HOURS = 24.0
+HOST_VERDICT_FILE = "host_verdicts.json"
+
+
+def _verdicts_path() -> Path:
+    return config.CACHE_DIR / HOST_VERDICT_FILE
+
+
+def _host_verdicts() -> dict[str, str]:
+    try:
+        stored = json.loads(_verdicts_path().read_text())
+        if isinstance(stored, dict):
+            return stored
+    except Exception:  # noqa: BLE001 - no verdict file is the normal case
+        pass
+    return {}
+
+
+def _record_host_verdict(host: str, reason: str) -> None:
+    """Remember that a host refused us, so the next season does not re-pay.
+
+    A blocked host costs a full timeout budget per season log. On Kaggle that
+    is four minutes of the run spent re-proving a fact, so the verdict is
+    written next to the cache and honoured for a day.
+    """
+    verdicts = _host_verdicts()
+    verdicts[host] = f"{time.time():.0f}|{reason}"[:400]
+    try:
+        _verdicts_path().parent.mkdir(parents=True, exist_ok=True)
+        _verdicts_path().write_text(json.dumps(verdicts, indent=1))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not record the verdict for %s (%s)", host, exc)
+
+
+def _known_blocked_host(host: str) -> str | None:
+    """The reason a host was recorded as refusing us, if it still counts."""
+    entry = _host_verdicts().get(host)
+    if not entry or "|" not in entry:
+        return None
+    stamp, _, reason = entry.partition("|")
+    try:
+        age_hours = (time.time() - float(stamp)) / 3600.0
+    except ValueError:
+        return None
+    if age_hours > HOST_VERDICT_TTL_HOURS:
+        return None
+    return reason
+
+
 def _get_json(url: str, *, headers: dict[str, str] | None = None,
               retries: int | None = None, pause: float | None = None,
               allow_missing: bool = False, verbose: bool = True) -> Any | None:
@@ -303,6 +356,11 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     host = urllib.parse.urlparse(url).netloc
     path = urllib.parse.urlparse(url).path
     policy = _HOST_POLICY.get(host, _HOST_POLICY["default"])
+    blocked = _known_blocked_host(host)
+    if blocked is not None:
+        raise RuntimeError(
+            f"NBA request to {host} skipped; it refused this host recently "
+            f"({blocked}) and the verdict is still fresh")
     attempts = retries if retries is not None else _int_env(
         RETRIES_ENV, policy["attempts"])
     base = policy["backoff"] if pause is None else max(pause, 0.0)
@@ -345,6 +403,7 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     raise RuntimeError(
         f"NBA request to {host} failed after {made} attempt(s) "
         f"({reason}); endpoint={path} :: {last}")
+
 
 def _season_log_path(season: str, season_type: str) -> Path:
     """Per-season cache file, so one bad season never discards the others."""
@@ -1119,6 +1178,237 @@ def _cdn_seasons_in(start: date, end: date) -> list[int]:
             if date(year, 10, 1) <= end and date(year + 1, 6, 30) >= start]
 
 
+# ---------------------------------------------------------------------------
+# ESPN schedules
+#
+# The last resort, and the cheapest complete source by an order of magnitude.
+# A cloud host that refuses both nba.com hosts can still be refused this one,
+# but when it answers, one request per team per season type rebuilds the whole
+# league slate: 2024-25 is 1,236 regular-season and 84 postseason games in
+# 60 requests and about twenty seconds, against 1,723 requests for the same
+# season one box score at a time. The schedule carries the game index, the
+# sides, the tip-off and the final score, which is everything the games frame
+# and the team box scores need; it carries no player detail, so player_stats
+# comes back empty and every derived feature degrades to its default.
+# ---------------------------------------------------------------------------
+ESPN_TEAMS_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
+                  "basketball/nba/teams")
+ESPN_SCHEDULE_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
+                     "basketball/nba/teams/{team}/schedule"
+                     "?season={season}&seasontype={kind}")
+ESPN_REGULAR = 2
+ESPN_POSTSEASON = 3
+# ESPN's abbreviations differ from ours for six clubs.
+_ESPN_ABBR = {"GS": "GSW", "NO": "NOP", "NY": "NYK", "SA": "SAS",
+              "UTAH": "UTA", "WSH": "WAS"}
+
+
+def _espn_abbr(abbreviation: Any) -> str:
+    text = str(abbreviation or "").strip().upper()
+    return _ESPN_ABBR.get(text, text)
+
+
+def _gameday_et(stamp: Any) -> pd.Timestamp | None:
+    """The local game date for an ISO instant.
+
+    ESPN reports tip-off in UTC, and a 7pm Eastern game is the next calendar
+    day there, so taking the UTC date would misfile roughly half the league's
+    games onto the wrong day.
+    """
+    text = str(stamp or "").strip()
+    if not text:
+        return None
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        local = moment.astimezone(ZoneInfo("America/New_York"))
+    except Exception:  # noqa: BLE001 - no tzdata is not a reason to lose a game
+        local = moment.astimezone(timezone(timedelta(hours=-5)))
+        logger.warning("no tzdata; falling back to a fixed Eastern offset")
+    return pd.Timestamp(local.date())
+
+
+def _espn_teams() -> dict[str, str]:
+    """Our 30 abbreviations mapped to ESPN team ids, fetched once and cached."""
+    path = config.CACHE_DIR / "espn_teams.json"
+    if path.exists() and not _flag(FULL_REPULL_ENV, False):
+        try:
+            cached = json.loads(path.read_text())
+            if all(team in config.NBA_TEAM_ID for team in cached):
+                return cached
+        except Exception:  # noqa: BLE001 - re-fetch below
+            pass
+    payload = _get_json(ESPN_TEAMS_URL, pause=0.0)
+    ids: dict[str, str] = {}
+    for league in ((payload or {}).get("sports") or [{}])[0].get("leagues") or [{}]:
+        for entry in league.get("teams") or []:
+            team = entry.get("team") or {}
+            ours = _espn_abbr(team.get("abbreviation"))
+            if ours in config.NBA_TEAM_ID and team.get("id"):
+                ids[ours] = str(team["id"])
+    missing = sorted(set(config.NBA_TEAM_ID) - set(ids))
+    if missing:
+        raise RuntimeError(f"ESPN did not list these current teams: {missing}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(ids, indent=1))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache the ESPN team map (%s)", exc)
+    return ids
+
+
+def _frames_from_espn_events(events: list[dict], season: int,
+                            game_type: int) -> pd.DataFrame | None:
+    """ESPN schedule events -> the same blob shape the other sources produce."""
+    games: list[dict[str, Any]] = []
+    team_rows: list[dict[str, Any]] = []
+    for event in events:
+        competition = (event.get("competitions") or [{}])[0]
+        sides = {side.get("homeAway"): side
+                 for side in competition.get("competitors") or []}
+        home, away = sides.get("home"), sides.get("away")
+        if not home or not away:
+            continue
+        gameday = _gameday_et(event.get("date"))
+        game_id = str(event.get("id") or "")
+        if gameday is None or not game_id:
+            continue
+        try:
+            home_score = float(home["score"]["value"])
+            away_score = float(away["score"]["value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        home_abbr = _espn_abbr((home.get("team") or {}).get("abbreviation"))
+        away_abbr = _espn_abbr((away.get("team") or {}).get("abbreviation"))
+        if home_abbr not in config.NBA_TEAM_ID or away_abbr not in config.NBA_TEAM_ID:
+            continue
+        games.append({
+            "game_id": game_id, "gameday": gameday, "season": float(season),
+            "home_team": home_abbr, "away_team": away_abbr,
+            "home_score": home_score, "away_score": away_score,
+            "game_type": game_type, "margin": home_score - away_score,
+            "total": home_score + away_score,
+            "home_win": 1.0 if home_score > away_score else 0.0,
+        })
+        for abbreviation, points_for, points_against, is_home in (
+                (home_abbr, home_score, away_score, True),
+                (away_abbr, away_score, home_score, False)):
+            team_rows.append({
+                "game_id": game_id, "gameday": gameday,
+                "team": abbreviation,
+                "opponent": away_abbr if is_home else home_abbr,
+                "is_home": is_home, "points_for": points_for,
+                "points_against": points_against,
+                "net_points": points_for - points_against,
+            })
+    if not games:
+        return None
+    return pd.concat([pd.DataFrame(games), pd.DataFrame(team_rows)],
+                     ignore_index=True)
+
+
+def _pull_season_from_espn(season_year: int, pause: float) -> pd.DataFrame | None:
+    """One season of league-wide games from the per-team schedules."""
+    path = config.CACHE_DIR / f"espn_season_{season_year}.parquet"
+    if path.exists() and not _flag(FULL_REPULL_ENV, False):
+        cached = _read_chunk(path)
+        if not cached.empty:
+            logger.info("%d-%s from ESPN cache (%d rows)", season_year,
+                        season_year + 1, len(cached))
+            return cached
+    teams = _espn_teams()
+    frames: list[pd.DataFrame] = []
+    for kind, game_type in ((ESPN_REGULAR, config.GAME_TYPE_REG),
+                            (ESPN_POSTSEASON, config.GAME_TYPE_POST)):
+        events: dict[str, dict] = {}
+        for team_id in teams.values():
+            # ESPN's ``season`` is the year the season ENDS: season=2025 opens
+            # on 2024-10-23, so a season that starts in ``season_year`` is
+            # requested as season_year + 1.
+            payload = _get_json(
+                ESPN_SCHEDULE_URL.format(team=team_id, season=season_year + 1,
+                                         kind=kind),
+                pause=pause, allow_missing=True, verbose=False)
+            for event in (payload or {}).get("events") or []:
+                if event.get("id"):
+                    events[str(event["id"])] = event
+        built = _frames_from_espn_events(list(events.values()), season_year,
+                                         game_type)
+        if built is None:
+            logger.info("%d-%s ESPN season=%d seasontype=%d returned no games",
+                        season_year, season_year + 1, season_year + 1, kind)
+            continue
+        logger.info("%d-%s ESPN season=%d seasontype=%d: %d games",
+                    season_year, season_year + 1, season_year + 1, kind,
+                    built.home_score.notna().sum())
+        frames.append(built)
+    if not frames:
+        return None
+    merged = pd.concat(frames, ignore_index=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        merged.drop_duplicates(["game_id", "team"], keep="first").to_parquet(
+            path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache %s (%s)", path.name, exc)
+    return merged
+
+
+def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
+                                                            pd.DataFrame, dict[str, str]]:
+    """Build the window from ESPN's per-team schedules."""
+    years = _cdn_seasons_in(start, end)
+    pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    logger.warning("NBA pulling %s..%s via ESPN schedules (%d-day slices)",
+                   start, end, _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
+    collected: list[pd.DataFrame] = []
+    for year in years:
+        try:
+            frame = _pull_season_from_espn(year, pause)
+        except CdnUnavailable:
+            raise
+        except RuntimeError as exc:
+            logger.error("ESPN season %d unavailable: %s", year, exc)
+            continue
+        if frame is not None and not frame.empty:
+            collected.append(frame)
+    if not collected:
+        raise RuntimeError(
+            f"No NBA data could be read for {start}..{end} from stats.nba.com, "
+            "cdn.nba.com or ESPN. Every host this machine can reach has "
+            "refused; the pipeline cannot run on an empty window.")
+    blob = _untag_rows(pd.concat(collected, ignore_index=True))
+    if "home_score" not in blob.columns or not len(blob):
+        raise RuntimeError(
+            f"The ESPN pull for {start}..{end} returned no game data, so "
+            "site.api.espn.com is unreachable from this host as well.")
+    games = (blob[blob.home_score.notna()].drop_duplicates("game_id")
+             .copy())
+    games = games[(pd.to_datetime(games.gameday) >= pd.Timestamp(start))
+                  & (pd.to_datetime(games.gameday) <= pd.Timestamp(end)
+                     + pd.Timedelta(days=1))]
+    _abort_on_empty_core_chunks(_report_chunk_gaps(games, start, end), start, end)
+    team_stats = blob[blob["team"].notna() & blob["points_for"].notna()]
+    team_stats = team_stats[team_stats.game_id.isin(set(games.game_id))]
+    if "team_name" not in team_stats.columns:
+        team_stats = team_stats.assign(team_name=None)
+    regular = int((games.game_type == config.GAME_TYPE_REG).sum())
+    logger.warning(
+        "NBA rebuilt from ESPN schedules: %d games (%d regular, %d postseason), "
+        "%d team rows; no player detail, so player-derived features fall back "
+        "to their defaults", len(games), regular, len(games) - regular,
+        len(team_stats))
+    empty = pd.DataFrame(columns=["game_id", "gameday", "player_id", "player_name",
+                                  "team", "opponent", "is_home", "minutes",
+                                  "game_type", "points"])
+    return (games.reset_index(drop=True), team_stats.reset_index(drop=True),
+            empty, {})
+
 def _report_chunk_gaps(games: pd.DataFrame, start: date, end: date) -> list[str]:
     """Name the window slices that came back with no games at all.
 
@@ -1233,7 +1523,7 @@ def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
     return {
         "dataset_id": SOURCE_ID,
         "dataset_version": f"through-{end.isoformat()}",
-        "source_path": SOURCE_ID,
+        "source_path": SOURCE_USED.get("source", SOURCE_ID),
         "window": {"start": start.isoformat(), "end": end.isoformat()},
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),
         "tables": {name: int(len(frame))
@@ -1396,18 +1686,34 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                        "retries only these.", len(unavailable),
                        ", ".join(unavailable))
     if not logs:
-        if _flag(CDN_FALLBACK_ENV, True):
-            logger.warning("No season log could be read; rebuilding the window "
-                           "from per-game CDN box scores instead.")
-            return _pull_seasons_from_cdn(start, end)
+        if not _flag(CDN_FALLBACK_ENV, True):
+            raise RuntimeError(
+                f"NBA returned no games for {start}..{end}; every season log "
+                f"failed ({', '.join(unavailable) or 'none attempted'}). The "
+                "upstream endpoint is stats.nba.com/stats/LeagueGameLog, which "
+                "needs no key but can be slow or blocked by cloud hosts. Retry, or "
+                "narrow NBA_START_DATE/NBA_END_DATE to a window whose seasons are "
+                f"already cached, or set {CDN_FALLBACK_ENV}=0 to use the CDN.")
+        # Ranked fallbacks. Each leg either serves the whole window or is named
+        # in the error, so a host that refuses us is never a mystery.
+        logger.warning("No season log could be read; rebuilding the window "
+                       "from per-game CDN box scores instead.")
+        for label, route in (("cdn.nba.com box scores", _pull_seasons_from_cdn),
+                             ("ESPN schedules", _pull_seasons_from_espn)):
+            try:
+                result = route(start, end)
+            except (CdnUnavailable, RuntimeError) as exc:
+                logger.error("%s route unavailable: %s", label, exc)
+                continue
+            SOURCE_USED["source"] = label
+            return result
         raise RuntimeError(
-            f"NBA returned no games for {start}..{end}; every season log "
-            f"failed ({', '.join(unavailable) or 'none attempted'}). The "
-            "upstream endpoint is stats.nba.com/stats/LeagueGameLog, which "
-            "needs no key but can be slow or blocked by cloud hosts. Retry, or "
-            "narrow NBA_START_DATE/NBA_END_DATE to a window whose seasons are "
-            f"already cached, or unset {CDN_FALLBACK_ENV}=0 to use the CDN.")
+            f"NBA could not read {start}..{end} from any source. "
+            f"stats.nba.com: every season log failed "
+            f"({', '.join(unavailable) or 'none attempted'}). "
+            "cdn.nba.com and ESPN both refused this host.")
     log = pd.concat(logs, ignore_index=True)
+    SOURCE_USED["source"] = "stats.nba.com LeagueGameLog"
     log = log[(log.gameday >= pd.Timestamp(start))
               & (log.gameday <= pd.Timestamp(end) + pd.Timedelta(days=1))]
 
