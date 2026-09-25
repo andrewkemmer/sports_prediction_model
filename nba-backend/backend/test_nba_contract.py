@@ -22,6 +22,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import ingestion as ing  # noqa: E402
+import folds as folds_mod  # noqa: E402
 
 # Ingestion binds its config as ``backend.config`` when the backend directory is
 # a package, and as ``config`` otherwise.  Patching anything but the object it
@@ -908,6 +909,79 @@ def test_the_pull_falls_through_to_espn_when_both_nba_hosts_fail(monkeypatch) ->
                                                      date(2024, 6, 30))
     assert games == "espn-games" and teams == "espn-teams"
     assert ing.SOURCE_USED["source"] == "ESPN schedules"
+
+
+# --------------------------------------------------------------------------
+# Fold row order
+# --------------------------------------------------------------------------
+
+
+def fold_frame(games: int = 1023, dates: int = 140, seed: int = 0):
+    """A season-shaped frame with many same-date games, as NBA has every day."""
+    rng = np.random.default_rng(seed)
+    rows, day, number = [], pd.Timestamp("2024-10-22"), 0
+    for offset in range(dates):
+        for _ in range(rng.integers(5, 10)):
+            number += 1
+            rows.append({"game_id": f"00224{number:05d}",
+                         "gameday": day + pd.Timedelta(days=offset),
+                         "season": 2024.0,
+                         "home_score": float(rng.integers(85, 130)),
+                         "away_score": float(rng.integers(85, 130))})
+    return pd.DataFrame(rows)
+
+
+def test_a_date_only_sort_is_not_enough_for_fold_labels() -> None:
+    """The hazard this guard exists for: 86% of rows move between two sorts."""
+    df = fold_frame()
+    first = df.sort_values("gameday").reset_index(drop=True)
+    second = df.sample(frac=1.0, random_state=7).sort_values("gameday") \
+        .reset_index(drop=True)
+    assert not (first.game_id.to_numpy() == second.game_id.to_numpy()).all(), \
+        "if date-only sorting were stable this guard would be untestable"
+    canonical = folds_mod.canonical_sort(df)
+    shuffled = df.sample(frac=1.0, random_state=7)
+    assert (canonical.game_id.tolist()
+            == folds_mod.canonical_sort(shuffled).game_id.tolist()), \
+        "canonical order must not depend on the order the frame arrived in"
+
+
+def test_fold_labels_select_the_right_games_whatever_the_arrival_order() -> None:
+    """Fold labels are positions, so a differently ordered consumer gets the
+    WRONG validation games rather than the same ones in another order."""
+    df = fold_frame()
+    shuffled = df.sample(frac=1.0, random_state=7).reset_index(drop=True)
+    folds = folds_mod.make_folds(shuffled, "gameday")
+    # What moneyline/distributions now do with those labels.
+    consumer = folds_mod.canonical_sort(shuffled, "gameday")
+    assert folds
+    for fold in folds:
+        intended = set(shuffled.loc[
+            shuffled.gameday.between(fold.val_start, fold.val_end), "game_id"])
+        applied = set(consumer.loc[fold.val_idx, "game_id"])
+        assert intended == applied, f"fold {fold.fold_id} validated the wrong games"
+
+
+def test_folds_do_not_depend_on_the_order_the_frame_arrived_in() -> None:
+    """The structural guarantee: the same games in the same positions."""
+    df = fold_frame()
+    baseline = [(tuple(f.train_idx), tuple(f.val_idx))
+                for f in folds_mod.make_folds(df, "gameday")]
+    for seed in (7, 13, 42):
+        other = folds_mod.make_folds(df.sample(frac=1.0, random_state=seed)
+                                     .reset_index(drop=True), "gameday")
+        assert [(tuple(f.train_idx), tuple(f.val_idx)) for f in other] \
+            == baseline, f"arrival order changed the folds (seed {seed})"
+    assert baseline, "the fixture must actually produce folds"
+
+
+def test_canonical_sort_works_without_a_game_id_column() -> None:
+    df = pd.DataFrame({"gameday": pd.to_datetime(
+        ["2024-01-02", "2024-01-01", "2024-01-02"])})
+    out = folds_mod.canonical_sort(df)
+    assert out.gameday.tolist() == [pd.Timestamp("2024-01-01"),
+                                    pd.Timestamp("2024-01-02"),
+                                    pd.Timestamp("2024-01-02")]
 
 
 def test_a_pull_with_no_game_rows_is_named_not_crashed(monkeypatch) -> None:

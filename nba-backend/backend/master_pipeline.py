@@ -240,6 +240,11 @@ def run(source: str | Path | None = None, run_date: str | None = None,
         raise RuntimeError("NBA warehouse has too few settled eligible games for walk-forward training")
 
     game_df = feat_mod.build_game_features(settled, wh.team_stats)
+    # Canonical (date_col, game_id) order: the one order every fold index is
+    # valid for. See folds.canonical_sort for why a single-column sort is not
+    # enough — fold labels are positional, and the tree members are
+    # row-order sensitive under a fixed seed.
+    game_df = folds_mod.canonical_sort(game_df, "gameday")
     fold_list = folds_mod.make_folds(game_df)
     fold_info = folds_mod.fold_summary(fold_list)
     if not fold_list:

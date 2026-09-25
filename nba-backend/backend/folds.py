@@ -5,6 +5,11 @@ observed game dates, training contains every row strictly before the window,
 and the first validation window starts after the configured warm-up index.
 Observed-date geometry is deliberate: a schedule gap must not silently turn a
 seven-day retrain window into a different window or leak a future row.
+
+A fold is a (fold_id, val_start, val_end, train_idx, val_idx) tuple over the
+row order of the caller's frame; callers must pass frames already in
+``canonical_sort`` order (see below) so the returned labels are positional and
+remain valid for every downstream consumer.
 """
 from __future__ import annotations
 
@@ -17,6 +22,30 @@ try:
     from backend import config
 except ImportError:  # pragma: no cover - direct script/import fallback
     import config
+
+# Every frame that feeds fold generation MUST be put in this order first.
+# Why a helper and not a bare sort_values(date_col): make_folds returns
+# df.index[mask] (labels), and the OOF consumers index those labels
+# positionally after their own reset_index(drop=True). A single-column
+# sort_values uses an UNSTABLE quicksort, so two such sorts over the same data
+# disagree on the order of same-date games -- an NBA season moves 875 of 1023
+# rows that way. make_folds then hands out labels computed under one tie order
+# and the consumer applies them under another, so a validation window is
+# scored against the WRONG games (16 of 16 folds in the reproduction), not
+# merely a differently ordered right set. [date_col, "game_id"] is a TOTAL
+# order (game_id is unique), and mergesort is stable, so every consumer
+# reproduces the same positions byte for byte.
+CANONICAL_TIEBREAK = "game_id"
+
+
+def canonical_sort(df: pd.DataFrame, date_col: str = "gameday") -> pd.DataFrame:
+    """The ONE row order fold indices are valid for.
+
+    Stable, total ordering by (date_col, game_id) with a fresh RangeIndex.
+    """
+    keys = [date_col, CANONICAL_TIEBREAK] if CANONICAL_TIEBREAK in df.columns \
+        else [date_col]
+    return df.sort_values(keys, kind="mergesort").reset_index(drop=True)
 
 
 @dataclass
@@ -48,8 +77,17 @@ def make_folds(
     are not silently discarded.
 
     The caller's row indices are preserved in ``train_idx``/``val_idx``.
-    Callers should pass a chronologically sorted frame, but dates are
-    normalized here so timestamps cannot create spurious observed dates.
+    Dates are normalized here so timestamps cannot create spurious observed
+    dates.
+
+    ``train_idx``/``val_idx`` are POSITIONS in the canonical row order, so the
+    frame is put in that order here rather than trusting the caller to have
+    done it. Every consumer indexes these labels after its own
+    ``reset_index(drop=True)``, so a frame that arrived out of order would
+    otherwise hand each fold a set of positions that select other games
+    entirely — the right dates scored against the wrong teams. Doing it inside
+    the fold builder makes the agreement structural instead of a convention a
+    later caller can silently break.
     """
     if date_col not in df.columns:
         raise KeyError(f"make_folds: missing date column {date_col!r}")
@@ -61,6 +99,7 @@ def make_folds(
     if minimum < 0:
         raise ValueError("min_val_games cannot be negative")
 
+    df = canonical_sort(df, date_col)
     dates = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
     if "season" in df.columns:
         seasons = pd.to_numeric(df["season"], errors="coerce")

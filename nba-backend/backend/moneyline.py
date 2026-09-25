@@ -319,7 +319,7 @@ def walk_forward_oof(
     fold_list=None,
 ) -> dict:
     """Causal expanding OOF with prior-fold weights and calibration."""
-    df = game_df.sort_values(date_col).reset_index(drop=True)
+    df = folds_mod.canonical_sort(game_df, date_col)
     folds = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
