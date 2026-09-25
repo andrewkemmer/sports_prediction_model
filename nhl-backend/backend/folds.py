@@ -170,3 +170,31 @@ def fold_table(df: pd.DataFrame, folds: list[Fold],
             "n_validation": int(len(f.val_idx)),
         })
     return pd.DataFrame(rows)
+
+
+def progress_checkpoints(n_folds: int, every: int = 25,
+                         checkpoints: int = 4) -> list[int]:
+    """1-based fold numbers a walk-forward should announce.
+
+    A FIXED cadence is the wrong shape here: at 46 folds with every=25 the
+    only position that can ever print is 25 (50 never arrives), and nothing
+    ever announces completion — so a finished run and a stalled one look
+    identical. That is exactly what the 2026-09-25 NHL run did: the RFE
+    sweep printed the same "moneyline OOF fold 25/46" line 121 times over
+    ~24 minutes. The cadence is therefore capped at roughly ``checkpoints``
+    evenly spaced positions, and the final fold is ALWAYS included so the
+    last line a reader sees is the real end of the walk-forward.
+
+    Returns strictly increasing 1-based positions, always ending at
+    ``n_folds``.
+    """
+    n_folds = int(n_folds)
+    if n_folds <= 0:
+        return []
+    every = max(1, int(every))
+    checkpoints = max(1, int(checkpoints))
+    step = max(1, min(every, -(-n_folds // checkpoints)))
+    fired = [i for i in range(step, n_folds + 1, step)]
+    if fired[-1] != n_folds:
+        fired.append(n_folds)
+    return fired

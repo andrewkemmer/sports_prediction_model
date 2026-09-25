@@ -317,6 +317,58 @@ def test_game_with_no_result_is_accounted_for_in_the_log(caplog=None):
     assert "2024010044" in text, f"the no-result game was not named: {text[:200]}"
 
 
+def test_coverage_verdict_separates_cold_nulls_from_real_defects():
+    """The console must not report one undifferentiated coverage percentage.
+
+    A team's first game has no prior history by design (cold null); a warm
+    null is a defect. Logging only a blended percentage makes "the season
+    started" indistinguishable from "something is broken", and the goalie
+    family once read 96-98% on a decided pool that published nulls for every
+    slate game. The split already exists in monitoring.coverage — this pins
+    that Phase 14 actually reports it, for BOTH windows (the serving slate is
+    the window that actually ships predictions, and an empty slate must not
+    silently drop the report).
+    """
+    import master_pipeline as mp
+
+    def _row(feature, window, n_games, measured, cold, warm, cause="null"):
+        return {"feature": feature, "window": window, "n_games": n_games,
+                "n_measured": measured, "n_null": n_games - measured,
+                "n_cold_null": cold, "n_warm_null": warm,
+                "status": "OK" if not warm else "ATTENTION", "cause": cause}
+
+    rows = [
+        # decided pool: perfect except team debuts (cold)
+        _row("elo_home", "decided pool", 100, 96, 4, 0),
+        _row("win_pct_home", "decided pool", 100, 95, 5, 0),
+        # serving slate: one genuine defect
+        _row("goalie_sv_pct_home", "serving slate", 5, 4, 0, 1, "warm_null"),
+    ]
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    mp.logger.addHandler(handler)
+    mp.logger.setLevel(logging.INFO)
+    try:
+        mp._log_coverage_verdict(rows)
+    finally:
+        mp.logger.removeHandler(handler)
+
+    infos = [r.getMessage() for r in records if r.levelno < logging.WARNING]
+    warns = [r.getMessage() for r in records if r.levelno >= logging.WARNING]
+    text = " ".join(infos)
+    # Both windows get a verdict line...
+    assert "decided pool" in text and "serving slate" in text, text[:200]
+    # ...the decided pool is reported as clean, with its cold nulls named as
+    # by-design rather than as missing data.
+    assert "no warm nulls" in text, text[:200]
+    assert "9 cold null(s) by design" in text, \
+        f"cold nulls were not reported as by-design: {text[:200]}"
+    # The slate defect is a WARNING that names the feature, not a footnote.
+    assert len(warns) == 1, f"expected exactly one warm-null warning, got {warns}"
+    assert "goalie_sv_pct_home" in warns[0] and "serving slate" in warns[0], warns[0]
+
+
 def test_pit_fold_labels_are_valid_for_the_frame_the_oof_rebuilds():
     """The pins in this suite hand fold labels to walk_forward_oof, which
     canonicalizes the frame it is given. Those labels are POSITIONS, so the
@@ -1482,6 +1534,148 @@ def test_no_rfe_candidate_is_a_permanently_empty_column():
     assert not dead, f"all-NaN RFE candidates: {dead}"
     assert (feat_mod.feature_coverage_report(df)["coverage_pct"] > 0).all(), \
         "a served contract feature is still completely uncovered"
+
+
+# ---------------------------------------------------------------------------
+# 8. Walk-forward progress reporting
+# ---------------------------------------------------------------------------
+class _LogCapture(logging.Handler):
+    """Collect formatted log records emitted by a module's logger."""
+
+    def __init__(self):
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def _capture_walk_forward_logs(mod, games, folds):
+    cap = _LogCapture()
+    mod.logger.addHandler(cap)
+    mod.logger.setLevel(logging.INFO)
+    try:
+        mod.walk_forward_oof(games, fold_list=folds)
+    finally:
+        mod.logger.removeHandler(cap)
+    return cap.messages
+
+
+def test_walk_forward_progress_reports_a_live_position_and_completion():
+    """A long walk-forward must show where it is and that it finished.
+
+    The cadence used to be a fixed 25 folds: with 46 folds the only line
+    ever printed was "moneyline OOF fold 25/46" (fold 50 never arrives),
+    and "25" was the cadence rather than the position. The distribution
+    walk-forward logged nothing at all except failures, so a healthy 13s
+    phase was indistinguishable from a crash. During the 2026-09-25 RFE
+    sweep that printed the same 25/46 line 121 times over ~24 minutes,
+    which reads as a hang rather than 120 completed trials.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=90, games_per_day=6))
+    folds = folds_mod.make_folds(games)
+    assert len(folds) >= 4, f"fixture too small to exercise cadence: {len(folds)}"
+    total = len(folds)
+
+    for mod, label in ((ml_mod, "moneyline"), (dist_mod, "dist")):
+        msgs = _capture_walk_forward_logs(mod, games, folds)
+        progress = [m for m in msgs if "OOF fold" in m and "complete" not in m]
+        done = [m for m in msgs if "OOF complete" in m]
+
+        assert progress, f"{label} walk-forward logged no progress at all"
+        assert len(progress) >= 2, (
+            f"{label} printed {len(progress)} checkpoint(s) over {total} folds "
+            f"— too coarse to read as progress")
+        assert progress[-1].endswith(f"/{total}"), (
+            f"{label} never reported the final fold: {progress[-1]!r} "
+            f"(expected the last checkpoint to read /{total})")
+        # Positions must strictly increase: a stale cadence number repeating
+        # is exactly the defect this pins.
+        seen = [int(m.split("fold ")[1].split("/")[0]) for m in progress]
+        assert seen == sorted(seen) and len(set(seen)) == len(seen), (
+            f"{label} checkpoints are not strictly increasing: {seen}")
+        assert seen[-1] == total, f"{label} last checkpoint {seen[-1]} != {total}"
+
+        assert done, f"{label} walk-forward never signalled completion"
+        assert f"{total} fold(s)" in done[-1], (
+            f"{label} completion line omits the fold count: {done[-1]!r}")
+
+
+def test_walk_forward_progress_does_not_fire_stale_mid_cadence_numbers():
+    """No fold count may be announced that the run can never reach.
+
+    A 46-fold walk-forward at a fixed 25-fold cadence can only ever print
+    25/46, so a reader cannot tell a finished run from a stalled one. This
+    targets folds.progress_checkpoints — the helper BOTH walk-forwards now
+    call — so changing the real cadence fails here too.
+    """
+    for n_folds in (1, 2, 4, 7, 25, 46, 60, 480):
+        fired = folds_mod.progress_checkpoints(n_folds)
+        assert fired, f"{n_folds} folds produced no checkpoint at all"
+        assert fired[-1] == n_folds, (
+            f"{n_folds} folds: last checkpoint is {fired[-1]}, not {n_folds} "
+            f"— the run would never announce its end")
+        assert len(fired) >= 2 or n_folds == 1, (
+            f"{n_folds} folds: only {len(fired)} checkpoint(s) "
+            f"({fired}) — too coarse to read as progress")
+        assert fired == sorted(set(fired)), (
+            f"{n_folds} folds: checkpoints not strictly increasing: {fired}")
+        assert all(1 <= i <= n_folds for i in fired), (
+            f"{n_folds} folds: announced an out-of-range position: {fired}")
+
+    # The exact production shape: 46 folds must NOT announce only 25.
+    assert folds_mod.progress_checkpoints(46) != [25], (
+        "regressed to the fixed 25-fold cadence that made a finished 46-fold "
+        "walk-forward look identical to a stalled one")
+    assert folds_mod.progress_checkpoints(0) == []
+
+
+# ---------------------------------------------------------------------------
+# 9. Artifact date provenance
+# ---------------------------------------------------------------------------
+def test_rfe_trace_is_stamped_with_the_run_date_not_the_api_horizon():
+    """The RFE trace must carry the RUN's date, never the lookahead window.
+
+    NHL_END_DATE is deliberately pushed past today (2026-09-29 on the
+    2026-09-25 run) so the slate covers upcoming games. Passing that horizon
+    to maybe_run_rfe wrote nhl_feature_selection_20260929.json and
+    nhl_feature_workbook_2026-09-29.xlsx — four days in the future, and the
+    only NHL artifacts disagreeing with the `date_c` stamped on everything
+    else. MLB uses ONE date variable for the window, the trace and the
+    artifact stamps so the two cannot diverge; this pins the NHL call site
+    to the run date that gives the same guarantee.
+    """
+    import ast
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Name)
+             and n.func.id == "maybe_run_rfe"]
+    assert calls, "maybe_run_rfe is no longer called from master_pipeline"
+
+    for call in calls:
+        args = [a for a in call.args if not isinstance(a, ast.Starred)]
+        assert len(args) >= 2, (
+            f"maybe_run_rfe call at line {call.lineno} no longer passes a day")
+        day = args[1]
+        assert isinstance(day, ast.Name), (
+            f"maybe_run_rfe day argument at line {call.lineno} is "
+            f"{type(day).__name__}, expected a name")
+        assert day.id == "run_date", (
+            f"maybe_run_rfe is stamped with {day.id!r} (line {call.lineno}); "
+            f"it must be 'run_date' — end_date is the NHL API lookahead and "
+            f"writes future-dated artifacts")
+        # end_date must remain the API window bound; it is simply the wrong
+        # thing to hand the RFE recorder.
+        assert day.id != "end_date"
+
+    # The horizon must still be what bounds the API window, or the slate
+    # would stop covering upcoming games.
+    assert "end_date, window_end = _env_end_bounds()" in src, (
+        "the NHL API window is no longer bounded by _env_end_bounds()")
 
 
 def _run_all() -> int:

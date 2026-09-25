@@ -61,6 +61,38 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("nhl_master_pipeline")
 
 
+def _log_coverage_verdict(cov_rows: list[dict]) -> None:
+    """One honest line per coverage window: measured, cold (by design), warm.
+
+    Only WARM nulls are defects. A reader who sees a coverage percentage with
+    no such split cannot tell "the season started" from "something is broken",
+    and the goalie family once read 96-98% on a decided pool that was
+    publishing nulls for every slate game.
+    """
+    for window in sorted({r.get("window", "?") for r in cov_rows}):
+        rows = [r for r in cov_rows if r.get("window") == window]
+        if not rows:
+            continue
+        warm = [r for r in rows if int(r.get("n_warm_null") or 0) > 0]
+        cold = sum(int(r.get("n_cold_null") or 0) for r in rows)
+        total = sum(int(r.get("n_measured") or 0) for r in rows)
+        elig = sum(int(r.get("n_games") or 0) - int(r.get("n_cold_null") or 0)
+                   for r in rows)
+        pct = round(100.0 * total / elig, 3) if elig else 0.0
+        logger.info("coverage [%s]: %d/%d features, %.3f%% measured on eligible "
+                    "games, %d cold null(s) by design (team debut)",
+                    window, len(rows), len(rows), pct, cold)
+        if warm:
+            detail = ", ".join(
+                f"{r['feature']}({int(r['n_warm_null'])} {r.get('cause', 'null')})"
+                for r in warm[:8])
+            logger.warning("coverage [%s]: %d feature(s) with WARM nulls — a "
+                           "defect, not a cold start: %s", window, len(warm), detail)
+        else:
+            logger.info("coverage [%s]: no warm nulls — every warm game measured",
+                        window)
+
+
 def _banner(phase: str, msg: str = "") -> None:
     print(f"\n{'-' * 70}\n  {phase} - {msg}\n{'-' * 70}\n", flush=True)
 
@@ -410,6 +442,17 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 10", "final full-history refit")
     final_models, _ = ml_mod.fit_final_models(game_df)
     final_reg = dist_mod.fit_final(game_df)
+    # This phase builds the models that ACTUALLY SERVE tonight. It used to log
+    # nothing at all, so a silently degraded refit (an all-NaN regressor, a
+    # member that failed to fit) left no trace in the run log even though the
+    # shipped joblib was already written. Report what was fitted and on what.
+    _fitted = sorted(final_models) if hasattr(final_models, "__iter__") else []
+    logger.info("final refit: %d moneyline member(s) %s + 1 distribution "
+                "regressor on %d decided games",
+                len(_fitted), _fitted or "(none)", len(game_df))
+    if not _fitted:
+        logger.warning("final refit produced NO moneyline members — the shipped "
+                       "joblib cannot score a slate")
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
@@ -446,10 +489,19 @@ def main(argv: list[str] | None = None) -> int:
         slate = dist_mod.apply_market_calibration(slate, market_calibration)
 
     # ── 4.5. Record-only RFE + workbook ───────────────────────────────────
+    # Stamp with run_date, NOT end_date. `end_date` is the NHL API window
+    # bound and operators routinely push it past today (NHL_END_DATE=2026-09-29
+    # on the 2026-09-25 run) so the slate covers upcoming games — that is a
+    # LOOKAHEAD, not the run's own date. Using it here wrote
+    # nhl_feature_selection_20260929.json / nhl_feature_workbook_2026-09-29.xlsx
+    # four days in the future, the only NHL artifacts disagreeing with the
+    # `date_c` every other artifact uses. MLB has a single date variable for
+    # the window, the RFE trace and the artifact stamps, so the two cannot
+    # diverge there; matching that means the RFE trace carries the run date.
     _rfe: dict = {"ran": False, "reason": "NHL_RFE_FORCE not set"}
     try:
         from feature_selection import maybe_run_rfe
-        _rfe = maybe_run_rfe(game_df, end_date)
+        _rfe = maybe_run_rfe(game_df, run_date)
         if _rfe.get("ran"):
             logger.info("RFE: mode=%s trials=%s selected=%s trace=%s",
                         _rfe.get("run_mode"), _rfe.get("n_trials"),
@@ -575,6 +627,13 @@ def main(argv: list[str] | None = None) -> int:
         final_models, weights, feature_frame=game_df)
     drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
     cov_rows = monitoring.coverage(game_df, slate_df=slate)
+    # The Phase 3 table is a single coverage_pct per feature, which counts a
+    # team's FIRST game (no prior history exists — cold nulls, by design) the
+    # same as a genuine defect. A run logging 14 features at "99.28%" reads as
+    # a data problem when the honest verdict is that every warm game is
+    # measured. This is the split, and it was computed here all along but
+    # written only to the artifact — invisible to whoever is watching a run.
+    _log_coverage_verdict(cov_rows)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
         out_dir, date_c, game_df, recent, weights=feature_weights,
         slate_df=slate)

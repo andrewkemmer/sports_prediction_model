@@ -177,6 +177,101 @@ def _all_text(at: AppTest) -> str:
     return "\n".join(chunks)
 
 
+def _prequential_frame(n: int = 600, seed: int = 11) -> pd.DataFrame:
+    """A history whose calibrated column is a PIECEWISE map, like production.
+
+    Production scores every OOF game with a Platt map fitted on strictly
+    prior folds, so the stored calibrated column is not any single global
+    logistic map of the raw probability — it is a different map per fold. A
+    frontend that refitted a smooth curve would therefore NOT reproduce it,
+    which is what makes the contract below detectable.
+    """
+    hist = _history_frame(n)
+    rng = np.random.default_rng(seed)
+    raw = pd.to_numeric(hist["home_win_prob_model"], errors="coerce").to_numpy(float)
+    z = np.log(raw / (1.0 - raw))
+    fold = np.arange(n) % 5                      # five "folds", five maps
+    slope = np.array([0.8, 1.3, 2.0, 0.5, 1.7])[fold]
+    shift = np.array([-0.2, 0.1, 0.3, -0.4, 0.0])[fold]
+    noise = rng.normal(0.0, 0.01, n)
+    hist["home_win_prob_model_calibrated"] = np.round(
+        1.0 / (1.0 + np.exp(-(slope * z + shift + noise))), 4)
+    return hist
+
+
+def _curve_contract_problems() -> list[str]:
+    """The published curve must BE the production calibration, not a refit.
+
+    Pins the property that makes the dashboard honest: the green curve is a
+    pure group-by of the calibrated column the pipeline already scored, so
+    the chart reproduces the exact calibration behind the headline ECE. A
+    refit in the frontend would look identical for a smooth synthetic map and
+    silently diverge for the piecewise prequential map production emits —
+    which is exactly the case exercised here.
+    """
+    import moneyline_calibration as mlc
+
+    problems: list[str] = []
+    hist = _prequential_frame()
+    try:
+        pts = mlc.favored_oof_calibration_pts(hist)
+    except Exception as exc:  # noqa: BLE001
+        return [f"favored_oof_calibration_pts raised: {exc}"]
+    if pts.empty:
+        return ["favored_oof_calibration_pts returned nothing for a populated "
+                "history — the published calibration curve would be missing"]
+
+    raw = pd.to_numeric(hist["home_win_prob_model"], errors="coerce")
+    cal = pd.to_numeric(hist["home_win_prob_model_calibrated"], errors="coerce")
+    ok = raw.notna() & cal.notna()
+    raw_fav = np.maximum(raw[ok], 1.0 - raw[ok])
+    cal_fav = np.where(raw[ok] >= 0.5, cal[ok], 1.0 - cal[ok])
+    bins = (raw_fav / mlc.FAVORED_BIN).round() * mlc.FAVORED_BIN
+    manual = (pd.DataFrame({"prob": bins, "cal_mean": cal_fav})
+              .groupby("prob")
+              .agg(cal_mean=("cal_mean", "mean"), n=("cal_mean", "size"))
+              .reset_index())
+    merged = pts.merge(manual, on="prob", how="outer", suffixes=("_fe", "_man"))
+    if len(merged) != len(manual):
+        problems.append(f"curve has {len(pts)} bins, the stored column groups "
+                        f"into {len(manual)}")
+    if not merged.empty:
+        dmean = float(np.nanmax(np.abs(merged["cal_mean_fe"]
+                                        - merged["cal_mean_man"])))
+        dn = float(np.nanmax(np.abs(merged["n_fe"] - merged["n_man"])))
+        if dmean > 1e-12:
+            problems.append(f"curve deviates from the stored OOF calibrated "
+                            f"column by {dmean:.3e} — it is not a group-by")
+        if dn > 0:
+            problems.append(f"curve game counts differ from the stored column "
+                            f"by {dn:.0f}")
+    if int(pts["n"].sum()) != int(ok.sum()):
+        problems.append(f"curve counts {int(pts['n'].sum())} games, the OOF "
+                        f"history holds {int(ok.sum())} — a game is double-"
+                        f"counted or dropped")
+    # Non-vacuity: a single global refit CANNOT reproduce the stored
+    # prequential values, so this check would catch a frontend refit.
+    if "correct" not in hist.columns:
+        return problems + [f"fixture lost its {['correct']} label column"]
+    yy = pd.to_numeric(hist["correct"], errors="coerce").to_numpy(float)
+    m = ok.to_numpy()
+    if m.sum() > 4 and len(np.unique(yy[m])) > 1:
+        X = np.column_stack([np.log(raw_fav / (1.0 - raw_fav)), np.ones(m.sum())])
+        coef, *_ = np.linalg.lstsq(X, yy[m], rcond=None)
+        refit = 1.0 / (1.0 + np.exp(-(X @ coef)))
+        dev = float(np.mean(np.abs(refit - cal_fav)))
+        if dev < 1e-6:
+            problems.append(f"fixture is too smooth (a global refit reproduces "
+                            f"the stored column to {dev:.3e}), so the check "
+                            f"cannot detect a refit")
+    return problems
+
+
+def test_calibration_curve_is_the_production_oof_calibration():
+    problems = _curve_contract_problems()
+    assert not problems, "; ".join(problems)
+
+
 def run() -> int:
     _write_artifacts()
     problems: list[str] = []
@@ -248,6 +343,12 @@ def run() -> int:
         if "No per-game prediction history" in text:
             problems.append("history table empty/info line instead of populated rows")
 
+        # (7) the published calibration curve IS the production OOF
+        #     calibration — a pure group-by of the stored prequential column,
+        #     never a refit. Checked on a piecewise (per-fold) map, which is
+        #     what production emits and which no global refit reproduces.
+        problems.extend(_curve_contract_problems())
+
         if problems:
             print("CALIBRATION SMOKE TEST — FAIL (sport=nfl)")
             for p in problems:
@@ -259,6 +360,8 @@ def run() -> int:
         print(f"  - no exceptions; {n_curves} Altair curve chart(s) rendered")
         print("  - record summary + 4 KPIs + Platt banner + reliability table"
               " (w/ TOTAL) + populated history table")
+        print("  - calibration curve is a group-by of the stored prequential "
+              "OOF column (no frontend refit)")
 
         # sport=mlb must still run the SAME shared path, no exception.
         mlb = AppTest.from_file(str(FRONTEND_DIR / "model_calibration.py"),

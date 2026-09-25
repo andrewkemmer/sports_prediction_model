@@ -269,12 +269,18 @@ def apply_distribution(df: pd.DataFrame, params: dict | None = None,
 
 
 def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
+                     progress_every: int = 25,
                      fold_list: list | None = None) -> dict:
     """Fit two LightGBM Poisson models on shared walk-forward folds."""
     df = folds_mod.canonical_sort(game_df, date_col)
     fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
     parts: list[pd.DataFrame] = []
     fold_rows: list[dict] = []
+    n_folds = len(fold_list)
+    # This walk-forward logged ONLY on failure, so a healthy 13s phase and a
+    # crash were indistinguishable in the run log. Same checkpoint cadence as
+    # moneyline.walk_forward_oof (see folds.progress_checkpoints).
+    announce = set(folds_mod.progress_checkpoints(n_folds, progress_every))
     for fold in fold_list:
         train, val = df.loc[fold.train_idx], df.loc[fold.val_idx]
         try:
@@ -300,7 +306,11 @@ def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
                           "val_start": str(fold.val_start.date()),
                           "val_end": str(fold.val_end.date()),
                           "n_train": int(len(train)), "n_val": int(len(val))})
+        if (fold.fold_id + 1) in announce:
+            logger.info("dist OOF fold %d/%d", fold.fold_id + 1, n_folds)
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    logger.info("dist OOF complete: %d fold(s), %d scored row(s)",
+                n_folds, len(oof))
     if len(oof):
         oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])
         oof["resid_total"] = oof["total"] - (oof["mu_h"] + oof["mu_a"])

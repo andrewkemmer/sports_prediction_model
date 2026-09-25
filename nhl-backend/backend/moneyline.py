@@ -172,6 +172,13 @@ def walk_forward_oof(game_df: pd.DataFrame,
     oof_y: list[float] = []
     _last_weights: dict[str, float] = dict(prior_weights)
 
+    n_folds = len(fold_list)
+    # Cadence and the final-fold guarantee live in folds.progress_checkpoints:
+    # a fixed 25-fold cadence prints only "25/46" on a 46-fold run (50 never
+    # arrives) and never says "done", which is what made the 2026-09-25 RFE
+    # sweep print the same line 121 times over ~24 minutes.
+    announce = set(folds_mod.progress_checkpoints(n_folds, progress_every))
+
     for fold in fold_list:
         train = df.loc[fold.train_idx]
         val = df.loc[fold.val_idx]
@@ -250,11 +257,13 @@ def walk_forward_oof(game_df: pd.DataFrame,
             "n_val": int(len(val)),
         })
         oof_parts.append(rows)
-        if (fold.fold_id + 1) % progress_every == 0:
-            logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1,
-                        len(fold_list))
+        if (fold.fold_id + 1) in announce:
+            logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1, n_folds)
 
     oof = pd.concat(oof_parts, ignore_index=True) if oof_parts else pd.DataFrame()
+    logger.info("moneyline OOF complete: %d fold(s), %d scored row(s), "
+                "final weights %s", n_folds, len(oof),
+                ", ".join(f"{k}={v:.3f}" for k, v in sorted(_last_weights.items())))
 
     # The last rolling update is the full-population optimum — the shipped
     # weight for serving and the dashboard.
