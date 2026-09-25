@@ -1780,6 +1780,43 @@ def _player_lines_from_espn_summary(payload: Any, event_id: str,
     return rows
 
 
+def _player_slices(missing: pd.DataFrame, days: int
+                   ) -> list[tuple[date, date, pd.DataFrame]]:
+    """The games still to fetch, cut into the pull's own slices.
+
+    The player walk is the longest per-game loop in the backend — a full window
+    is a few thousand requests — so it reports itself the way every other slice
+    does: one line per slice with its game count.  A log reader can watch it
+    move rather than only seeing that it started, which matters because the
+    drawable bar is suppressed anywhere stderr is captured.  Games whose date
+    could not be read come back as a final unslotted pass rather than being
+    dropped: a missing date is not a reason to skip a request.
+    """
+    dated = pd.to_datetime(missing["gameday"], errors="coerce")
+    undated = missing[dated.isna()]
+    dated_rows = missing[dated.notna()]
+    if dated_rows.empty:
+        return [(missing["gameday"].min(), missing["gameday"].min(), undated)]
+    first = dated[dated.notna()].min().date()
+    last = dated[dated.notna()].max().date()
+    slices: list[tuple[date, date, pd.DataFrame]] = []
+    cursor = first
+    while cursor <= last:
+        _, chunk_end = _chunk_bounds(cursor, last, days)
+        # Half-open at the top, exactly as _report_chunk_gaps slices: the
+        # boundary day belongs to the next slice only. Closing both ends would
+        # count it twice and pay for the same game twice.
+        gamedays = pd.to_datetime(dated_rows["gameday"], errors="coerce")
+        rows = dated_rows[(gamedays >= pd.Timestamp(cursor))
+                          & (gamedays < pd.Timestamp(chunk_end)
+                             + pd.Timedelta(days=1))]
+        slices.append((cursor, chunk_end, rows))
+        cursor = chunk_end + timedelta(days=1)
+    if not undated.empty:
+        slices.append((last, last, undated))
+    return slices
+
+
 def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float, path: Path,
                                  *, budget_sec: float | None = None
                                  ) -> pd.DataFrame:
@@ -1791,6 +1828,10 @@ def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float, path: Path,
     is a handful of games rather than a rebuild.  A refusal streak ends the
     walk the same way the per-game CDN walk ends, and the verdict it leaves
     behind means the next run does not pay for the discovery twice.
+
+    Walked in the pull's own 60-day slices with a game-count line each and a
+    bar across the whole walk, so the run is visibly moving rather than silent
+    for half an hour.
 
     Budget-capped, following MLB's ``_topup_roof_cache``: the walk stops when
     the budget runs out, logs how far it got, and returns the lines it has.
@@ -1821,31 +1862,43 @@ def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float, path: Path,
     asked = 0
     fetched = 0
     start = time.monotonic()
-    for row in progress.wrap(missing.itertuples(index=False), len(missing),
-                             "ESPN box scores", unit="game"):
-        if time.monotonic() - start >= budget_sec:
-            logger.info("ESPN player box scores: budget exhausted after %d/%d "
-                        "fetches — remaining %d will retry next run",
-                        fetched, len(missing), len(missing) - fetched)
-            break
-        try:
-            payload = _get_json(ESPN_SUMMARY_URL.format(event=row.game_id),
-                                allow_missing=True, retries=2, pause=pause,
-                                verbose=False)
-        except HostBlocked as exc:
-            logger.warning("ESPN player box scores stopped after %d of %d "
-                           "games: %s", asked, len(missing), exc)
-            break
-        asked += 1
-        rows = _player_lines_from_espn_summary(
-            payload, str(row.game_id), row.home_team, row.away_team,
-            home_score=getattr(row, "home_score", None),
-            away_score=getattr(row, "away_score", None))
-        if rows:
-            fetched += 1
-            frames.append(pd.DataFrame(rows).assign(
-                gameday=pd.to_datetime(row.gameday, errors="coerce"),
-                game_type=row.game_type))
+    days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
+    stopped = ""
+    with progress.track(len(missing), desc="ESPN box scores", unit="game") as bar:
+        for cursor, chunk_end, rows in _player_slices(missing, days):
+            if stopped:
+                break
+            logger.info("  chunk %s -> %s: %d games", cursor, chunk_end,
+                        len(rows))
+            bar.set_postfix(f"{cursor}..{chunk_end} {len(rows)}g")
+            for row in rows.itertuples(index=False):
+                if time.monotonic() - start >= budget_sec:
+                    stopped = ("ESPN player box scores: budget exhausted after "
+                               f"{fetched}/{len(missing)} fetches — remaining "
+                               f"{len(missing) - fetched} will retry next run")
+                    break
+                try:
+                    payload = _get_json(
+                        ESPN_SUMMARY_URL.format(event=row.game_id),
+                        allow_missing=True, retries=2, pause=pause,
+                        verbose=False)
+                except HostBlocked as exc:
+                    stopped = (f"ESPN player box scores stopped after {asked} "
+                               f"of {len(missing)} games: {exc}")
+                    break
+                asked += 1
+                lines = _player_lines_from_espn_summary(
+                    payload, str(row.game_id), row.home_team, row.away_team,
+                    home_score=getattr(row, "home_score", None),
+                    away_score=getattr(row, "away_score", None))
+                if lines:
+                    fetched += 1
+                    frames.append(pd.DataFrame(lines).assign(
+                        gameday=pd.to_datetime(row.gameday, errors="coerce"),
+                        game_type=row.game_type))
+                bar.update(1)
+    if stopped:
+        logger.info(stopped)
     merged = (pd.concat(frames, ignore_index=True) if frames
               else cached)
     if not merged.empty:

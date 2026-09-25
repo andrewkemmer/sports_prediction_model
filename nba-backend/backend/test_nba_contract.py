@@ -1944,6 +1944,57 @@ def test_the_player_pull_asks_only_for_games_it_lacks(monkeypatch, tmp_path) -> 
     assert len(second) == len(first)
 
 
+def test_the_player_walk_reports_itself_in_sixty_day_slices(
+        monkeypatch, tmp_path, caplog) -> None:
+    """The walk is the longest per-game loop here, so it has to be visible.
+
+    The drawable bar is suppressed anywhere stderr is captured, which is exactly
+    where this runs.  A log line per slice, with its game count, is what makes
+    a multi-thousand-request walk look alive instead of stalled.
+    """
+    ing._HOST_REFUSALS.clear()
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(ing, "_get_json",
+                        lambda url, **kw: _espn_summary("BOS", "NYK"))
+    days = pd.date_range("2024-10-22", periods=150, freq="D")
+    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": d,
+                           "home_team": "BOS", "away_team": "NYK",
+                           "game_type": 1} for i, d in enumerate(days)])
+    with caplog.at_level(logging.INFO, logger="ingestion"):
+        out = ing._pull_player_stats_from_espn(
+            games, 0.0, tmp_path / "espn_player_stats.parquet")
+    chunks = [line for line in caplog.text.splitlines() if "chunk" in line]
+    assert len(chunks) == 3, f"150 days is three 60-day slices, got {len(chunks)}"
+    assert "2024-10-22 -> 2024-12-20: 60 games" in caplog.text
+    assert len(out) == 150 * 3, "every game must be walked exactly once"
+
+
+def test_a_boundary_day_belongs_to_one_slice_and_not_two() -> None:
+    """Closing both ends of a slice pays for the same game twice."""
+    rows = pd.DataFrame([
+        {"game_id": "a", "gameday": "2024-03-01", "home_team": "BOS",
+         "away_team": "NYK", "game_type": 1},
+        {"game_id": "b", "gameday": "2024-03-02", "home_team": "BOS",
+         "away_team": "NYK", "game_type": 1},
+    ])
+    slices = ing._player_slices(rows, 1)
+    seen = [r.game_id for _, _, frame in slices for r in frame.itertuples()]
+    assert sorted(seen) == ["a", "b"], f"a game was sliced twice: {seen}"
+
+
+def test_a_game_with_no_readable_date_is_still_asked_about() -> None:
+    """A missing date is a reason to log oddly, never to skip a request."""
+    rows = pd.DataFrame([
+        {"game_id": "ok", "gameday": "2024-10-22", "home_team": "BOS",
+         "away_team": "NYK", "game_type": 1},
+        {"game_id": "bad", "gameday": "not-a-date", "home_team": "BOS",
+         "away_team": "NYK", "game_type": 1},
+    ])
+    seen = [r.game_id for _, _, frame in ing._player_slices(rows, 60)
+            for r in frame.itertuples()]
+    assert sorted(seen) == ["bad", "ok"]
+
+
 def test_a_slow_host_cannot_spend_the_whole_run_on_the_player_walk(
         monkeypatch, tmp_path, caplog) -> None:
     """A host that is slow rather than refusing must still hit a ceiling.
