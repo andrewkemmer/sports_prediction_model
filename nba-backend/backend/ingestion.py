@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import time
 import urllib.error
@@ -90,7 +91,18 @@ RETRIES_ENV = "NBA_HTTP_RETRIES"
 REFRESH_TAIL_DAYS = 3
 DEFAULT_PAUSE_SEC = 0.35
 DEFAULT_RETRIES = 4
-HTTP_TIMEOUT_SEC = 45
+
+# Per-host request policy.  stats.nba.com answers one query with a whole
+# season of player lines and can take a minute; the CDN is fast and its 403 is
+# authoritative ("no such game"), so retrying one only wastes the run.
+_HOST_POLICY: dict[str, dict[str, Any]] = {
+    "stats.nba.com": {"timeout": 150, "attempts": 6, "backoff": 4.0,
+                      "retry_forbidden": False},
+    "cdn.nba.com": {"timeout": 60, "attempts": 4, "backoff": 0.5,
+                    "retry_forbidden": True},
+    "default": {"timeout": 60, "attempts": 4, "backoff": 1.0,
+                "retry_forbidden": False},
+}
 
 SEASON_TYPE_REGULAR = "Regular Season"
 SEASON_TYPE_PLAYOFFS = "Playoffs"
@@ -153,39 +165,88 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+class SeasonUnavailable(RuntimeError):
+    """One season log could not be read; other seasons may still succeed."""
+
+
 def _get_json(url: str, *, headers: dict[str, str] | None = None,
               retries: int | None = None, pause: float | None = None,
               allow_missing: bool = False) -> Any | None:
-    """Fetch JSON with backoff, returning ``None`` for a tolerated 404.
+    """Fetch JSON with per-host timeout, backoff, and retry policy.
 
-    The upstream endpoints throttle aggressively and answer a rejected client
-    with 403, so a single failure is never treated as a final answer.
+    The two hosts behave nothing alike.  ``stats.nba.com`` serves a whole
+    season of player lines from one very slow query that regularly takes tens
+    of seconds and has timed out from cloud hosts, so it gets a long timeout,
+    several attempts, and a backoff measured in seconds.  ``cdn.nba.com`` is a
+    CDN: fast, and its 403 means "this game does not exist" rather than
+    "slow down", so a 403 is answered immediately instead of being retried
+    into a stall.
     """
-    attempts = retries if retries is not None else _int_env(RETRIES_ENV, DEFAULT_RETRIES)
-    wait = pause if pause is not None else _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    host = urllib.parse.urlparse(url).netloc
+    policy = _HOST_POLICY.get(host, _HOST_POLICY["default"])
+    attempts = retries if retries is not None else _int_env(
+        RETRIES_ENV, policy["attempts"])
+    base = policy["backoff"] if pause is None else max(pause, 0.0)
+    timeout = policy["timeout"]
     last: Exception | None = None
+    reason = "unknown"
+    made = 0
     for attempt in range(max(attempts, 1)):
+        made = attempt + 1
         try:
             request = urllib.request.Request(url, headers=headers or _HTTP_HEADERS)
-            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SEC) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read())
         except urllib.error.HTTPError as exc:
             last = exc
-            if exc.code == 404 and allow_missing:
+            reason = f"HTTP {exc.code}"
+            if exc.code in (403, 404) and allow_missing:
                 return None
-            # 4xx other than throttling will not improve with a retry.
-            if exc.code < 500 and exc.code not in (403, 429):
+            # A 403 from the CDN means the artifact is absent; a 403 from
+            # stats means the client was rejected and retrying will not help.
+            if exc.code in (403, 404) and not policy["retry_forbidden"]:
                 break
+            if exc.code < 500 and exc.code not in (429, 403):
+                break
+        except urllib.error.URLError as exc:
+            last = exc
+            reason = f"{type(exc.reason).__name__}: {exc.reason}"
         except Exception as exc:  # noqa: BLE001 - network layer is untyped
             last = exc
-        time.sleep(wait * (2 ** attempt))
-    raise RuntimeError(f"NBA request failed after {attempts} attempts: {url} "
-                       f"({last})")
+            reason = f"{type(exc).__name__}: {exc}"
+        if attempt + 1 < max(attempts, 1):
+            # Jitter keeps concurrent clients from retrying in lockstep.
+            delay = base * (2 ** attempt)
+            time.sleep(delay * (0.5 + random.random()))
+    raise RuntimeError(
+        f"NBA request to {host} failed after {made} attempt(s) "
+        f"({reason}); endpoint={urllib.parse.urlparse(url).path} :: {last}")
+
+def _season_log_path(season: str, season_type: str) -> Path:
+    """Per-season cache file, so one bad season never discards the others."""
+    slug = "regular" if season_type == SEASON_TYPE_REGULAR else "playoffs"
+    return config.CACHE_DIR / f"season_log_{season}_{slug}.parquet"
 
 
 def _fetch_season_log(season: str, season_type: str,
                       pause: float) -> pd.DataFrame:
-    """One request per season and season type: every player game log line."""
+    """One request per season and season type, cached on disk as it lands.
+
+    The cache is the point: seasons arrive one at a time, so writing each as
+    soon as it is read means a timeout on the fifth season costs one request
+    next run rather than the whole pull.
+    """
+    path = _season_log_path(season, season_type)
+    if path.exists() and not _flag(FULL_REPULL_ENV, False):
+        try:
+            cached = pd.read_parquet(path)
+            if not cached.empty:
+                logger.info("%s %s: %d lines from cache", season, season_type,
+                            len(cached))
+                return cached
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read %s (%s); re-fetching", path.name, exc)
+
     query = urllib.parse.urlencode({
         "LeagueID": "00", "PerMode": "PerGame", "Season": season,
         "SeasonType": season_type, "College": "", "Conference": "",
@@ -199,14 +260,23 @@ def _fetch_season_log(season: str, season_type: str,
         "VsDivision": "", "Weight": "",
     })
     time.sleep(pause)
-    payload = _get_json(f"{SEASON_LOG_URL}?{query}", headers=_STATS_HEADERS)
+    try:
+        payload = _get_json(f"{SEASON_LOG_URL}?{query}", headers=_STATS_HEADERS)
+    except RuntimeError as exc:
+        raise SeasonUnavailable(f"{season} {season_type}: {exc}") from exc
     if not payload or not payload.get("resultSets"):
         return pd.DataFrame()
     block = payload["resultSets"][0]
     rows = block.get("rowSet") or []
     if not rows:
         return pd.DataFrame()
-    return pd.DataFrame(rows, columns=block["headers"])
+    frame = pd.DataFrame(rows, columns=block["headers"])
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache %s (%s)", path.name, exc)
+    return frame
 
 
 def _fetch_schedule(pause: float) -> pd.DataFrame:
@@ -668,13 +738,26 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
 
 def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                                                    pd.DataFrame, dict[str, str]]:
-    """Fetch every season log overlapping the window and normalize it."""
+    """Fetch every season log overlapping the window and normalize it.
+
+    A season that cannot be read is recorded and skipped rather than ending the
+    run, because the coverage gates downstream decide whether what did arrive
+    is enough to train on.  Only a total failure raises here, and it names the
+    endpoint so the cause is diagnosable from the log alone.
+    """
     pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
     logs: list[pd.DataFrame] = []
+    unavailable: list[str] = []
     for season in _seasons_in(start, end):
         for season_type, game_type in ((SEASON_TYPE_REGULAR, config.GAME_TYPE_REG),
                                        (SEASON_TYPE_PLAYOFFS, config.GAME_TYPE_POST)):
-            raw = _fetch_season_log(season, season_type, pause)
+            try:
+                raw = _fetch_season_log(season, season_type, pause)
+            except SeasonUnavailable as exc:
+                unavailable.append(f"{season} {season_type}")
+                logger.error("NBA season log unavailable, continuing without "
+                             "it: %s", exc)
+                continue
             frame = _prepare_log(raw, game_type)
             if frame.empty:
                 logger.info("%s %s returned no games", season, season_type)
@@ -682,11 +765,19 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
             logger.info("%s %s: %d player lines across %d games", season,
                         season_type, len(frame), frame.game_id.nunique())
             logs.append(frame)
+    if unavailable:
+        logger.warning("NBA could not read %d of the requested season logs: %s. "
+                       "Anything already fetched is cached, so the next run "
+                       "retries only these.", len(unavailable),
+                       ", ".join(unavailable))
     if not logs:
         raise RuntimeError(
-            f"NBA returned no games for {start}..{end}. NBA.com rejected or "
-            "emptied every season request; retry later rather than training on "
-            "an empty window.")
+            f"NBA returned no games for {start}..{end}; every season log "
+            f"failed ({', '.join(unavailable) or 'none attempted'}). The "
+            "upstream endpoint is stats.nba.com/stats/LeagueGameLog, which "
+            "needs no key but can be slow or blocked by cloud hosts. Retry, or "
+            "narrow NBA_START_DATE/NBA_END_DATE to a window whose seasons are "
+            "already cached under NBA_CACHE_DIR.")
     log = pd.concat(logs, ignore_index=True)
     log = log[(log.gameday >= pd.Timestamp(start))
               & (log.gameday <= pd.Timestamp(end) + pd.Timedelta(days=1))]

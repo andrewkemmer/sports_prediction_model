@@ -324,8 +324,81 @@ def test_get_json_gives_up_and_names_the_url(monkeypatch) -> None:
 
     monkeypatch.setattr(ing.urllib.request, "urlopen", always_403)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
-    with pytest.raises(RuntimeError, match="NBA request failed"):
+    with pytest.raises(RuntimeError) as exc:
         ing._get_json("https://example.test/missing", retries=2, pause=0)
+    assert "failed after 1 attempt" in str(exc.value)
+    assert "/missing" in str(exc.value)
+
+
+def test_stats_forbidden_is_not_retried_into_a_stall(monkeypatch) -> None:
+    """stats.nba.com answers 403 to a rejected client; retrying only wastes time."""
+    attempts = {"n": 0}
+
+    def rejected(request, timeout=None):
+        attempts["n"] += 1
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        ing._get_json("https://stats.nba.com/stats/LeagueGameLog?Season=2024-25",
+                      headers=ing._STATS_HEADERS)
+    assert attempts["n"] == 1
+
+
+def test_cdn_forbidden_is_treated_as_a_missing_game(monkeypatch) -> None:
+    """The CDN's 403 means the game does not exist, so it must not be retried."""
+    attempts = {"n": 0}
+
+    def absent(request, timeout=None):
+        attempts["n"] += 1
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", absent)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    assert ing._get_json("https://cdn.nba.com/static/json/liveData/boxscore/"
+                         "boxscore_0022409999.json", allow_missing=True) is None
+    assert attempts["n"] == 1
+
+
+def test_stats_requests_get_a_long_timeout(monkeypatch) -> None:
+    """The season-log query is slow; a 45s ceiling is what killed the run."""
+    seen = {}
+
+    class Slow:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"ok": True}).encode()
+
+    def opener(request, timeout=None):
+        seen["timeout"] = timeout
+        return Slow()
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
+    ing._get_json("https://stats.nba.com/stats/x", headers=ing._STATS_HEADERS)
+    assert seen["timeout"] == ing._HOST_POLICY["stats.nba.com"]["timeout"]
+    assert seen["timeout"] >= 120
+
+
+def test_a_timeout_is_retried_then_reported(monkeypatch) -> None:
+    attempts = {"n": 0}
+
+    def slow(request, timeout=None):
+        attempts["n"] += 1
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", slow)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    with pytest.raises(RuntimeError) as exc:
+        ing._get_json("https://stats.nba.com/stats/LeagueGameLog",
+                      headers=ing._STATS_HEADERS)
+    assert attempts["n"] == ing._HOST_POLICY["stats.nba.com"]["attempts"]
+    assert "TimeoutError" in str(exc.value)
 
 
 def test_get_json_tolerates_a_missing_game(monkeypatch) -> None:
@@ -350,6 +423,83 @@ def test_get_json_does_not_retry_a_client_error(monkeypatch) -> None:
     with pytest.raises(RuntimeError):
         ing._get_json("https://example.test/bad", retries=4, pause=0)
     assert attempts["n"] == 1
+
+
+# --------------------------------------------------------------------------
+# Season log caching and partial failure
+# --------------------------------------------------------------------------
+
+
+def test_season_log_is_cached_as_it_lands(monkeypatch) -> None:
+    """A season that arrives must be durable and must not be re-requested."""
+    payload = {"resultSets": [{"headers": ["GAME_ID", "PTS"],
+                               "rowSet": [["0022400001", 110]]}]}
+    calls: list[str] = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return payload
+
+    monkeypatch.setattr(ing, "_get_json", fake_get)
+    first = ing._fetch_season_log("2024-25", ing.SEASON_TYPE_REGULAR, 0.0)
+    assert len(first) == 1
+    assert len(calls) == 1
+    assert ing._season_log_path("2024-25", ing.SEASON_TYPE_REGULAR).exists()
+    second = ing._fetch_season_log("2024-25", ing.SEASON_TYPE_REGULAR, 0.0)
+    assert len(second) == 1
+    assert len(calls) == 1, "a cached season must not hit the network again"
+
+
+def test_one_unreadable_season_does_not_end_the_run(monkeypatch) -> None:
+    def fake(season, season_type, pause):
+        if season == "2024-25":
+            raise ing.SeasonUnavailable(f"{season} {season_type}: timeout")
+        return pd.DataFrame(season_log_rows())
+
+    monkeypatch.setattr(ing, "_fetch_season_log", fake)
+    monkeypatch.setattr(ing, "_pull_play_by_play",
+                        lambda *a, **k: pd.DataFrame())
+    wh = ing.load_dataset()
+    assert len(wh.games) == len(TEAMS)
+    assert set(wh.games.season) == {2024.0}
+
+
+def test_a_total_season_failure_names_the_endpoint(monkeypatch) -> None:
+    def all_failed(season, season_type, pause):
+        raise ing.SeasonUnavailable(f"{season} {season_type}: timeout")
+
+    monkeypatch.setattr(ing, "_fetch_season_log", all_failed)
+    with pytest.raises(RuntimeError) as exc:
+        ing.load_dataset()
+    message = str(exc.value)
+    assert "every season log failed" in message
+    assert "stats.nba.com/stats/LeagueGameLog" in message
+
+
+def test_season_log_reuses_a_warm_cache(monkeypatch) -> None:
+    path = ing._season_log_path("2024-25", ing.SEASON_TYPE_REGULAR)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(season_log_rows()).to_parquet(path, index=False)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a cached season must not be re-requested")
+
+    monkeypatch.setattr(ing, "_get_json", refuse)
+    frame = ing._fetch_season_log("2024-25", ing.SEASON_TYPE_REGULAR, 0.0)
+    assert len(frame) == 2 * len(TEAMS)
+
+
+def test_full_repull_ignores_a_cached_season(monkeypatch, tmp_path) -> None:
+    path = ing._season_log_path("2024-25", ing.SEASON_TYPE_REGULAR)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(season_log_rows()).to_parquet(path, index=False)
+    monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+    called: list[str] = []
+    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: (
+        called.append(url), {"resultSets": [{"headers": ["GAME_ID"],
+                                              "rowSet": [["x"]]}]})[1])
+    ing._fetch_season_log("2024-25", ing.SEASON_TYPE_REGULAR, 0.0)
+    assert called
 
 
 # --------------------------------------------------------------------------
