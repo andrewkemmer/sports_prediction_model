@@ -71,7 +71,10 @@ _BATCH_DAYS = 14
 _BATCH_SIZE = 15
 _BATCH_PAUSE_SEC = 1.0
 _RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
-_RETRY_ATTEMPTS = 5
+# Open-Meteo enforces a PER-MINUTE quota.  Seven total attempts produce
+# 1/2/4/8/16/32-second waits (plus jitter), allowing a rate-limited batch to
+# survive a full quota reset instead of being lost after five quick retries.
+_RETRY_ATTEMPTS = 7
 _RETRY_BASE_SEC = 2.0
 _RETRY_JITTER_SEC = 0.5
 _SNOWFALL_UNIT_TO_INCH = {
@@ -754,10 +757,16 @@ def fetch_games_weather(
             if record is not None:
                 fresh_rows.append(record)
 
-    combined = pd.concat(
-        [old, pd.DataFrame(fresh_rows, columns=list(CACHE_COLUMNS))],
-        ignore_index=True,
-    )
+    # pandas 2.3 warns when concat receives an empty or all-NA placeholder.
+    # The cache is already validated, so omit those frames and retain the
+    # existing empty-cache fallback and replacement/deduplication semantics.
+    fresh = pd.DataFrame(fresh_rows, columns=list(CACHE_COLUMNS))
+    frames = [
+        frame for frame in (old, fresh)
+        if not frame.empty and bool(frame.notna().to_numpy().any())
+    ]
+    combined = (pd.concat(frames, ignore_index=True) if frames
+                else _empty_weather())
     # New rows replace a stale cache row for the same game, while historical
     # games outside the current request remain available for later fold builds.
     combined = (combined.drop_duplicates("game_id", keep="last")

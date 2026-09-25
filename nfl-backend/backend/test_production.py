@@ -12,7 +12,9 @@ import importlib
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -60,6 +62,12 @@ check("manifest documents all required fields",
                                "representation", "model_family_availability",
                                "feature_version"))
           for e in manifest.FEATURE_MANIFEST.values()))
+_rest_manifest_names = ("rest_days_diff", "rest_short_diff",
+                        "rest_days_home", "rest_days_away")
+check("rest manifest documents season-boundary missingness",
+      all("season" in manifest.FEATURE_MANIFEST[name]["point_in_time_rule"]
+          and "season" in manifest.FEATURE_MANIFEST[name]["missing_value_policy"]
+          for name in _rest_manifest_names))
 
 # ---------------------------------------------------------------------------
 print("\n== 3. Feature tests (leakage / determinism) ==")
@@ -130,6 +138,48 @@ two_f = feat_mod.build_game_features(two)
 check("trailing value uses strictly-prior games only",
       abs(two_f.loc[two_f["game_id"] == "B", "ewm_net_pts_diff"].iloc[0] - (-20.0)) < 1e-9,
       str(two_f.loc[two_f["game_id"] == "B", "ewm_net_pts_diff"].iloc[0]))
+
+# Rest is partitioned by season: openers have no in-season predecessor.
+_rest_boundary_games = pd.DataFrame([
+    {"game_id": "R23-1", "season": 2023, "week": 1, "gameday": "2023-09-01",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 20, "away_score": 10, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+    {"game_id": "R23-2", "season": 2023, "week": 2, "gameday": "2023-09-08",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 21, "away_score": 14, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+    {"game_id": "R24-1", "season": 2024, "week": 1, "gameday": "2024-09-01",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 20, "away_score": 10, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+    {"game_id": "R24-2", "season": 2024, "week": 2, "gameday": "2024-09-08",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 21, "away_score": 14, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Unknown Stadium",
+     "surface": "grass"},
+])
+_rest_boundary = feat_mod.build_game_features(_rest_boundary_games, pbp=None)
+
+
+def _rest_boundary_value(game_id: str, column: str):
+    return _rest_boundary.loc[
+        _rest_boundary["game_id"] == game_id, column].iloc[0]
+
+
+check("season openers have NaN rest instead of an offseason gap",
+      all(pd.isna(_rest_boundary_value(gid, "rest_days_home"))
+          for gid in ("R23-1", "R24-1")))
+check("in-season rest remains the actual game interval",
+      all(float(_rest_boundary_value(gid, "rest_days_home")) == 7.0
+          for gid in ("R23-2", "R24-2")))
+check("season-opener NaN propagates to rest difference and short-rest",
+      all(pd.isna(_rest_boundary_value(gid, column))
+          for gid in ("R23-1", "R24-1")
+          for column in ("rest_days_diff", "rest_short_diff")))
 
 # Same calendar day is still ordered by actual kickoff when available.
 _same_day = pd.DataFrame([
@@ -331,11 +381,44 @@ check("weather cache requires and preserves source/valid/fetch provenance",
       == weather_mod.OPEN_METEO_ARCHIVE
       and _validated_weather_cache.iloc[0]["weather_time_utc"]
       < _validated_weather_cache.iloc[0]["kickoff_utc"])
+# A rate-limited request gets the full seven-attempt ladder.  Keep the test
+# local and deterministic; no network call is made.
+_retry_sleeps = []
+
+
+def _always_429(*args, **kwargs):
+    return mock.Mock(status_code=429, headers={})
+
+
+with mock.patch.object(weather_mod.requests, "get", side_effect=_always_429) as _retry_get, \
+     mock.patch.object(weather_mod.time, "sleep", side_effect=_retry_sleeps.append), \
+     mock.patch.object(weather_mod.random, "uniform", return_value=0.0):
+    _retry_result = weather_mod._get_with_retry("https://weather.test", {})
+check("Open-Meteo 429 retry ladder waits through a quota reset",
+      _retry_get.call_count == weather_mod._RETRY_ATTEMPTS == 7
+      and _retry_sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+      and _retry_result.status_code == 429,
+      f"calls={_retry_get.call_count}, sleeps={_retry_sleeps}")
+
 import tempfile  # noqa: E402
 # The system temp dir, not BACKEND_DIR: a Windows-side parquet handle can defeat
 # TemporaryDirectory cleanup and strand a cache dir inside the repo.
 with tempfile.TemporaryDirectory() as _weather_cache_dir:
     _weather_cache_path = Path(_weather_cache_dir) / "weather.parquet"
+    _concat_empty_path = Path(_weather_cache_dir) / "empty-concat.parquet"
+    _concat_empty_game = pd.DataFrame([{
+        "game_id": "CONCAT_EMPTY", "stadium": "MetLife Stadium",
+        "roof": "outdoors", "gameday": "2024-09-08", "gametime": "13:00",
+    }])
+    with mock.patch.object(weather_mod, "_fetch_batched_weather", return_value={}):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            _concat_empty_result = weather_mod.fetch_games_weather(
+                _concat_empty_game, path=_concat_empty_path,
+                now=pd.Timestamp("2024-09-09T12:00:00Z"))
+    check("weather cache concat skips empty/all-NA frames",
+          _concat_empty_result.empty
+          and list(_concat_empty_result.columns) == list(weather_mod.CACHE_COLUMNS))
     weather_mod._save_cache(_weather_cache_path, _weather_valid)
     _weather_cache_roundtrip = weather_mod.cached_weather_for_games(
         _pit_games, path=_weather_cache_path)
@@ -368,12 +451,14 @@ with tempfile.TemporaryDirectory() as _weather_cache_dir:
     _original_batched_fetch = weather_mod._fetch_batched_weather
     weather_mod._fetch_batched_weather = _fake_pending_fetch
     try:
-        _pending_result_1 = weather_mod.fetch_games_weather(
-            _pending_game, path=_weather_cache_path,
-            now=pd.Timestamp("2024-09-07T12:00:00Z"))
-        _pending_result_2 = weather_mod.fetch_games_weather(
-            _pending_game, path=_weather_cache_path,
-            now=pd.Timestamp("2024-09-07T13:00:00Z"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            _pending_result_1 = weather_mod.fetch_games_weather(
+                _pending_game, path=_weather_cache_path,
+                now=pd.Timestamp("2024-09-07T12:00:00Z"))
+            _pending_result_2 = weather_mod.fetch_games_weather(
+                _pending_game, path=_weather_cache_path,
+                now=pd.Timestamp("2024-09-07T13:00:00Z"))
     finally:
         weather_mod._fetch_batched_weather = _original_batched_fetch
     _pending_weather_refreshed = (
@@ -1078,7 +1163,9 @@ finally:
 
 # ---------------------------------------------------------------------------
 print("\n== 10. Moneyline calibration parity (prequential OOF + favored space) ==")
-# 10a. Guardrails: every unsafe fit yields the identity map (None).
+# 10a. MLB structural guardrails: every unsafe fit yields identity.  There is
+# deliberately no raw-vs-calibrated metric acceptance gate; raw and
+# prequential calibrated metrics are separate diagnostics.
 try:
     _save_mode = ml_mod.get_calibration_mode()
     ml_mod.set_calibration_mode("platt")

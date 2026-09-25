@@ -851,7 +851,14 @@ def team_stats_ladder(events: pd.DataFrame,
 
     srt["form_pts"] = _trailing_per_team(srt, "net_from_team", config.FORM_WINDOW)
     srt["win_pct"] = _trailing_per_team(srt, "team_win", config.WINPCT_WINDOW)
-    srt["rest_days"] = srt.groupby("team", sort=False)["gameday"].diff().dt.days
+    # Rest is a within-season property.  A season opener has no in-season
+    # predecessor; differencing the whole team history would turn the offseason
+    # into a fake 150-260 day "rest" interval.
+    rest_groups = ["team", "season"] if "season" in srt.columns else ["team"]
+    srt["rest_days"] = (
+        srt.groupby(rest_groups, sort=False, dropna=False)["gameday"]
+           .diff().dt.days
+    )
     srt["short_rest"] = np.where(
         srt["rest_days"].notna(), (srt["rest_days"] < 7).astype(float), np.nan)
     srt["ypp"] = (_trailing_per_team(srt, "ypp_game", config.YPP_WINDOW)

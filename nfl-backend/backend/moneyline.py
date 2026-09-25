@@ -428,6 +428,9 @@ def predict_slate(models: dict, slate_df: pd.DataFrame,
 #     ranking);
 #   * a CALIBRATION_MODE switch (platt/identity) gates the moneyline path;
 #   * apply-time method-tag enforcement rejects legacy home-space maps.
+#   * map selection is structural, not metric-based: raw and prequential
+#     calibrated metrics remain separate diagnostics, as in MLB.  Identity is
+#     selected only by the explicit mode or a stated fit guardrail.
 FAVORED_CALIBRATOR_METHOD = "favored_platt_floor"
 FAVORED_PROBABILITY_FLOOR = 0.5
 
