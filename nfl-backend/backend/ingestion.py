@@ -129,7 +129,7 @@ PBP_CACHE_VERSION = "v4"
 
 
 def load_pbp(seasons: list[int] | None = None,
-             use_cache: bool = True) -> pd.DataFrame | None:
+             use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """ nflverse play-by-play narrowed to the columns the rollup needs.
 
     Per-season parquet caches (a season without published PBP — e.g. the
@@ -140,14 +140,21 @@ def load_pbp(seasons: list[int] | None = None,
     frames: list[pd.DataFrame] = []
     missing: list[int] = []
     for season in seasons:
-        path = _cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet")
-        if use_cache and path.exists():
-            try:
-                frames.append(pd.read_parquet(path))
-                continue
-            except Exception as exc:  # corrupt cache → re-pull
-                logger.warning("pbp cache %s unreadable (%s)", path.name, exc)
-        missing.append(season)
+        try:
+            path = _cache_path(f"pbp_{PBP_CACHE_VERSION}_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache → re-pull
+                    logger.warning("pbp cache %s unreadable (%s)", path.name, exc)
+            missing.append(season)
+        finally:
+            # In a finally so a season that raises still advances the bar:
+            # "unreadable cache" and "network error" are exactly the stalls a
+            # progress bar exists to surface, so they must not freeze it.
+            if progress is not None:
+                progress()
     if missing:
         try:
             from nflreadpy import load_pbp
@@ -201,7 +208,7 @@ NGS_NEEDS = {
 
 
 def load_player_stats(seasons: list[int] | None = None,
-                      use_cache: bool = True) -> pd.DataFrame | None:
+                      use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse weekly player stats narrowed to the usage rollup needs.
 
     Per-season parquet caches (PS cache v1); a failed season is warned and
@@ -209,13 +216,17 @@ def load_player_stats(seasons: list[int] | None = None,
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
-        path = _cache_path(f"ps_v1_{season}.parquet")
-        if use_cache and path.exists():
-            try:
-                frames.append(pd.read_parquet(path))
-                continue
-            except Exception as exc:  # corrupt cache → re-pull
-                logger.warning("player-stats cache %s unreadable (%s)", path.name, exc)
+        try:
+            path = _cache_path(f"ps_v1_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache → re-pull
+                    logger.warning("player-stats cache %s unreadable (%s)", path.name, exc)
+        finally:
+            if progress is not None:
+                progress()
         try:
             from nflreadpy import load_player_stats
             logger.info("loading player stats season %s", season)
@@ -233,7 +244,7 @@ def load_player_stats(seasons: list[int] | None = None,
 
 
 def load_nextgen(seasons: list[int] | None = None,
-                 use_cache: bool = True) -> pd.DataFrame | None:
+                 use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse Next-Gen Stats weekly tracking efficiency, all three groups.
 
     Week-0 rows (season aggregates that would leak future performance into
@@ -244,13 +255,19 @@ def load_nextgen(seasons: list[int] | None = None,
     frames: list[pd.DataFrame] = []
     for season in seasons:
         for group in NGS_GROUPS:
-            path = _cache_path(f"ngs_v2_{season}_{group}.parquet")
-            if use_cache and path.exists():
-                try:
-                    frames.append(pd.read_parquet(path))
-                    continue
-                except Exception as exc:
-                    logger.warning("ngs cache %s unreadable (%s)", path.name, exc)
+            try:
+                path = _cache_path(f"ngs_v2_{season}_{group}.parquet")
+                if use_cache and path.exists():
+                    try:
+                        frames.append(pd.read_parquet(path))
+                        continue
+                    except Exception as exc:
+                        logger.warning("ngs cache %s unreadable (%s)", path.name, exc)
+            finally:
+                # One unit per (season, group): NGS iterates three groups, so
+                # the bar denominator must count all three or it stops short.
+                if progress is not None:
+                    progress()
             try:
                 from nflreadpy import load_nextgen_stats
                 logger.info("loading ngs %s season %s", group, season)
@@ -277,7 +294,7 @@ SNAPS_NEEDS = ["game_id", "season", "week", "team", "opponent", "position",
 
 
 def load_snap_counts(seasons: list[int] | None = None,
-                     use_cache: bool = True) -> pd.DataFrame | None:
+                     use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse snap counts narrowed to the participation rollup needs.
 
     Per-season parquet caches (SNAPS cache v1); a failed season is warned
@@ -285,13 +302,17 @@ def load_snap_counts(seasons: list[int] | None = None,
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
-        path = _cache_path(f"snaps_v1_{season}.parquet")
-        if use_cache and path.exists():
-            try:
-                frames.append(pd.read_parquet(path))
-                continue
-            except Exception as exc:  # corrupt cache → re-pull
-                logger.warning("snap-counts cache %s unreadable (%s)", path.name, exc)
+        try:
+            path = _cache_path(f"snaps_v1_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache → re-pull
+                    logger.warning("snap-counts cache %s unreadable (%s)", path.name, exc)
+        finally:
+            if progress is not None:
+                progress()
         try:
             from nflreadpy import load_snap_counts
             logger.info("loading snap counts season %s", season)
@@ -318,7 +339,7 @@ FTN_NEEDS = ["nflverse_game_id", "nflverse_play_id", "season", "week",
 
 
 def load_ftn_charting(seasons: list[int] | None = None,
-                      use_cache: bool = True) -> pd.DataFrame | None:
+                      use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse FTN charting narrowed to the platoon rollup needs.
 
     Per-season parquet caches (FTN cache v1); seasons outside the 2022+
@@ -327,13 +348,17 @@ def load_ftn_charting(seasons: list[int] | None = None,
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
-        path = _cache_path(f"ftn_v1_{season}.parquet")
-        if use_cache and path.exists():
-            try:
-                frames.append(pd.read_parquet(path))
-                continue
-            except Exception as exc:  # corrupt cache → re-pull
-                logger.warning("ftn cache %s unreadable (%s)", path.name, exc)
+        try:
+            path = _cache_path(f"ftn_v1_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache → re-pull
+                    logger.warning("ftn cache %s unreadable (%s)", path.name, exc)
+        finally:
+            if progress is not None:
+                progress()
         try:
             from nflreadpy import load_ftn_charting
             logger.info("loading ftn charting season %s", season)
@@ -463,3 +488,22 @@ class StageProgress:
             # advance() already draws 100% on the final step; re-drawing here
             # would print the same line twice.
             self.render(force=True)
+
+
+def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:
+    """Fetch units Phase 2 will advance, per source, for a progress denominator.
+
+    Lives beside the loader loops it describes so the two cannot drift: each
+    loader calls its ``progress`` hook exactly once per unit, and NGS calls it
+    once per (season, group). Getting this wrong does not corrupt data -- the
+    bar just stops short of 100% and warns, which is the safe direction to
+    fail, but the count should still be right.
+    """
+    extended = len(core_seasons) + 1          # +1 warmup season
+    return {
+        "pbp": len(core_seasons),
+        "player_stats": extended,
+        "nextgen": len(NGS_GROUPS) * extended,
+        "snap_counts": extended,
+        "ftn_charting": len(core_seasons),
+    }
