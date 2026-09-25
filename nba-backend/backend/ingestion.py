@@ -38,11 +38,13 @@ import logging
 import os
 import random
 import re
+import subprocess
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -1015,58 +1017,145 @@ def _read_cache(path: Path) -> pd.DataFrame:
 # the dataset arrives as a generated slug directory, sometimes with the export
 # nested one level down — so discovery walks rather than assumes.
 WAREHOUSE_SEARCH_ROOTS = ("/kaggle/input", "/kaggle/working/nba-warehouse")
-# A directory is the warehouse when it holds the normalized tables.  Games and
+# A directory is loadable when it holds the normalized tables.  Games and
 # player stats are both required: a directory with only ``games.parquet`` is
 # some other run's debris, and serving it would drop every player feature.
 WAREHOUSE_REQUIRED = ("games.parquet", "player_stats.parquet")
-WAREHOUSE_SEARCH_DEPTH = 4
+# What the pinned export is documented to look like BEFORE normalization.  The
+# backend has no reader for any of these; detecting one is how the pipeline can
+# say so precisely instead of reporting "no warehouse found" and leaving the
+# operator to wonder.
+RAW_EXPORT_MARKERS = (".duckdb", ".sqlite", ".db")
+# Documented in the README, honoured here, and previously read by nothing.
+KAGGLE_DATASET_PATH_ENV = "NBA_KAGGLE_DATASET_PATH"
+KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
+KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
+KAGGLE_DOWNLOAD_TIMEOUT_SEC = 900.0
+
+
+def _is_loadable_warehouse(path: Path) -> bool:
+    return all((path / name).exists() for name in WAREHOUSE_REQUIRED)
+
+
+# The one thing this backend cannot do, stated once so every path that hits it
+# says it identically.  The pinned export is a raw archive; the normalized
+# tables this pipeline trains on have to be derived from it by a reader that
+# has never existed.  Writing one needs the export's actual schema, which is
+# not in this repository and cannot be inferred from it.
+_NO_RAW_EXPORT_READER = (
+    "The NBA export is mounted ({artifact}) and this backend cannot read it. "
+    "It has no reader for the raw {dataset} export, so the window has to come "
+    "from the live NBA.com routes instead - and those are blocked from Kaggle "
+    "and carry no player detail, so the run will be refused.\n"
+    "This is a missing feature, not a misconfiguration: nothing about the "
+    "mount, the version pin, or these flags can change it. It needs an "
+    "export reader, which needs the export's table and column names.")
+
+
+# The closing advice for a run that has no warehouse and no reachable host.
+# It is the same advice in every terminal path, so a reader only meets it once
+# in a run and it is the last thing they see.
+_WAREHOUSE_REMEDY = (
+    "And no normalized warehouse is available: this pipeline cannot publish "
+    "without one, because the live routes carry no player lines. Provide a "
+    "directory holding games.parquet, team_stats.parquet and "
+    "player_stats.parquet via --source-path or NBA_KAGGLE_DATASET_PATH, or "
+    "mount one under /kaggle/input, and re-run.")
+
+
+def _raw_export_at(path: Path) -> str | None:
+    """Name the raw-export artifact under ``path``, if there is one."""
+    for child in sorted(path.rglob("*")):
+        if child.is_file() and child.suffix.lower() in RAW_EXPORT_MARKERS:
+            return child.name
+    return None
 
 
 def discover_warehouse(roots: Iterable[Path | str] | None = None) -> Path | None:
-    """Find a mounted ``wyattowalsh/basketball`` export, if one is there.
+    """Find a mounted ``wyattowalsh/basketball`` export this backend can load.
 
     This exists because the pipeline must not depend on being handed its data.
     The 2026-09-25 Kaggle run reached the pipeline with no ``--source-path``,
     so it pulled live, both NBA.com hosts refused it, and it fell through to
     ESPN — which carries games and box scores but no player detail.  The run
     then published eighteen artifacts built entirely on defaulted player
-    features.  The export was mounted the whole time; nobody was looking.
+    features.
 
-    Discovery is therefore a fallback the pipeline performs on its own, not a
-    courtesy the caller has to remember.  Returns the directory holding the
-    normalized tables, or ``None`` if no mount looks like one.
+    Only a *loadable* export is returned.  A raw ``nba.duckdb`` or a
+    ``parquet/`` partition tree is a different thing, and handing one back
+    would fail later and less clearly than saying so here.
     """
     search = [Path(str(root)) for root in (roots or WAREHOUSE_SEARCH_ROOTS)]
     for root in search:
         if not root.is_dir():
             continue
-        # The root itself may be the warehouse.
-        if all((root / name).exists() for name in WAREHOUSE_REQUIRED):
+        if _is_loadable_warehouse(root):
             logger.info("NBA warehouse found at %s", root)
             return root
-        try:
-            children = sorted(root.iterdir())
-        except OSError:
-            continue
-        for child in children:
-            if not child.is_dir():
-                continue
-            if all((child / name).exists() for name in WAREHOUSE_REQUIRED):
-                logger.info("NBA warehouse found at %s", child)
-                return child
-            # One more level: Kaggle nests the export under a slug directory.
+        for depth in (1, 2):
             try:
-                grandchildren = sorted(child.iterdir())
+                layer = [p for p in root.glob("*" if depth == 1 else "*/*")
+                         if p.is_dir()]
             except OSError:
                 continue
-            for grandchild in grandchildren:
-                if grandchild.is_dir() and all(
-                        (grandchild / name).exists()
-                        for name in WAREHOUSE_REQUIRED):
-                    logger.info("NBA warehouse found at %s", grandchild)
-                    return grandchild
-    logger.info("no mounted NBA warehouse under %s", search)
+            for candidate in sorted(layer):
+                if _is_loadable_warehouse(candidate):
+                    logger.info("NBA warehouse found at %s", candidate)
+                    return candidate
+    logger.info("no loadable NBA warehouse under %s", search)
     return None
+
+
+def _kaggle_credentials_present() -> bool:
+    """Whether the Kaggle CLI could authenticate, without invoking it."""
+    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
+        return True
+    for home in {Path.home(), Path("/root"), Path("/kaggle/working")}:
+        try:
+            if (home / ".kaggle" / "kaggle.json").is_file():
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def download_warehouse(dest: Path | None = None) -> Path | None:
+    """Fetch the pinned export with the Kaggle CLI, if that is even possible.
+
+    The README has always promised this fallback.  It is deliberately
+    credential-gated: without a token the CLI would fail slowly and say
+    something less useful than the message this function's caller composes, so
+    the absence of credentials is answered locally and instantly.
+    """
+    if not _flag(KAGGLE_AUTO_DOWNLOAD_ENV, True):
+        logger.info("Kaggle auto-download disabled by %s",
+                    KAGGLE_AUTO_DOWNLOAD_ENV)
+        return None
+    if not _kaggle_credentials_present():
+        logger.info("no Kaggle credentials present; not attempting a download")
+        return None
+    target = Path(dest or os.environ.get(KAGGLE_DOWNLOAD_DIR_ENV)
+                  or WAREHOUSE_SEARCH_ROOTS[1])
+    target.mkdir(parents=True, exist_ok=True)
+    ref = f"{config.NBA_DATASET_REF}/{config.NBA_DATASET_VERSION}"
+    logger.info("downloading the pinned NBA export %s to %s", ref, target)
+    try:
+        completed = subprocess.run(
+            ["kaggle", "datasets", "download", "-d", ref, "--unzip",
+             "-p", str(target)],
+            capture_output=True, text=True, timeout=KAGGLE_DOWNLOAD_TIMEOUT_SEC,
+            check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("could not run the Kaggle CLI for %s (%s)", ref, exc)
+        return None
+    if completed.returncode != 0:
+        logger.warning("Kaggle download of %s failed: %s", ref,
+                       (completed.stderr or "").strip()[:300])
+        return None
+    for archive in target.rglob("*.zip"):
+        with zipfile.ZipFile(archive) as bundle:
+            bundle.extractall(target)
+    return discover_warehouse([target])
 
 
 def _write_cache(tables: dict[str, pd.DataFrame], paths: dict[str, Path],
@@ -2003,12 +2092,34 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
         # before reaching for the network.  A live pull is the last resort,
         # not the first: on a host where NBA.com is blocked it does not fail,
         # it quietly succeeds with worse data.
-        mounted = discover_warehouse()
+        mounted = (Path(os.environ[KAGGLE_DATASET_PATH_ENV])
+                   if os.environ.get(KAGGLE_DATASET_PATH_ENV) else None)
+        if mounted is not None and _is_loadable_warehouse(mounted):
+            logger.info("using the NBA warehouse named by %s: %s",
+                        KAGGLE_DATASET_PATH_ENV, mounted)
+        else:
+            mounted = discover_warehouse()
+        if mounted is None:
+            # A raw export is mounted, we just cannot read it.  Say that, and
+            # say why, rather than reporting a missing warehouse and leaving
+            # the operator to wonder what the dataset they attached is for.
+            raw = None
+            for root in WAREHOUSE_SEARCH_ROOTS:
+                if Path(root).is_dir():
+                    raw = _raw_export_at(Path(root))
+                    if raw:
+                        break
+            if raw is not None:
+                raise RuntimeError(_NO_RAW_EXPORT_READER.format(
+                    artifact=raw,
+                    dataset=f"{config.NBA_DATASET_REF} version "
+                            f"{config.NBA_DATASET_VERSION}"))
+            mounted = download_warehouse()
         if mounted is not None:
             config.CACHE_DIR = mounted
             paths = {name: mounted / path.name for name, path in paths.items()}
             manifest_path = mounted / manifest_path.name
-            logger.info("using the mounted NBA warehouse at %s", mounted)
+            logger.info("using the NBA warehouse at %s", mounted)
             # A mounted export IS the data this run should use.  Pulling on top
             # of it would be the very mistake this is here to prevent.
             allow_download = False
@@ -2127,6 +2238,22 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
         dead_ends: list[str] = []
         for label, route in (("cdn.nba.com box scores", _pull_seasons_from_cdn),
                              ("ESPN schedules", _pull_seasons_from_espn)):
+            if route is _pull_seasons_from_espn:
+                # This route is walked only to be refused.  It carries games
+                # and box scores but no player lines, and a window without
+                # player lines cannot train or publish, so every request it
+                # makes buys a failure it already knows about.  Naming that
+                # here turns a six-minute run into a six-second one, and stops
+                # the log claiming the window was "rebuilt" from a route that
+                # could never have produced a publishable one.
+                logger.warning(
+                    "ESPN schedules not attempted: that route carries no "
+                    "player detail, so the window it builds could not be "
+                    "trained on or published. Naming it here instead of "
+                    "walking it.")
+                dead_ends.append(
+                    "ESPN schedules answered nothing usable: no player detail")
+                continue
             try:
                 result = route(start, end)
             except (CdnUnavailable, RuntimeError) as exc:
@@ -2142,7 +2269,8 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
             + "; ".join(dead_ends)
             + ". A host that never answers is a network block, not a bad "
               "request: nothing this pipeline sends will change it, so run "
-              "where these hosts are reachable, or warm the cache here.")
+              "where these hosts are reachable, or warm the cache here. "
+            + _WAREHOUSE_REMEDY)
     log = pd.concat(logs, ignore_index=True)
     SOURCE_USED["source"] = "stats.nba.com LeagueGameLog"
     log = log[(log.gameday >= pd.Timestamp(start))

@@ -1069,19 +1069,31 @@ def test_a_blocked_host_is_not_probed_again() -> None:
     assert ing._known_blocked_host("cdn.nba.com") is None
 
 
-def test_the_pull_falls_through_to_espn_when_both_nba_hosts_fail(monkeypatch) -> None:
+def test_the_pull_never_walks_a_route_it_cannot_publish_from(monkeypatch) -> None:
+    """ESPN is not a fallback, because nothing it builds can be published.
+
+    It used to be the last resort in the chain.  It carries games and team box
+    scores but no player lines, and a window with no player lines is refused
+    downstream — so walking it cost a minute of requests to arrive at a
+    failure the route already knew about.  The chain now names it instead.
+    """
     monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "1")
     monkeypatch.setattr(ing, "_fetch_season_log",
                         lambda *a, **k: (_ for _ in ()).throw(
                             ing.SeasonUnavailable("stats.nba.com is not answering")))
     monkeypatch.setattr(ing, "_pull_seasons_from_cdn", lambda *a: (_ for _ in ()).throw(
         ing.CdnUnavailable("cdn.nba.com refused every box score")))
-    monkeypatch.setattr(ing, "_pull_seasons_from_espn",
-                        lambda *a: ("espn-games", "espn-teams", "espn-players", {}))
-    games, teams, players, names = ing._pull_seasons(date(2024, 1, 1),
-                                                     date(2024, 6, 30))
-    assert games == "espn-games" and teams == "espn-teams"
-    assert ing.SOURCE_USED["source"] == "ESPN schedules"
+    called: list[str] = []
+
+    def _espn_must_not_run(*args):
+        called.append("espn")
+        return ("espn-games", "espn-teams", "espn-players", {})
+
+    monkeypatch.setattr(ing, "_pull_seasons_from_espn", _espn_must_not_run)
+    with pytest.raises(RuntimeError, match="could not read"):
+        ing._pull_seasons(date(2024, 1, 1), date(2024, 6, 30))
+    assert called == [], "the ESPN route was walked to reach a known failure"
+    assert ing.SOURCE_USED["source"] != "ESPN schedules"
 
 
 # --------------------------------------------------------------------------
@@ -1962,3 +1974,110 @@ def test_the_markets_grid_is_still_complete_without_the_nan_loop(tmp_path) -> No
     serving.write_markets_csv(tmp_path / "dupe.csv", tmp_path / "dupe.json",
                               dupe, pd.DataFrame(), None)
     assert not pd.read_csv(tmp_path / "dupe.csv").columns.duplicated().any()
+
+
+# --------------------------------------------------------------------------
+# The documented handoffs, and the one that has no implementation behind it
+#
+# The README promises a Kaggle auto-download behind NBA_KAGGLE_AUTO_DOWNLOAD
+# and NBA_KAGGLE_DOWNLOAD_DIR, the notebook hands the resolved export over in
+# NBA_KAGGLE_DATASET_PATH, and neither was read by any code.  These pin the
+# two that can be implemented, and the one that cannot.
+# --------------------------------------------------------------------------
+
+
+def test_the_warehouse_named_by_the_environment_is_used(monkeypatch, tmp_path) -> None:
+    """The notebook's own handoff, which the backend never read.
+
+    kaggle_nba_run.ipynb ends with ``os.environ["NBA_KAGGLE_DATASET_PATH"] =
+    str(source)``.  For three turns that was written and ignored, so the run
+    pulled live anyway.
+    """
+    named = tmp_path / "export"
+    named.mkdir()
+    for name in ("games.parquet", "player_stats.parquet"):
+        (named / name).write_bytes(b"x")
+    monkeypatch.setenv(ing.KAGGLE_DATASET_PATH_ENV, str(named))
+    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: None)
+    monkeypatch.setattr(ing, "download_warehouse", lambda *a, **k: None)
+
+    def _read(path: Path) -> pd.DataFrame:
+        return (pd.DataFrame([{"game_id": "a"}])
+                if ing.config.CACHE_DIR == named else pd.DataFrame())
+
+    monkeypatch.setattr(ing, "_read_cache", _read)
+    monkeypatch.setattr(ing, "_pull_seasons",
+                        lambda *a: (_ for _ in ()).throw(
+                            AssertionError("pulled despite a named warehouse")))
+    monkeypatch.setattr(ing, "_pull_play_by_play",
+                        lambda g, s, e, p, *, enabled: pd.DataFrame())
+    monkeypatch.setattr(ing, "_write_cache", lambda *a, **k: None)
+    monkeypatch.setattr(ing, "_manifest",
+                        lambda wh, s, e: {"source_path": "env",
+                                          "tables": {"player_stats": 0}})
+    monkeypatch.setattr(ing, "_validate_dataset", lambda wh: None)
+    ing.load_dataset(source=None, use_cache=True, allow_download=True)
+    assert ing.config.CACHE_DIR == named
+
+
+def test_a_named_directory_that_is_not_a_warehouse_is_ignored(
+        monkeypatch, tmp_path) -> None:
+    """A stale env var must not send the run somewhere unreadable."""
+    monkeypatch.setenv(ing.KAGGLE_DATASET_PATH_ENV, str(tmp_path / "gone"))
+    assert not ing._is_loadable_warehouse(tmp_path / "gone")
+
+
+def test_a_mounted_raw_export_is_named_rather_than_ignored(
+        monkeypatch, tmp_path) -> None:
+    """The export is attached and unreadable; say so, do not shrug.
+
+    Reporting "no warehouse found" when a warehouse is sitting right there is
+    how this run wasted three turns.  The reader is a missing feature, and the
+    message has to say that instead of implying a configuration mistake.
+    """
+    mount = tmp_path / "input"
+    mount.mkdir()
+    (mount / "nba.duckdb").write_bytes(b"not really a database")
+    monkeypatch.setattr(ing, "WAREHOUSE_SEARCH_ROOTS", (str(mount),))
+    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: None)
+    monkeypatch.setattr(ing, "download_warehouse", lambda *a, **k: None)
+    monkeypatch.setattr(ing, "_read_cache", lambda path: pd.DataFrame())
+    with pytest.raises(RuntimeError, match="no reader for the raw"):
+        ing.load_dataset(source=None, use_cache=True, allow_download=True)
+
+
+def test_a_download_is_not_attempted_without_credentials(monkeypatch, tmp_path) -> None:
+    """No token means no CLI invocation, and no slow local failure either."""
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+    monkeypatch.setattr(ing, "_kaggle_credentials_present", lambda: False)
+    called: list[list] = []
+    monkeypatch.setattr(ing.subprocess, "run",
+                        lambda *a, **k: called.append(a) or None)
+    assert ing.download_warehouse(tmp_path / "dest") is None
+    assert called == [], "the Kaggle CLI was invoked with nothing to authenticate"
+
+
+def test_the_auto_download_can_be_switched_off(monkeypatch, tmp_path) -> None:
+    """The README's documented kill switch has to actually exist."""
+    monkeypatch.setenv(ing.KAGGLE_AUTO_DOWNLOAD_ENV, "0")
+    monkeypatch.setattr(ing, "_kaggle_credentials_present", lambda: True)
+    called: list[list] = []
+    monkeypatch.setattr(ing.subprocess, "run",
+                        lambda *a, **k: called.append(a) or None)
+    assert ing.download_warehouse(tmp_path / "dest") is None
+    assert called == [], "NBA_KAGGLE_AUTO_DOWNLOAD=0 was ignored"
+
+
+def test_the_espn_route_is_never_the_answer(monkeypatch) -> None:
+    """A route that cannot supply player lines is not a fallback.
+
+    Walking it cost the 2026-09-25 run fifty-four seconds of requests to
+    build a window the pipeline then refused to publish.
+    """
+    source = (BACKEND / "ingestion.py").read_text(encoding="utf-8")
+    short_circuit = ("if route is _pull_seasons_from_espn:"
+                     in source)
+    assert short_circuit, (
+        "the ESPN fallback was reinstated; it cannot produce a publishable "
+        "window, so walking it only delays the same refusal")
