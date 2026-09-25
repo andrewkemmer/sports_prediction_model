@@ -205,6 +205,14 @@ def _reprobe_refusal(url: str, host: str) -> bool:
 DNS_GRACE_SEC = 30
 PULL_DEADLINE_ENV = "NBA_PULL_DEADLINE_SEC"
 DEFAULT_PULL_DEADLINE_SEC = 600.0
+# The ESPN player walk asks about every game in the window, so it needs a far
+# larger budget than the season-log pull above: a full window is a few thousand
+# requests, and this is the only source of player lines on a host that blocks
+# NBA.com.  The cap exists to stop a slow host running a session dry, not to
+# interrupt a run that is making progress — the lines already fetched are
+# cached, so a run that exhausts it resumes where it left off.
+ESPN_PLAYER_BUDGET_ENV = "NBA_ESPN_PLAYER_BUDGET_SEC"
+DEFAULT_ESPN_PLAYER_BUDGET_SEC = 5400.0
 # A healthy pull answers all eight season requests in seconds.  When the host
 # is actually down, repeating the same doomed request for every remaining
 # season buys nothing but another few minutes of the user watching a still run,
@@ -1772,8 +1780,9 @@ def _player_lines_from_espn_summary(payload: Any, event_id: str,
     return rows
 
 
-def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float,
-                                 path: Path) -> pd.DataFrame:
+def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float, path: Path,
+                                 *, budget_sec: float | None = None
+                                 ) -> pd.DataFrame:
     """Fetch the player box score for every game the window does not have yet.
 
     One request per game, which is the cost of seeing players on a host that
@@ -1782,7 +1791,15 @@ def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float,
     is a handful of games rather than a rebuild.  A refusal streak ends the
     walk the same way the per-game CDN walk ends, and the verdict it leaves
     behind means the next run does not pay for the discovery twice.
+
+    Budget-capped, following MLB's ``_topup_roof_cache``: the walk stops when
+    the budget runs out, logs how far it got, and returns the lines it has.
+    They are cached, so the next run resumes from there rather than starting
+    over.  A slow host can therefore cost a run its budget but not its place.
     """
+    if budget_sec is None:
+        budget_sec = _float_env(ESPN_PLAYER_BUDGET_ENV,
+                                DEFAULT_ESPN_PLAYER_BUDGET_SEC)
     cached = _read_cache(path)
     have = set(cached.game_id.astype(str)) if not cached.empty else set()
     columns = ["game_id", "gameday", "home_team", "away_team", "game_type"]
@@ -1802,8 +1819,15 @@ def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float,
         return _derive_player_shooting(cached)
     frames: list[pd.DataFrame] = [] if cached.empty else [cached]
     asked = 0
+    fetched = 0
+    start = time.monotonic()
     for row in progress.wrap(missing.itertuples(index=False), len(missing),
                              "ESPN box scores", unit="game"):
+        if time.monotonic() - start >= budget_sec:
+            logger.info("ESPN player box scores: budget exhausted after %d/%d "
+                        "fetches — remaining %d will retry next run",
+                        fetched, len(missing), len(missing) - fetched)
+            break
         try:
             payload = _get_json(ESPN_SUMMARY_URL.format(event=row.game_id),
                                 allow_missing=True, retries=2, pause=pause,
@@ -1818,6 +1842,7 @@ def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float,
             home_score=getattr(row, "home_score", None),
             away_score=getattr(row, "away_score", None))
         if rows:
+            fetched += 1
             frames.append(pd.DataFrame(rows).assign(
                 gameday=pd.to_datetime(row.gameday, errors="coerce"),
                 game_type=row.game_type))
@@ -1928,8 +1953,18 @@ def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.Da
         "NBA rebuilt from ESPN schedules: %d games (%d regular, %d postseason), "
         "%d team rows", len(games), regular, len(games) - regular,
         len(team_stats))
+    # Only the games the model can actually train on are worth a request each.
+    # A window that reaches back into a pre-eligibility season would otherwise
+    # pay full per-game price for lines that eligible_games() discards before
+    # the features are built, which is the same filter MLB applies to
+    # retractable-roof games before it tops that cache up.
+    trainable = eligible_games(games)
+    if len(trainable) < len(games):
+        logger.info("ESPN player box scores: %d of %d window games fall "
+                    "outside the eligible seasons, so they are not asked for",
+                    len(games) - len(trainable), len(games))
     player_stats = _pull_player_stats_from_espn(
-        games, pause, config.CACHE_DIR / "espn_player_stats.parquet")
+        trainable, pause, config.CACHE_DIR / "espn_player_stats.parquet")
     if player_stats.empty:
         logger.warning(
             "ESPN supplied no player lines for %d games, so player-derived "

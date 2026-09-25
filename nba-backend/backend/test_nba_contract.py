@@ -1944,6 +1944,66 @@ def test_the_player_pull_asks_only_for_games_it_lacks(monkeypatch, tmp_path) -> 
     assert len(second) == len(first)
 
 
+def test_a_slow_host_cannot_spend_the_whole_run_on_the_player_walk(
+        monkeypatch, tmp_path, caplog) -> None:
+    """A host that is slow rather than refusing must still hit a ceiling.
+
+    The refusal verdict bounds a host that says no.  A host that accepts the
+    connection and then takes its time says nothing wrong, so nothing ends the
+    walk except a budget — without one, a full window is a few thousand
+    sequential requests and the session runs dry.  MLB bounds the same shape of
+    walk in ``_topup_roof_cache``.
+    """
+    ing._HOST_REFUSALS.clear()
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    asked: list[str] = []
+
+    def summary(event: str, **_kwargs):
+        asked.append(event)
+        return _espn_summary("BOS", "NYK")
+
+    monkeypatch.setattr(ing, "_get_json", summary)
+    # One tick for the start stamp, four for the walk, then the clock jumps.
+    ticks = iter([0.0, 0.0, 0.0, 0.0, 0.0, 100.0] + [100.0] * 100)
+    monkeypatch.setattr(ing.time, "monotonic", lambda: next(ticks))
+    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
+                           "home_team": "BOS", "away_team": "NYK",
+                           "game_type": 1} for i in range(20)])
+    cache = tmp_path / "espn_player_stats.parquet"
+    with caplog.at_level(logging.INFO, logger="ingestion"):
+        out = ing._pull_player_stats_from_espn(games, 0.0, cache, budget_sec=60.0)
+    banked = len(asked)
+    assert 0 < banked < 20, "the budget did not stop the walk"
+    assert "budget exhausted" in caplog.text
+    assert "will retry next run" in caplog.text
+    # What it did fetch is kept and cached, so the next run resumes from there.
+    assert not out.empty
+    assert cache.exists(), "a budgeted walk must still bank its progress"
+    asked.clear()
+    monkeypatch.setattr(ing.time, "monotonic", lambda: 0.0)
+    resumed = ing._pull_player_stats_from_espn(games, 0.0, cache, budget_sec=60.0)
+    assert len(asked) == 20 - banked, "the next run re-asked for cached games"
+    assert len(resumed) == 20 * 3, "the resumed walk did not finish the window"
+
+
+def test_the_player_walk_never_asks_about_a_game_the_model_cannot_train_on() -> None:
+    """Player lines cost a request each, so do not buy the ineligible ones.
+
+    A window that reaches back before the first eligible season would otherwise
+    pay full per-game price for lines that eligible_games() discards before
+    any feature is built.
+    """
+    window = pd.DataFrame([
+        {"game_id": "old", "gameday": "2024-01-05", "season": 2023.0,
+         "home_team": "BOS", "away_team": "NYK", "game_type": 1,
+         "home_score": 1.0, "away_score": 2.0},
+        {"game_id": "new", "gameday": "2024-10-22", "season": 2024.0,
+         "home_team": "BOS", "away_team": "NYK", "game_type": 1,
+         "home_score": 1.0, "away_score": 2.0},
+    ])
+    assert list(ing.eligible_games(window).game_id) == ["new"]
+
+
 def test_a_refused_summary_endpoint_stops_the_walk(monkeypatch, tmp_path) -> None:
     """Same discipline as every other per-game walk: bound it, then stop.
 
