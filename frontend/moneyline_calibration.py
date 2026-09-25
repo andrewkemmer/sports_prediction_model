@@ -18,15 +18,6 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
-# The moneyline calibration curve is the SAME chart grammar as the market /
-# Game Total Lines diagnostics, so it inherits their minimum-evidence rule
-# verbatim rather than restating a second threshold: a bin with n < LOW_N is
-# not reliable calibration evidence, so its bars render GRAY as volume
-# context and its OBSERVED-rate point is dropped (no fabricated point).
-# Imported (not copied) so the two pages cannot drift apart again.
-from market_diagnostics import LOW_N  # noqa: E402  (no cycle: that module
-# does not import this one)
-
 # Favored-side 1% bin width for the moneyline calibration curve.
 FAVORED_BIN = 0.01
 
@@ -48,21 +39,16 @@ def favored_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
     """
     cols = {"home_win_prob_model", "correct"}
     if hist_curve is None or hist_curve.empty or not cols <= set(hist_curve.columns):
-        return pd.DataFrame(columns=["prob", "win_rate", "n", "low_n"])
+        return pd.DataFrame(columns=["prob", "win_rate", "n"])
     p = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce")
     w = pd.to_numeric(hist_curve["correct"], errors="coerce")
     ok = p.notna() & w.notna()
     fav = np.maximum(p[ok], 1.0 - p[ok])
     fav = (fav / FAVORED_BIN).round() * FAVORED_BIN        # nearest 1%
-    out = (pd.DataFrame({"prob": fav, "won": w[ok]})
-           .groupby("prob")
-           .agg(win_rate=("won", "mean"), n=("won", "size"))
-           .reset_index())
-    # Shared low-n flag (same rule + constant as the market-diagnostics
-    # charts). Drives BOTH the gray bar treatment and the curve-point drop,
-    # so bar and curve can never disagree about which bins are evidence.
-    out["low_n"] = (out["n"] < LOW_N) & (out["n"] > 0)
-    return out
+    return (pd.DataFrame({"prob": fav, "won": w[ok]})
+            .groupby("prob")
+            .agg(win_rate=("won", "mean"), n=("won", "size"))
+            .reset_index())
 
 
 def favored_oof_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFrame:
@@ -86,63 +72,6 @@ def favored_oof_calibration_pts(hist_curve: Optional[pd.DataFrame]) -> pd.DataFr
                                   calibrated[ok], 1.0 - calibrated[ok])
     bins = (raw_favored / FAVORED_BIN).round() * FAVORED_BIN
     return (pd.DataFrame({"prob": bins, "cal_mean": calibrated_favored})
-            .groupby("prob")
-            .agg(cal_mean=("cal_mean", "mean"), n=("cal_mean", "size"))
-            .reset_index())
-
-
-def deployed_probability(raw: np.ndarray, params: Optional[dict]) -> np.ndarray:
-    """Apply the POOLED deployed Platt map: p_cal = sigma(a * logit(p) + b).
-
-    This is the backend's user-facing quantity (3) in MLB's three-probability
-    contract: the single global map fitted on ALL OOF pairs and published in
-    ``calibration_<date>.json``. It is deliberately NOT the per-fold
-    prequential column, which the contract marks "honest for scoring/metrics;
-    NEVER display". Returns NaN where the params are unusable so a caller can
-    fall back rather than plot a fabricated curve.
-    """
-    if not params:
-        return np.full(len(raw), np.nan)
-    try:
-        a = float(params["a"])
-        b = float(params["b"])
-    except (KeyError, TypeError, ValueError):
-        return np.full(len(raw), np.nan)
-    if not (np.isfinite(a) and np.isfinite(b)):
-        return np.full(len(raw), np.nan)
-    p = np.clip(np.asarray(raw, dtype=float), 1e-7, 1.0 - 1e-7)
-    return 1.0 / (1.0 + np.exp(-(a * np.log(p / (1.0 - p)) + b)))
-
-
-def favored_deployed_calibration_pts(hist_curve: Optional[pd.DataFrame],
-                                     params: Optional[dict]) -> pd.DataFrame:
-    """The PUBLISHED calibration series: pooled deployed map over the OOF rows.
-
-    Same favored-side convention and the SAME raw 1% bins as
-    ``favored_calibration_pts`` (so the green and blue curves stay aligned
-    one-to-one), but the y value is the deployed probability a bettor would
-    actually be quoted: the pooled map from the calibration artifact applied
-    to each OOF game's raw prediction.
-
-    Unlike the observed rate, this is a deterministic monotone function of the
-    raw probability, so it carries no sampling noise and is NOT low-n
-    suppressed -- a 1-game bin still has a well-defined published probability.
-    """
-    if hist_curve is None or hist_curve.empty \
-            or "home_win_prob_model" not in hist_curve.columns:
-        return pd.DataFrame(columns=["prob", "cal_mean", "n"])
-    raw = pd.to_numeric(hist_curve["home_win_prob_model"], errors="coerce")
-    ok = raw.notna()
-    if not ok.any():
-        return pd.DataFrame(columns=["prob", "cal_mean", "n"])
-    cal = deployed_probability(raw[ok].to_numpy(), params)
-    ok2 = np.isfinite(cal)
-    raw_favored = np.maximum(raw[ok].to_numpy(), 1.0 - raw[ok].to_numpy())
-    cal_favored = np.where(raw[ok].to_numpy() >= 0.5, cal, 1.0 - cal)
-    bins = (raw_favored[ok2] / FAVORED_BIN).round() * FAVORED_BIN
-    if len(bins) == 0:
-        return pd.DataFrame(columns=["prob", "cal_mean", "n"])
-    return (pd.DataFrame({"prob": bins, "cal_mean": cal_favored[ok2]})
             .groupby("prob")
             .agg(cal_mean=("cal_mean", "mean"), n=("cal_mean", "size"))
             .reset_index())
@@ -309,14 +238,6 @@ def chart_favored_calibration(pts: pd.DataFrame,
     drives both the bar height and the curve point, so they align one-to-one
     (bar heights sum to the total decided games).
 
-    LOW-N SUPPRESSION (shared with the market-diagnostics / Game Total Lines
-    charts, same imported ``LOW_N``): a bin with n < LOW_N renders as a GRAY
-    bar — the volume context stays visible — and contributes NO blue point.
-    Without it a single decided game at the high-confidence tail is plotted as
-    if it were a rate, which drags the curve to 0% or 100% on noise alone.
-    The green deployed-map curve is a deterministic function of the raw
-    probability, so it is never suppressed.
-
     Delegates to the shared ``chart_calibration_curve`` builder — the SAME
     chart type the Game Total Lines diagnostics tab renders.
 
@@ -325,21 +246,14 @@ def chart_favored_calibration(pts: pd.DataFrame,
     absent (no fabricated points) and render without error.
     """
     if pts is None or len(pts) == 0:
-        pts = pd.DataFrame(columns=["prob", "win_rate", "n", "low_n"])
+        pts = pd.DataFrame(columns=["prob", "win_rate", "n"])
     pts = pts.copy()
-    if "low_n" not in pts.columns:
-        # Callers that predate the flag (or a fixture frame) get the shared
-        # rule applied here so the guard can never be bypassed.
-        _n = (pd.to_numeric(pts["n"], errors="coerce") if "n" in pts.columns
-              else pd.Series(np.nan, index=pts.index))
-        pts["low_n"] = (_n < LOW_N).fillna(False) & (_n > 0)
     pts["win_rate_pct"] = pts["win_rate"] * 100.0
     x_dom = alt.Scale(domain=[0.45, 1.0])
     y_dom = alt.Scale(domain=[0, 100.0])
 
-    curve_pts = pts[~pts["low_n"].fillna(False).astype(bool)]
     series = [{
-        "data": curve_pts,
+        "data": pts,
         "y_field": "win_rate_pct",
         # RIGHT axis (single owner): 'Actual win rate %' for the blue actual-
         # rate curve — the green Platt line below shares this right scale and
@@ -376,7 +290,6 @@ def chart_favored_calibration(pts: pd.DataFrame,
         x_field="prob", x_title="Predicted win probability",
         x_scale=x_dom, x_format=".0%", n_field="n",
         bar_color=BLUE, bar_opacity=0.30,
-        low_n_field="low_n",
         bar_tooltips=[
             alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
             alt.Tooltip("n:Q", title="Games"),
