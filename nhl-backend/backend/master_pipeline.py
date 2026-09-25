@@ -163,12 +163,20 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 2. Eligible game ingestion ────────────────────────────────────────
     _banner("PHASE 2", "official NHL API ingestion")
-    # Build the per-day date span per configured season (Oct 1 .. Jul 15)
-    # and pull the score pages (cached per date).
-    dates: list[str] = []
+    # Build the per-day date span per configured season (Oct 1 .. Jul 15),
+    # then union the bounded operational serving tail.  ``season_dates``
+    # intentionally starts on Oct 1, so a late-September regular-season
+    # slate would otherwise never be requested even when the run/window is
+    # explicitly set to those dates.
+    dates: set[str] = set()
     for season in seasons:
-        dates.extend(ingestion.season_dates(season))
-    dates = sorted(set(dates))
+        dates.update(ingestion.season_dates(season))
+    serving_start = max(pd.Timestamp(start_date), pd.Timestamp(run_date))
+    serving_end = pd.Timestamp(window_end)
+    if serving_start <= serving_end:
+        dates.update(pd.date_range(serving_start, serving_end, freq="D")
+                     .strftime("%Y-%m-%d"))
+    dates = sorted(dates)
     schedule = ingestion.load_score_dates(dates, use_cache=args.skip_pull and not full_repull)
     schedule = ingestion.eligible_games(schedule)
     schedule["gameday"] = pd.to_datetime(schedule["game_date"], errors="coerce")

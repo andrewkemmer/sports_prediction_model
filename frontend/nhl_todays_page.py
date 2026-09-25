@@ -391,53 +391,111 @@ def _evening_count(day: pd.DataFrame) -> int:
 
 
 def run() -> None:
-    """Render the NHL Today's Games board — the MLB page mirror."""
+    """Render the NHL current slate or an explicitly selected archive date."""
     # CSS is already injected by Home.py and the shared board module
     # (todays_games.py imports run it at module level) — exactly the two
     # <style> blocks the MLB render emits. Calling it again here would add
     # a THIRD style block the MLB page doesn't have.
 
-    # 1-2. Date reset (same session-state contract as MLB; MLB renders no
-    # page title — the header strip is the page header)
+    # Resolve the live/future board first.  It is the only source allowed to
+    # choose the initial date; history can extend the explicit archive rail
+    # but can never substitute for a missing current slate.
+    try:
+        current = utils.load_nhl_moneyline("nhl")
+    except Exception:
+        current = pd.DataFrame()
+    if current is not None and not current.empty:
+        current = current.dropna(subset=["home_team", "away_team"])
+    current_dates = set(utils._distinct_game_dates(current))
+    current_date = (max(current_dates) if current_dates else None)
+
+    try:
+        current_record = utils.load_nhl_moneyline_record("nhl")
+    except Exception:
+        current_record = {}
+    current_slate_date = None
+    if isinstance(current_record, dict):
+        try:
+            current_slate_date = datetime.strptime(
+                str(current_record.get("slate_date", "")), "%Y-%m-%d"
+            ).strftime("%Y%m%d")
+        except (TypeError, ValueError):
+            current_slate_date = None
+    # The record's explicit slate_date is authoritative.  The per-game dates
+    # remain a consistency fallback for a valid but unusual persisted frame.
+    if current_slate_date:
+        current_date = current_slate_date
+
     valid = list(utils.valid_dates("nhl"))
     valid_set = set(valid)
-    if not valid:
+    if current_date and current_date not in valid_set:
+        valid_set.add(current_date)
+        valid.append(current_date)
+        valid.sort(reverse=True)
+
+    today_et = datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d")
+    first_visit = (st.session_state.get("_nav_sport") != "nhl"
+                   or "selected_date" not in st.session_state)
+    if first_visit:
+        # A valid future preview (for example a Sep 29 slate published Sep 24)
+        # is the current board.  Only when none exists do we honestly target
+        # today; nearest/stale-date substitution is forbidden.
+        st.session_state["selected_date"] = current_date or today_et
+        st.session_state["_nav_sport"] = "nhl"
+    date_str = st.session_state["selected_date"]
+
+    if current_date is None and date_str == today_et:
         st.markdown(
             "<div style='font-size:1.7rem;font-weight:800;color:#E2E8F0;'>"
             "🏒 NHL — Moneyline</div>", unsafe_allow_html=True)
-        st.info("No NHL per-game moneyline rows available.")
-        return
-    if (st.session_state.get("_nav_sport") != "nhl"
-            or "selected_date" not in st.session_state):
-        st.session_state["selected_date"] = (
-            utils.nearest_valid_date(valid) or valid[0])
-        st.session_state["_nav_sport"] = "nhl"
-    date_str = st.session_state["selected_date"]
-    if date_str not in valid_set:
-        _render_nearest_valid_fallback(valid, date_str)
-        st.stop()
+        st.info(
+            "No confirmed current NHL slate artifact is available. "
+            "Historical predictions are not shown as a live board; choose an "
+            "archive date below when one is available."
+        )
+        archive_dates = [d for d in valid if d < today_et]
+        if archive_dates:
+            # The empty current state has no valid current key.  Seed the
+            # first explicitly historical choice; every later selection is an
+            # intentional archive action through the shared date controls.
+            # ``date_str`` must track the seeded value or the board below
+            # would keep testing TODAY and dead-end on its own warning.
+            st.session_state["selected_date"] = archive_dates[0]
+            date_str = archive_dates[0]
+        else:
+            st.session_state["selected_date"] = today_et
+            if valid:
+                _render_date_nav(valid, date_str)
+            return
 
-    # 4. Board load (NHL artifact family)
-    try:
-        frame = utils.load_nhl_moneyline()
-    except Exception:
-        frame = pd.DataFrame()
-    frame = frame.dropna(subset=["home_team", "away_team"]) if frame is not None else pd.DataFrame()
-    day = frame[frame["game_date"].astype(str).str.replace("-", "") == date_str]
-    history_view = False
-    if day.empty:
-        # The moneyline JSON is current-slate-only. Rebuild retained NHL
-        # season cards from the frozen first-publication card store (the
-        # production-as-published prediction — never an OOF re-price);
-        # the OOF history CSV is only a pre-seed fallback.
+    if date_str not in valid_set:
+        st.warning(
+            f"No archived NHL card is available for "
+            f"{utils.format_date_long(date_str)} ({date_str})."
+        )
+        if valid:
+            _render_date_nav(valid, date_str)
+        return
+
+    history_view = date_str not in current_dates
+    if not history_view:
+        day = current[current["game_date"].astype(str)
+                         .str.replace("-", "") == date_str]
+    else:
+        # Explicit historical selection only.  The shared loader is frozen
+        # production-card-store first; OOF history is a legacy/preseed fallback
+        # and is never consulted for a current or future date.
         try:
             day = utils.load_history_games_v1(date_str, "nhl")
         except Exception:
             day = pd.DataFrame()
-        history_view = not day.empty
-    if day.empty:
-        _render_nearest_valid_fallback(valid, date_str)
-        st.stop()
+    if day is None or day.empty:
+        st.info(
+            f"No archived NHL card is available for "
+            f"{utils.format_date_long(date_str)} ({date_str})."
+        )
+        _render_date_nav(valid, date_str)
+        return
 
     # 5. Header strip — SAME markup as MLB (fed by nhl_calibration_*.json)
     cal = utils.load_calibration(date_str, sport="nhl") or {}
@@ -495,23 +553,24 @@ def run() -> None:
     elif selected == "Live":
         filtered = day[day["game_status"] == "Live"]
 
-    # ⟐ per-date enrichment: run-engine slate + goalie matchup (NHL families)
-    try:
-        slate, _sdate = utils.load_nhl_run_engine_markets("nhl")
-    except Exception:
-        slate = pd.DataFrame()
-    try:
-        goalies = utils.load_nhl_goalie_matchup("nhl")
-    except Exception:
-        goalies = pd.DataFrame()
-
-    if history_view:
+    # Current-slate enrichment only.  Frozen archive cards never inherit a
+    # later run's market/goalie/SHAP artifacts.
+    slate = pd.DataFrame()
+    goalies = pd.DataFrame()
+    if not history_view:
+        try:
+            slate, _sdate = utils.load_nhl_run_engine_markets("nhl")
+        except Exception:
+            slate = pd.DataFrame()
+        try:
+            goalies = utils.load_nhl_goalie_matchup("nhl")
+        except Exception:
+            goalies = pd.DataFrame()
+    else:
         st.info(
-            "🗂 Archive view — this historical NHL card serves the production "
-            "prediction as first published (frozen card store; never an OOF "
-            "re-price). Scores, picks, probabilities, and results are "
-            "preserved; current-slate market and SHAP enrichment is "
-            "unavailable for this retained date."
+            "🗂 Archive view — this historical NHL card preserves the production "
+            "prediction as first published. Current-slate market, goalie, and "
+            "SHAP enrichment is intentionally unavailable for archive dates."
         )
 
     st.divider()
@@ -545,10 +604,10 @@ def run() -> None:
                         goalie_row = hit.iloc[0].to_dict()
                 st.markdown(_nhl_mirror_card_html(g, goalie_row, re_html),
                             unsafe_allow_html=True)
-                # SAME per-card expander as MLB (📈 SHAP Features) — the
-                # backend emits nhl_shap_game_<game_id>.csv attributions
-                # from the deployed ensemble, so the identical chart renders.
-                _nhl_shap_expander(g)
+                # SAME current-card expander as MLB (📈 SHAP Features).  Frozen
+                # archive cards intentionally omit later-run SHAP attribution.
+                if not history_view:
+                    _nhl_shap_expander(g)
 
     # 10. Same point-in-time caption
     st.caption("Model outputs are point-in-time — only data available before each "

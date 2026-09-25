@@ -992,9 +992,16 @@ def valid_dates(sport_key: str | None = None) -> tuple[str, ...]:
     s = normalize_sport_key(sport_key if sport_key is not None else get_sport())
     cfg = get_source_config()
     contents = _contents_todays_dates(**cfg) if s == "mlb" else ()
-    if s in ("nfl", "nhl"):
-        board_frame = load_nfl_moneyline(s)
-        history_frame = load_nfl_prediction_history(s)
+    if s == "nhl":
+        # NHL date navigation is split by design: the strict current-slate
+        # resolver supplies the live/future board date, while prediction
+        # history supplies archive dates only.  Neither an OOF/history row
+        # nor a malformed moneyline record can become a current date here.
+        board_frame = load_nhl_moneyline("nhl")
+        history_frame = load_nfl_prediction_history("nhl")
+    elif s == "nfl":
+        board_frame = load_nfl_moneyline("nfl")
+        history_frame = load_nfl_prediction_history("nfl")
     elif s == "nba":
         board_frame = load_nba_moneyline("nba")
         history_frame = load_nba_prediction_history("nba")
@@ -1174,9 +1181,11 @@ def nfl_moneyline_to_frame(data) -> pd.DataFrame:
 def load_nfl_moneyline(sport: str | None = "nfl") -> pd.DataFrame:
     """Load the latest NFL moneyline v1 artifact through the adapter.
 
-    Resolves the newest ``nfl_moneyline_v1_*.json`` in the NFL data_delivery
-    dir, reads it, and adapts to the shared card frame. Missing/invalid →
-    empty frame with the full card schema (never fabricated)."""
+    NHL callers historically reused this entry point; route that sport
+    through its strict current-slate resolver while leaving NFL behavior
+    unchanged."""
+    if normalize_sport_key(sport or "nfl") == "nhl":
+        return load_nhl_moneyline("nhl")
     path = resolve_sport_artifact(sport or "nfl", "moneyline_json")
     if path is None:
         return pd.DataFrame(columns=NFL_CARD_COLUMNS)
@@ -1193,8 +1202,11 @@ def load_nfl_moneyline_record(sport: str | None = "nfl") -> dict:
     The Calibration page reads the aggregate sections (pooled/sealed metrics,
     verdict, slate, members, adaptive weights) directly off this dict; the
     card adapter (``load_nfl_moneyline``) stays the games[] → DataFrame path.
-    Missing / invalid / non-dict → {} (never raises).
+    Missing / invalid / non-dict → {} (never raises).  NHL's shared raw
+    fallback uses the same strict current-slate contract as its card path.
     """
+    if normalize_sport_key(sport or "nfl") == "nhl":
+        return load_nhl_moneyline_record("nhl")
     path = resolve_sport_artifact(sport or "nfl", "moneyline_json")
     if path is None:
         return {}
@@ -2919,6 +2931,16 @@ NHL_CARD_COLUMNS = [
     "away_team_name",
 ]
 
+# Official NHL franchise abbreviations accepted by the strict live-slate
+# resolver.  Mirrors the backend's 32-team identity contract without making
+# the frontend import backend configuration.
+_NHL_TEAM_CODES = frozenset({
+    "ANA", "BOS", "BUF", "CAR", "CBJ", "CGY", "CHI", "COL", "DAL",
+    "DET", "EDM", "FLA", "LAK", "MIN", "MTL", "NJD", "NSH", "NYI",
+    "NYR", "OTT", "PHI", "PIT", "SEA", "SJS", "STL", "TBL", "TOR",
+    "UTA", "VAN", "VGK", "WPG", "WSH",
+})
+
 
 def nhl_moneyline_to_frame(data) -> pd.DataFrame:
     """Adapt an ``nhl_moneyline_v1_*.json`` record into the shared card frame.
@@ -2995,36 +3017,182 @@ def nhl_moneyline_to_frame(data) -> pd.DataFrame:
     return pd.DataFrame(out, columns=cols)
 
 
-def load_nhl_moneyline(sport: str | None = "nhl") -> pd.DataFrame:
-    """Load the latest NHL moneyline v1 artifact through the adapter.
+def _nhl_current_slate_record(
+        owner: str = "", repo: str = "", branch: str = "main") -> dict:
+    """Resolve the newest strict, non-stale NHL current-slate record.
 
-    Resolves the newest ``nhl_moneyline_v1_*.json`` in the NHL data_delivery
-    dir, reads it, and adapts to the shared card frame. Missing/invalid →
-    empty frame with the full card schema (never fabricated)."""
-    path = resolve_sport_artifact(sport or "nhl", "moneyline_json")
-    if path is None:
+    NHL moneyline JSON is a live-card contract, not a generic dated model
+    snapshot.  A filename alone is therefore not enough to make an artifact
+    eligible: it must carry a parseable creation time, an explicit future/
+    current ``slate_date``, a positive exact game count, unique real game
+    identities, genuine pregame kickoffs, and finite complementary model
+    probabilities.  Final/settled rows are rejected.
+
+    Candidates are enumerated newest filename first from the configured
+    remote contents listing plus the local artifact directory, then fetched
+    through the normal raw/local cache semantics.  Selection prefers the
+    newest persisted ``created_utc`` (an older-named file may be a newer
+    publication), with filename/source as deterministic tie-breakers.  This
+    intentionally applies only to NHL; NFL/NBA retain their existing loaders.
+    """
+    cfg = {"owner": owner, "repo": repo, "branch": branch}
+    dates = _family_dated_dates(
+        "nhl", [("nhl_moneyline_v1_", ".json")], cfg)
+    resolver_buster = str(int(time.time() // 30))
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    candidates: list[tuple[datetime, str, int, str, dict]] = []
+
+    for filename_date in dates:
+        filename = f"nhl_moneyline_v1_{filename_date}.json"
+        raw, source = _fetch_bytes(
+            filename, **cfg, sport="nhl", cache_buster=resolver_buster)
+        if raw is None:
+            continue
+        try:
+            record = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict):
+            continue
+
+        try:
+            created = datetime.fromisoformat(
+                str(record.get("created_utc", "")).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=ZoneInfo("UTC"))
+        else:
+            created = created.astimezone(ZoneInfo("UTC"))
+
+        slate_raw = str(record.get("slate_date", "") or "").strip()
+        try:
+            slate_date = date.fromisoformat(slate_raw)
+        except (TypeError, ValueError):
+            continue
+        # Future previews are valid (a Sep 24 publication may serve Sep 29).
+        # Once the slate date is past in ET, it is no longer a live board.
+        if slate_date < today_et:
+            continue
+        # The canonical serving date is the first upcoming game date.  A
+        # multi-day pending frame is not a live slate artifact.
+
+        games = record.get("games")
+        if not isinstance(games, list) or not games:
+            continue
+        game_dates: set[date] = set()
+        n_games = record.get("n_games")
+        if (isinstance(n_games, bool) or not isinstance(n_games, int)
+                or n_games <= 0 or n_games != len(games)):
+            continue
+
+        game_ids: set[str] = set()
+        valid = True
+        for game in games:
+            if not isinstance(game, dict):
+                valid = False
+                break
+            game_id = str(game.get("game_id", "") or "").strip()
+            home = str(game.get("home_team", "") or "").strip().upper()
+            away = str(game.get("away_team", "") or "").strip().upper()
+            if not game_id or game_id in game_ids or not home or not away or home == away:
+                valid = False
+                break
+            game_ids.add(game_id)
+
+            # Require canonical NHL team abbreviations, not arbitrary
+            # non-empty text masquerading as a team.
+            if (home not in _NHL_TEAM_CODES
+                    or away not in _NHL_TEAM_CODES):
+                valid = False
+                break
+
+            try:
+                game_date = date.fromisoformat(_norm_game_date(
+                    game.get("game_date")))
+            except (TypeError, ValueError):
+                valid = False
+                break
+            # A board artifact is for one exact slate date.  The official
+            # UTC kickoff may fall on the following UTC calendar day, but the
+            # NHL game_date itself must match the published slate.
+            if game_date != slate_date:
+                valid = False
+                break
+            game_dates.add(game_date)
+
+            status = str(game.get("game_status", "") or "").strip().lower()
+            if status not in ("pre", "scheduled"):
+                valid = False
+                break
+            home_score = game.get("home_score")
+            away_score = game.get("away_score")
+            if home_score not in (None, "") or away_score not in (None, ""):
+                valid = False
+                break
+            if game.get("decided") is True or game.get("is_final") is True:
+                valid = False
+                break
+
+            kickoff_raw = _repair_start_iso(game.get("start_time_utc"))
+            try:
+                kickoff = datetime.fromisoformat(
+                    str(kickoff_raw).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                valid = False
+                break
+            if kickoff.tzinfo is None:
+                kickoff = kickoff.replace(tzinfo=ZoneInfo("UTC"))
+            # Midnight is the serving fallback when the official feed has not
+            # published a time yet; it is not a trustworthy live kickoff.
+            if kickoff.time() == datetime.min.time():
+                valid = False
+                break
+
+            ph = _nl(game.get("home_win_prob_model"))
+            pa = _nl(game.get("away_win_prob_model"))
+            if (ph is None or pa is None or not np.isfinite(ph)
+                    or not np.isfinite(pa) or not 0.0 <= ph <= 1.0
+                    or not 0.0 <= pa <= 1.0
+                    or not np.isclose(ph + pa, 1.0, atol=1e-6)):
+                valid = False
+                break
+        if not valid or game_dates != {slate_date}:
+            continue
+
+        # created_utc is the primary freshness fact.  The remaining fields
+        # make equal-timestamp resolution deterministic without using mtime.
+        source_rank = 1 if source == "github" else 0
+        candidates.append((created, filename_date, source_rank, source, record))
+
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda item: (
+        item[0], item[1], item[2], item[3]), reverse=True)
+    return candidates[0][4]
+
+
+def load_nhl_moneyline(sport: str | None = "nhl") -> pd.DataFrame:
+    """Load the strict current NHL moneyline slate through the adapter."""
+    if normalize_sport_key(sport or "nhl") != "nhl":
         return pd.DataFrame(columns=NHL_CARD_COLUMNS)
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        return pd.DataFrame(columns=NHL_CARD_COLUMNS)
-    return nhl_moneyline_to_frame(data)
+    cfg = get_source_config()
+    return nhl_moneyline_to_frame(_load_nhl_moneyline_record_cached(**cfg))
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _load_nhl_moneyline_record_cached(
+        owner: str, repo: str, branch: str) -> dict:
+    """Short-lived cache boundary for the strict NHL current-slate resolver."""
+    return _nhl_current_slate_record(owner, repo, branch)
 
 
 def load_nhl_moneyline_record(sport: str | None = "nhl") -> dict:
-    """Load the newest NHL moneyline v1 JSON as its RAW dict record.
-
-    The Calibration page reads the aggregate sections directly off this
-    dict; the card adapter (``load_nhl_moneyline``) stays the games[] →
-    DataFrame path. Missing / invalid / non-dict → {} (never raises)."""
-    path = resolve_sport_artifact(sport or "nhl", "moneyline_json")
-    if path is None:
+    """Load the strict current NHL moneyline slate as its raw dict record."""
+    if normalize_sport_key(sport or "nhl") != "nhl":
         return {}
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    cfg = get_source_config()
+    return _load_nhl_moneyline_record_cached(**cfg)
 
 
 # The starting-goalie card contract (the NHL substitute for NFL's QB
