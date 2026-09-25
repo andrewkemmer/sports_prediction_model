@@ -38,6 +38,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -95,14 +96,29 @@ DEFAULT_RETRIES = 4
 # Per-host request policy.  stats.nba.com answers one query with a whole
 # season of player lines and can take a minute; the CDN is fast and its 403 is
 # authoritative ("no such game"), so retrying one only wastes the run.
+#
+# These are ceilings, not targets: a request is abandoned as soon as it
+# exceeds its timeout, and the whole run is bounded by PULL_DEADLINE_ENV so a
+# struggling upstream degrades into a clear failure instead of a silent hang.
 _HOST_POLICY: dict[str, dict[str, Any]] = {
-    "stats.nba.com": {"timeout": 150, "attempts": 6, "backoff": 4.0,
+    "stats.nba.com": {"timeout": 60, "attempts": 2, "backoff": 3.0,
                       "retry_forbidden": False},
-    "cdn.nba.com": {"timeout": 60, "attempts": 4, "backoff": 0.5,
+    "cdn.nba.com": {"timeout": 45, "attempts": 2, "backoff": 0.5,
                     "retry_forbidden": True},
-    "default": {"timeout": 60, "attempts": 4, "backoff": 1.0,
+    "default": {"timeout": 45, "attempts": 2, "backoff": 1.0,
                 "retry_forbidden": False},
 }
+# Name resolution does not honour a socket timeout, so every attempt is run on
+# a thread and abandoned at a hard wall clock.  Without this a blackholed host
+# blocks forever with no CPU and no error.
+DNS_GRACE_SEC = 30
+PULL_DEADLINE_ENV = "NBA_PULL_DEADLINE_SEC"
+DEFAULT_PULL_DEADLINE_SEC = 600.0
+# A healthy pull answers all eight season requests in seconds.  When the host
+# is actually down, repeating the same doomed request for every remaining
+# season buys nothing but another few minutes of the user watching a still run,
+# so the pull gives up after this many consecutive failures.
+MAX_CONSECUTIVE_FAILURES = 2
 
 SEASON_TYPE_REGULAR = "Regular Season"
 SEASON_TYPE_PLAYOFFS = "Playoffs"
@@ -169,20 +185,51 @@ class SeasonUnavailable(RuntimeError):
     """One season log could not be read; other seasons may still succeed."""
 
 
+def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
+    """Perform one request under a hard wall clock.
+
+    ``urlopen``'s timeout covers socket reads, not DNS, so a host that never
+    resolves would otherwise block the run indefinitely.  Running the call on a
+    thread and abandoning it at the deadline makes "hung" indistinguishable
+    from "slow" impossible to reach.
+    """
+    outcome: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                outcome["payload"] = json.loads(response.read())
+        except BaseException as exc:  # noqa: BLE001 - reported to the caller
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    started = time.monotonic()
+    thread.start()
+    thread.join(timeout + DNS_GRACE_SEC)
+    if thread.is_alive():
+        raise TimeoutError(
+            f"no response within {timeout + DNS_GRACE_SEC}s "
+            f"(socket limit {timeout}s plus DNS)")
+    if "error" in outcome:
+        raise outcome["error"]
+    logger.info("NBA request completed in %.1fs", time.monotonic() - started)
+    return outcome["payload"]
+
+
 def _get_json(url: str, *, headers: dict[str, str] | None = None,
               retries: int | None = None, pause: float | None = None,
               allow_missing: bool = False) -> Any | None:
     """Fetch JSON with per-host timeout, backoff, and retry policy.
 
-    The two hosts behave nothing alike.  ``stats.nba.com`` serves a whole
-    season of player lines from one very slow query that regularly takes tens
-    of seconds and has timed out from cloud hosts, so it gets a long timeout,
-    several attempts, and a backoff measured in seconds.  ``cdn.nba.com`` is a
-    CDN: fast, and its 403 means "this game does not exist" rather than
-    "slow down", so a 403 is answered immediately instead of being retried
-    into a stall.
+    Every attempt is logged before it starts and after it fails, so a slow
+    upstream is visibly slow rather than indistinguishable from a hang.  The
+    two hosts behave nothing alike: ``stats.nba.com`` serves a whole season of
+    player lines from one very slow query, while ``cdn.nba.com`` is a CDN whose
+    403 means "this game does not exist" rather than "slow down".
     """
     host = urllib.parse.urlparse(url).netloc
+    path = urllib.parse.urlparse(url).path
     policy = _HOST_POLICY.get(host, _HOST_POLICY["default"])
     attempts = retries if retries is not None else _int_env(
         RETRIES_ENV, policy["attempts"])
@@ -193,10 +240,10 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     made = 0
     for attempt in range(max(attempts, 1)):
         made = attempt + 1
+        logger.info("NBA request %s/%s to %s (timeout %ds)",
+                    made, max(attempts, 1), host, timeout + DNS_GRACE_SEC)
         try:
-            request = urllib.request.Request(url, headers=headers or _HTTP_HEADERS)
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read())
+            return _request_json(url, headers or _HTTP_HEADERS, timeout)
         except urllib.error.HTTPError as exc:
             last = exc
             reason = f"HTTP {exc.code}"
@@ -205,6 +252,8 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
             # A 403 from the CDN means the artifact is absent; a 403 from
             # stats means the client was rejected and retrying will not help.
             if exc.code in (403, 404) and not policy["retry_forbidden"]:
+                logger.warning("NBA request to %s rejected (HTTP %s); not retrying",
+                               host, exc.code)
                 break
             if exc.code < 500 and exc.code not in (429, 403):
                 break
@@ -214,13 +263,15 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
         except Exception as exc:  # noqa: BLE001 - network layer is untyped
             last = exc
             reason = f"{type(exc).__name__}: {exc}"
+        logger.warning("NBA request %s/%s to %s failed: %s", made,
+                       max(attempts, 1), host, reason)
         if attempt + 1 < max(attempts, 1):
             # Jitter keeps concurrent clients from retrying in lockstep.
             delay = base * (2 ** attempt)
             time.sleep(delay * (0.5 + random.random()))
     raise RuntimeError(
         f"NBA request to {host} failed after {made} attempt(s) "
-        f"({reason}); endpoint={urllib.parse.urlparse(url).path} :: {last}")
+        f"({reason}); endpoint={path} :: {last}")
 
 def _season_log_path(season: str, season_type: str) -> Path:
     """Per-season cache file, so one bad season never discards the others."""
@@ -746,18 +797,41 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
     endpoint so the cause is diagnosable from the log alone.
     """
     pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    deadline = time.monotonic() + _float_env(PULL_DEADLINE_ENV,
+                                             DEFAULT_PULL_DEADLINE_SEC)
     logs: list[pd.DataFrame] = []
     unavailable: list[str] = []
+    skipped: list[str] = []
+    consecutive_failures = 0
+    gave_up = False
     for season in _seasons_in(start, end):
         for season_type, game_type in ((SEASON_TYPE_REGULAR, config.GAME_TYPE_REG),
                                        (SEASON_TYPE_PLAYOFFS, config.GAME_TYPE_POST)):
+            if gave_up:
+                skipped.append(f"{season} {season_type}")
+                continue
+            if time.monotonic() > deadline:
+                skipped.append(f"{season} {season_type}")
+                logger.warning("NBA pull budget exhausted; skipping %s %s. "
+                               "Raise %s to pull more of the window.",
+                               season, season_type, PULL_DEADLINE_ENV)
+                continue
             try:
                 raw = _fetch_season_log(season, season_type, pause)
             except SeasonUnavailable as exc:
                 unavailable.append(f"{season} {season_type}")
+                consecutive_failures += 1
                 logger.error("NBA season log unavailable, continuing without "
                              "it: %s", exc)
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    gave_up = True
+                    logger.error(
+                        "NBA pull stopping after %d consecutive season "
+                        "failures; the endpoint is not answering, so the "
+                        "remaining seasons would only repeat it.",
+                        consecutive_failures)
                 continue
+            consecutive_failures = 0
             frame = _prepare_log(raw, game_type)
             if frame.empty:
                 logger.info("%s %s returned no games", season, season_type)
@@ -765,6 +839,13 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
             logger.info("%s %s: %d player lines across %d games", season,
                         season_type, len(frame), frame.game_id.nunique())
             logs.append(frame)
+    if skipped:
+        logger.warning("NBA pull stopped early; %d season logs were not "
+                       "attempted: %s", len(skipped), ", ".join(skipped))
+    if gave_up and logs:
+        logger.warning("NBA pull completed on %d season log(s) despite %d "
+                       "failures; check the seasons listed above before "
+                       "trusting the window.", len(logs), len(unavailable))
     if unavailable:
         logger.warning("NBA could not read %d of the requested season logs: %s. "
                        "Anything already fetched is cached, so the next run "

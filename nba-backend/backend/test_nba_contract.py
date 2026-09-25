@@ -362,7 +362,7 @@ def test_cdn_forbidden_is_treated_as_a_missing_game(monkeypatch) -> None:
 
 
 def test_stats_requests_get_a_long_timeout(monkeypatch) -> None:
-    """The season-log query is slow; a 45s ceiling is what killed the run."""
+    """The season-log query is slow, so it gets a much longer ceiling than the CDN."""
     seen = {}
 
     class Slow:
@@ -382,7 +382,97 @@ def test_stats_requests_get_a_long_timeout(monkeypatch) -> None:
     monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
     ing._get_json("https://stats.nba.com/stats/x", headers=ing._STATS_HEADERS)
     assert seen["timeout"] == ing._HOST_POLICY["stats.nba.com"]["timeout"]
-    assert seen["timeout"] >= 120
+    assert seen["timeout"] >= 60
+
+
+def test_every_attempt_is_logged_so_a_slow_host_is_visible(monkeypatch, caplog) -> None:
+    """Silence is what made the last run look hung; each attempt must announce itself."""
+    import logging
+
+    calls = {"n": 0}
+
+    def slow(request, timeout=None):
+        calls["n"] += 1
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", slow)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    with caplog.at_level(logging.INFO, logger="ingestion"):
+        with pytest.raises(RuntimeError):
+            ing._get_json("https://stats.nba.com/stats/LeagueGameLog",
+                          headers=ing._STATS_HEADERS)
+    messages = [r.getMessage() for r in caplog.records]
+    attempts = [m for m in messages if "to stats.nba.com" in m and "request" in m]
+    assert len(attempts) >= calls["n"], "every attempt must log before it starts"
+    assert any("failed:" in m for m in messages)
+
+
+def test_a_blackholed_host_cannot_block_past_the_deadline(monkeypatch) -> None:
+    """DNS ignores a socket timeout, so an attempt is abandoned on a hard clock."""
+    import time as real_time
+
+    monkeypatch.setattr(ing, "DNS_GRACE_SEC", 0.05)
+
+    def never_returns(*args, **kwargs):
+        real_time.sleep(30)
+        return None
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", never_returns)
+    started = real_time.monotonic()
+    with pytest.raises(TimeoutError, match="no response within"):
+        ing._request_json("https://stats.nba.com/stats/x", ing._STATS_HEADERS, 0)
+    assert real_time.monotonic() - started < 10
+
+
+def test_a_dead_host_is_not_re_hammered_for_every_season(monkeypatch, caplog) -> None:
+    """A failing endpoint must stop the pull, not repeat for each remaining season."""
+    import logging
+
+    attempted: list[str] = []
+
+    def fake(season, season_type, pause):
+        attempted.append(f"{season}|{season_type}")
+        raise ing.SeasonUnavailable(f"{season} {season_type}: timeout")
+
+    monkeypatch.setattr(ing, "_fetch_season_log", fake)
+    with caplog.at_level(logging.ERROR, logger="ingestion"):
+        with pytest.raises(RuntimeError, match="every season log failed"):
+            ing.load_dataset()
+    assert len(attempted) == ing.MAX_CONSECUTIVE_FAILURES
+    assert any("stopping after" in r.getMessage() for r in caplog.records)
+
+
+def test_a_single_bad_season_does_not_stop_the_pull(monkeypatch) -> None:
+    """One bad season is tolerated; only a repeated failure ends the pull."""
+    attempted: list[str] = []
+
+    def fake(season, season_type, pause):
+        attempted.append(f"{season}|{season_type}")
+        if season == "2024-25" and season_type == ing.SEASON_TYPE_PLAYOFFS:
+            raise ing.SeasonUnavailable("2024-25 Playoffs: timeout")
+        return pd.DataFrame(season_log_rows())
+
+    monkeypatch.setattr(ing, "_fetch_season_log", fake)
+    monkeypatch.setattr(ing, "_pull_play_by_play",
+                        lambda *a, **k: pd.DataFrame())
+    wh = ing.load_dataset()
+    assert len(wh.games) == len(TEAMS)
+    assert len(attempted) > ing.MAX_CONSECUTIVE_FAILURES
+
+
+def test_the_pull_budget_stops_further_seasons(monkeypatch, caplog) -> None:
+    """A struggling upstream must degrade into skipped seasons, not an open-ended run."""
+    import logging
+
+    def fake(season, season_type, pause):
+        raise ing.SeasonUnavailable(f"{season} {season_type}: timeout")
+
+    monkeypatch.setattr(ing, "_fetch_season_log", fake)
+    monkeypatch.setenv(ing.PULL_DEADLINE_ENV, "0")
+    with caplog.at_level(logging.WARNING, logger="ingestion"):
+        with pytest.raises(RuntimeError, match="every season log failed"):
+            ing.load_dataset()
+    assert any("budget exhausted" in r.getMessage() for r in caplog.records)
 
 
 def test_a_timeout_is_retried_then_reported(monkeypatch) -> None:
