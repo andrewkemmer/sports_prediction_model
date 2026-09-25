@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -91,6 +92,62 @@ def test_missing_source_error_rejects_literal_none(tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match="kaggle_nba_run.ipynb") as exc:
             ing.load_dataset("None", use_cache=False)
     assert "Do not pass None" in str(exc.value)
+
+
+def test_kaggle_pull_is_lazy_and_extracts_pinned_bundle(tmp_path: Path) -> None:
+    target = tmp_path / "nba-warehouse"
+
+    def fake_download(command, check):
+        assert check is True
+        assert command[1:] == [
+            "datasets", "download", "-d", config.NBA_DATASET_REF,
+            "-v", config.NBA_DATASET_VERSION, "--unzip", "-p", str(target),
+        ]
+        with zipfile.ZipFile(target / "bundle.zip", "w") as bundle:
+            bundle.writestr("export/nba.duckdb", b"fixture")
+
+    with patch.object(ing.shutil, "which", return_value="kaggle"), \
+         patch.object(ing.subprocess, "run", side_effect=fake_download):
+        resolved = ing.pull_kaggle_warehouse(target)
+    assert resolved == target / "export" / "nba.duckdb"
+
+
+def test_source_resolution_downloads_only_when_enabled(tmp_path: Path) -> None:
+    downloaded = tmp_path / "downloaded" / "nba.duckdb"
+    downloaded.parent.mkdir(parents=True)
+    downloaded.write_bytes(b"fixture")
+    with patch.object(ing, "_source_root", return_value=None), \
+         patch.object(ing, "_auto_download_enabled", return_value=False), \
+         patch.object(ing, "pull_kaggle_warehouse") as pull:
+        assert ing.resolve_source(allow_download=True) is None
+        pull.assert_not_called()
+    with patch.object(ing, "_source_root", return_value=None), \
+         patch.object(ing, "_auto_download_enabled", return_value=True), \
+         patch.object(ing, "pull_kaggle_warehouse", return_value=downloaded) as pull:
+        assert ing.resolve_source(allow_download=True) == downloaded
+        pull.assert_called_once_with()
+
+
+def test_kaggle_dependency_is_optional_for_local_core() -> None:
+    core = (BACKEND / "requirements.txt").read_text()
+    kaggle = (BACKEND / "requirements-kaggle.txt").read_text()
+    assert "kaggle" not in core.lower()
+    assert "kaggle" in kaggle.lower()
+
+
+def test_master_pipeline_gates_download_behind_source_mode(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_load(source, use_cache, allow_download):
+        calls.append((source, use_cache, allow_download))
+        raise RuntimeError("stop after source handoff")
+
+    with patch.object(pipeline_mod.ingestion, "load_dataset", side_effect=fake_load):
+        with pytest.raises(RuntimeError, match="source handoff"):
+            pipeline_mod.run(out_dir=tmp_path / "default")
+        with pytest.raises(RuntimeError, match="source handoff"):
+            pipeline_mod.run(out_dir=tmp_path / "skip", skip_pull=True)
+    assert calls == [(None, True, True), (None, False, False)]
 
 
 def test_folds_are_observed_date_expanding_and_prior_only() -> None:

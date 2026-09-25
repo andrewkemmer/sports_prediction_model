@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import glob as _glob
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 import re
+import shutil
+import subprocess
+import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -94,6 +99,8 @@ _WAREHOUSE_MARKER_NAMES = frozenset({
     "fact_game_result.csv", "fact_game_result.parquet",
 })
 _WAREHOUSE_MARKER_DIRS = frozenset({"dim_game", "fact_game_result"})
+KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
+KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -307,6 +314,121 @@ def discover_warehouse(roots: Iterable[str | Path] | str | Path | None = None
         if sql:
             return sql[0]
         return _warehouse_root_for_marker(markers[0], root)
+    return None
+
+
+def _kaggle_runtime() -> bool:
+    """Return whether this process is running in a Kaggle workspace."""
+    return bool(
+        os.environ.get("KAGGLE_KERNEL_RUN_TYPE", "").strip()
+        or (Path("/kaggle").is_dir() and Path("/kaggle/working").is_dir())
+    )
+
+
+def _auto_download_enabled() -> bool:
+    """Apply the explicit auto-download override, or Kaggle's default."""
+    raw = os.environ.get(KAGGLE_AUTO_DOWNLOAD_ENV, "").strip().lower()
+    if raw:
+        return raw in {"1", "true", "yes", "on"}
+    return _kaggle_runtime()
+
+
+def _download_target() -> Path:
+    configured = os.environ.get(KAGGLE_DOWNLOAD_DIR_ENV, "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if _kaggle_runtime():
+        return Path("/kaggle/working/nba-warehouse")
+    return config.CACHE_DIR / "source"
+
+
+def _extract_downloaded_archives(target: Path) -> None:
+    """Extract Kaggle ZIPs without permitting paths outside ``target``."""
+    destination = target.resolve()
+    for archive in sorted(target.rglob("*.zip")):
+        with zipfile.ZipFile(archive) as bundle:
+            for member in bundle.infolist():
+                member_path = (target / member.filename).resolve()
+                try:
+                    member_path.relative_to(destination)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"Kaggle archive contains an unsafe path: {member.filename}"
+                    ) from exc
+            bundle.extractall(target)
+
+
+def pull_kaggle_warehouse(target: str | Path | None = None,
+                          dataset_ref: str | None = None,
+                          version: str | int | None = None) -> Path:
+    """Download and resolve the pinned NBA Kaggle warehouse.
+
+    This is an ingestion-side operation used by the Kaggle orchestration
+    path.  The core model modules never import the Kaggle client; local
+    callers can continue to pass a local warehouse to ``load_dataset``.
+    """
+    ref = str(dataset_ref or config.NBA_DATASET_REF)
+    pinned_version = str(version or config.NBA_DATASET_VERSION)
+    if pinned_version != config.NBA_DATASET_VERSION:
+        raise ValueError(
+            f"NBA Kaggle dataset version must remain {config.NBA_DATASET_VERSION}, "
+            f"got {pinned_version}"
+        )
+    root = Path(target).expanduser() if target is not None else _download_target()
+    existing = discover_warehouse([root])
+    if existing is not None:
+        return existing
+
+    root.mkdir(parents=True, exist_ok=True)
+    executable = shutil.which("kaggle")
+    if executable:
+        command = [executable]
+    elif importlib.util.find_spec("kaggle") is not None:
+        command = [sys.executable, "-m", "kaggle"]
+    else:
+        raise RuntimeError(
+            "Kaggle download requested but the Kaggle CLI is unavailable. "
+            "Install the optional nba-backend/backend/requirements-kaggle.txt "
+            "dependencies or attach wyattowalsh/basketball version 238."
+        )
+    command.extend([
+        "datasets", "download", "-d", ref, "-v", pinned_version,
+        "--unzip", "-p", str(root),
+    ])
+    logger.info("Downloading NBA Kaggle warehouse %s version %s to %s",
+                ref, pinned_version, root)
+    try:
+        subprocess.run(command, check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(
+            f"Failed to download {ref} version {pinned_version} to {root}: {exc}"
+        ) from exc
+    _extract_downloaded_archives(root)
+    resolved = discover_warehouse([root])
+    if resolved is None:
+        files = sorted(str(path.relative_to(root))
+                       for path in root.rglob("*") if path.is_file())
+        preview = ", ".join(files[:20]) or "no files"
+        raise RuntimeError(
+            "Kaggle download completed but no supported NBA warehouse was "
+            f"found under {root}: {preview}"
+        )
+    return resolved
+
+
+def resolve_source(source: str | Path | None = None,
+                   allow_download: bool = False) -> Path | None:
+    """Resolve an explicit, mounted, cached, or optional Kaggle source."""
+    if isinstance(source, str) and source.strip().lower() in {"none", "null"}:
+        source = None
+    if source is not None:
+        candidate = Path(source).expanduser()
+        return discover_warehouse([candidate]) or candidate
+    root = _source_root()
+    if root is not None and root.exists():
+        return root
+    if allow_download and _auto_download_enabled():
+        return pull_kaggle_warehouse()
     return None
 
 
@@ -929,16 +1051,12 @@ def _validate_dataset(wh: Warehouse) -> None:
             )
 
 
-def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Warehouse:
+def load_dataset(source: str | Path | None = None, use_cache: bool = True,
+                 allow_download: bool = False) -> Warehouse:
     raw_source = source
     if isinstance(source, str) and source.strip().lower() in {"none", "null"}:
         logger.warning("treating source=%r as an omitted source", source)
         source = None
-    if source is None:
-        root = _source_root()
-    else:
-        candidate = Path(source).expanduser()
-        root = discover_warehouse([candidate]) or candidate
     gp, tp, pp, mp = _cache_paths()
     if use_cache and source is None and mp.exists() and gp.exists() and tp.exists() and pp.exists():
         try:
@@ -949,6 +1067,7 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Wa
             return wh
         except Exception as exc:  # noqa: BLE001
             logger.warning("invalid NBA cache, rebuilding: %s", exc)
+    root = resolve_source(source, allow_download=allow_download)
     if root is None or not root.exists():
         searched = [str(path) for path in _source_search_roots()]
         if raw_source is not None:

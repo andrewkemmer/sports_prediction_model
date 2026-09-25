@@ -13,13 +13,20 @@ cd nba-backend/backend
 python master_pipeline.py --source-path /path/to/basketball
 ```
 
+For a local warehouse, pass `--source-path` (or set
+`NBA_KAGGLE_DATASET_PATH`); the core pipeline does not require Kaggle or the
+Kaggle CLI. In a Kaggle process, if no mounted warehouse is found, the
+ingestion layer can lazily download the pinned dataset to
+`/kaggle/working/nba-warehouse` (or `NBA_KAGGLE_DOWNLOAD_DIR`) before loading.
+Set `NBA_KAGGLE_AUTO_DOWNLOAD=0` to disable that fallback.
+
 On Kaggle, the backend also discovers mounted warehouse exports below
 `/kaggle/input` (including generated dataset slugs and nested Parquet/CSV
-partitions). The `kaggle_nba_run.ipynb` notebook resolves the source before
-starting the pipeline; it never passes a missing value as `--source-path`.
+partitions). The `kaggle_nba_run.ipynb` notebook installs the optional
+`requirements-kaggle.txt` bundle and resolves the source before starting the
+pipeline; it never passes a missing value as `--source-path`.
 The normalized cache is stored outside the repository (by default under
 `~/.cache/sports_prediction_model/nba`; set `NBA_CACHE_DIR` to override it).
-Set `NBA_KAGGLE_DATASET_PATH` in Kaggle, or pass `--source-path` explicitly.
 The production graph does not import another sport's backend.
 
 The model uses the exact MLB XGBoost/LightGBM/elastic-net member parameters,

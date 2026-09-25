@@ -228,7 +228,11 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     run_day = run_date or datetime.now().strftime("%Y-%m-%d")
     date_c = run_day.replace("-", "")
 
-    wh = ingestion.load_dataset(source, use_cache=not bool(source) and not skip_pull)
+    wh = ingestion.load_dataset(
+        source,
+        use_cache=not bool(source) and not skip_pull,
+        allow_download=not skip_pull,
+    )
     games = ingestion.eligible_games(wh.games)
     settled = games[games.home_score.notna() & games.away_score.notna()].copy()
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
