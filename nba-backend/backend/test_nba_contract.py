@@ -148,6 +148,123 @@ def test_v238_legacy_csv_markers_are_discoverable(tmp_path: Path) -> None:
     assert ing.discover_warehouse([source]) == source
 
 
+def _upper_case_v238_bundle(root: Path, *, with_season: bool) -> Path:
+    """Mirror an ``nba_api``-style export: upper-case tables and columns."""
+    source = root / "upper-case-bundle"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "nba.duckdb").write_bytes(b"\x00" * 32 + b"empty v238 duckdb")
+    team_ids = {abbr: 1610612737 + i for i, abbr in enumerate(TEAMS)}
+    rows: list[dict] = []
+    for i, home in enumerate(TEAMS):
+        away = TEAMS[(i + 1) % len(TEAMS)]
+        row: dict = {
+            "GAME_ID": f"00224000{i:02d}",
+            "GAME_DATE": "2024-10-22",
+            "TEAM_ID_HOME": team_ids[home],
+            "TEAM_ABBREVIATION_HOME": home,
+            "TEAM_ID_AWAY": team_ids[away],
+            "TEAM_ABBREVIATION_AWAY": away,
+            "PTS_HOME": 110 + i,
+            "PTS_AWAY": 100 + i,
+        }
+        if with_season:
+            row["SEASON_ID"] = 22024
+        for side in ("HOME", "AWAY"):
+            row[f"FGM_{side}"] = 40
+            row[f"FGA_{side}"] = 88
+            row[f"FG3M_{side}"] = 12
+            row[f"FG3A_{side}"] = 35
+            row[f"FTM_{side}"] = 16
+            row[f"FTA_{side}"] = 20
+            row[f"OREB_{side}"] = 10
+            row[f"DREB_{side}"] = 30
+            row[f"REB_{side}"] = 40
+            row[f"AST_{side}"] = 25
+            row[f"TOV_{side}"] = 12
+            row[f"STL_{side}"] = 7
+            row[f"BLK_{side}"] = 4
+        rows.append(row)
+    with sqlite3.connect(source / "nba.sqlite") as con:
+        con.execute("CREATE TABLE TEAM (ID INTEGER, ABBREVIATION TEXT, "
+                    "FULL_NAME TEXT)")
+        con.executemany("INSERT INTO TEAM VALUES (?, ?, ?)",
+                        [(team_ids[a], a, f"{a} Club") for a in TEAMS])
+        columns = ", ".join(rows[0])
+        con.execute(f"CREATE TABLE GAME ({columns})")
+        con.executemany(
+            f"INSERT INTO GAME VALUES ({', '.join('?' * len(rows[0]))})",
+            [tuple(row.values()) for row in rows])
+    return source
+
+
+def test_upper_case_payload_columns_are_recognized(tmp_path: Path) -> None:
+    """Raw ``nba_api`` keys must not normalize into blank game columns."""
+    source = _upper_case_v238_bundle(tmp_path, with_season=True)
+    wh = ing.load_dataset(source, use_cache=False)
+    assert len(wh.games) == len(TEAMS)
+    assert set(wh.games.season) == {2024.0}
+    assert set(wh.games.home_team) | set(wh.games.away_team) == set(TEAMS)
+    assert wh.games.home_score.notna().all()
+    assert len(wh.team_stats) == 2 * len(TEAMS)
+    assert set(wh.team_stats.team) == set(TEAMS)
+
+
+def test_season_is_derived_from_gameday_when_column_is_absent(
+        tmp_path: Path) -> None:
+    """A missing season column is recoverable from the July boundary."""
+    source = _upper_case_v238_bundle(tmp_path, with_season=False)
+    wh = ing.load_dataset(source, use_cache=False)
+    assert set(wh.games.season) == {2024.0}
+    assert wh.games.gameday.notna().all()
+
+
+def test_table_names_match_case_insensitively() -> None:
+    """DuckDB identifiers are case sensitive; the catalog is not assumed so."""
+    resolved = ing._match_table_names({"DIM_GAME", "Fact_Box_Score_Team"},
+                                      ("dim_game", "fact_box_score_team",
+                                       "missing"))
+    assert resolved == {"dim_game": "DIM_GAME",
+                        "fact_box_score_team": "Fact_Box_Score_Team"}
+
+
+def test_upper_case_export_file_names_are_discovered(tmp_path: Path) -> None:
+    csv_root = tmp_path / "csv"
+    csv_root.mkdir(parents=True)
+    (csv_root / "GAME.CSV").write_text(
+        "game_id,season_year,game_date,home_team,away_team,home_score,"
+        "away_score\n0022400001,2024,2024-10-22,BOS,NYK,112,104\n",
+        encoding="utf-8")
+    (csv_root / "TEAM.CSV").write_text(
+        "id,abbreviation,full_name\n1610612738,BOS,Boston Celtics\n", encoding="utf-8")
+    (csv_root / "fact_box_score_team.CSV").write_text(
+        "game_id,team,points_for,field_goals_made\n0022400001,BOS,112,40\n",
+        encoding="utf-8")
+    games = ing._read_tables(tmp_path, ing.GAME_TABLES)
+    assert "game" in games
+    assert games["game"].iloc[0]["home_team"] == "BOS"
+    box = ing._read_tables(tmp_path, ing.TEAM_BOX_TABLES)
+    assert "fact_box_score_team" in box
+
+
+def test_coverage_failure_reports_observed_evidence() -> None:
+    """A coverage gate must say what it read, not only what it wanted."""
+    games = pd.DataFrame([{
+        "game_id": "0022000001", "gameday": "2020-10-20", "season": 2020.0,
+        "home_team": "BOS", "away_team": "NYK", "home_score": 110.0,
+        "away_score": 100.0, "game_type": 1,
+    }])
+    warehouse = ing.Warehouse(games=games, team_stats=pd.DataFrame(),
+                              player_stats=pd.DataFrame(), team_names={},
+                              manifest={"source_path": "/tmp/legacy/nba.sqlite"})
+    with pytest.raises(RuntimeError) as exc:
+        ing._validate_dataset(warehouse)
+    message = str(exc.value)
+    assert "no 2024-25-or-later season coverage" in message
+    assert "2020.0" in message
+    assert "2020-10-20" in message
+    assert "/tmp/legacy/nba.sqlite" in message
+
+
 def test_mounted_cache_source_skips_v238_empty_duckdb(tmp_path: Path,
                                                        monkeypatch) -> None:
     """A mounted bundle must not resolve to v238's empty DuckDB by filename."""

@@ -117,6 +117,48 @@ KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
 KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
 
 
+def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Fold a warehouse's column spelling onto this module's alias vocabulary.
+
+    The pinned bundle mirrors raw ``nba_api`` payloads, whose keys are upper
+    case (``SEASON_YEAR``, ``TEAM_ABBREVIATION_HOME``).  Every alias used below
+    is lower snake case, so an un-folded frame matches nothing and normalizes
+    into blank columns instead of failing loudly.  Folding is a no-op for the
+    canonical lower-case exports, and two spellings of one field are suffixed
+    deterministically rather than overwriting each other.
+    """
+    names: list[str] = []
+    seen: dict[str, int] = {}
+    for column in frame.columns:
+        key = re.sub(r"[^0-9a-z]+", "_", str(column).strip().lower()).strip("_")
+        key = key or "column"
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        names.append(key if count == 1 else f"{key}_{count}")
+    if names != [str(column) for column in frame.columns]:
+        frame.columns = pd.Index(names)
+    return frame
+
+
+def _match_table_names(available: Iterable[str],
+                       names: Iterable[str]) -> dict[str, str]:
+    """Map requested table names onto the catalog's actual spelling.
+
+    Exported catalogs are not consistent about case, and these lookups run on
+    Linux, so a case-only mismatch would otherwise look like a missing table.
+    """
+    catalog = {str(item).strip().lower(): str(item) for item in available}
+    return {name: catalog[name.strip().lower()]
+            for name in names if name.strip().lower() in catalog}
+
+
+def _catalog_has_known_table(names: Iterable[str]) -> bool:
+    """Report whether a SQL catalog holds a table this reader understands."""
+    known = {name.lower() for name in
+             GAME_TABLES + TEAM_TABLES + PLAYER_DIM_TABLES}
+    return bool({str(name).lower() for name in names} & known)
+
+
 def _read_csv(path: Path) -> pd.DataFrame:
     """Read a CSV while preserving warehouse identity spelling."""
     header = pd.read_csv(path, nrows=0)
@@ -124,7 +166,7 @@ def _read_csv(path: Path) -> pd.DataFrame:
         column: str for column in header.columns
         if str(column).strip().lower() in _CSV_ID_COLUMNS
     }
-    return pd.read_csv(path, dtype=identity)
+    return _normalize_columns(pd.read_csv(path, dtype=identity))
 
 
 @dataclass
@@ -214,6 +256,15 @@ def _season(series: pd.Series) -> pd.Series:
         text.str.extract(r"^\d(\d{4})$", expand=False), errors="coerce")
     out = out.mask(five_digit, five_year)
     return out.astype(float)
+
+
+def _season_from_date(dates: pd.Series) -> pd.Series:
+    """Derive a season start year from a game date (July-June boundary)."""
+    if not isinstance(dates, pd.Series):
+        return pd.Series(dtype=float)
+    year = pd.to_numeric(dates.dt.year, errors="coerce")
+    before_july = pd.to_numeric(dates.dt.month, errors="coerce") < 7
+    return (year - before_july.astype(float)).astype(float)
 
 
 def _game_id(value: Any) -> str:
@@ -328,7 +379,6 @@ def _sql_table_names(path: Path) -> set[str]:
 
 def _ordered_sql_candidates(paths: Iterable[Path]) -> list[Path]:
     """Prefer a populated DuckDB, then the largest populated SQL fallback."""
-    known_tables = set(GAME_TABLES) | set(TEAM_TABLES) | set(PLAYER_DIM_TABLES)
     decorated: list[tuple[bool, bool, int, str, Path]] = []
     for path in paths:
         try:
@@ -336,7 +386,7 @@ def _ordered_sql_candidates(paths: Iterable[Path]) -> list[Path]:
         except OSError:
             size = 0
         names = _sql_table_names(path)
-        populated = bool(names & known_tables)
+        populated = _catalog_has_known_table(names)
         is_duckdb = path.suffix.lower() == ".duckdb"
         decorated.append((populated, is_duckdb, size, str(path), path))
     return [item[-1] for item in sorted(
@@ -392,8 +442,7 @@ def discover_warehouse(roots: Iterable[str | Path] | str | Path | None = None
             # Prefer a catalog containing a known NBA table.  This skips the
             # empty DuckDB shipped beside v238's populated SQLite database.
             for candidate in ordered:
-                if _sql_table_names(candidate) & (
-                        set(GAME_TABLES) | set(TEAM_TABLES) | set(PLAYER_DIM_TABLES)):
+                if _catalog_has_known_table(_sql_table_names(candidate)):
                     return candidate
             # If the SQL catalog is empty/unknown but a CSV/Parquet mirror is
             # present, use the mirror rather than handing the caller a dead
@@ -566,9 +615,11 @@ def _read_sql_tables(path: Path, names: Iterable[str]) -> dict[str, pd.DataFrame
             con = duckdb.connect(str(path), read_only=True)
             try:
                 available = {str(row[0]) for row in con.execute("SHOW TABLES").fetchall()}
-                for name in names:
-                    if name in available:
-                        out[name] = con.execute(f'SELECT * FROM "{name}"').fetch_df()
+                resolved = _match_table_names(available, names)
+                for name, actual in resolved.items():
+                    escaped = actual.replace('"', '""')
+                    out[name] = _normalize_columns(
+                        con.execute(f'SELECT * FROM "{escaped}"').fetch_df())
             finally:
                 con.close()
             if out:
@@ -587,14 +638,13 @@ def _read_sql_tables(path: Path, names: Iterable[str]) -> dict[str, pd.DataFrame
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-            for name in names:
-                if name in available:
-                    # Names are internal constants, but quote them anyway so
-                    # a future alias containing a quote cannot become SQL.
-                    escaped = name.replace('"', '""')
-                    out[name] = pd.read_sql_query(
-                        f'SELECT * FROM "{escaped}"', con
-                    )
+            for name, actual in _match_table_names(available, names).items():
+                # Names are internal constants, but quote them anyway so
+                # a future alias containing a quote cannot become SQL.
+                escaped = actual.replace('"', '""')
+                out[name] = _normalize_columns(pd.read_sql_query(
+                    f'SELECT * FROM "{escaped}"', con
+                ))
         finally:
             con.close()
     except Exception as exc:  # noqa: BLE001
@@ -626,7 +676,7 @@ def _read_tables(root: Path, names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not read %s: %s", root, exc)
             return {}
-        return {names[0]: frame} if names else {}
+        return {names[0]: _normalize_columns(frame)} if names else {}
 
     found: dict[str, pd.DataFrame] = {}
     sql_candidates = [root / "nba.duckdb", root / "nba.sqlite"]
@@ -660,17 +710,40 @@ def _read_tables(root: Path, names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
             elif Path(pattern).exists():
                 matches.append(Path(pattern))
         matches = list(dict.fromkeys(matches))
+        if not matches:
+            # Exported bundles are not consistent about file-name case and this
+            # lookup runs on case-sensitive filesystems, so fall back to a
+            # stem index before declaring a table absent.
+            matches = _match_export_files(root, name)
         frames: list[pd.DataFrame] = []
         for path in matches:
             try:
-                frames.append(pd.read_parquet(path)
-                              if path.suffix.lower() == ".parquet"
-                              else _read_csv(path))
+                frames.append(_normalize_columns(
+                    pd.read_parquet(path)
+                    if path.suffix.lower() == ".parquet"
+                    else _read_csv(path)))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("could not read %s: %s", path, exc)
         if frames:
             found[name] = pd.concat(frames, ignore_index=True)
     return found
+
+
+def _match_export_files(root: Path, name: str) -> list[Path]:
+    """Find a table's export by case-insensitive stem, Parquet before CSV."""
+    if not root.is_dir():
+        return []
+    index: dict[str, list[Path]] = {}
+    try:
+        candidates = root.rglob("*")
+    except OSError:
+        return []
+    for path in candidates:
+        if path.is_file() and path.suffix.lower() in {".parquet", ".csv"}:
+            index.setdefault(path.stem.lower(), []).append(path)
+    matches = index.get(name.strip().lower(), [])
+    return sorted(matches, key=lambda path: (path.suffix.lower() != ".parquet",
+                                             str(path)))
 
 
 def _load_team_maps(root: Path) -> tuple[dict[str, str], dict[str, str]]:
@@ -890,7 +963,12 @@ def _normalize_games(raw: pd.DataFrame, team_lookup: dict[str, str],
         "away_team_pts",
     ))
     season = _season(_coalesce_column(
-        df, "season_year", "season", "seasonYear", "season_id", "seasonId"))
+        df, "season_year", "season", "seasonYear", "season_id", "seasonId",
+        "season_start_year", "season_start", "year"))
+    # A legacy export may omit the season column entirely.  The start year is
+    # still recoverable from the game date: the July boundary splits a season,
+    # so October 2024 is the 2024 season and March 2024 is the 2023 season.
+    season = season.fillna(_season_from_date(date))
     game_type = _coalesce_column(
         df, "game_type", "gameType", "season_type", "seasonType",
         "season_phase", "game_type_id")
@@ -1174,7 +1252,20 @@ def _validate_dataset(wh: Warehouse) -> None:
         raise RuntimeError("NBA warehouse has no usable game rows")
     seasons = pd.to_numeric(wh.games.season, errors="coerce")
     if not (seasons >= config.OOF_FIRST_SEASON).any():
-        raise RuntimeError("NBA warehouse has no 2024-25-or-later season coverage")
+        # A coverage gate is only actionable if it reports what was actually
+        # read, so the message carries the observed seasons, date range, and
+        # resolved source instead of a bare threshold complaint.
+        observed = sorted(set(seasons.dropna().tolist()))
+        dates = pd.to_datetime(wh.games.gameday, errors="coerce")
+        window = ("none" if dates.notna().sum() == 0
+                  else f"{dates.min().date()}..{dates.max().date()}")
+        raise RuntimeError(
+            f"NBA warehouse has no 2024-25-or-later season coverage "
+            f"(rows={len(wh.games)}, observed_seasons={observed or 'none'}, "
+            f"gamedays={window}, "
+            f"source={wh.manifest.get('source_path')}, "
+            f"game_columns={list(wh.games.columns)})"
+        )
     eligible = wh.games[pd.to_numeric(wh.games.season, errors="coerce") >= config.OOF_FIRST_SEASON]
     observed_teams = (set(eligible.home_team.dropna().astype(str))
                       | set(eligible.away_team.dropna().astype(str)))
