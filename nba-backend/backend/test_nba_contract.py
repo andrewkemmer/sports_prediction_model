@@ -87,6 +87,96 @@ def test_source_discovery_handles_nested_kaggle_exports(tmp_path: Path) -> None:
     assert ing.discover_warehouse([sql_dataset.parent]) == sql_file
 
 
+def test_v238_legacy_sqlite_layout_skips_empty_duckdb(tmp_path: Path) -> None:
+    """v238 has a populated SQLite bundle beside an empty DuckDB file."""
+    source = tmp_path / "v238-bundle"
+    source.mkdir()
+    (source / "nba.duckdb").write_bytes(b"empty v238 duckdb fixture")
+
+    team_ids = {abbr: 1610610000 + i for i, abbr in enumerate(TEAMS)}
+    with sqlite3.connect(source / "nba.sqlite") as con:
+        pd.DataFrame([
+            {"id": team_ids[abbr], "full_name": f"{abbr} Club", "abbreviation": abbr}
+            for abbr in TEAMS
+        ]).to_sql("team", con, index=False)
+
+    game_rows = []
+    for i, home in enumerate(TEAMS):
+        away = TEAMS[(i + 1) % len(TEAMS)]
+        game_rows.append({
+            "season_id": 22024,
+            "game_id": f"002240{i:04d}",
+            "game_date": "2024-10-01",
+            "season_type": "Regular Season",
+            "team_id_home": team_ids[home], "team_abbreviation_home": home,
+            "team_id_away": team_ids[away], "team_abbreviation_away": away,
+            "wl_home": "W", "wl_away": "L",
+            "pts_home": 110 + i, "pts_away": 100 + i,
+            "fgm_home": 40, "fga_home": 88, "fg3m_home": 12, "fg3a_home": 35,
+            "ftm_home": 16, "fta_home": 20, "oreb_home": 10, "dreb_home": 30,
+            "reb_home": 40, "ast_home": 25, "tov_home": 12, "stl_home": 7,
+            "blk_home": 4,
+            "fgm_away": 38, "fga_away": 85, "fg3m_away": 10, "fg3a_away": 32,
+            "ftm_away": 14, "fta_away": 18, "oreb_away": 9, "dreb_away": 29,
+            "reb_away": 38, "ast_away": 23, "tov_away": 13, "stl_away": 6,
+            "blk_away": 3,
+        })
+    with sqlite3.connect(source / "nba.sqlite") as con:
+        pd.DataFrame(game_rows).to_sql("game", con, index=False)
+        pd.DataFrame([{"id": "p1", "full_name": "Ada Lovelace"}]).to_sql(
+            "player", con, index=False)
+
+    sqlite_path = source / "nba.sqlite"
+    assert ing.discover_warehouse([source]) == sqlite_path
+    wh = ing.load_dataset(source, use_cache=False)
+    assert len(wh.games) == len(TEAMS)
+    assert set(wh.games.season) == {2024.0}
+    assert set(wh.games.home_team) | set(wh.games.away_team) == set(TEAMS)
+    assert wh.games.home_score.notna().all()
+    assert len(wh.team_stats) == 2 * len(TEAMS)
+    assert set(wh.team_stats.team) == set(TEAMS)
+    assert wh.player_stats.empty
+    assert wh.manifest["dataset_version"] == config.NBA_DATASET_VERSION
+
+
+def test_v238_legacy_csv_markers_are_discoverable(tmp_path: Path) -> None:
+    source = tmp_path / "v238-csv"
+    csv_root = source / "csv"
+    csv_root.mkdir(parents=True)
+    (csv_root / "game.csv").write_text("game_id,pts_home,pts_away\n0022400001,110,100\n")
+    (csv_root / "team.csv").write_text("id,abbreviation,full_name\n1,ATL,Atlanta Hawks\n")
+    assert ing.discover_warehouse([source]) == source
+
+
+def test_mounted_cache_source_skips_v238_empty_duckdb(tmp_path: Path,
+                                                       monkeypatch) -> None:
+    """A mounted bundle must not resolve to v238's empty DuckDB by filename."""
+    for name in ("NBA_KAGGLE_DATASET_PATH", "NBA_SOURCE_PATH", "NBA_DATA_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    cache = tmp_path / "cache"
+    mounted = cache / "source"
+    mounted.mkdir(parents=True)
+    monkeypatch.setattr(ing.config, "CACHE_DIR", cache)
+    (mounted / "nba.duckdb").write_bytes(b"empty v238 duckdb fixture")
+
+    team_ids = {abbr: 1610610000 + i for i, abbr in enumerate(TEAMS)}
+    with sqlite3.connect(mounted / "nba.sqlite") as con:
+        pd.DataFrame([
+            {"id": team_ids[abbr], "abbreviation": abbr, "full_name": f"{abbr} Club"}
+            for abbr in TEAMS
+        ]).to_sql("team", con, index=False)
+        pd.DataFrame([{
+            "season_id": 22024, "game_id": "0022400001", "game_date": "2024-10-22",
+            "team_id_home": team_ids[TEAMS[0]],
+            "team_abbreviation_home": TEAMS[0],
+            "team_id_away": team_ids[TEAMS[1]],
+            "team_abbreviation_away": TEAMS[1],
+            "pts_home": 110, "pts_away": 100,
+        }]).to_sql("game", con, index=False)
+
+    assert ing.resolve_source() == mounted / "nba.sqlite"
+
+
 def test_missing_source_error_rejects_literal_none(tmp_path: Path) -> None:
     with patch.object(ing, "_source_root", return_value=None):
         with pytest.raises(FileNotFoundError, match="kaggle_nba_run.ipynb") as exc:

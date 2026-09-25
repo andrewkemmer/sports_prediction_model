@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 GAME_TABLES = (
     "dim_game", "fact_game_result", "fact_scoreboard_v3", "games",
     "stg_league_game_log", "fact_game",
+    # Dataset version 238 also ships the pre-star-schema ``game`` export.
+    # It is a complete game/result row, so it is a safe final fallback.
+    "game", "game_summary",
 )
 # The Kaggle export currently publishes the star-schema box-score families
 # under the names below.  Older mirrors used ``fact_box_score_team`` and
@@ -72,10 +75,15 @@ PLAYER_TABLES = (
 TEAM_TABLES = (
     "dim_team", "dim_team_history", "dim_team_extended", "fact_static_teams",
     "stg_static_teams", "stg_team_info_common", "teams",
+    # Legacy v238 names.  ``team`` has the stable id/abbreviation/full_name
+    # trio used by the raw game export; the other tables are harmless
+    # supplementary dimensions.
+    "team", "team_info_common", "team_details", "team_history",
 )
 PLAYER_DIM_TABLES = (
     "dim_player", "dim_all_players", "fact_static_players",
     "stg_player_info", "raw_common_player_info",
+    "player", "common_player_info",
 )
 
 # CSV has no schema metadata, so pandas otherwise guesses that canonical
@@ -97,8 +105,14 @@ _WAREHOUSE_SQL_SUFFIXES = frozenset({".duckdb", ".db", ".sqlite"})
 _WAREHOUSE_MARKER_NAMES = frozenset({
     "dim_game.csv", "dim_game.parquet",
     "fact_game_result.csv", "fact_game_result.parquet",
+    # Legacy v238 export markers.  The SQL bundle in that version can contain
+    # an empty DuckDB file, so the CSV mirror must remain discoverable.
+    "game.csv", "game.parquet", "game_summary.csv", "game_summary.parquet",
+    "team.csv", "team.parquet",
 })
-_WAREHOUSE_MARKER_DIRS = frozenset({"dim_game", "fact_game_result"})
+_WAREHOUSE_MARKER_DIRS = frozenset({
+    "dim_game", "fact_game_result", "game", "team",
+})
 KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
 KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
 
@@ -187,11 +201,18 @@ def _season(series: pd.Series) -> pd.Series:
     text = series.astype("string").str.strip()
     four = text.str.extract(r"((?:19|20)\d{2})", expand=False)
     compact = text.str.extract(r"^(\d{4})", expand=False)
-    out = pd.to_numeric(four.fillna(compact), errors="coerce")
-    # A numeric 202425-style value is occasionally exported as a float.
-    alt = pd.to_numeric(text, errors="coerce")
-    valid_alt = alt.between(1900, 2100).fillna(False)
-    out = out.fillna(pd.Series(np.where(valid_alt, alt, np.nan), index=series.index))
+    numeric = pd.to_numeric(text, errors="coerce")
+    out = numeric.where(numeric.between(1900, 2100))
+    out = out.fillna(pd.to_numeric(four, errors="coerce"))
+    compact = pd.to_numeric(compact, errors="coerce")
+    compact = compact.where(compact >= 1900, compact + 2000)
+    out = out.fillna(compact.where(compact.between(1900, 2100)))
+    # The legacy NBA API encodes seasons as a five-digit value: the final
+    # four digits are the calendar start year (22024 -> 2024, 21946 -> 1946).
+    five_digit = text.str.fullmatch(r"\d{5}", na=False)
+    five_year = pd.to_numeric(
+        text.str.extract(r"^\d(\d{4})$", expand=False), errors="coerce")
+    out = out.mask(five_digit, five_year)
     return out.astype(float)
 
 
@@ -235,6 +256,8 @@ def _warehouse_marker_files(root: Path) -> list[Path]:
         "nba.duckdb", "nba.sqlite", "*.duckdb", "*.db", "*.sqlite",
         "dim_game.csv", "dim_game.parquet",
         "fact_game_result.csv", "fact_game_result.parquet",
+        "game.csv", "game.parquet", "game_summary.csv", "game_summary.parquet",
+        "team.csv", "team.parquet",
     )
     for pattern in patterns:
         try:
@@ -262,6 +285,62 @@ def _is_warehouse_file(path: Path) -> bool:
     return (name in {"nba.duckdb", "nba.sqlite"}
             or path.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES
             or name in _WAREHOUSE_MARKER_NAMES)
+
+
+def _sql_table_names(path: Path) -> set[str]:
+    """Return a SQL catalog's table names without reading table data.
+
+    Version 238 contains a valid 12 KB DuckDB file with zero tables alongside
+    the populated SQLite export.  A catalog probe lets source discovery skip
+    that empty file without making the downloader download anything again.
+    Failures are intentionally treated as an unknown catalog; the caller's
+    deterministic file fallback still supports lightweight test fixtures.
+    """
+    suffix = path.suffix.lower()
+    if suffix not in _WAREHOUSE_SQL_SUFFIXES:
+        return set()
+    if suffix == ".duckdb":
+        try:
+            import duckdb
+            con = duckdb.connect(str(path), read_only=True)
+            try:
+                return {str(row[0]) for row in con.execute("SHOW TABLES").fetchall()}
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001
+            return set()
+    if suffix in {".sqlite", ".db"}:
+        try:
+            import sqlite3
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                return {
+                    str(row[0]) for row in con.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+            finally:
+                con.close()
+        except Exception:  # noqa: BLE001
+            return set()
+    return set()
+
+
+def _ordered_sql_candidates(paths: Iterable[Path]) -> list[Path]:
+    """Prefer a populated DuckDB, then the largest populated SQL fallback."""
+    known_tables = set(GAME_TABLES) | set(TEAM_TABLES) | set(PLAYER_DIM_TABLES)
+    decorated: list[tuple[bool, bool, int, str, Path]] = []
+    for path in paths:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        names = _sql_table_names(path)
+        populated = bool(names & known_tables)
+        is_duckdb = path.suffix.lower() == ".duckdb"
+        decorated.append((populated, is_duckdb, size, str(path), path))
+    return [item[-1] for item in sorted(
+        decorated, key=lambda item: (not item[0], not item[1], -item[2], item[3]))]
 
 
 def _warehouse_root_for_marker(marker: Path, search_root: Path) -> Path:
@@ -307,12 +386,23 @@ def discover_warehouse(roots: Iterable[str | Path] | str | Path | None = None
         if not markers:
             continue
         sql = [p for p in markers
-               if p.is_file() and p.name.lower() in {"nba.duckdb", "nba.sqlite"}]
-        if not sql:
-            sql = [p for p in markers
-                   if p.is_file() and p.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES]
+               if p.is_file() and p.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES]
         if sql:
-            return sql[0]
+            ordered = _ordered_sql_candidates(sql)
+            # Prefer a catalog containing a known NBA table.  This skips the
+            # empty DuckDB shipped beside v238's populated SQLite database.
+            for candidate in ordered:
+                if _sql_table_names(candidate) & (
+                        set(GAME_TABLES) | set(TEAM_TABLES) | set(PLAYER_DIM_TABLES)):
+                    return candidate
+            # If the SQL catalog is empty/unknown but a CSV/Parquet mirror is
+            # present, use the mirror rather than handing the caller a dead
+            # SQL file that cannot be introspected by the reader.
+            non_sql = [p for p in markers
+                       if p.is_file() and p.suffix.lower() not in _WAREHOUSE_SQL_SUFFIXES]
+            if non_sql:
+                return _warehouse_root_for_marker(non_sql[0], root)
+            return ordered[0]
         return _warehouse_root_for_marker(markers[0], root)
     return None
 
@@ -444,11 +534,15 @@ def _source_root() -> Path | None:
     if raw:
         candidate = Path(raw).expanduser()
         return discover_warehouse([candidate]) or candidate
-    for candidate in (config.CACHE_DIR / "source" / "nba.duckdb",
-                      config.CACHE_DIR / "source" / "nba.sqlite",
-                      config.CACHE_DIR / "nba.duckdb", config.CACHE_DIR / "nba.sqlite"):
-        if candidate.exists():
-            return candidate
+    # A mounted/cached bundle must still go through discovery: v238 stores an
+    # empty ``nba.duckdb`` beside the populated database, so returning the
+    # first existing filename would hand the reader the dead file.
+    for directory in (config.CACHE_DIR / "source", config.CACHE_DIR):
+        if not directory.is_dir():
+            continue
+        resolved = discover_warehouse([directory])
+        if resolved is not None:
+            return resolved
     return discover_warehouse(_source_search_roots())
 
 
@@ -465,7 +559,9 @@ def _read_sql_tables(path: Path, names: Iterable[str]) -> dict[str, pd.DataFrame
     except ImportError:
         duckdb = None
     out: dict[str, pd.DataFrame] = {}
-    if duckdb is not None:
+    # A v238 SQLite file is already a SQLite database; do not ask DuckDB to
+    # open it before the stdlib fallback merely to rediscover its type.
+    if duckdb is not None and path.suffix.lower() != ".sqlite":
         try:
             con = duckdb.connect(str(path), read_only=True)
             try:
@@ -709,6 +805,56 @@ def _merge_result_table(games: pd.DataFrame, result: pd.DataFrame) -> pd.DataFra
     return base
 
 
+def _legacy_game_team_stats(raw: pd.DataFrame, games: pd.DataFrame,
+                            lookup: dict[str, str]) -> pd.DataFrame:
+    """Explode v238's wide ``game`` export into one row per team.
+
+    The pinned v238 CSV/SQLite layout stores both box scores beside the game
+    identity (``pts_home``/``pts_away`` and the corresponding traditional
+    statistics).  Canonical star-schema releases provide long team facts, so
+    this helper is only used as a fallback when those facts are absent.
+    """
+    if raw.empty or games.empty:
+        return pd.DataFrame()
+    df = raw.copy()
+    gid = _coalesce_column(df, "game_id", "gameId", "game_pk", "gameid", "id")
+    if gid.empty:
+        return pd.DataFrame()
+    stat_aliases = {
+        "points_for": ("pts_{side}", "points_{side}", "team_points_{side}"),
+        "fgm": ("fgm_{side}", "field_goals_made_{side}"),
+        "fga": ("fga_{side}", "field_goals_attempted_{side}"),
+        "fg3m": ("fg3m_{side}", "three_pointers_made_{side}"),
+        "fg3a": ("fg3a_{side}", "three_pointers_attempted_{side}"),
+        "ftm": ("ftm_{side}", "free_throws_made_{side}"),
+        "fta": ("fta_{side}", "free_throws_attempted_{side}"),
+        "oreb": ("oreb_{side}", "offensive_rebounds_{side}"),
+        "dreb": ("dreb_{side}", "defensive_rebounds_{side}"),
+        "reb": ("reb_{side}", "team_reb_{side}", "rebounds_{side}"),
+        "ast": ("ast_{side}", "team_ast_{side}", "assists_{side}"),
+        "tov": ("tov_{side}", "team_tov_{side}", "turnovers_{side}"),
+        "stl": ("stl_{side}", "team_stl_{side}", "steals_{side}"),
+        "blk": ("blk_{side}", "team_blk_{side}", "blocks_{side}"),
+    }
+    frames: list[pd.DataFrame] = []
+    for side in ("home", "away"):
+        team = _coalesce_column(
+            df, f"team_abbreviation_{side}", f"team_abbr_{side}",
+            f"team_id_{side}", f"{side}_team", f"{side}_team_id",
+        )
+        values: dict[str, Any] = {
+            "game_id": gid,
+            "team": team.map(lambda value: _team_key(value, lookup)),
+        }
+        for canonical, aliases in stat_aliases.items():
+            values[canonical] = _number(_coalesce_column(
+                df, *(alias.format(side=side) for alias in aliases)))
+        frames.append(pd.DataFrame(values))
+    out = pd.concat(frames, ignore_index=True)
+    game_ids = set(games.game_id.astype(str))
+    return out[out.game_id.astype(str).isin(game_ids)].reset_index(drop=True)
+
+
 def _normalize_games(raw: pd.DataFrame, team_lookup: dict[str, str],
                      result: pd.DataFrame | None = None,
                      team_names: dict[str, str] | None = None) -> pd.DataFrame:
@@ -726,12 +872,13 @@ def _normalize_games(raw: pd.DataFrame, team_lookup: dict[str, str],
         "tipoff_date", "datetime"))
     home_raw = _coalesce_column(
         df, "home_team", "homeTeam", "home_team_abbrev", "home_abbr",
-        "home_team_id", "team_id_home", "home_id", "home_team_name",
+        "team_abbreviation_home", "home_team_id", "team_id_home", "home_id",
+        "home_team_name",
     )
     away_raw = _coalesce_column(
         df, "away_team", "awayTeam", "visitor_team", "away_team_abbrev",
-        "away_abbr", "away_team_id", "team_id_away", "visitor_team_id",
-        "away_id", "away_team_name",
+        "away_abbr", "team_abbreviation_away", "away_team_id", "team_id_away",
+        "visitor_team_id", "away_id", "away_team_name",
     )
     hs = _number(_coalesce_column(
         df, "home_score", "homeScore", "home_points", "home_pts", "pts_home",
@@ -958,6 +1105,14 @@ def _cache_paths() -> tuple[Path, Path, Path, Path]:
             d / "player_stats.parquet", d / "warehouse_manifest.json")
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _manifest(root: Path | None, tables: dict[str, pd.DataFrame],
               team_names: dict[str, str] | None = None) -> dict:
     files = []
@@ -965,7 +1120,7 @@ def _manifest(root: Path | None, tables: dict[str, pd.DataFrame],
         paths = [root] if root.is_file() else sorted(p for p in root.rglob("*") if p.is_file())
         for path in paths[:5000]:
             try:
-                files.append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                files.append({"path": str(path), "sha256": _sha256_file(path),
                               "bytes": path.stat().st_size})
             except OSError:
                 continue
@@ -1090,10 +1245,12 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
     # dim_game is the identity source; result/scoreboard tables are joined by
     # game_id.  If only a result table exists it is used as the identity source.
     identity = next((game_frames[name] for name in (
-        "dim_game", "games", "stg_league_game_log", "fact_game")
+        "dim_game", "games", "stg_league_game_log", "fact_game", "game",
+        "game_summary")
         if name in game_frames and not game_frames[name].empty), None)
     result = next((game_frames[name] for name in (
-        "fact_game_result", "fact_scoreboard_v3", "stg_league_game_log")
+        "fact_game_result", "fact_scoreboard_v3", "stg_league_game_log", "game",
+        "game_summary")
         if name in game_frames and not game_frames[name].empty), None)
     if identity is None and result is None:
         raise RuntimeError("wyattowalsh/basketball is missing dim_game/fact_game_result")
@@ -1104,6 +1261,10 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
     team_frames = list(_read_tables(root, TEAM_BOX_TABLES).values())
     team_raw = pd.concat(team_frames, ignore_index=True) if team_frames else pd.DataFrame()
     team_stats = _normalize_team_stats(team_raw, games, lookup)
+    legacy_game = game_frames.get("game")
+    if team_stats.empty and legacy_game is not None and not legacy_game.empty:
+        legacy_raw = _legacy_game_team_stats(legacy_game, games, lookup)
+        team_stats = _normalize_team_stats(legacy_raw, games, lookup)
     player_frames = list(_read_tables(root, PLAYER_TABLES).values())
     player_raw = pd.concat(player_frames, ignore_index=True) if player_frames else pd.DataFrame()
     player_stats = _normalize_player_stats(player_raw, games, lookup,
