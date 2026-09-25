@@ -1,5 +1,5 @@
 {
- "created_utc": "2026-09-25T14:43:03.419575+00:00",
+ "created_utc": "2026-09-25T15:25:50.165968+00:00",
  "feature_set_version": "nfl-prod-v7.2-pit-core",
  "manifest": {
   "elo_diff": {
@@ -36,12 +36,12 @@
   },
   "rest_days_diff": {
    "description": "Home minus away days since each team's previous game",
-   "definition": "(gameday_t - gameday_{t-1}).days per team",
+   "definition": "(gameday_t - gameday_{t-1}).days within the same (team, season)",
    "source": "nflverse schedules",
    "lookback": 1,
    "aggregation": "date difference",
-   "point_in_time_rule": "days since the team's own strictly-prior game",
-   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
    "representation": "difference (all model families)",
    "model_family_availability": [
     "linear",
@@ -116,12 +116,12 @@
   },
   "rest_short_diff": {
    "description": "Home minus away short-rest flag (rest < 7 days)",
-   "definition": "1.0 when rest_days < 7 else 0.0; home flag minus away flag",
+   "definition": "1.0 when within-season rest_days < 7 else 0.0; home flag minus away flag",
    "source": "nflverse schedules",
    "lookback": 1,
    "aggregation": "thresholded date difference",
-   "point_in_time_rule": "function of the team's strictly-prior game date",
-   "missing_value_policy": "NaN when either team has no prior game",
+   "point_in_time_rule": "function of the team's strictly-prior game date in the same season",
+   "missing_value_policy": "NaN when either team has no prior game in its season",
    "representation": "difference flag (all model families)",
    "model_family_availability": [
     "linear",
@@ -405,12 +405,12 @@
   },
   "rest_days_home": {
    "description": "Home team's days since its previous game",
-   "definition": "(gameday_t - gameday_{t-1}).days for the home team",
+   "definition": "(gameday_t - gameday_{t-1}).days within the home team's season",
    "source": "nflverse schedules",
    "lookback": 1,
    "aggregation": "date difference",
-   "point_in_time_rule": "days since the team's own strictly-prior game",
-   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
    "representation": "raw home level (tree members)",
    "model_family_availability": [
     "tree"
@@ -419,12 +419,12 @@
   },
   "rest_days_away": {
    "description": "Away team's days since its previous game",
-   "definition": "(gameday_t - gameday_{t-1}).days for the away team",
+   "definition": "(gameday_t - gameday_{t-1}).days within the away team's season",
    "source": "nflverse schedules",
    "lookback": 1,
    "aggregation": "date difference",
-   "point_in_time_rule": "days since the team's own strictly-prior game",
-   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "point_in_time_rule": "days since the team's own strictly-prior game in the same season",
+   "missing_value_policy": "NaN for a team's first game of the season; in-model handling",
    "representation": "raw away level (tree members)",
    "model_family_availability": [
     "tree"
@@ -530,9 +530,9 @@
   {
    "feature": "rest_days_diff",
    "n_games": 2672,
-   "coverage_pct": 99.33,
-   "mean": -0.037678975131876416,
-   "std": 7.354166597305726
+   "coverage_pct": 93.38,
+   "mean": -0.03647294589178357,
+   "std": 2.5293530178333152
   },
   {
    "feature": "is_dome_home",
@@ -565,9 +565,9 @@
   {
    "feature": "rest_short_diff",
    "n_games": 2672,
-   "coverage_pct": 99.33,
-   "mean": 0.01921627731725697,
-   "std": 0.3611452914606769
+   "coverage_pct": 93.38,
+   "mean": 0.02004008016032064,
+   "std": 0.3719290164273554
   },
   {
    "feature": "div_game",
@@ -712,16 +712,16 @@
   {
    "feature": "rest_days_home",
    "n_games": 2672,
-   "coverage_pct": 99.4,
-   "mean": 22.03652108433735,
-   "std": 57.73232426100723
+   "coverage_pct": 93.41,
+   "mean": 7.434294871794871,
+   "std": 2.1051729739120804
   },
   {
    "feature": "rest_days_away",
    "n_games": 2672,
-   "coverage_pct": 99.33,
-   "mean": 21.897889977392616,
-   "std": 57.39765906207498
+   "coverage_pct": 93.41,
+   "mean": 7.471153846153846,
+   "std": 2.082653144190686
   },
   {
    "feature": "is_home",
