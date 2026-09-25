@@ -51,8 +51,8 @@ GAME_TYPES = {2, 3}
 GAME_TYPE_REG = 2
 GAME_TYPE_POST = 3
 
-# MLB-style warm-up: the first OOF validation window starts this many
-# calendar days after the first core game date (fold geometry in folds.py).
+# MLB-style warm-up: the first OOF validation index is this many observed
+# game dates after the first core game date (fold geometry in folds.py).
 WARMUP_DAYS = 30
 MIN_TRAIN_DAYS = WARMUP_DAYS
 
@@ -74,6 +74,10 @@ FORM_WINDOW = 5       # net goals/game window
 WINPCT_WINDOW = 12    # trailing win% window (NFL/MLB value)
 GOALS_AGAINST_WINDOW = 5   # trailing goals-allowed window
 EWM_HALFLIFE = 3      # decaying-window halflife (games; dense NHL cadence)
+# A goalie with only a relief cameo must not define the starter's rolling
+# quality. The official boxscore provides per-goalie goals/shots; the threshold
+# prevents short, non-representative appearances from dominating GAA/SV%.
+MIN_GOALIE_TOI_MINUTES = 10.0
 PBP_ROLL_WINDOW = 5   # trailing flat window for shot/faceoff candidate metrics
 OPP_ADJ_WINDOW = 6    # opponent-adjusted trailing window (games)
 
@@ -85,9 +89,9 @@ RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
 # ---------------------------------------------------------------------------
-# Walk-forward fold geometry (calendar-day based, NEVER season-day based)
+# Walk-forward fold geometry (observed-date based, NEVER season-day based)
 # ---------------------------------------------------------------------------
-RETRAIN_CADENCE_DAYS = 7   # validation-window width in calendar days
+RETRAIN_CADENCE_DAYS = 7   # validation-window width in observed game dates
 MIN_VAL_FOLD_GAMES = 40    # MLB value (NFL uses 15; NHL's dense slate fills
                            # 7-day windows well past 40 games)
 
@@ -269,6 +273,9 @@ ENSEMBLE_MEMBERS = ["xgboost", "lightgbm", "elasticnet"]
 # Fallback prior weights: fold 0 blends on these (equal thirds); after every
 # fold the blend weights are re-earned by moneyline.compute_adaptive_weights
 # (simplex SLSQP minimizing pooled OOF log-loss in LOGIT space, no floor/cap).
+# Keep the objective explicit: unlike the retained historical MLB experiment
+# flag, NHL production is log-loss only.
+ADAPTIVE_WEIGHT_METRIC = "logloss"
 ENSEMBLE_WEIGHTS = {
     "xgboost": 1 / 3,
     "lightgbm": 1 / 3,

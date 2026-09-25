@@ -95,6 +95,28 @@ def test_dist_oof_folds_are_expanding_and_strictly_prior():
     assert folds[0].val_start == first_core + pd.Timedelta(days=config.WARMUP_DAYS)
 
 
+def test_mlb_observed_date_fold_geometry_handles_schedule_gaps():
+    """NHL folds use seven observed dates, not seven arithmetic days."""
+    dates = [pd.Timestamp("2025-10-01") + pd.Timedelta(days=i)
+             for i in range(46)]
+    dates = [d for d in dates if d != pd.Timestamp("2025-10-15")]
+    rows = []
+    for d in dates:
+        for i in range(7):
+            rows.append({"gameday": d, "season": 2025,
+                         "game_id": f"{d:%Y%m%d}_{i}"})
+    games = pd.DataFrame(rows)
+    folds = folds_mod.make_folds(games)
+    unique_dates = pd.Index(sorted(games["gameday"].unique()))
+
+    assert len(folds) == 3
+    assert folds[0].val_start == unique_dates[config.WARMUP_DAYS]
+    assert folds[0].val_end == unique_dates[config.WARMUP_DAYS + 6]
+    assert folds[-1].is_partial_tail
+    assert all(pd.Timestamp(games.loc[f.train_idx, "gameday"].max())
+               < f.val_start for f in folds)
+
+
 # ---------------------------------------------------------------------------
 # 2. Grid coherence
 # ---------------------------------------------------------------------------
@@ -225,6 +247,87 @@ def test_calibrate_market_frame_produces_a_reusable_bundle():
     assert dist_mod._grid_key("p_over", 6) in reapplied.columns
 
 
+def test_moneyline_fold_trainer_runs_all_three_members_with_fold_validation():
+    """Each fold fits and scores XGB/LGBM/elastic-net on the same geometry."""
+    games = feat_mod.build_game_features(_synth_games(n_days=40))
+    folds = folds_mod.make_folds(games)
+
+    class _FakeModel:
+        def __init__(self, name):
+            self.name = name
+            self.fit_calls = []
+
+        def fit(self, X, y, **kwargs):
+            self.fit_calls.append(kwargs)
+
+        def predict_proba(self, X):
+            p = np.full(len(X), 0.5, dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    fitted = []
+
+    def _fake_member(name, fold=False):
+        model = _FakeModel(name)
+        fitted.append((name, fold, model))
+        return model
+
+    with _mock_patch.object(ml_mod, "_make_member", side_effect=_fake_member):
+        out = ml_mod.walk_forward_oof(games, fold_list=folds)
+
+    assert len(fitted) == len(folds) * len(config.ENSEMBLE_MEMBERS)
+    assert {name for name, _, _ in fitted} == set(config.ENSEMBLE_MEMBERS)
+    for name, fold, model in fitted:
+        assert fold is True
+        assert len(model.fit_calls) == 1
+        if name == "xgboost":
+            assert "eval_set" in model.fit_calls[0]
+        elif name == "lightgbm":
+            assert "eval_set" in model.fit_calls[0]
+            assert model.fit_calls[0]["categorical_feature"] == config.TREE_CATEGORICAL_COLS
+        else:
+            assert "eval_set" not in model.fit_calls[0]
+    assert set(f"p_{n}" for n in config.ENSEMBLE_MEMBERS) <= set(out["oof"].columns)
+
+
+def test_moneyline_blend_uses_prior_fold_weights_only():
+    """Fold 0 uses thirds; fold 1 uses the optimizer result from fold 0."""
+    games = feat_mod.build_game_features(_synth_games(n_days=40))
+    folds = folds_mod.make_folds(games)
+    member_p = {"xgboost": 0.8, "lightgbm": 0.2, "elasticnet": 0.5}
+
+    class _FixedModel:
+        def __init__(self, name):
+            self.name = name
+
+        def fit(self, X, y, **kwargs):
+            return self
+
+        def predict_proba(self, X):
+            p = np.full(len(X), member_p[self.name], dtype=float)
+            return np.column_stack([1.0 - p, p])
+
+    calls = []
+
+    def _fake_member(name, fold=False):
+        return _FixedModel(name)
+
+    def _fake_optimizer(members, y):
+        calls.append((members, y))
+        return {"xgboost": 1.0, "lightgbm": 0.0, "elasticnet": 0.0}
+
+    with _mock_patch.object(ml_mod, "_make_member", side_effect=_fake_member), \
+            _mock_patch.object(ml_mod, "compute_adaptive_weights",
+                               side_effect=_fake_optimizer):
+        out = ml_mod.walk_forward_oof(games, fold_list=folds)
+
+    assert len(calls) == len(folds)
+    oof = out["oof"]
+    first = oof[oof["fold_id"] == folds[0].fold_id]["p_ensemble"].to_numpy()
+    second = oof[oof["fold_id"] == folds[1].fold_id]["p_ensemble"].to_numpy()
+    np.testing.assert_allclose(first, 0.5, atol=1e-7)
+    np.testing.assert_allclose(second, 0.8, atol=1e-7)
+
+
 # ---------------------------------------------------------------------------
 # 4. Moneyline leakage: a fold's own labels cannot move its own predictions
 # ---------------------------------------------------------------------------
@@ -288,6 +391,32 @@ def test_prequential_calibrate_sees_prior_folds_only():
     fav_space = np.where(p >= 0.5, out, 1.0 - out)
     assert (fav_space >= 0.5 - 1e-9).all(), \
         "favored-side probability dropped below 0.5"
+
+
+def test_adaptive_weights_are_logloss_simplex_and_logit_optimal():
+    """The optimizer contract is pooled binary log loss in logit space."""
+    assert config.ADAPTIVE_WEIGHT_METRIC == "logloss"
+    y = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=float)
+    members = {
+        "elasticnet": [0.20, 0.80, 0.30, 0.70, 0.25, 0.75, 0.35, 0.65],
+        "lightgbm": [0.10, 0.90, 0.20, 0.80, 0.15, 0.85, 0.25, 0.75],
+        "xgboost": [0.40, 0.60, 0.45, 0.55, 0.42, 0.58, 0.47, 0.53],
+    }
+    weights = ml_mod.compute_adaptive_weights(members, y)
+    assert set(weights) == set(members)
+    assert all(w >= 0 for w in weights.values())
+    assert abs(sum(weights.values()) - 1.0) < 1e-12
+
+    p = np.column_stack([members[n] for n in sorted(members)])
+    w = np.array([weights[n] for n in sorted(members)])
+    blended = ml_mod._logit_blend_matrix(p, w)
+    blend_loss = -float(np.mean(y * np.log(blended)
+                                 + (1 - y) * np.log(1 - blended)))
+    for member in members.values():
+        member = np.asarray(member, dtype=float)
+        member_loss = -float(np.mean(y * np.log(member)
+                                     + (1 - y) * np.log(1 - member)))
+        assert blend_loss <= member_loss + 1e-12
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +552,35 @@ def test_markets_winner_cards_handle_away_favorite_run_line():
     assert cards["run_line"]["actual_win_rate"] == 1.0
 
 
+def test_nhl_boxscore_uses_per_goalie_goals_and_shots():
+    payload = {
+        "id": 2024010001,
+        "homeTeam": {"score": 9, "sog": 99},
+        "awayTeam": {"score": 8, "sog": 88},
+        "playerByGameStats": {
+            "homeTeam": {
+                "forwards": [], "defense": [],
+                "goalies": [{"playerId": 1, "name": {"default": "Starter"},
+                             "decision": "W", "toi": "60:00",
+                             "goalsAgainst": 2, "shotsAgainst": 31}],
+            },
+            "awayTeam": {
+                "forwards": [], "defense": [],
+                "goalies": [{"playerId": 2, "name": {"default": "Relief"},
+                             "decision": "L", "toi": "00:05",
+                             "goalsAgainst": 1, "shotsAgainst": 2}],
+            },
+        },
+    }
+    row = ing._parse_boxscore(payload)
+    assert row["home_goals_against"] == 2
+    assert row["home_shots_against"] == 31
+    assert row["away_goals_against"] == 1
+    assert row["away_shots_against"] == 2
+    assert row["home_goals_against"] != payload["awayTeam"]["score"]
+    assert row["away_goals_against"] != payload["homeTeam"]["score"]
+
+
 def test_nhl_goalies_toi_parser_handles_api_clock_values():
     assert ing._parse_toi_minutes("25:00") == 25.0
     assert ing._parse_toi_minutes("1:02:30") == 62.5
@@ -441,15 +599,37 @@ def test_goalie_state_populates_gaa_from_ingested_minutes():
          "home_goalie_name": "Home One", "away_goalie_name": "Away One",
          "home_goalie_toi": 60.0, "away_goalie_toi": 60.0,
          "home_goals_against": 2, "away_goals_against": 3,
-         "home_sog": 30, "away_sog": 28},
+         "home_shots_against": 30, "away_shots_against": 28},
         {"game_id": "g2", "home_goalie_id": 1, "away_goalie_id": 2,
          "home_goalie_name": "Home One", "away_goalie_name": "Away One",
          "home_goalie_toi": 60.0, "away_goalie_toi": 58.0,
          "home_goals_against": 1, "away_goals_against": 1,
-         "home_sog": 30, "away_sog": 28},
+         "home_shots_against": 30, "away_shots_against": 28},
     ])
     states, _ = feat_mod.goalie_state(boxscores, games)
     assert pd.isna(states.loc[0, "goalie_gaa_home"])
+    assert states.loc[1, "goalie_gaa_home"] == 2.0
+    assert states.loc[1, "goalie_gaa_away"] == 3.0
+
+
+def test_goalie_state_ignores_short_relief_appearances():
+    games = pd.DataFrame([
+        {"game_id": "g1", "gameday": "2025-10-01", "home_team": "ANA", "away_team": "BOS"},
+        {"game_id": "g2", "gameday": "2025-10-03", "home_team": "ANA", "away_team": "BOS"},
+    ])
+    boxscores = pd.DataFrame([
+        {"game_id": "g1", "home_goalie_id": 1, "away_goalie_id": 2,
+         "home_goalie_name": "Starter", "away_goalie_name": "Relief",
+         "home_goalie_toi": 60.0, "away_goalie_toi": 60.0,
+         "home_goals_against": 2, "away_goals_against": 3,
+         "home_shots_against": 30, "away_shots_against": 28},
+        {"game_id": "g2", "home_goalie_id": 1, "away_goalie_id": 2,
+         "home_goalie_name": "Starter", "away_goalie_name": "Relief",
+         "home_goalie_toi": 60.0, "away_goalie_toi": 5.0,
+         "home_goals_against": 1, "away_goals_against": 1,
+         "home_shots_against": 30, "away_shots_against": 28},
+    ])
+    states, _ = feat_mod.goalie_state(boxscores, games)
     assert states.loc[1, "goalie_gaa_home"] == 2.0
     assert states.loc[1, "goalie_gaa_away"] == 3.0
 

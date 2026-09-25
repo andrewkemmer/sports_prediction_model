@@ -240,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  last OOF validation    : {fold_list[-1].val_end.date()} "
           f"(fold {fold_list[-1].fold_id}, n_val={len(fold_list[-1].val_idx)})")
     print(f"  validation windows     : {len(fold_list)} "
-          f"(7-calendar-day, non-overlapping, expanding training)")
+          f"(7-observed-date, non-overlapping, expanding training)")
     print(f"  training observations  : {fold_info['min_train']} (first) .. "
           f"{fold_info['max_train']} (last)")
     print(f"  validation observations: {fold_info['total_val_games']}")

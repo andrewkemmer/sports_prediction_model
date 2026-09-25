@@ -69,10 +69,22 @@ class TrainFoldPreprocessor:
 # ---------------------------------------------------------------------------
 # Members
 # ---------------------------------------------------------------------------
-def _make_member(name: str):
+def _make_member(name: str, fold: bool = False):
+    """Construct one configured member, optionally with MLB fold settings.
+
+    Fold XGBoost receives the same generous round ceiling and early-stopping
+    window as MLB. The fit-only production refit deliberately uses the base
+    parameter set and therefore has no validation dependency.
+    """
     if name == "xgboost":
         from xgboost import XGBClassifier
-        return XGBClassifier(**config.XGBOOST_PARAMS)
+        params = dict(config.XGBOOST_PARAMS)
+        if fold:
+            params.update(
+                n_estimators=config.XGBOOST_FOLD_ROUNDS,
+                early_stopping_rounds=config.XGBOOST_EARLY_STOP,
+            )
+        return XGBClassifier(**params)
     if name == "lightgbm":
         from lightgbm import LGBMClassifier
         return LGBMClassifier(**config.LIGHTGBM_PARAMS)
@@ -166,6 +178,7 @@ def walk_forward_oof(game_df: pd.DataFrame,
         y_train = train["home_win"].astype(int).to_numpy()
 
         member_p: dict[str, np.ndarray] = {}
+        y_val = val["home_win"].astype(int).to_numpy()
         for name in config.ENSEMBLE_MEMBERS:
             X_tr_raw = member_matrix(name, train)
             X_va_raw = member_matrix(name, val)
@@ -174,8 +187,24 @@ def walk_forward_oof(game_df: pd.DataFrame,
             else:
                 pre = None
             try:
-                model = _make_member(name)
-                model.fit(member_fit_input(name, X_tr_raw, pre), y_train)
+                model = _make_member(name, fold=True)
+                X_tr = member_fit_input(name, X_tr_raw, pre)
+                X_va = member_fit_input(name, X_va_raw, pre)
+                fit_kwargs = {}
+                if name == "xgboost":
+                    # MLB parity: the validation window selects the boosting
+                    # iteration count only; it is never part of fit rows.
+                    fit_kwargs = {
+                        "eval_set": [(X_va, y_val)],
+                        "verbose": False,
+                    }
+                elif name == "lightgbm":
+                    # MLB supplies the same fold evaluation set to LightGBM.
+                    fit_kwargs = {
+                        "eval_set": [(X_va, y_val)],
+                        "categorical_feature": config.TREE_CATEGORICAL_COLS,
+                    }
+                model.fit(X_tr, y_train, **fit_kwargs)
                 member_p[name] = _member_predict_proba(model, name, X_va_raw, pre)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("fold %s member %s failed: %s",
@@ -255,6 +284,8 @@ def compute_adaptive_weights(
     (it failed to predict on at least one fold in the window) is skipped
     entirely, exactly as MLB's optimizer skips members that failed.
     """
+    if str(getattr(config, "ADAPTIVE_WEIGHT_METRIC", "logloss")).lower() != "logloss":
+        raise ValueError("NHL production ensemble optimization must use logloss")
     y = np.asarray(y_oof, dtype=float)
     if len(y) == 0:
         return {}

@@ -77,6 +77,8 @@ tests can import the module without a Streamlit page context.
 
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -136,6 +138,46 @@ def _decided_rows(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or not len(df):
         return pd.DataFrame()
     return nd.decided_rows(df)
+
+
+def _load_markets_for_diagnostics() -> tuple[pd.DataFrame, str | None]:
+    """Load the newest NHL grid, including OOF-only snapshots.
+
+    The shared slate loader intentionally accepts only ``kind == 'slate'``
+    rows because Today's Games must never attach historical OOF games to a
+    live card. This page is the opposite: its Diagnostics and History views
+    are historical and the current NHL artifact is commonly OOF-only. Read
+    the same dated family directly here, requiring a real OOF/slate row and
+    the published fair-line grid before accepting it.
+    """
+    frame, date = utils.load_nhl_run_engine_markets("nhl")
+    if frame is not None and not frame.empty:
+        return frame, date
+
+    cfg = utils.get_source_config()
+    required = [
+        "p_home_cover_m8", "p_push_m8", "p_home_cover_8", "p_push_8",
+        "p_over_5", "p_under_5", "p_push_total_5",
+        "p_home_win_derived", "p_away_win_derived",
+    ]
+    for candidate_date in utils._run_engine_family_dates("nhl", "markets_csv"):
+        raw, _source = utils._fetch_bytes(
+            f"nhl_run_engine_markets_{candidate_date}.csv", **cfg, sport="nhl")
+        if raw is None:
+            continue
+        try:
+            candidate = pd.read_csv(io.BytesIO(raw))
+        except Exception:
+            continue
+        kinds = candidate.get("kind", pd.Series(dtype=str)).fillna("").astype(str)
+        if not kinds.isin(("oof", "slate")).any():
+            continue
+        if not all(column in candidate.columns for column in required):
+            continue
+        if candidate[required].isna().any().any():
+            continue
+        return candidate, candidate_date
+    return pd.DataFrame(), None
 
 
 def _m3(v) -> str:
@@ -887,7 +929,7 @@ def run() -> None:
 
     # Always the most recent run (like the MLB markets page / Calibration):
     # never key to the date picked on Today's Games.
-    slate, date = utils.load_nhl_run_engine_markets("nhl")
+    slate, date = _load_markets_for_diagnostics()
     monitor = utils.load_nhl_run_engine_monitor("nhl")
     date_str = date if date else FALLBACK_DATE
 

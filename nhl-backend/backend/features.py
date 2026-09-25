@@ -231,11 +231,9 @@ def goalie_state(boxscores: pd.DataFrame | None,
     """Per-goalie rolling SV% / GAA state + per-game expected-starter frame.
 
     ``boxscores`` carries one row per game (the ingestion rollup: decision
-    goalie id/name, team goals against, opponent SOG). The per-start save
-    fraction for a goalie = 1 - (goals allowed / shots faced); shots faced
-    are proxied by the OPPONENT's SOG in that game (the decision goalie
-    played essentially the whole game; documented approximation, per-start).
-    Per-start GAA = goals against / (TOI minutes / 60) when TOI exists.
+    goalie id/name, per-goalie goals/shots against, and TOI). The per-start
+    save fraction for a goalie = 1 - (goals against / shots against), and
+    per-start GAA = goals against / (TOI minutes / 60).
 
     Every goalie statistic is shifted strictly prior on the GOALIE's own
     start timeline, then EWM'd (halflife = EWM_HALFLIFE starts). The
@@ -277,22 +275,23 @@ def goalie_state(boxscores: pd.DataFrame | None,
             g_id = getattr(r, f"{side}_goalie_id", None)
             if g_id is None or (isinstance(g_id, float) and pd.isna(g_id)):
                 continue
-            opp_side = "away" if side == "home" else "home"
             ga = getattr(r, f"{side}_goals_against", None)
-            sog = getattr(r, f"{opp_side}_sog", None)
+            shots = getattr(r, f"{side}_shots_against", None)
             toi = getattr(r, f"{side}_goalie_toi", None)
             try:
                 ga = float(ga)
             except (TypeError, ValueError):
                 ga = float("nan")
             try:
-                shots = float(sog)
+                shots = float(shots)
             except (TypeError, ValueError):
                 shots = float("nan")
             try:
                 toi_min = float(toi)
             except (TypeError, ValueError):
                 toi_min = float("nan")
+            if not (np.isfinite(toi_min) and toi_min >= config.MIN_GOALIE_TOI_MINUTES):
+                ga = shots = toi_min = float("nan")
             starts.append({
                 "game_id": gid, "team": side, "goalie_id": str(g_id),
                 "goalie_name": str(getattr(r, f"{side}_goalie_name", "") or ""),

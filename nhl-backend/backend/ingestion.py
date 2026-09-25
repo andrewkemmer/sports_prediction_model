@@ -57,7 +57,7 @@ SCORE_KEEP = [
 # Cache schema versions: bump whenever the keep-list widens so stale caches
 # are ignored rather than silently serving the old column set.
 SCORE_CACHE_VERSION = "v1"
-BOXSCORE_CACHE_VERSION = "v1"
+BOXSCORE_CACHE_VERSION = "v2"
 MP_CACHE_VERSION = "v1"
 
 
@@ -256,13 +256,9 @@ def _parse_boxscore(bs: dict) -> dict:
         # Faceoff win pct is a rate: mean over skaters with a value.
         fo_vals = _num(skaters, "faceoffWinningPctg")
         pp_goals = _sum(skaters, "powerPlayGoals")
-        # Goalie blocks: shots faced = SOG against + misses? The API exposes
-        # per-goalie shotsAgainst via the goalie line's 'sog' style fields
-        # only in some versions; the robust goals-against source is the
-        # team score when the goalie has the decision. Keep TOI + decision
-        # and compute per-start rates in features (goals against = team
-        # goals allowed while that goalie was in net — approximated by the
-        # team GA for the decision goalie; documented, per-start).
+        # Goalie blocks: the official goalie line supplies per-goalie
+        # goalsAgainst, shotsAgainst, and TOI. Use those fields directly;
+        # team score/SOG are not a safe proxy for a relief appearance.
         decision_goalies = [g for g in goalies if g.get("decision") in ("W", "L", "OTL", "SOL")]
         starter = decision_goalies[0] if decision_goalies else (
             goalies[0] if goalies else {})
@@ -282,9 +278,17 @@ def _parse_boxscore(bs: dict) -> dict:
             ((starter.get("name") or {}).get("default", "")) or "")
         out[f"{side}_goalie_toi"] = toi
         out[f"{side}_goalie_decision"] = starter.get("decision")
-        # Team goals allowed (for the per-start GAA of the decision goalie).
-        opp = "awayTeam" if side == "home" else "homeTeam"
-        out[f"{side}_goals_against"] = (bs.get(opp) or {}).get("score")
+        # Per-goalie boxscore fields are authoritative for save% and GAA.
+        # The previous team-score fallback was unsafe for relief goalies.
+        def _goalie_num(field: str):
+            try:
+                value = float(starter.get(field))
+            except (TypeError, ValueError):
+                return None
+            return value if np.isfinite(value) else None
+
+        out[f"{side}_goals_against"] = _goalie_num("goalsAgainst")
+        out[f"{side}_shots_against"] = _goalie_num("shotsAgainst")
     return out
 
 
@@ -298,6 +302,7 @@ BOXSCORE_COLS = [
     "home_goalie_toi", "away_goalie_toi",
     "home_goalie_decision", "away_goalie_decision",
     "home_goals_against", "away_goals_against",
+    "home_shots_against", "away_shots_against",
 ]
 
 

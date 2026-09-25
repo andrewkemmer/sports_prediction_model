@@ -1,18 +1,16 @@
-"""Walk-forward fold generation — expanding, calendar-day based.
+"""Walk-forward fold generation — expanding, observed-date based.
 
-Structural mirror of the NFL/MLB folds.py with the NHL's MLB-style 30-DAY
-warm-up (the user's approved choice over an NFL-style warm-up season):
+Structural mirror of MLB's walk-forward fold generator:
 
-  - validation windows are chronological, non-overlapping, 7 calendar days
-    wide, keyed on game DATES (never NHL season-day IDs)
+  - validation windows are chronological, non-overlapping, and seven
+    OBSERVED GAME DATES wide (schedule gaps do not silently create a
+    different window cadence)
   - training = all eligible games STRICTLY BEFORE the validation window
-  - training expands over time; the final partial window is retained
-  - all data is season 2024+ (OOF_FIRST_SEASON); there is no warm-up season.
-    The 30-day warm-up instead shifts the FIRST validation window to start
-    at least WARMUP_DAYS after the first core game date, so every fold's
-    training set spans at least ~30 days of settled history
-  - ordinary validation windows with fewer than MIN_VAL_FOLD_GAMES games are
-    skipped; the final partial tail is retained so newest games remain visible
+  - training expands over time; the final partial window is retained and
+    explicitly marked
+  - all validation rows are restricted to OOF_FIRST_SEASON and later
+  - the first validation index is max(cadence, WARMUP_DAYS), matching MLB's
+    min_train_days warm-up contract
 
 A fold is a (fold_id, val_start, val_end, train_idx, val_idx) tuple over the
 row order of the caller's frame; callers must pass chronologically sorted
@@ -37,55 +35,67 @@ class Fold:
     val_end: pd.Timestamp
     train_idx: pd.Index
     val_idx: pd.Index
+    is_partial_tail: bool = False
 
 
 def make_folds(df: pd.DataFrame,
                date_col: str = "gameday",
-               cadence_days: int | None = None) -> list[Fold]:
-    """Build expanding walk-forward folds over ``df``.
+               cadence_days: int | None = None,
+               max_eval_folds: int = 0) -> list[Fold]:
+    """Build MLB-shaped expanding walk-forward folds over ``df``.
 
-    Validation windows cover ONLY core-season games (OOF_FIRST_SEASON and
-    later; NHL data starts there by construction). The first window starts at
-    the first core date + config.WARMUP_DAYS (the MLB-style warm-up).
-    Training is every eligible row STRICTLY BEFORE ``val_start``.
+    Validation windows cover only core-season games (OOF_FIRST_SEASON and
+    later). Windows are defined by unique observed dates, not by arithmetic
+    calendar offsets, so a schedule gap cannot change the fold cadence. The
+    first validation index is ``max(cadence, WARMUP_DAYS)``. Training is every
+    row strictly before that window's first observed validation date.
     """
     cadence = cadence_days or config.RETRAIN_CADENCE_DAYS
     min_val_games = getattr(config, "MIN_VAL_FOLD_GAMES", 40)
     warmup_days = int(getattr(config, "WARMUP_DAYS", 0) or 0)
     if date_col not in df.columns:
         raise KeyError(f"make_folds: missing date column {date_col!r}")
-    dates = pd.to_datetime(df[date_col], errors="coerce")
-    seasons = pd.to_numeric(df["season"], errors="coerce")
 
+    dates = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
+    seasons = pd.to_numeric(df["season"], errors="coerce")
     core_mask = seasons >= config.OOF_FIRST_SEASON
-    core_dates = dates[core_mask].dropna()
-    if core_dates.empty:
+    core_dates = dates[core_mask].dropna().drop_duplicates().sort_values()
+    unique_dates = list(core_dates)
+    if len(unique_dates) < cadence + 1:
         return []
 
-    # 30-day warm-up: the first validation window cannot start before the
-    # first core date + warmup_days (MLB parity — the walk-forward never
-    # scores a fold trained on fewer than ~30 days of history).
-    d_min = (core_dates.min().normalize()
-             + pd.Timedelta(days=warmup_days))
-    d_max = core_dates.max().normalize()
+    # MLB's exact warm-up/index rule: skip at least one cadence and the
+    # configured minimum history index, then consume seven observed dates.
+    val_start_idx = max(cadence, warmup_days)
+    if val_start_idx >= len(unique_dates):
+        return []
 
-    folds: list[Fold] = []
+    candidates: list[Fold] = []
     fold_id = 0
-    win_start = d_min
-    while win_start <= d_max:
-        win_end = win_start + pd.Timedelta(days=cadence - 1)   # inclusive
-        val_mask = (core_mask & (dates >= win_start)
-                    & (dates <= win_end + pd.Timedelta(hours=23, minutes=59, seconds=59)))
+    while val_start_idx < len(unique_dates):
+        val_end_idx = min(val_start_idx + cadence, len(unique_dates))
+        val_start = pd.Timestamp(unique_dates[val_start_idx])
+        val_end = pd.Timestamp(unique_dates[val_end_idx - 1])
+        is_partial_tail = val_end_idx < val_start_idx + cadence
+        train_mask = dates < val_start
+        val_mask = core_mask & (dates >= val_start) & (dates <= val_end)
+        train_idx = df.index[train_mask]
         val_idx = df.index[val_mask]
-        is_final_window = win_end >= d_max
-        if len(val_idx) and (len(val_idx) >= min_val_games or is_final_window):
-            train_mask = dates < win_start
-            train_idx = df.index[train_mask]
-            folds.append(Fold(fold_id=fold_id, val_start=win_start,
-                              val_end=win_end, train_idx=train_idx,
-                              val_idx=val_idx))
+        if len(train_idx) and len(val_idx):
+            candidates.append(Fold(
+                fold_id=fold_id, val_start=val_start, val_end=val_end,
+                train_idx=train_idx, val_idx=val_idx,
+                is_partial_tail=is_partial_tail,
+            ))
             fold_id += 1
-        win_start = win_end + pd.Timedelta(days=1)
+        val_start_idx = val_end_idx
+
+    # Keep ordinary folds only when they meet the minimum validation count;
+    # retain the one final partial tail exactly as MLB does.
+    folds = [f for f in candidates
+             if len(f.val_idx) >= min_val_games or f.is_partial_tail]
+    if max_eval_folds > 0 and len(folds) > max_eval_folds:
+        folds = folds[-max_eval_folds:]
     return folds
 
 
@@ -117,6 +127,7 @@ def fold_table(df: pd.DataFrame, folds: list[Fold],
                                if len(f.train_idx) else pd.NaT),
             "validation_start": f.val_start.date(),
             "validation_end": f.val_end.date(),
+            "is_partial_tail": bool(f.is_partial_tail),
             "n_train": int(len(f.train_idx)),
             "n_validation": int(len(f.val_idx)),
         })
