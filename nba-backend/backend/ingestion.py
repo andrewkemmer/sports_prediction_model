@@ -787,16 +787,30 @@ def _merge_representations(primary: pd.DataFrame, secondary: pd.DataFrame,
     """Union two copies of one table, keeping the freshest row per identity."""
     key = _dedupe_key(primary, name) or _dedupe_key(secondary, name)
     # A key that repeats inside one copy marks sibling rows this reader cannot
-    # tell apart, so collapsing on it would delete data.  Keep a single copy.
-    untrusted = (key is None
-                 or primary.duplicated(subset=list(key)).any()
-                 or secondary.duplicated(subset=list(key)).any())
-    if untrusted:
-        logger.warning(
-            "NBA table %s exists in two representations without a unique row "
-            "identity; keeping the larger copy (%d vs %d rows)",
-            name, len(primary), len(secondary))
-        return primary if len(primary) >= len(secondary) else secondary
+    # tell apart, so collapsing on it would delete data.  Keep a single copy,
+    # and say so in proportion to the decision: agreeing mirrors and dimension
+    # copies are routine, only a genuinely ambiguous merge is worth a warning.
+    ambiguous = (key is not None
+                 and (primary.duplicated(subset=list(key)).any()
+                      or secondary.duplicated(subset=list(key)).any()))
+    if key is None or ambiguous:
+        chosen = primary if len(primary) >= len(secondary) else secondary
+        agrees = (len(primary) == len(secondary)
+                  and set(primary.columns) == set(secondary.columns))
+        if agrees:
+            logger.info("NBA table %s: both representations agree (%d rows); "
+                        "using the SQL copy", name, len(chosen))
+        elif key is None:
+            logger.info("NBA table %s: keeping the larger of two dimension "
+                        "copies (%d vs %d rows)", name, len(primary),
+                        len(secondary))
+        else:
+            logger.warning(
+                "NBA table %s: row identity is not unique within one "
+                "representation, so merging could delete sibling rows; keeping "
+                "the larger copy (%d vs %d rows)", name, len(primary),
+                len(secondary))
+        return chosen
     out = pd.concat([primary, secondary], ignore_index=True)
     out = out.assign(**{"__nba_recency__": _recency(out)})
     out = out.sort_values("__nba_recency__", kind="stable")

@@ -302,6 +302,40 @@ def _stale_sql_current_mirror_bundle(root: Path) -> Path:
     return source
 
 
+def test_agreeing_mirrors_are_not_reported_as_a_problem(caplog) -> None:
+    """A bundle whose CSV mirrors its SQL must not log alarming warnings."""
+    import logging
+
+    frame = pd.DataFrame([
+        {"game_id": f"00224000{i:02d}", "team": team, "points_for": 110}
+        for i, team in enumerate(TEAMS[:6])
+    ])
+    with caplog.at_level(logging.WARNING, logger="ingestion"):
+        merged = ing._merge_representations(frame, frame.copy(),
+                                            "fact_box_score_team")
+    assert len(merged) == len(frame)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_ambiguous_merge_still_warns(caplog) -> None:
+    """A non-unique identity between two different copies is worth a warning."""
+    import logging
+
+    primary = pd.DataFrame([
+        {"game_id": "0022400001", "team": team, "points_for": 110}
+        for team in TEAMS[:5]
+    ])
+    secondary = pd.DataFrame([
+        {"game_id": "0022400002", "team": team, "points_for": 108}
+        for team in TEAMS
+    ])
+    with caplog.at_level(logging.WARNING, logger="ingestion"):
+        chosen = ing._merge_representations(primary, secondary, "dim_game")
+    assert len(chosen) == len(TEAMS)
+    assert any("row identity is not unique" in record.getMessage()
+               for record in caplog.records)
+
+
 def test_source_audit_names_a_stale_bundle(tmp_path: Path, caplog) -> None:
     """A bundle that cannot satisfy the gate must say so and say why."""
     import logging
