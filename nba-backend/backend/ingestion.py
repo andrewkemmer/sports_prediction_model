@@ -84,6 +84,17 @@ _CSV_ID_COLUMNS = frozenset({
     "from_team_id", "to_team_id",
 })
 
+# Kaggle mounts an attached dataset below a generated directory name, and
+# downloaded archives may add one or more wrapper directories.  Keep source
+# discovery based on stable warehouse filenames rather than a brittle
+# ``/kaggle/input/basketball`` assumption.
+_WAREHOUSE_SQL_SUFFIXES = frozenset({".duckdb", ".db", ".sqlite"})
+_WAREHOUSE_MARKER_NAMES = frozenset({
+    "dim_game.csv", "dim_game.parquet",
+    "fact_game_result.csv", "fact_game_result.parquet",
+})
+_WAREHOUSE_MARKER_DIRS = frozenset({"dim_game", "fact_game_result"})
+
 
 def _read_csv(path: Path) -> pd.DataFrame:
     """Read a CSV while preserving warehouse identity spelling."""
@@ -193,18 +204,125 @@ def _game_id(value: Any) -> str:
     return text
 
 
+def _source_search_roots() -> list[Path]:
+    """Return deterministic local/Kaggle locations for source discovery."""
+    return [
+        config.CACHE_DIR / "source", config.CACHE_DIR,
+        Path("/kaggle/input"), Path("/kaggle/working/nba-warehouse"),
+    ]
+
+
+def _warehouse_marker_files(root: Path) -> list[Path]:
+    """Find SQL/table markers below a candidate source root.
+
+    The canonical Parquet/CSV exports may be partitioned as
+    ``parquet/dim_game/season_year=YYYY/*.parquet`` rather than a single
+    ``dim_game.parquet`` file, so table directories are valid markers too.
+    """
+    if root.is_file():
+        return [root] if _is_warehouse_file(root) else []
+    if not root.is_dir():
+        return []
+    found: dict[str, Path] = {}
+    patterns = (
+        "nba.duckdb", "nba.sqlite", "*.duckdb", "*.db", "*.sqlite",
+        "dim_game.csv", "dim_game.parquet",
+        "fact_game_result.csv", "fact_game_result.parquet",
+    )
+    for pattern in patterns:
+        try:
+            matches = root.rglob(pattern)
+            for path in matches:
+                if path.is_file() and _is_warehouse_file(path):
+                    found[str(path)] = path
+        except OSError:
+            continue
+    try:
+        for pattern in _WAREHOUSE_MARKER_DIRS:
+            for path in root.rglob(pattern):
+                if (path.is_dir()
+                        and any(child.is_file() for child in path.rglob("*"))):
+                    found[str(path)] = path
+    except OSError:
+        pass
+    return sorted(found.values(), key=lambda p: (len(p.parts), str(p)))
+
+
+def _is_warehouse_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    name = path.name.lower()
+    return (name in {"nba.duckdb", "nba.sqlite"}
+            or path.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES
+            or name in _WAREHOUSE_MARKER_NAMES)
+
+
+def _warehouse_root_for_marker(marker: Path, search_root: Path) -> Path:
+    """Choose the dataset directory rather than a parquet/csv leaf folder."""
+    # Partition directories (for example ``season_year=2024``) sit below
+    # the export root, so inspect ancestors for the format directory first.
+    candidate = marker.parent
+    for ancestor in (candidate, *candidate.parents):
+        if ancestor.name.lower() in {"parquet", "csv"}:
+            return ancestor.parent if ancestor != search_root else search_root
+    generic = {"data", "warehouse", "export", "tables"}
+    while candidate != search_root and candidate.name.lower() in generic:
+        candidate = candidate.parent
+    if candidate != search_root:
+        return candidate
+    # A marker directly below the search root means the root itself is the
+    # dataset (e.g. a caller passed /kaggle/input rather than its slug).
+    return search_root
+
+
+def discover_warehouse(roots: Iterable[str | Path] | str | Path | None = None
+                       ) -> Path | None:
+    """Resolve a usable NBA warehouse from cache, Kaggle input, or download.
+
+    The function is intentionally read-only and returns the narrowest useful
+    root: an SQL file when available, otherwise the directory containing the
+    Parquet/CSV export.  It is used by the notebook before invoking the
+    pipeline, so a missing attachment fails with an actionable source error
+    instead of passing the literal string ``"None"`` downstream.
+    """
+    if roots is None:
+        roots = _source_search_roots()
+    elif isinstance(roots, (str, Path)):
+        roots = [roots]
+    seen: set[str] = set()
+    for raw in roots:
+        root = Path(raw).expanduser()
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        markers = _warehouse_marker_files(root)
+        if not markers:
+            continue
+        sql = [p for p in markers
+               if p.is_file() and p.name.lower() in {"nba.duckdb", "nba.sqlite"}]
+        if not sql:
+            sql = [p for p in markers
+                   if p.is_file() and p.suffix.lower() in _WAREHOUSE_SQL_SUFFIXES]
+        if sql:
+            return sql[0]
+        return _warehouse_root_for_marker(markers[0], root)
+    return None
+
+
 def _source_root() -> Path | None:
     raw = (os.environ.get("NBA_KAGGLE_DATASET_PATH")
            or os.environ.get("NBA_SOURCE_PATH")
            or os.environ.get("NBA_DATA_PATH") or "").strip()
     if raw:
-        return Path(raw).expanduser()
+        candidate = Path(raw).expanduser()
+        return discover_warehouse([candidate]) or candidate
     for candidate in (config.CACHE_DIR / "source" / "nba.duckdb",
                       config.CACHE_DIR / "source" / "nba.sqlite",
                       config.CACHE_DIR / "nba.duckdb", config.CACHE_DIR / "nba.sqlite"):
         if candidate.exists():
             return candidate
-    return None
+    return discover_warehouse(_source_search_roots())
 
 
 def _read_sql_tables(path: Path, names: Iterable[str]) -> dict[str, pd.DataFrame]:
@@ -812,7 +930,15 @@ def _validate_dataset(wh: Warehouse) -> None:
 
 
 def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Warehouse:
-    root = Path(source).expanduser() if source else _source_root()
+    raw_source = source
+    if isinstance(source, str) and source.strip().lower() in {"none", "null"}:
+        logger.warning("treating source=%r as an omitted source", source)
+        source = None
+    if source is None:
+        root = _source_root()
+    else:
+        candidate = Path(source).expanduser()
+        root = discover_warehouse([candidate]) or candidate
     gp, tp, pp, mp = _cache_paths()
     if use_cache and source is None and mp.exists() and gp.exists() and tp.exists() and pp.exists():
         try:
@@ -824,9 +950,15 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True) -> Wa
         except Exception as exc:  # noqa: BLE001
             logger.warning("invalid NBA cache, rebuilding: %s", exc)
     if root is None or not root.exists():
+        searched = [str(path) for path in _source_search_roots()]
+        if raw_source is not None:
+            searched.insert(0, str(Path(str(raw_source)).expanduser()))
         raise FileNotFoundError(
-            "NBA warehouse not found. Attach wyattowalsh/basketball in Kaggle or set "
-            "NBA_KAGGLE_DATASET_PATH to its extracted directory/DuckDB file."
+            "NBA warehouse not found "
+            f"(source={raw_source!r}; searched: {', '.join(searched)}). "
+            "Attach wyattowalsh/basketball version 238 in Kaggle, or set "
+            "NBA_KAGGLE_DATASET_PATH to its extracted directory/DuckDB file. "
+            "Do not pass None as a --source-path value."
         )
     lookup, team_names = _load_team_maps(root)
     game_frames = _read_tables(root, GAME_TABLES)

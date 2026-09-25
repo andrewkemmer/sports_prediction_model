@@ -64,6 +64,34 @@ def test_config_is_pinned_and_standalone() -> None:
     assert config.NBA_TEAM_ID == {abbr: i for i, abbr in enumerate(TEAMS)}
 
 
+def test_source_discovery_handles_nested_kaggle_exports(tmp_path: Path) -> None:
+    input_root = tmp_path / "input"
+    dataset = input_root / "generated-basketball-slug"
+    parquet = dataset / "parquet" / "season_year=2024"
+    parquet.mkdir(parents=True)
+    (parquet / "dim_game.parquet").write_bytes(b"fixture")
+    (parquet / "fact_game_result.parquet").write_bytes(b"fixture")
+    assert ing.discover_warehouse([input_root]) == dataset
+
+    partitioned = tmp_path / "partitioned-input" / "basketball"
+    table_dir = partitioned / "parquet" / "dim_game" / "season_year=2024"
+    table_dir.mkdir(parents=True)
+    (table_dir / "part-000.parquet").write_bytes(b"fixture")
+    assert ing.discover_warehouse([partitioned.parent]) == partitioned
+
+    sql_dataset = tmp_path / "sql-input" / "basketball"
+    sql_dataset.mkdir(parents=True)
+    sql_file = sql_dataset / "nba.duckdb"
+    sql_file.write_bytes(b"fixture")
+    assert ing.discover_warehouse([sql_dataset.parent]) == sql_file
+
+
+def test_missing_source_error_rejects_literal_none(tmp_path: Path) -> None:
+    with patch.object(ing, "_source_root", return_value=None):
+        with pytest.raises(FileNotFoundError, match="Do not pass None"):
+            ing.load_dataset("None", use_cache=False)
+
+
 def test_folds_are_observed_date_expanding_and_prior_only() -> None:
     games = _games(n_days=46)
     games = games[games.gameday != pd.Timestamp("2024-10-15")]

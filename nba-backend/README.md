@@ -13,6 +13,10 @@ cd nba-backend/backend
 python master_pipeline.py --source-path /path/to/basketball
 ```
 
+On Kaggle, the backend also discovers mounted warehouse exports below
+`/kaggle/input` (including generated dataset slugs and nested Parquet/CSV
+partitions). The `kaggle_nba_run.ipynb` notebook resolves the source before
+starting the pipeline; it never passes a missing value as `--source-path`.
 The normalized cache is stored outside the repository (by default under
 `~/.cache/sports_prediction_model/nba`; set `NBA_CACHE_DIR` to override it).
 Set `NBA_KAGGLE_DATASET_PATH` in Kaggle, or pass `--source-path` explicitly.
