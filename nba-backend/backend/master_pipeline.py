@@ -61,14 +61,14 @@ def _flag(name: str) -> bool:
     return str(os.environ.get(name, "")).lower() in {"1", "true", "yes"}
 
 
-def _config_meta(wh=None) -> dict:
+def _config_meta(facts=None) -> dict:
     """The provenance block every published artifact carries.
 
     ``source`` is the route this run actually resolved, and ``player_rows`` the
     player lines behind it, so an artifact can be traced to the endpoint that
     answered rather than to a nominal upstream that may not have been read.
     """
-    manifest = getattr(wh, "manifest", None) or {}
+    manifest = getattr(facts, "manifest", None) or {}
     source = manifest.get("source_route") or ingestion.SOURCE_ID
     return {"sport": "nba", "feature_set_version": config.FEATURE_SET_VERSION,
             "seed": config.RANDOM_SEED, "warmup_days": config.WARMUP_DAYS,
@@ -249,18 +249,18 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # run below is byte-for-byte the run it was before it existed.
     prog = progress.phases(PHASES)
 
-    wh = ingestion.load_dataset(
+    facts = ingestion.load_ingested(
         use_cache=not skip_pull,
         allow_download=not skip_pull,
     )
-    games = ingestion.eligible_games(wh.games)
+    games = ingestion.eligible_games(facts.games)
     settled = games[games.home_score.notna() & games.away_score.notna()].copy()
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
     prog.advance()
 
-    game_df = feat_mod.build_game_features(settled, wh.team_stats)
+    game_df = feat_mod.build_game_features(settled, facts.team_stats)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional, and the tree members are
@@ -293,7 +293,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     final_models, _ = ml_mod.fit_final_models(game_df)
     final_reg = dist_mod.fit_final(game_df)
-    slate = feat_mod.build_slate_features(games, wh.team_stats) if len(pending) else pd.DataFrame()
+    slate = feat_mod.build_slate_features(games, facts.team_stats) if len(pending) else pd.DataFrame()
     if len(slate):
         slate["home_win_prob_model"] = ml_mod.predict_slate(
             final_models, slate, ml["member_weights"])
@@ -304,7 +304,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         slate_markets = _marketize(slate, slate, "slate", dispersion)
         slate_markets = dist_mod.apply_market_calibration(slate_markets,
                                                            market_calibration)
-        leaders = player_enrichment.build_player_leader(slate, wh.player_stats, games)
+        leaders = player_enrichment.build_player_leader(slate, facts.player_stats, games)
         slate = slate.merge(leaders[["game_id", *config.PLAYER_FIELDS]],
                             on="game_id", how="left", suffixes=("", "_leader"))
     else:
@@ -317,7 +317,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     serving.write_moneyline_json(
         p_ml, slate,
         slate.get("home_win_prob_model", pd.Series(dtype=float)),
-        slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),         wh.team_names, _config_meta(wh), leaders)
+        slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),         facts.team_names, _config_meta(facts), leaders)
     artifacts.append(p_ml.name)
     p_player = out / config.PLAYER_MATCHUP_JSON.format(date=date_c)
     serving.write_player_matchup_json(p_player, leaders)
@@ -331,7 +331,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                                               ml_oof.home_win.to_numpy(float))
     p_cal = out / config.CALIBRATION_JSON.format(date=date_c)
     serving.write_calibration_json(p_cal, raw_metrics, cal_metrics, buckets, [],
-                                   _config_meta(wh), platt, run_day, len(ml_oof),
+                                   _config_meta(facts), platt, run_day, len(ml_oof),
                                    market_calibration)
     artifacts.append(p_cal.name)
     p_hist = out / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
@@ -349,17 +349,17 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     p_markets = out / config.MARKETS_CSV.format(date=date_c)
     serving.write_markets_csv(p_markets,
                               out / config.MARKETS_META_JSON.format(date=date_c),
-                              oof_markets, slate_markets, _config_meta(wh))
+                              oof_markets, slate_markets, _config_meta(facts))
     artifacts += [p_markets.name,
                   (out / config.MARKETS_META_JSON.format(date=date_c)).name]
 
     ratings, records, point_diff = _power_state(settled)
     p_rank = out / config.POWER_RANKINGS_CSV.format(date=date_c)
-    serving.write_power_rankings_csv(p_rank, ratings, records, wh.team_names, point_diff)
+    serving.write_power_rankings_csv(p_rank, ratings, records, facts.team_names, point_diff)
     artifacts.append(p_rank.name)
     coverage = feat_mod.feature_coverage_report(game_df)
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
-    serving.write_feature_json(p_feat, coverage, _config_meta(wh), fold_info)
+    serving.write_feature_json(p_feat, coverage, _config_meta(facts), fold_info)
     artifacts.append(p_feat.name)
     prog.advance()
 
@@ -384,7 +384,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
         "feature_columns": config.active_moneyline_feature_cols(),
-        "trained_utc": _now(), "config": _config_meta(wh),
+        "trained_utc": _now(), "config": _config_meta(facts),
     }
     model_path = model_dir / "nba_ensemble_latest.joblib"
     joblib.dump(bundle, model_path)
@@ -396,13 +396,13 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     monitoring.write_monitor_json(
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
         members, monitoring.rolling_brier(ml_oof),
-        float(1 - ml_oof.home_win.mean()), _config_meta(wh), fold_info,
+        float(1 - ml_oof.home_win.mean()), _config_meta(facts), fold_info,
         cal_metrics, platt)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,
         evaluation.nb_distribution_metrics(dist_oof, dispersion), oof_markets,
-        market_calibration, _config_meta(wh))
+        market_calibration, _config_meta(facts))
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):
@@ -421,7 +421,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
                "weights": ml["member_weights"], "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
                "elapsed_seconds": round(time.time() - started, 2),
-               "source_manifest": wh.manifest}
+               "source_manifest": facts.manifest}
     _prune(out, date_c, set(artifacts))
     sync = _sync_data_delivery(config.ROOT_DIR.parent)
     summary["sync"] = sync

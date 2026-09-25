@@ -10,7 +10,7 @@ cd nba-backend/backend
 python master_pipeline.py
 ```
 
-The backend has no external dataset, no mounted input and no download step. It
+The backend has no external input, no mounted volume and no download step. It
 reads public, unauthenticated APIs and normalizes them itself. There is no
 `--source-path`: the flag is gone rather than accepted-and-ignored, so a run
 cannot be pointed at a directory of tables it never produced.

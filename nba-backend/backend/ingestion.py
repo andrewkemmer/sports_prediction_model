@@ -309,7 +309,7 @@ _PLAYER_RENAME = {
 
 
 @dataclass
-class Warehouse:
+class NBAFacts:
     """The normalized contract the model stack consumes."""
 
     games: pd.DataFrame
@@ -1067,23 +1067,23 @@ def _write_cache(tables: dict[str, pd.DataFrame], paths: dict[str, Path],
 # --------------------------------------------------------------------------
 
 
-def _validate_dataset(wh: Warehouse) -> None:
+def _validate_ingested(facts: NBAFacts) -> None:
     """The gates that decide whether this data may train a model."""
     required = {"game_id", "gameday", "season", "home_team", "away_team"}
-    missing = required - set(wh.games.columns)
+    missing = required - set(facts.games.columns)
     if missing:
         raise RuntimeError(f"NBA games missing required columns: {sorted(missing)}")
-    if wh.games.empty:
+    if facts.games.empty:
         raise RuntimeError("NBA pull produced no settled games")
-    seasons = pd.to_numeric(wh.games.season, errors="coerce")
-    eligible = wh.games[seasons >= config.OOF_FIRST_SEASON]
+    seasons = pd.to_numeric(facts.games.season, errors="coerce")
+    eligible = facts.games[seasons >= config.OOF_FIRST_SEASON]
     if eligible.empty:
-        newest = (pd.to_datetime(wh.games.gameday, errors="coerce").max())
+        newest = (pd.to_datetime(facts.games.gameday, errors="coerce").max())
         raise RuntimeError(
             f"NBA pull has no {config.OOF_FIRST_SEASON}-or-later season "
             f"(seasons {sorted(set(seasons.dropna()))}, newest game "
             f"{None if pd.isna(newest) else newest.date()}, window "
-            f"{wh.manifest.get('window')}). Check NBA_START_DATE/"
+            f"{facts.manifest.get('window')}). Check NBA_START_DATE/"
             f"NBA_END_DATE, or widen the window upstream.")
     observed = (set(eligible.home_team.astype(str))
                 | set(eligible.away_team.astype(str)))
@@ -1091,16 +1091,16 @@ def _validate_dataset(wh: Warehouse) -> None:
     if missing_teams:
         raise RuntimeError("NBA pull is missing current-team coverage: "
                            + ", ".join(missing_teams))
-    if wh.team_stats.empty:
+    if facts.team_stats.empty:
         raise RuntimeError("NBA pull is missing required team box scores")
-    covered = set(wh.team_stats.game_id.astype(str)) & set(eligible.game_id.astype(str))
-    needed = (wh.team_stats[wh.team_stats.game_id.astype(str).isin(covered)]
+    covered = set(facts.team_stats.game_id.astype(str)) & set(eligible.game_id.astype(str))
+    needed = (facts.team_stats[facts.team_stats.game_id.astype(str).isin(covered)]
               .team.astype(str).map(config.normalize_team_abbr))
     missing_facts = sorted(set(config.NBA_TEAM_ID) - set(needed))
     if missing_facts:
         raise RuntimeError("NBA pull is missing team box scores for: "
                            + ", ".join(missing_facts))
-    if wh.player_stats.empty:
+    if facts.player_stats.empty:
         # Every player-derived feature is a default in this frame, and a
         # default looks exactly like a measurement to anything downstream: the
         # models fit, the calibration curve is smooth, the artifacts publish,
@@ -1108,7 +1108,7 @@ def _validate_dataset(wh: Warehouse) -> None:
         # hard stop rather than a warning, and there is no flag to wave it
         # through.  A run that cannot see its players does not get to publish a
         # model about them.
-        source = wh.manifest.get("source_route", "the resolved source")
+        source = facts.manifest.get("source_route", "the resolved source")
         raise RuntimeError(
             "NBA window has no player detail, so every player-derived feature "
             "would silently fall back to its default. Refusing to train and "
@@ -2080,8 +2080,8 @@ def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.Dat
             player_stats.reset_index(drop=True), names)
 
 
-def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
-    games = wh.games
+def _manifest(facts: NBAFacts, start: date, end: date) -> dict[str, Any]:
+    games = facts.games
     dates = pd.to_datetime(games.gameday, errors="coerce")
     seasons = pd.to_numeric(games.season, errors="coerce").dropna()
     return {
@@ -2092,14 +2092,14 @@ def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),
         "tables": {name: int(len(frame))
                    for name, frame in (("games", games),
-                                       ("team_stats", wh.team_stats),
-                                       ("player_stats", wh.player_stats),
-                                       ("play_by_play", wh.play_by_play))},
+                                       ("team_stats", facts.team_stats),
+                                       ("player_stats", facts.player_stats),
+                                       ("play_by_play", facts.play_by_play))},
         "schemas": {name: [str(c) for c in frame.columns]
                     for name, frame in (("games", games),
-                                        ("team_stats", wh.team_stats),
-                                        ("player_stats", wh.player_stats),
-                                        ("play_by_play", wh.play_by_play))},
+                                        ("team_stats", facts.team_stats),
+                                        ("player_stats", facts.player_stats),
+                                        ("play_by_play", facts.play_by_play))},
         "coverage": {
             "min_date": None if dates.dropna().empty else str(dates.min().date()),
             "max_date": None if dates.dropna().empty else str(dates.max().date()),
@@ -2107,7 +2107,7 @@ def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
             "games": int(len(games)),
             "teams": sorted(set(games.home_team) | set(games.away_team)),
         },
-        "team_names": wh.team_names,
+        "team_names": facts.team_names,
         "schema_version": "nba-normalized-v3",
     }
 
@@ -2133,8 +2133,8 @@ def _load_manifest_cache(path: Path) -> dict[str, Any]:
         return {}
 
 
-def load_dataset(use_cache: bool = True,
-                 allow_download: bool = True) -> Warehouse:
+def load_ingested(use_cache: bool = True,
+                 allow_download: bool = True) -> NBAFacts:
     """Pull, cache, and normalize the NBA data the model stack consumes.
 
     The pipeline reads live APIs and its own cache, and nothing else, so there
@@ -2164,9 +2164,9 @@ def load_dataset(use_cache: bool = True,
         games, start, end, paths["play_by_play"],
         enabled=allow_download and _flag(PLAY_BY_PLAY_ENV, True))
 
-    wh = Warehouse(games, team_stats, player_stats, team_names, {}, play_by_play)
-    wh.manifest = _manifest(wh, start, end)
-    _validate_dataset(wh)
+    facts = NBAFacts(games, team_stats, player_stats, team_names, {}, play_by_play)
+    facts.manifest = _manifest(facts, start, end)
+    _validate_ingested(facts)
     _write_cache({"games": games, "team_stats": team_stats,
                   "player_stats": player_stats, "play_by_play": play_by_play},
                  paths,
@@ -2174,8 +2174,8 @@ def load_dataset(use_cache: bool = True,
                   "player_stats": ["game_id", "player_id"],
                   "play_by_play": ["game_id", "action_id"]})
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(wh.manifest, indent=2, default=str))
-    return wh
+    manifest_path.write_text(json.dumps(facts.manifest, indent=2, default=str))
+    return facts
 
 
 def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
@@ -2396,12 +2396,12 @@ def _pull_play_by_play(games: pd.DataFrame, start: date, end: date,
 
 
 def load_games(use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(use_cache).games
+    return load_ingested(use_cache).games
 
 
 def load_team_stats(use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(use_cache).team_stats
+    return load_ingested(use_cache).team_stats
 
 
 def load_player_stats(use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(use_cache).player_stats
+    return load_ingested(use_cache).player_stats

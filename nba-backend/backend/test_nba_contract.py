@@ -625,7 +625,7 @@ def test_a_dead_host_is_not_re_hammered_for_every_season(monkeypatch, caplog) ->
     monkeypatch.setattr(ing, "_fetch_season_log", fake)
     with caplog.at_level(logging.ERROR, logger="ingestion"):
         with pytest.raises(RuntimeError, match="every season log failed"):
-            ing.load_dataset()
+            ing.load_ingested()
     assert len(attempted) == ing.MAX_CONSECUTIVE_FAILURES
     assert any("stopping after" in r.getMessage() for r in caplog.records)
 
@@ -643,8 +643,8 @@ def test_a_single_bad_season_does_not_stop_the_pull(monkeypatch) -> None:
     monkeypatch.setattr(ing, "_fetch_season_log", fake)
     monkeypatch.setattr(ing, "_pull_play_by_play",
                         lambda *a, **k: pd.DataFrame())
-    wh = ing.load_dataset()
-    assert len(wh.games) == len(TEAMS)
+    facts = ing.load_ingested()
+    assert len(facts.games) == len(TEAMS)
     assert len(attempted) > ing.MAX_CONSECUTIVE_FAILURES
 
 
@@ -659,7 +659,7 @@ def test_the_pull_budget_stops_further_seasons(monkeypatch, caplog) -> None:
     monkeypatch.setenv(ing.PULL_DEADLINE_ENV, "0")
     with caplog.at_level(logging.WARNING, logger="ingestion"):
         with pytest.raises(RuntimeError, match="every season log failed"):
-            ing.load_dataset()
+            ing.load_ingested()
     assert any("budget exhausted" in r.getMessage() for r in caplog.records)
 
 
@@ -737,9 +737,9 @@ def test_one_unreadable_season_does_not_end_the_run(monkeypatch) -> None:
     monkeypatch.setattr(ing, "_fetch_season_log", fake)
     monkeypatch.setattr(ing, "_pull_play_by_play",
                         lambda *a, **k: pd.DataFrame())
-    wh = ing.load_dataset()
-    assert len(wh.games) == len(TEAMS)
-    assert set(wh.games.season) == {2024.0}
+    facts = ing.load_ingested()
+    assert len(facts.games) == len(TEAMS)
+    assert set(facts.games.season) == {2024.0}
 
 
 def test_a_total_season_failure_names_the_endpoint(monkeypatch) -> None:
@@ -748,7 +748,7 @@ def test_a_total_season_failure_names_the_endpoint(monkeypatch) -> None:
 
     monkeypatch.setattr(ing, "_fetch_season_log", all_failed)
     with pytest.raises(RuntimeError) as exc:
-        ing.load_dataset()
+        ing.load_ingested()
     message = str(exc.value)
     assert "every season log failed" in message
     assert "stats.nba.com/stats/LeagueGameLog" in message
@@ -897,14 +897,14 @@ def test_the_pull_falls_back_to_cdn_box_scores(monkeypatch) -> None:
     monkeypatch.setattr(ing, "_get_json", cdn)
     monkeypatch.setattr(ing, "_pull_play_by_play",
                         lambda *a, **k: pd.DataFrame())
-    wh = ing.load_dataset()
+    facts = ing.load_ingested()
     # Every current team has to appear or the run is not allowed to train.
-    assert len(wh.games) == len(TEAMS) // 2
-    assert len(wh.team_stats) == len(TEAMS)
-    assert len(wh.player_stats) == len(TEAMS)
-    assert set(wh.team_stats.team) == set(TEAMS)
-    assert set(wh.games.game_type) == {config.GAME_TYPE_REG}
-    assert wh.manifest["tables"]["games"] == len(TEAMS) // 2
+    assert len(facts.games) == len(TEAMS) // 2
+    assert len(facts.team_stats) == len(TEAMS)
+    assert len(facts.player_stats) == len(TEAMS)
+    assert set(facts.team_stats.team) == set(TEAMS)
+    assert set(facts.games.game_type) == {config.GAME_TYPE_REG}
+    assert facts.manifest["tables"]["games"] == len(TEAMS) // 2
 
 
 def test_the_cdn_walk_reads_the_regular_season_and_the_bracket(monkeypatch) -> None:
@@ -1323,53 +1323,53 @@ def test_full_repull_ignores_a_cached_season(monkeypatch, tmp_path) -> None:
 
 
 # --------------------------------------------------------------------------
-# load_dataset
+# load_ingested
 # --------------------------------------------------------------------------
 
 
-def test_load_dataset_pulls_both_season_types_and_passes_the_gates(monkeypatch) -> None:
+def test_the_loader_pulls_both_season_types_and_passes_the_gates(monkeypatch) -> None:
     calls = stub_season(monkeypatch)
-    wh = ing.load_dataset()
+    facts = ing.load_ingested()
     assert calls == ["2023-24|Regular Season", "2023-24|Playoffs",
                      "2024-25|Regular Season", "2024-25|Playoffs",
                      "2025-26|Regular Season", "2025-26|Playoffs"]
-    assert len(wh.games) == len(TEAMS)
-    assert set(wh.games.season) == {2024.0}
-    assert len(wh.team_stats) == 2 * len(TEAMS)
-    assert not ing._validate_dataset.__doc__ is None
-    assert wh.manifest["source_id"] == ing.SOURCE_ID
-    assert wh.manifest["window"] == {"start": "2024-01-01", "end": "2025-07-01"}
-    assert wh.manifest["tables"]["games"] == len(TEAMS)
+    assert len(facts.games) == len(TEAMS)
+    assert set(facts.games.season) == {2024.0}
+    assert len(facts.team_stats) == 2 * len(TEAMS)
+    assert not ing._validate_ingested.__doc__ is None
+    assert facts.manifest["source_id"] == ing.SOURCE_ID
+    assert facts.manifest["window"] == {"start": "2024-01-01", "end": "2025-07-01"}
+    assert facts.manifest["tables"]["games"] == len(TEAMS)
     assert ing._cache_paths()[0].exists()
     assert ing._cache_paths()[4].exists()
 
 
-def test_load_dataset_writes_a_reusable_cache(monkeypatch) -> None:
+def test_the_loader_writes_a_reusable_cache(monkeypatch) -> None:
     stub_season(monkeypatch)
-    ing.load_dataset()
+    ing.load_ingested()
 
     def refuse(*args, **kwargs):
         raise AssertionError("a cached run must not call the network")
 
     monkeypatch.setattr(ing, "_fetch_season_log", refuse)
-    cached = ing.load_dataset(allow_download=False)
+    cached = ing.load_ingested(allow_download=False)
     assert len(cached.games) == len(TEAMS)
     assert not cached.team_stats.empty
 
 
 def test_full_repull_ignores_the_cache(monkeypatch) -> None:
     stub_season(monkeypatch)
-    ing.load_dataset()
+    ing.load_ingested()
     monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
     calls = stub_season(monkeypatch)
-    wh = ing.load_dataset()
+    facts = ing.load_ingested()
     assert calls  # the season log was re-read despite a warm cache
-    assert len(wh.games) == len(TEAMS)
+    assert len(facts.games) == len(TEAMS)
 
 
 def test_disabled_pull_without_a_cache_fails_loudly(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="no cached games"):
-        ing.load_dataset(allow_download=False)
+        ing.load_ingested(allow_download=False)
 
 
 def test_an_empty_window_is_reported_not_trained_on(monkeypatch) -> None:
@@ -1378,7 +1378,7 @@ def test_an_empty_window_is_reported_not_trained_on(monkeypatch) -> None:
 
     monkeypatch.setattr(ing, "_fetch_season_log", empty)
     with pytest.raises(RuntimeError, match="returned no games"):
-        ing.load_dataset()
+        ing.load_ingested()
 
 
 def test_nothing_can_point_the_run_at_a_data_directory(capsys) -> None:
@@ -1391,7 +1391,7 @@ def test_nothing_can_point_the_run_at_a_data_directory(capsys) -> None:
     """
     import inspect
 
-    for target in (ing.load_dataset, mp.run, ing.load_games,
+    for target in (ing.load_ingested, mp.run, ing.load_games,
                    ing.load_team_stats, ing.load_player_stats):
         assert "source" not in inspect.signature(target).parameters
     with pytest.raises(SystemExit):
@@ -1410,9 +1410,9 @@ def test_validate_rejects_a_window_without_eligible_seasons() -> None:
         "home_team": "BOS", "away_team": "NYK", "home_score": 1.0,
         "away_score": 2.0, "game_type": 1,
     }])
-    wh = ing.Warehouse(games, pd.DataFrame(), pd.DataFrame(), {}, {})
+    facts = ing.NBAFacts(games, pd.DataFrame(), pd.DataFrame(), {}, {})
     with pytest.raises(RuntimeError, match="no 2024-or-later season"):
-        ing._validate_dataset(wh)
+        ing._validate_ingested(facts)
 
 
 def test_validate_rejects_missing_current_team_coverage() -> None:
@@ -1421,9 +1421,9 @@ def test_validate_rejects_missing_current_team_coverage() -> None:
         "home_team": "BOS", "away_team": "NYK", "home_score": 1.0,
         "away_score": 2.0, "game_type": 1,
     }])
-    wh = ing.Warehouse(games, pd.DataFrame(), pd.DataFrame(), {}, {})
+    facts = ing.NBAFacts(games, pd.DataFrame(), pd.DataFrame(), {}, {})
     with pytest.raises(RuntimeError, match="missing current-team coverage"):
-        ing._validate_dataset(wh)
+        ing._validate_ingested(facts)
 
 
 def test_validate_rejects_missing_team_facts() -> None:
@@ -1434,9 +1434,9 @@ def test_validate_rejects_missing_team_facts() -> None:
     } for i in range(len(TEAMS) - 1)])
     facts = pd.DataFrame([{"game_id": row.game_id, "team": row.home_team}
                           for row in games.itertuples()])
-    wh = ing.Warehouse(games, facts, pd.DataFrame(), {}, {})
+    facts = ing.NBAFacts(games, facts, pd.DataFrame(), {}, {})
     with pytest.raises(RuntimeError, match="missing team box scores"):
-        ing._validate_dataset(wh)
+        ing._validate_ingested(facts)
 
 
 def test_eligible_games_filters_season_and_type() -> None:
