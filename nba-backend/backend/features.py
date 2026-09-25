@@ -119,14 +119,6 @@ def _ewm(srt: pd.DataFrame, col: str,
             .to_numpy(dtype=float))
 
 
-_STAT_DEFAULTS = {
-    "points_for_pg": np.nan, "points_against_pg": np.nan,
-    "assists_per_game": np.nan, "rebounds_per_game": np.nan,
-    "turnovers_per_game": np.nan, "three_point_pct": np.nan,
-    "free_throw_pct": np.nan,
-}
-
-
 def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataFrame:
     out = ev.copy()
     if team_stats is not None and len(team_stats):

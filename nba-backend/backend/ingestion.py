@@ -10,18 +10,19 @@ NBA.com publishes two unauthenticated surfaces, and both are used here.
     also where the game type comes from, so nothing is inferred from dates.
 
 ``cdn.nba.com``
-    The same JSON NBA.com itself serves: the league schedule, and per-game box
-    scores and play-by-play.
+    The same JSON NBA.com itself serves: per-game box scores and play-by-play.
+    Used to rebuild the window when the season log cannot be read.
 
 If every NBA.com surface refuses us — cloud hosts block them at the IP level —
 the window is rebuilt from ESPN instead, which needs no key either:
 
 ``site.web.api.espn.com``
-    The league scoreboard for the schedule, and one ``summary`` box score per
-    game.  That is ~5,700 requests for a full window against ~10 for the season
-    log, so the player lines it yields are cached to
-    ``espn_player_stats.parquet`` and a later run only asks for the games the
-    cache has not seen.  It is a fallback, not the backbone.
+    The schedule comes from here: the league scoreboard and the per-team
+    schedules, since NBA.com's own schedule endpoint is no longer read.  One
+    ``summary`` box score per game supplies the player lines.  That is ~5,700
+    requests for a full window against ~10 for the season log, so they are
+    cached to ``espn_player_stats.parquet`` and a later run only asks for the
+    games the cache has not seen.  It is a fallback, not the backbone.
 
 No key, quota, or paid tier is involved on any route.  The season log costs ~10
 requests for any window, so it is re-read every run.  Play-by-play is one
@@ -71,7 +72,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 SEASON_LOG_URL = "https://stats.nba.com/stats/LeagueGameLog"
-SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json"
 BOXSCORE_URL = "https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{game_id}.json"
 PLAY_BY_PLAY_URL = ("https://cdn.nba.com/static/json/liveData/playbyplay/"
                     "playbyplay_{game_id}.json")
@@ -107,7 +107,6 @@ RETRIES_ENV = "NBA_HTTP_RETRIES"
 # game was in progress stores a partial play-by-play and a partial score.
 REFRESH_TAIL_DAYS = 3
 DEFAULT_PAUSE_SEC = 0.35
-DEFAULT_RETRIES = 4
 
 # Per-host request policy.  stats.nba.com answers one query with a whole
 # season of player lines and can take a minute; the CDN is fast and its 403 is
@@ -240,7 +239,6 @@ MAX_SEQUENCE_ENV = "NBA_MAX_SEQUENCE_PROBE"
 # season and has to be enumerated.  This is what makes the whole postseason
 # reachable: 2024-25 alone is 84 games across four rounds, ending with the
 # finals on 2025-06-22.
-PRESEASON_PREFIX = "001"
 REGULAR_PREFIX = "002"
 PLAYOFF_PREFIX = "004"
 CUP_PREFIX = "006"
@@ -736,30 +734,6 @@ def _fetch_season_log(season: str, season_type: str,
     except Exception as exc:  # noqa: BLE001
         logger.warning("could not cache %s (%s)", path.name, exc)
     return frame
-
-
-def _fetch_schedule(pause: float) -> pd.DataFrame:
-    """The current season's schedule, including games not yet played."""
-    time.sleep(pause)
-    payload = _get_json(SCHEDULE_URL, allow_missing=True)
-    if not payload:
-        return pd.DataFrame()
-    dates = (payload.get("leagueSchedule") or {}).get("gameDates") or []
-    records: list[dict[str, Any]] = []
-    for day in dates:
-        for game in day.get("games") or []:
-            home = game.get("homeTeam") or {}
-            away = game.get("awayTeam") or {}
-            records.append({
-                "game_id": game.get("gameId"),
-                "gameday": game.get("gameDateTimeUTC") or game.get("gameDateEST"),
-                "home_team": home.get("teamTricode"),
-                "away_team": away.get("teamTricode"),
-                "home_score": home.get("score"),
-                "away_score": away.get("score"),
-                "game_status": game.get("gameStatus"),
-            })
-    return pd.DataFrame(records)
 
 
 # --------------------------------------------------------------------------
