@@ -8,6 +8,7 @@ must fail the run loudly.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import urllib.error
 from datetime import date
@@ -23,6 +24,8 @@ if str(BACKEND) not in sys.path:
 
 import ingestion as ing  # noqa: E402
 import folds as folds_mod  # noqa: E402
+import master_pipeline as mp  # noqa: E402
+import progress as prog  # noqa: E402
 
 # Ingestion binds its config as ``backend.config`` when the backend directory is
 # a package, and as ``config`` otherwise.  Patching anything but the object it
@@ -1459,3 +1462,162 @@ def test_flags_read_booleans_from_the_environment(monkeypatch) -> None:
         assert ing._flag(ing.PLAY_BY_PLAY_ENV, True) is False
     monkeypatch.setenv(ing.PLAY_BY_PLAY_ENV, "yes")
     assert ing._flag(ing.PLAY_BY_PLAY_ENV, False) is True
+
+
+# --------------------------------------------------------------------------
+# 60-day slices, and a bar that only draws
+#
+# Two contracts.  The pull is cut into 60-day slices, the way MLB's Statcast
+# pull is cut into ``statcast_chunk_days: 60``.  The bar that reports the walk
+# is display only, and the guardrail on this work is exactly that: a run with
+# the bar on is the same run as a run with it off.
+# --------------------------------------------------------------------------
+
+
+def test_the_pull_is_cut_into_60_day_slices_like_mlb(monkeypatch) -> None:
+    assert ing.CDN_CHUNK_DAYS == 60
+    start = date(2024, 10, 1)
+    assert ing._chunk_bounds(start, date(2025, 7, 1), ing.CDN_CHUNK_DAYS) == (
+        start, start + ing.timedelta(days=59))
+    # A game 60 days in belongs to the second slice, not the first.
+    assert ing._chunk_start(pd.Timestamp("2024-11-30"), start,
+                            ing.CDN_CHUNK_DAYS) == start + ing.timedelta(days=60)
+    # The override still wins, so an operator can widen or narrow a pull.
+    monkeypatch.setenv(ing.CHUNK_DAYS_ENV, "15")
+    assert ing._int_env(ing.CHUNK_DAYS_ENV, ing.CDN_CHUNK_DAYS) == 15
+
+
+def test_the_gap_scan_is_not_coarsened_by_the_pull_width(monkeypatch) -> None:
+    """The pull width and the scan width are two knobs on purpose.
+
+    If the scan inherited the pull's 60 days, a fortnight of games that failed
+    to arrive would share a slice with games that did arrive, the slice would
+    not be empty, and the hole would be invisible.  Widening the pull must
+    therefore leave the detector exactly where it was.
+    """
+    games = pd.DataFrame({"gameday": [pd.Timestamp("2024-10-05"),
+                                      pd.Timestamp("2025-01-20")]})
+    start, end = date(2024, 10, 1), date(2025, 3, 1)
+    monkeypatch.setenv(ing.CHUNK_DAYS_ENV, "30")
+    narrow = ing._report_chunk_gaps(games, start, end)
+    for width in ("60", "200"):
+        monkeypatch.setenv(ing.CHUNK_DAYS_ENV, width)
+        assert ing._report_chunk_gaps(games, start, end) == narrow
+    # The hole really is there: every slice between the two games is empty.
+    assert any(name.startswith("2024-11") for name in narrow)
+    assert narrow, "a core-season slice with no games must still be reported"
+
+
+def test_the_slice_count_matches_the_loop_it_counts() -> None:
+    """The bar's total is arithmetic, and arithmetic can disagree with a loop."""
+    start, end = date(2024, 10, 1), date(2025, 7, 1)
+    for days in (7, 30, 60, 91):
+        cursor, walked = start, 0
+        while cursor <= end:
+            _, chunk_end = ing._chunk_bounds(cursor, end, days)
+            walked += 1
+            cursor = chunk_end + ing.timedelta(days=1)
+        assert ing._slice_count(start, end, days) == walked
+
+
+def test_the_bar_is_off_when_the_operator_says_so(monkeypatch) -> None:
+    for value in ("0", "off", "no", "false"):
+        monkeypatch.setenv(prog.ENV, value)
+        assert prog.enabled() is False
+    for value in ("1", "on", "yes", ""):
+        monkeypatch.setenv(prog.ENV, value)
+        assert prog._flag() is True
+    # A bar needs somewhere to be drawn.  pytest and Kaggle both capture stderr,
+    # and a bar redrawn into a captured log is noise, so the default is quiet.
+    monkeypatch.delenv(prog.ENV, raising=False)
+    monkeypatch.setattr(prog, "_drawable", lambda: False)
+    assert prog.enabled() is False
+
+
+def test_a_bar_without_tqdm_still_yields_the_same_work(monkeypatch) -> None:
+    """tqdm is an accelerator, never a requirement.
+
+    The Kaggle notebook is not known to install it, so the module has to be
+    correct with the import failing and the run has to be correct either way.
+    """
+    monkeypatch.setattr(prog, "_drawable", lambda: True)
+    monkeypatch.setattr(prog, "_tqdm", lambda: None)
+    items = [f"00224000{n:04d}" for n in range(7)]
+    assert list(prog.wrap(items, len(items), "demo", unit="game")) == items
+    seen: list[int] = []
+    with prog.track(3, desc="demo", unit="slice") as bar:
+        for n in range(3):
+            seen.append(n)
+            bar.update(1)
+        bar.set_postfix("x")
+    assert seen == [0, 1, 2]
+
+
+def test_a_bar_with_tqdm_still_yields_the_same_work(monkeypatch) -> None:
+    """The installed path is the one a Kaggle run with tqdm actually takes."""
+    monkeypatch.setattr(prog, "_drawable", lambda: True)
+    if prog._tqdm() is None:  # pragma: no cover - depends on the environment
+        pytest.skip("tqdm is not installed here")
+    items = [1, 2, 3]
+    assert list(prog.wrap(items, len(items), "demo", unit="thing")) == items
+
+
+def test_a_failing_loop_still_closes_its_bar(monkeypatch) -> None:
+    """A raised exception must not leave a half-drawn line in a captured log."""
+    monkeypatch.setattr(prog, "_drawable", lambda: False)
+    with pytest.raises(RuntimeError, match="boom"):
+        with prog.track(3, desc="demo", unit="slice") as bar:
+            bar.update(1)
+            raise RuntimeError("boom")
+
+
+def test_the_bar_does_not_change_what_the_gap_scan_reports(monkeypatch) -> None:
+    """The no-functional-impact proof, at unit size.
+
+    Same games, same window, bar drawing and bar not drawing: the reported
+    holes and the log lines have to be identical.  If drawing could ever change
+    the walk, this is where it shows.
+    """
+    games = pd.DataFrame({"gameday": [pd.Timestamp("2024-10-22"),
+                                      pd.Timestamp("2025-02-02")]})
+    start, end = date(2024, 10, 1), date(2025, 7, 1)
+
+    def scan(drawable: bool) -> tuple[list[str], list[str]]:
+        lines: list[str] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                lines.append(record.getMessage())
+
+        handler = _Capture()
+        previous = ing.logger.level
+        ing.logger.addHandler(handler)
+        ing.logger.setLevel(logging.INFO)
+        monkeypatch.setattr(prog, "_drawable", lambda: drawable)
+        try:
+            return ing._report_chunk_gaps(games, start, end), lines
+        finally:
+            ing.logger.removeHandler(handler)
+            ing.logger.setLevel(previous)
+
+    with_bar, with_lines = scan(True)
+    without_bar, without_lines = scan(False)
+    assert with_bar == without_bar
+    assert with_lines == without_lines
+    assert len(without_lines) == ing._slice_count(start, end, ing.GAP_SCAN_DAYS)
+
+
+def test_the_pipeline_names_every_phase_it_advances() -> None:
+    """The run's phase list and the run's ``advance()`` calls must agree.
+
+    A name that is added to ``PHASES`` without a matching ``advance`` leaves a
+    bar that never reaches 100% and a phase nobody can name; an ``advance``
+    without a name walks the list off the end.
+    """
+    source = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    assert source.count("prog.advance()") == len(mp.PHASES)
+    assert len(set(mp.PHASES)) == len(mp.PHASES), "phase names must be unique"
+    phases = prog.phases(mp.PHASES, desc="NBA pipeline")
+    for _ in mp.PHASES:
+        phases.advance()
+    phases.close()

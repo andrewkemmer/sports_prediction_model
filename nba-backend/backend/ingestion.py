@@ -52,9 +52,10 @@ import numpy as np
 import pandas as pd
 
 try:
-    from backend import config
+    from backend import config, progress
 except ImportError:
     import config
+    import progress
 
 logger = logging.getLogger(__name__)
 
@@ -238,8 +239,17 @@ PLAYOFF_GAMES = tuple(range(1, 8))
 CUP_SEQUENCE_PROBE = 8
 # The window is pulled in slices, as the MLB Statcast pull is, so a long range
 # is bounded work, a failure costs one slice, and progress is durable per slice.
-CDN_CHUNK_DAYS = 30
+# 60 days is MLB's ``statcast_chunk_days``: a slice should be big enough that
+# the pause between slices is noise, and small enough that a killed run resumes
+# without re-pulling a season. The two knobs are independent, because widening
+# the population slice must not coarsen the hole detector below.
+CDN_CHUNK_DAYS = 60
 CHUNK_DAYS_ENV = "NBA_CHUNK_DAYS"
+# The gap scan stays at 30 days no matter how wide the pull slices get. A hole
+# in the middle of the season is what this exists to catch, and a 60-day slice
+# can hide a 10-day hole behind two months of games that did arrive. The scan is
+# in memory, so its resolution costs nothing.
+GAP_SCAN_DAYS = 30
 # A game, its two team lines and every player line all share a game id, so the
 # cache key has to name the row kind as well.
 ROW_KEY = ["row_kind", "game_id", "team", "player_id"]
@@ -1021,6 +1031,18 @@ def _chunk_bounds(cursor: date, end: date, days: int) -> tuple[date, date]:
     return cursor, min(cursor + timedelta(days=days - 1), end)
 
 
+def _slice_count(start: date, end: date, days: int) -> int:
+    """How many slices a window is cut into, for a progress bar's total.
+
+    ``_chunk_bounds`` hands out full-width slices and only the last one is
+    clipped, so this is the ceiling of the window over the width.  It is
+    arithmetic rather than a walk of the real loop on purpose: the count must
+    not be able to disagree with the loop it is counting.
+    """
+    span = (end - start).days + 1
+    return max(1, -(-span // max(1, days)))
+
+
 def _is_core_season_chunk(cursor: date, chunk_end: date) -> bool:
     """True when a chunk sits where games are always being played.
 
@@ -1265,7 +1287,9 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     asked = 0
     refused = 0
     first_refusal: str | None = None
-    for game_id in _candidate_game_ids(season_year):
+    candidates = _candidate_game_ids(season_year)
+    for game_id in progress.wrap(candidates, len(candidates),
+                                 f"{season_year} box scores", unit="game"):
         if game_id in known or game_id in probed:
             continue
         probed.add(game_id)
@@ -1536,7 +1560,7 @@ def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.Da
                    start, end, _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
     collected: list[pd.DataFrame] = []
     dead_years: list[str] = []
-    for year in years:
+    for year in progress.wrap(years, len(years), "ESPN schedules", unit="season"):
         try:
             frame = _pull_season_from_espn(year, pause)
         except CdnUnavailable:
@@ -1587,24 +1611,33 @@ def _report_chunk_gaps(games: pd.DataFrame, start: date, end: date) -> list[str]
     the slices are logged with their counts exactly as the MLB Statcast pull
     reports its chunks.  Offseason and still-future slices are excluded: an
     empty July means nobody played, not that something went missing.
+
+    The scan is deliberately at ``GAP_SCAN_DAYS`` and not at the pull's own
+    slice width: the pull can be asked for 60-day slices to match the MLB pull,
+    but a detector that only looks every 60 days can walk straight past a
+    fortnight of missing games.
     """
-    days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
+    days = GAP_SCAN_DAYS
     gamedays = pd.to_datetime(games.get("gameday"), errors="coerce").dropna()
     cursor = start
     empty: list[str] = []
-    while cursor <= end:
-        _, chunk_end = _chunk_bounds(cursor, end, days)
-        # Half-open: a game on the boundary belongs to this slice only, or
-        # every slice would also count its neighbour's first day.
-        count = int(((gamedays >= pd.Timestamp(cursor))
-                     & (gamedays < pd.Timestamp(chunk_end)
-                        + pd.Timedelta(days=1))).sum())
-        core = _is_core_season_chunk(cursor, chunk_end)
-        logger.info("  chunk %s -> %s: %d games%s", cursor, chunk_end, count,
-                    "" if core else " (edge of the season)")
-        if not count and core:
-            empty.append(f"{cursor}->{chunk_end}")
-        cursor = chunk_end + timedelta(days=1)
+    with progress.track(_slice_count(start, end, days),
+                        desc="NBA gap scan", unit="slice") as bar:
+        while cursor <= end:
+            _, chunk_end = _chunk_bounds(cursor, end, days)
+            # Half-open: a game on the boundary belongs to this slice only, or
+            # every slice would also count its neighbour's first day.
+            count = int(((gamedays >= pd.Timestamp(cursor))
+                         & (gamedays < pd.Timestamp(chunk_end)
+                            + pd.Timedelta(days=1))).sum())
+            core = _is_core_season_chunk(cursor, chunk_end)
+            logger.info("  chunk %s -> %s: %d games%s", cursor, chunk_end, count,
+                        "" if core else " (edge of the season)")
+            bar.set_postfix(f"{chunk_end} {count}g")
+            if not count and core:
+                empty.append(f"{cursor}->{chunk_end}")
+            cursor = chunk_end + timedelta(days=1)
+            bar.update(1)
     return empty
 
 

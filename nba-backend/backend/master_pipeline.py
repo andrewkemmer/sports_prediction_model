@@ -23,7 +23,7 @@ try:
                         distributions as dist_mod, evaluation,
                         feature_selection, feature_workbook, features as feat_mod,
                         folds as folds_mod, ingestion, monitoring,
-                        moneyline as ml_mod, player_enrichment,
+                        moneyline as ml_mod, player_enrichment, progress,
                         retention_policy, serving)
 except ImportError:
     import config
@@ -37,11 +37,20 @@ except ImportError:
     import monitoring
     import moneyline as ml_mod
     import player_enrichment
+    import progress
     import retention_policy
     import serving
 
 logger = logging.getLogger("nba_master_pipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+# The steps of a run, in order, for the phase bar.  Named once here so the bar
+# and the log agree, and so a run that dies halfway says which half it reached.
+# These are descriptions, not control flow: the order below is the order the
+# calls in ``run`` already happen in, and adding a name changes no result.
+PHASES = ("ingest", "features", "walk-forward", "final fit", "serve",
+          "feature report", "monitor", "publish")
 
 
 def _now() -> str:
@@ -227,6 +236,9 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     model_dir.mkdir(parents=True, exist_ok=True)
     run_day = run_date or datetime.now().strftime("%Y-%m-%d")
     date_c = run_day.replace("-", "")
+    # Display only.  If this never draws (no tty, no tqdm, NBA_PROGRESS=0) the
+    # run below is byte-for-byte the run it was before it existed.
+    prog = progress.phases(PHASES)
 
     wh = ingestion.load_dataset(
         source,
@@ -238,6 +250,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA warehouse has too few settled eligible games for walk-forward training")
+    prog.advance()
 
     game_df = feat_mod.build_game_features(settled, wh.team_stats)
     # Canonical (date_col, game_id) order: the one order every fold index is
@@ -249,6 +262,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     fold_info = folds_mod.fold_summary(fold_list)
     if not fold_list:
         raise RuntimeError("NBA walk-forward produced no eligible folds after 30-day warm-up")
+    prog.advance()
 
     ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
     ml_oof = _merge_oof_metadata(ml["oof"], game_df)
@@ -267,6 +281,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     dispersion = dist_mod.calibrate_dispersion(dist_oof)
     oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion)
     oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
+    prog.advance()
 
     final_models, _ = ml_mod.fit_final_models(game_df)
     final_reg = dist_mod.fit_final(game_df)
@@ -287,6 +302,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     else:
         slate_markets = pd.DataFrame()
         leaders = pd.DataFrame()
+    prog.advance()
 
     artifacts: list[str] = []
     p_ml = out / config.MONEYLINE_JSON.format(date=date_c)
@@ -337,6 +353,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
     serving.write_feature_json(p_feat, coverage, _config_meta(), fold_info)
     artifacts.append(p_feat.name)
+    prog.advance()
 
     selection = feature_selection.run_rfe(game_df, out, date_c)
     selection_name = f"nba_feature_selection_{date_c}.json"
@@ -348,6 +365,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
         out, date_c, game_df, game_df.tail(min(60, len(game_df))),
         {feature: 0.0 for feature in config.active_moneyline_feature_cols()})
     artifacts.extend(drift_names)
+    prog.advance()
 
     import joblib
     bundle = {
@@ -389,6 +407,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
 
     if len(slate):
         _validate_slate_contract(slate, slate_markets)
+    prog.advance()
 
     summary = {"status": "ok", "run_date": run_day, "artifacts": artifacts,
                "weights": ml["member_weights"], "folds": fold_info,
@@ -400,6 +419,8 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     summary["sync"] = sync
     (out / "nba_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))
+    prog.advance()
+    prog.close()
     return summary
 
 
