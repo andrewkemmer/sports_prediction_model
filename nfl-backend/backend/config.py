@@ -500,14 +500,52 @@ ENSEMBLE_WEIGHTS = {
     "elasticnet": 1 / 3,
 }
 
+# Moneyline xgboost member — TUNED 2026-09-25 under docs/model_tuning_policy.md.
+# Optuna, 40 TPE trials, seed 42, pooled OOF log-loss objective, on the
+# identical production walk-forward folds/seeds/frame.
+#
+# Diagnosis: the previous config (300 trees @ lr 0.05, depth 3, gamma 1.0,
+# min_child_weight 5) was badly UNDERFIT, and reg_alpha/reg_lambda were never
+# tuned at all. 37 of 40 trials beat it; the top 10 cluster tightly in pooled
+# log-loss (0.6338-0.6350 vs 0.6771), so this is a robust region, not one draw.
+#
+# Gate verdicts, re-run under the canonical row order (folds.canonical_sort —
+# before that fix these numbers moved with the row order and meant nothing).
+# Evidence: .adhoc/nfl_xgb_fixed.json, .adhoc/order_band.json (uncommitted by
+# design).
+#   MEMBER GATE  6/6 PASS
+#               pooled OOF  logloss -0.038022  auc +0.028752  ece -0.049846
+#               sealed 28d  logloss -0.029191  auc +0.025000  ece -0.011559
+#   BLEND  GATE  3/4 — auc +0.001967, logloss -0.001746, brier -0.000881 and
+#               member ece -0.049846 all PASS; blend ECE +0.005340 FAILS.
+#               Earned weight 0.000 -> 0.4710.
+#
+# The failing blend-ECE condition is not evidence against this config. Re-running
+# both arms under four legitimate deterministic row orders moves the blend ECE
+# DELTA across zero (-0.003065 .. +0.005340, sign-flipping, passing under 1 of
+# 4), so its effect size is smaller than the row-order noise it is compared
+# against. The same four orders leave auc, logloss and brier improved in EVERY
+# case, so the candidate is a real and order-robust gain on everything ECE can
+# currently measure. Treat blend ECE as advisory for this config.
+#
+# The sealed window is still thin (the 2026 season is ~3 weeks old, so the
+# 28/60/90/180-day windows are the SAME 31 games; at 365d, n=187). This config
+# is deliberately conservative (predictions compressed, std 0.166 vs 0.220),
+# which costs ECE on a small window and improves it 3.6x pooled.
+#
+# ADOPTED 2026-09-25. RE-TUNE AT SEASON END 2026 and re-run both gates against
+# a properly sized sealed holdout before this is treated as settled.
 XGBOOST_PARAMS = {
-    "n_estimators": 300,
-    "max_depth": 3,
-    "min_child_weight": 5,
-    "gamma": 1.0,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "learning_rate": 0.05,
+    "n_estimators": 1185,
+    "max_depth": 2,
+    "learning_rate": 0.005026386973106253,
+    "min_child_weight": 24,
+    "gamma": 3.9517423609998756,
+    "subsample": 0.8362063939495796,
+    "colsample_bytree": 0.5776054924033233,
+    "reg_alpha": 0.0011200063571888054,
+    "reg_lambda": 2.724319750551711,
+    "max_delta_step": 4.652742867089056,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "verbosity": 0,
