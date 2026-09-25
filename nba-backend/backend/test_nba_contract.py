@@ -78,13 +78,27 @@ def stub_season(monkeypatch, *, playoffs: bool = True) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
-    """Every test gets its own cache and a fixed window."""
+    """Every test gets its own cache, a fixed window, and no network.
+
+    The CDN fallback is off by default here and the socket is fenced, so a test
+    that intends to exercise a failure path cannot quietly walk real game ids
+    over the internet.  Tests opt back in by stubbing ``ing._get_json`` or the
+    opener underneath it.
+    """
     cache = tmp_path / "cache"
     monkeypatch.setattr(config, "CACHE_DIR", cache)
     monkeypatch.setenv(ing.START_DATE_ENV, "2024-01-01")
     monkeypatch.setenv(ing.END_DATE_ENV, "2025-07-01")
     monkeypatch.setenv(ing.FULL_REPULL_ENV, "0")
     monkeypatch.setenv(ing.PLAY_BY_PLAY_ENV, "0")
+    monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "0")
+
+    def fenced(*args, **kwargs):
+        raise AssertionError(
+            "unexpected network call: stub ing._get_json or "
+            "ing.urllib.request.urlopen in this test")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", fenced)
     return cache
 
 
@@ -564,6 +578,181 @@ def test_a_total_season_failure_names_the_endpoint(monkeypatch) -> None:
     message = str(exc.value)
     assert "every season log failed" in message
     assert "stats.nba.com/stats/LeagueGameLog" in message
+
+
+# --------------------------------------------------------------------------
+# CDN fallback
+# --------------------------------------------------------------------------
+
+
+def boxscore_payload(game_id: str, code: str, home: str, away: str,
+                     home_score: int, away_score: int) -> dict:
+    return {"game": {
+        "gameId": game_id, "gameCode": f"{code}/{away}{home}",
+        "gameStatus": 3, "gameStatusText": "Final",
+        "homeTeam": {"teamTricode": home, "teamName": home, "teamCity": home,
+                     "score": home_score,
+                     "statistics": {"points": home_score, "assists": 25,
+                                    "fieldGoalsMade": 40, "fieldGoalsAttempted": 88,
+                                    "threePointersMade": 12,
+                                    "threePointersAttempted": 35,
+                                    "freeThrowsMade": 16, "freeThrowsAttempted": 20,
+                                    "reboundsOffensive": 10, "reboundsDefensive": 30,
+                                    "reboundsTotal": 40, "turnoversTotal": 12,
+                                    "steals": 7, "blocks": 4, "foulsPersonal": 18},
+                     "players": [{"personId": 2001, "name": f"Home {home}",
+                                  "starter": 1, "played": 1,
+                                  "statistics": {"minutes": "PT36M00.00S",
+                                                 "points": 20, "assists": 5,
+                                                 "reboundsTotal": 6, "plus": 5.0,
+                                                 "minus": 3.0}}]},
+        "awayTeam": {"teamTricode": away, "teamName": away, "teamCity": away,
+                     "score": away_score,
+                     "statistics": {"points": away_score, "assists": 22,
+                                    "fieldGoalsMade": 38, "fieldGoalsAttempted": 85,
+                                    "threePointersMade": 10,
+                                    "threePointersAttempted": 32,
+                                    "freeThrowsMade": 14, "freeThrowsAttempted": 18,
+                                    "reboundsOffensive": 9, "reboundsDefensive": 29,
+                                    "reboundsTotal": 38, "turnoversTotal": 13,
+                                    "steals": 6, "blocks": 3, "foulsPersonal": 17},
+                     "players": [{"personId": 2002, "name": f"Away {away}",
+                                  "starter": 1, "played": 1,
+                                  "statistics": {"minutes": "PT35M00.00S",
+                                                 "points": 18, "assists": 4,
+                                                 "reboundsTotal": 5, "plus": 1.0,
+                                                 "minus": 4.0}}]}}}
+
+
+def test_game_id_prefix_and_gameday_from_code() -> None:
+    assert ing._season_game_prefix(2024) == "00224"
+    assert ing._season_game_prefix(1999) == "00299"
+    assert ing._gameday_from_code("20241022/BOSNYK") == pd.Timestamp("2024-10-22")
+    assert ing._gameday_from_code("20241022/ATLBOS") == pd.Timestamp("2024-10-22")
+    assert ing._gameday_from_code("garbage") is None
+    assert ing._gameday_from_code(None) is None
+
+
+def test_game_type_is_inferred_from_the_date_and_says_so() -> None:
+    # Month has to win over day: an open-ended "after April 15" rule would
+    # call every October regular-season game postseason.
+    assert ing._game_type_for(pd.Timestamp("2024-10-22")) == config.GAME_TYPE_REG
+    assert ing._game_type_for(pd.Timestamp("2025-01-15")) == config.GAME_TYPE_REG
+    assert ing._game_type_for(pd.Timestamp("2025-04-13")) == config.GAME_TYPE_REG
+    assert ing._game_type_for(pd.Timestamp("2025-04-15")) == config.GAME_TYPE_POST
+    assert ing._game_type_for(pd.Timestamp("2025-04-20")) == config.GAME_TYPE_POST
+    assert ing._game_type_for(pd.Timestamp("2025-06-13")) == config.GAME_TYPE_POST
+    assert ing._game_type_for(pd.Timestamp("2025-10-24")) == config.GAME_TYPE_REG
+
+
+def test_a_box_score_normalizes_into_the_three_frames() -> None:
+    payload = boxscore_payload("0022400001", "20241022", "BOS", "NYK", 112, 104)
+    built = ing._frames_from_boxscore(payload)
+    assert built is not None
+    games, team_stats, player_stats = built
+    assert len(games) == 1 and games.iloc[0].season == 2024.0
+    assert games.iloc[0].home_team == "BOS"
+    assert games.iloc[0].away_team == "NYK"
+    assert set(team_stats.team) == {"BOS", "NYK"}
+    assert team_stats.points_for.sum() == 216
+    assert set(team_stats.is_home) == {True, False}
+    assert len(player_stats) == 2
+    assert player_stats.minutes.notna().all()
+    # The CDN carries the club name in two fields; serving wants them joined.
+    assert set(team_stats.team_name) == {"BOS BOS", "NYK NYK"}
+
+
+def test_an_unplayed_box_score_is_not_ingested() -> None:
+    payload = boxscore_payload("0022400001", "20241022", "BOS", "NYK", 0, 0)
+    assert ing._frames_from_boxscore(payload) is None
+    assert ing._frames_from_boxscore(None) is None
+
+
+def test_the_pull_falls_back_to_cdn_box_scores(monkeypatch) -> None:
+    """With no season log available the run must still complete from the CDN."""
+    monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "1")
+    monkeypatch.setattr(ing, "_fetch_season_log",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            ing.SeasonUnavailable("stats.nba.com is not answering")))
+
+    def cdn(url, **kwargs):
+        game_id = url.rsplit("_", 1)[-1].replace(".json", "")
+        if not game_id.startswith("00224"):
+            return None  # 403: only 2024-25 is published
+        sequence = int(game_id[5:]) - 1
+        if sequence >= len(TEAMS) // 2:
+            return None  # 403: the season ends after the last stubbed game
+        home, away = TEAMS[sequence], TEAMS[sequence + len(TEAMS) // 2]
+        return boxscore_payload(game_id, "20241022", home, away, 112, 104)
+
+    monkeypatch.setattr(ing, "_get_json", cdn)
+    monkeypatch.setattr(ing, "_pull_play_by_play",
+                        lambda *a, **k: pd.DataFrame())
+    wh = ing.load_dataset()
+    # Every current team has to appear or the run is not allowed to train.
+    assert len(wh.games) == len(TEAMS) // 2
+    assert len(wh.team_stats) == len(TEAMS)
+    assert len(wh.player_stats) == len(TEAMS)
+    assert set(wh.team_stats.team) == set(TEAMS)
+    assert set(wh.games.game_type) == {config.GAME_TYPE_REG}
+    assert wh.manifest["tables"]["games"] == len(TEAMS) // 2
+
+
+def test_the_cdn_walk_stops_at_the_first_missing_game(monkeypatch) -> None:
+    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: boxscore_payload(
+        "0022400001", "20241022", TEAMS[0], TEAMS[1], 112, 104)
+        if url.endswith("0022400001.json") else None)
+    frame = ing._pull_season_from_cdn(2024, 0.0)
+    assert frame is not None and len(frame) >= 1
+
+
+def test_the_cdn_walks_only_seasons_that_can_overlap_the_window() -> None:
+    # A season ending in June 2025 cannot hold a game inside a window that
+    # stops on 2024-12-31, and walking it would cost a thousand requests.
+    assert ing._cdn_seasons_in(date(2024, 10, 1), date(2025, 7, 1)) == [2024]
+    assert ing._cdn_seasons_in(date(2024, 1, 1), date(2024, 12, 31)) == [2023, 2024]
+    assert ing._cdn_seasons_in(date(2024, 1, 1), date(2026, 9, 25)) == [2023, 2024, 2025]
+
+
+def test_a_blackholed_cdn_stops_the_walk_instead_of_hammering_it(monkeypatch) -> None:
+    asked: list[str] = []
+
+    def dead(url, **kwargs):
+        asked.append(url)
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(ing, "_get_json", dead)
+    with pytest.raises(ing.CdnUnavailable, match="cdn.nba.com"):
+        ing._pull_season_from_cdn(2024, 0.0)
+    assert len(asked) == ing.MAX_CONSECUTIVE_FAILURES
+
+
+def test_a_blackholed_cdn_ends_the_whole_fallback(monkeypatch) -> None:
+    def dead(url, **kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(ing, "_get_json", dead)
+    monkeypatch.setenv(ing.START_DATE_ENV, "2024-10-01")
+    monkeypatch.setenv(ing.END_DATE_ENV, "2025-07-01")
+    with pytest.raises(ing.CdnUnavailable):
+        ing._pull_seasons_from_cdn(date(2024, 10, 1), date(2025, 7, 1))
+
+
+def test_a_cdn_season_is_cached_after_the_walk(monkeypatch) -> None:
+    asked: list[str] = []
+
+    def cdn(url, **kwargs):
+        if url.endswith("0022400001.json"):
+            asked.append(url)
+            return boxscore_payload("0022400001", "20241022", TEAMS[0],
+                                    TEAMS[1], 112, 104)
+        return None
+
+    monkeypatch.setattr(ing, "_get_json", cdn)
+    ing._pull_season_from_cdn(2024, 0.0)
+    assert ing._cdn_season_path(2024).exists()
+    ing._pull_season_from_cdn(2024, 0.0)
+    assert len(asked) == 1, "a cached CDN season must not be re-walked"
 
 
 def test_season_log_reuses_a_warm_cache(monkeypatch) -> None:

@@ -120,6 +120,43 @@ DEFAULT_PULL_DEADLINE_SEC = 600.0
 # so the pull gives up after this many consecutive failures.
 MAX_CONSECUTIVE_FAILURES = 2
 
+# ---------------------------------------------------------------------------
+# CDN fallback
+#
+# stats.nba.com accepts a connection from a blocked cloud range and then never
+# replies, which is indistinguishable from a hang at the socket layer.  The
+# per-game CDN needs no such cooperation: a game that exists answers 200 and a
+# game that does not answers 403, and a season's game ids are contiguous from
+# one, so a season can be read one box score at a time with nothing else.
+# ---------------------------------------------------------------------------
+CDN_FALLBACK_ENV = "NBA_CDN_FALLBACK"
+MAX_SEQUENCE_PROBE = 1400
+MAX_SEQUENCE_ENV = "NBA_MAX_SEQUENCE_PROBE"
+# The regular season runs to early April; the play-in and playoffs follow.  The
+# CDN box score carries no season-type flag, so this is the only available
+# signal and the classified counts are logged for that reason.
+PLAYOFF_START = (4, 15)
+PLAYOFF_END = (7, 1)  # exclusive; the next regular season opens in October
+
+_TEAM_STAT_MAP = {
+    "fieldGoalsMade": "fgm", "fieldGoalsAttempted": "fga",
+    "threePointersMade": "fg3m", "threePointersAttempted": "fg3a",
+    "freeThrowsMade": "ftm", "freeThrowsAttempted": "fta",
+    "reboundsOffensive": "oreb", "reboundsDefensive": "dreb",
+    "reboundsTotal": "reb", "assists": "ast", "steals": "stl",
+    "blocks": "blk", "foulsPersonal": "pf",
+    "turnoversTotal": "tov", "turnovers": "tov", "points": "points",
+}
+_PLAYER_STAT_MAP = {
+    "fieldGoalsMade": "fgm", "fieldGoalsAttempted": "fga",
+    "threePointersMade": "fg3m", "threePointersAttempted": "fg3a",
+    "freeThrowsMade": "ftm", "freeThrowsAttempted": "fta",
+    "reboundsOffensive": "oreb", "reboundsDefensive": "dreb",
+    "reboundsTotal": "reb", "assists": "ast", "steals": "stl",
+    "blocks": "blk", "foulsPersonal": "pf", "turnovers": "tov",
+    "points": "points", "plusMinusPoints": "plus_minus", "minus": "plus_minus",
+}
+
 SEASON_TYPE_REGULAR = "Regular Season"
 SEASON_TYPE_PLAYOFFS = "Playoffs"
 
@@ -183,6 +220,10 @@ def _int_env(name: str, default: int) -> int:
 
 class SeasonUnavailable(RuntimeError):
     """One season log could not be read; other seasons may still succeed."""
+
+
+class CdnUnavailable(RuntimeError):
+    """The per-game CDN stopped answering; the whole fallback is over."""
 
 
 def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
@@ -313,7 +354,7 @@ def _fetch_season_log(season: str, season_type: str,
     time.sleep(pause)
     try:
         payload = _get_json(f"{SEASON_LOG_URL}?{query}", headers=_STATS_HEADERS)
-    except RuntimeError as exc:
+    except Exception as exc:  # noqa: BLE001 - one bad season must not end the run
         raise SeasonUnavailable(f"{season} {season_type}: {exc}") from exc
     if not payload or not payload.get("resultSets"):
         return pd.DataFrame()
@@ -682,6 +723,248 @@ def _validate_dataset(wh: Warehouse) -> None:
                            + ", ".join(missing_facts))
 
 
+def _season_game_prefix(season_start_year: int) -> str:
+    """NBA game ids are ``002`` plus the two-digit season start year."""
+    return f"002{season_start_year % 100:02d}"
+
+
+def _gameday_from_code(game_code: Any) -> pd.Timestamp | None:
+    """Tipoff date from ``gameCode`` (``YYYYMMDD/AWAYATHOME``).
+
+    ``gameTimeUTC`` on a box score is when the record was finalized, not when
+    the tip happened, so the date has to come from the code.
+    """
+    text = str(game_code or "")
+    head = text.split("/", 1)[0]
+    if len(head) == 8 and head.isdigit():
+        return pd.to_datetime(head, format="%Y%m%d", errors="coerce")
+    return None
+
+
+def _game_type_for(gameday: pd.Timestamp) -> int:
+    """Postseason only inside the playoff window, regular season outside it.
+
+    The box score carries no season-type flag, so the date decides.  The
+    window has to be bounded at both ends: an open-ended ``>= (4, 15)`` is
+    true for every October game, because a plain tuple comparison puts month
+    before day.
+    """
+    month_day = (gameday.month, gameday.day)
+    post = PLAYOFF_START <= month_day < PLAYOFF_END
+    return config.GAME_TYPE_POST if post else config.GAME_TYPE_REG
+
+
+def _frames_from_boxscore(payload: Any) -> tuple[pd.DataFrame, pd.DataFrame,
+                                                 pd.DataFrame] | None:
+    """Normalize one box score into the same three frames the season log yields."""
+    game = (payload or {}).get("game") or {}
+    gameday = _gameday_from_code(game.get("gameCode"))
+    home, away = game.get("homeTeam") or {}, game.get("awayTeam") or {}
+    if gameday is None or not home.get("score") or not away.get("score"):
+        return None
+    game_id = str(game.get("gameId") or "")
+    if not game_id:
+        return None
+    game_type = _game_type_for(gameday)
+    season = gameday.year if gameday.month >= 7 else gameday.year - 1
+
+    def side_stats(team: dict, is_home: bool) -> dict[str, Any]:
+        raw = team.get("statistics") or {}
+        city, nickname = team.get("teamCity"), team.get("teamName")
+        row: dict[str, Any] = {
+            "game_id": game_id, "gameday": gameday, "team": _team(team.get("teamTricode")),
+            "team_name": " ".join(p for p in (city, nickname) if p) or None,
+            "is_home": is_home, "opponent": _team(
+                (away if is_home else home).get("teamTricode")),
+            "points_for": raw.get("points"),
+            "points_against": (away if is_home else home).get("statistics", {}).get("points"),
+        }
+        for source, canonical in _TEAM_STAT_MAP.items():
+            if source in raw and (canonical not in row or pd.isna(row[canonical])):
+                row[canonical] = raw[source]
+        row["net_points"] = (row["points_for"] or 0) - (row["points_against"] or 0)
+        for made, attempt, name in (("fgm", "fga", "fg_pct"),
+                                    ("fg3m", "fg3a", "three_point_pct"),
+                                    ("ftm", "fta", "free_throw_pct")):
+            if row.get(attempt):
+                row[name] = row.get(made, 0) / row[attempt]
+        return row
+
+    games = pd.DataFrame([{
+        "game_id": game_id, "gameday": gameday, "season": float(season),
+        "home_team": _team(home.get("teamTricode")),
+        "away_team": _team(away.get("teamTricode")),
+        "home_score": float(home.get("score") or 0),
+        "away_score": float(away.get("score") or 0),
+        "game_type": game_type,
+        "margin": float(home.get("score") or 0) - float(away.get("score") or 0),
+        "total": float(home.get("score") or 0) + float(away.get("score") or 0),
+        "home_win": 1.0 if (home.get("score") or 0) > (away.get("score") or 0) else 0.0,
+    }])
+    team_rows = [side_stats(home, True), side_stats(away, False)]
+
+    player_rows: list[dict[str, Any]] = []
+    for team, is_home in ((home, True), (away, False)):
+        team_abbr = _team(team.get("teamTricode"))
+        opponent = _team((away if is_home else home).get("teamTricode"))
+        for player in team.get("players") or []:
+            raw = player.get("statistics") or {}
+            if not player.get("played") and not raw.get("secondsPlayed"):
+                continue
+            row: dict[str, Any] = {
+                "game_id": game_id, "gameday": gameday,
+                "player_id": str(player.get("personId") or ""),
+                "player_name": player.get("name"), "team": team_abbr,
+                "opponent": opponent, "is_home": is_home,
+                "minutes": _minutes(raw.get("minutes") or raw.get("minutesCalculated")),
+                "game_type": game_type,
+            }
+            for source, canonical in _PLAYER_STAT_MAP.items():
+                if source in raw:
+                    row[canonical] = raw[source]
+            for made, attempt, name in (("fgm", "fga", "fg_pct"),
+                                        ("fg3m", "fg3a", "three_point_pct"),
+                                        ("ftm", "fta", "free_throw_pct")):
+                if row.get(attempt):
+                    row[name] = row.get(made, 0) / row[attempt]
+            if "reb" in row:
+                row["rebounds"] = row["reb"]
+            if "ast" in row:
+                row["assists"] = row["ast"]
+            player_rows.append(row)
+    players = (pd.DataFrame(player_rows) if player_rows
+               else pd.DataFrame(columns=["game_id", "player_id"]))
+    return games, pd.DataFrame(team_rows), players
+
+
+def _cdn_season_path(season_year: int) -> Path:
+    return config.CACHE_DIR / f"cdn_season_{season_year}.parquet"
+
+
+def _pull_season_from_cdn(season_year: int, pause: float) -> pd.DataFrame | None:
+    """Read one season from per-game box scores and cache the result.
+
+    A season's game ids are contiguous, so the walk stops at the first 403.
+    The walk is also the data pull, so nothing is fetched twice, and a season
+    is only re-walked when it has no cache, a full re-pull is requested, or it
+    is still in progress.
+    """
+    path = _cdn_season_path(season_year)
+    if path.exists() and not _flag(FULL_REPULL_ENV, False):
+        try:
+            cached = pd.read_parquet(path)
+            newest = pd.to_datetime(cached.get("gameday"), errors="coerce").max()
+            if (not cached.empty and (pd.isna(newest) or (
+                    newest.date() >= date.today() - timedelta(days=REFRESH_TAIL_DAYS)))):
+                logger.info("%d-%s from CDN cache (%d rows)", season_year,
+                            season_year + 1, len(cached))
+                return cached
+            if not cached.empty:
+                logger.info("%d-%s from CDN cache (%d rows)", season_year,
+                            season_year + 1, len(cached))
+                return cached
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not read %s (%s); re-walking", path.name, exc)
+
+    prefix = _season_game_prefix(season_year)
+    logger.info("reading %d-%s from per-game box scores (no stats.nba.com)",
+                season_year, season_year + 1)
+    frames: list[pd.DataFrame] = []
+    failures = 0
+    for sequence in range(1, _int_env(MAX_SEQUENCE_ENV, MAX_SEQUENCE_PROBE) + 1):
+        game_id = f"{prefix}{sequence:05d}"
+        try:
+            payload = _get_json(BOXSCORE_URL.format(game_id=game_id),
+                                allow_missing=True, pause=pause)
+        except Exception as exc:  # noqa: BLE001 - the walk decides what to do
+            failures += 1
+            logger.error("NBA box score %s failed: %s", game_id, exc)
+            if failures >= MAX_CONSECUTIVE_FAILURES:
+                raise CdnUnavailable(
+                    f"cdn.nba.com stopped answering after {failures} box "
+                    f"scores in {season_year}-{season_year + 1} "
+                    f"({game_id}): {exc}") from exc
+            continue
+        failures = 0
+        if payload is None:
+            logger.info("%s ended at game %d", prefix, sequence - 1)
+            break
+        built = _frames_from_boxscore(payload)
+        if built is not None:
+            frames.append(pd.concat(built, ignore_index=True))
+        if sequence % 100 == 0:
+            logger.info("  %s: %d games read", prefix, len(frames))
+    if not frames:
+        return None
+    merged = pd.concat(frames, ignore_index=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        merged.to_parquet(path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache %s (%s)", path.name, exc)
+    return merged
+
+
+def _cdn_seasons_in(start: date, end: date) -> list[int]:
+    """Season start years whose schedule can overlap the window.
+
+    A season runs from late October to the following June, so walking one
+    whose games all fall outside the window costs a thousand requests and
+    yields nothing.
+    """
+    first = start.year if start.month >= 10 else start.year - 1
+    return [year for year in range(first, end.year + 1)
+            if date(year, 10, 1) <= end and date(year + 1, 6, 30) >= start]
+
+
+def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
+                                                           pd.DataFrame, dict[str, str]]:
+    """Build the normalized frames from cached per-game box scores alone."""
+    years = _cdn_seasons_in(start, end)
+    pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    collected: list[pd.DataFrame] = []
+    for year in years:
+        try:
+            frame = _pull_season_from_cdn(year, pause)
+        except CdnUnavailable:
+            # The host itself is gone: walking the remaining seasons would
+            # only repeat the same timeout, so name it and stop.
+            raise
+        except RuntimeError as exc:
+            logger.error("CDN season %d unavailable: %s", year, exc)
+            continue
+        if frame is not None and not frame.empty:
+            collected.append(frame)
+    if not collected:
+        raise RuntimeError(
+            f"No NBA data could be read for {start}..{end} from either "
+            "stats.nba.com or cdn.nba.com. Both are unreachable from this "
+            "host; the pipeline cannot run on an empty window.")
+    blob = pd.concat(collected, ignore_index=True)
+    games = blob[blob.get("home_score").notna()].drop_duplicates("game_id")
+    games = games[(pd.to_datetime(games.gameday) >= pd.Timestamp(start))
+                  & (pd.to_datetime(games.gameday) <= pd.Timestamp(end)
+                     + pd.Timedelta(days=1))]
+    team_stats = blob[blob.get("team").notna() & blob.get("points_for").notna()]
+    team_stats = team_stats[team_stats.game_id.isin(set(games.game_id))]
+    if "team_name" not in team_stats.columns:
+        team_stats = team_stats.assign(team_name=None)
+    names = (team_stats[["team", "team_name"]].dropna(subset=["team_name"])
+             .drop_duplicates("team")
+             .set_index("team").team_name.to_dict())
+    player_stats = blob[blob.get("player_id").notna()]
+    player_stats = player_stats[player_stats.game_id.isin(set(games.game_id))]
+    regular = int((games.game_type == config.GAME_TYPE_REG).sum())
+    logger.warning(
+        "NBA rebuilt from %d CDN box scores: %d games (%d regular, %d "
+        "classified postseason by date, as the box score carries no "
+        "season-type flag), %d team rows, %d player rows",
+        len(games), len(games), regular, len(games) - regular,
+        len(team_stats), len(player_stats))
+    return (games.reset_index(drop=True), team_stats.reset_index(drop=True),
+            player_stats.reset_index(drop=True), names)
+
+
 def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
     games = wh.games
     dates = pd.to_datetime(games.gameday, errors="coerce")
@@ -852,13 +1135,17 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                        "retries only these.", len(unavailable),
                        ", ".join(unavailable))
     if not logs:
+        if _flag(CDN_FALLBACK_ENV, True):
+            logger.warning("No season log could be read; rebuilding the window "
+                           "from per-game CDN box scores instead.")
+            return _pull_seasons_from_cdn(start, end)
         raise RuntimeError(
             f"NBA returned no games for {start}..{end}; every season log "
             f"failed ({', '.join(unavailable) or 'none attempted'}). The "
             "upstream endpoint is stats.nba.com/stats/LeagueGameLog, which "
             "needs no key but can be slow or blocked by cloud hosts. Retry, or "
             "narrow NBA_START_DATE/NBA_END_DATE to a window whose seasons are "
-            "already cached under NBA_CACHE_DIR.")
+            f"already cached, or unset {CDN_FALLBACK_ENV}=0 to use the CDN.")
     log = pd.concat(logs, ignore_index=True)
     log = log[(log.gameday >= pd.Timestamp(start))
               & (log.gameday <= pd.Timestamp(end) + pd.Timedelta(days=1))]
