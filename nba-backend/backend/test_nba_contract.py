@@ -805,6 +805,34 @@ def test_a_cached_cdn_season_keeps_its_team_and_player_rows(monkeypatch) -> None
     assert len(stored[stored.row_kind == "player"]) == 2
 
 
+def test_a_pull_with_no_game_rows_is_named_not_crashed(monkeypatch) -> None:
+    """The failure the Kaggle run hit must read as a blocked host."""
+    monkeypatch.setattr(ing, "_pull_season_from_cdn",
+                        lambda *a, **k: pd.DataFrame({"game_id": ["0022400001"]}))
+    with pytest.raises(RuntimeError, match="no game data"):
+        ing._pull_seasons_from_cdn(date(2024, 10, 1), date(2025, 7, 1))
+
+
+def test_the_probe_ledger_is_never_mistaken_for_a_data_slice(monkeypatch) -> None:
+    """The ledger shares the season's file namespace; it must not be read as one.
+
+    Reading it as a slice gave a season that had stored nothing a frame with a
+    single ``game_id`` column, which surfaced much later as an AttributeError
+    instead of an honest "no data".
+    """
+    ing._save_probed_ids(2024, {"0022400001", "0042400407"})
+    assert ing._probed_path(2024).exists()
+    assert ing._probed_path(2024) not in ing._season_chunks(2024)
+
+
+def test_a_host_that_refuses_everything_says_so(monkeypatch) -> None:
+    """A blocked host must be named, not left as a silent empty pull."""
+    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: None)
+    monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
+    with pytest.raises(ing.CdnUnavailable, match="refused"):
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+
+
 def test_a_warm_run_never_asks_about_an_id_twice(monkeypatch) -> None:
     asked: list[str] = []
 

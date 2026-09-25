@@ -280,13 +280,13 @@ def _request_json(url: str, headers: dict[str, str], timeout: int) -> Any:
             f"(socket limit {timeout}s plus DNS)")
     if "error" in outcome:
         raise outcome["error"]
-    logger.info("NBA request completed in %.1fs", time.monotonic() - started)
+    logger.debug("NBA request completed in %.1fs", time.monotonic() - started)
     return outcome["payload"]
 
 
 def _get_json(url: str, *, headers: dict[str, str] | None = None,
               retries: int | None = None, pause: float | None = None,
-              allow_missing: bool = False) -> Any | None:
+              allow_missing: bool = False, verbose: bool = True) -> Any | None:
     """Fetch JSON with per-host timeout, backoff, and retry policy.
 
     Every attempt is logged before it starts and after it fails, so a slow
@@ -294,6 +294,11 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     two hosts behave nothing alike: ``stats.nba.com`` serves a whole season of
     player lines from one very slow query, while ``cdn.nba.com`` is a CDN whose
     403 means "this game does not exist" rather than "slow down".
+
+    A bulk walk passes ``verbose=False``: a season is a couple of thousand box
+    scores, and one INFO line per request buries the summary — and the one line
+    that matters when a host refuses everything, which is that no request
+    completed at all.
     """
     host = urllib.parse.urlparse(url).netloc
     path = urllib.parse.urlparse(url).path
@@ -307,8 +312,9 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     made = 0
     for attempt in range(max(attempts, 1)):
         made = attempt + 1
-        logger.info("NBA request %s/%s to %s (timeout %ds)",
-                    made, max(attempts, 1), host, timeout + DNS_GRACE_SEC)
+        logger.log(logging.INFO if verbose else logging.DEBUG,
+                   "NBA request %s/%s to %s (timeout %ds)",
+                   made, max(attempts, 1), host, timeout + DNS_GRACE_SEC)
         try:
             return _request_json(url, headers or _HTTP_HEADERS, timeout)
         except urllib.error.HTTPError as exc:
@@ -928,7 +934,14 @@ def _read_chunk(path: Path) -> pd.DataFrame:
 
 
 def _season_chunks(season_year: int) -> list[Path]:
-    return sorted(config.CACHE_DIR.glob(f"cdn_{season_year}_*.parquet"))
+    """The stored slices of a season, and nothing else.
+
+    The glob is deliberately narrow: a ledger that also started with
+    ``cdn_<season>_`` used to be picked up here, and a season that had stored
+    no games at all then returned the ledger instead of nothing.
+    """
+    return sorted(path for path in config.CACHE_DIR.glob(f"cdn_{season_year}_*.parquet")
+                  if not path.stem.endswith("_probed"))
 
 
 def _cached_game_ids(season_year: int) -> set[str]:
@@ -941,13 +954,14 @@ def _cached_game_ids(season_year: int) -> set[str]:
 
 
 def _probed_path(season_year: int) -> Path:
+    """The probe ledger lives OUTSIDE the ``cdn_<season>_`` slice namespace."""
     """Ledger of every id already asked about, hits and 403s alike.
 
     A 403 is a fact about the upstream as durable as a 200, so without this a
     warm run would re-ask for the ~400 bracket ids that do not exist on every
     single run.
     """
-    return config.CACHE_DIR / f"cdn_{season_year}_probed.parquet"
+    return config.CACHE_DIR / f"probe_{season_year}.parquet"
 
 
 def _probed_ids(season_year: int) -> set[str]:
@@ -1031,13 +1045,16 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     pending: dict[date, list[pd.DataFrame]] = {}
     failures = 0
     stored = 0
+    asked = 0
+    refused = 0
     for game_id in _candidate_game_ids(season_year):
         if game_id in known or game_id in probed:
             continue
         probed.add(game_id)
+        asked += 1
         try:
             payload = _get_json(BOXSCORE_URL.format(game_id=game_id),
-                                allow_missing=True, pause=pause)
+                                allow_missing=True, pause=pause, verbose=False)
         except Exception as exc:  # noqa: BLE001 - the walk decides what to do
             probed.discard(game_id)
             failures += 1
@@ -1051,6 +1068,7 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         failures = 0
         built = _frames_from_boxscore(payload)
         if built is None:
+            refused += 1
             continue
         frame = pd.concat(built, ignore_index=True)
         gameday = pd.to_datetime(frame.gameday.iloc[0], errors="coerce")
@@ -1072,6 +1090,16 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     for finished, ready in sorted(pending.items()):
         _store_chunk(season_year, finished, ready)
     _save_probed_ids(season_year, probed)
+    if asked:
+        logger.info("%d-%s: %d box scores asked about, %d stored, %d refused",
+                    season_year, season_year + 1, asked, stored, refused)
+    if stored == 0 and asked > 20 and refused == asked:
+        # Every single id was refused. That is a blocked host, not a schedule.
+        raise CdnUnavailable(
+            f"cdn.nba.com refused all {asked} box scores for "
+            f"{season_year}-{season_year + 1}: the host answers instantly and "
+            "serves nothing. It is blocked from this machine the same way "
+            "stats.nba.com is, so the per-game CDN cannot rescue the run here.")
     if frames:
         return pd.concat(frames, ignore_index=True)
     cached = [_read_chunk(path) for path in _season_chunks(season_year)]
@@ -1167,19 +1195,26 @@ def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.Dat
             "stats.nba.com or cdn.nba.com. Both are unreachable from this "
             "host; the pipeline cannot run on an empty window.")
     blob = _untag_rows(pd.concat(collected, ignore_index=True))
-    games = blob[blob.get("home_score").notna()].drop_duplicates("game_id")
+    if "home_score" not in blob.columns or not len(blob):
+        raise RuntimeError(
+            f"The cdn.nba.com pull for {start}..{end} returned {len(blob)} "
+            f"row(s) with no game data (columns: {sorted(map(str, blob.columns))[:8]}). "
+            "That means every box score request was refused or unreadable, so "
+            "cdn.nba.com is blocked from this host the same way "
+            "stats.nba.com is. Set NBA_CDN_FALLBACK=0 to fail fast instead.")
+    games = blob[blob.home_score.notna()].drop_duplicates("game_id")
     games = games[(pd.to_datetime(games.gameday) >= pd.Timestamp(start))
                   & (pd.to_datetime(games.gameday) <= pd.Timestamp(end)
                      + pd.Timedelta(days=1))]
     _abort_on_empty_core_chunks(_report_chunk_gaps(games, start, end), start, end)
-    team_stats = blob[blob.get("team").notna() & blob.get("points_for").notna()]
+    team_stats = blob[blob["team"].notna() & blob["points_for"].notna()]
     team_stats = team_stats[team_stats.game_id.isin(set(games.game_id))]
     if "team_name" not in team_stats.columns:
         team_stats = team_stats.assign(team_name=None)
     names = (team_stats[["team", "team_name"]].dropna(subset=["team_name"])
              .drop_duplicates("team")
              .set_index("team").team_name.to_dict())
-    player_stats = blob[blob.get("player_id").notna()]
+    player_stats = blob[blob["player_id"].notna()]
     player_stats = player_stats[player_stats.game_id.isin(set(games.game_id))]
     regular = int((games.game_type == config.GAME_TYPE_REG).sum())
     logger.warning(
