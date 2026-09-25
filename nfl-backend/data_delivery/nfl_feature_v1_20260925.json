@@ -1,0 +1,825 @@
+{
+ "created_utc": "2026-09-25T14:43:03.419575+00:00",
+ "feature_set_version": "nfl-prod-v7.2-pit-core",
+ "manifest": {
+  "elo_diff": {
+   "description": "Home minus away pre-game Elo rating",
+   "definition": "elo_home_entering - elo_away_entering; Elo update r += K*(actual - expected), expected = 1/(1+10**((r_opp - r_self)/400)); actual = 1 win / 0 loss / 0.5 tie",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_diff": {
+   "description": "Home minus away trailing win percentage",
+   "definition": "mean(team_win) over the team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_diff": {
+   "description": "Home minus away days since each team's previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days per team",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "is_dome_home": {
+   "description": "Home venue roof is a dome (or closed retractable)",
+   "definition": "1.0 when the schedule roof is {dome, closed}, or the schedule is silent and the committed venue is roofed (fixed or retractable); 0.0 when the schedule roof is {outdoors, open} or the committed venue has no roof at all; NaN when both are unknown",
+   "source": "nflverse schedule roof field, falling back to the committed nfl_stadiums.csv roof column",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when the schedule roof and the committed venue classification are both unknown; a roofed venue never implies an open-air game day",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_diff": {
+   "description": "Home minus away exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_diff": {
+   "description": "Home minus away exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "pace_plays_min_diff": {
+   "description": "Home minus away trailing plays per minute",
+   "definition": "trailing 4-game mean of n_plays/elapsed_min per game",
+   "source": "nflverse play-by-play clock",
+   "lookback": 4,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(4).mean().shift(1)",
+   "missing_value_policy": "NaN when prior games lack clock data",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "rest_short_diff": {
+   "description": "Home minus away short-rest flag (rest < 7 days)",
+   "definition": "1.0 when rest_days < 7 else 0.0; home flag minus away flag",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "thresholded date difference",
+   "point_in_time_rule": "function of the team's strictly-prior game date",
+   "missing_value_policy": "NaN when either team has no prior game",
+   "representation": "difference flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "div_game": {
+   "description": "Division matchup flag",
+   "definition": "1.0 when home and away share a division else 0.0",
+   "source": "nflverse schedule div_game field",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "known before kickoff",
+   "missing_value_policy": "NaN when the source field is missing",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "travel_miles_diff": {
+   "description": "Home minus away distance traveled to the venue (miles)",
+   "definition": "haversine(prior scheduled home stadium, game stadium) home minus away; a team's first home venue is unavailable rather than inferred from a current team\u2192stadium map",
+   "source": "committed nfl_stadiums.csv (real coordinates) + nflverse schedule stadium names",
+   "lookback": "prior home games",
+   "aggregation": "point-in-time static venue fact",
+   "point_in_time_rule": "each side uses its most recent home venue strictly before kickoff; no current/future venue association",
+   "missing_value_policy": "NaN until the team has a prior home venue or the venue is unlisted; never fabricated",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 5
+  },
+  "altitude_home": {
+   "description": "Game-venue elevation in feet",
+   "definition": "altitude_ft of the game stadium",
+   "source": "committed nfl_stadiums.csv (SRTM/Open-Elevation)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when the venue is missing from the committed table; every stadium the schedule references is listed",
+   "representation": "home-side value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "prime_time": {
+   "description": "Evening-kickoff flag",
+   "definition": "1.0 when ET kickoff hour >= 17 else 0.0",
+   "source": "nflverse schedule gametime (ET)",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "schedule fact known before kickoff",
+   "missing_value_policy": "NaN when gametime is missing",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1
+  },
+  "is_turf_home": {
+   "description": "Home venue playing surface is artificial turf",
+   "definition": "1.0 when the schedule surface normalizes to a turf family (fieldturf/matrixturf/sportturf/astroturf/a_turf); 0.0 when grass; NaN when unlisted",
+   "source": "nflverse schedule surface field",
+   "lookback": 0,
+   "aggregation": "static pre-game fact",
+   "point_in_time_rule": "venue attribute known before kickoff",
+   "missing_value_policy": "NaN when surface is unlisted/blank; never fabricated",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4
+  },
+  "temp_f": {
+   "description": "Hourly venue temperature immediately before kickoff (F)",
+   "definition": "Open-Meteo hourly temperature_2m at the committed stadium coordinates, converted to Fahrenheit; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "single latest strictly-prior hourly value; no daily aggregation",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc; historical archive rows may be retrieved later using the same pre-kickoff observation",
+   "missing_value_policy": "NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never use a daily aggregate or raw schedule fallback",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "wind_mph": {
+   "description": "Hourly venue wind speed immediately before kickoff (mph)",
+   "definition": "Open-Meteo hourly wind_speed_10m at the committed stadium coordinates, converted to mph; latest API timestamp strictly before kickoff",
+   "source": "Open-Meteo hourly archive for past games / hourly forecast for pending games (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "single latest strictly-prior hourly value; no daily max/gust aggregate",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN for indoor/closed games, unknown venues, invalid kickoffs, missing rows, or unavailable values; never fabricated",
+   "representation": "game-level value (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_precip": {
+   "description": "Hourly precipitation flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo precipitation is >= PRECIP_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly precipitation archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "threshold of one hourly precipitation total; never a daily sum",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN when no strictly-prior hourly precipitation value exists; never inferred from a daily archive or schedule payload",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_snow": {
+   "description": "Hourly snowfall flag immediately before kickoff",
+   "definition": "1.0 when the latest strictly-prior hourly Open-Meteo snowfall, converted to inches from the unit the API itself reports, is >= SNOW_FLAG_IN (0.1 in), 0.0 when below threshold, NaN when unavailable",
+   "source": "Open-Meteo hourly snowfall archive/forecast (validated PIT cache)",
+   "lookback": "latest hourly reading before kickoff",
+   "aggregation": "threshold of one hourly snowfall total; never a daily sum",
+   "point_in_time_rule": "weather_time_utc < kickoff_utc; forecast rows additionally require fetched_at_utc < kickoff_utc",
+   "missing_value_policy": "NaN when no strictly-prior hourly snowfall value exists; never inferred from a daily archive or schedule payload",
+   "representation": "game-level flag (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 6
+  },
+  "is_home": {
+   "description": "Constant 1.0 anchor for the home-field edge",
+   "definition": "constant 1.0 on every row",
+   "source": "structural constant",
+   "lookback": 0,
+   "aggregation": "constant",
+   "point_in_time_rule": "structural \u2014 no data dependency",
+   "missing_value_policy": "never missing",
+   "representation": "constant anchor (part of the served contract; every family receives it)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 1,
+   "role": "anchor \u2014 in config.MONEYLINE_FEATURE_COLS, so trees receive it too"
+  },
+  "elo_home": {
+   "description": "Home team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (home side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "elo_away": {
+   "description": "Away team's pre-game Elo rating",
+   "definition": "team Elo entering kickoff (away side of elo_diff)",
+   "source": "nflverse schedules (all decided REG games, 2018 warmup onward)",
+   "lookback": "full history (iterative)",
+   "aggregation": "iterative state update",
+   "point_in_time_rule": "rating entering kickoff; updated only AFTER a game settles",
+   "missing_value_policy": "ELO_PRIOR (1500) for a team's first-ever game; never NaN",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_home": {
+   "description": "Home team's trailing win percentage",
+   "definition": "mean(team_win) over the home team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "win_pct_away": {
+   "description": "Away team's trailing win percentage",
+   "definition": "mean(team_win) over the away team's prior 12 games (ties = 0.5)",
+   "source": "decided game outcomes",
+   "lookback": 12,
+   "aggregation": "trailing windowed mean",
+   "point_in_time_rule": "per-team rolling(12).mean().shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_home": {
+   "description": "Home team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_net_pts_away": {
+   "description": "Away team's exponentially-weighted net points per game",
+   "definition": "ewm(halflife=2).mean() of the team's net points (for - against) over strictly-prior games",
+   "source": "decided game scores",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when the team has no prior games",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_home": {
+   "description": "Home team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "ewm_ypp_away": {
+   "description": "Away team's exponentially-weighted net yards per play",
+   "definition": "ewm(halflife=2).mean() of the team's game-level yards_gained/n_plays over strictly-prior games",
+   "source": "nflverse play-by-play",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team EWM of per-game yardage efficiency",
+   "point_in_time_rule": "per-team ewm over prior games then shift(1)",
+   "missing_value_policy": "NaN when no prior games or PBP unavailable for a season",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_home": {
+   "description": "Home team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days for the home team",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "rest_days_away": {
+   "description": "Away team's days since its previous game",
+   "definition": "(gameday_t - gameday_{t-1}).days for the away team",
+   "source": "nflverse schedules",
+   "lookback": 1,
+   "aggregation": "date difference",
+   "point_in_time_rule": "days since the team's own strictly-prior game",
+   "missing_value_policy": "NaN for a team's first game of the window; in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 1
+  },
+  "pbp_air_yards_att_ewm_diff": {
+   "description": "Home minus away trailing air yards per attempt",
+   "definition": "pbp_air_yards_att_ewm_home - pbp_air_yards_att_ewm_away \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "difference (all model families)",
+   "model_family_availability": [
+    "linear",
+    "tree",
+    "mlp"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_home": {
+   "description": "Home team's trailing air yards per attempt",
+   "definition": "The home team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw home level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  },
+  "pbp_air_yards_att_ewm_away": {
+   "description": "Away team's trailing air yards per attempt",
+   "definition": "The away team's own Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile) \u2014 Per-team trailing mean of air yards over pass attempts \u2014 passing depth (aggressive downfield vs checkdown profile)",
+   "source": "nflverse play-by-play (per-game rollup)",
+   "lookback": "decaying (halflife=2 games)",
+   "aggregation": "per-team trailing mean of the per-game metric",
+   "point_in_time_rule": "per-team EWM (halflife=2) of the per-game metric then shift(1) \u2014 current and future games excluded",
+   "missing_value_policy": "NaN when the team has no prior games, the source data is unavailable for a season (pre-v3 pbp cache / unpublished season / absent source column); in-model handling",
+   "representation": "raw away level (tree members)",
+   "model_family_availability": [
+    "tree"
+   ],
+   "feature_version": 4,
+   "candidate": false
+  }
+ },
+ "served_columns": [
+  "elo_diff",
+  "win_pct_diff",
+  "rest_days_diff",
+  "is_dome_home",
+  "ewm_net_pts_diff",
+  "ewm_ypp_diff",
+  "pace_plays_min_diff",
+  "rest_short_diff",
+  "div_game",
+  "travel_miles_diff",
+  "altitude_home",
+  "prime_time",
+  "is_turf_home",
+  "temp_f",
+  "wind_mph",
+  "is_precip",
+  "is_snow",
+  "pbp_air_yards_att_ewm_diff",
+  "pbp_air_yards_att_ewm_home",
+  "pbp_air_yards_att_ewm_away",
+  "elo_home",
+  "elo_away",
+  "win_pct_home",
+  "win_pct_away",
+  "ewm_net_pts_home",
+  "ewm_net_pts_away",
+  "ewm_ypp_home",
+  "ewm_ypp_away",
+  "rest_days_home",
+  "rest_days_away",
+  "is_home"
+ ],
+ "coverage": [
+  {
+   "feature": "elo_diff",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": -0.9145769150918364,
+   "std": 139.97170291968163
+  },
+  {
+   "feature": "win_pct_diff",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": -0.002326296118684965,
+   "std": 0.2935912536576664
+  },
+  {
+   "feature": "rest_days_diff",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": -0.037678975131876416,
+   "std": 7.354166597305726
+  },
+  {
+   "feature": "is_dome_home",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 0.28967065868263475,
+   "std": 0.45369439448436355
+  },
+  {
+   "feature": "ewm_net_pts_diff",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": -0.4787151252638118,
+   "std": 10.401975272221982
+  },
+  {
+   "feature": "ewm_ypp_diff",
+   "n_games": 2672,
+   "coverage_pct": 96.48,
+   "mean": -0.01345736342776895,
+   "std": 0.6980771412449347
+  },
+  {
+   "feature": "pace_plays_min_diff",
+   "n_games": 2672,
+   "coverage_pct": 96.48,
+   "mean": -0.0023308862914507046,
+   "std": 0.12277268370561278
+  },
+  {
+   "feature": "rest_short_diff",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": 0.01921627731725697,
+   "std": 0.3611452914606769
+  },
+  {
+   "feature": "div_game",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 0.3630239520958084,
+   "std": 0.4809616780000508
+  },
+  {
+   "feature": "travel_miles_diff",
+   "n_games": 2672,
+   "coverage_pct": 98.62,
+   "mean": -905.6981517785464,
+   "std": 878.1235242497683
+  },
+  {
+   "feature": "altitude_home",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 600.5213323353294,
+   "std": 974.0208040325202
+  },
+  {
+   "feature": "prime_time",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 0.2088323353293413,
+   "std": 0.4065504255974128
+  },
+  {
+   "feature": "is_turf_home",
+   "n_games": 2672,
+   "coverage_pct": 98.35,
+   "mean": 0.4288432267884323,
+   "std": 0.4950050018047741
+  },
+  {
+   "feature": "temp_f",
+   "n_games": 2672,
+   "coverage_pct": 71.03,
+   "mean": 58.58076923076923,
+   "std": 16.873720386508985
+  },
+  {
+   "feature": "wind_mph",
+   "n_games": 2672,
+   "coverage_pct": 71.03,
+   "mean": 7.9507903055848255,
+   "std": 4.466100499467642
+  },
+  {
+   "feature": "is_precip",
+   "n_games": 2672,
+   "coverage_pct": 71.03,
+   "mean": 0.012118018967334035,
+   "std": 0.10944168842295174
+  },
+  {
+   "feature": "is_snow",
+   "n_games": 2672,
+   "coverage_pct": 71.03,
+   "mean": 0.005268703898840885,
+   "std": 0.07241344773062473
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_diff",
+   "n_games": 2672,
+   "coverage_pct": 96.48,
+   "mean": -0.010649565164549702,
+   "std": 1.559404497277825
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_home",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 7.968935581291985,
+   "std": 1.1239168678322353
+  },
+  {
+   "feature": "pbp_air_yards_att_ewm_away",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 7.974296408511964,
+   "std": 1.108133689490552
+  },
+  {
+   "feature": "elo_home",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 1503.1244178751078,
+   "std": 99.86530139846748
+  },
+  {
+   "feature": "elo_away",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 1504.0389947901997,
+   "std": 98.99647052327612
+  },
+  {
+   "feature": "win_pct_home",
+   "n_games": 2672,
+   "coverage_pct": 99.4,
+   "mean": 0.49914080021384244,
+   "std": 0.20972550188884467
+  },
+  {
+   "feature": "win_pct_away",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": 0.5015920454409528,
+   "std": 0.2091907971926141
+  },
+  {
+   "feature": "ewm_net_pts_home",
+   "n_games": 2672,
+   "coverage_pct": 99.4,
+   "mean": -0.23988814698187635,
+   "std": 7.516052011536171
+  },
+  {
+   "feature": "ewm_net_pts_away",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": 0.24687396130398476,
+   "std": 7.510910455304291
+  },
+  {
+   "feature": "ewm_ypp_home",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 4.193676815863898,
+   "std": 0.504624046649473
+  },
+  {
+   "feature": "ewm_ypp_away",
+   "n_games": 2672,
+   "coverage_pct": 97.9,
+   "mean": 4.208070610371064,
+   "std": 0.5023390095962051
+  },
+  {
+   "feature": "rest_days_home",
+   "n_games": 2672,
+   "coverage_pct": 99.4,
+   "mean": 22.03652108433735,
+   "std": 57.73232426100723
+  },
+  {
+   "feature": "rest_days_away",
+   "n_games": 2672,
+   "coverage_pct": 99.33,
+   "mean": 21.897889977392616,
+   "std": 57.39765906207498
+  },
+  {
+   "feature": "is_home",
+   "n_games": 2672,
+   "coverage_pct": 100.0,
+   "mean": 1.0,
+   "std": 0.0
+  }
+ ],
+ "fold_geometry": {
+  "n_folds": 106,
+  "first_val_start": "2017-09-07",
+  "last_val_end": "2026-09-30",
+  "min_train": 256,
+  "max_train": 2671,
+  "total_val_games": 1658
+ },
+ "config": {
+  "feature_set_version": "nfl-prod-v7.2-pit-core",
+  "warmup_seasons": [
+   2016
+  ],
+  "oof_first_season": 2017,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 15,
+  "game_types": [
+   "POST",
+   "REG"
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "is_dome_home",
+    "ewm_net_pts_diff",
+    "ewm_ypp_diff",
+    "pace_plays_min_diff",
+    "rest_short_diff",
+    "div_game",
+    "travel_miles_diff",
+    "altitude_home",
+    "prime_time",
+    "is_turf_home",
+    "temp_f",
+    "wind_mph",
+    "is_precip",
+    "is_snow",
+    "pbp_air_yards_att_ewm_diff",
+    "pbp_air_yards_att_ewm_home",
+    "pbp_air_yards_att_ewm_away",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_pts_home",
+    "ewm_net_pts_away",
+    "ewm_ypp_home",
+    "ewm_ypp_away",
+    "rest_days_home",
+    "rest_days_away",
+    "is_home"
+   ]
+  },
+  "random_seed": 42,
+  "weather": {
+   "provider": "Open-Meteo",
+   "cadence": "hourly",
+   "cutoff": "latest weather_time_utc strictly before kickoff_utc",
+   "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
+   "daily_aggregates_allowed": false
+  },
+  "market_independence": true
+ }
+}
