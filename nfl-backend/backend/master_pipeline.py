@@ -39,6 +39,7 @@ if str(BACKEND_DIR) not in sys.path:
 import config  # noqa: E402
 import ingestion  # noqa: E402
 import features as feat_mod  # noqa: E402
+import weather as weather_mod  # noqa: E402
 import folds as folds_mod  # noqa: E402
 import moneyline as ml_mod  # noqa: E402
 import distributions as dist_mod  # noqa: E402
@@ -192,6 +193,13 @@ def main(argv: list[str] | None = None) -> int:
             "feature_columns": list(config.active_moneyline_feature_cols()),
         },
         "random_seed": config.RANDOM_SEED,
+        "weather": {
+            "provider": "Open-Meteo",
+            "cadence": "hourly",
+            "cutoff": "latest weather_time_utc strictly before kickoff_utc",
+            "forecast_provenance": "fetched_at_utc strictly before kickoff_utc",
+            "daily_aggregates_allowed": False,
+        },
         "market_independence": True,
     }
 
@@ -213,6 +221,22 @@ def main(argv: list[str] | None = None) -> int:
         (schedule["gameday"] >= pd.Timestamp(start_date))
         & (schedule["gameday"] <= pd.Timestamp(window_end))].copy()
     logger.info("schedule rows (date window): %d", len(schedule))
+
+    # Weather is a separate, provenance-bearing source. Historical games use
+    # hourly archive observations (with MLB-style recent-past fallback); pending
+    # games use forecasts fetched before kickoff. The feature boundary validates
+    # every source/valid-time/fetch-time tuple again before model attachment.
+    try:
+        if args.skip_pull and not full_repull:
+            pit_weather = weather_mod.cached_weather_for_games(schedule)
+            logger.info("PIT weather: cache-only mode (--skip-pull)")
+        else:
+            pit_weather = weather_mod.fetch_games_weather(schedule)
+    except Exception as exc:  # noqa: BLE001 - unsafe/missing weather stays NaN
+        pit_weather = pd.DataFrame()
+        logger.warning("PIT weather unavailable; four weather features stay NaN: %s", exc)
+    logger.info("PIT weather rows: %d", len(pit_weather))
+
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
     # Skill-position usage, tracking efficiency, and availability (candidate
@@ -247,8 +271,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
-    game_df = feat_mod.build_game_features(decided_all, pbp, ps=ps, ngs=ngs,
-                                           inj=injuries, snaps=snaps, ftn=ftn)
+    game_df = feat_mod.build_game_features(
+        decided_all, pbp, ps=ps, ngs=ngs, inj=injuries, snaps=snaps,
+        ftn=ftn, weather=pit_weather)
     game_df = game_df.sort_values("gameday").reset_index(drop=True)
     logger.info("feature frame: %d decided games, %d columns",
                 len(game_df), game_df.shape[1])
@@ -468,8 +493,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
-    slate = feat_mod.build_slate_features(schedule, pbp, ps=ps, ngs=ngs,
-                                          inj=injuries, snaps=snaps, ftn=ftn)
+    slate = feat_mod.build_slate_features(
+        schedule, pbp, ps=ps, ngs=ngs, inj=injuries, snaps=snaps,
+        ftn=ftn, weather=pit_weather)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)

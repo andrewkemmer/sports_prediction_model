@@ -14,6 +14,9 @@ LEAKAGE CONTRACT (enforced structurally and asserted):
 - Team state (records, Elo) updates only after a game settles.
 - Venue/schedule facts (roof, division, stadium, kickoff hour) are static
   pre-game facts.
+- Weather: only provenance-complete Open-Meteo hourly rows whose selected
+  timestamp is strictly before kickoff; forecast rows must also have been
+  fetched before kickoff. Daily aggregates and raw schedule weather are barred.
 
 Model-family representations (spec section 14):
   - linear view: difference features + the constant ``is_home`` anchor
@@ -36,6 +39,11 @@ try:
 except ImportError:
     import config
 
+try:
+    from backend import weather as weather_provider
+except ImportError:
+    import weather as weather_provider
+
 logger = logging.getLogger(__name__)
 
 EARTH_RADIUS_MILES = 3958.8
@@ -53,9 +61,17 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"team_events: missing columns {missing}")
     gd = pd.to_datetime(games["gameday"], errors="coerce")
+    # Schedule gametime is ET. Keep the exact kickoff ordering when present;
+    # date-only synthetic inputs fall back to UTC midnight for stable ordering.
+    kickoff = (_kickoff_utc(games)
+               if {"gameday", "gametime"} <= set(games.columns)
+               else pd.Series(pd.NaT, index=games.index,
+                              dtype="datetime64[ns, UTC]"))
+    fallback_kickoff = pd.to_datetime(gd, errors="coerce", utc=True)
+    event_time = kickoff.where(kickoff.notna(), fallback_kickoff)
     home = pd.DataFrame({
         "game_id": games["game_id"], "season": games["season"],
-        "week": games["week"], "gameday": gd,
+        "week": games["week"], "gameday": gd, "kickoff_utc": event_time,
         "team": games["home_team"], "opponent": games["away_team"],
         "is_home": True,
         "for": games["home_score"].astype(float),
@@ -65,15 +81,16 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
         "game_id": games["game_id"], "season": games["season"],
         "week": games["week"], "gameday": gd,
         "team": games["away_team"], "opponent": games["home_team"],
-        "is_home": False,
+        "is_home": False, "kickoff_utc": event_time,
         "for": games["away_score"].astype(float),
         "against": games["home_score"].astype(float),
     })
     ev = pd.concat([home, away], ignore_index=True)
     ev["net_from_team"] = ev["for"] - ev["against"]
     ev["team_win"] = np.select(
-        [ev["for"] > ev["against"], ev["for"] < ev["against"]],
-        [1.0, 0.0], default=0.5)
+        [ev["for"] > ev["against"], ev["for"] < ev["against"],
+         ev["for"] == ev["against"]],
+        [1.0, 0.0, 0.5], default=np.nan)
     return ev
 
 
@@ -82,7 +99,8 @@ def team_events(games: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     K, prior, scale = config.ELO_K, config.ELO_PRIOR, config.ELO_SCALE
-    ev = events.sort_values(["gameday", "game_id", "is_home"]).reset_index(drop=True)
+    time_col = "kickoff_utc" if "kickoff_utc" in events.columns else "gameday"
+    ev = events.sort_values([time_col, "game_id", "is_home"]).reset_index(drop=True)
     rating: dict = {}
     entering: dict = {}
     for game_id, rows in ev.groupby("game_id", sort=False):
@@ -90,6 +108,10 @@ def _elo_apply(events: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         ra, rb = rating.get(a.team, prior), rating.get(b.team, prior)
         entering[(game_id, a.team)] = ra
         entering[(game_id, b.team)] = rb
+        # A scheduled/unsettled row has no result. Preserve its entering
+        # rating, but never update team state with a fabricated tie/loss.
+        if pd.isna(a.team_win) or pd.isna(b.team_win):
+            continue
         exp_a = 1.0 / (1.0 + 10.0 ** ((rb - ra) / scale))
         exp_b = 1.0 / (1.0 + 10.0 ** ((ra - rb) / scale))
         rating[a.team] = ra + K * (a.team_win - exp_a)
@@ -184,15 +206,45 @@ def _venue_facts() -> dict[str, dict]:
     return out
 
 
-@functools.lru_cache(maxsize=1)
-def _team_home_stadium_map() -> dict[str, str]:
-    t = _load_venue_table()
-    out: dict[str, str] = {}
-    for r in t.itertuples(index=False):
-        teams = getattr(r, "teams", "")
-        if isinstance(teams, str) and teams.strip():
-            for team in teams.split(","):
-                out.setdefault(team.strip(), getattr(r, "stadium"))
+def _prior_home_stadiums(games: pd.DataFrame) -> dict[tuple[str, str], str]:
+    """Map each game/team to its most recent STRICTLY-prior home stadium.
+
+    The venue timeline is schedule data, never the current team→stadium
+    association in the venue table. A team's first home game in the supplied
+    timeline has no prior venue and therefore receives NaN travel distance.
+    Exact kickoff ordering is used when available so a same-time row can never
+    become a "prior" venue.
+    """
+    required = {"game_id", "gameday", "gametime", "home_team", "away_team"}
+    if not required <= set(games.columns):
+        return {}
+    rows = games[list(required)].copy()
+    rows["_kickoff"] = _kickoff_utc(rows)
+    rows = rows.dropna(subset=["_kickoff", "home_team", "away_team"])
+    rows = rows.sort_values(["_kickoff", "game_id"])
+    if "stadium" not in games.columns:
+        return {}
+    home_rows = games[["game_id", "gameday", "gametime", "home_team", "stadium"]].copy()
+    home_rows["_kickoff"] = _kickoff_utc(home_rows)
+    home_rows = home_rows.dropna(subset=["_kickoff", "home_team", "stadium"])
+    home_rows = home_rows.sort_values(["home_team", "_kickoff", "game_id"])
+    histories = {
+        str(team): group[["_kickoff", "stadium"]]
+        for team, group in home_rows.groupby("home_team", sort=False)
+    }
+    out: dict[tuple[str, str], str] = {}
+    for _, game in rows.iterrows():
+        for team_col in ("home_team", "away_team"):
+            team = str(game[team_col])
+            history = histories.get(team)
+            if history is None:
+                continue
+            prior = history[history["_kickoff"] < game["_kickoff"]]
+            if prior.empty:
+                continue
+            stadium = prior.iloc[-1]["stadium"]
+            if isinstance(stadium, str) and stadium.strip():
+                out[(str(game["game_id"]), team)] = stadium
     return out
 
 
@@ -764,14 +816,17 @@ def team_stats_ladder(events: pd.DataFrame,
                                  if c not in keys and c in ev.columns])
         ev = ev.merge(fr, on=keys, how="left")
 
-    srt = ev.sort_values(["team", "gameday", "game_id"]).reset_index(drop=True)
+    time_col = "kickoff_utc" if "kickoff_utc" in ev.columns else "gameday"
+    srt = ev.sort_values(["team", time_col, "gameday", "game_id"]).reset_index(drop=True)
 
-    # LEAKAGE GATE: gameday strictly increasing within each team
-    diffs = srt.groupby("team", sort=False)["gameday"].diff()
+    # LEAKAGE GATE: kickoff time strictly increasing within each team. The
+    # date-only fallback still rejects multiple same-day rows rather than
+    # silently choosing a future observation as a prior.
+    diffs = srt.groupby("team", sort=False)[time_col].diff()
     bad = srt.loc[(diffs.notna()) & (diffs <= pd.Timedelta(0))]
     if len(bad):
         raise AssertionError(
-            f"team_stats_ladder: team gameday not strictly increasing "
+            f"team_stats_ladder: team kickoff order not strictly increasing "
             f"({len(bad)} rows) — trailing features could leak")
 
     srt["form_pts"] = _trailing_per_team(srt, "net_from_team", config.FORM_WINDOW)
@@ -946,11 +1001,10 @@ def ngs_team_agg(ngs: pd.DataFrame | None) -> pd.DataFrame:
     return out[cols]
 
 
-# Weekly injury reports → per-(season, week, team) availability counts. These
-# are PRE-GAME facts (the report publishes before kickoff), so they attach as
-# static per-game values — no trailing windows, no candidate phase. The
-# payload's availability field is report_status; "Out" = ruled out for the
-# game (the endpoint's rows carry no separate IR status string).
+# Weekly injury reports → per-(game_id, team) availability counts. A report
+# row is admissible only when its timestamped update is STRICTLY BEFORE that
+# game's kickoff. The latest admissible row per player is used, so repeated
+# report updates cannot double-count a player. No timestamp means no fact.
 _INJ_GROUPS = {
     "qb": ("QB",),
     "tackle": ("T", "OT", "LT", "RT"),
@@ -958,98 +1012,178 @@ _INJ_GROUPS = {
 }
 
 
-def injuries_week_facts(inj: pd.DataFrame | None) -> pd.DataFrame:
-    """(season, week, team) -> Out counts by position group (report_status).
+def _kickoff_utc(games: pd.DataFrame) -> pd.Series:
+    """Parse schedule kickoff timestamps; schedule ``gametime`` is ET."""
+    out = pd.Series(pd.NaT, index=games.index, dtype="datetime64[ns, UTC]")
+    if not {"gameday", "gametime"} <= set(games.columns):
+        return out
+    day = pd.to_datetime(games["gameday"], errors="coerce")
+    clock = games["gametime"].astype("string").str.strip()
+    parsed = pd.to_datetime(
+        day.dt.strftime("%Y-%m-%d") + " " + clock.fillna(""),
+        errors="coerce",
+    )
+    try:
+        out = parsed.dt.tz_localize("America/New_York", ambiguous="NaT",
+                                     nonexistent="NaT").dt.tz_convert("UTC")
+    except (TypeError, ValueError):
+        # A malformed/missing schedule time must not become a permissive
+        # timestamp; leave the value unavailable instead.
+        return pd.Series(pd.NaT, index=games.index, dtype="datetime64[ns, UTC]")
+    return out
 
-    Columns: inj_qb_out, inj_tackle_out, inj_edge_out, inj_starters_out
-    (total Out across the report). Empty frame when data is absent."""
-    cols = ["season", "week", "team", "inj_qb_out", "inj_tackle_out",
+
+def injuries_game_facts(inj: pd.DataFrame | None,
+                        games: pd.DataFrame | None) -> pd.DataFrame:
+    """Return timestamp-gated Out counts for each game/team pair.
+
+    The input injury frame must include ``date_modified`` and a stable player
+    identifier. For each game, only report updates strictly before kickoff are
+    considered; the latest such update per player wins. A team-game with no
+    admissible report remains absent (the feature layer maps that to NaN).
+    """
+    cols = ["game_id", "team", "inj_qb_out", "inj_tackle_out",
             "inj_edge_out", "inj_starters_out"]
-    if inj is None or inj.empty:
+    if inj is None or inj.empty or games is None or games.empty:
         return pd.DataFrame(columns=cols)
-    p = inj.copy()
-    need = ["season", "week", "team", "position", "report_status"]
-    if any(c not in p.columns for c in need):
+    required = {"season", "week", "team", "position", "report_status",
+                "full_name", "date_modified"}
+    if not required <= set(inj.columns) or not {
+            "game_id", "season", "week", "home_team", "away_team"
+    } <= set(games.columns):
         return pd.DataFrame(columns=cols)
-    # Zero-fill over the report's own (season, week, team) universe: a
-    # team-week with NO Out entries is a real zero, not missing — only
-    # team-weeks absent from the reports entirely stay NaN.
-    p = p[p["report_status"].astype(str).str.strip().str.lower().eq("out")]
-    universe = (inj[["season", "week", "team"]]
-                .drop_duplicates().reset_index(drop=True))
-    if p.empty:
-        rows = universe.copy()
-        for c in cols[3:]:
-            rows[c] = 0.0
-        return rows[cols]
-    pos = p["position"].astype(str).str.upper()
-    p = p.assign(_pos=pos)
-    rows = (p.groupby(["season", "week", "team"])
-             .apply(lambda d: pd.Series({
-                 "inj_qb_out": float(d["_pos"].isin(_INJ_GROUPS["qb"]).sum()),
-                 "inj_tackle_out": float(d["_pos"].isin(_INJ_GROUPS["tackle"]).sum()),
-                 "inj_edge_out": float(d["_pos"].isin(_INJ_GROUPS["edge"]).sum()),
-                 "inj_starters_out": float(len(d)),
-             }), include_groups=False)
-             .reset_index())
-    rows = universe.merge(rows, on=["season", "week", "team"], how="left")
-    rows[cols[3:]] = rows[cols[3:]].fillna(0.0)
-    for c in cols[3:]:
-        rows[c] = pd.to_numeric(rows[c], errors="coerce")
-    return rows[cols]
+
+    reports = inj.copy()
+    reports["date_modified"] = pd.to_datetime(
+        reports["date_modified"], errors="coerce", utc=True)
+    reports = reports[reports["date_modified"].notna()].copy()
+    reports["season"] = pd.to_numeric(reports["season"], errors="coerce")
+    reports["week"] = pd.to_numeric(reports["week"], errors="coerce")
+    reports["team"] = reports["team"].astype(str)
+    reports["position"] = reports["position"].astype(str).str.upper()
+    reports["_status"] = (reports["report_status"].astype(str)
+                          .str.strip().str.lower())
+    reports["_player"] = reports["full_name"].astype("string").str.strip()
+    reports = reports[
+        reports["_player"].notna() & reports["_player"].ne("")
+    ].copy()
+    if reports.empty:
+        return pd.DataFrame(columns=cols)
+
+    game_rows: list[dict] = []
+    kickoffs = _kickoff_utc(games)
+    seasons = pd.to_numeric(games["season"], errors="coerce")
+    weeks = pd.to_numeric(games["week"], errors="coerce")
+    for pos, (_, game) in enumerate(games.iterrows()):
+        ko = kickoffs.iloc[pos]
+        season = seasons.iloc[pos]
+        week = weeks.iloc[pos]
+        if pd.isna(ko) or pd.isna(season) or pd.isna(week):
+            continue
+        for team_col in ("home_team", "away_team"):
+            team = str(game[team_col])
+            candidates = reports[
+                (reports["season"] == season)
+                & (reports["week"] == week)
+                & (reports["team"] == team)
+                & (reports["date_modified"] < ko)
+            ].sort_values(["date_modified", "_player"], kind="mergesort")
+            if candidates.empty:
+                continue
+
+            # Resolve one deterministic pre-kickoff snapshot per player. If
+            # conflicting rows share that player's latest timestamp, the
+            # player's state is ambiguous and is omitted rather than guessed.
+            latest_ts = candidates.groupby("_player", sort=False)[
+                "date_modified"].transform("max")
+            latest = candidates[candidates["date_modified"].eq(latest_ts)].copy()
+            latest = latest.drop_duplicates(
+                ["_player", "position", "_status"], keep="last")
+            unambiguous = latest.groupby("_player", sort=False).size().eq(1)
+            latest = latest[unambiguous.reindex(latest["_player"]).to_numpy()]
+            out_rows = latest[latest["_status"].eq("out")]
+            game_rows.append({
+                "game_id": game["game_id"],
+                "team": team,
+                "inj_qb_out": float(out_rows["position"].isin(_INJ_GROUPS["qb"]).sum()),
+                "inj_tackle_out": float(out_rows["position"].isin(_INJ_GROUPS["tackle"]).sum()),
+                "inj_edge_out": float(out_rows["position"].isin(_INJ_GROUPS["edge"]).sum()),
+                "inj_starters_out": float(len(out_rows)),
+            })
+    if not game_rows:
+        return pd.DataFrame(columns=cols)
+    return (pd.DataFrame(game_rows, columns=cols)
+            .drop_duplicates(["game_id", "team"], keep="last")
+            .reset_index(drop=True))
 
 
 def _attach_static_team_facts(df: pd.DataFrame,
-                              inj_facts: pd.DataFrame | None) -> pd.DataFrame:
-    """Attach per-side injury availability diffs (home − away) from the
-    weekly reports, plus the game-level environment facts (venue/surface/
-    observed weather). All-NaN when the sources are absent."""
+                              inj_facts: pd.DataFrame | None,
+                              venue_timeline: pd.DataFrame | None = None,
+                              weather: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Attach PIT-gated injury, weather, and structural venue facts."""
     df = df.copy()
     names = ("inj_qb_out", "inj_tackle_out", "inj_edge_out", "inj_starters_out")
-    if (inj_facts is None or inj_facts.empty or "season" not in df.columns
-            or "week" not in df.columns):
+    if inj_facts is None or inj_facts.empty or not {
+            "game_id", "team"
+    } <= set(inj_facts.columns):
         for n in names:
             df[f"{n}_diff"] = np.nan
+            df[f"{n}_home"] = np.nan
+            df[f"{n}_away"] = np.nan
     else:
         f = inj_facts.copy()
-        f["season"] = pd.to_numeric(f["season"], errors="coerce")
-        f["week"] = pd.to_numeric(f["week"], errors="coerce")
-        key = f.set_index(["season", "week", "team"])
-        ssn = pd.to_numeric(df["season"], errors="coerce")
-        wk = pd.to_numeric(df["week"], errors="coerce")
+        f["game_id"] = f["game_id"].astype(str)
+        f["team"] = f["team"].astype(str)
+        key = f.set_index(["game_id", "team"])
 
         def _side(team_col: str, name: str) -> np.ndarray:
-            return key.reindex(pd.MultiIndex.from_arrays(
-                [ssn, wk, df[team_col].astype(str)]))[name].to_numpy(dtype=float)
+            return key.reindex(pd.MultiIndex.from_arrays([
+                df["game_id"].astype(str), df[team_col].astype(str)
+            ]))[name].to_numpy(dtype=float)
 
         for n in names:
             home_v = _side("home_team", n)
             away_v = _side("away_team", n)
             df[f"{n}_diff"] = home_v - away_v
-            # Per-side candidate levels (config.STATIC_SIDE_CANDIDATES):
-            # the tree family's raw representations of the served diffs.
+            # Raw side levels are generated for schema stability and any
+            # explicit representation review; they are not silently added to
+            # the active contract.
             df[f"{n}_home"] = home_v
             df[f"{n}_away"] = away_v
 
-    # Venue geometry (travel distance, altitude) and prime-time flag.
+    # Venue geometry (travel distance, altitude) and prime-time flag. Travel
+    # uses each team's most recent PRIOR home venue, not a current team→venue
+    # map: the latter would encode relocations/stadium names that were not
+    # knowable at historical kickoff.
     facts = _venue_facts()
-    team_home = _team_home_stadium_map()
     stadium = df["stadium"] if "stadium" in df.columns else pd.Series(np.nan, index=df.index)
+    prior_home = _prior_home_stadiums(venue_timeline if venue_timeline is not None else df)
 
     def _game_fact(name: str) -> np.ndarray:
         return stadium.map(lambda s: facts.get(s, {}).get(name, np.nan)).to_numpy()
 
-    def _team_fact(team_col: str, name: str) -> np.ndarray:
-        return df[team_col].map(
-            lambda t: facts.get(team_home.get(t, ""), {}).get(name, np.nan)).to_numpy()
-
     game_lat, game_lon = _game_fact("lat"), _game_fact("lon")
-    home_lat, home_lon = _team_fact("home_team", "lat"), _team_fact("home_team", "lon")
-    away_lat, away_lon = _team_fact("away_team", "lat"), _team_fact("away_team", "lon")
+    home_lat = np.array([
+        facts.get(prior_home.get((str(gid), str(team)), ""), {}).get("lat", np.nan)
+        for gid, team in zip(df["game_id"], df["home_team"])
+    ], dtype=float)
+    home_lon = np.array([
+        facts.get(prior_home.get((str(gid), str(team)), ""), {}).get("lon", np.nan)
+        for gid, team in zip(df["game_id"], df["home_team"])
+    ], dtype=float)
+    away_lat = np.array([
+        facts.get(prior_home.get((str(gid), str(team)), ""), {}).get("lat", np.nan)
+        for gid, team in zip(df["game_id"], df["away_team"])
+    ], dtype=float)
+    away_lon = np.array([
+        facts.get(prior_home.get((str(gid), str(team)), ""), {}).get("lon", np.nan)
+        for gid, team in zip(df["game_id"], df["away_team"])
+    ], dtype=float)
     df["travel_miles_diff"] = (_haversine_miles(home_lat, home_lon, game_lat, game_lon)
                                - _haversine_miles(away_lat, away_lon, game_lat, game_lon))
     # Per-side candidate levels (config.STATIC_SIDE_CANDIDATES): each team's
-    # own distance to the game venue.
+    # own PIT distance to the game venue.
     df["travel_miles_home"] = _haversine_miles(home_lat, home_lon, game_lat, game_lon)
     df["travel_miles_away"] = _haversine_miles(away_lat, away_lon, game_lat, game_lon)
     df["altitude_home"] = _game_fact("altitude_ft")
@@ -1069,56 +1203,114 @@ def _attach_static_team_facts(df: pd.DataFrame,
     df["is_turf_home"] = np.where(surface.isin(turf_surfaces), 1.0,
                                   np.where(surface.eq("grass"), 0.0, np.nan))
 
-    # Observed game-day weather (committed table + schedule fallback).
-    df = _attach_weather(df)
-    return df
+    return _attach_weather(df, weather)
 
 
-@functools.lru_cache(maxsize=1)
-def _load_weather_table() -> pd.DataFrame:
-    """The committed observed-weather table (build_weather_table.py output)."""
-    f = config.BACKEND_DIR / "nfl_weather.csv"
-    if not f.exists():
-        return pd.DataFrame(columns=["stadium", "gameday", "temp_f",
-                                     "wind_mph", "precip_in", "snow_in"])
-    w = pd.read_csv(f)
-    w["gameday"] = pd.to_datetime(w["gameday"], errors="coerce").dt.date
-    return w.drop_duplicates(["stadium", "gameday"], keep="last")
+def _attach_weather(df: pd.DataFrame,
+                    weather: pd.DataFrame | None) -> pd.DataFrame:
+    """Attach only provenance-proven hourly weather strictly before kickoff.
 
+    The accepted provider contract is intentionally narrow: an allowed
+    Open-Meteo source, an exact schedule kickoff match, a selected weather
+    timestamp strictly before that kickoff, and — for forecast rows — a fetch
+    timestamp strictly before kickoff. Legacy daily tables, raw schedule
+    temperature/wind, missing rows, and indoor/closed games remain NaN.
+    """
+    out = df.copy()
+    for col in ("temp_f", "wind_mph", "is_precip", "is_snow"):
+        out[col] = np.nan
+    for col in ("pit_weather_source", "pit_weather_time_utc",
+                "pit_weather_fetched_at_utc", "pit_weather_kickoff_utc"):
+        out[col] = (pd.Series(pd.NaT, index=out.index, dtype="datetime64[ns, UTC]")
+                    if col.endswith("_utc") else "")
 
-def _attach_weather(df: pd.DataFrame) -> pd.DataFrame:
-    """Attach temp_f / wind_mph / is_precip / is_snow keyed by (stadium,
-    gameday) from the committed weather table; the schedule's own temp/wind
-    payload columns are the fallback where the table lacks a row. NaN =
-    unknown (domes, international sites, missing rows) — never fabricated."""
-    df = df.copy()
-    n = len(df)
-    wx = _load_weather_table()
-    if wx.empty or not {"stadium", "gameday"} <= set(df.columns):
-        t = np.full(n, np.nan); w = t.copy(); pr = t.copy(); sn = t.copy()
-    else:
-        gd = pd.to_datetime(df["gameday"], errors="coerce").dt.date
-        rows = wx.set_index(["stadium", "gameday"]).reindex(
-            pd.MultiIndex.from_arrays([df["stadium"].astype(str), gd]))
-        t = rows["temp_f"].to_numpy(dtype=float)
-        w = rows["wind_mph"].to_numpy(dtype=float)
-        pr = rows["precip_in"].to_numpy(dtype=float)
-        sn = rows["snow_in"].to_numpy(dtype=float)
-    sched_t = (pd.to_numeric(df["temp"], errors="coerce").to_numpy(dtype=float)
-               if "temp" in df.columns else np.full(n, np.nan))
-    sched_w = (pd.to_numeric(df["wind"], errors="coerce").to_numpy(dtype=float)
-               if "wind" in df.columns else np.full(n, np.nan))
+    required = {
+        "game_id", "stadium", "kickoff_utc", "weather_time_utc",
+        "fetched_at_utc", "source", "temp_f", "wind_mph", "precip_in",
+        "snow_in",
+    }
+    if (weather is None or weather.empty or out.empty
+            or not required <= set(weather.columns)):
+        return out
 
-    def _coalesce(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-        return np.where(pd.notna(a), a, b)
+    records = weather[list(required)].copy()
+    for col in ("kickoff_utc", "weather_time_utc", "fetched_at_utc"):
+        records[col] = pd.to_datetime(records[col], errors="coerce", utc=True)
+    records["source"] = records["source"].astype("string")
+    records = records[
+        records["source"].isin(weather_provider.PIT_WEATHER_SOURCES)
+        & records["kickoff_utc"].notna()
+        & records["weather_time_utc"].notna()
+        & records["fetched_at_utc"].notna()
+        & (records["weather_time_utc"] < records["kickoff_utc"])
+    ].copy()
+    observed = records["source"].isin([
+        weather_provider.OPEN_METEO_ARCHIVE,
+        weather_provider.OPEN_METEO_FORECAST_PAST,
+    ])
+    records = records[
+        (~observed) | (records["fetched_at_utc"] >= records["weather_time_utc"])
+    ].copy()
+    if records.empty:
+        return out
 
-    df["temp_f"] = _coalesce(t, sched_t)
-    df["wind_mph"] = _coalesce(w, sched_w)
-    df["is_precip"] = np.where(pd.notna(pr),
-                               (pr >= config.PRECIP_FLAG_IN).astype(float), np.nan)
-    df["is_snow"] = np.where(pd.notna(sn),
-                             (sn >= config.SNOW_FLAG_IN).astype(float), np.nan)
-    return df
+    # One unambiguous record per game. Conflicting duplicate IDs fail closed.
+    records = records.drop_duplicates(list(required), keep="last")
+    duplicate_ids = set(
+        records.groupby("game_id", sort=False).size().loc[lambda s: s > 1].index
+    )
+    records = records[~records["game_id"].isin(duplicate_ids)]
+    by_id = records.set_index("game_id", drop=False)
+    game_kickoffs = _kickoff_utc(out)
+    roof = (out["roof"].astype("string").str.strip().str.lower()
+            if "roof" in out.columns
+            else pd.Series(pd.NA, index=out.index, dtype="string"))
+    outdoor = roof.isin(
+        ["outdoors", "outdoor", "open", "retractable"]).fillna(False)
+
+    def _numeric(value: object) -> float:
+        number = pd.to_numeric(value, errors="coerce")
+        return float(number) if pd.notna(number) else np.nan
+
+    for idx, game in out.iterrows():
+        game_id = str(game.get("game_id", ""))
+        game_stadium = game.get("stadium")
+        if (not game_id or game_id not in by_id.index
+                or pd.isna(game_stadium) or not str(game_stadium).strip()
+                or not bool(outdoor.loc[idx])):
+            continue
+        row = by_id.loc[game_id]
+        if isinstance(row, pd.DataFrame):
+            continue
+        game_ko = game_kickoffs.loc[idx]
+        row_ko = row["kickoff_utc"]
+        weather_time = row["weather_time_utc"]
+        fetched_at = row["fetched_at_utc"]
+        if (pd.isna(game_ko) or pd.isna(row_ko) or row_ko != game_ko
+                or pd.isna(weather_time) or weather_time >= game_ko
+                or str(row["stadium"]) != str(game_stadium)):
+            continue
+        if (row["source"] == weather_provider.OPEN_METEO_FORECAST
+                and (pd.isna(fetched_at) or fetched_at >= game_ko)):
+            continue
+
+        temp = _numeric(row["temp_f"])
+        wind = _numeric(row["wind_mph"])
+        precip = _numeric(row["precip_in"])
+        snow = _numeric(row["snow_in"])
+        out.at[idx, "temp_f"] = temp
+        out.at[idx, "wind_mph"] = wind
+        out.at[idx, "is_precip"] = (
+            float(precip >= config.PRECIP_FLAG_IN) if pd.notna(precip) else np.nan
+        )
+        out.at[idx, "is_snow"] = (
+            float(snow >= config.SNOW_FLAG_IN) if pd.notna(snow) else np.nan
+        )
+        out.at[idx, "pit_weather_source"] = str(row["source"])
+        out.at[idx, "pit_weather_time_utc"] = weather_time
+        out.at[idx, "pit_weather_fetched_at_utc"] = fetched_at
+        out.at[idx, "pit_weather_kickoff_utc"] = row_ko
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1159,22 +1351,48 @@ def _attach_pbp_candidate_features(df: pd.DataFrame,
     return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
 
 
-def _records_string(events: pd.DataFrame) -> pd.Series:
-    """Cumulative W-L record string per team over the decided timeline."""
-    rec = events.groupby("team").agg(
-        wins=("team_win", lambda s: float((s == 1).sum())),
-        losses=("team_win", lambda s: float((s == 0).sum())),
-        ties=("team_win", lambda s: float((s == 0.5).sum())),
-    )
+def _record_frame(events: pd.DataFrame) -> pd.DataFrame:
+    """Return each event team's record entering that event's kickoff."""
+    cols = ["game_id", "team", "prior_wins", "prior_losses", "prior_ties", "record"]
+    if events.empty:
+        return pd.DataFrame(columns=cols)
+    time_col = "kickoff_utc" if "kickoff_utc" in events.columns else "gameday"
+    srt = events.sort_values(["team", time_col, "gameday", "game_id"]).copy()
+    for name, value in (("wins", 1.0), ("losses", 0.0), ("ties", 0.5)):
+        flag = (srt["team_win"] == value).astype(float)
+        cumulative = flag.groupby(srt["team"], sort=False).cumsum()
+        srt[f"prior_{name}"] = cumulative - flag
+    srt["record"] = [
+        (f"{int(w)}-{int(l)}" if not t else f"{int(w)}-{int(l)}-{int(t)}")
+        for w, l, t in zip(srt["prior_wins"], srt["prior_losses"],
+                          srt["prior_ties"])
+    ]
+    return srt[cols].reset_index(drop=True)
 
-    def _fmt(team: str) -> str:
-        if team not in rec.index:
-            return ""
-        r = rec.loc[team]
-        base = f"{int(r['wins'])}-{int(r['losses'])}"
-        return f"{base}-{int(r['ties'])}" if r["ties"] > 0 else base
 
-    return rec, _fmt
+def _attach_record_fields(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    """Attach PIT (entering) records; never use a season-final cumulative row."""
+    out = df.copy()
+    records = _record_frame(events)
+    if records.empty:
+        for side in ("home", "away"):
+            out[f"{side}_record"] = ""
+            out[f"{side}_wins"] = np.nan
+            out[f"{side}_losses"] = np.nan
+        return out
+    records["game_id"] = records["game_id"].astype(str)
+    records["team"] = records["team"].astype(str)
+    key = records.set_index(["game_id", "team"])
+    for side in ("home", "away"):
+        team_col = f"{side}_team"
+        idx = pd.MultiIndex.from_arrays([
+            out["game_id"].astype(str), out[team_col].astype(str)
+        ])
+        rows = key.reindex(idx)
+        out[f"{side}_record"] = rows["record"].fillna("").to_numpy()
+        out[f"{side}_wins"] = rows["prior_wins"].to_numpy(dtype=float)
+        out[f"{side}_losses"] = rows["prior_losses"].to_numpy(dtype=float)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1186,15 +1404,16 @@ def build_game_features(games: pd.DataFrame,
                         ngs: pd.DataFrame | None = None,
                         inj: pd.DataFrame | None = None,
                         snaps: pd.DataFrame | None = None,
-                        ftn: pd.DataFrame | None = None) -> pd.DataFrame:
+                        ftn: pd.DataFrame | None = None,
+                        weather: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
     real priors; every trailing value is shifted strictly prior. ``ps``/
-    ``ngs``/``inj`` are the optional skill/availability sources (weekly
-    player stats, Next-Gen Stats, injury reports); absent sources degrade
-    their features to NaN per the missing-value policy. Returns the served
-    diff features + the per-side values the tree view needs.
+    ``ngs``/``inj`` are optional skill/availability sources; ``weather`` is a
+    provenance-complete hourly Open-Meteo PIT table. Absent or inadmissible
+    sources degrade their features to NaN per the missing-value policy.
+    Returns the served diff features + the per-side values the tree view needs.
     """
     ev = compute_elo(team_events(games))
     agg = pbp_team_agg(pbp)
@@ -1204,9 +1423,14 @@ def build_game_features(games: pd.DataFrame,
                         "ngs": ngs_team_agg(ngs),
                         "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
                         "sc": snap_counts_team_agg(snaps)})
-    inj_facts = injuries_week_facts(inj)
+    inj_facts = injuries_game_facts(inj, games)
 
-    df = games.copy().reset_index(drop=True)
+    # Strip unproven schedule/legacy weather payload. Values are attached only
+    # from the separately validated hourly Open-Meteo PIT provider below.
+    untrusted_weather = {"temp", "wind", "temp_f", "wind_mph",
+                         "is_precip", "is_snow"}
+    df = games.drop(columns=[c for c in untrusted_weather
+                             if c in games.columns]).copy().reset_index(drop=True)
     gids = df["game_id"]
     df["is_home"] = 1.0
     df["elo_diff"] = _home_minus_away(ladder, gids, "elo_entering")
@@ -1225,7 +1449,8 @@ def build_game_features(games: pd.DataFrame,
         df.get("roof", pd.Series(np.nan, index=df.index)).isin(["dome", "closed"]),
         1.0, np.where(df.get("roof", pd.Series(np.nan, index=df.index)).isin(["outdoors"]),
                       0.0, np.nan))
-    df = _attach_static_team_facts(df, inj_facts)
+    df = _attach_static_team_facts(
+        df, inj_facts, venue_timeline=games, weather=weather)
 
     # per-side values for the tree view (raw home/away representations)
     for side_col, lad_col in (("elo_home", "elo_entering"), ("elo_away", "elo_entering"),
@@ -1237,13 +1462,7 @@ def build_game_features(games: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
-    rec, fmt = _records_string(ev)
-    df["home_record"] = df["home_team"].map(fmt)
-    df["away_record"] = df["away_team"].map(fmt)
-    df["home_wins"] = df["home_team"].map(lambda t: float(rec.loc[t, "wins"]) if t in rec.index else np.nan)
-    df["home_losses"] = df["home_team"].map(lambda t: float(rec.loc[t, "losses"]) if t in rec.index else np.nan)
-    df["away_wins"] = df["away_team"].map(lambda t: float(rec.loc[t, "wins"]) if t in rec.index else np.nan)
-    df["away_losses"] = df["away_team"].map(lambda t: float(rec.loc[t, "losses"]) if t in rec.index else np.nan)
+    df = _attach_record_fields(df, ev)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
@@ -1258,27 +1477,30 @@ def build_slate_features(schedule: pd.DataFrame,
                          ngs: pd.DataFrame | None = None,
                          inj: pd.DataFrame | None = None,
                          snaps: pd.DataFrame | None = None,
-                         ftn: pd.DataFrame | None = None) -> pd.DataFrame:
+                         ftn: pd.DataFrame | None = None,
+                         weather: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
-    The ladder spans the full decided timeline; the scheduled rows are the
-    latest events so their trailing stats come from strictly-prior decided
-    games only (same shift(1) discipline, monotonicity still asserted).
+    The ladder spans the full schedule timeline. A pending row's trailing
+    values come only from its own strictly-prior rows; settled rows after it
+    cannot leak backward (same shift(1) discipline, monotonicity asserted).
+    ``weather`` follows the same boundary as decided games: a forecast-valid
+    hourly row must be strictly earlier than kickoff and forecast provenance
+    itself must be pre-kickoff.
     """
     sched = schedule.copy()
     for c in ("home_score", "away_score"):
         if c in sched.columns:
             sched[c] = pd.to_numeric(sched[c], errors="coerce")
-    decided = sched[sched["home_score"].notna() & sched["away_score"].notna()]
     pending = sched[sched["home_score"].isna() | sched["away_score"].isna()]
     if pending.empty:
         return pd.DataFrame()
 
-    ev_decided, ratings = _elo_apply(team_events(decided))
-    ev_pending = team_events(pending)
-    ev_pending["elo_entering"] = ev_pending["team"].map(
-        lambda t: ratings.get(t, config.ELO_PRIOR))
-    combined = pd.concat([ev_decided, ev_pending], ignore_index=True)
+    # Build one chronological event ladder from the entire schedule. Elo skips
+    # unsettled rows, and every trailing series shift(1)s, so a target pending
+    # game cannot inherit a later decided outcome merely because that outcome
+    # was present in the same schedule object.
+    combined = compute_elo(team_events(sched))
     agg = pbp_team_agg(pbp)
     ladder = team_stats_ladder(
         combined, agg,
@@ -1286,9 +1508,12 @@ def build_slate_features(schedule: pd.DataFrame,
                         "ngs": ngs_team_agg(ngs),
                         "ftn": ftn_team_agg(ftn, agg[["game_id", "team"]]),
                         "sc": snap_counts_team_agg(snaps)})
-    inj_facts = injuries_week_facts(inj)
+    inj_facts = injuries_game_facts(inj, pending)
 
-    df = pending.copy().reset_index(drop=True)
+    untrusted_weather = {"temp", "wind", "temp_f", "wind_mph",
+                         "is_precip", "is_snow"}
+    df = pending.drop(columns=[c for c in untrusted_weather
+                               if c in pending.columns]).copy().reset_index(drop=True)
     # market-independence: drop any odds columns at the boundary
     for _m in ("spread_line", "total_line", "home_moneyline", "away_moneyline",
                "over_odds", "under_odds", "away_spread_odds", "home_spread_odds"):
@@ -1313,7 +1538,8 @@ def build_slate_features(schedule: pd.DataFrame,
         df.get("roof", pd.Series(np.nan, index=df.index)).isin(["dome", "closed"]),
         1.0, np.where(df.get("roof", pd.Series(np.nan, index=df.index)).isin(["outdoors"]),
                       0.0, np.nan))
-    df = _attach_static_team_facts(df, inj_facts)
+    df = _attach_static_team_facts(
+        df, inj_facts, venue_timeline=sched, weather=weather)
 
     for side_col, lad_col in (("elo_home", "elo_entering"), ("elo_away", "elo_entering"),
                               ("win_pct_home", "win_pct"), ("win_pct_away", "win_pct"),
@@ -1324,9 +1550,7 @@ def build_slate_features(schedule: pd.DataFrame,
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
-    rec, fmt = _records_string(ev_decided)
-    df["home_record"] = df["home_team"].map(fmt)
-    df["away_record"] = df["away_team"].map(fmt)
+    df = _attach_record_fields(df, combined)
     return df
 
 

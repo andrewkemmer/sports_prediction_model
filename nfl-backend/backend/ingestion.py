@@ -72,9 +72,9 @@ def load_schedule(seasons: list[int] | None = None,
         "game_id", "season", "week", "game_type", "gameday", "gametime",
         "home_team", "away_team", "home_score", "away_score", "roof",
         "div_game", "stadium", "surface", "location", "referee",
-        # observed game-day environment (outdoor games only; domes blank).
-        # The committed weather table supersedes these where it has a row.
-        "temp", "wind",
+        # Venue/schedule metadata only. Raw observed weather is intentionally
+        # excluded: it lacks a PIT publication timestamp. Production weather
+        # is fetched separately from hourly Open-Meteo with full provenance.
         "home_qb_id", "away_qb_id", "home_qb_name", "away_qb_name",
     ) if c in df.columns]
     df = df[keep]
@@ -82,9 +82,9 @@ def load_schedule(seasons: list[int] | None = None,
     return df
 
 
-# "v2" adds surface + the observed temp/wind fallback columns to the
-# keep-list (weather table + is_turf_home); stale v1 caches are ignored.
-SCHEDULE_CACHE_VERSION = "v2"
+# "v3" removes observed temp/wind from the production schedule cache. The
+# PIT Open-Meteo provider is separate and does not depend on these columns.
+SCHEDULE_CACHE_VERSION = "v3"
 
 
 PBP_NEEDS = [
@@ -171,10 +171,21 @@ PS_NEEDS = [
     "receptions", "receiving_yards", "receiving_tds", "season_type",
 ]
 
-# The availability signal is the weekly report_status field ("Out" = ruled
-# out for the game; the payload has no separate IR status string in this
-# endpoint's rows, and NaN report_status entries carry no game status).
-INJ_NEEDS = ["season", "week", "team", "position", "report_status"]
+# Injury rows must retain both the official report update time and player
+# identity.  The feature engine uses the latest report row STRICTLY BEFORE
+# kickoff; a row without a parseable timestamp is unavailable, never assumed
+# to be pre-game.  ``full_name`` de-duplicates repeated player report rows.
+INJ_NEEDS = [
+    "season", "week", "team", "position", "full_name", "report_status",
+    "date_modified",
+]
+INJ_CACHE_VERSION = "v3"
+_INJ_PIT_SCHEMA = frozenset(INJ_NEEDS)
+
+
+def _valid_injury_pit_schema(frame: pd.DataFrame) -> bool:
+    """Whether an injury frame can prove pre-kickoff report provenance."""
+    return _INJ_PIT_SCHEMA <= set(getattr(frame, "columns", []))
 
 # Weekly per-player tracking efficiency (week-0 rows are SEASON aggregates —
 # they mix future games into a week-1 value, so they are dropped at load).
@@ -223,18 +234,26 @@ def load_player_stats(seasons: list[int] | None = None,
 
 def load_injuries(seasons: list[int] | None = None,
                   use_cache: bool = True) -> pd.DataFrame | None:
-    """nflverse weekly injury reports narrowed to (season, week, team,
-    position, status) — the pre-game availability facts.    Per-season parquet caches (INJ cache v2 = report_status fix); a failed
-    season is warned and skipped. Returns None only when NO season could be
-    loaded."""
+    """Load timestamped nflverse injury report snapshots.
+
+    The cache intentionally preserves ``date_modified`` and player identity;
+    without those fields the feature engine cannot prove that a status was
+    available before kickoff. Per-season parquet caches are versioned so an
+    older narrow cache cannot silently bypass the PIT gate.
+    """
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
-        path = _cache_path(f"inj_v2_{season}.parquet")
+        path = _cache_path(f"inj_{INJ_CACHE_VERSION}_{season}.parquet")
         if use_cache and path.exists():
             try:
-                frames.append(pd.read_parquet(path))
-                continue
+                cached = pd.read_parquet(path)
+                if _valid_injury_pit_schema(cached):
+                    frames.append(cached)
+                    continue
+                missing = sorted(_INJ_PIT_SCHEMA - set(cached.columns))
+                logger.warning("injuries cache %s lacks PIT schema %s; refetching",
+                               path.name, missing)
             except Exception as exc:
                 logger.warning("injuries cache %s unreadable (%s)", path.name, exc)
         try:
@@ -246,6 +265,11 @@ def load_injuries(seasons: list[int] | None = None,
             continue
         keep = [c for c in INJ_NEEDS if c in df.columns]
         df = df[keep]
+        if not _valid_injury_pit_schema(df):
+            missing = sorted(_INJ_PIT_SCHEMA - set(df.columns))
+            logger.warning("injuries %s unavailable: source lacks PIT fields %s",
+                           season, missing)
+            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:

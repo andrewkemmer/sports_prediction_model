@@ -304,16 +304,24 @@ NFL_API_SOURCES = [
      "touchdown (drive-level attribution beyond the rollups). Dropped at "
      "load: wpa, down/ydstogo, score_differential, timeouts."),
     ("nflverse schedules\nnflreadpy.load_schedules",
-     "Per game: betting lines (spread_line, total_line, over_under_line), "
-     "weather (temp, wind), stadium/roof/surface/location, referee, game_type, "
-     "overtime, division flag, QB ids/names.",
-     "22-column keep-list (adds temp, wind, surface); features use "
-     "teams/scores/date/week/div_game, QB ids/names (card enrichment), "
-     "surface (is_turf_home), and temp/wind as fallbacks behind the committed "
-     "observed-weather table.",
+     "Per game: stadium/roof/surface/location, referee, game_type, "
+     "overtime, division flag, QB ids/names; raw observed weather is excluded "
+     "because it carries no PIT publication timestamp.",
+     "The production schedule keep-list contains structural venue/schedule "
+     "fields plus scores/date/week/div_game and QB ids/names (card enrichment); "
+     "surface feeds is_turf_home. Weather comes only from the separate hourly "
+     "Open-Meteo PIT provider.",
      "Kept-but-unused: roof, stadium, location, referee, game_type. Dropped "
      "entirely: spread_line, total_line, over_under_line, overtime — NFL has "
      "NO market-implied features by governance (MLB has both)."),
+    ("Open-Meteo hourly weather\narchive + forecast endpoints",
+     "Hourly temperature, wind speed, precipitation, and snowfall at committed "
+     "stadium coordinates, with API-valid and fetch timestamps.",
+     "weather.fetch_games_weather caches one latest hourly record strictly "
+     "before each kickoff and serves temp_f / wind_mph / is_precip / is_snow; "
+     "past games use archive/recent-past and pending games use forecasts.",
+     "No daily aggregate is consumed. Missing/indoor/unknown-venue rows stay "
+     "NaN; forecast cache rows are rejected unless fetched before kickoff."),
     ("nflverse player stats\nnflreadpy.load_player_stats (all positions)",
      "Weekly player stats for every position: passing, rushing, receiving "
      "volumes and efficiency, ids/names.",
@@ -377,13 +385,14 @@ NFL_UNUSED_API_FIELDS = [
      "Low", "Low",
      "Added to PBP_NEEDS + aggregated 2026-09-22 → pbp_shotgun_rate_* / "
      "pbp_no_huddle_rate_* / pbp_drives_pg_* candidates."),
-    ("schedules (dropped)", "temp / wind / weather",
-     "Observed game-day environment.",
-     "Wind-speed and temperature bands for outdoor games (MLB weather parity).",
-     "Medium", "Low",
-     "Aggregated 2026-09-22: committed nfl_weather.csv (Open-Meteo archive "
-     "via build_weather_table.py) serves temp_f / wind_mph / is_precip / "
-     "is_snow; schedule temp/wind kept as fallbacks."),
+    ("schedules (dropped)", "temp / wind",
+     "Observed game-day weather embedded in the schedule payload, without a "
+     "point-in-time publication timestamp.",
+     "No fallback use; the production values come exclusively from the hourly "
+     "Open-Meteo PIT cache.",
+     "Low", "Low",
+     "Dropped at ingestion. The legacy daily nfl_weather.csv archive is also "
+     "reference-only and is never a production fallback."),
     ("schedules (dropped)", "spread_line / total_line / over_under_line",
      "Market-implied win margin and total.",
      "Market-anchor features or blend components (MLB market parity).",
@@ -408,10 +417,10 @@ NFL_UNLOADED_ENDPOINTS = [
      "Workload context: RB committees, defensive snap wear."),
     ("load_officials", "Per-game officiating crews.",
      "Crew penalty-rate context (second-order)."),
-    ("load_injuries (now loaded)", "Weekly injury reports with participation status.",
-     "Aggregated 2026-09-22 → inj_qb_out_diff / inj_tackle_out_diff / "
-     "inj_edge_out_diff / inj_starters_out_diff served facts (week>0 reports; "
-     "report_status == Out)."),
+    ("load_injuries (now loaded)", "Timestamped injury report updates.",
+     "Aggregated → inj_qb_out_diff / inj_tackle_out_diff / inj_edge_out_diff / "
+     "inj_starters_out_diff; only the latest report_status == Out row with "
+     "date_modified strictly before kickoff is counted."),
     ("load_ngs (now loaded)", "Next-Gen Stats: passing/rushing/receiving efficiency.",
      "Aggregated 2026-09-22 → ngs_cpoe_* / ngs_rush_eff_* / "
      "ngs_sep_* trailing candidates (weekly rows, week-0 aggregates "

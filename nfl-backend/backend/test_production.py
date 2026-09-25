@@ -31,7 +31,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 # ---------------------------------------------------------------------------
 print("\n== 1. Syntax/import tests ==")
-for mod in ("config", "manifest", "ingestion", "features", "folds",
+for mod in ("config", "manifest", "ingestion", "features", "weather", "folds",
             "moneyline", "distributions", "evaluation", "serving",
             "qb_enrichment", "monitoring", "master_pipeline"):
     try:
@@ -43,6 +43,7 @@ for mod in ("config", "manifest", "ingestion", "features", "folds",
 import config  # noqa: E402
 import manifest  # noqa: E402
 import features as feat_mod  # noqa: E402
+import weather as weather_mod  # noqa: E402
 import folds as folds_mod  # noqa: E402
 import moneyline as ml_mod  # noqa: E402
 import distributions as dist_mod  # noqa: E402
@@ -130,6 +131,20 @@ check("trailing value uses strictly-prior games only",
       abs(two_f.loc[two_f["game_id"] == "B", "ewm_net_pts_diff"].iloc[0] - (-20.0)) < 1e-9,
       str(two_f.loc[two_f["game_id"] == "B", "ewm_net_pts_diff"].iloc[0]))
 
+# Same calendar day is still ordered by actual kickoff when available.
+_same_day = pd.DataFrame([
+    {"game_id": "S0", "season": 2023, "week": 1, "gameday": "2023-09-01",
+     "gametime": "13:00", "home_team": "X", "away_team": "Y",
+     "home_score": 20, "away_score": 10},
+    {"game_id": "S1", "season": 2023, "week": 1, "gameday": "2023-09-01",
+     "gametime": "20:00", "home_team": "X", "away_team": "Z",
+     "home_score": 0, "away_score": 17},
+])
+_same_day_f = feat_mod.build_game_features(_same_day)
+check("same-day timelines use exact kickoff order",
+      abs(float(_same_day_f.loc[_same_day_f["game_id"] == "S1",
+                                   "ewm_net_pts_home"].iloc[0]) - 10.0) < 1e-9)
+
 # Elo pre-game: first game between equal priors → elo_diff == 0
 check("Elo pre-game (first game diff = 0)",
       abs(feats["elo_diff"].iloc[0]) < 1e-12,
@@ -156,6 +171,488 @@ check("tree view = the served contract + appended team-ID pair",
 check("tree view has per-side columns", any(c.endswith("_home") for c in tr.columns))
 check("no view emits a duplicate column (single-list projection)",
       len(set(tr.columns)) == len(tr.columns) and len(set(lin.columns)) == len(lin.columns))
+
+# ---------------------------------------------------------------------------
+print("\n== 3b. Strict PIT boundary regressions ==")
+import ingestion as ingest_mod  # noqa: E402
+
+_PIT_TARGET = "PIT_TARGET"
+_PIT_FUTURE = "PIT_FUTURE"
+_pit_games = pd.DataFrame([
+    {"game_id": "PIT_G0", "season": 2024, "week": 1, "gameday": "2024-09-01",
+     "gametime": "13:00", "home_team": "A", "away_team": "B",
+     "home_score": 20.0, "away_score": 10.0, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "MetLife Stadium",
+     "surface": "grass"},
+    {"game_id": "PIT_G1", "season": 2024, "week": 1, "gameday": "2024-09-02",
+     "gametime": "13:00", "home_team": "C", "away_team": "B",
+     "home_score": 10.0, "away_score": 20.0, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "Gillette Stadium",
+     "surface": "grass"},
+    {"game_id": _PIT_TARGET, "season": 2024, "week": 2, "gameday": "2024-09-08",
+     "gametime": "13:00", "home_team": "A", "away_team": "C",
+     "home_score": 17.0, "away_score": 14.0, "game_type": "REG",
+     "roof": "outdoors", "div_game": 0, "stadium": "MetLife Stadium",
+     "surface": "grass"},
+    {"game_id": _PIT_FUTURE, "season": 2024, "week": 3, "gameday": "2024-09-15",
+     "gametime": "13:00", "home_team": "A", "away_team": "C",
+     "home_score": 21.0, "away_score": 10.0, "game_type": "REG",
+     "roof": "dome", "div_game": 0, "stadium": "SoFi Stadium",
+     "surface": "fieldturf"},
+])
+
+
+def _pit_pbp() -> pd.DataFrame:
+    values = {
+        "PIT_G0": {"A": 10.0, "B": 12.0},
+        "PIT_G1": {"C": 20.0, "B": 22.0},
+        _PIT_TARGET: {"A": 100.0, "C": 120.0},
+        _PIT_FUTURE: {"A": 200.0, "C": 220.0},
+    }
+    return pd.DataFrame([
+        {"game_id": gid, "posteam": team, "yards_gained": 100.0,
+         "air_yards": air, "pass_attempt": 1.0}
+        for gid, teams in values.items() for team, air in teams.items()
+    ])
+
+
+_pit_inj = pd.DataFrame([
+    # P1: latest PRE-kickoff status wins (Questionable, not Out).
+    {"season": 2024, "week": 2, "team": "A", "position": "QB",
+     "full_name": "Alpha QB", "report_status": "Out",
+     "date_modified": "2024-09-07T18:00:00Z"},
+    {"season": 2024, "week": 2, "team": "A", "position": "QB",
+     "full_name": "Alpha QB", "report_status": "Questionable",
+     "date_modified": "2024-09-08T16:00:00Z"},
+    # P2 remains Out; P3 is after kickoff and must never be counted.
+    {"season": 2024, "week": 2, "team": "A", "position": "QB",
+     "full_name": "Backup QB", "report_status": "Out",
+     "date_modified": "2024-09-07T19:00:00Z"},
+    {"season": 2024, "week": 2, "team": "A", "position": "QB",
+     "full_name": "Post-kickoff QB", "report_status": "Out",
+     "date_modified": "2024-09-08T18:00:00Z"},
+    # A real pre-kickoff Questionable row makes the away-side count a true 0.
+    {"season": 2024, "week": 2, "team": "C", "position": "QB",
+     "full_name": "Healthy QB", "report_status": "Questionable",
+     "date_modified": "2024-09-07T18:00:00Z"},
+])
+
+
+def _same_target_view(left: pd.DataFrame, right: pd.DataFrame,
+                      game_id: str = _PIT_TARGET) -> bool:
+    a = feat_mod.tree_view(left[left["game_id"] == game_id]).reset_index(drop=True)
+    b = feat_mod.tree_view(right[right["game_id"] == game_id]).reset_index(drop=True)
+    return (list(a.columns) == list(b.columns)
+            and np.allclose(a.to_numpy(float), b.to_numpy(float), equal_nan=True))
+
+
+_pit_base = feat_mod.build_game_features(_pit_games, pbp=_pit_pbp(), inj=_pit_inj)
+_pit_noncausal_games = _pit_games.copy()
+_target_mask = _pit_noncausal_games["game_id"] == _PIT_TARGET
+_future_mask = _pit_noncausal_games["game_id"] == _PIT_FUTURE
+_pit_noncausal_games.loc[_target_mask, ["home_score", "away_score"]] = [3.0, 31.0]
+_pit_noncausal_games.loc[_future_mask, ["home_score", "away_score"]] = [0.0, 42.0]
+_pit_noncausal_games.loc[_future_mask, "stadium"] = "Tottenham Stadium"
+_pit_noncausal_pbp = _pit_pbp()
+_pit_noncausal_pbp.loc[
+    _pit_noncausal_pbp["game_id"].isin([_PIT_TARGET, _PIT_FUTURE]),
+    "air_yards",
+] += 1000.0
+_pit_noncausal_inj = pd.concat([_pit_inj, pd.DataFrame([{
+    "season": 2024, "week": 2, "team": "A", "position": "QB",
+    "full_name": "Later Post QB", "report_status": "Out",
+    "date_modified": "2024-09-08T19:00:00Z",
+}])], ignore_index=True)
+_pit_noncausal = feat_mod.build_game_features(
+    _pit_noncausal_games, pbp=_pit_noncausal_pbp, inj=_pit_noncausal_inj)
+check("target outcome and all future outcome/PBP/injury/venue changes are ignored",
+      _same_target_view(_pit_base, _pit_noncausal))
+_pit_target_row = _pit_base[_pit_base["game_id"] == _PIT_TARGET].iloc[0]
+check("record metadata is entering record, not target/final record",
+      _pit_target_row["home_record"] == "1-0"
+      and _pit_target_row["away_record"] == "0-1"
+      and _pit_target_row["home_wins"] == 1.0
+      and _pit_target_row["away_losses"] == 1.0,
+      f"{_pit_target_row['home_record']} / {_pit_target_row['away_record']}")
+
+_pit_prior_pbp = _pit_pbp()
+_pit_prior_pbp.loc[_pit_prior_pbp["game_id"].isin(["PIT_G0", "PIT_G1"]),
+                  "air_yards"] *= 3.0
+_pit_prior = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_prior_pbp, inj=_pit_inj)
+_pit_pbp_cols = ["pbp_air_yards_att_ewm_diff",
+                 "pbp_air_yards_att_ewm_home",
+                 "pbp_air_yards_att_ewm_away"]
+_a = _pit_target_row[_pit_pbp_cols].to_numpy(float)
+_b = _pit_prior[_pit_prior["game_id"] == _PIT_TARGET].iloc[0][_pit_pbp_cols].to_numpy(float)
+check("genuinely prior PBP observations do change target EWM",
+      np.isfinite(_a).all() and not np.allclose(_a, _b))
+
+# Mixed slate: target is pending, but a later game is already settled. The
+# later result/source/venue must not leak backward into the pending target.
+_mixed_schedule = _pit_games.copy()
+_mixed_schedule.loc[_mixed_schedule["game_id"] == _PIT_TARGET,
+                    ["home_score", "away_score"]] = np.nan
+_mixed_base = feat_mod.build_slate_features(_mixed_schedule, _pit_pbp(), inj=_pit_inj)
+_mixed_changed_schedule = _mixed_schedule.copy()
+_mixed_changed_schedule.loc[_mixed_changed_schedule["game_id"] == _PIT_FUTURE,
+                            ["home_score", "away_score"]] = [0.0, 42.0]
+_mixed_changed_schedule.loc[_mixed_changed_schedule["game_id"] == _PIT_FUTURE,
+                            "stadium"] = "Tottenham Stadium"
+_mixed_changed_pbp = _pit_pbp()
+_mixed_changed_pbp.loc[_mixed_changed_pbp["game_id"] == _PIT_FUTURE,
+                       "air_yards"] += 1000.0
+_mixed_changed = feat_mod.build_slate_features(
+    _mixed_changed_schedule, _mixed_changed_pbp, inj=_pit_noncausal_inj)
+check("pending slate target ignores a later settled outcome/source/venue",
+      len(_mixed_base) == 1 and _same_target_view(_mixed_base, _mixed_changed))
+check("slate travel uses prior home venues from the full schedule",
+      len(_mixed_base) == 1
+      and np.isfinite(float(_mixed_base.iloc[0]["travel_miles_diff"])))
+check("slate record metadata is entering record",
+      len(_mixed_base) == 1 and _mixed_base.iloc[0]["home_record"] == "1-0"
+      and _mixed_base.iloc[0]["away_record"] == "0-1")
+
+_first_home = feat_mod.build_game_features(
+    _pit_games[_pit_games["game_id"] == _PIT_TARGET].copy(), pbp=None)
+check("first prior home venue is unavailable rather than guessed",
+      pd.isna(_first_home.iloc[0]["travel_miles_diff"]))
+
+# Injury timestamp semantics.
+_inj_facts = feat_mod.injuries_game_facts(
+    _pit_inj, _pit_games[_pit_games["game_id"] == _PIT_TARGET])
+_inj_home = _inj_facts[_inj_facts["team"] == "A"].iloc[0]
+_inj_away = _inj_facts[_inj_facts["team"] == "C"].iloc[0]
+check("injury facts admit pre-kickoff Out and ignore post-kickoff updates",
+      _inj_home["inj_qb_out"] == 1.0 and _inj_away["inj_qb_out"] == 0.0)
+_bad_inj = pd.DataFrame([
+    {"season": 2024, "week": 2, "team": "A", "position": "QB",
+     "full_name": "Missing Time", "report_status": "Out", "date_modified": None},
+    {"season": 2024, "week": 2, "team": "C", "position": "QB",
+     "full_name": "Bad Time", "report_status": "Out", "date_modified": "not-a-time"},
+])
+_bad_inj_frame = feat_mod.build_game_features(
+    _pit_games[_pit_games["game_id"] == _PIT_TARGET].copy(), inj=_bad_inj)
+check("missing/invalid injury timestamps fail closed as NaN",
+      all(pd.isna(_bad_inj_frame.iloc[0][f"inj_{kind}_out_diff"])
+          for kind in ("qb", "tackle", "edge", "starters")))
+
+# Weather is served, but only through the strict hourly Open-Meteo PIT
+# provider. Raw schedule values and the legacy daily archive are not inputs.
+_weather_features = {"temp_f", "wind_mph", "is_precip", "is_snow"}
+check("all four hourly weather features are in the active contract",
+      _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
+check("active moneyline contract is the restored 35-feature set",
+      len(config.MONEYLINE_FEATURE_COLS) == 35)
+
+_weather_games = _pit_games.copy()
+_weather_games["temp"] = 111.0
+_weather_games["wind"] = 222.0
+_weather_games["temp_f"] = 333.0
+_weather_games["wind_mph"] = 444.0
+_weather_frame = feat_mod.build_game_features(_weather_games, pbp=None)
+check("raw schedule/legacy weather is stripped and fails closed as NaN",
+      all(_weather_frame[list(_weather_features)].isna().all().tolist()))
+
+_pit_kickoff = pd.Timestamp("2024-09-08T17:00:00Z")  # 13:00 ET
+_weather_valid = pd.DataFrame([{
+    "game_id": _PIT_TARGET,
+    "stadium": "MetLife Stadium",
+    "kickoff_utc": _pit_kickoff,
+    "weather_time_utc": "2024-09-08T16:00:00Z",
+    "fetched_at_utc": "2024-09-09T12:00:00Z",  # archive may be fetched later
+    "source": weather_mod.OPEN_METEO_ARCHIVE,
+    "temp_f": 72.0,
+    "wind_mph": 9.0,
+    "precip_in": 0.2,
+    "snow_in": 0.0,
+    "is_precip": 1.0,
+    "is_snow": 0.0,
+}])
+_validated_weather_cache = weather_mod._validate_cache_frame(_weather_valid)
+check("weather cache requires and preserves source/valid/fetch provenance",
+      len(_validated_weather_cache) == 1
+      and _validated_weather_cache.iloc[0]["source"]
+      == weather_mod.OPEN_METEO_ARCHIVE
+      and _validated_weather_cache.iloc[0]["weather_time_utc"]
+      < _validated_weather_cache.iloc[0]["kickoff_utc"])
+import tempfile  # noqa: E402
+# The system temp dir, not BACKEND_DIR: a Windows-side parquet handle can defeat
+# TemporaryDirectory cleanup and strand a cache dir inside the repo.
+with tempfile.TemporaryDirectory() as _weather_cache_dir:
+    _weather_cache_path = Path(_weather_cache_dir) / "weather.parquet"
+    weather_mod._save_cache(_weather_cache_path, _weather_valid)
+    _weather_cache_roundtrip = weather_mod.cached_weather_for_games(
+        _pit_games, path=_weather_cache_path)
+
+    # A still-pending forecast is refreshed on each production run rather than
+    # freezing the first forecast ever cached for that game_id.
+    _pending_game = _pit_games[_pit_games["game_id"] == _PIT_TARGET].copy()
+    _pending_game[["home_score", "away_score"]] = np.nan
+    _pending_cached = _weather_valid.copy()
+    _pending_cached["source"] = weather_mod.OPEN_METEO_FORECAST
+    _pending_cached["fetched_at_utc"] = "2024-09-06T12:00:00Z"
+    _pending_cached["temp_f"] = 60.0
+    weather_mod._save_cache(_weather_cache_path, _pending_cached)
+    _forecast_fetch_calls = []
+
+    def _fake_pending_fetch(targets, now):
+        _forecast_fetch_calls.append(now)
+        return {
+            (targets[0]["stadium"], targets[0]["kickoff_utc"].date()): {
+                "time": ["2024-09-08T16:00:00Z"],
+                "temperature_2m": [75.0],
+                "wind_speed_10m": [8.0],
+                "precipitation": [0.0],
+                "snowfall": [0.0],
+                "_source": weather_mod.OPEN_METEO_FORECAST,
+                "_fetched_at_utc": now,
+            }
+        }
+
+    _original_batched_fetch = weather_mod._fetch_batched_weather
+    weather_mod._fetch_batched_weather = _fake_pending_fetch
+    try:
+        _pending_result_1 = weather_mod.fetch_games_weather(
+            _pending_game, path=_weather_cache_path,
+            now=pd.Timestamp("2024-09-07T12:00:00Z"))
+        _pending_result_2 = weather_mod.fetch_games_weather(
+            _pending_game, path=_weather_cache_path,
+            now=pd.Timestamp("2024-09-07T13:00:00Z"))
+    finally:
+        weather_mod._fetch_batched_weather = _original_batched_fetch
+    _pending_weather_refreshed = (
+        len(_forecast_fetch_calls) == 2
+        and float(_pending_result_1.iloc[0]["temp_f"]) == 75.0
+        and float(_pending_result_2.iloc[0]["temp_f"]) == 75.0
+    )
+check("PIT weather cache round-trips only the matching game/stadium/kickoff",
+      len(_weather_cache_roundtrip) == 1
+      and _weather_cache_roundtrip.iloc[0]["game_id"] == _PIT_TARGET
+      and _weather_cache_roundtrip.iloc[0]["stadium"] == "MetLife Stadium")
+check("still-pending forecasts refresh instead of freezing in cache",
+      _pending_weather_refreshed)
+_weather_attached = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+_weather_target = _weather_attached[_weather_attached["game_id"] == _PIT_TARGET].iloc[0]
+check("strictly-prior hourly weather attaches to the target",
+      float(_weather_target["temp_f"]) == 72.0
+      and float(_weather_target["wind_mph"]) == 9.0
+      and float(_weather_target["is_precip"]) == 1.0
+      and float(_weather_target["is_snow"]) == 0.0
+      and _weather_target["pit_weather_source"] == weather_mod.OPEN_METEO_ARCHIVE)
+
+# Direct selection proves the API row at kickoff and every later row are
+# ignored, even when the response contains tempting values.
+_series = {
+    "time": ["2024-09-08T15:00:00Z", "2024-09-08T16:00:00Z",
+             "2024-09-08T17:00:00Z", "2024-09-08T18:00:00Z"],
+    "temperature_2m": [60.0, 72.0, 999.0, 888.0],
+    "wind_speed_10m": [4.0, 9.0, 99.0, 88.0],
+    "precipitation": [0.0, 0.2, 9.0, 8.0],
+    "snowfall": [0.0, 0.0, 2.0, 2.0],
+    "_source": weather_mod.OPEN_METEO_ARCHIVE,
+}
+_selected = weather_mod.select_weather_record(
+    {"game_id": _PIT_TARGET, "stadium": "MetLife Stadium",
+     "kickoff_utc": _pit_kickoff},
+    _series, "2024-09-09T12:00:00Z")
+check("hourly selection takes the latest row strictly before kickoff",
+      _selected is not None
+      and _selected["weather_time_utc"] == pd.Timestamp("2024-09-08T16:00:00Z")
+      and _selected["temp_f"] == 72.0 and _selected["wind_mph"] == 9.0)
+
+_changed_series = dict(_series)
+_changed_series["temperature_2m"] = [60.0, 72.0, 111.0, 222.0]
+_changed_series["wind_speed_10m"] = [4.0, 9.0, 111.0, 222.0]
+_reselected = weather_mod.select_weather_record(
+    {"game_id": _PIT_TARGET, "stadium": "MetLife Stadium",
+     "kickoff_utc": _pit_kickoff},
+    _changed_series, "2024-09-09T12:00:00Z")
+check("same-time/post-kickoff hourly values cannot change the selection",
+      _reselected is not None
+      and _reselected["temp_f"] == _selected["temp_f"]
+      and _reselected["wind_mph"] == _selected["wind_mph"])
+
+
+# Open-Meteo has no separate snowfall unit parameter: it reports snowfall in
+# the same unit as precipitation. An inch response must not be converted again,
+# or is_snow is understated by 2.54x.
+def _snow_series(unit, amount):
+    return {
+        "time": ["2024-09-08T16:00:00Z"],
+        "temperature_2m": [30.0],
+        "wind_speed_10m": [5.0],
+        "precipitation": [0.2],
+        "snowfall": [amount],
+        "_source": weather_mod.OPEN_METEO_ARCHIVE,
+        "_snowfall_unit": unit,
+    }
+
+
+_snow_target = {"game_id": _PIT_TARGET, "stadium": "MetLife Stadium",
+                "kickoff_utc": _pit_kickoff}
+_snow_inch = weather_mod.select_weather_record(
+    _snow_target, _snow_series("inch", 0.4), "2024-09-09T12:00:00Z")
+_snow_cm = weather_mod.select_weather_record(
+    _snow_target, _snow_series("cm", 1.016), "2024-09-09T12:00:00Z")
+_snow_unknown_unit = weather_mod.select_weather_record(
+    _snow_target, _snow_series("furlong", 0.4), "2024-09-09T12:00:00Z")
+check("snowfall converts from the unit Open-Meteo actually reported",
+      _snow_inch is not None
+      and abs(_snow_inch["snow_in"] - 0.4) < 1e-9
+      and _snow_inch["is_snow"] == 1.0
+      and _snow_cm is not None
+      and abs(_snow_cm["snow_in"] - 0.4) < 1e-6
+      and _snow_cm["is_snow"] == 1.0
+      and (_snow_unknown_unit is None
+           or pd.isna(_snow_unknown_unit["snow_in"])))
+
+_parsed_unit = weather_mod._parse_batch_response(
+    {"hourly": {"time": ["2024-09-08T16:00:00Z"], "temperature_2m": [30.0],
+                "wind_speed_10m": [5.0], "precipitation": [0.2],
+                "snowfall": [0.4]},
+     "hourly_units": {"snowfall": "inch"}},
+    [("MetLife Stadium", 40.813528, -74.074361)],
+    weather_mod.OPEN_METEO_ARCHIVE, pd.Timestamp("2024-09-09T12:00:00Z"),
+)[("MetLife Stadium", pd.Timestamp("2024-09-08").date())]
+check("API-reported hourly units are carried into the selection",
+      _parsed_unit["_snowfall_unit"] == "inch"
+      and abs(weather_mod.select_weather_record(
+          _snow_target, _parsed_unit, "2024-09-09T12:00:00Z")["snow_in"] - 0.4
+      ) < 1e-9)
+
+# A 19:00 ET kickoff is exactly 00:00 UTC, so the latest strictly-earlier
+# reading lives on the previous UTC day. Without that fallback the game has no
+# weather at all despite a full archive day being available.
+_midnight_game = pd.DataFrame([{
+    "game_id": _PIT_TARGET, "stadium": "MetLife Stadium", "roof": "outdoors",
+    "gameday": "2024-09-07", "gametime": "20:00",
+}])
+_midnight_targets = weather_mod._targets(_midnight_game)
+_midnight_key_day = _midnight_targets[0]["kickoff_utc"].date()
+
+
+def _midnight_fetch(_targets, _now):
+    return {
+        (("MetLife Stadium"), _midnight_key_day): {
+            "time": [f"{_midnight_key_day}T00:00:00Z"],
+            "temperature_2m": [77.0], "wind_speed_10m": [12.0],
+            "precipitation": [0.0], "snowfall": [0.0],
+            "_source": weather_mod.OPEN_METEO_ARCHIVE,
+            "_fetched_at_utc": pd.Timestamp("2024-09-09T12:00:00Z"),
+        },
+        ("MetLife Stadium", _midnight_key_day - pd.Timedelta(days=1).to_pytimedelta()): {
+            "time": [f"{_midnight_key_day - pd.Timedelta(days=1)}T23:00:00Z"],
+            "temperature_2m": [64.0], "wind_speed_10m": [6.0],
+            "precipitation": [0.0], "snowfall": [0.0],
+            "_source": weather_mod.OPEN_METEO_ARCHIVE,
+            "_fetched_at_utc": pd.Timestamp("2024-09-09T12:00:00Z"),
+        },
+    }
+
+
+_original_midnight_fetch = weather_mod._fetch_batched_weather
+weather_mod._fetch_batched_weather = _midnight_fetch
+try:
+    _midnight_result = weather_mod.fetch_games_weather(
+        _midnight_game, path=_weather_cache_path,
+        now=pd.Timestamp("2024-09-09T12:00:00Z"))
+finally:
+    weather_mod._fetch_batched_weather = _original_midnight_fetch
+check("kickoff at 00:00 UTC falls back to the prior UTC day's last hour",
+      len(_midnight_result) == 1
+      and _midnight_result.iloc[0]["weather_time_utc"]
+      == pd.Timestamp(f"{_midnight_key_day - pd.Timedelta(days=1)}T23:00:00Z")
+      and float(_midnight_result.iloc[0]["temp_f"]) == 64.0)
+
+_post = _weather_valid.copy()
+_post["weather_time_utc"] = _pit_kickoff
+_post["temp_f"] = 999.0
+_post_frame = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_post)
+check("weather timestamp equal to kickoff fails closed",
+      pd.isna(_post_frame.loc[
+          _post_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
+
+_weather_changed = _weather_valid.copy()
+_weather_changed[["temp_f", "wind_mph", "precip_in", "snow_in"]] = [90.0, 22.0, 0.0, 0.4]
+_changed_attached = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_changed)
+_changed_target = _changed_attached[_changed_attached["game_id"] == _PIT_TARGET].iloc[0]
+check("genuinely pre-kickoff weather changes the target features",
+      float(_changed_target["temp_f"]) == 90.0
+      and float(_changed_target["wind_mph"]) == 22.0
+      and float(_changed_target["is_precip"]) == 0.0
+      and float(_changed_target["is_snow"]) == 1.0)
+
+_future_weather = pd.DataFrame([{
+    "game_id": _PIT_FUTURE, "stadium": "SoFi Stadium",
+    "kickoff_utc": "2024-09-15T17:00:00Z",
+    "weather_time_utc": "2024-09-15T16:00:00Z",
+    "fetched_at_utc": "2024-09-14T12:00:00Z",
+    "source": weather_mod.OPEN_METEO_FORECAST,
+    "temp_f": 111.0, "wind_mph": 44.0, "precip_in": 1.0, "snow_in": 0.0,
+}])
+_with_future_weather = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    weather=pd.concat([_weather_valid, _future_weather], ignore_index=True))
+_with_future_changed = _future_weather.copy()
+_with_future_changed[["temp_f", "wind_mph", "precip_in"]] = [222.0, 55.0, 0.0]
+_with_future_weather_changed = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    weather=pd.concat([_weather_valid, _with_future_changed], ignore_index=True))
+check("future game's weather cannot leak into an earlier target",
+      _same_target_view(_with_future_weather, _with_future_weather_changed))
+
+_forecast_late = _future_weather.copy()
+_forecast_late["fetched_at_utc"] = "2024-09-15T18:00:00Z"  # after kickoff
+_forecast_late_frame = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    weather=pd.concat([_weather_valid, _forecast_late], ignore_index=True))
+check("forecast fetched after kickoff is rejected",
+      pd.isna(_forecast_late_frame.loc[
+          _forecast_late_frame["game_id"] == _PIT_FUTURE, "temp_f"].iloc[0]))
+
+_indoor_games = _pit_games.copy()
+_indoor_games.loc[_indoor_games["game_id"] == _PIT_TARGET, "roof"] = "dome"
+_indoor_frame = feat_mod.build_game_features(
+    _indoor_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+check("indoor/closed games remain NaN rather than fetching outdoor weather",
+      pd.isna(_indoor_frame.loc[
+          _indoor_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
+
+_missing_roof_games = _pit_games.copy()
+_missing_roof_games.loc[
+    _missing_roof_games["game_id"] == _PIT_TARGET, "roof"] = None
+_missing_roof_frame = feat_mod.build_game_features(
+    _missing_roof_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+check("missing roof state fails closed rather than assuming outdoor",
+      pd.isna(_missing_roof_frame.loc[
+          _missing_roof_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
+
+_bad_weather = _weather_valid.copy()
+_bad_weather["weather_time_utc"] = "not-a-time"
+_bad_weather_frame = feat_mod.build_game_features(
+    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_bad_weather)
+check("missing/invalid weather timestamps fail closed",
+      pd.isna(_bad_weather_frame.loc[
+          _bad_weather_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
+
+_slate_weather = feat_mod.build_slate_features(
+    _mixed_schedule, _pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+check("pending slate receives the same strictly-prior hourly weather",
+      len(_slate_weather) == 1 and float(_slate_weather.iloc[0]["temp_f"]) == 72.0)
+
+_weather_feature_source = (BACKEND_DIR / "features.py").read_text(encoding="utf-8")
+_weather_provider_source = (BACKEND_DIR / "weather.py").read_text(encoding="utf-8")
+check("legacy daily observed-weather table is not a production input",
+      'BACKEND_DIR / "nfl_weather.csv"' not in _weather_feature_source
+      and 'BACKEND_DIR / "nfl_weather.csv"' not in _weather_provider_source
+      and "_load_weather_table" not in _weather_feature_source)
+check("ingestion requires the timestamped injury PIT schema",
+      ingest_mod._valid_injury_pit_schema(_pit_inj)
+      and not ingest_mod._valid_injury_pit_schema(_pit_inj.drop(columns="date_modified")))
 
 # ---------------------------------------------------------------------------
 print("\n== 4. Fold tests ==")
@@ -454,7 +951,6 @@ def _eligible_nfl_history() -> pd.DataFrame:
                 gid += 1
     return pd.DataFrame(rows)
 
-import ingestion as ingest_mod  # noqa: E402
 sched = _eligible_nfl_history()
 eligible = ingest_mod.eligible_games(sched)
 check("eligible_games keeps settled REG rows", len(eligible) == len(sched))
@@ -525,6 +1021,12 @@ check("master_pipeline passes fold_list to moneyline OOF",
       "ml_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
 check("master_pipeline passes fold_list to distribution OOF",
       "dist_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
+check("master_pipeline fetches PIT weather before feature construction",
+      "weather_mod.fetch_games_weather(schedule)" in mp_src
+      and mp_src.index("weather_mod.fetch_games_weather(schedule)")
+      < mp_src.index("feat_mod.build_game_features("))
+check("master_pipeline passes the same validated weather to history and slate",
+      mp_src.count("ftn=ftn, weather=pit_weather)") >= 2)
 check("Phase 4 prints a visible fold report",
       "first OOF validation" in mp_src and "validation windows" in mp_src)
 check("Phase 4 persists nfl_fold_table.csv",

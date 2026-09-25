@@ -58,15 +58,15 @@ OPP_ADJ_SHRINKAGE = 8.0  # games of opponent-defensive evidence before the prior
 # stays visible in the trace/workbook either way.
 RFE_COMMIT_SE_MULTIPLE = 1.0
 
-# Scored-trial budget for one RFE sweep (feature_selection.run_rfe). Must
-# cover the full trial space — every incumbent removal plus every declared
-# candidate addition — or the sweep exhausts its budget before scoring the
-# tail of the trial list (the hardcoded 40 predates the 105-candidate pool
-# and silently starved additions). 200 = 35 incumbents + 105 candidates,
-# with headroom for pool growth.
+# Scored-trial budget for one RFE sweep (feature_selection.run_rfe). A full
+# sweep needs enough budget for every incumbent removal plus every declared
+# candidate addition; targeted callers may supply a smaller explicit budget.
+# This remains a configured runtime cap rather than a feature-count formula.
 RFE_MAX_STEPS = 220
 
-# Precipitation thresholds for the committed weather table (inches).
+# Hourly precipitation/snowfall thresholds for the production PIT weather
+# features. Values come from the latest Open-Meteo hour strictly before kickoff;
+# daily aggregates and raw schedule weather are never model inputs.
 PRECIP_FLAG_IN = 0.1
 SNOW_FLAG_IN = 0.1
 PACE_WINDOW = 4       # trailing plays/min window (games)
@@ -84,7 +84,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v6.1-runline-team-categories"
+FEATURE_SET_VERSION = "nfl-prod-v7.1-pit-weather"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -127,11 +127,13 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_net_pts_diff", "ewm_ypp_diff",
     "pace_plays_min_diff", "rest_short_diff", "div_game",
     "travel_miles_diff", "altitude_home", "prime_time",
-    # playing surface + observed game-day environment (static pre-game facts;
-    # NaN for domes/international/missing rows — never fabricated)
+    # Playing surface plus hourly Open-Meteo environment at the venue. Weather
+    # uses the latest forecast/observation timestamp STRICTLY before kickoff;
+    # daily archive aggregates and unproven schedule weather are not used.
     "is_turf_home", "temp_f", "wind_mph", "is_precip", "is_snow",
-    # starter availability (weekly injury reports, pre-game facts; diffs of
-    # Out/IR counts by position group)
+    # Injury report snapshots are keyed to the official report timestamp and
+    # are filtered against kickoff in ingestion/features; unknown timestamps
+    # remain unavailable rather than being treated as pre-game evidence.
     "inj_qb_out_diff", "inj_tackle_out_diff", "inj_edge_out_diff",
     "inj_starters_out_diff",
     # RFE promotion (2026-09-22 sweep, 1-SE gate): trailing passing depth,
@@ -367,21 +369,12 @@ def team_category_id(abbr: object) -> int:
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
 
 # ---------------------------------------------------------------------------
-# Static per-side candidate facts (2026-09-23 expansion): per-side levels of
-# served DIFF-only features. The 2026-09-23 sweep + drift table show the diffs
-# carrying the model weight (travel 3.7%, inj_qb 6.4%, form/ypp 16-13%), and
-# the trees can only split on the sides separately if the sides exist. The
-# already-served raws (elo/win_pct/rest_days/ewm levels, air-yards levels) are
-# NOT re-declared: they sit in the universe and are re-tested every sweep as
-# removal trials. Each base here is attached per-side by
-# features._attach_static_team_facts (pre-game facts: weekly injury reports,
-# venue geometry) — 10 new candidates in the trial space.
+# The four injury diffs are served directly and require a timestamped report
+# row strictly before kickoff. Their raw home/away levels are still generated
+# for schema stability, but are not independent RFE candidates: duplicating a
+# served PIT signal as a separate trial would not add a new information source.
 STATIC_SIDE_CANDIDATES: list[str] = [
     "travel_miles",
-    "inj_qb_out",
-    "inj_tackle_out",
-    "inj_edge_out",
-    "inj_starters_out",
 ]
 
 # Served candidate names, derived from the specs — never hand-listed.
