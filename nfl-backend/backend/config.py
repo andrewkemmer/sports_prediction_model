@@ -84,7 +84,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v7.1-pit-weather"
+FEATURE_SET_VERSION = "nfl-prod-v7.2-pit-core"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -130,12 +130,19 @@ MONEYLINE_FEATURE_COLS = [
     # Playing surface plus hourly Open-Meteo environment at the venue. Weather
     # uses the latest forecast/observation timestamp STRICTLY before kickoff;
     # daily archive aggregates and unproven schedule weather are not used.
+    # Roof/venue facts fall back to the committed nfl_stadiums.csv table when
+    # the schedule is silent, but only a venue with no roof at all settles
+    # weather eligibility: a retractable or domed venue says nothing about the
+    # game-day state, so it keeps failing closed.
     "is_turf_home", "temp_f", "wind_mph", "is_precip", "is_snow",
-    # Injury report snapshots are keyed to the official report timestamp and
-    # are filtered against kickoff in ingestion/features; unknown timestamps
-    # remain unavailable rather than being treated as pre-game evidence.
-    "inj_qb_out_diff", "inj_tackle_out_diff", "inj_edge_out_diff",
-    "inj_starters_out_diff",
+    # The four injury out-counts (inj_qb/tackle/edge/starters_out_diff) were
+    # REMOVED from the served contract. They could not be populated honestly:
+    # the source stopped publishing per-report timestamps after 2024, and the
+    # self-timestamped fallback is roll-forward only, so 2 of 11 seasons were
+    # structurally uncovered and the live slate was mostly NaN. Availability is
+    # now expressed by the expected-participation family (projected starters,
+    # snap-share concentration, replacement quality), which is derived from
+    # strictly-prior games and therefore covers the full history.
     # RFE promotion (2026-09-22 sweep, 1-SE gate): trailing passing depth,
     # the sweep's only committed addition. The diff serves every family; the
     # raw per-side levels route tree-only via RAW_PER_SIDE_COLS below.

@@ -163,29 +163,20 @@ def load_pbp(seasons: list[int] | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Player stats / injuries / Next-Gen Stats — the skill & availability inputs
+# Player stats / Next-Gen Stats — the skill inputs
 # (each narrowed at load, cached per season, degrading to NaN downstream)
 # ---------------------------------------------------------------------------
+# NOTE: the injury-report loader (INJ_* / load_injuries) was removed together
+# with the four inj_*_out_diff features. The source stopped publishing
+# per-report timestamps after 2024, so those flags could not be populated for
+# every game without either leaking a week-level status that postdates kickoff
+# or accepting a permanently NaN slate. Availability is now expressed by the
+# expected-participation feature family, derived from strictly-prior games.
+
 PS_NEEDS = [
     "game_id", "team", "position", "carries", "rushing_yards", "targets",
     "receptions", "receiving_yards", "receiving_tds", "season_type",
 ]
-
-# Injury rows must retain both the official report update time and player
-# identity.  The feature engine uses the latest report row STRICTLY BEFORE
-# kickoff; a row without a parseable timestamp is unavailable, never assumed
-# to be pre-game.  ``full_name`` de-duplicates repeated player report rows.
-INJ_NEEDS = [
-    "season", "week", "team", "position", "full_name", "report_status",
-    "date_modified",
-]
-INJ_CACHE_VERSION = "v3"
-_INJ_PIT_SCHEMA = frozenset(INJ_NEEDS)
-
-
-def _valid_injury_pit_schema(frame: pd.DataFrame) -> bool:
-    """Whether an injury frame can prove pre-kickoff report provenance."""
-    return _INJ_PIT_SCHEMA <= set(getattr(frame, "columns", []))
 
 # Weekly per-player tracking efficiency (week-0 rows are SEASON aggregates —
 # they mix future games into a week-1 value, so they are dropped at load).
@@ -225,51 +216,6 @@ def load_player_stats(seasons: list[int] | None = None,
             continue
         keep = [c for c in PS_NEEDS if c in df.columns]
         df = df[keep]
-        df.to_parquet(path, index=False)
-        frames.append(df)
-    if not frames:
-        return None
-    return pd.concat(frames, ignore_index=True)
-
-
-def load_injuries(seasons: list[int] | None = None,
-                  use_cache: bool = True) -> pd.DataFrame | None:
-    """Load timestamped nflverse injury report snapshots.
-
-    The cache intentionally preserves ``date_modified`` and player identity;
-    without those fields the feature engine cannot prove that a status was
-    available before kickoff. Per-season parquet caches are versioned so an
-    older narrow cache cannot silently bypass the PIT gate.
-    """
-    seasons = seasons or config.ALL_SEASONS
-    frames: list[pd.DataFrame] = []
-    for season in seasons:
-        path = _cache_path(f"inj_{INJ_CACHE_VERSION}_{season}.parquet")
-        if use_cache and path.exists():
-            try:
-                cached = pd.read_parquet(path)
-                if _valid_injury_pit_schema(cached):
-                    frames.append(cached)
-                    continue
-                missing = sorted(_INJ_PIT_SCHEMA - set(cached.columns))
-                logger.warning("injuries cache %s lacks PIT schema %s; refetching",
-                               path.name, missing)
-            except Exception as exc:
-                logger.warning("injuries cache %s unreadable (%s)", path.name, exc)
-        try:
-            from nflreadpy import load_injuries
-            logger.info("loading injuries season %s", season)
-            df = _polars_to_pandas(load_injuries(season))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("injuries unavailable for %s: %s", season, exc)
-            continue
-        keep = [c for c in INJ_NEEDS if c in df.columns]
-        df = df[keep]
-        if not _valid_injury_pit_schema(df):
-            missing = sorted(_INJ_PIT_SCHEMA - set(df.columns))
-            logger.warning("injuries %s unavailable: source lacks PIT fields %s",
-                           season, missing)
-            continue
         df.to_parquet(path, index=False)
         frames.append(df)
     if not frames:

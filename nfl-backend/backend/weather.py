@@ -50,6 +50,14 @@ PIT_WEATHER_SOURCES = frozenset({
     OPEN_METEO_FORECAST,
 })
 
+ROOF_OUTDOOR = "outdoor"
+ROOF_RETRACTABLE = "retractable"
+ROOF_DOME = "dome"
+VENUE_ROOF_VALUES = frozenset({ROOF_OUTDOOR, ROOF_RETRACTABLE, ROOF_DOME})
+# Schedule roof states that describe the game itself (nflverse).
+SCHEDULE_OPEN_ROOFS = ("outdoors", "outdoor", "open", "retractable")
+SCHEDULE_CLOSED_ROOFS = ("dome", "closed")
+
 CACHE_VERSION = "v1"
 CACHE_FILE = f"weather_pit_{CACHE_VERSION}.parquet"
 CACHE_COLUMNS = [
@@ -89,6 +97,29 @@ def cache_path(path: str | Path | None = None) -> Path:
 @functools.lru_cache(maxsize=1)
 def stadium_locations() -> dict[str, tuple[float, float]]:
     """Load committed venue coordinates, keyed by schedule stadium name."""
+    return {name: (info["lat"], info["lon"])
+            for name, info in _venue_table().items()}
+
+
+@functools.lru_cache(maxsize=1)
+def stadium_roofs() -> dict[str, str]:
+    """Committed static roof classification per schedule stadium name.
+
+    ``outdoor``  - no roof over the field at all (open-air bowl)
+    ``retractable`` - roofed venue whose game-day state varies
+    ``dome``     - fixed roof
+
+    This is a venue-structure fact, knowable long before any kickoff, so it is
+    a legitimate fallback when the schedule's per-game roof field is missing.
+    It is NOT evidence of what the roof did on a given day: a ``retractable``
+    venue stays unresolved for weather purposes (see :func:`_outdoor`).
+    """
+    return {name: info["roof"] for name, info in _venue_table().items()
+            if info["roof"] in VENUE_ROOF_VALUES}
+
+
+@functools.lru_cache(maxsize=1)
+def _venue_table() -> dict[str, dict]:
     path = config.BACKEND_DIR / "nfl_stadiums.csv"
     if not path.exists():
         return {}
@@ -96,13 +127,17 @@ def stadium_locations() -> dict[str, tuple[float, float]]:
     required = {"stadium", "lat", "lon"}
     if not required <= set(venues.columns):
         return {}
-    out: dict[str, tuple[float, float]] = {}
+    out: dict[str, dict] = {}
     for row in venues.itertuples(index=False):
         lat = pd.to_numeric(getattr(row, "lat", np.nan), errors="coerce")
         lon = pd.to_numeric(getattr(row, "lon", np.nan), errors="coerce")
         stadium = str(getattr(row, "stadium", "")).strip()
-        if stadium and pd.notna(lat) and pd.notna(lon):
-            out[stadium] = (float(lat), float(lon))
+        if not stadium or pd.isna(lat) or pd.isna(lon):
+            continue
+        out[stadium] = {
+            "lat": float(lat), "lon": float(lon),
+            "roof": str(getattr(row, "roof", "") or "").strip().lower(),
+        }
     return out
 
 
@@ -125,14 +160,55 @@ def kickoff_utc(games: pd.DataFrame) -> pd.Series:
         return out
 
 
+def schedule_roof(games: pd.DataFrame) -> pd.Series:
+    """Normalize the schedule's per-game roof field (game-day evidence)."""
+    if games is None or "roof" not in getattr(games, "columns", []):
+        return pd.Series(pd.NA, index=getattr(games, "index", None),
+                         dtype="string")
+    return games["roof"].astype("string").str.strip().str.lower()
+
+
+def venue_roof(games: pd.DataFrame) -> pd.Series:
+    """Committed static roof classification for each row's stadium."""
+    roofs = stadium_roofs()
+    stadium = (games["stadium"].astype("string").str.strip()
+               if "stadium" in getattr(games, "columns", [])
+               else pd.Series(pd.NA, index=getattr(games, "index", None),
+                              dtype="string"))
+    return stadium.map(lambda s: roofs.get(str(s), "") if pd.notna(s) else "")
+
+
+def is_roofed(games: pd.DataFrame) -> pd.Series:
+    """True when the home venue is roofed (fixed or retractable).
+
+    The schedule's own per-game value wins: an explicit ``outdoors``/``open``
+    means the game was played with the roof open, even at a roofed venue. Only
+    when the schedule is silent does the committed venue classification decide.
+    Unknown at both levels stays unknown rather than becoming a guess.
+    """
+    sched = schedule_roof(games)
+    venue = venue_roof(games)
+    return (sched.isin(SCHEDULE_CLOSED_ROOFS)
+            | (sched.isna() & venue.isin([ROOF_DOME, ROOF_RETRACTABLE]))).fillna(False)
+
+
 def _outdoor(games: pd.DataFrame) -> pd.Series:
-    roof = (games["roof"].astype("string").str.strip().str.lower()
-            if "roof" in games.columns
-            else pd.Series(pd.NA, index=games.index, dtype="string"))
-    # Unknown/missing roof state is not enough evidence that outdoor weather
-    # applies. Explicit nflverse outdoor states are admitted; all others fail
-    # closed rather than guessing around a retractable or indoor venue.
-    return roof.isin(["outdoors", "outdoor", "open", "retractable"]).fillna(False)
+    """Whether outdoor weather provably applies to a game.
+
+    Explicit per-game open-air states are admitted. When the schedule is silent
+    the committed venue classification decides ONLY for venues that have no roof
+    at all: a retractable or domed venue tells us nothing about the game-day
+    state, so it keeps failing closed.
+    """
+    sched = schedule_roof(games)
+    venue = venue_roof(games)
+    return (sched.isin(SCHEDULE_OPEN_ROOFS)
+            | (sched.isna() & venue.eq(ROOF_OUTDOOR))).fillna(False)
+
+
+def outdoor_mask(games: pd.DataFrame) -> pd.Series:
+    """Public alias of the outdoor-eligibility rule (feature boundary uses it)."""
+    return _outdoor(games)
 
 
 def _targets(games: pd.DataFrame) -> list[dict]:

@@ -216,28 +216,6 @@ def _pit_pbp() -> pd.DataFrame:
     ])
 
 
-_pit_inj = pd.DataFrame([
-    # P1: latest PRE-kickoff status wins (Questionable, not Out).
-    {"season": 2024, "week": 2, "team": "A", "position": "QB",
-     "full_name": "Alpha QB", "report_status": "Out",
-     "date_modified": "2024-09-07T18:00:00Z"},
-    {"season": 2024, "week": 2, "team": "A", "position": "QB",
-     "full_name": "Alpha QB", "report_status": "Questionable",
-     "date_modified": "2024-09-08T16:00:00Z"},
-    # P2 remains Out; P3 is after kickoff and must never be counted.
-    {"season": 2024, "week": 2, "team": "A", "position": "QB",
-     "full_name": "Backup QB", "report_status": "Out",
-     "date_modified": "2024-09-07T19:00:00Z"},
-    {"season": 2024, "week": 2, "team": "A", "position": "QB",
-     "full_name": "Post-kickoff QB", "report_status": "Out",
-     "date_modified": "2024-09-08T18:00:00Z"},
-    # A real pre-kickoff Questionable row makes the away-side count a true 0.
-    {"season": 2024, "week": 2, "team": "C", "position": "QB",
-     "full_name": "Healthy QB", "report_status": "Questionable",
-     "date_modified": "2024-09-07T18:00:00Z"},
-])
-
-
 def _same_target_view(left: pd.DataFrame, right: pd.DataFrame,
                       game_id: str = _PIT_TARGET) -> bool:
     a = feat_mod.tree_view(left[left["game_id"] == game_id]).reset_index(drop=True)
@@ -246,7 +224,7 @@ def _same_target_view(left: pd.DataFrame, right: pd.DataFrame,
             and np.allclose(a.to_numpy(float), b.to_numpy(float), equal_nan=True))
 
 
-_pit_base = feat_mod.build_game_features(_pit_games, pbp=_pit_pbp(), inj=_pit_inj)
+_pit_base = feat_mod.build_game_features(_pit_games, pbp=_pit_pbp())
 _pit_noncausal_games = _pit_games.copy()
 _target_mask = _pit_noncausal_games["game_id"] == _PIT_TARGET
 _future_mask = _pit_noncausal_games["game_id"] == _PIT_FUTURE
@@ -258,14 +236,9 @@ _pit_noncausal_pbp.loc[
     _pit_noncausal_pbp["game_id"].isin([_PIT_TARGET, _PIT_FUTURE]),
     "air_yards",
 ] += 1000.0
-_pit_noncausal_inj = pd.concat([_pit_inj, pd.DataFrame([{
-    "season": 2024, "week": 2, "team": "A", "position": "QB",
-    "full_name": "Later Post QB", "report_status": "Out",
-    "date_modified": "2024-09-08T19:00:00Z",
-}])], ignore_index=True)
 _pit_noncausal = feat_mod.build_game_features(
-    _pit_noncausal_games, pbp=_pit_noncausal_pbp, inj=_pit_noncausal_inj)
-check("target outcome and all future outcome/PBP/injury/venue changes are ignored",
+    _pit_noncausal_games, pbp=_pit_noncausal_pbp)
+check("target outcome and all future outcome/PBP/venue changes are ignored",
       _same_target_view(_pit_base, _pit_noncausal))
 _pit_target_row = _pit_base[_pit_base["game_id"] == _PIT_TARGET].iloc[0]
 check("record metadata is entering record, not target/final record",
@@ -279,7 +252,7 @@ _pit_prior_pbp = _pit_pbp()
 _pit_prior_pbp.loc[_pit_prior_pbp["game_id"].isin(["PIT_G0", "PIT_G1"]),
                   "air_yards"] *= 3.0
 _pit_prior = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_prior_pbp, inj=_pit_inj)
+    _pit_games, pbp=_pit_prior_pbp)
 _pit_pbp_cols = ["pbp_air_yards_att_ewm_diff",
                  "pbp_air_yards_att_ewm_home",
                  "pbp_air_yards_att_ewm_away"]
@@ -293,7 +266,7 @@ check("genuinely prior PBP observations do change target EWM",
 _mixed_schedule = _pit_games.copy()
 _mixed_schedule.loc[_mixed_schedule["game_id"] == _PIT_TARGET,
                     ["home_score", "away_score"]] = np.nan
-_mixed_base = feat_mod.build_slate_features(_mixed_schedule, _pit_pbp(), inj=_pit_inj)
+_mixed_base = feat_mod.build_slate_features(_mixed_schedule, _pit_pbp())
 _mixed_changed_schedule = _mixed_schedule.copy()
 _mixed_changed_schedule.loc[_mixed_changed_schedule["game_id"] == _PIT_FUTURE,
                             ["home_score", "away_score"]] = [0.0, 42.0]
@@ -303,7 +276,7 @@ _mixed_changed_pbp = _pit_pbp()
 _mixed_changed_pbp.loc[_mixed_changed_pbp["game_id"] == _PIT_FUTURE,
                        "air_yards"] += 1000.0
 _mixed_changed = feat_mod.build_slate_features(
-    _mixed_changed_schedule, _mixed_changed_pbp, inj=_pit_noncausal_inj)
+    _mixed_changed_schedule, _mixed_changed_pbp)
 check("pending slate target ignores a later settled outcome/source/venue",
       len(_mixed_base) == 1 and _same_target_view(_mixed_base, _mixed_changed))
 check("slate travel uses prior home venues from the full schedule",
@@ -318,32 +291,14 @@ _first_home = feat_mod.build_game_features(
 check("first prior home venue is unavailable rather than guessed",
       pd.isna(_first_home.iloc[0]["travel_miles_diff"]))
 
-# Injury timestamp semantics.
-_inj_facts = feat_mod.injuries_game_facts(
-    _pit_inj, _pit_games[_pit_games["game_id"] == _PIT_TARGET])
-_inj_home = _inj_facts[_inj_facts["team"] == "A"].iloc[0]
-_inj_away = _inj_facts[_inj_facts["team"] == "C"].iloc[0]
-check("injury facts admit pre-kickoff Out and ignore post-kickoff updates",
-      _inj_home["inj_qb_out"] == 1.0 and _inj_away["inj_qb_out"] == 0.0)
-_bad_inj = pd.DataFrame([
-    {"season": 2024, "week": 2, "team": "A", "position": "QB",
-     "full_name": "Missing Time", "report_status": "Out", "date_modified": None},
-    {"season": 2024, "week": 2, "team": "C", "position": "QB",
-     "full_name": "Bad Time", "report_status": "Out", "date_modified": "not-a-time"},
-])
-_bad_inj_frame = feat_mod.build_game_features(
-    _pit_games[_pit_games["game_id"] == _PIT_TARGET].copy(), inj=_bad_inj)
-check("missing/invalid injury timestamps fail closed as NaN",
-      all(pd.isna(_bad_inj_frame.iloc[0][f"inj_{kind}_out_diff"])
-          for kind in ("qb", "tackle", "edge", "starters")))
 
 # Weather is served, but only through the strict hourly Open-Meteo PIT
 # provider. Raw schedule values and the legacy daily archive are not inputs.
 _weather_features = {"temp_f", "wind_mph", "is_precip", "is_snow"}
 check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
-check("active moneyline contract is the restored 35-feature set",
-      len(config.MONEYLINE_FEATURE_COLS) == 35)
+check("active moneyline contract is the 31-feature PIT set",
+      len(config.MONEYLINE_FEATURE_COLS) == 31)
 
 _weather_games = _pit_games.copy()
 _weather_games["temp"] = 111.0
@@ -433,7 +388,7 @@ check("PIT weather cache round-trips only the matching game/stadium/kickoff",
 check("still-pending forecasts refresh instead of freezing in cache",
       _pending_weather_refreshed)
 _weather_attached = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+    _pit_games, pbp=_pit_pbp(), weather=_weather_valid)
 _weather_target = _weather_attached[_weather_attached["game_id"] == _PIT_TARGET].iloc[0]
 check("strictly-prior hourly weather attaches to the target",
       float(_weather_target["temp_f"]) == 72.0
@@ -570,7 +525,7 @@ _post = _weather_valid.copy()
 _post["weather_time_utc"] = _pit_kickoff
 _post["temp_f"] = 999.0
 _post_frame = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_post)
+    _pit_games, pbp=_pit_pbp(), weather=_post)
 check("weather timestamp equal to kickoff fails closed",
       pd.isna(_post_frame.loc[
           _post_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
@@ -578,7 +533,7 @@ check("weather timestamp equal to kickoff fails closed",
 _weather_changed = _weather_valid.copy()
 _weather_changed[["temp_f", "wind_mph", "precip_in", "snow_in"]] = [90.0, 22.0, 0.0, 0.4]
 _changed_attached = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_changed)
+    _pit_games, pbp=_pit_pbp(), weather=_weather_changed)
 _changed_target = _changed_attached[_changed_attached["game_id"] == _PIT_TARGET].iloc[0]
 check("genuinely pre-kickoff weather changes the target features",
       float(_changed_target["temp_f"]) == 90.0
@@ -595,12 +550,12 @@ _future_weather = pd.DataFrame([{
     "temp_f": 111.0, "wind_mph": 44.0, "precip_in": 1.0, "snow_in": 0.0,
 }])
 _with_future_weather = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    _pit_games, pbp=_pit_pbp(),
     weather=pd.concat([_weather_valid, _future_weather], ignore_index=True))
 _with_future_changed = _future_weather.copy()
 _with_future_changed[["temp_f", "wind_mph", "precip_in"]] = [222.0, 55.0, 0.0]
 _with_future_weather_changed = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    _pit_games, pbp=_pit_pbp(),
     weather=pd.concat([_weather_valid, _with_future_changed], ignore_index=True))
 check("future game's weather cannot leak into an earlier target",
       _same_target_view(_with_future_weather, _with_future_weather_changed))
@@ -608,7 +563,7 @@ check("future game's weather cannot leak into an earlier target",
 _forecast_late = _future_weather.copy()
 _forecast_late["fetched_at_utc"] = "2024-09-15T18:00:00Z"  # after kickoff
 _forecast_late_frame = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj,
+    _pit_games, pbp=_pit_pbp(),
     weather=pd.concat([_weather_valid, _forecast_late], ignore_index=True))
 check("forecast fetched after kickoff is rejected",
       pd.isna(_forecast_late_frame.loc[
@@ -617,30 +572,60 @@ check("forecast fetched after kickoff is rejected",
 _indoor_games = _pit_games.copy()
 _indoor_games.loc[_indoor_games["game_id"] == _PIT_TARGET, "roof"] = "dome"
 _indoor_frame = feat_mod.build_game_features(
-    _indoor_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+    _indoor_games, pbp=_pit_pbp(), weather=_weather_valid)
 check("indoor/closed games remain NaN rather than fetching outdoor weather",
       pd.isna(_indoor_frame.loc[
           _indoor_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
 
+# A missing per-game roof is resolved by the committed venue classification
+# ONLY where that classification can settle it: a venue with no roof at all.
 _missing_roof_games = _pit_games.copy()
 _missing_roof_games.loc[
     _missing_roof_games["game_id"] == _PIT_TARGET, "roof"] = None
 _missing_roof_frame = feat_mod.build_game_features(
-    _missing_roof_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_weather_valid)
-check("missing roof state fails closed rather than assuming outdoor",
-      pd.isna(_missing_roof_frame.loc[
-          _missing_roof_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
+    _missing_roof_games, pbp=_pit_pbp(), weather=_weather_valid)
+check("missing schedule roof falls back to the committed open-air venue",
+      float(_missing_roof_frame.loc[
+          _missing_roof_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]) == 72.0
+      and float(_missing_roof_frame.loc[
+          _missing_roof_frame["game_id"] == _PIT_TARGET,
+          "is_dome_home"].iloc[0]) == 0.0)
+
+# A roofed venue with no per-game state says nothing about the game-day roof,
+# so it must still fail closed rather than borrow the venue's default.
+_roofed_games = _pit_games.copy()
+_roofed_games["stadium"] = "NRG Stadium"
+_roofed_games["roof"] = None
+_roofed_weather = _weather_valid.copy()
+_roofed_weather["stadium"] = "NRG Stadium"
+_roofed_frame = feat_mod.build_game_features(
+    _roofed_games, pbp=_pit_pbp(), weather=_roofed_weather)
+check("unknown roof state at a roofed venue fails closed",
+      pd.isna(_roofed_frame.iloc[0]["temp_f"])
+      and float(_roofed_frame.iloc[0]["is_dome_home"]) == 1.0)
+
+# A venue that is not in the committed table at all is equally unknown.
+_unmapped_games = _pit_games.copy()
+_unmapped_games["stadium"] = "Nowhere Field"
+_unmapped_games["roof"] = None
+_unmapped_weather = _weather_valid.copy()
+_unmapped_weather["stadium"] = "Nowhere Field"
+_unmapped_frame = feat_mod.build_game_features(
+    _unmapped_games, pbp=_pit_pbp(), weather=_unmapped_weather)
+check("unknown roof state at an unmapped venue fails closed",
+      pd.isna(_unmapped_frame.iloc[0]["temp_f"])
+      and pd.isna(_unmapped_frame.iloc[0]["is_dome_home"]))
 
 _bad_weather = _weather_valid.copy()
 _bad_weather["weather_time_utc"] = "not-a-time"
 _bad_weather_frame = feat_mod.build_game_features(
-    _pit_games, pbp=_pit_pbp(), inj=_pit_inj, weather=_bad_weather)
+    _pit_games, pbp=_pit_pbp(), weather=_bad_weather)
 check("missing/invalid weather timestamps fail closed",
       pd.isna(_bad_weather_frame.loc[
           _bad_weather_frame["game_id"] == _PIT_TARGET, "temp_f"].iloc[0]))
 
 _slate_weather = feat_mod.build_slate_features(
-    _mixed_schedule, _pit_pbp(), inj=_pit_inj, weather=_weather_valid)
+    _mixed_schedule, _pit_pbp(), weather=_weather_valid)
 check("pending slate receives the same strictly-prior hourly weather",
       len(_slate_weather) == 1 and float(_slate_weather.iloc[0]["temp_f"]) == 72.0)
 
@@ -650,9 +635,6 @@ check("legacy daily observed-weather table is not a production input",
       'BACKEND_DIR / "nfl_weather.csv"' not in _weather_feature_source
       and 'BACKEND_DIR / "nfl_weather.csv"' not in _weather_provider_source
       and "_load_weather_table" not in _weather_feature_source)
-check("ingestion requires the timestamped injury PIT schema",
-      ingest_mod._valid_injury_pit_schema(_pit_inj)
-      and not ingest_mod._valid_injury_pit_schema(_pit_inj.drop(columns="date_modified")))
 
 # ---------------------------------------------------------------------------
 print("\n== 4. Fold tests ==")
@@ -1412,6 +1394,7 @@ try:
           _targeted == "nfl_feature_workbook_2026-09-21_targeted_1234.xlsx", _targeted)
 except Exception as exc:  # noqa: BLE001
     check("RFE workbook naming helper available", False, str(exc))
+
 
 # ---------------------------------------------------------------------------
 print(f"\n{'=' * 60}")

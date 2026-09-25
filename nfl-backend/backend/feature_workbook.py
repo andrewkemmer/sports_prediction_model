@@ -311,7 +311,11 @@ NFL_API_SOURCES = [
      "fields plus scores/date/week/div_game and QB ids/names (card enrichment); "
      "surface feeds is_turf_home. Weather comes only from the separate hourly "
      "Open-Meteo PIT provider.",
-     "Kept-but-unused: roof, stadium, location, referee, game_type. Dropped "
+     "Kept-but-unused: roof, stadium, location, referee, game_type. roof and "
+     "stadium are consumed indirectly: the committed nfl_stadiums.csv supplies "
+     "coordinates, elevation and a static roof classification for every stadium "
+     "the schedule references, and only settles roof state when the schedule is "
+     "silent. Dropped "
      "entirely: spread_line, total_line, over_under_line, overtime — NFL has "
      "NO market-implied features by governance (MLB has both)."),
     ("Open-Meteo hourly weather\narchive + forecast endpoints",
@@ -321,7 +325,10 @@ NFL_API_SOURCES = [
      "before each kickoff and serves temp_f / wind_mph / is_precip / is_snow; "
      "past games use archive/recent-past and pending games use forecasts.",
      "No daily aggregate is consumed. Missing/indoor/unknown-venue rows stay "
-     "NaN; forecast cache rows are rejected unless fetched before kickoff."),
+     "NaN; forecast cache rows are rejected unless fetched before kickoff. A "
+     "silently-missing per-game roof is resolved from the committed venue "
+     "classification only for open-air venues; a retractable or domed venue "
+     "still fails closed, because the game-day state is unknown."),
     ("nflverse player stats\nnflreadpy.load_player_stats (all positions)",
      "Weekly player stats for every position: passing, rushing, receiving "
      "volumes and efficiency, ids/names.",
@@ -417,16 +424,21 @@ NFL_UNLOADED_ENDPOINTS = [
      "Workload context: RB committees, defensive snap wear."),
     ("load_officials", "Per-game officiating crews.",
      "Crew penalty-rate context (second-order)."),
-    ("load_injuries (now loaded)", "Timestamped injury report updates.",
-     "Aggregated → inj_qb_out_diff / inj_tackle_out_diff / inj_edge_out_diff / "
-     "inj_starters_out_diff; only the latest report_status == Out row with "
-     "date_modified strictly before kickoff is counted."),
     ("load_ngs (now loaded)", "Next-Gen Stats: passing/rushing/receiving efficiency.",
      "Aggregated 2026-09-22 → ngs_cpoe_* / ngs_rush_eff_* / "
      "ngs_sep_* trailing candidates (weekly rows, week-0 aggregates "
      "excluded)."),
     ("load_participation", "Advanced participation and alignment data.",
      "Coverage/pressure context (higher effort)."),
+    ("load_injuries (was loaded, now unloaded)",
+     "Official weekly injury-report statuses, with report timestamps through "
+     "the 2024 season.",
+     "Served inj_qb/tackle/edge/starters_out_diff until 2026-09-25, then "
+     "REMOVED from the contract: upstream stopped publishing per-report "
+     "timestamps, so no pre-kickoff-proven status exists for later seasons "
+     "and a week-level status would postdate kickoff. Re-evaluate only "
+     "against a timestamped source; expected-participation features are the "
+     "replacement signal."),
     ("load_pfr", "PFR advanced passing/rushing metrics.",
      "Pressure-rate and coverage-grade context."),
     ("load_qbr", "ESPN QBR (weekly and season).",

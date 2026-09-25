@@ -246,18 +246,15 @@ def main(argv: list[str] | None = None) -> int:
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
     ngs = ingestion.load_nextgen(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
-    injuries = ingestion.load_injuries(seasons=seasons,
-                                       use_cache=not full_repull)
     # Snap-count participation (2013+) and FTN charting (2022+): the platoon
     # candidate sources. Trailing windows need the warmup season for snaps.
     snaps = ingestion.load_snap_counts(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
     ftn = ingestion.load_ftn_charting(seasons=seasons,
                                       use_cache=not full_repull)
-    logger.info("player stats rows: %s | ngs rows: %s | injury report rows: %s",
+    logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
-                0 if ngs is None else len(ngs),
-                0 if injuries is None else len(injuries))
+                0 if ngs is None else len(ngs))
     logger.info("snap count rows: %s | ftn charting rows: %s",
                 0 if snaps is None else len(snaps),
                 0 if ftn is None else len(ftn))
@@ -272,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── 3. Point-in-time features ─────────────────────────────────────────
     _banner("PHASE 3", "point-in-time feature engine")
     game_df = feat_mod.build_game_features(
-        decided_all, pbp, ps=ps, ngs=ngs, inj=injuries, snaps=snaps,
+        decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather)
     game_df = game_df.sort_values("gameday").reset_index(drop=True)
     logger.info("feature frame: %d decided games, %d columns",
@@ -494,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
     slate = feat_mod.build_slate_features(
-        schedule, pbp, ps=ps, ngs=ngs, inj=injuries, snaps=snaps,
+        schedule, pbp, ps=ps, ngs=ngs, snaps=snaps,
         ftn=ftn, weather=pit_weather)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
