@@ -1069,31 +1069,6 @@ def test_a_blocked_host_is_not_probed_again() -> None:
     assert ing._known_blocked_host("cdn.nba.com") is None
 
 
-def test_the_pull_never_walks_a_route_it_cannot_publish_from(monkeypatch) -> None:
-    """ESPN is not a fallback, because nothing it builds can be published.
-
-    It used to be the last resort in the chain.  It carries games and team box
-    scores but no player lines, and a window with no player lines is refused
-    downstream — so walking it cost a minute of requests to arrive at a
-    failure the route already knew about.  The chain now names it instead.
-    """
-    monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "1")
-    monkeypatch.setattr(ing, "_fetch_season_log",
-                        lambda *a, **k: (_ for _ in ()).throw(
-                            ing.SeasonUnavailable("stats.nba.com is not answering")))
-    monkeypatch.setattr(ing, "_pull_seasons_from_cdn", lambda *a: (_ for _ in ()).throw(
-        ing.CdnUnavailable("cdn.nba.com refused every box score")))
-    called: list[str] = []
-
-    def _espn_must_not_run(*args):
-        called.append("espn")
-        return ("espn-games", "espn-teams", "espn-players", {})
-
-    monkeypatch.setattr(ing, "_pull_seasons_from_espn", _espn_must_not_run)
-    with pytest.raises(RuntimeError, match="could not read"):
-        ing._pull_seasons(date(2024, 1, 1), date(2024, 6, 30))
-    assert called == [], "the ESPN route was walked to reach a known failure"
-    assert ing.SOURCE_USED["source"] != "ESPN schedules"
 
 
 # --------------------------------------------------------------------------
@@ -1362,7 +1337,7 @@ def test_load_dataset_pulls_both_season_types_and_passes_the_gates(monkeypatch) 
     assert set(wh.games.season) == {2024.0}
     assert len(wh.team_stats) == 2 * len(TEAMS)
     assert not ing._validate_dataset.__doc__ is None
-    assert wh.manifest["dataset_id"] == ing.SOURCE_ID
+    assert wh.manifest["source_id"] == ing.SOURCE_ID
     assert wh.manifest["window"] == {"start": "2024-01-01", "end": "2025-07-01"}
     assert wh.manifest["tables"]["games"] == len(TEAMS)
     assert ing._cache_paths()[0].exists()
@@ -1406,13 +1381,22 @@ def test_an_empty_window_is_reported_not_trained_on(monkeypatch) -> None:
         ing.load_dataset()
 
 
-def test_source_directory_becomes_the_cache_location(monkeypatch, tmp_path) -> None:
-    stub_season(monkeypatch)
-    target = tmp_path / "explicit-cache"
-    target.mkdir()
-    ing.load_dataset(source=str(target))
-    assert (target / "games.parquet").exists()
-    assert (target / "team_stats.parquet").exists()
+def test_nothing_can_point_the_run_at_a_data_directory(capsys) -> None:
+    """The pipeline reads live APIs; there is no longer a way to redirect it.
+
+    The old contract let ``--source-path`` repoint the cache, which is how a
+    run could be pointed at a directory of tables it never produced.  An
+    argument that is accepted and ignored is worse than a missing one: it looks
+    like a supported input, so the flag is gone from both surfaces.
+    """
+    import inspect
+
+    for target in (ing.load_dataset, mp.run, ing.load_games,
+                   ing.load_team_stats, ing.load_player_stats):
+        assert "source" not in inspect.signature(target).parameters
+    with pytest.raises(SystemExit):
+        mp.main(["--source-path", str(BACKEND)])
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------
@@ -1782,302 +1766,204 @@ def test_play_by_play_stops_after_a_conclusive_run_of_refusals(
 
 
 # --------------------------------------------------------------------------
-# The pipeline must not depend on being handed its data
+# ESPN's per-game box score, which is where the players come from now
 #
-# The 2026-09-25 Kaggle run reached the pipeline with no --source-path. It
-# pulled live, both NBA.com hosts refused it, it fell through to ESPN — which
-# has games and box scores but no player lines — and it published eighteen
-# artifacts whose every player-derived feature was a default. The pinned
-# export was mounted the whole time and nobody looked for it.
+# The 2026-09-25 Kaggle run reached the ESPN route because both NBA.com hosts
+# refused it, and the ESPN route carried no player detail, so the run published
+# artifacts whose every player-derived feature was a default. The schedules
+# endpoint cannot fix that - but the per-game summary endpoint carries the box
+# score, so that is where the player lines are fetched.
 # --------------------------------------------------------------------------
 
 
-def _warehouse_with_player_rows(player_rows: int) -> ing.Warehouse:
-    games = pd.DataFrame([
-        {"game_id": f"a{i}", "season": 2024.0, "gameday": "2024-10-22",
-         "game_type": 1, "home_team": TEAMS[i], "away_team": TEAMS[i + 1],
-         "home_score": 110.0, "away_score": 100.0}
-        for i in range(len(TEAMS) - 1)])
-    # Both sides of every game, so the team-fact gate is satisfied and the
-    # player gate is the only thing under test.
-    facts = pd.DataFrame(
-        [{"game_id": row.game_id, "team": team}
-         for row in games.itertuples()
-         for team in (row.home_team, row.away_team)])
-    players = pd.DataFrame([
-        {"game_id": f"a{i}", "player_id": f"p{i}", "team": TEAMS[i]}
-        for i in range(player_rows)])
-    return ing.Warehouse(games, facts, players, {}, {})
+def _espn_block(team: str, athlete_ids: list[str]) -> dict:
+    return {
+        "team": {"abbreviation": team},
+        "statistics": [{
+            "names": ["MIN", "PTS", "FG", "3PT", "FT", "REB", "AST", "TO",
+                      "STL", "BLK", "OREB", "DREB", "PF", "+/-"],
+            "athletes": [
+                {"athlete": {"id": pid, "fullName": f"Player {pid}"},
+                 "stats": ["36", "24", "10-18", "2-5", "4-5", "7", "5", "3",
+                           "1", "0", "2", "5", "3", "+6"]}
+                for pid in athlete_ids
+            ],
+        }],
+    }
 
 
-def test_a_window_with_no_player_detail_may_not_train() -> None:
-    """The gate that would have caught the run that published defaults.
-
-    A default looks exactly like a measurement to everything downstream, so
-    the models fit, the calibration curve is smooth, and the artifacts publish
-    with nothing in them saying the players were never there.
-    """
-    with pytest.raises(RuntimeError, match="no player detail"):
-        ing._validate_dataset(_warehouse_with_player_rows(0))
-    # And the message has to be actionable, not just a refusal.
-    try:
-        ing._validate_dataset(_warehouse_with_player_rows(0))
-    except RuntimeError as exc:
-        assert "--source-path" in str(exc)
-        assert "wyattowalsh/basketball" in str(exc)
+def _espn_summary(home: str, away: str) -> dict:
+    return {"boxscore": {"players": [_espn_block(home, ["101", "102"]),
+                                     _espn_block(away, ["201"])]}}
 
 
-def test_a_window_with_player_detail_still_validates() -> None:
-    """The gate must not fire on the ordinary warehouse-backed run."""
-    ing._validate_dataset(_warehouse_with_player_rows(3))
+def test_the_summary_box_score_becomes_player_lines() -> None:
+    """One game's summary, in the normalized player_stats shape."""
+    rows = ing._player_lines_from_espn_summary(
+        _espn_summary("BOS", "NYK"), "401584693", "BOS", "NYK")
+    assert len(rows) == 3
+    home_row = next(r for r in rows if r["player_id"] == "101")
+    assert home_row == {
+        "game_id": "401584693", "player_id": "101", "player_name": "Player 101",
+        "team": "BOS", "opponent": "NYK", "is_home": True, "win": None,
+        "minutes": 36.0, "points": 24.0, "fgm": 10.0, "fga": 18.0,
+        "fg3m": 2.0, "fg3a": 5.0, "ftm": 4.0, "fta": 5.0, "reb": 7.0,
+        "ast": 5.0, "tov": 3.0, "stl": 1.0, "blk": 0.0, "oreb": 2.0,
+        "dreb": 5.0, "pf": 3.0, "plus_minus": 6.0,
+    }
+    away_row = next(r for r in rows if r["player_id"] == "201")
+    assert away_row["is_home"] is False and away_row["opponent"] == "BOS"
 
 
-def test_the_warehouse_is_found_wherever_kaggle_mounts_it(tmp_path) -> None:
-    """Discovery has to survive Kaggle's generated slug directories."""
-    # Directly on the search root.
-    root = tmp_path / "input"
-    direct = root / "wyattowalsh-basketball"
-    direct.mkdir(parents=True)
-    for name in ("games.parquet", "player_stats.parquet"):
-        (direct / name).write_bytes(b"x")
-    assert ing.discover_warehouse([root]) == direct
-
-    # Nested one level, which is how the dataset actually arrives.
-    nested_root = tmp_path / "input2"
-    slug = nested_root / "wyattowalsh-basketball-238"
-    nested = slug / "basketball-export"
-    nested.mkdir(parents=True)
-    for name in ("games.parquet", "player_stats.parquet"):
-        (nested / name).write_bytes(b"x")
-    assert ing.discover_warehouse([nested_root]) == nested
-
-
-def test_a_directory_without_player_stats_is_not_the_warehouse(tmp_path) -> None:
-    """Games alone is some other run's debris, and serving it drops the players."""
-    root = tmp_path / "input"
-    decoy = root / "some-other-run"
-    decoy.mkdir(parents=True)
-    (decoy / "games.parquet").write_bytes(b"x")
-    (decoy / "team_stats.parquet").write_bytes(b"x")
-    assert ing.discover_warehouse([root]) is None
-
-
-def test_a_missing_warehouse_is_reported_not_guessed(tmp_path) -> None:
-    empty = tmp_path / "nothing-here"
-    empty.mkdir()
-    assert ing.discover_warehouse([empty, tmp_path / "absent"]) is None
-
-
-def test_the_pipeline_finds_the_mount_itself(monkeypatch, tmp_path) -> None:
-    """No --source-path is a normal way to start this pipeline, not a fatal one.
-
-    Before this, an unpassed source meant a live pull, and on a host where
-    NBA.com is blocked a live pull does not fail - it succeeds with worse data.
-    """
-    mounted = tmp_path / "warehouse"
-    mounted.mkdir()
-    for name in ("games.parquet", "player_stats.parquet"):
-        (mounted / name).write_bytes(b"x")
-    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: mounted)
-    # Empty until discovery repoints the cache at the mount, then populated.
-    # That is the whole claim: the run had nothing and ended up served.
-    def _read(path: Path) -> pd.DataFrame:
-        if ing.config.CACHE_DIR == mounted:
-            return pd.DataFrame([{"game_id": "a"}])
-        return pd.DataFrame()
-
-    monkeypatch.setattr(ing, "_read_cache", _read)
-    seen: dict = {}
-
-    def _pull_never_called(*args, **kwargs):
-        seen["pulled"] = True
-        return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {})
-
-    monkeypatch.setattr(ing, "_pull_seasons", _pull_never_called)
-    monkeypatch.setattr(ing, "_pull_play_by_play",
-                        lambda games, s, e, p, *, enabled: pd.DataFrame())
-    monkeypatch.setattr(ing, "_write_cache", lambda *a, **k: None)
-    monkeypatch.setattr(ing, "_manifest",
-                        lambda wh, s, e: {"source_path": "mounted",
-                                          "tables": {"player_stats": 0}})
-    monkeypatch.setattr(ing, "_validate_dataset", lambda wh: None)
-    ing.load_dataset(source=None, use_cache=True, allow_download=True)
-    assert ing.config.CACHE_DIR == mounted
-    assert "pulled" not in seen, "a mounted warehouse must pre-empt the pull"
-    # And the run has to say where its data came from, or every artifact it
-    # publishes is stamped with a host that was never contacted.
-    assert ing.SOURCE_USED["source"] == config.NBA_DATASET_REF
-
-
-def test_artifacts_name_the_route_that_built_them() -> None:
-    """Artifacts used to claim the approval reference no matter what built them."""
-    import master_pipeline as mp
-    warehouse = _warehouse_with_player_rows(7)
-    warehouse.manifest = {"source_path": "ESPN schedules",
-                          "tables": {"player_stats": 0}}
-    meta = mp._config_meta(warehouse)
-    assert meta["source"] == "ESPN schedules", (
-        "the artifact must name the route that built it")
-    assert meta["player_rows"] == 0, (
-        "and must carry the player count, so a defaulted run is visible")
-    # With no manifest at all, it falls back to the approved reference.
-    assert mp._config_meta(None)["source"] == config.NBA_DATASET_REF
-
-
-def test_a_bar_postfix_replaces_rather_than_accumulates() -> None:
-    """A postfix is the current value, not a running transcript.
-
-    Folding it into the label produced one 700-character line for the 35-slice
-    gap scan, naming all 35 slices, in a log the operator has to read.
-    """
-    lines: list[str] = []
-
-    class _Capture(logging.Handler):
-        def emit(self, record):
-            lines.append(record.getMessage())
-
-    handler = _Capture()
-    prog.logger.addHandler(handler)
-    previous = prog.logger.level
-    prog.logger.setLevel(logging.INFO)
-    try:
-        counter = prog._Counter(35, "NBA gap scan", "slice")
-        for n in range(35):
-            counter.set_postfix(f"2024-01-{n + 1:02d} {n}g")
-            counter.update(1)
-        counter.close()
-    finally:
-        prog.logger.removeHandler(handler)
-        prog.logger.setLevel(previous)
-    assert len(lines) == 1
-    assert lines[0].endswith("(2024-01-35 34g)"), lines[0]
-    assert lines[0].count("2024-01-") == 1, lines[0]
-    assert len(lines[0]) < 90, lines[0]
-
-
-def test_the_markets_grid_is_still_complete_without_the_nan_loop(tmp_path) -> None:
-    """Dropping the per-column NaN assignment must not drop a grid column."""
-    import serving
-    rows = pd.DataFrame([{"game_id": "a", "kind": "oof", "y_home_win": 1}])
-    path = tmp_path / "markets.csv"
-    serving.write_markets_csv(path, tmp_path / "markets.meta.json", rows,
-                              pd.DataFrame(), {"source": "test"})
-    out = pd.read_csv(path)
-    assert list(out.columns) == serving.markets_columns()
-    assert out["y_home_win"].iloc[0] == 1
-    assert out["pred_home"].isna().all(), "absent columns are NaN, not dropped"
-    # A duplicated label is still collapsed: the CSV contract is name-unique.
-    dupe = pd.DataFrame([{"game_id": "a", "kind": "oof", "y_home_win": 1,
-                          "pred_home": 0.5}], columns=["game_id", "kind",
-                                                        "y_home_win", "pred_home"])
-    dupe = pd.concat([dupe, dupe], ignore_index=True)
-    serving.write_markets_csv(tmp_path / "dupe.csv", tmp_path / "dupe.json",
-                              dupe, pd.DataFrame(), None)
-    assert not pd.read_csv(tmp_path / "dupe.csv").columns.duplicated().any()
-
-
-# --------------------------------------------------------------------------
-# The documented handoffs, and the one that has no implementation behind it
-#
-# The README promises a Kaggle auto-download behind NBA_KAGGLE_AUTO_DOWNLOAD
-# and NBA_KAGGLE_DOWNLOAD_DIR, the notebook hands the resolved export over in
-# NBA_KAGGLE_DATASET_PATH, and neither was read by any code.  These pin the
-# two that can be implemented, and the one that cannot.
-# --------------------------------------------------------------------------
-
-
-def test_the_warehouse_named_by_the_environment_is_used(monkeypatch, tmp_path) -> None:
-    """The notebook's own handoff, which the backend never read.
-
-    kaggle_nba_run.ipynb ends with ``os.environ["NBA_KAGGLE_DATASET_PATH"] =
-    str(source)``.  For three turns that was written and ignored, so the run
-    pulled live anyway.
-    """
-    named = tmp_path / "export"
-    named.mkdir()
-    for name in ("games.parquet", "player_stats.parquet"):
-        (named / name).write_bytes(b"x")
-    monkeypatch.setenv(ing.KAGGLE_DATASET_PATH_ENV, str(named))
-    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: None)
-    monkeypatch.setattr(ing, "download_warehouse", lambda *a, **k: None)
-
-    def _read(path: Path) -> pd.DataFrame:
-        return (pd.DataFrame([{"game_id": "a"}])
-                if ing.config.CACHE_DIR == named else pd.DataFrame())
-
-    monkeypatch.setattr(ing, "_read_cache", _read)
-    monkeypatch.setattr(ing, "_pull_seasons",
-                        lambda *a: (_ for _ in ()).throw(
-                            AssertionError("pulled despite a named warehouse")))
-    monkeypatch.setattr(ing, "_pull_play_by_play",
-                        lambda g, s, e, p, *, enabled: pd.DataFrame())
-    monkeypatch.setattr(ing, "_write_cache", lambda *a, **k: None)
-    monkeypatch.setattr(ing, "_manifest",
-                        lambda wh, s, e: {"source_path": "env",
-                                          "tables": {"player_stats": 0}})
-    monkeypatch.setattr(ing, "_validate_dataset", lambda wh: None)
-    ing.load_dataset(source=None, use_cache=True, allow_download=True)
-    assert ing.config.CACHE_DIR == named
-
-
-def test_a_named_directory_that_is_not_a_warehouse_is_ignored(
+def test_the_espn_route_supplies_every_player_stat_the_model_reads(
         monkeypatch, tmp_path) -> None:
-    """A stale env var must not send the run somewhere unreadable."""
-    monkeypatch.setenv(ing.KAGGLE_DATASET_PATH_ENV, str(tmp_path / "gone"))
-    assert not ing._is_loadable_warehouse(tmp_path / "gone")
+    """A fallback may not quietly drop the features it exists to rescue.
 
-
-def test_a_mounted_raw_export_is_named_rather_than_ignored(
-        monkeypatch, tmp_path) -> None:
-    """The export is attached and unreadable; say so, do not shrug.
-
-    Reporting "no warehouse found" when a warehouse is sitting right there is
-    how this run wasted three turns.  The reader is a missing feature, and the
-    message has to say that instead of implying a configuration mistake.
+    The ESPN route is what serves a host that refuses NBA.com.  If it returns
+    fewer player columns than the season log, the run still succeeds while
+    every assists/rebounds/shooting feature trains on a default, which is the
+    exact silent degradation the player gate exists to prevent — one layer up.
     """
-    mount = tmp_path / "input"
-    mount.mkdir()
-    (mount / "nba.duckdb").write_bytes(b"not really a database")
-    monkeypatch.setattr(ing, "WAREHOUSE_SEARCH_ROOTS", (str(mount),))
-    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: None)
-    monkeypatch.setattr(ing, "download_warehouse", lambda *a, **k: None)
-    monkeypatch.setattr(ing, "_read_cache", lambda path: pd.DataFrame())
-    with pytest.raises(RuntimeError, match="no reader for the raw"):
-        ing.load_dataset(source=None, use_cache=True, allow_download=True)
+    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: _espn_summary("BOS", "NYK"))
+    games = pd.DataFrame([{"game_id": "1", "gameday": "2024-10-22",
+                           "home_team": "BOS", "away_team": "NYK",
+                           "game_type": 1, "home_score": 112.0,
+                           "away_score": 104.0}])
+    produced = ing._pull_player_stats_from_espn(
+        games, 0.0, tmp_path / "espn_player_stats.parquet")
+    reference = set(ing._player_stats_frame(pd.DataFrame([{
+        "game_id": "1", "gameday": pd.Timestamp("2024-10-22"),
+        "player_id": "101", "player_name": "Player 101", "team": "BOS",
+        "minutes": 36.0, "points": 24.0, "fgm": 10, "fga": 18,
+        "fg3m": 2, "fg3a": 5, "ftm": 4, "fta": 5, "oreb": 2, "dreb": 5,
+        "reb": 7, "ast": 5, "tov": 3, "stl": 1, "blk": 0, "pf": 3,
+        "plus_minus": 6, "win": 1.0, "game_type": 1,
+    }])).columns)
+    missing = reference - set(produced.columns)
+    assert not missing, f"the ESPN route omits player stats: {sorted(missing)}"
+    # And the numbers have to survive, not just the column names.
+    home = produced[produced.team == "BOS"].iloc[0]
+    assert home.assists == 5.0 and home.rebounds == 7.0
+    assert home.fg_pct == 10 / 18 and home.three_point_pct == 2 / 5
+    assert home.win == 1.0
 
 
-def test_a_download_is_not_attempted_without_credentials(monkeypatch, tmp_path) -> None:
-    """No token means no CLI invocation, and no slow local failure either."""
-    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
-    monkeypatch.delenv("KAGGLE_KEY", raising=False)
-    monkeypatch.setattr(ing, "_kaggle_credentials_present", lambda: False)
-    called: list[list] = []
-    monkeypatch.setattr(ing.subprocess, "run",
-                        lambda *a, **k: called.append(a) or None)
-    assert ing.download_warehouse(tmp_path / "dest") is None
-    assert called == [], "the Kaggle CLI was invoked with nothing to authenticate"
+def test_the_shooting_percentages_are_derived_not_parsed() -> None:
+    """Made-over-attempted is the rule; a bare cell is not a percentage."""
+    frame = ing._derive_player_shooting(pd.DataFrame([
+        {"fgm": 10.0, "fga": 18.0, "fg3m": 2.0, "fg3a": 5.0,
+         "ftm": 4.0, "fta": 5.0, "reb": 7.0, "ast": 5.0},
+        {"fgm": 0.0, "fga": 0.0, "fg3m": 0.0, "fg3a": 0.0,
+         "ftm": 0.0, "fta": 0.0, "reb": 0.0, "ast": 0.0},
+    ]))
+    assert frame.fg_pct.tolist()[:1] == [10 / 18]
+    assert frame.three_point_pct.iloc[0] == 2 / 5
+    assert frame.free_throw_pct.iloc[0] == 4 / 5
+    assert frame.rebounds.tolist() == [7.0, 0.0]
+    assert frame.assists.tolist() == [5.0, 0.0]
+    # Nobody who played took no shots; that is missing, not 0%.
+    assert pd.isna(frame.fg_pct.iloc[1])
 
 
-def test_the_auto_download_can_be_switched_off(monkeypatch, tmp_path) -> None:
-    """The README's documented kill switch has to actually exist."""
-    monkeypatch.setenv(ing.KAGGLE_AUTO_DOWNLOAD_ENV, "0")
-    monkeypatch.setattr(ing, "_kaggle_credentials_present", lambda: True)
-    called: list[list] = []
-    monkeypatch.setattr(ing.subprocess, "run",
-                        lambda *a, **k: called.append(a) or None)
-    assert ing.download_warehouse(tmp_path / "dest") is None
-    assert called == [], "NBA_KAGGLE_AUTO_DOWNLOAD=0 was ignored"
+def test_win_is_read_from_the_score_the_caller_carries() -> None:
+    """``win`` lives on the game, so the scores have to travel with the ask."""
+    rows = ing._player_lines_from_espn_summary(
+        _espn_summary("BOS", "NYK"), "1", "BOS", "NYK",
+        home_score=112, away_score=104)
+    assert next(r for r in rows if r["team"] == "BOS")["win"] == 1.0
+    assert next(r for r in rows if r["team"] == "NYK")["win"] == 0.0
+    lost = ing._player_lines_from_espn_summary(
+        _espn_summary("BOS", "NYK"), "1", "BOS", "NYK",
+        home_score=99, away_score=110)
+    assert next(r for r in lost if r["team"] == "BOS")["win"] == 0.0
 
 
-def test_the_espn_route_is_never_the_answer(monkeypatch) -> None:
-    """A route that cannot supply player lines is not a fallback.
+def test_stat_columns_are_read_by_name_not_position() -> None:
+    """ESPN names its columns, so the parser must not assume an order."""
+    payload = _espn_summary("BOS", "NYK")
+    group = payload["boxscore"]["players"][0]["statistics"][0]
+    group["names"] = ["REB", "AST", "MIN", "FG", "PTS"]
+    for athlete in group["athletes"]:
+        athlete["stats"] = ["7", "5", "36", "10-18", "24"]
+    rows = ing._player_lines_from_espn_summary(payload, "1", "BOS", "NYK")
+    assert rows[0]["minutes"] == 36.0 and rows[0]["points"] == 24.0
+    assert rows[0]["reb"] == 7.0 and rows[0]["ast"] == 5.0
+    assert rows[0]["fgm"] == 10.0 and rows[0]["fga"] == 18.0
 
-    Walking it cost the 2026-09-25 run fifty-four seconds of requests to
-    build a window the pipeline then refused to publish.
+
+def test_a_did_not_play_line_is_missing_not_zero() -> None:
+    """A fabricated 0 is a real availability signal, so blanks stay missing."""
+    payload = _espn_summary("BOS", "NYK")
+    athletes = payload["boxscore"]["players"][0]["statistics"][0]["athletes"]
+    athletes[0]["stats"] = [""] * len(
+        payload["boxscore"]["players"][0]["statistics"][0]["names"])
+    rows = ing._player_lines_from_espn_summary(payload, "1", "BOS", "NYK")
+    assert rows[0]["minutes"] is None and rows[0]["points"] is None
+    assert rows[0]["reb"] is None and rows[0]["ast"] is None
+    assert rows[0]["fgm"] is None and rows[0]["fga"] is None
+
+
+def test_a_shooting_zero_is_a_real_zero_not_a_missing_cell() -> None:
+    """``0-0`` means the player shot nothing, which is not the same as blank."""
+    made, attempted = ing._espn_split("0-0")
+    assert (made, attempted) == (0.0, 0.0)
+    assert ing._espn_split("13-22") == (13.0, 22.0)
+    assert ing._espn_split("") == (None, None)
+    assert ing._espn_split(None) == (None, None)
+    assert ing._espn_split("5") == (None, None), "a bare cell is not a pair"
+
+
+def test_a_summary_without_player_blocks_yields_nothing() -> None:
+    assert ing._player_lines_from_espn_summary({}, "1", "BOS", "NYK") == []
+    assert ing._player_lines_from_espn_summary(
+        {"boxscore": {"players": []}}, "1", "BOS", "NYK") == []
+
+
+def test_the_player_pull_asks_only_for_games_it_lacks(monkeypatch, tmp_path) -> None:
+    """One request per game is expensive; re-asking is not allowed."""
+    ing._HOST_REFUSALS.clear()
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    asked: list[str] = []
+
+    def summary(event: str, **_kwargs):
+        asked.append(event)
+        return _espn_summary("BOS", "NYK")
+
+    monkeypatch.setattr(ing, "_get_json", summary)
+    cache = tmp_path / "espn_player_stats.parquet"
+    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
+                           "home_team": "BOS", "away_team": "NYK",
+                           "game_type": 1} for i in range(3)])
+    first = ing._pull_player_stats_from_espn(games, 0.0, cache)
+    assert sorted(url.rsplit("=", 1)[-1] for url in asked) == ["g0", "g1", "g2"]
+    assert len(first) == 9, "three players per game, three games"
+    # Second pass: the cache answers, so nothing is asked again.
+    asked.clear()
+    second = ing._pull_player_stats_from_espn(games, 0.0, cache)
+    assert asked == [], "a cached game was fetched again"
+    assert len(second) == len(first)
+
+
+def test_a_refused_summary_endpoint_stops_the_walk(monkeypatch, tmp_path) -> None:
+    """Same discipline as every other per-game walk: bound it, then stop.
+
+    The real ``_get_json`` has to run here.  Stubbing it would stub away the
+    very guard under test, which is the mistake this test exists to prevent.
     """
-    source = (BACKEND / "ingestion.py").read_text(encoding="utf-8")
-    short_circuit = ("if route is _pull_seasons_from_espn:"
-                     in source)
-    assert short_circuit, (
-        "the ESPN fallback was reinstated; it cannot produce a publishable "
-        "window, so walking it only delays the same refusal")
+    ing._HOST_REFUSALS.clear()
+    ing._record_host_verdict("site.web.api.espn.com", "refused us")
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    asked: list[str] = []
+
+    def opener(request, timeout=None):
+        asked.append(request.full_url)
+        return urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
+    games = pd.DataFrame([{"game_id": f"g{i}", "gameday": "2024-10-22",
+                           "home_team": "BOS", "away_team": "NYK",
+                           "game_type": 1} for i in range(500)])
+    out = ing._pull_player_stats_from_espn(games, 0.0,
+                                           tmp_path / "p.parquet")
+    assert asked == [], "a host with a fresh verdict was asked anyway"
+    assert out.empty

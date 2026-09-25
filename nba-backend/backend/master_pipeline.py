@@ -1,8 +1,8 @@
 """The single authoritative NBA production pipeline.
 
-Run from ``nba-backend/backend`` or with ``--source-path`` pointing at the
-pinned Kaggle warehouse export.  Every artifact and delivery path is NBA-only;
-no other sport backend is imported.
+Run from ``nba-backend/backend``.  Every artifact and delivery path is NBA-only;
+no other sport backend is imported.  Data comes from NBA.com's public APIs and,
+when those are unreachable, ESPN's schedules and per-game box scores.
 """
 from __future__ import annotations
 
@@ -64,13 +64,12 @@ def _flag(name: str) -> bool:
 def _config_meta(wh=None) -> dict:
     """The provenance block every published artifact carries.
 
-    ``source`` is the route this run actually resolved, not the dataset the
-    backend was approved against.  Stamping the approval reference here was a
-    quiet lie: a run built from ESPN schedules published artifacts claiming
-    ``wyattowalsh/basketball``, with nothing in them to say otherwise.
+    ``source`` is the route this run actually resolved, and ``player_rows`` the
+    player lines behind it, so an artifact can be traced to the endpoint that
+    answered rather than to a nominal upstream that may not have been read.
     """
     manifest = getattr(wh, "manifest", None) or {}
-    source = manifest.get("source_path") or config.NBA_DATASET_REF
+    source = manifest.get("source_route") or ingestion.SOURCE_ID
     return {"sport": "nba", "feature_set_version": config.FEATURE_SET_VERSION,
             "seed": config.RANDOM_SEED, "warmup_days": config.WARMUP_DAYS,
             "cadence_days": config.RETRAIN_CADENCE_DAYS,
@@ -237,8 +236,8 @@ def _sync_data_delivery(repo_root: Path) -> dict:
     }
 
 
-def run(source: str | Path | None = None, run_date: str | None = None,
-        out_dir: str | Path | None = None, skip_pull: bool = False) -> dict:
+def run(run_date: str | None = None, out_dir: str | Path | None = None,
+        skip_pull: bool = False) -> dict:
     started = time.time()
     out = Path(out_dir) if out_dir else config.DATA_DELIVERY_DIR
     out.mkdir(parents=True, exist_ok=True)
@@ -251,15 +250,14 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     prog = progress.phases(PHASES)
 
     wh = ingestion.load_dataset(
-        source,
-        use_cache=not bool(source) and not skip_pull,
+        use_cache=not skip_pull,
         allow_download=not skip_pull,
     )
     games = ingestion.eligible_games(wh.games)
     settled = games[games.home_score.notna() & games.away_score.notna()].copy()
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
-        raise RuntimeError("NBA warehouse has too few settled eligible games for walk-forward training")
+        raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
     prog.advance()
 
     game_df = feat_mod.build_game_features(settled, wh.team_stats)
@@ -436,13 +434,12 @@ def run(source: str | Path | None = None, run_date: str | None = None,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="NBA production pipeline")
-    parser.add_argument("--source-path", default=None)
     parser.add_argument("--run-date", default=None)
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--skip-pull", action="store_true")
     args = parser.parse_args(argv)
-    print(json.dumps(run(args.source_path, args.run_date, args.out_dir,
-                           args.skip_pull), indent=1, default=str))
+    print(json.dumps(run(args.run_date, args.out_dir, args.skip_pull),
+                     indent=1, default=str))
     return 0
 
 

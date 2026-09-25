@@ -16,7 +16,7 @@ def _candidate_manifest() -> None:
                 CANDIDATE_MANIFEST[f"{base}_{rep}"] = {
                     "description": f"Trailing {metric} ({window}) {rep}",
                     "definition": f"Per-team {window} aggregate of {metric}, strictly prior to the target game.",
-                    "source": "wyattowalsh/basketball normalized game/team box-score facts",
+                    "source": "normalized game/team/player box-score facts",
                     "lookback": window,
                     "aggregation": "per-team trailing aggregate",
                     "point_in_time_rule": "computed chronologically and shifted one game; current/future rows excluded",
@@ -49,7 +49,7 @@ for _name, (_desc, _definition, _lookback) in _BASE.items():
     FEATURE_MANIFEST[_name] = {
         "description": _desc,
         "definition": _definition,
-        "source": "normalized NBA warehouse game/team box-score facts",
+        "source": "normalized NBA game/team box-score facts",
         "lookback": _lookback,
         "aggregation": "point-in-time team aggregate",
         "point_in_time_rule": "all game outcomes are strictly prior; no target-game box score or future aggregate is admitted",
@@ -66,7 +66,7 @@ for _side in ("home", "away"):
         FEATURE_MANIFEST[_n] = {
             "description": f"{_side.title()} {_desc}",
             "definition": f"The {_side} team's {_desc} entering the target game.",
-            "source": "normalized NBA warehouse game/team box-score facts",
+            "source": "normalized NBA game/team box-score facts",
             "lookback": "team chronology",
             "aggregation": "point-in-time team aggregate",
             "point_in_time_rule": "strictly prior games only",

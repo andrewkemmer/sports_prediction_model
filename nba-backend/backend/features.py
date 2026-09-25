@@ -131,8 +131,8 @@ def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataF
     out = ev.copy()
     if team_stats is not None and len(team_stats):
         # Only merge fact columns; dimensions such as gameday/home_team are
-        # already represented by the exploded event frame.  Warehouse exports
-        # can contain both a traditional and an advanced fact family, so make
+        # already represented by the exploded event frame.  A team frame can
+        # carry both a traditional and an advanced fact family, so make
         # the key unique before joining rather than allowing a many-to-many
         # merge to duplicate a game's team event.
         stats = team_stats.copy()

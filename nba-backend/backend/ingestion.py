@@ -13,10 +13,21 @@ NBA.com publishes two unauthenticated surfaces, and both are used here.
     The same JSON NBA.com itself serves: the league schedule, and per-game box
     scores and play-by-play.
 
-No key, quota, or paid tier is involved.  The season log costs ~10 requests for
-any window, so it is re-read every run.  Play-by-play is one request per game,
-so it is cached to Parquet and only games the cache has not seen are fetched,
-which turns a daily run into an increment instead of a rebuild.
+If every NBA.com surface refuses us — cloud hosts block them at the IP level —
+the window is rebuilt from ESPN instead, which needs no key either:
+
+``site.web.api.espn.com``
+    The league scoreboard for the schedule, and one ``summary`` box score per
+    game.  That is ~5,700 requests for a full window against ~10 for the season
+    log, so the player lines it yields are cached to
+    ``espn_player_stats.parquet`` and a later run only asks for the games the
+    cache has not seen.  It is a fallback, not the backbone.
+
+No key, quota, or paid tier is involved on any route.  The season log costs ~10
+requests for any window, so it is re-read every run.  Play-by-play is one
+request per game, so it is cached to Parquet and only games the cache has not
+seen are fetched, which turns a daily run into an increment instead of a
+rebuild.
 
 Windows and full re-pulls are controlled by environment variables so the same
 code serves an incremental daily run and an explicit rebuild:
@@ -38,13 +49,11 @@ import logging
 import os
 import random
 import re
-import subprocess
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -482,6 +491,14 @@ def _host_verdicts() -> dict[str, str]:
 
 _SILENCE_MARKERS = ("timed out", "timeout", "did not resolve",
                     "name or service not known", "unreachable")
+
+# The closing advice for a run where every route failed.  It is the last thing
+# an operator reads, so it names what to try rather than what went wrong.
+_NO_SOURCE_REMEDY = (
+    "Nothing this pipeline sends will change any of those answers, so the run "
+    "has to happen somewhere the upstreams are reachable, or against a cache "
+    "that already holds the window. Check the log above for which route "
+    "refused, and re-run from a host that can reach the source.")
 
 _VERDICT_MEMO: tuple[float, Path, dict[str, str] | None] = (0.0, Path("."), None)
 
@@ -932,15 +949,15 @@ def _team_stats_frame(log: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
                              if c in out.columns])
 
 
-def _player_stats_frame(log: pd.DataFrame) -> pd.DataFrame:
-    """One row per player per game."""
-    if log.empty:
-        return pd.DataFrame()
-    keep = [c for c in dict.fromkeys(
-        ("game_id", "gameday", "player_id", "player_name", "team", "minutes",
-         "win", "game_type", "plus_minus", "fg_pct", "three_point_pct",
-         "free_throw_pct", *sorted(_STAT_SUMS))) if c in log.columns]
-    out = log[keep].copy()
+def _derive_player_shooting(out: pd.DataFrame) -> pd.DataFrame:
+    """The shooting percentages and name aliases every player frame carries.
+
+    Two routes that disagreed about how to turn made/attempted into a
+    percentage would be two definitions of the same feature, and the second
+    one to ship would silently retrain on numbers the first never produced.
+    So the rule lives here once and each route calls it.  A zero attempt is
+    missing, not zero percent: nobody who played took no shots.
+    """
     if {"fgm", "fga"}.issubset(out.columns):
         out["fg_pct"] = np.where(out.fga > 0, out.fgm / out.fga, np.nan)
     if {"fg3m", "fg3a"}.issubset(out.columns):
@@ -951,6 +968,18 @@ def _player_stats_frame(log: pd.DataFrame) -> pd.DataFrame:
         out["rebounds"] = out["reb"]
     if "ast" in out.columns:
         out["assists"] = out["ast"]
+    return out
+
+
+def _player_stats_frame(log: pd.DataFrame) -> pd.DataFrame:
+    """One row per player per game."""
+    if log.empty:
+        return pd.DataFrame()
+    keep = [c for c in dict.fromkeys(
+        ("game_id", "gameday", "player_id", "player_name", "team", "minutes",
+         "win", "game_type", "plus_minus", "fg_pct", "three_point_pct",
+         "free_throw_pct", *sorted(_STAT_SUMS))) if c in log.columns]
+    out = _derive_player_shooting(log[keep].copy())
     out = out.drop_duplicates(["game_id", "player_id"], keep="last")
     return out.sort_values(["gameday", "game_id", "player_id"]).reset_index(drop=True)
 
@@ -1000,7 +1029,7 @@ def _cache_paths() -> tuple[Path, Path, Path, Path, Path]:
     base = config.CACHE_DIR
     return (base / "games.parquet", base / "team_stats.parquet",
             base / "player_stats.parquet", base / "play_by_play.parquet",
-            base / "warehouse_manifest.json")
+            base / "run_manifest.json")
 
 
 def _read_cache(path: Path) -> pd.DataFrame:
@@ -1011,151 +1040,6 @@ def _read_cache(path: Path) -> pd.DataFrame:
     except Exception as exc:  # noqa: BLE001
         logger.warning("could not read %s (%s); rebuilding it", path.name, exc)
         return pd.DataFrame()
-
-
-# Where a pinned export is mounted.  Kaggle's own layout is unpredictable —
-# the dataset arrives as a generated slug directory, sometimes with the export
-# nested one level down — so discovery walks rather than assumes.
-WAREHOUSE_SEARCH_ROOTS = ("/kaggle/input", "/kaggle/working/nba-warehouse")
-# A directory is loadable when it holds the normalized tables.  Games and
-# player stats are both required: a directory with only ``games.parquet`` is
-# some other run's debris, and serving it would drop every player feature.
-WAREHOUSE_REQUIRED = ("games.parquet", "player_stats.parquet")
-# What the pinned export is documented to look like BEFORE normalization.  The
-# backend has no reader for any of these; detecting one is how the pipeline can
-# say so precisely instead of reporting "no warehouse found" and leaving the
-# operator to wonder.
-RAW_EXPORT_MARKERS = (".duckdb", ".sqlite", ".db")
-# Documented in the README, honoured here, and previously read by nothing.
-KAGGLE_DATASET_PATH_ENV = "NBA_KAGGLE_DATASET_PATH"
-KAGGLE_AUTO_DOWNLOAD_ENV = "NBA_KAGGLE_AUTO_DOWNLOAD"
-KAGGLE_DOWNLOAD_DIR_ENV = "NBA_KAGGLE_DOWNLOAD_DIR"
-KAGGLE_DOWNLOAD_TIMEOUT_SEC = 900.0
-
-
-def _is_loadable_warehouse(path: Path) -> bool:
-    return all((path / name).exists() for name in WAREHOUSE_REQUIRED)
-
-
-# The one thing this backend cannot do, stated once so every path that hits it
-# says it identically.  The pinned export is a raw archive; the normalized
-# tables this pipeline trains on have to be derived from it by a reader that
-# has never existed.  Writing one needs the export's actual schema, which is
-# not in this repository and cannot be inferred from it.
-_NO_RAW_EXPORT_READER = (
-    "The NBA export is mounted ({artifact}) and this backend cannot read it. "
-    "It has no reader for the raw {dataset} export, so the window has to come "
-    "from the live NBA.com routes instead - and those are blocked from Kaggle "
-    "and carry no player detail, so the run will be refused.\n"
-    "This is a missing feature, not a misconfiguration: nothing about the "
-    "mount, the version pin, or these flags can change it. It needs an "
-    "export reader, which needs the export's table and column names.")
-
-
-# The closing advice for a run that has no warehouse and no reachable host.
-# It is the same advice in every terminal path, so a reader only meets it once
-# in a run and it is the last thing they see.
-_WAREHOUSE_REMEDY = (
-    "And no normalized warehouse is available: this pipeline cannot publish "
-    "without one, because the live routes carry no player lines. Provide a "
-    "directory holding games.parquet, team_stats.parquet and "
-    "player_stats.parquet via --source-path or NBA_KAGGLE_DATASET_PATH, or "
-    "mount one under /kaggle/input, and re-run.")
-
-
-def _raw_export_at(path: Path) -> str | None:
-    """Name the raw-export artifact under ``path``, if there is one."""
-    for child in sorted(path.rglob("*")):
-        if child.is_file() and child.suffix.lower() in RAW_EXPORT_MARKERS:
-            return child.name
-    return None
-
-
-def discover_warehouse(roots: Iterable[Path | str] | None = None) -> Path | None:
-    """Find a mounted ``wyattowalsh/basketball`` export this backend can load.
-
-    This exists because the pipeline must not depend on being handed its data.
-    The 2026-09-25 Kaggle run reached the pipeline with no ``--source-path``,
-    so it pulled live, both NBA.com hosts refused it, and it fell through to
-    ESPN — which carries games and box scores but no player detail.  The run
-    then published eighteen artifacts built entirely on defaulted player
-    features.
-
-    Only a *loadable* export is returned.  A raw ``nba.duckdb`` or a
-    ``parquet/`` partition tree is a different thing, and handing one back
-    would fail later and less clearly than saying so here.
-    """
-    search = [Path(str(root)) for root in (roots or WAREHOUSE_SEARCH_ROOTS)]
-    for root in search:
-        if not root.is_dir():
-            continue
-        if _is_loadable_warehouse(root):
-            logger.info("NBA warehouse found at %s", root)
-            return root
-        for depth in (1, 2):
-            try:
-                layer = [p for p in root.glob("*" if depth == 1 else "*/*")
-                         if p.is_dir()]
-            except OSError:
-                continue
-            for candidate in sorted(layer):
-                if _is_loadable_warehouse(candidate):
-                    logger.info("NBA warehouse found at %s", candidate)
-                    return candidate
-    logger.info("no loadable NBA warehouse under %s", search)
-    return None
-
-
-def _kaggle_credentials_present() -> bool:
-    """Whether the Kaggle CLI could authenticate, without invoking it."""
-    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
-        return True
-    for home in {Path.home(), Path("/root"), Path("/kaggle/working")}:
-        try:
-            if (home / ".kaggle" / "kaggle.json").is_file():
-                return True
-        except OSError:
-            continue
-    return False
-
-
-def download_warehouse(dest: Path | None = None) -> Path | None:
-    """Fetch the pinned export with the Kaggle CLI, if that is even possible.
-
-    The README has always promised this fallback.  It is deliberately
-    credential-gated: without a token the CLI would fail slowly and say
-    something less useful than the message this function's caller composes, so
-    the absence of credentials is answered locally and instantly.
-    """
-    if not _flag(KAGGLE_AUTO_DOWNLOAD_ENV, True):
-        logger.info("Kaggle auto-download disabled by %s",
-                    KAGGLE_AUTO_DOWNLOAD_ENV)
-        return None
-    if not _kaggle_credentials_present():
-        logger.info("no Kaggle credentials present; not attempting a download")
-        return None
-    target = Path(dest or os.environ.get(KAGGLE_DOWNLOAD_DIR_ENV)
-                  or WAREHOUSE_SEARCH_ROOTS[1])
-    target.mkdir(parents=True, exist_ok=True)
-    ref = f"{config.NBA_DATASET_REF}/{config.NBA_DATASET_VERSION}"
-    logger.info("downloading the pinned NBA export %s to %s", ref, target)
-    try:
-        completed = subprocess.run(
-            ["kaggle", "datasets", "download", "-d", ref, "--unzip",
-             "-p", str(target)],
-            capture_output=True, text=True, timeout=KAGGLE_DOWNLOAD_TIMEOUT_SEC,
-            check=False)
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("could not run the Kaggle CLI for %s (%s)", ref, exc)
-        return None
-    if completed.returncode != 0:
-        logger.warning("Kaggle download of %s failed: %s", ref,
-                       (completed.stderr or "").strip()[:300])
-        return None
-    for archive in target.rglob("*.zip"):
-        with zipfile.ZipFile(archive) as bundle:
-            bundle.extractall(target)
-    return discover_warehouse([target])
 
 
 def _write_cache(tables: dict[str, pd.DataFrame], paths: dict[str, Path],
@@ -1224,16 +1108,15 @@ def _validate_dataset(wh: Warehouse) -> None:
         # hard stop rather than a warning, and there is no flag to wave it
         # through.  A run that cannot see its players does not get to publish a
         # model about them.
-        source = wh.manifest.get("source_path", "the resolved source")
+        source = wh.manifest.get("source_route", "the resolved source")
         raise RuntimeError(
             "NBA window has no player detail, so every player-derived feature "
             "would silently fall back to its default. Refusing to train and "
-            f"publish. Source was {source!r}, which carries games and team box "
-            "scores but not player lines. Fix the data, not this check: pass "
-            "--source-path pointing at the pinned wyattowalsh/basketball "
-            "export (version 238), or mount it where the pipeline can find it "
-            "under /kaggle/input. The live NBA.com fallback routes cannot "
-            "supply this and will never be able to; only the warehouse can.")
+            f"publish. Source was {source!r}, which returned games and team "
+            "box scores but no player lines. Fix the data, not this check: "
+            "the player box score is fetched from the source's per-game "
+            "summary endpoint, so this means that route answered without one. "
+            "Check the log for refusal or emptiness warnings above.")
 
 
 def _season_game_prefix(season_start_year: int) -> str:
@@ -1660,7 +1543,7 @@ def _cdn_seasons_in(start: date, end: date) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# ESPN schedules
+# ESPN schedules and box scores
 #
 # The last resort, and the cheapest complete source by an order of magnitude.
 # A cloud host that refuses both nba.com hosts can still be refused this one,
@@ -1669,14 +1552,22 @@ def _cdn_seasons_in(start: date, end: date) -> list[int]:
 # 60 requests and about twenty seconds, against 1,723 requests for the same
 # season one box score at a time. The schedule carries the game index, the
 # sides, the tip-off and the final score, which is everything the games frame
-# and the team box scores need; it carries no player detail, so player_stats
-# comes back empty and every derived feature degrades to its default.
+# and the team box scores need.
+#
+# It carries no player detail, so player_stats used to come back empty and
+# every player-derived feature degraded to its default - which is why an ESPN
+# run could never be published. The per-game summary endpoint does carry the
+# box score, so the player lines are fetched there, one request per game.
+# That is slower than the sixty-request slate build, and it is the only way to
+# see the players on a host that refuses NBA.com, so it is what runs.
 # ---------------------------------------------------------------------------
 ESPN_TEAMS_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
                   "basketball/nba/teams")
 ESPN_SCHEDULE_URL = ("https://site.api.espn.com/apis/site/v2/sports/"
                      "basketball/nba/teams/{team}/schedule"
                      "?season={season}&seasontype={kind}")
+ESPN_SUMMARY_URL = ("https://site.web.api.espn.com/apis/site/v2/sports/"
+                    "basketball/nba/summary?event={event}")
 ESPN_REGULAR = 2
 ESPN_POSTSEASON = 3
 # ESPN's abbreviations differ from ours for six clubs.
@@ -1793,6 +1684,183 @@ def _frames_from_espn_events(events: list[dict], season: int,
                      ignore_index=True)
 
 
+def _espn_number(value: Any) -> float | None:
+    """One of ESPN's stat cells, which are strings and sometimes compound.
+
+    ``MIN`` and ``PTS`` are plain numbers, but a player who did not dress
+    comes back empty and a shooting line comes back ``13-22``.  Anything that
+    is not a number is missing data, not zero, and must not become a zero:
+    a fabricated 0 is a real minutes/playoff-availability signal.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text in {"-", "--"}:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+# ESPN's box score names its columns and returns shooting lines already
+# reduced to ``made-attempted``.  Each entry is the canonical column, and the
+# optional second element is the attempts column the same cell also carries.
+_ESPN_PLAYER_STATS: dict[str, tuple[str, str | None]] = {
+    "MIN": ("minutes", None),
+    "PTS": ("points", None),
+    "FG": ("fgm", "fga"),
+    "3PT": ("fg3m", "fg3a"),
+    "FT": ("ftm", "fta"),
+    "REB": ("reb", None),
+    "AST": ("ast", None),
+    "TO": ("tov", None),
+    "STL": ("stl", None),
+    "BLK": ("blk", None),
+    "OREB": ("oreb", None),
+    "DREB": ("dreb", None),
+    "PF": ("pf", None),
+    "+/-": ("plus_minus", None),
+}
+
+
+def _espn_split(value: Any) -> tuple[float | None, float | None]:
+    """One of ESPN's ``made-attempted`` cells, e.g. ``'13-22'``.
+
+    A player who shot nothing comes back ``'0-0'``, which is a real zero on
+    both sides and must not be confused with a cell that never arrived.
+    """
+    made, separator, attempted = str(value or "").strip().partition("-")
+    if not separator:
+        return None, None
+    return _espn_number(made), _espn_number(attempted)
+
+
+def _player_lines_from_espn_summary(payload: Any, event_id: str,
+                                    home_abbr: str, away_abbr: str,
+                                    home_score: float | None = None,
+                                    away_score: float | None = None,
+                                    ) -> list[dict[str, Any]]:
+    """One game's player box score, in the normalized player_stats shape.
+
+    ESPN names its columns rather than fixing their order, so the indices are
+    read from the payload instead of assumed.  Every stat the model consumes is
+    read, not just minutes and points: this frame feeds the same assists,
+    rebounds, turnovers and shooting percentages as the season-log route, and a
+    fallback that quietly omitted them would train every one of those features
+    on a default while still looking like a successful run.
+    """
+    rows: list[dict[str, Any]] = []
+    boxscore = (payload or {}).get("boxscore") or {}
+    for block in boxscore.get("players") or []:
+        team = _espn_abbr((block.get("team") or {}).get("abbreviation"))
+        if team not in config.NBA_TEAM_ID:
+            continue
+        is_home = team == home_abbr
+        opponent = away_abbr if is_home else home_abbr
+        scored, conceded = ((home_score, away_score) if is_home
+                            else (away_score, home_score))
+        won = (None if scored is None or conceded is None
+               else float(scored > conceded))
+        for group in block.get("statistics") or []:
+            names = [str(name).upper() for name in (group.get("names") or [])]
+            if "MIN" not in names or "PTS" not in names:
+                continue
+            for athlete in group.get("athletes") or []:
+                who = athlete.get("athlete") or {}
+                player_id = who.get("id")
+                stats = athlete.get("stats") or []
+                if player_id is None or len(stats) < len(names):
+                    continue
+                row: dict[str, Any] = {
+                    "game_id": str(event_id),
+                    "player_id": str(player_id),
+                    "player_name": (who.get("fullName")
+                                    or who.get("displayName")
+                                    or who.get("shortName")
+                                    or str(player_id)),
+                    "team": team, "opponent": opponent, "is_home": is_home,
+                    "win": won,
+                }
+                for position, name in enumerate(names):
+                    target = _ESPN_PLAYER_STATS.get(name)
+                    if target is None:
+                        continue
+                    made_column, attempted_column = target
+                    if attempted_column is None:
+                        row[made_column] = _espn_number(stats[position])
+                    else:
+                        made, attempted = _espn_split(stats[position])
+                        row[made_column] = made
+                        row[attempted_column] = attempted
+                rows.append(row)
+            break
+    return rows
+
+
+def _pull_player_stats_from_espn(games: pd.DataFrame, pause: float,
+                                 path: Path) -> pd.DataFrame:
+    """Fetch the player box score for every game the window does not have yet.
+
+    One request per game, which is the cost of seeing players on a host that
+    refuses NBA.com.  It is incremental in the same way everything else here
+    is: games already in the cache are never asked about again, so a daily run
+    is a handful of games rather than a rebuild.  A refusal streak ends the
+    walk the same way the per-game CDN walk ends, and the verdict it leaves
+    behind means the next run does not pay for the discovery twice.
+    """
+    cached = _read_cache(path)
+    have = set(cached.game_id.astype(str)) if not cached.empty else set()
+    columns = ["game_id", "gameday", "home_team", "away_team", "game_type"]
+    # ``win`` is a per-player fact but lives on the game, so the scores travel
+    # with the request instead of being looked up from a frame that may have
+    # been trimmed by the caller.
+    for extra in ("home_score", "away_score"):
+        if extra in games.columns:
+            columns.append(extra)
+    wanted = (games[columns]
+              .drop_duplicates("game_id")
+              .reset_index(drop=True))
+    missing = wanted[~wanted.game_id.astype(str).isin(have)]
+    logger.info("ESPN player box scores: %d games cached, %d to fetch",
+                len(have), len(missing))
+    if missing.empty:
+        return _derive_player_shooting(cached)
+    frames: list[pd.DataFrame] = [] if cached.empty else [cached]
+    asked = 0
+    for row in progress.wrap(missing.itertuples(index=False), len(missing),
+                             "ESPN box scores", unit="game"):
+        try:
+            payload = _get_json(ESPN_SUMMARY_URL.format(event=row.game_id),
+                                allow_missing=True, retries=2, pause=pause,
+                                verbose=False)
+        except HostBlocked as exc:
+            logger.warning("ESPN player box scores stopped after %d of %d "
+                           "games: %s", asked, len(missing), exc)
+            break
+        asked += 1
+        rows = _player_lines_from_espn_summary(
+            payload, str(row.game_id), row.home_team, row.away_team,
+            home_score=getattr(row, "home_score", None),
+            away_score=getattr(row, "away_score", None))
+        if rows:
+            frames.append(pd.DataFrame(rows).assign(
+                gameday=pd.to_datetime(row.gameday, errors="coerce"),
+                game_type=row.game_type))
+    merged = (pd.concat(frames, ignore_index=True) if frames
+              else cached)
+    if not merged.empty:
+        merged = _derive_player_shooting(merged)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            merged.to_parquet(path, index=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not cache %s (%s)", path.name, exc)
+    logger.info("ESPN player box scores: %d player lines across %d games",
+                len(merged), merged.game_id.nunique() if len(merged) else 0)
+    return merged
+
+
 def _pull_season_from_espn(season_year: int, pause: float) -> pd.DataFrame | None:
     """One season of league-wide games from the per-team schedules."""
     path = config.CACHE_DIR / f"espn_season_{season_year}.parquet"
@@ -1884,14 +1952,17 @@ def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.Da
     regular = int((games.game_type == config.GAME_TYPE_REG).sum())
     logger.warning(
         "NBA rebuilt from ESPN schedules: %d games (%d regular, %d postseason), "
-        "%d team rows; no player detail, so player-derived features fall back "
-        "to their defaults", len(games), regular, len(games) - regular,
+        "%d team rows", len(games), regular, len(games) - regular,
         len(team_stats))
-    empty = pd.DataFrame(columns=["game_id", "gameday", "player_id", "player_name",
-                                  "team", "opponent", "is_home", "minutes",
-                                  "game_type", "points"])
+    player_stats = _pull_player_stats_from_espn(
+        games, pause, config.CACHE_DIR / "espn_player_stats.parquet")
+    if player_stats.empty:
+        logger.warning(
+            "ESPN supplied no player lines for %d games, so player-derived "
+            "features will fall back to their defaults and the run will be "
+            "refused rather than published.", len(games))
     return (games.reset_index(drop=True), team_stats.reset_index(drop=True),
-            empty, {})
+            player_stats, {})
 
 def _report_chunk_gaps(games: pd.DataFrame, start: date, end: date) -> list[str]:
     """Name the window slices that came back with no games at all.
@@ -2014,9 +2085,9 @@ def _manifest(wh: Warehouse, start: date, end: date) -> dict[str, Any]:
     dates = pd.to_datetime(games.gameday, errors="coerce")
     seasons = pd.to_numeric(games.season, errors="coerce").dropna()
     return {
-        "dataset_id": SOURCE_ID,
-        "dataset_version": f"through-{end.isoformat()}",
-        "source_path": SOURCE_USED.get("source", SOURCE_ID),
+        "source_id": SOURCE_ID,
+        "source_version": f"through-{end.isoformat()}",
+        "source_route": SOURCE_USED.get("source", SOURCE_ID),
         "window": {"start": start.isoformat(), "end": end.isoformat()},
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),
         "tables": {name: int(len(frame))
@@ -2062,68 +2133,17 @@ def _load_manifest_cache(path: Path) -> dict[str, Any]:
         return {}
 
 
-def load_dataset(source: str | Path | None = None, use_cache: bool = True,
+def load_dataset(use_cache: bool = True,
                  allow_download: bool = True) -> Warehouse:
     """Pull, cache, and normalize the NBA data the model stack consumes.
 
-    ``source`` is accepted for CLI compatibility and, when it names a
-    directory, is used as the cache location.  ``allow_download=False`` keeps
-    the run entirely on cached data, which is what ``--skip-pull`` means now
-    that the source is an API rather than an archive.
+    The pipeline reads live APIs and its own cache, and nothing else, so there
+    is no source directory to point it at.  ``allow_download=False`` keeps the
+    run entirely on cached data, which is what ``--skip-pull`` means.
     """
     paths = {name: path for name, path in zip(
         ("games", "team_stats", "player_stats", "play_by_play"), _cache_paths()[:4])}
     manifest_path = _cache_paths()[4]
-    if source not in (None, "", "none", "null"):
-        candidate = Path(str(source)).expanduser()
-        if candidate.is_dir():
-            config.CACHE_DIR = candidate
-            paths = {name: candidate / path.name
-                     for name, path in paths.items()}
-            manifest_path = candidate / manifest_path.name
-            logger.info("using %s as the NBA cache directory", candidate)
-            # The directory IS the pinned export, so that is what the run
-            # should call its source.  Leaving it as "nba.com" would stamp
-            # every artifact with a host that was never contacted.
-            SOURCE_USED["source"] = config.NBA_DATASET_REF
-    elif not _read_cache(paths["games"]).shape[0]:
-        # Nobody handed us a data directory and there is nothing cached, so
-        # the only honest move left is to go and look for the pinned export
-        # before reaching for the network.  A live pull is the last resort,
-        # not the first: on a host where NBA.com is blocked it does not fail,
-        # it quietly succeeds with worse data.
-        mounted = (Path(os.environ[KAGGLE_DATASET_PATH_ENV])
-                   if os.environ.get(KAGGLE_DATASET_PATH_ENV) else None)
-        if mounted is not None and _is_loadable_warehouse(mounted):
-            logger.info("using the NBA warehouse named by %s: %s",
-                        KAGGLE_DATASET_PATH_ENV, mounted)
-        else:
-            mounted = discover_warehouse()
-        if mounted is None:
-            # A raw export is mounted, we just cannot read it.  Say that, and
-            # say why, rather than reporting a missing warehouse and leaving
-            # the operator to wonder what the dataset they attached is for.
-            raw = None
-            for root in WAREHOUSE_SEARCH_ROOTS:
-                if Path(root).is_dir():
-                    raw = _raw_export_at(Path(root))
-                    if raw:
-                        break
-            if raw is not None:
-                raise RuntimeError(_NO_RAW_EXPORT_READER.format(
-                    artifact=raw,
-                    dataset=f"{config.NBA_DATASET_REF} version "
-                            f"{config.NBA_DATASET_VERSION}"))
-            mounted = download_warehouse()
-        if mounted is not None:
-            config.CACHE_DIR = mounted
-            paths = {name: mounted / path.name for name, path in paths.items()}
-            manifest_path = mounted / manifest_path.name
-            logger.info("using the NBA warehouse at %s", mounted)
-            # A mounted export IS the data this run should use.  Pulling on top
-            # of it would be the very mistake this is here to prevent.
-            allow_download = False
-            SOURCE_USED["source"] = config.NBA_DATASET_REF
 
     start, end = _window()
     if not allow_download:
@@ -2234,26 +2254,11 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
         # Ranked fallbacks. Each leg either serves the whole window or is named
         # in the error, so a host that refuses us is never a mystery.
         logger.warning("No season log could be read; rebuilding the window "
-                       "from per-game CDN box scores instead.")
+                       "from per-game box scores instead.")
         dead_ends: list[str] = []
         for label, route in (("cdn.nba.com box scores", _pull_seasons_from_cdn),
-                             ("ESPN schedules", _pull_seasons_from_espn)):
-            if route is _pull_seasons_from_espn:
-                # This route is walked only to be refused.  It carries games
-                # and box scores but no player lines, and a window without
-                # player lines cannot train or publish, so every request it
-                # makes buys a failure it already knows about.  Naming that
-                # here turns a six-minute run into a six-second one, and stops
-                # the log claiming the window was "rebuilt" from a route that
-                # could never have produced a publishable one.
-                logger.warning(
-                    "ESPN schedules not attempted: that route carries no "
-                    "player detail, so the window it builds could not be "
-                    "trained on or published. Naming it here instead of "
-                    "walking it.")
-                dead_ends.append(
-                    "ESPN schedules answered nothing usable: no player detail")
-                continue
+                             ("ESPN schedules and box scores",
+                              _pull_seasons_from_espn)):
             try:
                 result = route(start, end)
             except (CdnUnavailable, RuntimeError) as exc:
@@ -2270,7 +2275,7 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
             + ". A host that never answers is a network block, not a bad "
               "request: nothing this pipeline sends will change it, so run "
               "where these hosts are reachable, or warm the cache here. "
-            + _WAREHOUSE_REMEDY)
+            + _NO_SOURCE_REMEDY)
     log = pd.concat(logs, ignore_index=True)
     SOURCE_USED["source"] = "stats.nba.com LeagueGameLog"
     log = log[(log.gameday >= pd.Timestamp(start))
@@ -2390,15 +2395,13 @@ def _pull_play_by_play(games: pd.DataFrame, start: date, end: date,
     return increment
 
 
-def load_games(source: str | Path | None = None, use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(source, use_cache).games
+def load_games(use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(use_cache).games
 
 
-def load_team_stats(source: str | Path | None = None,
-                    use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(source, use_cache).team_stats
+def load_team_stats(use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(use_cache).team_stats
 
 
-def load_player_stats(source: str | Path | None = None,
-                      use_cache: bool = True) -> pd.DataFrame:
-    return load_dataset(source, use_cache).player_stats
+def load_player_stats(use_cache: bool = True) -> pd.DataFrame:
+    return load_dataset(use_cache).player_stats

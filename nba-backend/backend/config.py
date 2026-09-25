@@ -25,18 +25,11 @@ CACHE_DIR = Path(
 SPORT_DIR_NAME = "nba-backend"
 REPO_SUBDIR = SPORT_DIR_NAME
 
-# Canonical source pin used by the Kaggle orchestration notebook and recorded
-# in every normalized-cache manifest.  Dataset version 238 was the published
-# ``wyattowalsh/basketball`` version when this backend was approved.
-NBA_DATASET_REF = "wyattowalsh/basketball"
-NBA_DATASET_VERSION = "238"
-NBA_DATASET_URL = "https://www.kaggle.com/datasets/wyattowalsh/basketball"
-
 RANDOM_SEED = 42
 NUMPY_SEED = 42
 
-# Historical eligibility starts with the 2024-25 season.  The warehouse's
-# season_year is normalized to its starting year (2024 for 2024-25).
+# Historical eligibility starts with the 2024-25 season.  A season year is
+# normalized to its starting year (2024 for 2024-25).
 NBA_FIRST_SEASON = 2024
 OOF_FIRST_SEASON = NBA_FIRST_SEASON
 CORE_SEASONS = list(range(OOF_FIRST_SEASON, 2100))
@@ -85,7 +78,7 @@ MONEYLINE_FEATURE_COLS = [
     "rest_days_away", "is_home",
 ]
 
-# Stable current-team categories.  The warehouse's numeric team IDs are
+# Stable current-team categories.  The upstream numeric team IDs are
 # resolved to these abbreviations during ingestion; unknown values receive a
 # reserved category rather than being silently mapped to a real team.
 NBA_TEAM_ID: dict[str, int] = {
