@@ -39,6 +39,7 @@ import distributions as dist_mod                     # noqa: E402
 import moneyline as ml_mod                           # noqa: E402
 import monitoring as mon                             # noqa: E402
 import ingestion as ing                               # noqa: E402
+import serving as serving_mod                         # noqa: E402
 from evaluation import nb_distribution_metrics       # noqa: E402
 
 
@@ -76,6 +77,20 @@ TEAMS = ["ANA", "BOS", "BUF", "CAR", "CBJ", "CGY",
 # ---------------------------------------------------------------------------
 # 1. Distribution OOF fold geometry
 # ---------------------------------------------------------------------------
+def test_serving_start_time_preserves_utc_and_does_not_fabricate_missing():
+    assert serving_mod._start_time_utc({
+        "gameday": "2026-09-29",
+        "start_time_utc": "2026-09-30T00:00:00Z",
+    }) == "2026-09-30T00:00:00Z"
+    assert serving_mod._start_time_utc({
+        "gameday": "2026-09-29",
+        "start_time_utc": "",
+    }) is None
+    assert serving_mod._start_time_utc({
+        "gameday": "2026-09-29",
+    }) is None
+
+
 def test_dist_oof_folds_are_expanding_and_strictly_prior():
     games = feat_mod.build_game_features(_synth_games())
     folds = folds_mod.make_folds(games, date_col="gameday")

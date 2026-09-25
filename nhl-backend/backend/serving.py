@@ -126,16 +126,26 @@ def write_moneyline_json(path, slate_df: pd.DataFrame, p_home: np.ndarray,
 
 
 def _start_time_utc(g) -> str | None:
-    gd = _date_str(g.get("gameday", ""))
-    iso = str(g.get("start_time_utc", "") or "")
-    if iso and "T" in iso:
-        # The NHL API publishes startTimeUTC already in UTC — emit as-is.
-        if iso.endswith("Z"):
-            return iso
-        return f"{iso.split('T')[0]}T{iso.split('T')[1][:8]}Z" if ":" in iso else None
-    if not gd:
+    """Return the official UTC kickoff, or null when it is unavailable.
+
+    ``gameday`` is an Eastern board date, so fabricating midnight UTC for a
+    missing start would place the instant on the prior Eastern evening and
+    make a real board date look valid.  The NHL API publishes an ISO UTC
+    instant when the time is known; preserve that instant and leave the
+    observation null otherwise.
+    """
+    raw = str(g.get("start_time_utc", "") or "").strip()
+    if not raw or ("T" not in raw and " " not in raw):
         return None
-    return f"{gd}T00:00:00Z"
+    try:
+        ts = pd.Timestamp(raw)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        else:
+            ts = ts.tz_convert("UTC")
+        return ts.isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 # ---------------------------------------------------------------------------

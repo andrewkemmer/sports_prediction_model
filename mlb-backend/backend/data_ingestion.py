@@ -770,24 +770,64 @@ def _parse_espn_event(event: dict) -> dict | None:
     }
 
 
-def load_real_game_events(target_date: date, season: int | None = None) -> pd.DataFrame:
-    """Load real MLB game events for a single date via ESPN API.
+def _espn_events_for_et_date(target_date: date) -> list[dict]:
+    """Return ESPN events whose Eastern game date is exactly ``target_date``.
 
-    Fetches all games for `target_date` in one HTTP call. If no games are
-    found (off-season), walks backwards up to 7 days to find the most recent
-    game day.
+    ESPN's ``dates`` parameter is a UTC calendar key.  An 8 PM ET game is
+    therefore returned by the following UTC date, not necessarily the date
+    used as the MLB board key.  Probe exactly those two UTC dates, parse the
+    event timestamp as an instant, convert it to Eastern, and retain only the
+    requested ET date.  Event IDs are de-duplicated because an upstream
+    response can repeat a game when the two probes overlap.
+    """
+    events: list[dict] = []
+    seen: set[str] = set()
+    for query_date in (target_date, target_date + timedelta(days=1)):
+        try:
+            fetched = _fetch_espn_scoreboard(query_date)
+        except Exception as exc:  # one probe failing must not discard the other
+            logger.warning("ESPN scoreboard fetch failed for %s: %s",
+                           query_date, exc)
+            continue
+        for event in fetched:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or event.get("uid") or "").strip()
+            if not event_id:
+                event_id = "|".join(
+                    str(event.get(key) or "")
+                    for key in ("date", "name", "shortName")
+                )
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            events.append(event)
+
+    rows: list[dict] = []
+    for event in events:
+        parsed = _parse_espn_event(event)
+        if parsed and parsed.get("game_date") == target_date:
+            rows.append(parsed)
+    return rows
+
+
+def load_real_game_events(target_date: date, season: int | None = None) -> pd.DataFrame:
+    """Load real MLB game events for a single ET date via ESPN API.
+
+    Each date probe covers the target UTC calendar day and the following UTC
+    day, then retains only events whose converted Eastern date matches the
+    requested date. If no games are found (off-season), walks backwards up to
+    7 days to find the most recent game day.
     """
     logger.info("Loading real MLB schedule for %s via ESPN API...", target_date)
 
-    # Try the target date, then walk backwards up to 7 days to find games
+    # Try the target date, then walk backwards up to 7 days to find games.
+    # ``_espn_events_for_et_date`` also probes the following UTC day so a
+    # late ET kickoff cannot disappear at the UTC rollover.
+    games: list[dict] = []
     for offset in range(8):
         try_date = date.fromordinal(target_date.toordinal() - offset)
-        events = _fetch_espn_scoreboard(try_date)
-        games = []
-        for ev in events:
-            parsed = _parse_espn_event(ev)
-            if parsed:
-                games.append(parsed)
+        games = _espn_events_for_et_date(try_date)
         if games:
             if offset > 0:
                 logger.info("No games on %s, using %s instead (%d games)",
@@ -1120,16 +1160,7 @@ def load_espn_schedule(target_date: date) -> pd.DataFrame:
     off-day returns an empty frame instead of yesterday's slate, which is
     exactly what pre-game prediction needs.
     """
-    rows = []
-    try:
-        events = _fetch_espn_scoreboard(target_date)
-    except Exception as e:
-        logger.warning("ESPN schedule fetch failed for %s: %s", target_date, e)
-        return pd.DataFrame()
-    for ev in events:
-        parsed = _parse_espn_event(ev)
-        if parsed:
-            rows.append(parsed)
+    rows = _espn_events_for_et_date(target_date)
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)

@@ -130,14 +130,10 @@ UPSET_PROB_THRESHOLD = 0.35  # winner's model prob below this → upset
 
 def _is_evening_start(iso) -> bool:
     """True if the game starts at 7 PM ET or later."""
-    try:
-        ts = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-        et = ts.astimezone(ZoneInfo("America/New_York"))
-        return et.hour >= 19
-    except (ValueError, TypeError):
+    ts = _parse_start_time_utc(iso)
+    if ts is None:
         return False
+    return ts.astimezone(ZoneInfo("America/New_York")).hour >= 19
 
 
 def normalize_games(df: pd.DataFrame) -> pd.DataFrame:
@@ -2313,15 +2309,43 @@ def format_date_short(date_str: str) -> str:
     return f"{d.strftime('%b')} {d.day}, {d.year}"
 
 
-def start_time_et(iso_utc: str) -> str:
-    """Convert a UTC ISO timestamp to an '7:05 PM ET' label."""
+def _parse_start_time_utc(value) -> datetime | None:
+    """Parse a kickoff value as a UTC instant, or return ``None``.
+
+    Artifact writers use UTC ISO strings, while a few historical paths have
+    emitted offset-bearing or space-separated timestamps.  Naive values are
+    interpreted as UTC, matching the serving contract.  Date-only values are
+    deliberately rejected: they cannot distinguish a real kickoff from a
+    missing-time placeholder.
+    """
+    raw = _repair_start_iso(value)
+    if not raw or ("T" not in raw and " " not in raw):
+        return None
     try:
-        ts = datetime.fromisoformat(iso_utc.replace("Z", "+00:00"))
-        et = ts.astimezone(ZoneInfo("America/New_York"))
-        hour = et.hour % 12 or 12
-        return f"{hour}:{et.strftime('%M')} {et.strftime('%p')} ET"
-    except (ValueError, TypeError):
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+        return ts.astimezone(ZoneInfo("UTC"))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _start_time_et_date(value) -> date | None:
+    """Return the Eastern calendar date for a UTC kickoff instant."""
+    ts = _parse_start_time_utc(value)
+    if ts is None:
+        return None
+    return ts.astimezone(ZoneInfo("America/New_York")).date()
+
+
+def start_time_et(iso_utc: str) -> str:
+    """Convert a UTC ISO timestamp to an Eastern wall-clock label."""
+    ts = _parse_start_time_utc(iso_utc)
+    if ts is None:
         return ""
+    et = ts.astimezone(ZoneInfo("America/New_York"))
+    hour = et.hour % 12 or 12
+    return f"{hour}:{et.strftime('%M')} {et.strftime('%p')} ET"
 
 
 def arrow_nav(dates: list[str]) -> None:
@@ -2994,8 +3018,7 @@ def nhl_moneyline_to_frame(data) -> pd.DataFrame:
             "away_record": r.get("away_record"),
             "edge_home": _nl(r.get("edge_home")),
             "edge_away": _nl(r.get("edge_away")),
-            "start_time_utc": _repair_start_iso(r.get("start_time_utc"))
-            or (f"{game_date}T00:00:00Z" if game_date else ""),
+            "start_time_utc": _repair_start_iso(r.get("start_time_utc")) or None,
             "venue": r.get("venue") or r.get("stadium") or r.get("roof") or "",
             "model_pick": pick or "",
             "home_score": hs,
@@ -3134,18 +3157,16 @@ def _nhl_current_slate_record(
                 valid = False
                 break
 
-            kickoff_raw = _repair_start_iso(game.get("start_time_utc"))
-            try:
-                kickoff = datetime.fromisoformat(
-                    str(kickoff_raw).replace("Z", "+00:00"))
-            except (TypeError, ValueError):
+            kickoff = _parse_start_time_utc(game.get("start_time_utc"))
+            if kickoff is None:
                 valid = False
                 break
-            if kickoff.tzinfo is None:
-                kickoff = kickoff.replace(tzinfo=ZoneInfo("UTC"))
-            # Midnight is the serving fallback when the official feed has not
-            # published a time yet; it is not a trustworthy live kickoff.
-            if kickoff.time() == datetime.min.time():
+            # ``game_date``/``slate_date`` are Eastern board dates.  A real
+            # 8 PM ET kickoff is 00:00Z on the following UTC calendar day, so
+            # validate the converted ET date rather than rejecting midnight UTC
+            # by clock time.  The backend's old date-only fallback converts to
+            # the prior ET day and therefore still fails this invariant.
+            if _start_time_et_date(game.get("start_time_utc")) != game_date:
                 valid = False
                 break
 

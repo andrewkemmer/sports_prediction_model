@@ -118,19 +118,14 @@ def _goalie_matchup_html(goalie_row) -> str:
 
 
 def _start_time_et(value) -> str:
-    """Render an ISO start stamp as Eastern wall-clock time.
+    """Render a UTC kickoff as Eastern wall-clock time.
 
-    NHL API ``start_time_utc`` is a genuine UTC instant (unlike NFL's
-    already-ET gametime string), so this CONVERTS — the same convention
-    ``utils._is_evening_start`` uses for the evening pill."""
-    try:
-        ts = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-        et = ts.astimezone(ZoneInfo("America/New_York"))
-        return f"{et.hour % 12 or 12}:{et:%M} {et:%p} ET"
-    except (ValueError, TypeError):
-        return ""
+    Keep the NHL card on the same UTC-to-ET parser as the shared evening
+    pill and MLB board helpers; a date-only/missing value must render blank,
+    never a fabricated midnight time.
+    """
+    return utils.start_time_et(value)
+
 
 
 def _widget_key(r) -> str:

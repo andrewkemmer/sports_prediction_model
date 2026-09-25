@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -15,8 +16,9 @@ BACKEND = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND))
 
 import run_engine as re
+import data_ingestion as ingestion
 from data_ingestion import build_upcoming_slate
-from pipeline import _attach_slate_lineup_keys
+from pipeline import _attach_slate_lineup_keys, _count_evening_games
 
 
 def _market_row(**overrides):
@@ -26,6 +28,23 @@ def _market_row(**overrides):
     }
     row.update({k: [v] for k, v in overrides.items()})
     return pd.DataFrame(row)
+
+
+def _espn_event(event_id: str, timestamp: str, home: str = "NYY",
+                away: str = "BOS") -> dict:
+    """Minimal ESPN event shape for ET/UTC schedule boundary tests."""
+    return {
+        "id": event_id,
+        "date": timestamp,
+        "competitions": [{
+            "competitors": [
+                {"homeAway": "home", "team": {"abbreviation": home}, "score": "0"},
+                {"homeAway": "away", "team": {"abbreviation": away}, "score": "0"},
+            ],
+            "status": {"type": {"state": "pre", "detail": "Scheduled"}},
+            "venue": {"fullName": "Test Park"},
+        }],
+    }
 
 
 def test_contract_rejects_lambda_mismatch():
@@ -236,6 +255,37 @@ def test_lineup_override_with_unresolved_pk_joins_without_crash():
         assert len(out) == 2
     finally:
         features._lineup_cache.clear()
+
+
+def test_et_schedule_probe_includes_next_utc_rollover():
+    """An ET slate includes its 00:00Z game but not the next ET day."""
+    target = date(2026, 9, 29)
+    calls: list[date] = []
+
+    def fake_scoreboard(query_date):
+        calls.append(query_date)
+        if query_date == target:
+            return [_espn_event("target", "2026-09-29T23:00:00Z", "NYY", "BOS")]
+        if query_date == date(2026, 9, 30):
+            return [
+                _espn_event("rollover", "2026-09-30T00:00:00Z", "TOR", "BOS"),
+                _espn_event("next-et", "2026-09-30T04:00:00Z", "SEA", "TOR"),
+            ]
+        return []
+
+    with patch.object(ingestion, "_fetch_espn_scoreboard", side_effect=fake_scoreboard), \
+         patch.object(ingestion, "_fetch_statsapi_pitchers", return_value={}):
+        schedule = ingestion.load_espn_schedule(target)
+
+    assert calls == [target, date(2026, 9, 30)]
+    assert set(schedule["game_id"]) == {
+        "20260929_BOS@NYY", "20260929_BOS@TOR",
+    }
+    rollover = schedule[schedule["game_id"] == "20260929_BOS@TOR"].iloc[0]
+    assert pd.Timestamp(rollover["start_time_utc"]).tz_convert(
+        "America/New_York").strftime("%Y-%m-%d %H:%M") == "2026-09-29 20:00"
+    assert _count_evening_games(schedule) == 2
+    assert "20260930_TOR@SEA" not in set(schedule["game_id"])
 
 
 def test_run_line_opposite_tail_is_not_home_dog_tail():
