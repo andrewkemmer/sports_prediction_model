@@ -1,2 +1,7 @@
+# The dependency set kaggle_nba_run.ipynb installs before the pipeline runs.
+#
+# It is the backend's own requirements and nothing else. The Kaggle CLI package
+# used to be pinned here so the runner could download the pinned archive before
+# the pipeline started; the pipeline now reads live APIs and its own cache, no
+# code imports `kaggle`, and the package is no longer installed.
 -r requirements.txt
-kaggle>=1.6

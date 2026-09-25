@@ -5,8 +5,11 @@ scikit-learn
 xgboost
 lightgbm
 joblib
+# The Parquet engine. Never imported by name: pandas reaches it through
+# to_parquet/read_parquet, and the cache is Parquet end to end.
 pyarrow
-duckdb
-requests
 openpyxl
 pytest
+# duckdb and requests are no longer pinned. duckdb was here to read the raw
+# archive export this backend never had a reader for, and requests is unused —
+# ingestion speaks urllib from the standard library.
