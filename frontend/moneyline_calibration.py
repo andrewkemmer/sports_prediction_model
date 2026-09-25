@@ -12,6 +12,7 @@ bar, so the curve and the bars always align one-to-one on the same x-axis.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import altair as alt
@@ -171,6 +172,10 @@ def chart_calibration_curve(
     pooled: Optional[dict] = None,
     title: Optional[str] = None,
     height: int = 340,
+    count_scale: Optional[alt.Scale] = None,
+    bar_x_field: Optional[str] = None,
+    bar_x2_field: Optional[str] = None,
+    x_axis: Optional[alt.Axis] = None,
 ) -> dict:
     """Shared layered calibration-curve builder — the moneyline 'Calibration
     Curve' grammar, reused VERBATIM by the Game Total Lines diagnostics tab
@@ -181,20 +186,43 @@ def chart_calibration_curve(
     ``pts`` is the per-bin bars frame (columns: ``x_field``, ``n_field``,
     optionally ``low_n_field``) driving the LEFT 'Games' count axis;
     ``series`` is a list of curve-layer specs — each {"data": DataFrame (x +
-    y fields), "y_field": %-scale field, "axis": alt.Axis (the first series
-    owns the right-axis title; later series pass title=None), "color": str or
-    alt.Color (alt.Color shares one legend across layers), "dash",
-    "point_size", "stroke_width", "tooltips"} — on the shared RIGHT '%' axis
-    (0-100, independent of the count axis). The gray dashed
-    perfect-calibration diagonal and the optional amber pooled marker are
-    scale-bound to the same axes.
+    y fields), "y_field": %-scale field, "axis": alt.Axis or None (EXACTLY ONE
+    series owns the right axis; every other series passes axis=None),
+    "y_scale" (pin the shared % domain), "color": str or alt.Color (alt.Color
+    shares one legend across layers), "dash", "point_size", "stroke_width",
+    "tooltips"} — on the shared RIGHT '%' axis (0-100, independent of the count
+    axis). The gray dashed perfect-calibration diagonal and the optional amber
+    pooled marker are scale-bound to the same axes.
+
+    Because the composite view resolves y as ``independent``, ANY layer that
+    does not pin its own ``y`` domain is auto-scaled to that layer's data
+    extent — the single most damaging failure mode here, since a count layer
+    and a rate layer then stop sharing a visual scale. ``count_scale`` pins the
+    count domain for BOTH bar layers (pass it and the low-n bars stay on the
+    same 'Games' scale as the main bars instead of stretching to fill the
+    panel). For the same reason, every %-scale layer must receive the same
+    explicit ``y_scale`` and every non-owning layer ``axis=None``; see
+    ``chart_favored_calibration``.
+
+    ``bar_x_field``/``bar_x2_field`` draw the bars as RANGE bars spanning one
+    bin (``x`` = bin lower edge, ``x2`` = bin upper edge) instead of a point on
+    a continuous x: a quantitative x gives ``mark_bar`` its ~5px default
+    width, which renders narrow bins as thin spikes at any container width,
+    while an x/x2 range is resolution-independent. ``x_axis`` rides the bars
+    layer — the single owner of the shared x-axis.
 
     Returns {'chart': the layered spec, 'bars': the bars frame, 'n_total':
     sum of bar heights}. Empty/low-n bins are simply absent (no fabricated
     points) and render without error.
     """
     if pts is None or len(pts) == 0:
-        pts = pd.DataFrame(columns=[x_field, n_field])
+        # Keep the low-n column when rebuilding an empty frame: the layer
+        # builder below indexes it unconditionally, so dropping it here made
+        # an empty/low-n frame raise KeyError instead of rendering nothing.
+        _cols = [x_field, n_field]
+        if low_n_field and low_n_field not in _cols:
+            _cols.append(low_n_field)
+        pts = pd.DataFrame(columns=_cols)
     pts = pts.copy()
     if x_scale is None:
         x_scale = alt.Scale(domain=[0.0, 1.0])
@@ -225,24 +253,51 @@ def chart_calibration_curve(
             kw["scale"] = scale
         return alt.Y(f"{field}:Q", **kw)
 
+    # The count domain is shared by BOTH bar layers: under independent y
+    # resolution an unpinned layer auto-scales to its own extent, so the low-n
+    # bars (a handful of games) drew as full-height spikes. Absent
+    # ``count_scale`` keeps the previous auto-scaled behavior.
+    count_sc = count_scale if count_scale is not None else alt.Undefined
+
+    def _bar_x(title=alt.Undefined, own_axis: bool = True) -> dict:
+        """Bars' x encoding — a bin-wide RANGE when bin edges are supplied.
+
+        The MAIN bars layer is the single owner of the shared x-axis, so
+        ``x_axis`` is attached there and nowhere else (``own_axis=False`` for
+        the low-n overlay, which must not compete for it).
+        """
+        kw = {"scale": x_scale}
+        if title is not alt.Undefined:
+            kw["title"] = title
+        if x_axis is not None and own_axis:
+            kw["axis"] = x_axis
+        if bar_x_field and bar_x2_field:
+            return {"x": alt.X(f"{bar_x_field}:Q", **kw),
+                    "x2": alt.X2(f"{bar_x2_field}:Q")}
+        return {"x": alt.X(f"{x_field}:Q", **kw)}
+
     # Count bars — LEFT 'Games' axis (the single owner of that title).
     mark_kw = {"color": bar_color}
     if bar_opacity is not None:
         mark_kw["opacity"] = bar_opacity
     bars = alt.Chart(pts).mark_bar(**mark_kw).encode(
-        x=_x(title=x_title),
-        y=_y(n_field, axis=alt.Axis(title="Games", grid=True)),
+        **_bar_x(title=x_title),
+        y=_y(n_field, axis=alt.Axis(title="Games", grid=True),
+             scale=count_sc),
         tooltip=bar_tooltips)
     layers = [bars]
 
-    # low-n bars render gray (n < LOW_N), axis-title-less so 'Games' is
-    # owned by the main bars layer only (single title per axis).
+    # low-n bars render gray (n < LOW_N) on the SAME 'Games' scale as the
+    # main bars, and carry no axis at all: the title belongs to the main bars
+    # layer only (single title per axis), and an axis-less layer also emits no
+    # tick labels, so no second left tick row can overlap it.
     if low_n_field is not None:
         low = pts[pts[low_n_field].fillna(False).astype(bool)]
         if not low.empty:
             low_bars = alt.Chart(low).mark_bar(
                 color=low_n_color, opacity=low_n_opacity).encode(
-                x=_x(), y=_y(n_field, axis=alt.Axis(title=None)),
+                **_bar_x(own_axis=False),
+                y=_y(n_field, axis=None, scale=count_sc),
                 tooltip=bar_tooltips)
             layers.append(low_bars)
 
@@ -311,11 +366,19 @@ def chart_favored_calibration(pts: pd.DataFrame,
 
     LOW-N SUPPRESSION (shared with the market-diagnostics / Game Total Lines
     charts, same imported ``LOW_N``): a bin with n < LOW_N renders as a GRAY
-    bar — the volume context stays visible — and contributes NO blue point.
-    Without it a single decided game at the high-confidence tail is plotted as
-    if it were a rate, which drags the curve to 0% or 100% on noise alone.
-    The green deployed-map curve is a deterministic function of the raw
-    probability, so it is never suppressed.
+    bar — the volume context stays visible at true relative height, and on
+    hover — and contributes NO blue point. Without it a single decided game at
+    the high-confidence tail is plotted as if it were a rate, which drags the
+    curve to 0% or 100% on noise alone. The green deployed-map curve is a
+    deterministic function of the raw probability, so it is never suppressed.
+
+    SCALE DISCIPLINE (the y axis is resolved 'independent', so every layer
+    that does not pin its own domain silently auto-scales to its own extent).
+    That is what made the low-n bars render as full-height spikes — and what
+    let the green layer grow a second, overlapping right axis. Both bar layers
+    therefore share ONE pinned count scale, and the diagonal, the blue
+    observed curve and the green deployed curve share ONE pinned [0, 100]
+    scale with exactly one owning axis.
 
     Delegates to the shared ``chart_calibration_curve`` builder — the SAME
     chart type the Game Total Lines diagnostics tab renders.
@@ -336,6 +399,36 @@ def chart_favored_calibration(pts: pd.DataFrame,
     pts["win_rate_pct"] = pts["win_rate"] * 100.0
     x_dom = alt.Scale(domain=[0.45, 1.0])
     y_dom = alt.Scale(domain=[0, 100.0])
+
+    # Range bars: the bins are FAVORED_BIN wide, so each bar spans 90% of its
+    # own bin (the 10% remainder keeps adjacent bins legible). Encoding the
+    # bin edges as x/x2 also makes the bar resolution-independent: a
+    # quantitative x alone gives mark_bar its ~5px default width, which
+    # rendered 1% bins as thin spikes that read as a comb rather than a
+    # histogram. Clipped so an edge bin never leaves the probability range.
+    _half = FAVORED_BIN * 0.45
+    pts["bin_lo"] = (pts["prob"] - _half).clip(lower=0.0)
+    pts["bin_hi"] = (pts["prob"] + _half).clip(upper=1.0)
+
+    # ONE count scale for BOTH bar layers, pinned from the full per-bin frame
+    # (so the main bars and the low-n bars cannot drift). The composite view
+    # resolves y as 'independent', so an unpinned layer auto-scales to its own
+    # extent: the low-n gray bars (n as low as 1) were drawn against their own
+    # max and rendered as full-height spikes stabbing across the rate curve.
+    #
+    # The top is rounded UP to a whole tick step (~5 ticks) and the scale is
+    # NOT left to Vega's 'nice' — that widens BOTH ends, which put a -100
+    # 'Games' tick under a count axis that can never be negative. max() over
+    # ALL bins (not just the plotted ones) keeps the domain valid for a frame
+    # whose plotted rows are few; the 1.0 floor covers empty/thin frames.
+    _counts = (pd.to_numeric(pts["n"], errors="coerce")
+               if "n" in pts.columns else pd.Series(dtype="float64"))
+    _n_max = float(_counts.max()) if len(_counts) else float("nan")
+    if not (np.isfinite(_n_max) and _n_max > 0):
+        _n_max = 1.0
+    _step = max(1.0, 10.0 ** math.floor(math.log10(_n_max / 5.0)))
+    count_dom = alt.Scale(
+        domain=[0.0, _step * math.ceil(_n_max / _step)], nice=False)
 
     curve_pts = pts[~pts["low_n"].fillna(False).astype(bool)]
     series = [{
@@ -361,7 +454,16 @@ def chart_favored_calibration(pts: pd.DataFrame,
         series.append({
             "data": pcal,
             "y_field": "cal_mean_pct",
-            "axis": alt.Axis(title=None, orient="right"),
+            # Same pinned [0, 100] scale as the blue observed curve and the
+            # diagonal, and NO axis of its own. Left unpinned, this layer got
+            # its own auto scale (Vega's default zero=true happened to stretch
+            # it to 0-100, so the line sat right by luck) AND emitted a SECOND
+            # right axis whose tick labels overlapped the blue axis's. Pinning
+            # the scale makes the published line's position a property of the
+            # spec instead of an accident of the data's extent; the blue series
+            # stays the single owner of the right axis.
+            "axis": None,
+            "y_scale": y_dom,
             "color": GREEN, "dash": [6, 4], "point_size": 45,
             "stroke_width": 2,
             "tooltips": [
@@ -375,8 +477,11 @@ def chart_favored_calibration(pts: pd.DataFrame,
         pts, series,
         x_field="prob", x_title="Predicted win probability",
         x_scale=x_dom, x_format=".0%", n_field="n",
-        bar_color=BLUE, bar_opacity=0.30,
-        low_n_field="low_n",
+        bar_color=BLUE, bar_opacity=0.28,
+        low_n_field="low_n", low_n_opacity=0.40,
+        count_scale=count_dom,
+        bar_x_field="bin_lo", bar_x2_field="bin_hi",
+        x_axis=alt.Axis(format=".0%", tickCount=7, grid=True),
         bar_tooltips=[
             alt.Tooltip("prob:Q", title="Predicted", format=".0%"),
             alt.Tooltip("n:Q", title="Games"),

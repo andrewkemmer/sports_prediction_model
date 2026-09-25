@@ -244,7 +244,8 @@ if not pts.empty:
         f"minimum-evidence rule (shared with the market-diagnostics charts): "
         f"bins with fewer than {mlc.LOW_N} games render GRAY and contribute no "
         f"blue point — {n_low:,} game(s) sit in such bins, so their volume is "
-        f"visible but their rate is not treated as evidence"
+        f"still plotted at its true height (gray bars, and on hover) but their "
+        f"rate is not treated as evidence"
     )
 
 # ---------------------------------------------------------------------------
