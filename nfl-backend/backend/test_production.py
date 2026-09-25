@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 import warnings
+from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -400,6 +401,66 @@ check("Open-Meteo 429 retry ladder waits through a quota reset",
       and _retry_sleeps == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
       and _retry_result.status_code == 429,
       f"calls={_retry_get.call_count}, sleeps={_retry_sleeps}")
+
+# The weather archive loop is the LONGEST phase in a run (minutes over a
+# decade of history, longer when Open-Meteo answers 429) and used to log
+# nothing but retry warnings, so a healthy run looked like a hang. Progress
+# was added by hoisting the window decision out of the loop, which is only
+# safe if the hoisted filter keeps EXACTLY the windows the inline filter did.
+def _plan_original(start_date, archive_end, needed_days, n_locations):
+    out = []
+    for offset in range(0, (archive_end - start_date).days + 1, weather_mod._BATCH_DAYS):
+        cs = start_date + timedelta(days=offset)
+        ce = min(cs + timedelta(days=weather_mod._BATCH_DAYS - 1), archive_end)
+        if not any(cs <= d <= ce for d in needed_days):
+            continue
+        for i in range(0, n_locations, weather_mod._BATCH_SIZE):
+            out.append((cs, ce, i, min(i + weather_mod._BATCH_SIZE, n_locations)))
+    return out
+
+
+def _plan_hoisted(start_date, archive_end, needed_days, n_locations):
+    windows = []
+    for offset in range(0, (archive_end - start_date).days + 1, weather_mod._BATCH_DAYS):
+        cs = start_date + timedelta(days=offset)
+        ce = min(cs + timedelta(days=weather_mod._BATCH_DAYS - 1), archive_end)
+        if any(cs <= d <= ce for d in needed_days):
+            windows.append((cs, ce))
+    return [(cs, ce, i, min(i + weather_mod._BATCH_SIZE, n_locations))
+            for cs, ce in windows for i in range(0, n_locations, weather_mod._BATCH_SIZE)]
+
+
+_anchor_days = [date(2016, 9, 8), date(2019, 12, 29), date(2022, 9, 8),
+                date(2026, 9, 24)]
+_mismatch = 0
+_compared = 0
+for _k in range(1, len(_anchor_days) + 1):
+    _days = set(_anchor_days[:_k])
+    for _pad in (0, 1, 13, 14, 15, 60):
+        _s = _anchor_days[0] - timedelta(days=_pad)
+        _e = _anchor_days[_k - 1] + timedelta(days=_pad)
+        for _n in (1, 15, 16, 33):
+            _compared += 1
+            if (_plan_original(_s, _e, _days, _n)
+                    != _plan_hoisted(_s, _e, _days, _n)):
+                _mismatch += 1
+# A needed day past archive_end must be dropped by both plans.
+_compared += 1
+if _plan_original(date(2020, 1, 1), date(2020, 6, 1), {date(2020, 12, 25)}, 15) \
+        != _plan_hoisted(date(2020, 1, 1), date(2020, 6, 1), {date(2020, 12, 25)}, 15):
+    _mismatch += 1
+check("weather progress did not change which requests are made",
+      _mismatch == 0, f"{_mismatch} of {_compared} request plans differ")
+import inspect  # noqa: E402  (imported at module top only further down)
+_weather_src = inspect.getsource(weather_mod)
+check("weather archive phase reports progress (it used to be silent)",
+      "PIT weather archive: %d window(s)" in _weather_src
+      and 'StageProgress(total_batches, "PIT weather archive batches")' in _weather_src)
+check("weather progress counts batches, not a guessed denominator",
+      "total_batches = len(windows) * batches_per_window" in _weather_src)
+check("weather reuses the tested bar, so 384 batches do not print 384 lines",
+      "from ingestion import StageProgress" in _weather_src
+      and weather_mod.StageProgress is ingest_mod.StageProgress)
 
 import tempfile  # noqa: E402
 # The system temp dir, not BACKEND_DIR: a Windows-side parquet handle can defeat
@@ -1535,7 +1596,39 @@ check("chunk plan is reporting only; nflverse loaders stay per-season",
 check("master_pipeline bars both OOF stages and the population sources",
       "StageProgress(len(fold_list), \"moneyline OOF folds\")" in mp_src
       and "StageProgress(len(fold_list), \"distribution OOF folds\")" in mp_src
-      and "StageProgress(5, \"nflverse population\")" in mp_src)
+      and "nflverse population (season/source units)" in mp_src)
+check("the Phase 2 bar is sized from real per-season units, not a fixed 5",
+      "ingestion.population_unit_counts(seasons)" in mp_src
+      and "StageProgress(5," not in mp_src)
+# Phase 1 is 60-day per the request; Phase 2's 60-day chunk is reporting only,
+# because the source cannot be QUERIED that way. That constraint is worth
+# asserting: if nflverse ever grows a date-range parameter, this check is the
+# signal to move to a real 60-day query instead of reporting one.
+_loader_params = [set(inspect.signature(getattr(ingest_mod, _n)).parameters)
+                  for _n in ("load_pbp", "load_player_stats", "load_nextgen",
+                             "load_snap_counts", "load_ftn_charting")]
+check("every nflverse loader is season-keyed (why Phase 2 cannot query 60 days)",
+      all("seasons" in _p for _p in _loader_params)
+      and not any({"start", "end", "start_date", "end_date", "dates"} & _p
+                  for _p in _loader_params))
+check("every nflverse loader takes an opt-in progress hook, appended last",
+      all(list(inspect.signature(getattr(ingest_mod, _n)).parameters)[-1]
+          == "progress"
+          and inspect.signature(getattr(ingest_mod, _n)
+                                ).parameters["progress"].default is None
+          for _n in ("load_pbp", "load_player_stats", "load_nextgen",
+                     "load_snap_counts", "load_ftn_charting")))
+_uc = ingest_mod.population_unit_counts(list(range(2016, 2027)))
+check("population_unit_counts counts NGS per (season, group), not per season",
+      _uc["nextgen"] == 3 * (len(range(2016, 2027)) + 1)
+      and _uc["pbp"] == len(range(2016, 2027))
+      and _uc["player_stats"] == _uc["snap_counts"] == len(range(2016, 2027)) + 1)
+check("the Open-Meteo archive window is 14 days, matching MLB exactly",
+      weather_mod._BATCH_DAYS == 14
+      and weather_mod._BATCH_SIZE == 15
+      and weather_mod._BATCH_PAUSE_SEC == 1.0)
+check("weather and reporting chunk intervals are deliberately different",
+      weather_mod._BATCH_DAYS == 14 and ingest_mod.POPULATE_CHUNK_DAYS == 60)
 def _imports_tqdm(mod) -> bool:
     """True if the module actually IMPORTS tqdm (prose mentioning it is fine)."""
     import ast as _a

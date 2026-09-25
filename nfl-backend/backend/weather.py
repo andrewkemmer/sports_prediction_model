@@ -22,6 +22,11 @@ import os
 import random
 import time
 from datetime import date, datetime, timedelta, timezone
+
+# ingestion owns StageProgress (the run-wide progress bar). Importing it here
+# is acyclic: ingestion never imports weather. A local import keeps the module
+# import graph unchanged for anything that imports weather first.
+from ingestion import StageProgress  # noqa: E402
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +72,14 @@ CACHE_COLUMNS = [
 ]
 REQUIRED_CACHE_COLUMNS = frozenset(CACHE_COLUMNS)
 
+# Open-Meteo archive window: 14 days, matching MLB's _WEATHER_BATCH_DAYS
+# exactly (also 15 locations per batch and a 1.0s pause). 60 is MLB's
+# SCHEDULE_CHUNK_DAYS -- the StatsAPI pull, not the weather pull -- and is
+# carried in ingestion.POPULATE_CHUNK_DAYS as the reporting interval. The two
+# constants answer different questions and are deliberately not the same
+# number: 60-day weather windows were measured and work (a decade of history
+# drops from 357 to 111 request batches), but the 14-day cadence is the
+# proven one and wins on request size and rate-limit headroom, so it stays.
 _BATCH_DAYS = 14
 _BATCH_SIZE = 15
 _BATCH_PAUSE_SEC = 1.0
@@ -418,22 +431,41 @@ def _fetch_batched_weather(
 
     archive_end = min(end_date, today - timedelta(days=1))
     if start_date <= archive_end:
-        windows = range(0, (archive_end - start_date).days + 1, _BATCH_DAYS)
-        for offset in windows:
+        # Build the window list FIRST, applying the same end clamp and the
+        # same "contains a needed day" filter the loop used to apply inline.
+        # The fetched set is therefore identical -- this only moves the
+        # decision out of the loop so the progress denominator is exact.
+        # Without it this phase is the longest in the run (~7 min on a
+        # decade of history, longer when Open-Meteo answers 429) and logged
+        # NOTHING but retry warnings, which reads exactly like a hang.
+        windows: list[tuple[date, date]] = []
+        for offset in range(0, (archive_end - start_date).days + 1, _BATCH_DAYS):
             chunk_start = start_date + timedelta(days=offset)
             chunk_end = min(chunk_start + timedelta(days=_BATCH_DAYS - 1),
                             archive_end)
-            if not any(chunk_start <= day <= chunk_end for day in needed_days):
-                continue
+            if any(chunk_start <= day <= chunk_end for day in needed_days):
+                windows.append((chunk_start, chunk_end))
+        batches_per_window = max(1, -(-len(locations) // _BATCH_SIZE))
+        total_batches = len(windows) * batches_per_window
+        logger.info("PIT weather archive: %d window(s) x %d batch(es) of %d "
+                    "stadiums = %d request batches",
+                    len(windows), batches_per_window, _BATCH_SIZE, total_batches)
+        # Reuse the pipeline's tested bar rather than a second hand-rolled
+        # one, so the throttling is identical: 384 batches would otherwise
+        # print 384 lines and bury the rest of the run's log.
+        bar = StageProgress(total_batches, "PIT weather archive batches")
+        for chunk_start, chunk_end in windows:
             for i in range(0, len(locations), _BATCH_SIZE):
                 by_key.update(_fetch_batch_range(
                     locations[i:i + _BATCH_SIZE], chunk_start, chunk_end,
                     source=OPEN_METEO_ARCHIVE,
                 ))
+                bar.advance()
                 if i + _BATCH_SIZE < len(locations):
                     time.sleep(_BATCH_PAUSE_SEC)
             if chunk_end < archive_end:
                 time.sleep(_BATCH_PAUSE_SEC)
+        bar.close()
 
     # ERA5/archive publication lags. The forecast endpoint's observed past
     # window exposes the same hourly records immediately, with the identical
@@ -451,6 +483,9 @@ def _fetch_batched_weather(
             for row in targets
         )
         if missing:
+            logger.info("PIT weather recent: fetching %d..%d observed "
+                        "(forecast endpoint) for %d stadiums",
+                        recent_start, recent_end, len(locations))
             recent = _fetch_batch_range(
                 locations, recent_start, recent_end,
                 source=OPEN_METEO_FORECAST,

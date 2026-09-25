@@ -238,37 +238,47 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("PIT weather rows: %d", len(pit_weather))
 
     # MLB parity: MLB walks its ingestion in 60-day windows and logs each one
-    # (results.SCHEDULE_CHUNK_DAYS). Report the same granularity so a
-    # decade-long run says where it has reached, and bar the population
-    # sources. Both are display only — the nflverse loaders stay per-season
-    # and no fetched row changes.
+    # (results.SCHEDULE_CHUNK_DAYS; MLB's Open-Meteo interval is separately 14
+    # days, and NFL keeps that in weather.py). The nflverse loaders stay
+    # per-SEASON because every nflverse endpoint is season-keyed — load_pbp /
+    # load_player_stats / load_nextgen_stats / load_snap_counts /
+    # load_ftn_charting all take `seasons` and no date range — so a 60-day
+    # QUERY is not expressible. Slicing a per-season pull into 60-day windows
+    # would re-download the same file per slice and discard most of it: same
+    # data, several times the requests. So 60 days is the reporting interval,
+    # and the bar counts the real per-season fetch units so the phase shows
+    # genuine movement instead of five coarse steps.
     _win_chunks = list(ingestion.chunk_date_range(start_date, window_end))
     logger.info("ingestion window %s .. %s in %d x %d-day chunks (MLB parity)",
                 str(pd.Timestamp(start_date).date()),
                 str(pd.Timestamp(window_end).date()),
                 len(_win_chunks), ingestion.POPULATE_CHUNK_DAYS)
-    _pop = ingestion.StageProgress(5, "nflverse population")
+    _units = ingestion.population_unit_counts(seasons)
+    logger.info("nflverse population: %d season/source units %s",
+                sum(_units.values()), json.dumps(_units, sort_keys=True))
+    _pop = ingestion.StageProgress(
+        sum(_units.values()), "nflverse population (season/source units)")
 
-    pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
+    pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull,
+                             progress=_pop.advance)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
-    _pop.advance()
     # Skill-position usage, tracking efficiency, and availability (candidate
     # sources + pre-game facts). Trailing windows need a warmup season, so the
     # pull extends one season back (same pattern as the slate QB enrichment).
     ps = ingestion.load_player_stats(
-        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
-    _pop.advance()
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull,
+        progress=_pop.advance)
     ngs = ingestion.load_nextgen(
-        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
-    _pop.advance()
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull,
+        progress=_pop.advance)
     # Snap-count participation (2013+) and FTN charting (2022+): the platoon
     # candidate sources. Trailing windows need the warmup season for snaps.
     snaps = ingestion.load_snap_counts(
-        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
-    _pop.advance()
+        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull,
+        progress=_pop.advance)
     ftn = ingestion.load_ftn_charting(seasons=seasons,
-                                      use_cache=not full_repull)
-    _pop.advance()
+                                      use_cache=not full_repull,
+                                      progress=_pop.advance)
     _pop.close()
     logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
