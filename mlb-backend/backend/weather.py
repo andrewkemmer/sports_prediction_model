@@ -260,14 +260,17 @@ _HOURLY_KEYS = (
 # return immediately — wasting retries on those only delays real failures.
 _RETRIABLE_STATUSES = frozenset({429, 502, 503, 504})
 
-# Exponential backoff base delays (seconds) per retry: 1s/2s/4s/8s/16s across
-# 5 attempts, plus a small random jitter so retrying clients don't re-cluster
-# on the same second. 429 batches in recent runs exhausted 2 retries at ~1-2s
-# before Open-Meteo's per-minute quota reset — the deeper 5-attempt ladder
-# (to 16s) gives a burst the time to drain instead of dropping the whole batch.
+# Exponential backoff base delays (seconds) per retry: 2s/4s/8s/16s/32s across
+# 7 attempts (62s total before the last request), plus a small random jitter so
+# retrying clients don't re-cluster on the same second. Open-Meteo answers 429s
+# on a PER-MINUTE quota: the 2026-09-25 full-repull burned all 5 attempts
+# (2+4+8=15s of waiting) on two archive batches ~33s after the first 429 and
+# still failed, dropping 7 games until the StatsAPI filler recovered 1. The
+# ladder now outlasts one full quota reset so a rate-limited batch drains
+# instead of being lost; the filler remains the last-resort fallback.
 _WEATHER_BACKOFF_BASE_SEC = 2.0
 _WEATHER_RETRY_MAX_JITTER_SEC = 0.5
-_WEATHER_RETRY_DEFAULT_ATTEMPTS = 5
+_WEATHER_RETRY_DEFAULT_ATTEMPTS = 7
 
 
 def _get_with_retry(url: str, params: dict, attempts: int = _WEATHER_RETRY_DEFAULT_ATTEMPTS,
