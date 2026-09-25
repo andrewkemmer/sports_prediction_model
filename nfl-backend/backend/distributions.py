@@ -266,7 +266,7 @@ def apply_distribution(df: pd.DataFrame, params: dict | None = None,
 
 
 def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
-                     fold_list: list | None = None) -> dict:
+                     fold_list: list | None = None, progress=None) -> dict:
     """Fit two LightGBM Poisson models on shared walk-forward folds."""
     df = folds_mod.canonical_sort(game_df, date_col)
     fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
@@ -297,6 +297,10 @@ def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
                           "val_start": str(fold.val_start.date()),
                           "val_end": str(fold.val_end.date()),
                           "n_train": int(len(train)), "n_val": int(len(val))})
+        # Optional display-only progress hook; default None skips the call,
+        # so an unhooked run is byte-identical to before.
+        if progress is not None:
+            progress()
     oof = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     if len(oof):
         oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])

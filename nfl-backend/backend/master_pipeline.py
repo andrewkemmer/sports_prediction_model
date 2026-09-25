@@ -237,21 +237,39 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("PIT weather unavailable; four weather features stay NaN: %s", exc)
     logger.info("PIT weather rows: %d", len(pit_weather))
 
+    # MLB parity: MLB walks its ingestion in 60-day windows and logs each one
+    # (results.SCHEDULE_CHUNK_DAYS). Report the same granularity so a
+    # decade-long run says where it has reached, and bar the population
+    # sources. Both are display only — the nflverse loaders stay per-season
+    # and no fetched row changes.
+    _win_chunks = list(ingestion.chunk_date_range(start_date, window_end))
+    logger.info("ingestion window %s .. %s in %d x %d-day chunks (MLB parity)",
+                str(pd.Timestamp(start_date).date()),
+                str(pd.Timestamp(window_end).date()),
+                len(_win_chunks), ingestion.POPULATE_CHUNK_DAYS)
+    _pop = ingestion.StageProgress(5, "nflverse population")
+
     pbp = ingestion.load_pbp(seasons=seasons, use_cache=not full_repull)
     logger.info("pbp rows: %s", 0 if pbp is None else len(pbp))
+    _pop.advance()
     # Skill-position usage, tracking efficiency, and availability (candidate
     # sources + pre-game facts). Trailing windows need a warmup season, so the
     # pull extends one season back (same pattern as the slate QB enrichment).
     ps = ingestion.load_player_stats(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    _pop.advance()
     ngs = ingestion.load_nextgen(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    _pop.advance()
     # Snap-count participation (2013+) and FTN charting (2022+): the platoon
     # candidate sources. Trailing windows need the warmup season for snaps.
     snaps = ingestion.load_snap_counts(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull)
+    _pop.advance()
     ftn = ingestion.load_ftn_charting(seasons=seasons,
                                       use_cache=not full_repull)
+    _pop.advance()
+    _pop.close()
     logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs))
@@ -344,7 +362,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 5. Moneyline OOF ──────────────────────────────────────────────────
     _banner("PHASE 5", "moneyline walk-forward OOF")
-    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
+    _ml_bar = ingestion.StageProgress(len(fold_list), "moneyline OOF folds")
+    ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list,
+                                 progress=_ml_bar.advance)
+    _ml_bar.close()
     oof_ml = ml["oof"]
     weights = ml["member_weights"]
     logger.info("moneyline OOF rows: %d; adaptive weights: %s",
@@ -363,7 +384,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 6/7. Run-line + totals OOF (joint distribution model) ─────────────
     _banner("PHASE 6-7", "margin/total distribution OOF")
-    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
+    _dist_bar = ingestion.StageProgress(len(fold_list), "distribution OOF folds")
+    dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list,
+                                     progress=_dist_bar.advance)
+    _dist_bar.close()
     oof_dist = dist["oof"]
 
     # NFL-specific negative-binomial dispersion is estimated from the
@@ -443,10 +467,12 @@ def main(argv: list[str] | None = None) -> int:
     # its own fitting population). Identical favored-space guardrails apply.
     platt = ml_mod.moneyline_fit(p_ens[okp], y_oof[okp])
     if platt is not None:
-        logger.info("final pooled calibrator: a=%.4f b=%.4f n=%d method=%s",
+        logger.info("final pooled calibrator (THIS is what serves): "
+                    "a=%.4f b=%.4f n=%d method=%s",
                     platt["a"], platt["b"], platt["n"], platt["method"])
     else:
-        logger.info("final pooled calibrator: identity (raw blend is served)")
+        logger.info("final pooled calibrator: identity (raw blend is served; "
+                    "the 'calib' twin below is then identical to raw)")
 
     # ── 9. Evaluation ─────────────────────────────────────────────────────
     _banner("PHASE 9", "evaluation / diagnostics")
@@ -455,7 +481,19 @@ def main(argv: list[str] | None = None) -> int:
     raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"], y_oof)
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
     logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
-    logger.info("moneyline OOF calib:  %s", json.dumps(cal_m))
+    # The calibrated twin needs its label ON the log line, because "calib
+    # scores worse than raw" is the wrong conclusion to draw from these two
+    # lines side by side. Each fold was mapped by its OWN prequential
+    # calibrator (see the fitted/identity split above), so pooling the column
+    # ranks games through a different map per fold: two games ordered by raw
+    # probability can invert once they pass through different maps, and the
+    # POOLED auc can fall even though every individual map is monotone. A
+    # pooled delta between these two lines therefore measures cross-fold map
+    # drift, not calibration quality. The map that actually serves is the
+    # final pooled one, fitted once and so globally monotone -- it cannot
+    # change auc at all, and only ece and logloss are free to move.
+    logger.info("moneyline OOF calib:  %s   [PREQUENTIAL per-fold maps, "
+                "pooled: pooled auc is NOT comparable to raw]", json.dumps(cal_m))
     # The two lines above score the CAUSAL walk-forward blend: every fold was
     # blended with the weights earned from PRIOR folds only. That is the
     # honest evaluation layer and must stay causal, but it is NOT the
@@ -470,8 +508,15 @@ def main(argv: list[str] | None = None) -> int:
     # only metric the weights are actually optimized on; a blend that trails
     # a member on AUC or Brier while leading on log-loss is the optimizer
     # working, not failing.
+    # The fallback must be a full-length all-NaN column, NOT an empty array:
+    # binary_metrics masks non-finite pairs, so an all-NaN column reports
+    # n/a (n=0) as intended, whereas a length-0 or length-1 array fails the
+    # broadcast against y_oof and takes the whole run down. dict.get also
+    # evaluates its default EAGERLY, so this line runs even when blend_full
+    # is present -- a malformed default is not a latent bug, it is a crash
+    # on every Phase 9.
     full_m = eval_mod.binary_metrics(
-        np.asarray(ml.get("blend_full", np.full(0, dtype=float)), dtype=float),
+        np.asarray(ml.get("blend_full", np.full(len(y_oof), np.nan)), dtype=float),
         y_oof)
     logger.info("moneyline OOF shipped: %s", json.dumps(full_m))
     member_rows = monitoring.ensemble_table(oof_ml, weights)

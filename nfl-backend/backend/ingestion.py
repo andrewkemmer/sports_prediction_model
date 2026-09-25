@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 # pollute the working tree; overridable for tests.
 CACHE_DIR = Path(config.ROOT_DIR.parent) / ".nfl_cache"
 
+# MLB parity: MLB walks its StatsAPI schedule in SCHEDULE_CHUNK_DAYS = 60
+# windows (mlb-backend/backend/results.py) and its Statcast pull in the same
+# 60-day granularity (ingestion._chunked_statcast), so a decade-long window
+# stays rate-limit friendly and a partially completed run is legible from the
+# log alone. NFL's nflverse loaders are per-SEASON, so this constant is the
+# same 60-day reporting granularity applied to the ingestion window rather
+# than a different fetch plan — see chunk_date_range.
+POPULATE_CHUNK_DAYS = 60
+
 
 def _cache_path(name: str) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -353,3 +362,104 @@ def load_team_names() -> dict[str, str]:
     if "team_abbr" in df.columns and "team_name" in df.columns:
         return dict(zip(df["team_abbr"], df["team_name"]))
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Run visibility: 60-day chunk plan + a progress bar.
+#
+# BOTH are display only. Nothing here reads or writes the frames being
+# reported on, and no loader's call signature changes, so a run with the
+# reporting removed produces byte-identical artifacts.
+# ---------------------------------------------------------------------------
+def chunk_date_range(start, end, chunk_days: int = POPULATE_CHUNK_DAYS):
+    """Yield inclusive ``(chunk_start, chunk_end)`` windows of ``chunk_days``.
+
+    Mirrors MLB's chunk walk: each window is ``chunk_days`` long except the
+    last, which is truncated at ``end`` (the same truncation MLB does with
+    ``min(cursor + timedelta(days=chunk_days - 1), end)``). Yields nothing
+    when the window is empty or reversed, so a caller never has to special
+    case a run whose date window collapsed.
+
+    The 60-day plan is REPORTING granularity. The nflverse loaders fetch per
+    season and that is deliberately unchanged: chunking a per-season pull
+    would change which rows arrive, which is a functional change this
+    reporting layer must not make.
+    """
+    start = pd.Timestamp(start).normalize()
+    end = pd.Timestamp(end).normalize()
+    if pd.isna(start) or pd.isna(end) or end < start:
+        return
+    cursor = start
+    while cursor <= end:
+        chunk_end = min(cursor + pd.Timedelta(days=chunk_days - 1), end)
+        yield cursor, chunk_end
+        cursor = chunk_end + pd.Timedelta(days=1)
+
+
+class StageProgress:
+    """A logger-rendered progress bar with no third-party dependency.
+
+    Deliberately not tqdm: NFL's runtime dependency set is what the Kaggle
+    bootstrap installs, and adding a package to observe a run is a change to
+    the production environment, which this work is not allowed to make. MLB
+    installs tqdm but never imports it, so there is no bar to be structurally
+    identical to — this renders through the same ``logger`` the rest of the
+    run uses, so it appears in the same captured log a reader already reads.
+
+    Display only. The bar holds counters; it never touches the data.
+    """
+
+    WIDTH = 24
+    # A 105-fold stage must not write 101 log lines. Emit at most every 5%
+    # (~21 lines) and on every step of a short stage, so a 5-source bar still
+    # moves once per source.
+    LONG_STAGE = 25
+    PCT_STEP = 5
+
+    def __init__(self, total: int, label: str, width: int = WIDTH):
+        self.total = max(0, int(total))
+        self.label = label
+        self.width = max(1, int(width))
+        # A zero-length stage has no progress to show; stay silent rather than
+        # printing a bar that jumps 0 -> 100% the instant it is created.
+        self.enabled = self.total > 0
+        self.n = 0
+        self._step = 1 if self.total <= self.LONG_STAGE else self.PCT_STEP
+        self._last_pct = -1
+
+    def advance(self, n: int = 1) -> "StageProgress":
+        """Move the bar forward. Callable, so it can be a bare callback."""
+        self.n += n
+        self.render()
+        return self
+
+    def render(self, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        frac = min(1.0, self.n / self.total)
+        pct = int(frac * 100)
+        # 100% always reports, so a completed stage is never left looking
+        # unfinished; otherwise only redraw once the bar has moved a step.
+        if not force and pct < 100 and pct - self._last_pct < self._step:
+            return
+        self._last_pct = pct
+        filled = int(round(frac * self.width))
+        bar = "#" * filled + "-" * (self.width - filled)
+        logger.info("  [%s] %3d%%  %d/%d  %s", bar, pct,
+                    min(self.n, self.total), self.total, self.label)
+
+    def close(self) -> None:
+        """Finish the bar, and say so loudly if the stage stopped short."""
+        if not self.enabled:
+            return
+        if self.n < self.total:
+            # A short stage is usually an exception escaping a loader, and a
+            # full-width bar here would read as success.
+            logger.warning("  [%s] %3d%%  stopped short: %d/%d  %s",
+                           "#" * self.width,
+                           int(100 * self.n / self.total), self.n, self.total,
+                           self.label)
+        elif self._last_pct < 100:
+            # advance() already draws 100% on the final step; re-drawing here
+            # would print the same line twice.
+            self.render(force=True)

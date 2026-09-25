@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import os
 import sys
 import warnings
@@ -1088,10 +1089,15 @@ check("moneyline OOF accepts the Phase 4 fold_list",
 check("distribution OOF accepts the Phase 4 fold_list",
       "fold_list" in dist_sig.parameters)
 mp_src = inspect.getsource(mp_mod := __import__("master_pipeline"))
+# Assert the CONTRACT (both kwargs reach the OOF call) rather than an exact
+# call string: the progress kwarg was added to the call, and pinning the old
+# text would have made this check forbid the improvement.
 check("master_pipeline passes fold_list to moneyline OOF",
-      "ml_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
+      "ml_mod.walk_forward_oof(game_df, fold_list=fold_list," in mp_src
+      and "progress=_ml_bar.advance" in mp_src)
 check("master_pipeline passes fold_list to distribution OOF",
-      "dist_mod.walk_forward_oof(game_df, fold_list=fold_list)" in mp_src)
+      "dist_mod.walk_forward_oof(game_df, fold_list=fold_list," in mp_src
+      and "progress=_dist_bar.advance" in mp_src)
 check("master_pipeline fetches PIT weather before feature construction",
       "weather_mod.fetch_games_weather(schedule)" in mp_src
       and mp_src.index("weather_mod.fetch_games_weather(schedule)")
@@ -1245,6 +1251,50 @@ check("shipped blend is never written into the OOF frame as a column",
       and 'oof_ml["p_ensemble"] =' not in mp_src
       and "oof_ml['p_ensemble'] =" not in mp_src)
 
+# ---- Phase 9 report path must be executable, not just parseable -----------
+# The shipped-blend report reads an optional key through dict.get with a
+# fallback. Python evaluates that fallback EAGERLY, so a malformed default
+# crashes Phase 9 on EVERY run — which is exactly what happened: a Kaggle
+# full-repull died with "np.full() missing 1 required positional argument:
+# 'fill_value'" after every expensive phase had already finished, while all
+# 181 checks here stayed green because nothing executes main(). These two
+# checks attack the class of bug rather than the one instance: the fallback
+# itself must run, and no numpy constructor in the module may be called with
+# a shape but no fill value.
+_ship_y = oof["home_win"].to_numpy(float)
+try:
+    _m_present = eval_mod.binary_metrics(
+        np.asarray({"blend_full": _ship}.get("blend_full",
+                                            np.full(len(_ship_y), np.nan))),
+        _ship_y)
+    _m_absent = eval_mod.binary_metrics(
+        np.asarray({}.get("blend_full", np.full(len(_ship_y), np.nan))),
+        _ship_y)
+    check("Phase 9 blend_full fallback reports n/a instead of raising",
+          _m_present["n"] == len(_ship_y) and _m_absent["n"] == 0
+          and np.isnan(_m_absent["auc"]))
+except Exception as exc:  # noqa: BLE001
+    check("Phase 9 blend_full fallback reports n/a instead of raising", False, str(exc))
+check("the fallback is full-length (a short array cannot broadcast against y_oof)",
+      "np.full(len(y_oof), np.nan)" in mp_src)
+try:
+    import ast as _ast
+    _tree = _ast.parse(mp_src)
+    _bad = []
+    for _node in _ast.walk(_tree):
+        # Only np.full requires fill_value; zeros/ones/empty legitimately
+        # take a shape alone, so flagging those would cry wolf.
+        if (isinstance(_node, _ast.Call) and isinstance(_node.func, _ast.Attribute)
+                and _node.func.attr == "full"
+                and _node.args and len(_node.args) < 2
+                and not any(_k.arg == "fill_value" for _k in _node.keywords)):
+            _bad.append(f"np.full with {len(_node.args)} positional arg(s)")
+    check("no np.full in master_pipeline is missing its fill_value",
+          not _bad, "; ".join(sorted(set(_bad))))
+except Exception as exc:  # noqa: BLE001
+    check("no np.full in master_pipeline is missing its fill_value",
+          False, str(exc))
+
 # The weight optimizer's own contract, asserted rather than asserted-in-a-
 # comment: a simplex fit on pooled OOF log-loss never loses to its best single
 # member ON THAT METRIC. A blend trailing a member on AUC/Brier while leading
@@ -1396,8 +1446,111 @@ try:
     check("late-pool fold fits a real (non-identity) map",
           fold_calibrators[n_folds - 1] is not None
           and fold_calibrators[n_folds - 1].get("n", 0) >= 300)
+    # The SERVING map (one fit, whole population) is a single monotone
+    # transform, so it cannot change auc. The per-fold column above is NOT
+    # comparable to raw on pooled auc, because 105 drifting maps invert
+    # cross-fold pairs -- measured at -0.002145 auc on the real OOF while the
+    # serving map scored EXACTLY the raw auc. Phase 9 now says so on the log
+    # line; this check keeps the property that makes it true.
+    _smap = ml_mod.moneyline_fit(pv[okm], yv[okm])
+    _served = ml_mod.moneyline_apply(pv, _smap)
+    _ord = np.argsort(pv, kind="mergesort")
+    check("serving calibration is rank preserving (cannot move pooled auc)",
+          _smap is not None and int((np.diff(_served[_ord]) < 0).sum()) == 0)
+    check("Phase 9 labels the prequential twin as not auc-comparable",
+          "pooled auc is NOT comparable to raw" in mp_src
+          and "THIS is what serves" in mp_src)
 except Exception as exc:  # noqa: BLE001
     check("prequential OOF honesty checks", False, str(exc))
+
+# ---- 60-day ingestion chunk plan + progress bar (MLB parity) -------------
+# MLB walks its ingestion in 60-day windows (results.SCHEDULE_CHUNK_DAYS) and
+# its Statcast pull at the same granularity. NFL matches the REPORTING
+# granularity only: the nflverse loaders stay per-season, because chunking a
+# per-season pull would change which rows arrive. The bar is display only and
+# adds no dependency (MLB installs tqdm but never imports it).
+_ch = list(ingest_mod.chunk_date_range("2016-01-01", "2026-09-27"))
+check("POPULATE_CHUNK_DAYS matches MLB's 60-day schedule chunk",
+      ingest_mod.POPULATE_CHUNK_DAYS == 60)
+check("ingestion window splits into 60-day chunks, last one truncated",
+      len(_ch) == 66 and all((b - a).days == 59 for a, b in _ch[:-1])
+      and 0 <= (_ch[-1][1] - _ch[-1][0]).days < 59
+      and str(_ch[-1][1].date()) == "2026-09-27")
+check("chunk windows are contiguous with no gap or overlap",
+      all(_ch[i][1] + pd.Timedelta(days=1) == _ch[i + 1][0]
+          for i in range(len(_ch) - 1)))
+check("an empty or reversed date window yields no chunks",
+      list(ingest_mod.chunk_date_range("2026-01-01", "2016-01-01")) == []
+      and list(ingest_mod.chunk_date_range("2026-01-01", "2026-01-01"))
+      == [(pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-01"))])
+try:
+    _bar = ingest_mod.StageProgress(4, "smoke")
+    _seen: list[str] = []
+    _h = logging.Handler()
+    _h.emit = lambda rec: _seen.append(rec.getMessage())
+    ingest_mod.logger.addHandler(_h)
+    try:
+        for _ in range(4):
+            _bar.advance()
+        _bar.close()
+    finally:
+        ingest_mod.logger.removeHandler(_h)
+    check("progress bar renders a full-width bar and reaches 100%",
+          any("100%" in m and "4/4" in m and "#" * 24 in m for m in _seen))
+    check("progress bar advances monotonically and never exceeds total",
+          [m for m in _seen if "%" in m]
+          and all(int(m.split("%")[0].split("]")[-1]) <= 100 for m in _seen))
+    _short = ingest_mod.StageProgress(4, "short")
+    _warn: list[logging.LogRecord] = []
+    _h2 = logging.Handler()
+    _h2.emit = lambda rec: _warn.append(rec)
+    ingest_mod.logger.addHandler(_h2)
+    try:
+        _short.advance()
+        _short.close()
+    finally:
+        ingest_mod.logger.removeHandler(_h2)
+    check("a stage that stops short warns instead of showing a full bar",
+          any(r.levelno >= logging.WARNING and "stopped short" in r.getMessage()
+              for r in _warn))
+    _zero = ingest_mod.StageProgress(0, "empty")
+    _zero.advance()
+    _zero.close()
+    check("a zero-length stage renders nothing (no 0->100% jump)",
+          not _zero.enabled)
+except Exception as exc:  # noqa: BLE001
+    check("progress bar renders a full-width bar and reaches 100%", False, str(exc))
+
+# No functional impact: the hook is opt-in and defaults to a no-op, and the
+# feature builder is untouched by the chunk plan.
+check("progress hook defaults to None on both OOF entry points",
+      ml_sig.parameters["progress"].default is None
+      and dist_sig.parameters["progress"].default is None)
+check("progress hook is appended last, so no positional caller shifts",
+      list(ml_sig.parameters)[-1] == "progress"
+      and list(dist_sig.parameters)[-1] == "progress")
+check("chunk plan is reporting only; nflverse loaders stay per-season",
+      "def load_pbp(seasons" in inspect.getsource(ingest_mod)
+      and "for season in" in inspect.getsource(ingest_mod))
+check("master_pipeline bars both OOF stages and the population sources",
+      "StageProgress(len(fold_list), \"moneyline OOF folds\")" in mp_src
+      and "StageProgress(len(fold_list), \"distribution OOF folds\")" in mp_src
+      and "StageProgress(5, \"nflverse population\")" in mp_src)
+def _imports_tqdm(mod) -> bool:
+    """True if the module actually IMPORTS tqdm (prose mentioning it is fine)."""
+    import ast as _a
+    for _n in _a.walk(_a.parse(inspect.getsource(mod))):
+        if isinstance(_n, _a.Import):
+            if any((al.name or "").split(".")[0] == "tqdm" for al in _n.names):
+                return True
+        elif isinstance(_n, _a.ImportFrom):
+            if (_n.module or "").split(".")[0] == "tqdm":
+                return True
+    return False
+
+
+check("the bar adds no third-party dependency (no tqdm import)",
+      not _imports_tqdm(ingest_mod) and not _imports_tqdm(mp_mod))
 
 # 10f. Chart reproduction from the persisted history columns.
 try:

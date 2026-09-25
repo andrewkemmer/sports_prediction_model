@@ -141,7 +141,8 @@ def _member_predict_proba(model, name: str, X_raw: pd.DataFrame,
 def walk_forward_oof(game_df: pd.DataFrame,
                      date_col: str = "gameday",
                      progress_every: int = 25,
-                     fold_list: list | None = None) -> dict:
+                     fold_list: list | None = None,
+                     progress=None) -> dict:
     """Expanding walk-forward OOF for every ensemble member + the ensemble.
 
     Rolling per-fold blend weighting (MLB structural parity, 2026-09-23):
@@ -237,6 +238,11 @@ def walk_forward_oof(game_df: pd.DataFrame,
         if (fold.fold_id + 1) % progress_every == 0:
             logger.info("moneyline OOF fold %d/%d", fold.fold_id + 1,
                         len(fold_list))
+        # Optional display-only progress hook (master_pipeline passes a
+        # StageProgress.advance). Default None means the call is skipped
+        # entirely, so an unhooked call is byte-identical to before.
+        if progress is not None:
+            progress()
 
     oof = pd.concat(oof_parts, ignore_index=True) if oof_parts else pd.DataFrame()
 
