@@ -243,7 +243,19 @@ def walk_forward_oof(game_df: pd.DataFrame,
     # The last rolling update is the full-population optimum — the shipped
     # weight for serving and the dashboard.
     weights = dict(_last_weights)
-    return {"oof": oof, "member_weights": weights,
+    # blend_full replays the SHIPPED weight vector over the whole OOF frame.
+    # It is NOT the oof["p_ensemble"] column and the two are not on the same
+    # scale: that column is the CAUSAL blend, mixed fold by fold from the
+    # weights earned on PRIOR folds only, and it answers "how honest was the
+    # walk-forward process"; blend_full answers "how good is the ensemble we
+    # actually serve", scoring the same logit-space blend predict_slate
+    # applies at serve. Row-aligned with oof so callers can score it against
+    # oof["home_win"] directly. Deliberately not written into the frame —
+    # shipping it as a column would invite it to be mistaken for, or to
+    # replace, the honest causal column downstream.
+    blend_full = (_blend(oof, weights) if len(oof)
+                  else np.full(0, dtype=float))
+    return {"oof": oof, "member_weights": weights, "blend_full": blend_full,
             "fold_table": pd.DataFrame(fold_rows)}
 
 

@@ -452,10 +452,29 @@ def main(argv: list[str] | None = None) -> int:
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
     logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
     logger.info("moneyline OOF calib:  %s", json.dumps(cal_m))
+    # The two lines above score the CAUSAL walk-forward blend: every fold was
+    # blended with the weights earned from PRIOR folds only. That is the
+    # honest evaluation layer and must stay causal, but it is NOT the
+    # ensemble this run ships, and it is not on the same scale as the
+    # per-member rows below — those are each member's own full-population
+    # score. Reading the causal AUC against a member's full-population AUC
+    # makes a healthy blend look like it lost to its best member. "shipped"
+    # replays the weight vector Phase 5 earned over the whole OOF — the same
+    # logit-space blend predict_slate applies at serve — so the blend and the
+    # members it is built from are finally compared on one population. The
+    # member logloss is printed alongside AUC/Brier because log-loss is the
+    # only metric the weights are actually optimized on; a blend that trails
+    # a member on AUC or Brier while leading on log-loss is the optimizer
+    # working, not failing.
+    full_m = eval_mod.binary_metrics(
+        np.asarray(ml.get("blend_full", np.full(0, dtype=float)), dtype=float),
+        y_oof)
+    logger.info("moneyline OOF shipped: %s", json.dumps(full_m))
     member_rows = monitoring.ensemble_table(oof_ml, weights)
     for r in member_rows:
-        logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
-                    r["name"], r["weight"], r["auc"] or np.nan, r["brier"] or np.nan)
+        logger.info("  member %-13s w=%.3f auc=%.4f logloss=%.4f brier=%.4f",
+                    r["name"], r["weight"], r["auc"] or np.nan,
+                    r["logloss"] or np.nan, r["brier"] or np.nan)
 
     dist_metrics = eval_mod.nb_distribution_metrics(
         oof_dist.merge(

@@ -1161,6 +1161,67 @@ except Exception as exc:  # noqa: BLE001
 finally:
     folds_mod.make_folds = _orig_make
 
+
+# ---- Shipped-weight blend diagnostic -------------------------------------
+# Phase 9's "moneyline OOF raw" scores the CAUSAL per-fold blend (each fold
+# mixed with the weights earned on PRIOR folds only). That is the honest
+# evaluation layer, but it is NOT the ensemble this run serves, and the
+# per-member rows beside it are full-population scores. walk_forward_oof must
+# hand back the shipped replay so blend and members are scored on ONE
+# population — otherwise a healthy blend reads as "lost to elasticnet".
+_ship = np.asarray(res["blend_full"], dtype=float)
+_ship_w = res["member_weights"]
+check("walk_forward_oof returns the shipped-weight blend (blend_full)",
+      _ship.shape == (len(oof),))
+check("blend_full is row-aligned to the OOF frame",
+      len(_ship) == len(oof) and int(np.isfinite(_ship).sum()) == len(oof))
+check("blend_full == the logit-space blend of the shipped weights",
+      np.allclose(_ship, ml_mod2._blend(oof, _ship_w), equal_nan=True))
+_causal = pd.to_numeric(oof["p_ensemble"], errors="coerce").to_numpy(float)
+check("blend_full is a separate array, not an alias of the causal column",
+      _ship is not _causal and not np.shares_memory(_ship, _causal))
+# The shipped replay must be ADDED to the report, never substituted for the
+# honest causal column — swapping p_ensemble out would quietly leak the
+# full-population weights into the evaluation layer.
+check("Phase 9 still scores the CAUSAL column (diagnostic added, not swapped)",
+      'binary_metrics(oof_ml["p_ensemble"], y_oof)' in mp_src
+      and 'binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)' in mp_src)
+check("shipped blend is never written into the OOF frame as a column",
+      "p_ensemble_shipped" not in mp_src
+      and 'oof_ml["p_ensemble"] =' not in mp_src
+      and "oof_ml['p_ensemble'] =" not in mp_src)
+
+# The weight optimizer's own contract, asserted rather than asserted-in-a-
+# comment: a simplex fit on pooled OOF log-loss never loses to its best single
+# member ON THAT METRIC. A blend trailing a member on AUC/Brier while leading
+# on log-loss is the monotonic-map tradeoff working as designed.
+_y = pd.to_numeric(oof["home_win"], errors="coerce").to_numpy(float)
+_ok = np.isfinite(_ship) & np.isfinite(_y)
+
+
+def _ll(p):
+    p = np.clip(np.asarray(p, float)[_ok], 1e-7, 1 - 1e-7)
+    yy = _y[_ok]
+    return float(-(yy * np.log(p) + (1 - yy) * np.log(1 - p)).mean())
+
+
+_member_lls = []
+for _n in config.ENSEMBLE_MEMBERS:
+    _c = f"p_{_n}"
+    if _c in oof.columns:
+        _p = pd.to_numeric(oof[_c], errors="coerce").to_numpy(float)
+        if int(np.isfinite(_p).sum()) == len(oof):
+            _member_lls.append(_ll(_p))
+_best = min(_member_lls) if _member_lls else np.inf
+check("shipped blend never loses to its best member on pooled logloss",
+      np.isfinite(_best) and _ll(_ship) <= _best + 1e-12,
+      f"blend={_ll(_ship):.6f} best_member={_best:.6f}")
+check("Phase 9 logs the shipped blend separately from the causal one",
+      "moneyline OOF shipped" in mp_src and 'ml.get("blend_full"' in mp_src)
+check("Phase 9 member rows print logloss (the optimized metric)",
+      "logloss=%.4f" in mp_src)
+
+
 # ---------------------------------------------------------------------------
 print("\n== 10. Moneyline calibration parity (prequential OOF + favored space) ==")
 # 10a. MLB structural guardrails: every unsafe fit yields identity.  There is
