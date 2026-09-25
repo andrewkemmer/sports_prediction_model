@@ -18,7 +18,7 @@ frames.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 
@@ -96,6 +96,14 @@ def make_folds(df: pd.DataFrame,
              if len(f.val_idx) >= min_val_games or f.is_partial_tail]
     if max_eval_folds > 0 and len(folds) > max_eval_folds:
         folds = folds[-max_eval_folds:]
+    # Renumber contiguously AFTER filtering. The min-validation filter drops
+    # candidate windows, which used to leave gaps in ``fold_id`` (e.g. 46
+    # folds numbered up to 57). Consumers treat ``fold_id`` as an ordinal —
+    # progress logging, and the strictly-prior mask
+    # ``fold_ids < fold.fold_id`` in the prequential calibrator — so a gap
+    # silently misreports the denominator and keeps a dead id in the prior
+    # window. Renumbering keeps the prior set exactly the preceding folds.
+    folds = [replace(f, fold_id=i) for i, f in enumerate(folds)]
     return folds
 
 

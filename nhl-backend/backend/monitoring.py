@@ -131,10 +131,12 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
 def write_run_engine_feature_artifacts(out_dir, date_c: str,
                                        full_df: pd.DataFrame,
                                        recent_df: pd.DataFrame,
-                                       weights: dict[str, float] | None = None) -> tuple[str, str]:
+                                       weights: dict[str, float] | None = None,
+                                       slate_df: pd.DataFrame | None = None
+                                       ) -> tuple[str, str]:
     """Emit MLB-shaped run-engine drift/coverage CSVs for the NHL page."""
     drift = feature_drift(full_df, recent_df, weights=weights)
-    cov = coverage(full_df)
+    cov = coverage(full_df, slate_df=slate_df)
     drift_path = out_dir / f"run_engine_feature_drift_{date_c}.csv"
     cov_path = out_dir / f"run_engine_feature_coverage_{date_c}.csv"
     pd.DataFrame(drift).to_csv(drift_path, index=False)
@@ -142,26 +144,104 @@ def write_run_engine_feature_artifacts(out_dir, date_c: str,
     return drift_path.name, cov_path.name
 
 
-def coverage(full_df: pd.DataFrame) -> list[dict]:
-    """Per-feature measured/non-null coverage over the decided pool."""
-    rows = []
-    for f in config.active_moneyline_feature_cols():
-        if f not in full_df.columns:
-            rows.append({"feature": f, "window": "decided pool",
-                         "n_games": len(full_df), "pct_measured": 0.0,
-                         "pct_nonnull": 0.0, "n_default_zero": 0,
-                         "status": "STARVED"})
-            continue
-        v = pd.to_numeric(full_df[f], errors="coerce")
-        pct = round(100.0 * float(v.notna().mean()), 2)
-        rows.append({
-            "feature": f, "window": "decided pool", "n_games": int(len(full_df)),
-            "pct_measured": pct,
-            "pct_nonnull": pct,
-            "n_default_zero": 0,
-            "status": ("STARVED" if pct < 25.0
-                       else "LOW_COVERAGE" if pct < 80.0 else "OK"),
-        })
+def _warmup_mask(df: pd.DataFrame) -> pd.Series | None:
+    """True where an observation was IMPOSSIBLE: a team's own first game.
+
+    A trailing feature is null on a team's debut because there is no prior
+    history anywhere — that is the designed warm-up, not a defect. Knowing
+    which rows those are is what lets the coverage report tell a cold start
+    apart from a feature that silently stopped being produced. Returns None
+    when the frame cannot support the classification (no team columns), in
+    which case callers fall back to the plain threshold rule.
+    """
+    cols = set(df.columns)
+    if not {"home_team", "away_team", "gameday"} <= cols:
+        return None
+    order = df.copy()
+    order["gameday"] = pd.to_datetime(order["gameday"], errors="coerce")
+    order = order.sort_values(["gameday"], kind="stable")
+    seen: set[str] = set()
+    cold = []
+    for r in order.itertuples(index=False):
+        h, a = str(r.home_team), str(r.away_team)
+        cold.append(h not in seen or a not in seen)
+        seen.add(h)
+        seen.add(a)
+    mask = pd.Series(cold, index=order.index)
+    return mask.reindex(df.index).fillna(False).astype(bool)
+
+
+def _coverage_row(f: str, df: pd.DataFrame, window: str,
+                  warmup: pd.Series | None) -> dict:
+    n_games = int(len(df))
+    if f not in df.columns:
+        # The contract names a feature the frame never produced. That is a
+        # wiring defect, and it must not be reported as merely unmeasured.
+        return {
+            "feature": f, "window": window, "n_games": n_games,
+            "pct_measured": 0.0, "pct_nonnull": 0.0, "n_default_zero": 0,
+            "status": "STARVED", "n_measured": 0, "n_null": n_games,
+            "n_cold_null": 0, "n_warm_null": n_games,
+            "pct_measured_eligible": 0.0,
+            "cause": "absent_column",
+        }
+    v = pd.to_numeric(df[f], errors="coerce")
+    null = v.isna()
+    n_null = int(null.sum())
+    pct = round(100.0 * float((~null).mean()) if n_games else 0.0, 2)
+    if warmup is not None and n_null:
+        warm = ~warmup.reindex(df.index).fillna(False).astype(bool)
+        n_warm_null = int((null & warm).sum())
+        n_cold_null = n_null - n_warm_null
+    else:
+        n_warm_null, n_cold_null = n_null, 0
+    n_eligible = max(n_games - n_cold_null, 0)
+    pct_eligible = round(100.0 * (n_eligible - n_warm_null) / n_eligible, 2) \
+        if n_eligible else 0.0
+    if n_games and not n_eligible:
+        # Nothing was measurable: either the whole frame is warm-up, or the
+        # feature is null on every game it could have been measured on.
+        status = "STARVED" if pct == 0.0 else "OK"
+    elif n_warm_null:
+        status = "STARVED" if pct == 0.0 else "LOW_COVERAGE"
+    else:
+        status = "OK"
+    return {
+        "feature": f, "window": window, "n_games": n_games,
+        "pct_measured": pct, "pct_nonnull": pct, "n_default_zero": 0,
+        "status": status,
+        "n_measured": int(n_games - n_null), "n_null": n_null,
+        "n_cold_null": n_cold_null, "n_warm_null": n_warm_null,
+        "pct_measured_eligible": pct_eligible,
+        "cause": ("defect" if n_warm_null
+                  else "cold_start" if n_cold_null else "complete"),
+    }
+
+
+def coverage(full_df: pd.DataFrame,
+             slate_df: pd.DataFrame | None = None) -> list[dict]:
+    """Per-feature coverage over the decided pool AND the serving slate.
+
+    Two windows, one row each, because they answer different questions and
+    only measuring one of them hid a total outage: the goalie family read
+    96-98% on the decided pool while EVERY published prediction carried a
+    null, since the decided builder can resolve an expected starter from the
+    game's own boxscore and the slate builder cannot. A report that only
+    looks at the decided pool is structurally blind to the worst case, so
+    the slate the pipeline actually ships is measured too.
+
+    Within a window, nulls are split into cold-start (a team's first game —
+    no prior history exists, by design) and warm (a real defect). Only warm
+    nulls drive the status, so the panel's starved/low counters mean
+    "something is broken" rather than "the season started".
+    """
+    warmup = _warmup_mask(full_df)
+    rows = [_coverage_row(f, full_df, "decided pool", warmup)
+            for f in config.active_moneyline_feature_cols()]
+    if slate_df is not None and len(slate_df):
+        slate_warmup = pd.Series(False, index=slate_df.index)
+        rows.extend(_coverage_row(f, slate_df, "serving slate", slate_warmup)
+                    for f in config.active_moneyline_feature_cols())
     return rows
 
 

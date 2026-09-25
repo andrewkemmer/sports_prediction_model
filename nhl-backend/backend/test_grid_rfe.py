@@ -349,8 +349,9 @@ def test_grid_key_formatting():
 def test_retention_board_families_age_out_on_the_10_day_window():
     """Blanket 10-day window (anchor -10 .. anchor): dated board families
     keep inside and go stale together beyond it; the frontend serves a
-    rolling 10 days, never a historical archive. NHL SHAP ids embed the
-    game date (YYYYMMDD_AWAY@HOME) so they age by FILENAME — no map."""
+    rolling 10 days, never a historical archive. The SHAP entries here use
+    the LEGACY date-embedded id (YYYYMMDD_AWAY@HOME); official NHL numeric
+    ids carry no date and are covered in test_run_engine_pit."""
     import retention_policy as rp
 
     keep = {"current", "seen", "protected"}
@@ -419,11 +420,17 @@ def test_retention_board_families_age_out_on_the_10_day_window():
 
 
 def test_shap_age_uses_the_embedded_game_date():
+    """Legacy date-embedded ids age by filename; official NHL numeric ids
+    must NOT be truncated into a bogus date."""
     import retention_policy as rp
     rel = "nhl-backend/data_delivery/nhl_shap_game_20260921_TOR@MTL.csv"
     assert rp.shap_game_date(rel) == "20260921"
     assert rp.artifact_date(rel) == "20260921"
     assert rp.is_never_delete(rel) is False
+    numeric = "nhl-backend/data_delivery/nhl_shap_game_2026020001.csv"
+    assert rp.shap_game_date(numeric) is None
+    assert rp.artifact_date(numeric) is None, \
+        "a 10-digit NHL game id must never parse as a truncated date"
 
 
 if __name__ == "__main__":

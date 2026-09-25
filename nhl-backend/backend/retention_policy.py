@@ -9,11 +9,12 @@ artifact sync stages the deletions, so git history retains every blob.
 Files NEWER than the anchor are never touched (backfill-safe), and the scope
 is exactly ``nhl-backend/data_delivery/``.
 
-NHL-specific wrinkle: NHL game ids embed the game date
-(``YYYYMMDD_AWAY@HOME`` — the ESPN convention adopted for parity with MLB's
-``shap_game_20260821_STL@PHI.csv``), so SHAP files age by FILENAME date
-directly — no game-date map needed (the NFL backend needs one because its
-ids embed season+week; NHL deliberately does not).
+NHL-specific wrinkle: SHAP files are written per GAME, so they must age by
+the GAME date, not the run date in the filename. Two id conventions exist in
+the wild: the legacy ESPN-style ``YYYYMMDD_AWAY@HOME`` (date embedded in the
+filename) and the current official NHL API numeric id (``2026020001``, which
+carries no date and must be resolved through the ``game_dates`` map the
+pipeline builds from the moneyline artifacts).
 
 This mirrors ``mlb-backend/backend/retention_policy.py`` structurally: one
 ``FamilyPolicy`` config table, one pure ``classify_artifact`` predicate, and
@@ -104,10 +105,11 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  notes="newest-only coverage table; 10-day window"),
     FamilyPolicy("shap_game", "nhl_shap_game_",
                  retention_days=None, allowlisted=True, slate_window_days=10,
-                 notes="per-game cards aged by the game-date EMBEDDED in the "
-                       "filename (nhl game ids are YYYYMMDD_AWAY@HOME — the "
-                       "MLB filename-aging convention); pruned after 10 days "
-                       "past the game; current/future slate kept"),
+                 notes="per-game cards aged by the GAME date: embedded in the "
+                       "filename for legacy YYYYMMDD_AWAY@HOME ids, else "
+                       "resolved through the game-date map for official NHL "
+                       "numeric ids; pruned after 10 days past the game; "
+                       "current/future slate kept"),
     FamilyPolicy("rfe_trace", "nhl_feature_selection_", retention_days=10,
                  allowlisted=True,
                  notes="RFE trace record; adoption reads the STATE file "
@@ -120,8 +122,8 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
 
 # -- Predicates --------------------------------------------------------------
 
-_COMPACT_DATE_RE = re.compile(r"_(\d{8})")            # nhl_calibration_20260922.json
-_ISO_DATE_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})")    # nhl_feature_workbook_2026-09-22.xlsx
+_COMPACT_DATE_RE = re.compile(r"_(\d{8})(?!\d)")          # nhl_calibration_20260922.json
+_ISO_DATE_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})(?!\d)")  # nhl_feature_workbook_2026-09-22.xlsx
 _SHAP_DATE_RE = re.compile(r"nhl_shap_game_(\d{8})_")
 
 
@@ -137,19 +139,20 @@ def artifact_date(rel: str) -> Optional[str]:
     """Extract the artifact date as compact YYYYMMDD, or None if dateless.
 
     Understands the compact ``_YYYYMMDD`` convention (board families) and
-    the ISO ``_YYYY-MM-DD`` convention (RFE workbooks). SHAP files embed
-    the date at the START of the game id (``nhl_shap_game_20260921_TOR@MTL``),
-    which the trailing-suffix regexes do not match by design: their age
-    resolves through ``shap_game_date``.
+    the ISO ``_YYYY-MM-DD`` convention (RFE workbooks). The date must be a
+    COMPLETE 8-digit token: a longer digit run (an official NHL numeric game
+    id such as ``nhl_shap_game_2026020001.csv``) is deliberately NOT matched,
+    so a truncated prefix can never be mistaken for a date. SHAP ages resolve
+    through ``shap_game_date`` / the game-date map instead.
     """
     m = _COMPACT_DATE_RE.search(rel) or _ISO_DATE_RE.search(rel)
     return m.group(1).replace("-", "") if m else None
 
 
 def shap_game_date(rel: str) -> Optional[str]:
-    """The YYYYMMDD embedded in an ``nhl_shap_game_<YYYYMMDD_AWAY@HOME>.csv``
-    filename — NHL ids embed the game date (MLB convention), so SHAP aging
-    is filename-keyed exactly like MLB."""
+    """The YYYYMMDD embedded in a legacy ``nhl_shap_game_<YYYYMMDD_AWAY@HOME>.csv``
+    filename, or None for an official NHL numeric game id (which carries no
+    date and resolves through the game-date map instead)."""
     m = _SHAP_DATE_RE.search(local_name(rel))
     return m.group(1) if m else None
 
@@ -209,22 +212,27 @@ def classify_artifact(rel: str, seen: set,
       "stale"     - safe to delete under the policy
 
     ``anchor_date`` (YYYYMMDD): artifacts dated AFTER the anchor are always
-    kept (backfill-safe). ``game_dates`` is accepted for MLB/NFL parity but
-    NHL SHAP ids embed their date, so it is never consulted.
+    kept (backfill-safe). ``game_dates`` (game_id -> YYYYMMDD) is consulted
+    for the ``shap_game`` family when the filename carries no date.
     """
     if rel in seen:
         return "seen"
     if is_never_delete(rel):
         return "protected"
     fam = _family_for(rel)
-    art_date = artifact_date(rel)
-    if art_date is None and fam is not None and fam.family == "shap_game":
-        # NHL game ids embed the date (YYYYMMDD_AWAY@HOME): age by filename,
-        # exactly like MLB. An unresolvable id is kept (protected).
+    if fam is not None and fam.family == "shap_game":
+        # SHAP ages by GAME date, never by the run date in the filename.
+        # Two id conventions are in the wild: the legacy ESPN-style
+        # ``YYYYMMDD_AWAY@HOME`` (date embedded, read from the filename) and
+        # the current official NHL API numeric id (``2026020001``), which
+        # carries NO date and must be resolved through ``game_dates``.
+        # An id that resolves to neither is kept (protected) — never guess.
         art_date = shap_game_date(rel) or (game_dates or {}).get(
             _shap_game_id(rel), "").replace("-", "")[:8]
         if not art_date:
             return "protected"  # unresolvable age -> never guess, keep
+    else:
+        art_date = artifact_date(rel)
     if art_date is None:
         # Dateless and not never-delete -> stale (no window can save it).
         return "stale"

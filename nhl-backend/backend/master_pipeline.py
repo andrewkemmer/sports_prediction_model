@@ -538,9 +538,10 @@ def main(argv: list[str] | None = None) -> int:
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
     drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
-    cov_rows = monitoring.coverage(game_df)
+    cov_rows = monitoring.coverage(game_df, slate_df=slate)
     run_drift_name, run_cov_name = monitoring.write_run_engine_feature_artifacts(
-        out_dir, date_c, game_df, recent, weights=feature_weights)
+        out_dir, date_c, game_df, recent, weights=feature_weights,
+        slate_df=slate)
     artifacts.extend([run_drift_name, run_cov_name])
     rb = monitoring.rolling_brier(oof_ml)
     baseline = float(1.0 - y_oof.mean())

@@ -57,7 +57,11 @@ SCORE_KEEP = [
 # Cache schema versions: bump whenever the keep-list widens so stale caches
 # are ignored rather than silently serving the old column set.
 SCORE_CACHE_VERSION = "v1"
-BOXSCORE_CACHE_VERSION = "v2"
+# v4: starter selection now keys on the API's ``starter`` boolean (v3 keyed on
+# a ``decision`` set that omitted the overtime-loss code "O", so those games
+# resolved to the 00:00 scratch goalie), and ``powerPlayShotsAgainst="0/0"``
+# is now recorded as the measured 0 it is rather than a null.
+BOXSCORE_CACHE_VERSION = "v4"
 MP_CACHE_VERSION = "v1"
 
 
@@ -220,6 +224,53 @@ def _parse_toi_minutes(value) -> float:
     return hours * 60.0 + minutes + seconds / 60.0
 
 
+def _or_none(value: float):
+    """NaN -> None so a missing boxscore metric round-trips as a real null."""
+    return None if value is None or value != value else float(value)
+
+
+def _parse_ratio(value) -> float:
+    """Parse an NHL API ``"made/attempts"`` ratio string into its denominator.
+
+    The boxscore endpoint reports power-play volume on the GOALIE lines as
+    ``powerPlayShotsAgainst`` (e.g. ``"5/6"``); the team's own power-play
+    opportunities for that game are exactly the opposing goalie's
+    power-play shots faced.
+
+    ``"0/0"`` is a REAL observation, not a missing one: it means that goalie
+    faced no power-play shots, and the sibling fields corroborate it
+    (``evenStrengthShotsAgainst`` + ``shorthandedShotsAgainst`` +
+    ``powerPlayShotsAgainst`` == ``shotsAgainst``). Returning NaN for it
+    reported a measured zero as an absent measurement, which is what pushed
+    ``pp_success_diff`` to 0% coverage on the feature report whenever a
+    team's recent games happened to contain one of those. It is therefore a
+    genuine 0.0 here; the per-game RATE stays undefined downstream (you
+    cannot convert zero chances), and the trailing window pools the counts
+    so a zero-opportunity game no longer punches a hole in the feature.
+
+    Genuinely malformed values still stay NaN rather than fabricating a
+    denominator: a missing slash, a missing half, a negative sentinel, or
+    ``made > attempts``.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return float("nan")
+    raw = str(value).strip()
+    made, sep, denom = raw.partition("/")
+    if not sep or not made.strip() or not denom.strip():
+        return float("nan")
+    try:
+        made_n = float(made.strip())
+        attempts = float(denom.strip())
+    except ValueError:
+        return float("nan")
+    if not (np.isfinite(made_n) and np.isfinite(attempts)):
+        return float("nan")
+    # Negative halves are the API's "did not record" sentinel on some lines.
+    if made_n < 0 or attempts < 0 or made_n > attempts:
+        return float("nan")
+    return attempts
+
+
 def _parse_boxscore(bs: dict) -> dict:
     """One /v1/gamecenter/{id}/boxscore -> per-game team rollup row.
 
@@ -228,9 +279,16 @@ def _parse_boxscore(bs: dict) -> dict:
     skater block rolls up PPG, faceoff%, hits, blocks, PIM, giveaways and
     takeaways (means/sums of that game only — the trailing shift downstream
     keeps them strictly-prior).
+
+    Power-play OPPORTUNITIES are not a skater field; they are recovered from
+    the opposing goalie's ``powerPlayShotsAgainst`` denominator, so a team's
+    per-game PP rate is ``pp_goals / pp_opportunities`` (the manifest's
+    definition). ``pp_opportunities`` is cross-filled after both sides are
+    parsed because it needs the OPPONENT's goalie line.
     """
     player_stats = bs.get("playerByGameStats") or {}
     out: dict = {"game_id": str(bs.get("id", "") or "")}
+    pp_shots_faced: dict[str, float] = {}
     for side, team_key in (("home", "homeTeam"), ("away", "awayTeam")):
         block = player_stats.get(team_key) or {}
         team = bs.get(team_key) or {}
@@ -259,9 +317,28 @@ def _parse_boxscore(bs: dict) -> dict:
         # Goalie blocks: the official goalie line supplies per-goalie
         # goalsAgainst, shotsAgainst, and TOI. Use those fields directly;
         # team score/SOG are not a safe proxy for a relief appearance.
-        decision_goalies = [g for g in goalies if g.get("decision") in ("W", "L", "OTL", "SOL")]
-        starter = decision_goalies[0] if decision_goalies else (
-            goalies[0] if goalies else {})
+        #
+        # The starter is the goalie carrying the API's explicit
+        # ``starter: True`` boolean. Selecting on ``decision`` alone was wrong
+        # twice over: the overtime-loss code is ``"O"``, not ``"OTL"``, so
+        # those games matched nothing and fell through to ``goalies[0]`` —
+        # which is the scratch goalie at 00:00 TOI. That silently zeroed the
+        # starter's TOI, the goalie failed the MIN_GOALIE_TOI_MINUTES start
+        # test, and the team was recorded as having NO start that game, which
+        # propagated into null goalie features for every later game.
+        _flagged = [g for g in goalies if g.get("starter") is True]
+        if _flagged:
+            starter = _flagged[0]
+        else:
+            # No starter flag: fall back to the most ice time, which is the
+            # definition of a starter, then to a decision goalie.
+            def _toi_key(g):
+                t = _parse_toi_minutes(g.get("toi"))
+                return -1.0 if not np.isfinite(t) else t
+            _by_toi = sorted(goalies, key=_toi_key, reverse=True) if goalies else []
+            _dec = [g for g in _by_toi
+                    if g.get("decision") in ("W", "L", "O", "OTL", "SOL")]
+            starter = _dec[0] if _dec else (_by_toi[0] if _by_toi else {})
         toi = _parse_toi_minutes(starter.get("toi"))
         if not np.isfinite(toi):
             toi = None
@@ -289,6 +366,11 @@ def _parse_boxscore(bs: dict) -> dict:
 
         out[f"{side}_goals_against"] = _goalie_num("goalsAgainst")
         out[f"{side}_shots_against"] = _goalie_num("shotsAgainst")
+        # Power-play shots THIS goalie faced = the opponent team's PP volume.
+        pp_shots_faced[side] = _parse_ratio(starter.get("powerPlayShotsAgainst"))
+    # A team's PP opportunities = the opposing goalie's PP shots faced.
+    out["home_pp_opportunities"] = _or_none(pp_shots_faced.get("away"))
+    out["away_pp_opportunities"] = _or_none(pp_shots_faced.get("home"))
     return out
 
 
@@ -298,6 +380,7 @@ BOXSCORE_COLS = [
     "home_faceoff_pct", "away_faceoff_pct", "home_hits", "away_hits",
     "home_blocked", "away_blocked", "home_pim", "away_pim",
     "home_giveaways", "away_giveaways", "home_takeaways", "away_takeaways",
+    "home_pp_opportunities", "away_pp_opportunities",
     "home_goalie_id", "away_goalie_id", "home_goalie_name", "away_goalie_name",
     "home_goalie_toi", "away_goalie_toi",
     "home_goalie_decision", "away_goalie_decision",

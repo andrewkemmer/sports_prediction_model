@@ -146,6 +146,41 @@ def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndar
     return roll.reset_index(level=0, drop=True).to_numpy()
 
 
+def _trailing_pooled_ratio(srt: pd.DataFrame, num_col: str, den_col: str,
+                           window: int) -> np.ndarray:
+    """Strictly-prior ``sum(num) / sum(den)`` over each team's last ``window``.
+
+    Pooling the COUNTS rather than averaging per-game rates is both the
+    statistically correct aggregate (volume-weighted) and the one that
+    survives a zero-denominator game: averaging per-game rates drops any game
+    where the team had no opportunity, so a team whose recent games happened
+    to contain one such game got an empty window and a null feature. Here that
+    game contributes 0 to both sums and leaves the window intact.
+
+    A window whose total opportunities are still zero stays NaN — there is
+    genuinely no conversion rate to report, and that is honest.
+    """
+    def _rolled(col: str) -> pd.Series:
+        return (srt.groupby("team", sort=False)[col]
+                .rolling(window, min_periods=1).sum()
+                .groupby(level=0).shift(1)
+                .reset_index(level=0, drop=True))
+    num = pd.to_numeric(_rolled(num_col), errors="coerce")
+    den = pd.to_numeric(_rolled(den_col), errors="coerce")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = num / den.replace(0, np.nan)
+    return out.to_numpy(float)
+
+
+# Per-game metrics whose trailing value is a ratio and must therefore be
+# POOLED over the window instead of averaged across games. The per-game
+# ``pp_success_rate`` is undefined whenever a team had no power play, which
+# made the rolling mean of it a hole rather than a rate.
+NHL_POOLED_RATIO_SPECS: dict[str, tuple[str, str]] = {
+    "pp_success_rate": ("pp_goals_pg", "pp_attempts_pg"),
+}
+
+
 # Trailing-window spec for the candidate-pool metrics: per-game metric -> the
 # ladder suffixes it is served at. DECLARED ONCE in config
 # (TEAM_CANDIDATE_TRAILING_SPECS — the same declaration that names the RFE
@@ -155,6 +190,95 @@ def _trailing_ewm(srt: pd.DataFrame, value_col: str, halflife: float) -> np.ndar
 NHL_TRAILING_SPECS: dict[str, tuple[str, ...]] = {
     **config.TEAM_CANDIDATE_TRAILING_SPECS,
 }
+
+# Served base features (config.MONEYLINE_FEATURE_COLS) that are a trailing
+# flat window over a boxscore per-team metric. Maps the contract name to the
+# ladder column it reads; both ride _trailing_per_team with shift(1).
+NHL_SERVED_ROLL_SPECS: dict[str, str] = {
+    "shots_for_per_game_diff": "sog_pg",
+    "shots_against_per_game_diff": "shots_against_pg",
+    "pp_success_diff": "pp_success_rate",
+    "faceoff_win_diff": "faceoff_win_pct",
+}
+NHL_SERVED_ROLL_METRICS: tuple[str, ...] = tuple(
+    dict.fromkeys(NHL_SERVED_ROLL_SPECS.values()))
+
+
+# Boxscore rollup column -> the ladder metric it feeds. The candidate pool
+# (TEAM_CANDIDATE_TRAILING_SPECS) names per-game metrics like ``sog_pg``;
+# ingestion emits ONE wide row per game with ``home_``/``away_`` prefixed
+# columns. This table is the ONLY place that unwraps the prefixes, so the
+# ladder keeps consuming plain per-team metric names. ``opp_sog`` resolves to
+# the OPPONENT's SOG, which is the team's true shots-against total (a single
+# goalie line misses relief appearances).
+BOXSCORE_TEAM_METRICS: dict[str, str] = {
+    "sog": "sog_pg",
+    "opp_sog": "shots_against_pg",
+    "pp_goals": "pp_goals_pg",
+    "pp_opportunities": "pp_attempts_pg",
+    "faceoff_pct": "faceoff_win_pct",
+    "pim": "pim_pg",
+    "hits": "hits_pg",
+    "blocked": "blocked_shots_pg",
+    "giveaways": "giveaways_pg",
+    "takeaways": "takeaways_pg",
+}
+
+
+def team_game_rollup(games: pd.DataFrame,
+                     boxscores: pd.DataFrame | None) -> pd.DataFrame:
+    """The per-(game_id, team) boxscore aggregate the ladder merges in.
+
+    ``boxscores`` is one WIDE row per game (``home_sog``/``away_sog``/...);
+    this unpivots it to one row per (game_id, team) under the plain metric
+    names the ladder's trailing specs declare. Goals for/against come from
+    the settled ``games`` frame (already loaded), not the boxscore, so the
+    rollup carries only boxscore-sourced facts plus the opponent's SOG
+    (that IS ``shots against`` — the team's own goalie line records shots
+    faced by ONE goalie, which is not the team's total when a relief
+    appearance happens).
+
+    Returns an empty frame (not None) when there is no boxscore coverage, so
+    every metric degrades to all-NaN rather than raising.
+    """
+    if boxscores is None or len(boxscores) == 0 or "game_id" not in boxscores.columns:
+        return pd.DataFrame(columns=["game_id", "team"])
+    bs = boxscores.copy()
+    bs["game_id"] = bs["game_id"].astype(str)
+    # Last write wins; the loader concatenates one row per game already.
+    bs = bs.drop_duplicates(subset=["game_id"], keep="last")
+
+    frames: list[pd.DataFrame] = []
+    for side in ("home", "away"):
+        cols: dict[str, pd.Series] = {"game_id": bs["game_id"]}
+        for src, metric in BOXSCORE_TEAM_METRICS.items():
+            if src == "opp_sog":
+                other = "away" if side == "home" else "home"
+                col = f"{other}_sog"
+            else:
+                col = f"{side}_{src}"
+            if col in bs.columns:
+                cols[metric] = pd.to_numeric(bs[col], errors="coerce")
+            else:
+                cols[metric] = np.nan
+        long = pd.DataFrame(cols)
+        long["team"] = games.set_index(games["game_id"].astype(str)) \
+            .reindex(long["game_id"])[f"{side}_team"].to_numpy() \
+            if f"{side}_team" in games.columns else None
+        frames.append(long)
+    roll = pd.concat(frames, ignore_index=True)
+    roll = roll.dropna(subset=["team"])
+    # Per-game power-play rate: goals / opportunities. A game with zero PP
+    # opportunities has NO conversion rate (you cannot convert zero chances),
+    # so it stays undefined rather than being scored as a 0% conversion. The
+    # SERVED trailing feature does not average these per-game rates; it pools
+    # the counts (NHL_POOLED_RATIO_SPECS), so a zero-opportunity game costs
+    # nothing instead of voiding the whole window.
+    if "pp_attempts_pg" in roll.columns:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rate = roll["pp_goals_pg"] / roll["pp_attempts_pg"].replace(0, np.nan)
+        roll["pp_success_rate"] = rate.where(np.isfinite(rate))
+    return roll.reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +319,12 @@ def team_stats_ladder(events: pd.DataFrame,
     # Candidate-pool trailing metrics (the family prefix makes the served
     # names nhl_<metric>_<window>_<rep>). Absent source columns are all-NaN
     # per-game and degrade to all-NaN trailing (never fabricated).
+    # ``goal_diff_pg`` is the one candidate whose per-game value is already on
+    # the events frame under a different name; alias it here so the declared
+    # spec finds a source (it was otherwise a permanently all-NaN candidate
+    # silently occupying a slot in the RFE trial space).
+    if "goal_diff_pg" not in srt.columns and "net_from_team" in srt.columns:
+        srt["goal_diff_pg"] = pd.to_numeric(srt["net_from_team"], errors="coerce")
     for metric, windows in NHL_TRAILING_SPECS.items():
         if metric not in srt.columns:
             for w in windows:
@@ -207,6 +337,22 @@ def team_stats_ladder(events: pd.DataFrame,
             else:
                 srt[f"{metric}_{w}"] = _trailing_per_team(
                     srt, metric, config.PBP_ROLL_WINDOW)
+
+    # The four boxscore-derived diffs named in the MONEYLINE contract are
+    # served as a trailing flat window (manifest: rolling(5) of the per-game
+    # value, strictly prior). They ride the SAME primitives, so the shift(1)
+    # discipline is inherited rather than reimplemented. Declared separately
+    # from NHL_TRAILING_SPECS so the RFE trial space is not widened.
+    for metric in NHL_SERVED_ROLL_METRICS:
+        col = f"{metric}_roll"
+        num, den = NHL_POOLED_RATIO_SPECS.get(metric, (None, None))
+        if num is not None and num in srt.columns and den in srt.columns:
+            srt[col] = _trailing_pooled_ratio(srt, num, den, config.PBP_ROLL_WINDOW)
+            continue
+        if col in srt.columns:
+            continue  # already derived by the candidate loop above
+        srt[col] = _trailing_per_team(srt, metric, config.PBP_ROLL_WINDOW) \
+            if metric in srt.columns else np.nan
     return srt
 
 
@@ -227,7 +373,9 @@ def _per_side(ladder: pd.DataFrame, game_ids: pd.Index, col: str) -> tuple[np.nd
 # ---------------------------------------------------------------------------
 
 def goalie_state(boxscores: pd.DataFrame | None,
-                 games: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+                 games: pd.DataFrame,
+                 team_source: pd.DataFrame | None = None
+                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-goalie rolling SV% / GAA state + per-game expected-starter frame.
 
     ``boxscores`` carries one row per game (the ingestion rollup: decision
@@ -237,9 +385,10 @@ def goalie_state(boxscores: pd.DataFrame | None,
 
     Every goalie statistic is shifted strictly prior on the GOALIE's own
     start timeline, then EWM'd (halflife = EWM_HALFLIFE starts). The
-    expected starter entering game t is the goalie with the most PRIOR
-    starts for that team (season-to-date workload), resolved strictly
-    before t.
+    EXPECTED STARTER entering game t is the goalie with the most STARTS for
+    that team strictly before t (season-to-date workload) — resolved purely
+    from prior starts, never from game t's own boxscore, so the same rule
+    serves decided history and a scheduled slate alike.
 
     Returns (per_game_frame, ladder_frame):
       per_game_frame: one row per game with the HOME/AWAY side's expected
@@ -267,7 +416,17 @@ def goalie_state(boxscores: pd.DataFrame | None,
     # Long-form per-start rows: (game_id, team, goalie_id, name, goals_against,
     # shots_faced, toi_min, gameday).
     starts = []
-    gdate = games.set_index("game_id")["gameday"] if "gameday" in games.columns else {}
+    # The gameday lookup MUST span every boxscored game, not just the rows
+    # being emitted. ``build_slate_features`` emits only pending games, so a
+    # map built from ``games`` alone would date no historical start at all —
+    # every start would be NaT, the strictly-prior scan would find nothing,
+    # and the whole goalie family would silently serve null. ``team_source``
+    # is the full schedule there, so union it over ``games``.
+    gdate: dict[str, object] = {}
+    for _src in (team_source, games):
+        if _src is not None and "gameday" in getattr(_src, "columns", ()):
+            for _g, _d in zip(_src["game_id"].astype(str), _src["gameday"]):
+                gdate.setdefault(_g, _d)
     for r in bs.itertuples(index=False):
         gid = str(getattr(r, "game_id", ""))
         gd = gdate.get(gid) if hasattr(gdate, "get") else None
@@ -307,18 +466,30 @@ def goalie_state(boxscores: pd.DataFrame | None,
         return per_game, pd.DataFrame(columns=["game_id", "team", "goalie_id",
                                                "goalie_name", "prior_starts"])
     # Per-side team abbreviations (starts carry 'home'/'away' placeholders).
+    # ``team_source`` must cover EVERY game in ``boxscores``, not just the rows
+    # being emitted: the slate builder emits only pending games but is fed the
+    # whole decided boxscore set, so resolving the map from the emitted frame
+    # alone would leave every historical start keyed 'home'/'away' and the
+    # expected-starter lookup would find nothing.
+    _tsrc = team_source if team_source is not None else games
     teams_by_game: dict[tuple[str, str], str] = {}
-    if "home_team" in games.columns:
-        for r in games.itertuples(index=False):
+    if "home_team" in _tsrc.columns:
+        for r in _tsrc.itertuples(index=False):
             gid = str(getattr(r, "game_id", ""))
             teams_by_game[(gid, "home")] = str(getattr(r, "home_team", ""))
             teams_by_game[(gid, "away")] = str(getattr(r, "away_team", ""))
     st["team_abbr"] = [teams_by_game.get((str(g), side), side)
                        for g, side in zip(st["game_id"], st["team"])]
+    st.loc[st["team_abbr"].isin(["home", "away"]), "team_abbr"] = np.nan
 
     # Per-start save fraction + GAA (per 60 min).
     st["save_fraction"] = 1.0 - (st["goals_against"] / st["shots_faced"].replace(0, np.nan))
     st["gaa_game"] = st["goals_against"] / (st["toi_min"] / 60.0).replace(0, np.nan)
+    # Only a genuine start (TOI >= MIN_GOALIE_TOI_MINUTES) counts toward
+    # workload; a short relief appearance is neither a start nor evidence of
+    # starter status.
+    st["is_start"] = (pd.to_numeric(st["toi_min"], errors="coerce")
+                      >= config.MIN_GOALIE_TOI_MINUTES)
 
     st = st.sort_values(["goalie_id", "gameday", "game_id"]).reset_index(drop=True)
     st["prior_starts"] = st.groupby("goalie_id").cumcount()
@@ -328,43 +499,87 @@ def goalie_state(boxscores: pd.DataFrame | None,
     st["gaa"] = st.groupby("goalie_id", sort=False)["gaa_game"].transform(
         lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean().shift(1)
     )
+    # Quality ENTERING THE NEXT game: the same EWM over this goalie's starts
+    # THROUGH this one. Used to report the expected starter of a LATER game so
+    # his most recent start stays inside the window (the ``shift(1)`` columns
+    # above would drop it).
+    st["sv_pct_incl"] = st.groupby("goalie_id", sort=False)["save_fraction"].transform(
+        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean())
+    st["gaa_incl"] = st.groupby("goalie_id", sort=False)["gaa_game"].transform(
+        lambda s: s.ewm(halflife=config.EWM_HALFLIFE, min_periods=1).mean())
 
-    # Expected starter per (game, team): the goalie with the most PRIOR
-    # starts entering that game. Resolve on each start row: the row's own
-    # goalie is "the starter of record for that game" post-hoc; the
-    # EXPECTED starter uses only strictly-prior workload. For decided
-    # history we use the decision goalie as the served expected starter
-    # ONLY via his prior-starts state (shift already applied). The row's
-    # sv_pct/gaa are strictly-prior by construction; the starter identity
-    # is the row's own goalie (pre-game the slate layer resolves the same
-    # rule on pending games).
-    st = st.sort_values(["game_id", "team"]).reset_index(drop=True)
-    exp = (st.sort_values("prior_starts", ascending=False)
-             .drop_duplicates(["game_id", "team"], keep="first"))
-    ladder = exp[["game_id", "team_abbr", "goalie_id", "goalie_name",
-                  "prior_starts"]].rename(
-        columns={"team_abbr": "team", "prior_starts": "goalie_starts"})
-    exp = exp.set_index(["game_id", "team"])
+    # ---------------------------------------------------------------------
+    # EXPECTED STARTER, resolved from STRICTLY-PRIOR workload.
+    #
+    # The expected starter entering game t is the goalie with the most starts
+    # for that team BEFORE t — nothing else. This is deliberately NOT the
+    # decision goalie recorded in game t's own boxscore: that identity is only
+    # knowable after the game, so selecting on it leaked current-game
+    # information into a pre-game feature, AND it could not resolve at all for
+    # a scheduled game (no boxscore exists yet), which left every goalie
+    # feature 100% null on the slate the model actually predicts.
+    #
+    # Only genuine starts count (TOI >= MIN_GOALIE_TOI_MINUTES): a short
+    # relief appearance is not a start and must not win the workload vote.
+    # Ties break on the most recent start, then goalie id, so the choice is
+    # deterministic.
+    # ---------------------------------------------------------------------
+    _starts = st[st["is_start"]].copy()
+    g_dates: dict[str, np.ndarray] = {}
+    g_sv: dict[str, np.ndarray] = {}
+    g_gaa: dict[str, np.ndarray] = {}
+    g_name: dict[str, str] = {}
+    for gid_, grp in _starts.groupby("goalie_id", sort=False):
+        grp = grp.sort_values(["gameday", "game_id"])
+        g_dates[gid_] = grp["gameday"].to_numpy(dtype="datetime64[ns]")
+        g_sv[gid_] = pd.to_numeric(grp["sv_pct_incl"], errors="coerce").to_numpy(float)
+        g_gaa[gid_] = pd.to_numeric(grp["gaa_incl"], errors="coerce").to_numpy(float)
+        nm = [str(x or "") for x in grp["goalie_name"]]
+        g_name[gid_] = nm[-1] if nm else ""
+    # team -> (gameday, goalie_id) sorted, for the candidate scan
+    team_goals: dict[str, list[tuple[np.datetime64, str]]] = {}
+    for r in _starts.sort_values(["gameday", "game_id"]).itertuples(index=False):
+        team_goals.setdefault(str(r.team_abbr), []).append(
+            (pd.Timestamp(r.gameday).to_datetime64(), str(r.goalie_id)))
 
-    hl = per_game.index
-    for side, side_key in (("home", "home"), ("away", "away")):
-        sv = []
-        gaa = []
-        starts_n = []
-        names = []
-        for _, g in games.iterrows():
-            gid = str(g.get("game_id", ""))
-            try:
-                row = exp.loc[(gid, side_key)]
-                sv.append(float(row["sv_pct"]) if pd.notna(row["sv_pct"]) else np.nan)
-                gaa.append(float(row["gaa"]) if pd.notna(row["gaa"]) else np.nan)
-                starts_n.append(float(row["prior_starts"]))
-                names.append(str(row["goalie_name"] or ""))
-            except (KeyError, TypeError, ValueError):
-                sv.append(np.nan)
-                gaa.append(np.nan)
-                starts_n.append(np.nan)
-                names.append("")
+    def _expected(team: str, when) -> tuple[float, float, float, str]:
+        """(sv_pct, gaa, prior_starts, name) of the expected starter entering
+        ``when`` for ``team`` — from strictly-earlier starts only."""
+        entries = team_goals.get(str(team) or "")
+        if not entries or when is None or pd.isna(when):
+            return np.nan, np.nan, np.nan, ""
+        cut = pd.Timestamp(when).to_datetime64()
+        best = None
+        for day, gid_ in entries:
+            if day >= cut:            # strictly prior only
+                continue
+            dates = g_dates.get(gid_)
+            if dates is None:
+                continue
+            n_before = int(np.searchsorted(dates, cut, side="left"))
+            if n_before <= 0:
+                continue
+            key = (n_before, day, gid_)
+            if best is None or key > best[0]:
+                best = (key, gid_, n_before)
+        if best is None:
+            return np.nan, np.nan, np.nan, ""
+        _, gid_, n_before = best
+        return (float(g_sv[gid_][n_before - 1]), float(g_gaa[gid_][n_before - 1]),
+                float(n_before), g_name.get(gid_, ""))
+
+    ladder_rows = []
+    for side in ("home", "away"):
+        sv, gaa, starts_n, names = [], [], [], []
+        for r in games.itertuples(index=False):
+            gid = str(getattr(r, "game_id", ""))
+            team = str(getattr(r, f"{side}_team", "") or "")
+            when = pd.to_datetime(getattr(r, "gameday", None), errors="coerce")
+            s_, g_, n_, nm_ = _expected(team, when)
+            sv.append(s_); gaa.append(g_); starts_n.append(n_); names.append(nm_)
+            if pd.notna(n_):
+                ladder_rows.append({"game_id": gid, "team": team,
+                                    "goalie_starts": n_})
         per_game[f"goalie_sv_pct_{side}"] = sv
         per_game[f"goalie_gaa_{side}"] = gaa
         per_game[f"goalie_starts_{side}"] = starts_n
@@ -372,6 +587,7 @@ def goalie_state(boxscores: pd.DataFrame | None,
         per_game[f"g_{side}_sv_pct"] = per_game[f"goalie_sv_pct_{side}"]
         per_game[f"g_{side}_gaa"] = per_game[f"goalie_gaa_{side}"]
         per_game[f"g_{side}_starts"] = per_game[f"goalie_starts_{side}"]
+    ladder = pd.DataFrame(ladder_rows, columns=["game_id", "team", "goalie_starts"])
     return per_game, ladder
 
 
@@ -430,7 +646,7 @@ def build_game_features(games: pd.DataFrame,
     served diff features + the per-side values the tree view needs.
     """
     ev = compute_elo(team_events(games))
-    ladder = team_stats_ladder(ev)
+    ladder = team_stats_ladder(ev, team_game_rollup(games, boxscores))
 
     df = games.copy().reset_index(drop=True)
     gids = df["game_id"]
@@ -442,6 +658,8 @@ def build_game_features(games: pd.DataFrame,
     df["ewm_goal_share_diff"] = _home_minus_away(ladder, gids, "ewm_goal_share")
     df["ga_per_game_diff"] = _home_minus_away(ladder, gids, "ga_per_game")
     df["back_to_back_diff"] = _home_minus_away(ladder, gids, "back_to_back")
+    for served, metric in NHL_SERVED_ROLL_SPECS.items():
+        df[served] = _home_minus_away(ladder, gids, f"{metric}_roll")
     df = _attach_candidate_features(df, ladder, gids)
 
     # Goalie rolling state (per-goalie strictly-prior EWMs).
@@ -508,7 +726,7 @@ def build_slate_features(schedule: pd.DataFrame,
     ev_pending["elo_entering"] = ev_pending["team"].map(
         lambda t: ratings.get(t, config.ELO_PRIOR))
     combined = pd.concat([ev_decided, ev_pending], ignore_index=True)
-    ladder = team_stats_ladder(combined)
+    ladder = team_stats_ladder(combined, team_game_rollup(sched, boxscores))
 
     df = pending.copy().reset_index(drop=True)
     # market-independence: drop any odds columns at the boundary
@@ -526,12 +744,16 @@ def build_slate_features(schedule: pd.DataFrame,
     df["ewm_goal_share_diff"] = _home_minus_away(ladder, gids, "ewm_goal_share")
     df["ga_per_game_diff"] = _home_minus_away(ladder, gids, "ga_per_game")
     df["back_to_back_diff"] = _home_minus_away(ladder, gids, "back_to_back")
+    for served, metric in NHL_SERVED_ROLL_SPECS.items():
+        df[served] = _home_minus_away(ladder, gids, f"{metric}_roll")
     df = _attach_candidate_features(df, ladder, gids)
 
     # Goalie state: the expected starter is resolved from PRIOR starts only
     # (the same rule the history path uses); boxscores for pending games do
-    # not exist yet, so this is built from the decided timeline.
-    goalie_frame, goalie_ladder = goalie_state(boxscores, df)
+    # not exist yet, so this is built from the decided timeline. ``sched`` is
+    # the team-map source because it covers every boxscored game, not just the
+    # pending rows being emitted.
+    goalie_frame, goalie_ladder = goalie_state(boxscores, df, sched)
     for c in goalie_frame.columns:
         if c not in df.columns:
             df[c] = goalie_frame[c].to_numpy()
