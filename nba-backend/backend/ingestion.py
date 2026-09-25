@@ -112,6 +112,82 @@ _HOST_POLICY: dict[str, dict[str, Any]] = {
     "default": {"timeout": 45, "attempts": 2, "backoff": 1.0,
                 "retry_forbidden": False},
 }
+
+# Headers are a PER-HOST contract, and the three hosts disagree about it. The
+# order below was measured, not guessed - each rung is the request that host
+# actually answered with:
+#
+#   site.api.espn.com  serves urllib's DEFAULT request and answers 403 in ~70ms
+#                      to every User-Agent we supply - the browser costume, an
+#                      honest "sports-prediction-model/1.0", or anything between.
+#                      So the first thing it hears is no User-Agent at all.
+#   cdn.nba.com        serves the full browser costume, and 403s a bare
+#                      User-Agent - which is why the costume stays first here.
+#   stats.nba.com      needs the same costume plus its own x-nba-stats-* tokens.
+#
+# Each host is a LADDER rather than a single profile, because which rung answers
+# differs by edge and by caller: a refusal that arrives in milliseconds means
+# the host ANSWERED, and the cheapest way to find out whether it answered a
+# different client is to send a different client. The rung that answers is
+# remembered for the run, so a season of thousands of box scores is asked once
+# in the right voice instead of re-probed on every request.
+_HEADER_LADDERS: dict[str, tuple[dict[str, str], ...]] = {
+    "site.api.espn.com": ({}, _HTTP_HEADERS),
+    "cdn.nba.com": (_HTTP_HEADERS, {}),
+    "stats.nba.com": (_STATS_HEADERS, {}),
+}
+# Which rung a host last answered on. Process-local on purpose: it describes
+# this network path, not the host, and a fresh run re-learns it in one request.
+_HEADER_RUNG: dict[str, int] = {}
+
+
+def _header_ladder(host: str) -> tuple[dict[str, str], ...]:
+    return _HEADER_LADDERS.get(host, (_HTTP_HEADERS,))
+
+
+def _host_profile(host: str) -> tuple[int, dict[str, str]]:
+    """The rung to open this host with: the one that last answered, if any."""
+    ladder = _header_ladder(host)
+    rung = min(_HEADER_RUNG.get(host, 0), len(ladder) - 1)
+    return rung, ladder[rung]
+
+
+def _next_rung(host: str, rung: int) -> int | None:
+    """The next profile to try after a refusal, or None if the ladder is spent."""
+    following = rung + 1
+    return following if following < len(_header_ladder(host)) else None
+
+
+def _reprobe_refusal(url: str, host: str) -> bool:
+    """Settle, for one request, whether a burst of refusals is about our headers.
+
+    A season of 1,723 identical 403s reads as "1,723 games do not exist", which
+    is a very different conclusion from "this client is refused" - and it takes
+    exactly one request to tell them apart, because a profile that works works
+    for all of them.  Returns True when the next rung answered, and leaves that
+    rung in place for the rest of the run.
+    """
+    rung, _ = _host_profile(host)
+    following = _next_rung(host, rung)
+    if following is None:
+        return False
+    profile = _header_ladder(host)[following]
+    try:
+        payload = _get_json(url, headers=profile, allow_missing=True)
+    except Exception as exc:  # noqa: BLE001 - any failure is a "no"
+        logger.warning("%s refused the re-probe too (%s); it is not our headers",
+                       host, exc)
+        return False
+    if payload is None:
+        logger.warning("%s refused the re-probe with %d header(s) too; it is not "
+                       "our headers", host, len(profile))
+        return False
+    _HEADER_RUNG[host] = following
+    logger.warning("%s answered once we changed what we sent; that profile is "
+                   "used for the rest of the run", host)
+    return True
+
+
 # Name resolution does not honour a socket timeout, so every attempt is run on
 # a thread and abandoned at a hard wall clock.  Without this a blackholed host
 # blocks forever with no CPU and no error.
@@ -121,8 +197,11 @@ DEFAULT_PULL_DEADLINE_SEC = 600.0
 # A healthy pull answers all eight season requests in seconds.  When the host
 # is actually down, repeating the same doomed request for every remaining
 # season buys nothing but another few minutes of the user watching a still run,
-# so the pull gives up after this many consecutive failures.
-MAX_CONSECUTIVE_FAILURES = 2
+# so the pull gives up after this many consecutive failures.  One is enough
+# now that a dead season log only costs a fallback route rather than the run:
+# a season log answers from one host in one request, so a single read timeout
+# on a cold host is the answer, not a sample of one.
+MAX_CONSECUTIVE_FAILURES = 1
 
 # ---------------------------------------------------------------------------
 # CDN fallback
@@ -306,12 +385,38 @@ def _host_verdicts() -> dict[str, str]:
     return {}
 
 
-def _record_host_verdict(host: str, reason: str) -> None:
-    """Remember that a host refused us, so the next season does not re-pay.
+_SILENCE_MARKERS = ("timed out", "timeout", "did not resolve",
+                    "name or service not known", "unreachable")
 
-    A blocked host costs a full timeout budget per season log. On Kaggle that
-    is four minutes of the run spent re-proving a fact, so the verdict is
-    written next to the cache and honoured for a day.
+
+def _failure_verdict(exc: BaseException) -> str:
+    """One phrase saying whether a host ANSWERED us or said nothing at all.
+
+    A 403 in 33 ms and a 60-second read timeout look identical in a log line
+    that just says "request failed", but they are different problems with
+    different fixes: the first is about who we are, the second is about the
+    network path.  The run's final error is often the only place the
+    difference is visible, so every leg states which one it hit.
+    """
+    text = str(exc).lower()
+    if any(marker in text for marker in _SILENCE_MARKERS):
+        return "never answered (no response before the timeout)"
+    code = re.search(r"http (?:error )?(\d{3})", text)
+    if code:
+        return f"answered and refused us (HTTP {code.group(1)})"
+    if "refused" in text or "blocked" in text:
+        return "answered and served nothing"
+    return f"failed ({type(exc).__name__})"
+
+
+def _record_host_verdict(host: str, reason: str) -> None:
+    """Remember that a host went silent, so the next season does not re-pay.
+
+    A blackholed host costs a full timeout budget per season log. On Kaggle
+    that is four minutes of the run spent re-proving a fact, so the verdict is
+    written next to the cache and honoured for a day.  A refusal is not
+    recorded: it arrives in milliseconds, costs nothing to re-ask, and may be
+    about headers rather than the machine.
     """
     verdicts = _host_verdicts()
     verdicts[host] = f"{time.time():.0f}|{reason}"[:400]
@@ -323,7 +428,7 @@ def _record_host_verdict(host: str, reason: str) -> None:
 
 
 def _known_blocked_host(host: str) -> str | None:
-    """The reason a host was recorded as refusing us, if it still counts."""
+    """Why a host was recorded as silent, if the verdict still counts."""
     entry = _host_verdicts().get(host)
     if not entry or "|" not in entry:
         return None
@@ -352,6 +457,12 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     scores, and one INFO line per request buries the summary — and the one line
     that matters when a host refuses everything, which is that no request
     completed at all.
+
+    A refusal that arrives in milliseconds means the host ANSWERED, which is a
+    different problem from a host that never replies. So a 403 or 404 advances
+    one rung of the host's header ladder, outside the retry budget and without
+    backoff: the block may be about what we sent rather than who we are, and a
+    host that answers in 30 ms has nothing to make us wait for.
     """
     host = urllib.parse.urlparse(url).netloc
     path = urllib.parse.urlparse(url).path
@@ -359,27 +470,62 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
     blocked = _known_blocked_host(host)
     if blocked is not None:
         raise RuntimeError(
-            f"NBA request to {host} skipped; it refused this host recently "
+            f"NBA request to {host} skipped; it never answered recently "
             f"({blocked}) and the verdict is still fresh")
     attempts = retries if retries is not None else _int_env(
         RETRIES_ENV, policy["attempts"])
+    budget = max(attempts, 1)
     base = policy["backoff"] if pause is None else max(pause, 0.0)
     timeout = policy["timeout"]
+    if headers is None:
+        rung, profile = _host_profile(host)
+    else:
+        # A caller that names a header set knows what this request needs; it
+        # does not get the ladder's opinion.
+        rung, profile = 0, dict(headers)
     last: Exception | None = None
     reason = "unknown"
     made = 0
-    for attempt in range(max(attempts, 1)):
-        made = attempt + 1
-        logger.log(logging.INFO if verbose else logging.DEBUG,
-                   "NBA request %s/%s to %s (timeout %ds)",
-                   made, max(attempts, 1), host, timeout + DNS_GRACE_SEC)
+    used_budget = 0
+    # A header retry is not a budget retry. It gets its own request outside the
+    # ``attempts`` count, so a host configured for one attempt still gets the
+    # second chance when what is refused is plausibly what we sent.
+    rerung = False
+    while True:
+        made += 1
+        if rerung:
+            logger.log(logging.INFO if verbose else logging.DEBUG,
+                       "NBA next-header-profile retry to %s (timeout %ds)",
+                       host, timeout + DNS_GRACE_SEC)
+        else:
+            used_budget += 1
+            logger.log(logging.INFO if verbose else logging.DEBUG,
+                       "NBA request %s/%s to %s (timeout %ds)",
+                       used_budget, budget, host, timeout + DNS_GRACE_SEC)
         try:
-            return _request_json(url, headers or _HTTP_HEADERS, timeout)
+            payload = _request_json(url, profile, timeout)
+            if headers is None and rung:
+                # This profile answered, so the run has learned the host's
+                # preferred voice; stop re-deriving it per request.
+                _HEADER_RUNG[host] = rung
+            return payload
         except urllib.error.HTTPError as exc:
             last = exc
             reason = f"HTTP {exc.code}"
             if exc.code in (403, 404) and allow_missing:
                 return None
+            if exc.code in (403, 404) and headers is None:
+                following = _next_rung(host, rung)
+                if following is not None:
+                    # It answered, so it is refusing us rather than the artifact
+                    # being absent. Try the next profile we keep for this host:
+                    # a client it will serve is one request away.
+                    rung, profile = following, _header_ladder(host)[following]
+                    rerung = True
+                    logger.warning("NBA request to %s rejected (HTTP %s) with %d "
+                                   "header(s); trying the next profile for this "
+                                   "host", host, exc.code, len(profile))
+                    continue
             # A 403 from the CDN means the artifact is absent; a 403 from
             # stats means the client was rejected and retrying will not help.
             if exc.code in (403, 404) and not policy["retry_forbidden"]:
@@ -394,12 +540,19 @@ def _get_json(url: str, *, headers: dict[str, str] | None = None,
         except Exception as exc:  # noqa: BLE001 - network layer is untyped
             last = exc
             reason = f"{type(exc).__name__}: {exc}"
-        logger.warning("NBA request %s/%s to %s failed: %s", made,
-                       max(attempts, 1), host, reason)
-        if attempt + 1 < max(attempts, 1):
+            if "timed out" in str(exc).lower() or isinstance(exc, TimeoutError):
+                # Silence, not a refusal: this is the one verdict worth
+                # remembering, because a re-run would otherwise re-pay the
+                # whole timeout budget to learn the same thing.
+                _record_host_verdict(host, f"no response: {reason}")
+        logger.warning("NBA request %s/%s to %s failed: %s", used_budget,
+                       budget, host, reason)
+        if used_budget < budget:
             # Jitter keeps concurrent clients from retrying in lockstep.
-            delay = base * (2 ** attempt)
+            delay = base * (2 ** (used_budget - 1))
             time.sleep(delay * (0.5 + random.random()))
+            continue
+        break
     raise RuntimeError(
         f"NBA request to {host} failed after {made} attempt(s) "
         f"({reason}); endpoint={path} :: {last}")
@@ -1083,7 +1236,7 @@ def _untag_rows(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _pull_season_from_cdn(season_year: int, pause: float, start: date,
-                          end: date) -> pd.DataFrame | None:
+                          end: date, rerunged: bool = False) -> pd.DataFrame | None:
     """Read every game of a season from per-game box scores, chunk by chunk.
 
     The regular season is a contiguous run of ids; the postseason is a sparse
@@ -1091,11 +1244,16 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     recorded in a probe ledger whether it answered or 403'd, so no id is ever
     asked about twice, and each game is stored in the slice of the window its
     own date falls in, so a killed run costs one slice rather than a season.
+
+    A season where EVERY id is refused is ambiguous - 1,723 absent games and
+    1,723 refusals of this client look the same from here - so that verdict is
+    settled with one request in a different voice before the season is written
+    off.  ``rerunged`` bounds that to a single retry.
     """
     days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
     full = _flag(FULL_REPULL_ENV, False)
     known = set() if full else _cached_game_ids(season_year)
-    probed = set() if full else _probed_ids(season_year)
+    probed = set() if (full or rerunged) else _probed_ids(season_year)
     logger.info("reading %d-%s from per-game box scores (%d already stored, "
                 "%d ids already asked about)", season_year, season_year + 1,
                 len(known), len(probed))
@@ -1106,6 +1264,7 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
     stored = 0
     asked = 0
     refused = 0
+    first_refusal: str | None = None
     for game_id in _candidate_game_ids(season_year):
         if game_id in known or game_id in probed:
             continue
@@ -1128,6 +1287,7 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         built = _frames_from_boxscore(payload)
         if built is None:
             refused += 1
+            first_refusal = first_refusal or BOXSCORE_URL.format(game_id=game_id)
             continue
         frame = pd.concat(built, ignore_index=True)
         gameday = pd.to_datetime(frame.gameday.iloc[0], errors="coerce")
@@ -1153,11 +1313,19 @@ def _pull_season_from_cdn(season_year: int, pause: float, start: date,
         logger.info("%d-%s: %d box scores asked about, %d stored, %d refused",
                     season_year, season_year + 1, asked, stored, refused)
     if stored == 0 and asked > 20 and refused == asked:
-        # Every single id was refused. That is a blocked host, not a schedule.
+        # Every single id was refused. That is usually a blocked host rather
+        # than a schedule, but "usually" is not good enough to throw away a
+        # season on: one request in the next profile decides it, and the ids
+        # come back unasked so nothing is double-counted.
+        if not rerunged and first_refusal and _reprobe_refusal(first_refusal,
+                                                               "cdn.nba.com"):
+            return _pull_season_from_cdn(season_year, pause, start, end,
+                                         rerunged=True)
         raise CdnUnavailable(
             f"cdn.nba.com refused all {asked} box scores for "
-            f"{season_year}-{season_year + 1}: the host answers instantly and "
-            "serves nothing. It is blocked from this machine the same way "
+            f"{season_year}-{season_year + 1}, including a re-probe with "
+            "different headers: the host answers instantly and serves nothing "
+            "to this client. It is blocked from this machine the same way "
             "stats.nba.com is, so the per-game CDN cannot rescue the run here.")
     if frames:
         return pd.concat(frames, ignore_index=True)
@@ -1367,6 +1535,7 @@ def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.Da
     logger.warning("NBA pulling %s..%s via ESPN schedules (%d-day slices)",
                    start, end, _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
     collected: list[pd.DataFrame] = []
+    dead_years: list[str] = []
     for year in years:
         try:
             frame = _pull_season_from_espn(year, pause)
@@ -1374,14 +1543,16 @@ def _pull_seasons_from_espn(start: date, end: date) -> tuple[pd.DataFrame, pd.Da
             raise
         except RuntimeError as exc:
             logger.error("ESPN season %d unavailable: %s", year, exc)
+            dead_years.append(f"{year} {_failure_verdict(exc)}")
             continue
         if frame is not None and not frame.empty:
             collected.append(frame)
     if not collected:
         raise RuntimeError(
             f"No NBA data could be read for {start}..{end} from stats.nba.com, "
-            "cdn.nba.com or ESPN. Every host this machine can reach has "
-            "refused; the pipeline cannot run on an empty window.")
+            "cdn.nba.com or ESPN. "
+            + ("ESPN: " + ", ".join(dead_years) + ". " if dead_years else "")
+            + "The pipeline cannot run on an empty window.")
     blob = _untag_rows(pd.concat(collected, ignore_index=True))
     if "home_score" not in blob.columns or not len(blob):
         raise RuntimeError(
@@ -1698,12 +1869,14 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
         # in the error, so a host that refuses us is never a mystery.
         logger.warning("No season log could be read; rebuilding the window "
                        "from per-game CDN box scores instead.")
+        dead_ends: list[str] = []
         for label, route in (("cdn.nba.com box scores", _pull_seasons_from_cdn),
                              ("ESPN schedules", _pull_seasons_from_espn)):
             try:
                 result = route(start, end)
             except (CdnUnavailable, RuntimeError) as exc:
                 logger.error("%s route unavailable: %s", label, exc)
+                dead_ends.append(f"{label} {_failure_verdict(exc)}")
                 continue
             SOURCE_USED["source"] = label
             return result
@@ -1711,7 +1884,10 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
             f"NBA could not read {start}..{end} from any source. "
             f"stats.nba.com: every season log failed "
             f"({', '.join(unavailable) or 'none attempted'}). "
-            "cdn.nba.com and ESPN both refused this host.")
+            + "; ".join(dead_ends)
+            + ". A host that never answers is a network block, not a bad "
+              "request: nothing this pipeline sends will change it, so run "
+              "where these hosts are reachable, or warm the cache here.")
     log = pd.concat(logs, ignore_index=True)
     SOURCE_USED["source"] = "stats.nba.com LeagueGameLog"
     log = log[(log.gameday >= pd.Timestamp(start))

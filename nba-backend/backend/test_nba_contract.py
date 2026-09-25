@@ -341,12 +341,135 @@ def test_get_json_gives_up_and_names_the_url(monkeypatch) -> None:
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
     with pytest.raises(RuntimeError) as exc:
         ing._get_json("https://example.test/missing", retries=2, pause=0)
+    # An unknown host has one profile, so a refusal ends it there: no sleep, no
+    # second request, and the endpoint is named for whoever reads the log.
     assert "failed after 1 attempt" in str(exc.value)
     assert "/missing" in str(exc.value)
 
 
 def test_stats_forbidden_is_not_retried_into_a_stall(monkeypatch) -> None:
-    """stats.nba.com answers 403 to a rejected client; retrying only wastes time."""
+    """stats.nba.com answers 403 to a rejected client; retrying only wastes time.
+
+    A caller that names its own header set gets exactly that set, once: the
+    ladder is for hosts the pipeline has not already given instructions for.
+    """
+    attempts = {"n": 0}
+    slept: list[float] = []
+
+    def rejected(request, timeout=None):
+        attempts["n"] += 1
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(ing.time, "sleep", lambda secs: slept.append(secs))
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        ing._get_json("https://stats.nba.com/stats/LeagueGameLog?Season=2024-25",
+                      headers=ing._STATS_HEADERS)
+    assert attempts["n"] == 1
+    assert slept == []
+
+
+def test_a_fast_refusal_advances_one_rung_of_the_host_ladder(monkeypatch) -> None:
+    """A 403 in milliseconds may be about our headers, so ask in another voice."""
+    sent: list[dict] = []
+
+    def rejected(request, timeout=None):
+        sent.append({k.lower(): v for k, v in request.header_items()})
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        ing._get_json("https://site.api.espn.com/apis/site/v2/sports/"
+                      "basketball/nba/teams")
+    assert len(sent) == 2, "one rung walk, not a retry storm"
+    assert sent[0] != sent[1], "the retry has to actually change what we send"
+    assert sent[1] == {k.lower(): v for k, v in ing._HTTP_HEADERS.items()}
+
+
+def test_espn_is_asked_as_a_plain_client_not_a_browser(monkeypatch) -> None:
+    """Measured: ESPN 403s in 70ms to any User-Agent we supply, and serves none.
+
+    This is the refusal the Kaggle log recorded as "answered and refused us",
+    and the fix is to stop impersonating Chrome rather than to invent a subtler
+    browser string.
+    """
+    assert ing._header_ladder("site.api.espn.com")[0] == {}, \
+        "ESPN's first rung must send no User-Agent at all"
+    # The nba.com hosts are the opposite: they need the full costume.
+    assert ing._header_ladder("cdn.nba.com")[0] == ing._HTTP_HEADERS
+    assert ing._header_ladder("stats.nba.com")[0] == ing._STATS_HEADERS
+
+    sent: list[dict] = []
+
+    class FakeOpener:
+        def open(self, request, timeout=None):
+            sent.append({k.lower(): v for k, v in request.header_items()})
+            return _Response(json.dumps({"ok": True}).encode())
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", FakeOpener().open)
+    ing._get_json("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams")
+    assert "user-agent" not in sent[0], "urllib's default is the profile that works"
+
+
+def test_the_rung_that_answers_is_reused_for_the_rest_of_the_run(monkeypatch) -> None:
+    """One lesson per run, not one probe per request."""
+    sent: list[dict] = []
+
+    def first_refused_then_served(request, timeout=None):
+        sent.append({k.lower(): v for k, v in request.header_items()})
+        if len(sent) == 1:
+            raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+        return _Response(json.dumps({"ok": True}).encode())
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", first_refused_then_served)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
+    url = "https://cdn.nba.com/static/json/liveData/boxscore/boxscore_0022400001.json"
+    assert ing._get_json(url) == {"ok": True}
+    assert len(sent) == 2
+    assert ing._HEADER_RUNG["cdn.nba.com"] == 1
+    # The next request opens in the voice that worked, with no probe at all.
+    ing._get_json(url)
+    assert len(sent) == 3
+    assert sent[2] == sent[1]
+
+
+def test_a_silent_host_costs_one_probe_not_a_season_of_them(monkeypatch) -> None:
+    """The all-refused verdict must be settled by re-asking, not assumed."""
+    tried: list[int] = []
+
+    def only_the_bare_profile_answers(request, timeout=None):
+        headers = {k.lower(): v for k, v in request.header_items()}
+        tried.append(len(headers))
+        if headers == {}:
+            return _Response(json.dumps({"gameId": "1"}).encode())
+        return None  # allow_missing: this game is not served to that client
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", only_the_bare_profile_answers)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
+    assert ing._reprobe_refusal("https://cdn.nba.com/x.json", "cdn.nba.com")
+    assert ing._HEADER_RUNG["cdn.nba.com"] == 1
+    assert tried == [0], "exactly one re-probe, in the next voice"
+
+
+def test_a_reprobe_that_is_also_refused_leaves_the_verdict_alone(monkeypatch) -> None:
+    """A season really can be unserved; say so instead of looping on it."""
+    ing._HEADER_RUNG.clear()
+
+    def always_refused(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", always_refused)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    assert not ing._reprobe_refusal("https://cdn.nba.com/x.json", "cdn.nba.com")
+    assert ing._HEADER_RUNG.get("cdn.nba.com") is None
+
+
+def test_a_host_configured_for_one_attempt_still_gets_the_header_retry(monkeypatch) -> None:
+    """The header retry sits outside the retry budget, by design."""
     attempts = {"n": 0}
 
     def rejected(request, timeout=None):
@@ -355,10 +478,57 @@ def test_stats_forbidden_is_not_retried_into_a_stall(monkeypatch) -> None:
 
     monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
     monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    ing._HEADER_RUNG.clear()
     with pytest.raises(RuntimeError, match="HTTP 403"):
         ing._get_json("https://stats.nba.com/stats/LeagueGameLog?Season=2024-25",
-                      headers=ing._STATS_HEADERS)
-    assert attempts["n"] == 1
+                      retries=1, pause=0)
+    assert attempts["n"] == 2
+
+
+def test_espn_is_asked_as_espn_and_never_as_nba(monkeypatch) -> None:
+    """ESPN is not a CORS peer of nba.com, and the run must not pretend it is."""
+    first = ing._header_ladder("site.api.espn.com")[0]
+    assert "Origin" not in first and "Referer" not in first
+    assert ing._HTTP_HEADERS["Origin"] == "https://www.nba.com"
+
+
+def test_only_silence_is_remembered_against_a_host(monkeypatch, tmp_path) -> None:
+    """A refusal costs milliseconds to re-ask; a timeout costs the whole budget."""
+    monkeypatch.setattr(ing.config, "CACHE_DIR", tmp_path)
+
+    def rejected(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    with pytest.raises(RuntimeError):
+        ing._get_json("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams")
+    assert ing._known_blocked_host("site.api.espn.com") is None
+
+    def silent(request, timeout=None):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", silent)
+    with pytest.raises(RuntimeError):
+        ing._get_json("https://stats.nba.com/stats/LeagueGameLog", retries=1, pause=0)
+    verdict = ing._known_blocked_host("stats.nba.com")
+    assert verdict is not None and "no response" in verdict
+
+
+def test_the_final_error_says_silence_where_there_was_silence() -> None:
+    """One refusal and one dead host are different problems; say which is which."""
+    assert ing._failure_verdict(
+        RuntimeError("NBA request to stats.nba.com failed after 2 attempt(s) "
+                     "(TimeoutError: The read operation timed out)")) == \
+        "never answered (no response before the timeout)"
+    assert ing._failure_verdict(
+        ing.CdnUnavailable("site.api.espn.com failed (HTTP 403): Forbidden")) == \
+        "answered and refused us (HTTP 403)"
+    assert ing._failure_verdict(
+        ing.CdnUnavailable("cdn.nba.com refused all 1723 box scores")) == \
+        "answered and served nothing"
+    assert "never answered" not in ing._failure_verdict(
+        ing.CdnUnavailable("site.api.espn.com failed (HTTP 403)"))
 
 
 def test_cdn_forbidden_is_treated_as_a_missing_game(monkeypatch) -> None:
@@ -891,7 +1061,7 @@ def test_the_espn_season_requests_the_year_the_season_ends(monkeypatch) -> None:
 def test_a_blocked_host_is_not_probed_again() -> None:
     ing._record_host_verdict("stats.nba.com", "sinkholed")
     assert ing._known_blocked_host("stats.nba.com") == "sinkholed"
-    with pytest.raises(RuntimeError, match="refused this host recently"):
+    with pytest.raises(RuntimeError, match="never answered recently"):
         ing._get_json("https://stats.nba.com/stats/LeagueGameLog")
     assert ing._known_blocked_host("cdn.nba.com") is None
 
@@ -1007,9 +1177,61 @@ def test_the_probe_ledger_is_never_mistaken_for_a_data_slice(monkeypatch) -> Non
 def test_a_host_that_refuses_everything_says_so(monkeypatch) -> None:
     """A blocked host must be named, not left as a silent empty pull."""
     monkeypatch.setattr(ing, "_get_json", lambda url, **kw: None)
+    monkeypatch.setattr(ing, "_reprobe_refusal", lambda url, host: False)
     monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
     with pytest.raises(ing.CdnUnavailable, match="refused"):
         ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+
+
+def test_a_season_refused_by_one_client_is_re_asked_by_another(monkeypatch) -> None:
+    """1,723 identical 403s must not end the season without one re-ask.
+
+    The Kaggle run refused every CDN box score and concluded the host was
+    gone. If the refusal was about the client, the whole season was still there
+    for the asking - and one request is what tells the two apart. The real
+    ``_get_json`` runs here, because the header ladder lives inside it.
+    """
+    monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
+    ing._HEADER_RUNG.clear()
+    asked: list[dict] = []
+
+    def refused_by_the_bare_client_only(request, timeout=None):
+        headers = {k.lower(): v for k, v in request.header_items()}
+        asked.append(headers)
+        if "user-agent" in headers:
+            raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+        if request.full_url.endswith("0022400001.json"):
+            return _Response(json.dumps(boxscore_payload(
+                "0022400001", "20241022", TEAMS[0], TEAMS[1], 112, 104)).encode())
+        raise urllib.error.HTTPError(request.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ing.urllib.request, "urlopen", refused_by_the_bare_client_only)
+    monkeypatch.setattr(ing.time, "sleep", lambda *_: None)
+    frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
+                                      date(2025, 7, 1))
+    bare = [h for h in asked if "user-agent" not in h]
+    assert frame is not None and not frame.empty, "the season was written off"
+    assert frame.game_id.nunique() == 1
+    assert len(bare) > 1, "the re-ask is one request; the season is re-walked"
+    assert all("user-agent" in h for h in asked[:len(asked) - len(bare)]), \
+        "the first walk asked as the browser it always was"
+
+
+def test_a_season_refused_by_every_client_is_not_retried_forever(monkeypatch) -> None:
+    """The re-ask is bounded: a second refusal ends the season for good."""
+    monkeypatch.setenv(ing.MAX_SEQUENCE_ENV, "40")
+    ing._HEADER_RUNG.clear()
+    calls: list[int] = []
+
+    def re_asked_but_refused(url, host):
+        calls.append(1)
+        return False
+
+    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: None)
+    monkeypatch.setattr(ing, "_reprobe_refusal", re_asked_but_refused)
+    with pytest.raises(ing.CdnUnavailable, match="different headers"):
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    assert len(calls) == 1
 
 
 def test_a_warm_run_never_asks_about_an_id_twice(monkeypatch) -> None:
