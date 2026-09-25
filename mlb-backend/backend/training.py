@@ -1638,6 +1638,15 @@ def walk_forward_evaluate(
     _LAST_ADAPTIVE_WEIGHTS.clear()
     splits = walk_forward_splits(games, retrain_cadence_days, max_eval_folds, min_train_days)
 
+    # Record the canonical training-frame signature even when the optional
+    # run-margin feature is not active.  The margin builder records this too,
+    # but relying on that path left the drift guard with training=None on
+    # otherwise complete non-margin runs.
+    decided_for_signature = (
+        decided_snapshot if decided_snapshot is not None else get_decided_frame(games)
+    )
+    set_last_fold_signature(fold_signature(decided_for_signature))
+
     # Shipped run-margin feature: attach leakage-free OOF margins on exactly
     # these folds before any training happens, and regenerate the splits over
     # the enriched frame (geometry asserted identical inside). The final
