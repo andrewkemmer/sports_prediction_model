@@ -250,9 +250,10 @@ def write_markets_csv(path, meta_path, oof_rows, slate_rows, config_meta=None) -
     # A merge can leave duplicate labels; the CSV contract is name-unique.
     if out.columns.duplicated().any():
         out = out.loc[:, ~out.columns.duplicated()].copy()
-    for col in markets_columns():
-        if col not in out:
-            out[col] = np.nan
+    # ``reindex`` is what fills the absent grid columns with NaN, and it does
+    # it in one block.  Assigning them one at a time first built a frame with
+    # ~470 single-column inserts, which pandas reports as "highly fragmented"
+    # and charges for on every later column access.
     out = out.reindex(columns=markets_columns())
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)

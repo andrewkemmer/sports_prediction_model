@@ -61,13 +61,23 @@ def _flag(name: str) -> bool:
     return str(os.environ.get(name, "")).lower() in {"1", "true", "yes"}
 
 
-def _config_meta() -> dict:
+def _config_meta(wh=None) -> dict:
+    """The provenance block every published artifact carries.
+
+    ``source`` is the route this run actually resolved, not the dataset the
+    backend was approved against.  Stamping the approval reference here was a
+    quiet lie: a run built from ESPN schedules published artifacts claiming
+    ``wyattowalsh/basketball``, with nothing in them to say otherwise.
+    """
+    manifest = getattr(wh, "manifest", None) or {}
+    source = manifest.get("source_path") or config.NBA_DATASET_REF
     return {"sport": "nba", "feature_set_version": config.FEATURE_SET_VERSION,
             "seed": config.RANDOM_SEED, "warmup_days": config.WARMUP_DAYS,
             "cadence_days": config.RETRAIN_CADENCE_DAYS,
             "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
             "members": list(config.ENSEMBLE_MEMBERS), "market_free": True,
-            "source": "wyattowalsh/basketball"}
+            "source": source,
+            "player_rows": int(manifest.get("tables", {}).get("player_stats", 0))}
 
 
 def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFrame:
@@ -309,7 +319,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     serving.write_moneyline_json(
         p_ml, slate,
         slate.get("home_win_prob_model", pd.Series(dtype=float)),
-        slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),         wh.team_names, _config_meta(), leaders)
+        slate.get("p_ensemble_calibrated", pd.Series(dtype=float)),         wh.team_names, _config_meta(wh), leaders)
     artifacts.append(p_ml.name)
     p_player = out / config.PLAYER_MATCHUP_JSON.format(date=date_c)
     serving.write_player_matchup_json(p_player, leaders)
@@ -323,7 +333,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
                                               ml_oof.home_win.to_numpy(float))
     p_cal = out / config.CALIBRATION_JSON.format(date=date_c)
     serving.write_calibration_json(p_cal, raw_metrics, cal_metrics, buckets, [],
-                                   _config_meta(), platt, run_day, len(ml_oof),
+                                   _config_meta(wh), platt, run_day, len(ml_oof),
                                    market_calibration)
     artifacts.append(p_cal.name)
     p_hist = out / config.PREDICTIONS_HISTORY_CSV.format(date=date_c)
@@ -341,7 +351,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     p_markets = out / config.MARKETS_CSV.format(date=date_c)
     serving.write_markets_csv(p_markets,
                               out / config.MARKETS_META_JSON.format(date=date_c),
-                              oof_markets, slate_markets, _config_meta())
+                              oof_markets, slate_markets, _config_meta(wh))
     artifacts += [p_markets.name,
                   (out / config.MARKETS_META_JSON.format(date=date_c)).name]
 
@@ -351,7 +361,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     artifacts.append(p_rank.name)
     coverage = feat_mod.feature_coverage_report(game_df)
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
-    serving.write_feature_json(p_feat, coverage, _config_meta(), fold_info)
+    serving.write_feature_json(p_feat, coverage, _config_meta(wh), fold_info)
     artifacts.append(p_feat.name)
     prog.advance()
 
@@ -376,7 +386,7 @@ def run(source: str | Path | None = None, run_date: str | None = None,
         "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
         "feature_columns": config.active_moneyline_feature_cols(),
-        "trained_utc": _now(), "config": _config_meta(),
+        "trained_utc": _now(), "config": _config_meta(wh),
     }
     model_path = model_dir / "nba_ensemble_latest.joblib"
     joblib.dump(bundle, model_path)
@@ -388,13 +398,13 @@ def run(source: str | Path | None = None, run_date: str | None = None,
     monitoring.write_monitor_json(
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
         members, monitoring.rolling_brier(ml_oof),
-        float(1 - ml_oof.home_win.mean()), _config_meta(), fold_info,
+        float(1 - ml_oof.home_win.mean()), _config_meta(wh), fold_info,
         cal_metrics, platt)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
     monitoring.write_run_engine_monitor(
         out / config.MARKETS_MONITOR_JSON.format(date=date_c), date_c,
         evaluation.nb_distribution_metrics(dist_oof, dispersion), oof_markets,
-        market_calibration, _config_meta())
+        market_calibration, _config_meta(wh))
     artifacts.append(config.MARKETS_MONITOR_JSON.format(date=date_c))
 
     if len(slate):

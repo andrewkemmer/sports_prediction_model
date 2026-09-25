@@ -1767,3 +1767,198 @@ def test_play_by_play_stops_after_a_conclusive_run_of_refusals(
     assert out.empty
     assert ing._known_blocked_host("cdn.nba.com") is not None, (
         "the verdict must outlive the run that earned it")
+
+
+# --------------------------------------------------------------------------
+# The pipeline must not depend on being handed its data
+#
+# The 2026-09-25 Kaggle run reached the pipeline with no --source-path. It
+# pulled live, both NBA.com hosts refused it, it fell through to ESPN — which
+# has games and box scores but no player lines — and it published eighteen
+# artifacts whose every player-derived feature was a default. The pinned
+# export was mounted the whole time and nobody looked for it.
+# --------------------------------------------------------------------------
+
+
+def _warehouse_with_player_rows(player_rows: int) -> ing.Warehouse:
+    games = pd.DataFrame([
+        {"game_id": f"a{i}", "season": 2024.0, "gameday": "2024-10-22",
+         "game_type": 1, "home_team": TEAMS[i], "away_team": TEAMS[i + 1],
+         "home_score": 110.0, "away_score": 100.0}
+        for i in range(len(TEAMS) - 1)])
+    # Both sides of every game, so the team-fact gate is satisfied and the
+    # player gate is the only thing under test.
+    facts = pd.DataFrame(
+        [{"game_id": row.game_id, "team": team}
+         for row in games.itertuples()
+         for team in (row.home_team, row.away_team)])
+    players = pd.DataFrame([
+        {"game_id": f"a{i}", "player_id": f"p{i}", "team": TEAMS[i]}
+        for i in range(player_rows)])
+    return ing.Warehouse(games, facts, players, {}, {})
+
+
+def test_a_window_with_no_player_detail_may_not_train() -> None:
+    """The gate that would have caught the run that published defaults.
+
+    A default looks exactly like a measurement to everything downstream, so
+    the models fit, the calibration curve is smooth, and the artifacts publish
+    with nothing in them saying the players were never there.
+    """
+    with pytest.raises(RuntimeError, match="no player detail"):
+        ing._validate_dataset(_warehouse_with_player_rows(0))
+    # And the message has to be actionable, not just a refusal.
+    try:
+        ing._validate_dataset(_warehouse_with_player_rows(0))
+    except RuntimeError as exc:
+        assert "--source-path" in str(exc)
+        assert "wyattowalsh/basketball" in str(exc)
+
+
+def test_a_window_with_player_detail_still_validates() -> None:
+    """The gate must not fire on the ordinary warehouse-backed run."""
+    ing._validate_dataset(_warehouse_with_player_rows(3))
+
+
+def test_the_warehouse_is_found_wherever_kaggle_mounts_it(tmp_path) -> None:
+    """Discovery has to survive Kaggle's generated slug directories."""
+    # Directly on the search root.
+    root = tmp_path / "input"
+    direct = root / "wyattowalsh-basketball"
+    direct.mkdir(parents=True)
+    for name in ("games.parquet", "player_stats.parquet"):
+        (direct / name).write_bytes(b"x")
+    assert ing.discover_warehouse([root]) == direct
+
+    # Nested one level, which is how the dataset actually arrives.
+    nested_root = tmp_path / "input2"
+    slug = nested_root / "wyattowalsh-basketball-238"
+    nested = slug / "basketball-export"
+    nested.mkdir(parents=True)
+    for name in ("games.parquet", "player_stats.parquet"):
+        (nested / name).write_bytes(b"x")
+    assert ing.discover_warehouse([nested_root]) == nested
+
+
+def test_a_directory_without_player_stats_is_not_the_warehouse(tmp_path) -> None:
+    """Games alone is some other run's debris, and serving it drops the players."""
+    root = tmp_path / "input"
+    decoy = root / "some-other-run"
+    decoy.mkdir(parents=True)
+    (decoy / "games.parquet").write_bytes(b"x")
+    (decoy / "team_stats.parquet").write_bytes(b"x")
+    assert ing.discover_warehouse([root]) is None
+
+
+def test_a_missing_warehouse_is_reported_not_guessed(tmp_path) -> None:
+    empty = tmp_path / "nothing-here"
+    empty.mkdir()
+    assert ing.discover_warehouse([empty, tmp_path / "absent"]) is None
+
+
+def test_the_pipeline_finds_the_mount_itself(monkeypatch, tmp_path) -> None:
+    """No --source-path is a normal way to start this pipeline, not a fatal one.
+
+    Before this, an unpassed source meant a live pull, and on a host where
+    NBA.com is blocked a live pull does not fail - it succeeds with worse data.
+    """
+    mounted = tmp_path / "warehouse"
+    mounted.mkdir()
+    for name in ("games.parquet", "player_stats.parquet"):
+        (mounted / name).write_bytes(b"x")
+    monkeypatch.setattr(ing, "discover_warehouse", lambda *a, **k: mounted)
+    # Empty until discovery repoints the cache at the mount, then populated.
+    # That is the whole claim: the run had nothing and ended up served.
+    def _read(path: Path) -> pd.DataFrame:
+        if ing.config.CACHE_DIR == mounted:
+            return pd.DataFrame([{"game_id": "a"}])
+        return pd.DataFrame()
+
+    monkeypatch.setattr(ing, "_read_cache", _read)
+    seen: dict = {}
+
+    def _pull_never_called(*args, **kwargs):
+        seen["pulled"] = True
+        return (pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {})
+
+    monkeypatch.setattr(ing, "_pull_seasons", _pull_never_called)
+    monkeypatch.setattr(ing, "_pull_play_by_play",
+                        lambda games, s, e, p, *, enabled: pd.DataFrame())
+    monkeypatch.setattr(ing, "_write_cache", lambda *a, **k: None)
+    monkeypatch.setattr(ing, "_manifest",
+                        lambda wh, s, e: {"source_path": "mounted",
+                                          "tables": {"player_stats": 0}})
+    monkeypatch.setattr(ing, "_validate_dataset", lambda wh: None)
+    ing.load_dataset(source=None, use_cache=True, allow_download=True)
+    assert ing.config.CACHE_DIR == mounted
+    assert "pulled" not in seen, "a mounted warehouse must pre-empt the pull"
+    # And the run has to say where its data came from, or every artifact it
+    # publishes is stamped with a host that was never contacted.
+    assert ing.SOURCE_USED["source"] == config.NBA_DATASET_REF
+
+
+def test_artifacts_name_the_route_that_built_them() -> None:
+    """Artifacts used to claim the approval reference no matter what built them."""
+    import master_pipeline as mp
+    warehouse = _warehouse_with_player_rows(7)
+    warehouse.manifest = {"source_path": "ESPN schedules",
+                          "tables": {"player_stats": 0}}
+    meta = mp._config_meta(warehouse)
+    assert meta["source"] == "ESPN schedules", (
+        "the artifact must name the route that built it")
+    assert meta["player_rows"] == 0, (
+        "and must carry the player count, so a defaulted run is visible")
+    # With no manifest at all, it falls back to the approved reference.
+    assert mp._config_meta(None)["source"] == config.NBA_DATASET_REF
+
+
+def test_a_bar_postfix_replaces_rather_than_accumulates() -> None:
+    """A postfix is the current value, not a running transcript.
+
+    Folding it into the label produced one 700-character line for the 35-slice
+    gap scan, naming all 35 slices, in a log the operator has to read.
+    """
+    lines: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage())
+
+    handler = _Capture()
+    prog.logger.addHandler(handler)
+    previous = prog.logger.level
+    prog.logger.setLevel(logging.INFO)
+    try:
+        counter = prog._Counter(35, "NBA gap scan", "slice")
+        for n in range(35):
+            counter.set_postfix(f"2024-01-{n + 1:02d} {n}g")
+            counter.update(1)
+        counter.close()
+    finally:
+        prog.logger.removeHandler(handler)
+        prog.logger.setLevel(previous)
+    assert len(lines) == 1
+    assert lines[0].endswith("(2024-01-35 34g)"), lines[0]
+    assert lines[0].count("2024-01-") == 1, lines[0]
+    assert len(lines[0]) < 90, lines[0]
+
+
+def test_the_markets_grid_is_still_complete_without_the_nan_loop(tmp_path) -> None:
+    """Dropping the per-column NaN assignment must not drop a grid column."""
+    import serving
+    rows = pd.DataFrame([{"game_id": "a", "kind": "oof", "y_home_win": 1}])
+    path = tmp_path / "markets.csv"
+    serving.write_markets_csv(path, tmp_path / "markets.meta.json", rows,
+                              pd.DataFrame(), {"source": "test"})
+    out = pd.read_csv(path)
+    assert list(out.columns) == serving.markets_columns()
+    assert out["y_home_win"].iloc[0] == 1
+    assert out["pred_home"].isna().all(), "absent columns are NaN, not dropped"
+    # A duplicated label is still collapsed: the CSV contract is name-unique.
+    dupe = pd.DataFrame([{"game_id": "a", "kind": "oof", "y_home_win": 1,
+                          "pred_home": 0.5}], columns=["game_id", "kind",
+                                                        "y_home_win", "pred_home"])
+    dupe = pd.concat([dupe, dupe], ignore_index=True)
+    serving.write_markets_csv(tmp_path / "dupe.csv", tmp_path / "dupe.json",
+                              dupe, pd.DataFrame(), None)
+    assert not pd.read_csv(tmp_path / "dupe.csv").columns.duplicated().any()

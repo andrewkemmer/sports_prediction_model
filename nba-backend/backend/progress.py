@@ -90,6 +90,7 @@ class _Counter:
         self.unit = unit
         self.count = 0
         self._label = desc
+        self._postfix = ""
 
     def update(self, n: int = 1) -> None:
         self.count += int(n)
@@ -98,16 +99,18 @@ class _Counter:
         self._label = text
 
     def set_postfix(self, text: str, **_kwargs: Any) -> None:
-        # The postfix is a value, not a state transition: fold it into the
-        # description so the final log line still says what the last item was.
-        self._label = f"{self._label} {text}".strip()
+        # A postfix is the CURRENT value, so it replaces.  Folding it into the
+        # label instead produced a log line that grew with every item - the
+        # 35-slice gap scan emitted one 700-character line naming all 35.
+        self._postfix = text
 
     def close(self) -> None:
         suffix = f" of {self.total}" if self.total else ""
         unit = self.unit or "step"
         plural = "" if self.count == 1 else "s"
-        logger.info("  %s: %d%s %s%s done", self._label, self.count, suffix,
-                    unit, plural)
+        tail = f" ({self._postfix})" if self._postfix else ""
+        logger.info("  %s: %d%s %s%s done%s", self._label, self.count, suffix,
+                    unit, plural, tail)
 
 
 class _Bar:

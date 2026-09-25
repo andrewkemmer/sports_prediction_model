@@ -46,7 +46,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -1011,6 +1011,64 @@ def _read_cache(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# Where a pinned export is mounted.  Kaggle's own layout is unpredictable —
+# the dataset arrives as a generated slug directory, sometimes with the export
+# nested one level down — so discovery walks rather than assumes.
+WAREHOUSE_SEARCH_ROOTS = ("/kaggle/input", "/kaggle/working/nba-warehouse")
+# A directory is the warehouse when it holds the normalized tables.  Games and
+# player stats are both required: a directory with only ``games.parquet`` is
+# some other run's debris, and serving it would drop every player feature.
+WAREHOUSE_REQUIRED = ("games.parquet", "player_stats.parquet")
+WAREHOUSE_SEARCH_DEPTH = 4
+
+
+def discover_warehouse(roots: Iterable[Path | str] | None = None) -> Path | None:
+    """Find a mounted ``wyattowalsh/basketball`` export, if one is there.
+
+    This exists because the pipeline must not depend on being handed its data.
+    The 2026-09-25 Kaggle run reached the pipeline with no ``--source-path``,
+    so it pulled live, both NBA.com hosts refused it, and it fell through to
+    ESPN — which carries games and box scores but no player detail.  The run
+    then published eighteen artifacts built entirely on defaulted player
+    features.  The export was mounted the whole time; nobody was looking.
+
+    Discovery is therefore a fallback the pipeline performs on its own, not a
+    courtesy the caller has to remember.  Returns the directory holding the
+    normalized tables, or ``None`` if no mount looks like one.
+    """
+    search = [Path(str(root)) for root in (roots or WAREHOUSE_SEARCH_ROOTS)]
+    for root in search:
+        if not root.is_dir():
+            continue
+        # The root itself may be the warehouse.
+        if all((root / name).exists() for name in WAREHOUSE_REQUIRED):
+            logger.info("NBA warehouse found at %s", root)
+            return root
+        try:
+            children = sorted(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir():
+                continue
+            if all((child / name).exists() for name in WAREHOUSE_REQUIRED):
+                logger.info("NBA warehouse found at %s", child)
+                return child
+            # One more level: Kaggle nests the export under a slug directory.
+            try:
+                grandchildren = sorted(child.iterdir())
+            except OSError:
+                continue
+            for grandchild in grandchildren:
+                if grandchild.is_dir() and all(
+                        (grandchild / name).exists()
+                        for name in WAREHOUSE_REQUIRED):
+                    logger.info("NBA warehouse found at %s", grandchild)
+                    return grandchild
+    logger.info("no mounted NBA warehouse under %s", search)
+    return None
+
+
 def _write_cache(tables: dict[str, pd.DataFrame], paths: dict[str, Path],
                  keys: dict[str, list[str]]) -> None:
     """Merge each table into its cache, newest row wins on identity."""
@@ -1069,6 +1127,24 @@ def _validate_dataset(wh: Warehouse) -> None:
     if missing_facts:
         raise RuntimeError("NBA pull is missing team box scores for: "
                            + ", ".join(missing_facts))
+    if wh.player_stats.empty:
+        # Every player-derived feature is a default in this frame, and a
+        # default looks exactly like a measurement to anything downstream: the
+        # models fit, the calibration curve is smooth, the artifacts publish,
+        # and the degradation is invisible in every one of them.  So this is a
+        # hard stop rather than a warning, and there is no flag to wave it
+        # through.  A run that cannot see its players does not get to publish a
+        # model about them.
+        source = wh.manifest.get("source_path", "the resolved source")
+        raise RuntimeError(
+            "NBA window has no player detail, so every player-derived feature "
+            "would silently fall back to its default. Refusing to train and "
+            f"publish. Source was {source!r}, which carries games and team box "
+            "scores but not player lines. Fix the data, not this check: pass "
+            "--source-path pointing at the pinned wyattowalsh/basketball "
+            "export (version 238), or mount it where the pipeline can find it "
+            "under /kaggle/input. The live NBA.com fallback routes cannot "
+            "supply this and will never be able to; only the warehouse can.")
 
 
 def _season_game_prefix(season_start_year: int) -> str:
@@ -1917,10 +1993,31 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
                      for name, path in paths.items()}
             manifest_path = candidate / manifest_path.name
             logger.info("using %s as the NBA cache directory", candidate)
+            # The directory IS the pinned export, so that is what the run
+            # should call its source.  Leaving it as "nba.com" would stamp
+            # every artifact with a host that was never contacted.
+            SOURCE_USED["source"] = config.NBA_DATASET_REF
+    elif not _read_cache(paths["games"]).shape[0]:
+        # Nobody handed us a data directory and there is nothing cached, so
+        # the only honest move left is to go and look for the pinned export
+        # before reaching for the network.  A live pull is the last resort,
+        # not the first: on a host where NBA.com is blocked it does not fail,
+        # it quietly succeeds with worse data.
+        mounted = discover_warehouse()
+        if mounted is not None:
+            config.CACHE_DIR = mounted
+            paths = {name: mounted / path.name for name, path in paths.items()}
+            manifest_path = mounted / manifest_path.name
+            logger.info("using the mounted NBA warehouse at %s", mounted)
+            # A mounted export IS the data this run should use.  Pulling on top
+            # of it would be the very mistake this is here to prevent.
+            allow_download = False
+            SOURCE_USED["source"] = config.NBA_DATASET_REF
 
     start, end = _window()
     if not allow_download:
-        logger.info("pull disabled; serving cached NBA data only")
+        logger.info("serving NBA data from %s without a live pull",
+                    config.CACHE_DIR)
         games = _read_cache(paths["games"])
         if games.empty:
             raise RuntimeError(
@@ -1932,8 +2029,9 @@ def load_dataset(source: str | Path | None = None, use_cache: bool = True,
     else:
         games, team_stats, player_stats, team_names = _pull_seasons(start, end)
 
-    play_by_play = _pull_play_by_play(games, start, end, paths["play_by_play"],
-                                      enabled=allow_download and _flag(PLAY_BY_PLAY_ENV, True))
+    play_by_play = _pull_play_by_play(
+        games, start, end, paths["play_by_play"],
+        enabled=allow_download and _flag(PLAY_BY_PLAY_ENV, True))
 
     wh = Warehouse(games, team_stats, player_stats, team_names, {}, play_by_play)
     wh.manifest = _manifest(wh, start, end)
