@@ -374,6 +374,11 @@ def pull_kaggle_warehouse(target: str | Path | None = None,
             f"NBA Kaggle dataset version must remain {config.NBA_DATASET_VERSION}, "
             f"got {pinned_version}"
         )
+    # Kaggle CLI 2.x carries a dataset version as part of the dataset
+    # reference (``owner/name/<version>``).  ``-v`` is the CLI's global
+    # version flag, not a dataset-download option, so passing it here makes
+    # argparse fail before any data is fetched.
+    versioned_ref = f"{ref.rstrip('/')}/{pinned_version}"
     root = Path(target).expanduser() if target is not None else _download_target()
     existing = discover_warehouse([root])
     if existing is not None:
@@ -392,7 +397,7 @@ def pull_kaggle_warehouse(target: str | Path | None = None,
             "dependencies or attach wyattowalsh/basketball version 238."
         )
     command.extend([
-        "datasets", "download", "-d", ref, "-v", pinned_version,
+        "datasets", "download", "-d", versioned_ref,
         "--unzip", "-p", str(root),
     ])
     logger.info("Downloading NBA Kaggle warehouse %s version %s to %s",

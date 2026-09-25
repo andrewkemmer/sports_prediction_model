@@ -100,9 +100,11 @@ def test_kaggle_pull_is_lazy_and_extracts_pinned_bundle(tmp_path: Path) -> None:
     def fake_download(command, check):
         assert check is True
         assert command[1:] == [
-            "datasets", "download", "-d", config.NBA_DATASET_REF,
-            "-v", config.NBA_DATASET_VERSION, "--unzip", "-p", str(target),
+            "datasets", "download", "-d",
+            f"{config.NBA_DATASET_REF}/{config.NBA_DATASET_VERSION}",
+            "--unzip", "-p", str(target),
         ]
+        assert "-v" not in command
         with zipfile.ZipFile(target / "bundle.zip", "w") as bundle:
             bundle.writestr("export/nba.duckdb", b"fixture")
 
