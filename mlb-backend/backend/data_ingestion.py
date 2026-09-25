@@ -923,6 +923,27 @@ def load_game_features(path: str | Path) -> pd.DataFrame:
             axis=1,
         )
 
+    # A doubleheader puts TWO real games on one date with the same matchup, so
+    # a date+matchup game_id collides and both decided games inherit one id —
+    # carrying contradictory scores and opposite ``correct`` flags into
+    # predictions_history (and into the Calibration page's history table).
+    # This runs whether game_id was just synthesized OR came in on the CSV:
+    # game_level_features.csv is re-exported every run, so a collision baked
+    # into a previous export is still on disk and still wrong. Give every
+    # colliding leg its own id, using the same ``_2``/``_3`` ordinal convention
+    # as the upcoming-slate path so one meaning of game_id spans both. Ordinal
+    # order is row order (the frame is already date-sorted), so it is stable.
+    # NEVER collapse these with drop_duplicates: some colliding pairs share a
+    # score, so deduplicating would silently delete real decided games.
+    _counts = df.groupby("game_id", sort=False).cumcount().add(1)
+    _collide = df["game_id"].duplicated(keep=False)
+    _suffix = _collide & (_counts > 1)
+    if _suffix.any():
+        df.loc[_suffix, "game_id"] = (
+            df.loc[_suffix, "game_id"].astype(str)
+            + "_" + _counts[_suffix].astype(str)
+        )
+
     # Add start_time_utc if missing (use game_date at 19:00 UTC).  This is an
     # ORDERING fallback only — it is not a real observation.  Tag it so the
     # pipeline never treats the fabricated hour as a genuine pre-game start
@@ -1086,11 +1107,20 @@ def _disambiguate_slate_keys(df: pd.DataFrame) -> pd.DataFrame:
     # suffix so every row gets a DISTINCT per-game id.
     m = df.duplicated(subset=["home_team", "away_team"], keep=False)
     if m.any() and "game_id" in df.columns:
-        counts = df.groupby(["home_team", "away_team"], sort=False).cumcount().add(1)
-        dup = m & (counts > 1)
-        if dup.any():
-            df.loc[dup, "game_id"] = (
-                df.loc[dup, "game_id"].astype(str) + "_" + counts[dup].astype(str))
+        # IDEMPOTENCE GUARD. This helper runs on frames that may already have
+        # been re-keyed: the StatsAPI schedule parser disambiguates, then
+        # build_upcoming_slate disambiguates the same rows again. Without this
+        # guard the second pass appends a SECOND ordinal, turning
+        # ``BAL@NYY_2`` into ``BAL@NYY_2_2`` and changing a game's published
+        # id (and its SHAP filename) purely from which caller ran. Re-key only
+        # when some matchup still carries a repeated game_id.
+        _by_matchup = df.groupby(["home_team", "away_team"], sort=False)["game_id"]
+        if (_by_matchup.size() > _by_matchup.nunique()).any():
+            counts = df.groupby(["home_team", "away_team"], sort=False).cumcount().add(1)
+            dup = m & (counts > 1)
+            if dup.any():
+                df.loc[dup, "game_id"] = (
+                    df.loc[dup, "game_id"].astype(str) + "_" + counts[dup].astype(str))
     return df
 
 
