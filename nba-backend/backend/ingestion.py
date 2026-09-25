@@ -132,11 +132,37 @@ MAX_CONSECUTIVE_FAILURES = 2
 CDN_FALLBACK_ENV = "NBA_CDN_FALLBACK"
 MAX_SEQUENCE_PROBE = 1400
 MAX_SEQUENCE_ENV = "NBA_MAX_SEQUENCE_PROBE"
-# The regular season runs to early April; the play-in and playoffs follow.  The
-# CDN box score carries no season-type flag, so this is the only available
-# signal and the classified counts are logged for that reason.
-PLAYOFF_START = (4, 15)
-PLAYOFF_END = (7, 1)  # exclusive; the next regular season opens in October
+# A game id is 00 + season type + 2-digit season start year + 5 digits, and the
+# season type is the whole reason the id space is walkable:
+#
+#   001SSnnnnn  preseason          (not part of a decided season)
+#   002SSnnnnn  regular season     nnnnn counts 1..N with no gaps
+#   004SS00RCSG playoffs           R round, C series, G game in that series
+#   006SSnnnnn  in-season cup final (a regular-season game with its own id)
+#
+# The playoff numbering is sparse — a 4-game series leaves 5-game holes and
+# each round starts at series 0 — so it cannot be walked like the regular
+# season and has to be enumerated.  This is what makes the whole postseason
+# reachable: 2024-25 alone is 84 games across four rounds, ending with the
+# finals on 2025-06-22.
+PRESEASON_PREFIX = "001"
+REGULAR_PREFIX = "002"
+PLAYOFF_PREFIX = "004"
+CUP_PREFIX = "006"
+PLAYOFF_ROUNDS = (0, 1, 2, 3, 4)
+PLAYOFF_SERIES = tuple(range(0, 9))
+PLAYOFF_GAMES = tuple(range(1, 8))
+CUP_SEQUENCE_PROBE = 8
+# The window is pulled in slices, as the MLB Statcast pull is, so a long range
+# is bounded work, a failure costs one slice, and progress is durable per slice.
+CDN_CHUNK_DAYS = 30
+CHUNK_DAYS_ENV = "NBA_CHUNK_DAYS"
+# A game, its two team lines and every player line all share a game id, so the
+# cache key has to name the row kind as well.
+ROW_KEY = ["row_kind", "game_id", "team", "player_id"]
+# Months where an NBA game is always on the calendar somewhere in the league.
+# Outside these, an empty slice is the schedule, not a gap in the pull.
+CORE_SEASON_MONTHS = frozenset({11, 12, 1, 2, 3, 4, 5})
 
 _TEAM_STAT_MAP = {
     "fieldGoalsMade": "fgm", "fieldGoalsAttempted": "fga",
@@ -725,7 +751,70 @@ def _validate_dataset(wh: Warehouse) -> None:
 
 def _season_game_prefix(season_start_year: int) -> str:
     """NBA game ids are ``002`` plus the two-digit season start year."""
-    return f"002{season_start_year % 100:02d}"
+    return f"{REGULAR_PREFIX}{season_start_year % 100:02d}"
+
+
+def _game_type_from_id(game_id: str) -> int | None:
+    """Read the season type straight off the id, or None if it is not a game.
+
+    The box score payload carries no season-type flag, so the id is the only
+    exact signal.  Guessing from the date instead gets it wrong at both ends
+    of the calendar: the regular season runs from late October into April.
+    """
+    kind = str(game_id)[:3]
+    if kind in (REGULAR_PREFIX, CUP_PREFIX):
+        return config.GAME_TYPE_REG
+    if kind == PLAYOFF_PREFIX:
+        return config.GAME_TYPE_POST
+    return None
+
+
+def _playoff_game_ids(season_start_year: int) -> list[str]:
+    """Every postseason id that could exist for a season, in bracket order.
+
+    Enumerated rather than walked: the tree is only 5 rounds x 9 series x 7
+    games, and an id that does not exist is a cheap 403.
+    """
+    year = season_start_year % 100
+    return [f"{PLAYOFF_PREFIX}{year:02d}00{round_no}{series}{game}"
+            for round_no in PLAYOFF_ROUNDS
+            for series in PLAYOFF_SERIES
+            for game in PLAYOFF_GAMES]
+
+
+def _candidate_game_ids(season_start_year: int) -> list[str]:
+    """Every game id a season could use, in the order the games are played."""
+    year = season_start_year % 100
+    regular = [f"{REGULAR_PREFIX}{year:02d}{n:05d}"
+               for n in range(1, _int_env(MAX_SEQUENCE_ENV, MAX_SEQUENCE_PROBE) + 1)]
+    playoffs = _playoff_game_ids(season_start_year)
+    cup = [f"{CUP_PREFIX}{year:02d}{n:05d}"
+           for n in range(1, CUP_SEQUENCE_PROBE + 1)]
+    return regular + playoffs + cup
+
+
+def _chunk_start(gameday: pd.Timestamp, start: date, days: int) -> date:
+    """The slice of the window a game belongs to, anchored at the window start."""
+    offset = (gameday.date() - start).days
+    return start + timedelta(days=max(0, offset // days) * days)
+
+
+def _chunk_bounds(cursor: date, end: date, days: int) -> tuple[date, date]:
+    return cursor, min(cursor + timedelta(days=days - 1), end)
+
+
+def _is_core_season_chunk(cursor: date, chunk_end: date) -> bool:
+    """True when a chunk sits where games are always being played.
+
+    November through May is the only stretch an empty slice is real damage:
+    October runs into the preseason and the All-Star break, June ends with
+    the finals, and July through September is the offseason.  A future slice
+    is empty because the games have not been played yet.
+    """
+    midpoint = cursor + (chunk_end - cursor) / 2
+    if cursor >= date.today():
+        return False
+    return midpoint.month in CORE_SEASON_MONTHS
 
 
 def _gameday_from_code(game_code: Any) -> pd.Timestamp | None:
@@ -741,19 +830,6 @@ def _gameday_from_code(game_code: Any) -> pd.Timestamp | None:
     return None
 
 
-def _game_type_for(gameday: pd.Timestamp) -> int:
-    """Postseason only inside the playoff window, regular season outside it.
-
-    The box score carries no season-type flag, so the date decides.  The
-    window has to be bounded at both ends: an open-ended ``>= (4, 15)`` is
-    true for every October game, because a plain tuple comparison puts month
-    before day.
-    """
-    month_day = (gameday.month, gameday.day)
-    post = PLAYOFF_START <= month_day < PLAYOFF_END
-    return config.GAME_TYPE_POST if post else config.GAME_TYPE_REG
-
-
 def _frames_from_boxscore(payload: Any) -> tuple[pd.DataFrame, pd.DataFrame,
                                                  pd.DataFrame] | None:
     """Normalize one box score into the same three frames the season log yields."""
@@ -765,7 +841,9 @@ def _frames_from_boxscore(payload: Any) -> tuple[pd.DataFrame, pd.DataFrame,
     game_id = str(game.get("gameId") or "")
     if not game_id:
         return None
-    game_type = _game_type_for(gameday)
+    game_type = _game_type_from_id(game_id)
+    if game_type is None:
+        return None  # preseason: not a decided game, so not training data
     season = gameday.year if gameday.month >= 7 else gameday.year - 1
 
     def side_stats(team: dict, is_home: bool) -> dict[str, Any]:
@@ -837,46 +915,131 @@ def _frames_from_boxscore(payload: Any) -> tuple[pd.DataFrame, pd.DataFrame,
     return games, pd.DataFrame(team_rows), players
 
 
-def _cdn_season_path(season_year: int) -> Path:
-    return config.CACHE_DIR / f"cdn_season_{season_year}.parquet"
+def _cdn_chunk_path(season_year: int, cursor: date) -> Path:
+    return config.CACHE_DIR / f"cdn_{season_year}_{cursor.isoformat()}.parquet"
 
 
-def _pull_season_from_cdn(season_year: int, pause: float) -> pd.DataFrame | None:
-    """Read one season from per-game box scores and cache the result.
+def _read_chunk(path: Path) -> pd.DataFrame:
+    try:
+        cached = pd.read_parquet(path)
+    except Exception:  # noqa: BLE001 - an unreadable chunk is simply re-fetched
+        return pd.DataFrame()
+    return cached if not cached.empty else pd.DataFrame()
 
-    A season's game ids are contiguous, so the walk stops at the first 403.
-    The walk is also the data pull, so nothing is fetched twice, and a season
-    is only re-walked when it has no cache, a full re-pull is requested, or it
-    is still in progress.
+
+def _season_chunks(season_year: int) -> list[Path]:
+    return sorted(config.CACHE_DIR.glob(f"cdn_{season_year}_*.parquet"))
+
+
+def _cached_game_ids(season_year: int) -> set[str]:
+    """Every game id already stored for a season, across its chunk files."""
+    found: set[str] = set()
+    for frame in (_read_chunk(path) for path in _season_chunks(season_year)):
+        if not frame.empty and "game_id" in frame.columns:
+            found |= set(frame.game_id.astype(str))
+    return found
+
+
+def _probed_path(season_year: int) -> Path:
+    """Ledger of every id already asked about, hits and 403s alike.
+
+    A 403 is a fact about the upstream as durable as a 200, so without this a
+    warm run would re-ask for the ~400 bracket ids that do not exist on every
+    single run.
     """
-    path = _cdn_season_path(season_year)
-    if path.exists() and not _flag(FULL_REPULL_ENV, False):
-        try:
-            cached = pd.read_parquet(path)
-            newest = pd.to_datetime(cached.get("gameday"), errors="coerce").max()
-            if (not cached.empty and (pd.isna(newest) or (
-                    newest.date() >= date.today() - timedelta(days=REFRESH_TAIL_DAYS)))):
-                logger.info("%d-%s from CDN cache (%d rows)", season_year,
-                            season_year + 1, len(cached))
-                return cached
-            if not cached.empty:
-                logger.info("%d-%s from CDN cache (%d rows)", season_year,
-                            season_year + 1, len(cached))
-                return cached
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("could not read %s (%s); re-walking", path.name, exc)
+    return config.CACHE_DIR / f"cdn_{season_year}_probed.parquet"
 
-    prefix = _season_game_prefix(season_year)
-    logger.info("reading %d-%s from per-game box scores (no stats.nba.com)",
-                season_year, season_year + 1)
+
+def _probed_ids(season_year: int) -> set[str]:
+    frame = _read_chunk(_probed_path(season_year))
+    if frame.empty or "game_id" not in frame.columns:
+        return set()
+    return set(frame.game_id.astype(str))
+
+
+def _save_probed_ids(season_year: int, probed: set[str]) -> None:
+    try:
+        _probed_path(season_year).parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"game_id": sorted(probed)}).to_parquet(
+            _probed_path(season_year), index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not record the probe ledger for %d (%s)",
+                       season_year, exc)
+
+
+def _store_chunk(season_year: int, cursor: date,
+                 frames: list[pd.DataFrame]) -> None:
+    """Write one slice of the window, keeping every row kind.
+
+    A game contributes a games row, two team rows and one row per player, all
+    sharing a game id, so deduplicating on the id alone would throw away the
+    team and player rows the models train on.  ``row_kind`` is the part of the
+    key that tells them apart; it is dropped again when the frames are read.
+    """
+    if not frames:
+        return
+    path = _cdn_chunk_path(season_year, cursor)
+    existing = _read_chunk(path)
+    fresh = _tag_rows(pd.concat(frames, ignore_index=True))
+    merged = (pd.concat([existing, fresh], ignore_index=True)
+              if not existing.empty else fresh)
+    if "row_kind" in merged.columns:
+        merged = merged.drop_duplicates(ROW_KEY).sort_values(ROW_KEY)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        merged.to_parquet(path, index=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not cache %s (%s)", path.name, exc)
+
+
+def _tag_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Label each row as a game, a team line or a player line."""
+    if frame.empty or "row_kind" in frame.columns:
+        return frame
+    kind = np.where(frame.get("home_score").notna(), "game",
+                    np.where(frame.get("player_id").notna(), "player", "team"))
+    out = frame.copy()
+    out["row_kind"] = kind
+    out["player_id"] = out.get("player_id", pd.Series(index=out.index)).astype(object)
+    out["team"] = out.get("team", pd.Series(index=out.index)).astype(object)
+    return out
+
+
+def _untag_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.drop(columns=["row_kind"], errors="ignore")
+
+
+def _pull_season_from_cdn(season_year: int, pause: float, start: date,
+                          end: date) -> pd.DataFrame | None:
+    """Read every game of a season from per-game box scores, chunk by chunk.
+
+    The regular season is a contiguous run of ids; the postseason is a sparse
+    bracket and is enumerated, which is the only way to reach it.  Every id is
+    recorded in a probe ledger whether it answered or 403'd, so no id is ever
+    asked about twice, and each game is stored in the slice of the window its
+    own date falls in, so a killed run costs one slice rather than a season.
+    """
+    days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
+    full = _flag(FULL_REPULL_ENV, False)
+    known = set() if full else _cached_game_ids(season_year)
+    probed = set() if full else _probed_ids(season_year)
+    logger.info("reading %d-%s from per-game box scores (%d already stored, "
+                "%d ids already asked about)", season_year, season_year + 1,
+                len(known), len(probed))
+
     frames: list[pd.DataFrame] = []
+    pending: dict[date, list[pd.DataFrame]] = {}
     failures = 0
-    for sequence in range(1, _int_env(MAX_SEQUENCE_ENV, MAX_SEQUENCE_PROBE) + 1):
-        game_id = f"{prefix}{sequence:05d}"
+    stored = 0
+    for game_id in _candidate_game_ids(season_year):
+        if game_id in known or game_id in probed:
+            continue
+        probed.add(game_id)
         try:
             payload = _get_json(BOXSCORE_URL.format(game_id=game_id),
                                 allow_missing=True, pause=pause)
         except Exception as exc:  # noqa: BLE001 - the walk decides what to do
+            probed.discard(game_id)
             failures += 1
             logger.error("NBA box score %s failed: %s", game_id, exc)
             if failures >= MAX_CONSECUTIVE_FAILURES:
@@ -886,23 +1049,34 @@ def _pull_season_from_cdn(season_year: int, pause: float) -> pd.DataFrame | None
                     f"({game_id}): {exc}") from exc
             continue
         failures = 0
-        if payload is None:
-            logger.info("%s ended at game %d", prefix, sequence - 1)
-            break
         built = _frames_from_boxscore(payload)
-        if built is not None:
-            frames.append(pd.concat(built, ignore_index=True))
-        if sequence % 100 == 0:
-            logger.info("  %s: %d games read", prefix, len(frames))
-    if not frames:
-        return None
-    merged = pd.concat(frames, ignore_index=True)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        merged.to_parquet(path, index=False)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("could not cache %s (%s)", path.name, exc)
-    return merged
+        if built is None:
+            continue
+        frame = pd.concat(built, ignore_index=True)
+        gameday = pd.to_datetime(frame.gameday.iloc[0], errors="coerce")
+        if pd.isna(gameday):
+            logger.warning("box score %s has no usable date; not stored", game_id)
+            continue
+        stored += 1
+        cursor = _chunk_start(gameday, start, days)
+        pending.setdefault(cursor, []).append(frame)
+        frames.append(frame)
+        if stored % 100 == 0:
+            logger.info("  %d-%s: %d games read", season_year,
+                        season_year + 1, stored)
+            _save_probed_ids(season_year, probed)
+        # Store per slice, so a crash costs one slice rather than a season.
+        for finished in sorted(pending):
+            if finished < cursor:
+                _store_chunk(season_year, finished, pending.pop(finished))
+    for finished, ready in sorted(pending.items()):
+        _store_chunk(season_year, finished, ready)
+    _save_probed_ids(season_year, probed)
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    cached = [_read_chunk(path) for path in _season_chunks(season_year)]
+    cached = [frame for frame in cached if not frame.empty]
+    return (_untag_rows(pd.concat(cached, ignore_index=True)) if cached else None)
 
 
 def _cdn_seasons_in(start: date, end: date) -> list[int]:
@@ -917,15 +1091,67 @@ def _cdn_seasons_in(start: date, end: date) -> list[int]:
             if date(year, 10, 1) <= end and date(year + 1, 6, 30) >= start]
 
 
+def _report_chunk_gaps(games: pd.DataFrame, start: date, end: date) -> list[str]:
+    """Name the window slices that came back with no games at all.
+
+    A silent gap is how a run ends up training on a hole and looking fine, so
+    the slices are logged with their counts exactly as the MLB Statcast pull
+    reports its chunks.  Offseason and still-future slices are excluded: an
+    empty July means nobody played, not that something went missing.
+    """
+    days = _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS)
+    gamedays = pd.to_datetime(games.get("gameday"), errors="coerce").dropna()
+    cursor = start
+    empty: list[str] = []
+    while cursor <= end:
+        _, chunk_end = _chunk_bounds(cursor, end, days)
+        # Half-open: a game on the boundary belongs to this slice only, or
+        # every slice would also count its neighbour's first day.
+        count = int(((gamedays >= pd.Timestamp(cursor))
+                     & (gamedays < pd.Timestamp(chunk_end)
+                        + pd.Timedelta(days=1))).sum())
+        core = _is_core_season_chunk(cursor, chunk_end)
+        logger.info("  chunk %s -> %s: %d games%s", cursor, chunk_end, count,
+                    "" if core else " (edge of the season)")
+        if not count and core:
+            empty.append(f"{cursor}->{chunk_end}")
+        cursor = chunk_end + timedelta(days=1)
+    return empty
+
+
+def _abort_on_empty_core_chunks(empty: list[str], start: date,
+                                end: date) -> None:
+    """Refuse to train on a window with a hole in the middle of a season.
+
+    An empty core-season slice means games are missing, not that the league
+    was idle, and training on the remainder would quietly shrink the frame the
+    models are scored on.  Past-dated only: a slice still in progress is
+    legitimately empty until the games are played.
+    """
+    if not empty:
+        return
+    past = [name for name in empty
+            if date.fromisoformat(name.split("->")[0]) < date.today()]
+    if not past:
+        return
+    raise RuntimeError(
+        f"NBA window {start}..{end} has {len(past)} empty core-season slice(s) "
+        f"after the CDN pull: {', '.join(past)}. Games are missing from a part "
+        "of the season, so the run is stopped rather than trained on a hole.")
+
+
 def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                                                            pd.DataFrame, dict[str, str]]:
     """Build the normalized frames from cached per-game box scores alone."""
     years = _cdn_seasons_in(start, end)
     pause = _float_env(PAUSE_ENV, DEFAULT_PAUSE_SEC)
+    logger.warning("NBA pulling %s..%s via cdn.nba.com in %d-day slices "
+                   "(stats.nba.com answered nothing)", start, end,
+                   _int_env(CHUNK_DAYS_ENV, CDN_CHUNK_DAYS))
     collected: list[pd.DataFrame] = []
     for year in years:
         try:
-            frame = _pull_season_from_cdn(year, pause)
+            frame = _pull_season_from_cdn(year, pause, start, end)
         except CdnUnavailable:
             # The host itself is gone: walking the remaining seasons would
             # only repeat the same timeout, so name it and stop.
@@ -940,11 +1166,12 @@ def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.Dat
             f"No NBA data could be read for {start}..{end} from either "
             "stats.nba.com or cdn.nba.com. Both are unreachable from this "
             "host; the pipeline cannot run on an empty window.")
-    blob = pd.concat(collected, ignore_index=True)
+    blob = _untag_rows(pd.concat(collected, ignore_index=True))
     games = blob[blob.get("home_score").notna()].drop_duplicates("game_id")
     games = games[(pd.to_datetime(games.gameday) >= pd.Timestamp(start))
                   & (pd.to_datetime(games.gameday) <= pd.Timestamp(end)
                      + pd.Timedelta(days=1))]
+    _abort_on_empty_core_chunks(_report_chunk_gaps(games, start, end), start, end)
     team_stats = blob[blob.get("team").notna() & blob.get("points_for").notna()]
     team_stats = team_stats[team_stats.game_id.isin(set(games.game_id))]
     if "team_name" not in team_stats.columns:
@@ -956,10 +1183,9 @@ def _pull_seasons_from_cdn(start: date, end: date) -> tuple[pd.DataFrame, pd.Dat
     player_stats = player_stats[player_stats.game_id.isin(set(games.game_id))]
     regular = int((games.game_type == config.GAME_TYPE_REG).sum())
     logger.warning(
-        "NBA rebuilt from %d CDN box scores: %d games (%d regular, %d "
-        "classified postseason by date, as the box score carries no "
-        "season-type flag), %d team rows, %d player rows",
-        len(games), len(games), regular, len(games) - regular,
+        "NBA rebuilt from CDN box scores: %d games (%d regular, %d postseason, "
+        "classified from the game id), %d team rows, %d player rows",
+        len(games), regular, len(games) - regular,
         len(team_stats), len(player_stats))
     return (games.reset_index(drop=True), team_stats.reset_index(drop=True),
             player_stats.reset_index(drop=True), names)

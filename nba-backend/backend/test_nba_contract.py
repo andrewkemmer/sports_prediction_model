@@ -633,16 +633,48 @@ def test_game_id_prefix_and_gameday_from_code() -> None:
     assert ing._gameday_from_code(None) is None
 
 
-def test_game_type_is_inferred_from_the_date_and_says_so() -> None:
-    # Month has to win over day: an open-ended "after April 15" rule would
-    # call every October regular-season game postseason.
-    assert ing._game_type_for(pd.Timestamp("2024-10-22")) == config.GAME_TYPE_REG
-    assert ing._game_type_for(pd.Timestamp("2025-01-15")) == config.GAME_TYPE_REG
-    assert ing._game_type_for(pd.Timestamp("2025-04-13")) == config.GAME_TYPE_REG
-    assert ing._game_type_for(pd.Timestamp("2025-04-15")) == config.GAME_TYPE_POST
-    assert ing._game_type_for(pd.Timestamp("2025-04-20")) == config.GAME_TYPE_POST
-    assert ing._game_type_for(pd.Timestamp("2025-06-13")) == config.GAME_TYPE_POST
-    assert ing._game_type_for(pd.Timestamp("2025-10-24")) == config.GAME_TYPE_REG
+def test_the_game_id_prefix_decides_the_game_type() -> None:
+    # The id is exact where a date is a guess: 004 is the postseason bracket,
+    # 002 and 006 are decided regular-season games, 001 is preseason.
+    assert ing._game_type_from_id("0022400001") == config.GAME_TYPE_REG
+    assert ing._game_type_from_id("0042400407") == config.GAME_TYPE_POST
+    assert ing._game_type_from_id("0062400001") == config.GAME_TYPE_REG
+    assert ing._game_type_from_id("0012400001") is None
+    assert ing._game_type_from_id("") is None
+
+
+def test_the_postseason_bracket_is_enumerated_not_walked() -> None:
+    ids = ing._playoff_game_ids(2024)
+    # Sparse by construction: a bracket with no holes is not a bracket, and
+    # only enumeration reaches it.  Round 0 is the play-in.
+    assert "0042400407" in ids and "0042400401" in ids
+    assert "0042400301" in ids
+    assert "0042400001" in ids
+    assert len(ids) == 5 * 9 * 7
+    assert all(len(game_id) == 10 for game_id in ids)
+    assert len(set(ids)) == len(ids)
+
+
+def test_the_candidate_ids_cover_every_decided_game_of_a_season() -> None:
+    ids = ing._candidate_game_ids(2024)
+    assert "0022400001" in ids and "0022412300" not in ids
+    assert "0062400001" in ids
+    assert "0042400407" in ids
+    assert not any(game_id.startswith("001") for game_id in ids), \
+        "preseason is not a decided game and must not be trained on"
+
+
+def test_games_are_stored_in_the_slice_they_belong_to() -> None:
+    start = date(2024, 10, 1)
+    days = 30
+    assert ing._chunk_start(pd.Timestamp("2024-10-01"), start, days) == start
+    assert ing._chunk_start(pd.Timestamp("2024-10-30"), start, days) == start
+    assert ing._chunk_start(pd.Timestamp("2024-10-31"), start, days) == start + \
+        ing.timedelta(days=30)
+    assert ing._chunk_bounds(start, date(2025, 7, 1), 30) == (start,
+                                                              start + ing.timedelta(days=29))
+    assert ing._chunk_bounds(start, start + ing.timedelta(days=3), 30)[1] == \
+        start + ing.timedelta(days=3)
 
 
 def test_a_box_score_normalizes_into_the_three_frames() -> None:
@@ -671,6 +703,9 @@ def test_an_unplayed_box_score_is_not_ingested() -> None:
 def test_the_pull_falls_back_to_cdn_box_scores(monkeypatch) -> None:
     """With no season log available the run must still complete from the CDN."""
     monkeypatch.setenv(ing.CDN_FALLBACK_ENV, "1")
+    # One slice, fully covered: the gap check is exercised separately.
+    monkeypatch.setenv(ing.START_DATE_ENV, "2024-10-01")
+    monkeypatch.setenv(ing.END_DATE_ENV, "2024-10-30")
     monkeypatch.setattr(ing, "_fetch_season_log",
                         lambda *a, **k: (_ for _ in ()).throw(
                             ing.SeasonUnavailable("stats.nba.com is not answering")))
@@ -698,12 +733,23 @@ def test_the_pull_falls_back_to_cdn_box_scores(monkeypatch) -> None:
     assert wh.manifest["tables"]["games"] == len(TEAMS) // 2
 
 
-def test_the_cdn_walk_stops_at_the_first_missing_game(monkeypatch) -> None:
-    monkeypatch.setattr(ing, "_get_json", lambda url, **kw: boxscore_payload(
-        "0022400001", "20241022", TEAMS[0], TEAMS[1], 112, 104)
-        if url.endswith("0022400001.json") else None)
-    frame = ing._pull_season_from_cdn(2024, 0.0)
-    assert frame is not None and len(frame) >= 1
+def test_the_cdn_walk_reads_the_regular_season_and_the_bracket(monkeypatch) -> None:
+    served = {
+        "0022400001": boxscore_payload("0022400001", "20241022", TEAMS[0],
+                                       TEAMS[1], 112, 104),
+        "0042400407": boxscore_payload("0042400407", "20250622", TEAMS[2],
+                                       TEAMS[3], 108, 99),
+    }
+    monkeypatch.setattr(ing, "_get_json",
+                        lambda url, **kw: served.get(url.rsplit("_", 1)[-1][:-5]))
+    frame = ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1),
+                                      date(2025, 7, 1))
+    assert frame is not None
+    games = frame[frame.home_score.notna()]
+    assert set(games.game_id) == {"0022400001", "0042400407"}
+    finals = games[games.game_id == "0042400407"].iloc[0]
+    assert finals.game_type == config.GAME_TYPE_POST
+    assert finals.gameday == pd.Timestamp("2025-06-22")
 
 
 def test_the_cdn_walks_only_seasons_that_can_overlap_the_window() -> None:
@@ -723,7 +769,7 @@ def test_a_blackholed_cdn_stops_the_walk_instead_of_hammering_it(monkeypatch) ->
 
     monkeypatch.setattr(ing, "_get_json", dead)
     with pytest.raises(ing.CdnUnavailable, match="cdn.nba.com"):
-        ing._pull_season_from_cdn(2024, 0.0)
+        ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
     assert len(asked) == ing.MAX_CONSECUTIVE_FAILURES
 
 
@@ -738,6 +784,45 @@ def test_a_blackholed_cdn_ends_the_whole_fallback(monkeypatch) -> None:
         ing._pull_seasons_from_cdn(date(2024, 10, 1), date(2025, 7, 1))
 
 
+def test_a_cached_cdn_season_keeps_its_team_and_player_rows(monkeypatch) -> None:
+    """A game, its two team lines and its player lines must all survive a cache.
+
+    They share a game id, so deduplicating the slice on the id alone quietly
+    deletes the team and player rows the models train on.
+    """
+    def cdn(url, **kwargs):
+        if url.endswith("0022400001.json"):
+            return boxscore_payload("0022400001", "20241022", TEAMS[0],
+                                    TEAMS[1], 112, 104)
+        return None
+
+    monkeypatch.setattr(ing, "_get_json", cdn)
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    stored = ing._read_chunk(ing._cdn_chunk_path(2024, date(2024, 10, 1)))
+    assert len(stored[stored.row_kind == "game"]) == 1
+    assert len(stored[stored.row_kind == "team"]) == 2
+    assert len(stored[stored.row_kind == "player"]) == 2
+
+
+def test_a_warm_run_never_asks_about_an_id_twice(monkeypatch) -> None:
+    asked: list[str] = []
+
+    def cdn(url, **kwargs):
+        asked.append(url.rsplit("_", 1)[-1].replace(".json", ""))
+        if url.endswith("0022400001.json"):
+            return boxscore_payload("0022400001", "20241022", TEAMS[0],
+                                    TEAMS[1], 112, 104)
+        return None
+
+    monkeypatch.setattr(ing, "_get_json", cdn)
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    first = len(asked)
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    # A 403 is as durable a fact as a 200, so nothing is re-asked.
+    assert len(asked) == first
+
+
 def test_a_cdn_season_is_cached_after_the_walk(monkeypatch) -> None:
     asked: list[str] = []
 
@@ -749,10 +834,47 @@ def test_a_cdn_season_is_cached_after_the_walk(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(ing, "_get_json", cdn)
-    ing._pull_season_from_cdn(2024, 0.0)
-    assert ing._cdn_season_path(2024).exists()
-    ing._pull_season_from_cdn(2024, 0.0)
-    assert len(asked) == 1, "a cached CDN season must not be re-walked"
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    assert ing._cdn_chunk_path(2024, date(2024, 10, 1)).exists()
+    ing._pull_season_from_cdn(2024, 0.0, date(2024, 10, 1), date(2025, 7, 1))
+    assert len(asked) == 1, "a stored game must never be requested twice"
+
+
+def test_an_empty_core_season_slice_stops_the_run(monkeypatch) -> None:
+    """A hole in the middle of a season must not be trained through."""
+    games = pd.DataFrame({"gameday": [pd.Timestamp("2024-10-22"),
+                                      pd.Timestamp("2024-10-23")]})
+    empty = ing._report_chunk_gaps(games, date(2024, 10, 1), date(2025, 7, 1))
+    assert empty, "a core-season slice with no games must be reported"
+    with pytest.raises(RuntimeError, match="empty core-season slice"):
+        ing._abort_on_empty_core_chunks(empty, date(2024, 10, 1), date(2025, 7, 1))
+
+
+def test_a_game_is_counted_in_exactly_one_slice() -> None:
+    games = pd.DataFrame({"gameday": [pd.Timestamp("2024-10-30"),
+                                      pd.Timestamp("2024-10-31"),
+                                      pd.Timestamp("2024-11-01")]})
+    counted = []
+    start, end = date(2024, 10, 1), date(2024, 11, 29)
+    cursor = start
+    while cursor <= end:
+        _, chunk_end = ing._chunk_bounds(cursor, end, 30)
+        counted.append(int(((games.gameday >= pd.Timestamp(cursor))
+                            & (games.gameday < pd.Timestamp(chunk_end)
+                               + pd.Timedelta(days=1))).sum()))
+        cursor = chunk_end + ing.timedelta(days=1)
+    assert sum(counted) == len(games), "slices must partition the window"
+
+
+def test_an_empty_offseason_slice_is_allowed() -> None:
+    games = pd.DataFrame({"gameday": [pd.Timestamp("2024-10-22")]})
+    # July is the offseason, so nothing there is missing data.
+    assert ing._report_chunk_gaps(games, date(2024, 7, 1), date(2024, 9, 30)) == []
+    assert ing._abort_on_empty_core_chunks([], date(2024, 7, 1),
+                                           date(2024, 9, 30)) is None
+    # June is an edge month: the finals end in mid-June, so a June slice is
+    # often legitimately empty and must not stop the run.
+    assert ing._report_chunk_gaps(games, date(2025, 6, 1), date(2025, 6, 30)) == []
 
 
 def test_season_log_reuses_a_warm_cache(monkeypatch) -> None:
