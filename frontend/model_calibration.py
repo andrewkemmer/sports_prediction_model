@@ -186,14 +186,20 @@ st.markdown("### Calibration Curve — Favored Team")
 hist_curve = utils.load_prediction_history(artifact_date)
 pts = mlc.favored_calibration_pts(hist_curve)
 
-# Green curve from the SAME OOF history artifact as the blue curve.
-# The pipeline has already applied the per-fold calibration map and persisted
-# ``home_win_prob_model_calibrated`` for every OOF game. The frontend only
-# groups those published OOF values by their raw favored-probability bin; it
-# never refits Platt, recreates a sigmoid, or applies a separate floor.
-# This makes the chart reproduce the exact calibration behavior that produced
-# the OOF artifacts and the production metrics.
-pts_cal = mlc.favored_oof_calibration_pts(hist_curve)
+# Green curve = the PUBLISHED (user-facing) probability, per MLB's
+# three-probability contract: the POOLED deployed map sigma(a*logit(p)+b)
+# from calibration_<date>.json, applied to the SAME OOF rows that produce the
+# blue curve, grouped by the same raw 1% bins. The banner above states exactly
+# this formula and its coefficients, so the curve now matches the formula the
+# page advertises. The per-fold PREQUENTIAL column
+# (``home_win_prob_model_calibrated``) is deliberately NOT plotted: the
+# contract marks it "honest for scoring/metrics; NEVER display" because it is
+# a different map than the one a bettor is actually quoted. Falls back to the
+# prequential view only when the artifact carries no usable pooled params.
+_cal_params = ((cal.get("calibration") or {}).get("params")) or None
+pts_cal = mlc.favored_deployed_calibration_pts(hist_curve, _cal_params)
+if pts_cal.empty:
+    pts_cal = mlc.favored_oof_calibration_pts(hist_curve)
 
 # Bucketed curve from the artifact (also feeds the reliability table below).
 curve_df = pd.DataFrame(curve) if curve else pd.DataFrame()
@@ -218,8 +224,12 @@ if not pts.empty:
     built = mlc.chart_favored_calibration(pts, pts_cal)
     legend_extra = ""
     if not pts_cal.empty:
-        legend_extra = (" · Green dashed: stored prequential OOF calibration from the production run "
-                        "(same OOF rows as the artifact; vertical gap = correction)")
+        legend_extra = (" · Green dashed: the PUBLISHED deployed probability "
+                        "σ(a·logit(p)+b) from the pooled OOF map above, "
+                        "evaluated on the same OOF rows and binned identically "
+                        "(vertical gap = the correction being applied)")
+    n_low = (int(pts.loc[pts["low_n"].fillna(False).astype(bool), "n"].sum())
+             if not pts.empty and "low_n" in pts.columns else 0)
     utils.show_chart(built["chart"])
     st.caption(
         f"Model (n={n_games:,}) · Count bars (left 'Games' axis): games per "
@@ -227,10 +237,14 @@ if not pts.empty:
         f"accuracy view, bar height = how many games the model priced in that "
         f"confidence band and the blue curve = how often those games won · "
         f"Blue: actual win rate at each raw probability · "
-        f"Green: stored prequential OOF calibrated probability at each raw probability · "
+        f"Green: published deployed probability at each raw probability · "
         f"Perfect Calibration (dashed diagonal)"
         f"{legend_extra} · each game counted once from the favored side; "
-        "blue curve binned to the nearest 1% — hover for games per point"
+        "blue curve binned to the nearest 1% — hover for games per point · "
+        f"minimum-evidence rule (shared with the market-diagnostics charts): "
+        f"bins with fewer than {mlc.LOW_N} games render GRAY and contribute no "
+        f"blue point — {n_low:,} game(s) sit in such bins, so their volume is "
+        f"visible but their rate is not treated as evidence"
     )
 
 # ---------------------------------------------------------------------------
