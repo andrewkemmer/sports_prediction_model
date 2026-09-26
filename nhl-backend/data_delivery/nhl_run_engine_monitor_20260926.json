@@ -1,0 +1,218 @@
+{
+ "schema": "run-engine-monitor/v2",
+ "date": "2026-09-26",
+ "markets_persisted": true,
+ "markets_persist_error": null,
+ "winner_cards": {
+  "over_under": {
+   "n": 1983,
+   "actual_win_rate": 0.6198,
+   "win_rate": 0.6198,
+   "predicted_mean": 0.5907,
+   "auc": 0.6393,
+   "ece_raw": 0.0356,
+   "ece_calibrated": 0.0356,
+   "brier": 0.2221,
+   "logloss": 0.6349,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "run_line": {
+   "n": 2127,
+   "actual_win_rate": 0.4673,
+   "win_rate": 0.4673,
+   "predicted_mean": 0.4645,
+   "auc": 0.5965,
+   "ece_raw": 0.0203,
+   "ece_calibrated": 0.0203,
+   "brier": 0.2417,
+   "logloss": 0.6766,
+   "holdout": {},
+   "source": "oof_decided_store"
+  },
+  "derived_ml": {
+   "n": 2435,
+   "actual_win_rate": 0.5433,
+   "win_rate": 0.5433,
+   "predicted_mean": 0.5994,
+   "auc": 0.538,
+   "ece_raw": 0.0566,
+   "ece_calibrated": 0.0566,
+   "brier": 0.2516,
+   "logloss": 0.6975,
+   "holdout": {},
+   "source": "oof_decided_store",
+   "ml_reference": {
+    "source": "ml_win_prob",
+    "n": 2435,
+    "win_rate": 0.5823,
+    "predicted_mean": 0.5518
+   }
+  }
+ },
+ "slate_history": [
+  {
+   "card": "over_under",
+   "date": "2026-09-26",
+   "ece_calibrated": 0.0356,
+   "brier": 0.2221,
+   "logloss": 0.6349,
+   "predicted_mean": 0.5907,
+   "n": 1983
+  },
+  {
+   "card": "run_line",
+   "date": "2026-09-26",
+   "ece_calibrated": 0.0203,
+   "brier": 0.2417,
+   "logloss": 0.6766,
+   "predicted_mean": 0.4645,
+   "n": 2127
+  },
+  {
+   "card": "derived_ml",
+   "date": "2026-09-26",
+   "ece_calibrated": 0.0566,
+   "brier": 0.2516,
+   "logloss": 0.6975,
+   "predicted_mean": 0.5994,
+   "n": 2435
+  }
+ ],
+ "fit": {
+  "total_tail": {
+   "k_ge": 9,
+   "obs_ge": 0.1692,
+   "mod_ge": 0.1554,
+   "k_le": 4,
+   "obs_le": 0.2185,
+   "mod_le": 0.2365
+  },
+  "margin_tail": {
+   "obs_home_win": 0.5425,
+   "mod_home_win": 0.4553,
+   "obs_push": 0.0,
+   "mod_push": 0.1375
+  },
+  "variance_obs": {
+   "home": 1.76,
+   "away": 1.72
+  }
+ },
+ "market_metrics": {
+  "over_5": {
+   "engine_ece_raw": 0.4995,
+   "engine_ece_calibrated": 0.4995,
+   "engine_brier": 0.2038,
+   "engine_logloss": 5.7416,
+   "n": 1875
+  },
+  "over_6": {
+   "engine_ece_raw": 0.4998,
+   "engine_ece_calibrated": 0.4998,
+   "engine_brier": 0.251,
+   "engine_logloss": 6.9029,
+   "n": 2171
+  },
+  "over_7": {
+   "engine_ece_raw": 0.4999,
+   "engine_ece_calibrated": 0.4999,
+   "engine_brier": 0.2134,
+   "engine_logloss": 5.747,
+   "n": 1952
+  },
+  "home_cover_1": {
+   "engine_ece_raw": 0.4871,
+   "engine_ece_calibrated": 0.4871,
+   "engine_brier": 0.2369,
+   "engine_logloss": 6.5755,
+   "n": 1905
+  },
+  "home_cover_2": {
+   "engine_ece_raw": 0.493,
+   "engine_ece_calibrated": 0.493,
+   "engine_brier": 0.1838,
+   "engine_logloss": 5.1194,
+   "n": 2183
+  },
+  "derived_moneyline": {
+   "engine_ece_raw": 0.4829,
+   "engine_ece_calibrated": 0.4829,
+   "engine_brier": 0.2516,
+   "engine_logloss": 6.7255,
+   "n": 2435
+  }
+ },
+ "config": {
+  "feature_set_version": "nhl-prod-v1.0-goalies-team-categories",
+  "warmup_days": 30,
+  "first_season": 2024,
+  "oof_first_season": 2024,
+  "retrain_cadence_days": 7,
+  "min_val_fold_games": 40,
+  "game_types": [
+   2,
+   3
+  ],
+  "ensemble_members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "ensemble_blend": {
+   "method": "rolling_logloss_slsqp",
+   "space": "logit",
+   "prior": "fold0_static_thirds",
+   "reearn": "per_fold_pooled_oof_strictly_prior",
+   "gates": "none"
+  },
+  "library_stack": {
+   "scipy": "1.16.3",
+   "sklearn": "1.6.1",
+   "xgboost": "3.2.0",
+   "lightgbm": "4.6.0",
+   "pandas": "2.3.3",
+   "numpy": "2.0.2"
+  },
+  "run_line_model": {
+   "home_model": "lightgbm_poisson",
+   "away_model": "lightgbm_poisson",
+   "distribution": "negative_binomial",
+   "simulation": "monte_carlo",
+   "mc_draws": 10000,
+   "feature_contract": "binary_moneyline",
+   "feature_columns": [
+    "elo_diff",
+    "win_pct_diff",
+    "rest_days_diff",
+    "ewm_net_goals_diff",
+    "ewm_goal_share_diff",
+    "ga_per_game_diff",
+    "shots_for_per_game_diff",
+    "shots_against_per_game_diff",
+    "pp_success_diff",
+    "faceoff_win_diff",
+    "back_to_back_diff",
+    "goalie_sv_pct_diff",
+    "goalie_gaa_diff",
+    "goalie_starts_diff",
+    "is_playoffs",
+    "elo_home",
+    "elo_away",
+    "win_pct_home",
+    "win_pct_away",
+    "ewm_net_goals_home",
+    "ewm_net_goals_away",
+    "rest_days_home",
+    "rest_days_away",
+    "goalie_sv_pct_home",
+    "goalie_sv_pct_away",
+    "goalie_gaa_home",
+    "goalie_gaa_away",
+    "is_home"
+   ]
+  },
+  "random_seed": 42,
+  "market_independence": true
+ }
+}
