@@ -341,10 +341,22 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 6/7. Run-line + totals OOF (joint distribution model) ─────────────
     _banner("PHASE 6-7", "goal margin/total distribution OOF")
+    # The SAME fold_list object the moneyline just walked. Expected-scoring
+    # folds and moneyline folds are one geometry (MLB parity) — logged so a
+    # future divergence is visible in the run log rather than silent.
     dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_dist = dist["oof"]
+    fcontract = dist.get("feature_contract", {})
+    logger.info("run-line feature contract: %s, %d active moneyline feature(s) "
+                "+ %d tree categorical(s), resolved via %s",
+                fcontract.get("mode"), fcontract.get("n_features"),
+                len(fcontract.get("tree_categorical_cols", [])),
+                fcontract.get("resolved_via"))
+    logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",
+                dist.get("n_folds", len(fold_list)))
     sig = dist_mod.calibrate_dispersion(oof_dist)
-    logger.info("calibrated NB dispersion: alpha_home %.6f, alpha_away %.6f",
+    logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
+                "alpha_home %.4f, alpha_away %.4f",
                 sig["alpha_home"], sig["alpha_away"])
 
     # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ────

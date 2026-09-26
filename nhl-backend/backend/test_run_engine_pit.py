@@ -14,8 +14,12 @@ the engine's honesty depends on:
      predictions (features ride shift(1) / Elo-updates-after-settle);
   5. derived-vs-binary moneyline honesty: the run engine never re-derives
      a winner behind the binary model's back;
-  6. NB dispersion: estimated from leakage-free OOF, capped;
-  7. monitor line-pair contract: canonical totals (5,6,7) / spreads (1,2)
+  6. NB dispersion: estimated from leakage-free OOF with MLB's pooled
+     method-of-moments estimator, uncapped;
+  7. MLB feature parity: the run-line matrix IS the binary moneyline's
+     production matrix, resolved through the moneyline module itself, and it
+     follows the active RFE subset;
+  8. monitor line-pair contract: canonical totals (5,6,7) / spreads (1,2)
      priced at fair lines with honest outcomes.
 
 Run with: python nhl-backend/backend/test_run_engine_pit.py
@@ -761,19 +765,50 @@ def test_apply_distribution_is_row_aligned_and_additive():
 # ---------------------------------------------------------------------------
 # 6. NB dispersion
 # ---------------------------------------------------------------------------
-def test_estimate_alpha_caps_and_floors():
+def test_estimate_alpha_is_the_mlb_pooled_moment_estimator():
+    """MLB parity: alpha = max((var_obs - lam_bar) / lam_bar^2, 0), rounded 4dp.
+
+    Pinned by recomputing MLB's ``run_engine.fit_alpha`` formula (verbatim
+    source of truth: mlb-backend/backend/run_engine.py:786) on the SAME arrays
+    and requiring exact equality — so the prior mu^2-weighted, 2.0-capped NHL
+    form fails here rather than drifting silently.
+    """
     rng = np.random.default_rng(9)
     mu = np.full(500, 3.0)
-    # Poisson data: variance ≈ mean → alpha near zero.
+    # Poisson data: variance ~ mean -> alpha near zero.
     y_pois = rng.poisson(3.0, 500).astype(float)
     assert dist_mod.estimate_alpha(y_pois, mu) < 0.05
-    # Overdispersed data (variance >> mean) → positive alpha, capped.
+    # Overdispersed data (variance >> mean) -> positive alpha.
     y_nb = rng.negative_binomial(6.0, 6.0 / (6.0 + 3.0), 500).astype(float)
     a = dist_mod.estimate_alpha(y_nb, mu)
-    assert 0.0 < a <= dist_mod.ALPHA_CAP
+    assert 0.0 < a
     # Degenerate inputs floor at 0, never raise.
     assert dist_mod.estimate_alpha(np.array([np.nan, 1.0]), np.array([3.0, 3.0])) == 0.0
     assert dist_mod.estimate_alpha(np.array([]), np.array([])) == 0.0
+    # Heterogeneous lambda: this is where the mu^2-weighted NHL form diverged
+    # from MLB. Recompute MLB's pooled formula exactly.
+    mu_het = rng.normal(3.0, 0.6, 800)
+    y_het = rng.poisson(np.clip(mu_het, 0.2, None)).astype(float)
+    lam_bar = float(mu_het.mean())
+    mlb = round(max((float(y_het.var(ddof=0)) - lam_bar) / (lam_bar ** 2), 0.0), 4)
+    assert dist_mod.estimate_alpha(y_het, mu_het) == mlb
+
+
+def test_estimate_alpha_is_uncapped_like_mlb():
+    """MLB applies NO saturation to alpha; a heavy over-dispersion survives.
+
+    The retired NHL form clipped at ALPHA_CAP=2.0, which would have silently
+    masked a genuinely over-dispersed fit. This fixture is far beyond 2.0.
+    """
+    rng = np.random.default_rng(11)
+    mu = np.full(4000, 3.0)
+    # size=1/alpha with alpha=8 -> far beyond the old 2.0 cap.
+    y = rng.negative_binomial(0.125, 0.125 / (0.125 + 3.0), 4000).astype(float)
+    a = dist_mod.estimate_alpha(y, mu)
+    assert a > 2.0, f"alpha {a} was capped; MLB does not cap"
+    lam_bar = 3.0
+    assert a == round(max((float(y.var(ddof=0)) - lam_bar) / lam_bar ** 2, 0.0), 4)
+    assert not hasattr(dist_mod, "ALPHA_CAP")
 
 
 def test_calibrate_dispersion_reports_the_poisson_limit_flag():
@@ -786,12 +821,141 @@ def test_calibrate_dispersion_reports_the_poisson_limit_flag():
     assert params["poisson_limit"] == (max(params["alpha_home"],
                                            params["alpha_away"])
                                        <= dist_mod.ALPHA_FLOOR)
-    assert 0.0 <= params["alpha_home"] <= dist_mod.ALPHA_CAP
-    assert 0.0 <= params["alpha_away"] <= dist_mod.ALPHA_CAP
+    assert params["alpha_home"] >= 0.0
+    assert params["alpha_away"] >= 0.0
 
 
 # ---------------------------------------------------------------------------
-# 7. Monitor line-pair contract: canonical lines priced honestly
+# 7. MLB feature parity — the run line has NO feature list of its own
+# ---------------------------------------------------------------------------
+# The module graph `distributions` ACTUALLY resolved. Under pytest the backend
+# dir is a package (it ships an __init__.py), so pytest prepends
+# nhl-backend to sys.path and the `from backend import moneyline` branch
+# inside distributions WINS — creating a second moneyline/config module object
+# distinct from the top-level ones imported above. Production
+# (master_pipeline) puts only the backend dir on sys.path, so there the
+# top-level branch wins and all four are one object. Binding to whatever
+# distributions resolved keeps these pins honest in BOTH shapes; patching the
+# top-level module instead would silently test a parallel module graph.
+_ML = dist_mod.ml_mod
+_CFG = dist_mod.config
+
+
+def test_distributions_resolved_a_single_module_graph():
+    """Guard the guard: moneyline and config must be ONE object each.
+
+    If this ever fails, every monkeypatch in the file that targets the
+    top-level `ml_mod`/`config` is a no-op against the run line, and the
+    parity pins below would be vacuous.
+    """
+    assert _ML is not None and hasattr(_ML, "member_matrix")
+    assert _ML.member_matrix is sys.modules[_ML.__name__].member_matrix
+    assert _CFG is sys.modules[_CFG.__name__]
+    assert dist_mod.config is _CFG and dist_mod.ml_mod is _ML
+
+
+def test_run_line_matrix_is_exactly_the_moneyline_production_matrix():
+    """The run line's regressor matrix must be the moneyline's, column for column.
+
+    This is the requirement in its strictest form: not "a similar list", but
+    the identical ordered column vector the production binary model fits on,
+    tree categorical pair included.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=30))
+    run_line_cols = list(dist_mod.ScoreRegressor()._matrix(games).columns)
+    for member in ("lightgbm", "xgboost"):
+        prod = list(_ML.member_matrix(member, games).columns)
+        assert run_line_cols == prod, (
+            f"run-line matrix diverged from the {member} moneyline member")
+    # ...and it is the active moneyline contract, not a subset or superset.
+    active = list(_CFG.active_moneyline_feature_cols())
+    assert run_line_cols[:len(active)] == active
+    assert run_line_cols[len(active):] == list(_CFG.TREE_CATEGORICAL_COLS)
+
+
+def test_run_line_features_follow_the_active_moneyline_subset():
+    """Dynamic derivation: adopt an RFE subset, the run line follows it.
+
+    A hardcoded run-line list would keep the old width here; only resolution
+    through the shared moneyline contract narrows with it.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=30))
+    full = list(dist_mod.ScoreRegressor()._matrix(games).columns)
+    subset = list(_CFG.active_moneyline_feature_cols()[:3])
+    try:
+        _CFG.set_feature_subset(subset)
+        assert list(_CFG.active_moneyline_feature_cols()) == subset
+        narrowed = list(dist_mod.ScoreRegressor()._matrix(games).columns)
+        assert narrowed == subset + list(_CFG.TREE_CATEGORICAL_COLS)
+        assert len(narrowed) == len(subset) + 2 < len(full)
+        # The published contract follows too, not just the matrix.
+        c = dist_mod.feature_contract()
+        assert c["mode"] == "strict_active_moneyline"
+        assert c["feature_cols"] == subset
+        assert c["n_features"] == len(subset)
+    finally:
+        _CFG.reset_feature_subset()
+    assert list(dist_mod.ScoreRegressor()._matrix(games).columns) == full
+
+
+def test_run_line_resolves_features_through_the_moneyline_module():
+    """The parity must be structural, not a parallel path that agrees today.
+
+    MLB's run engine imports the moneyline module and calls its feature
+    resolver. Pin that NHL does the same: patch the moneyline helper and
+    require the run line to go through it.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=10))
+    seen: list[tuple] = []
+    real = _ML.member_matrix
+
+    def _spy(name, df):
+        seen.append((name, id(df)))
+        return real(name, df)
+
+    with _mock_patch.object(_ML, "member_matrix", _spy):
+        dist_mod.ScoreRegressor()._matrix(games)
+    assert seen, "run line did not route its matrix through moneyline.member_matrix"
+    assert all(n == dist_mod.MONEYLINE_TREE_MEMBER for n, _ in seen)
+
+
+def test_walk_forward_oof_publishes_the_mlb_feature_contract():
+    games = feat_mod.build_game_features(_synth_games(n_days=45))
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    out = dist_mod.walk_forward_oof(games, fold_list=folds)
+    c = out["feature_contract"]
+    active = list(_CFG.active_moneyline_feature_cols())
+    assert c["mode"] == "strict_active_moneyline"
+    assert c["n_features"] == len(active)
+    assert c["feature_cols"] == active
+    assert c["tree_categorical_cols"] == list(_CFG.TREE_CATEGORICAL_COLS)
+    assert c["resolved_via"] == \
+        f"moneyline.member_matrix({dist_mod.MONEYLINE_TREE_MEMBER!r})"
+    # Resolved against a real frame: the fitted width is the contract plus
+    # the tree categorical pair, so nothing was silently narrowed.
+    assert c["n_features_fitted"] == len(active) + len(_CFG.TREE_CATEGORICAL_COLS)
+    assert c["fitted_cols"] == active + list(_CFG.TREE_CATEGORICAL_COLS)
+    assert out["n_folds"] == len(folds)
+
+
+def test_run_line_and_moneyline_walk_the_identical_fold_geometry():
+    """Fold periods must match MLB's rule: one geometry, shared by both walks.
+
+    Both engines receive the SAME fold_list object, so each scored game lands
+    in the same validation window for the moneyline and for expected scoring.
+    """
+    games = feat_mod.build_game_features(_synth_games(n_days=60))
+    folds = folds_mod.make_folds(games, date_col="gameday")
+    ml_folds = _ML.walk_forward_oof(games, fold_list=folds)["oof"]
+    dist_folds = dist_mod.walk_forward_oof(games, fold_list=folds)["oof"]
+    ml_map = ml_folds.set_index("game_id")["fold_id"].to_dict()
+    dist_map = dist_folds.set_index("game_id")["fold_id"].to_dict()
+    assert set(ml_map) == set(dist_map)
+    assert ml_map == dist_map
+
+
+# ---------------------------------------------------------------------------
+# 8. Monitor line-pair contract: canonical lines priced honestly
 # ---------------------------------------------------------------------------
 def _oof_market_rows(n_days: int = 60, seed: int = 7) -> pd.DataFrame:
     games = feat_mod.build_game_features(_synth_games(n_days, seed=seed))
