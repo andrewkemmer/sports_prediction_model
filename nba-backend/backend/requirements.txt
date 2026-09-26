@@ -16,6 +16,11 @@ GitPython>=3.1.0
 pyarrow
 openpyxl
 pytest
+# The progress bar. MLB's notebook installs tqdm by name for the same reason:
+# without it the pull reports only a heartbeat log line, and the captured
+# Kaggle run is a wall of numbers with no bar to watch.  ``progress.py``
+# imports it lazily, so a missing tqdm costs legibility, never the run.
+tqdm
 # duckdb and requests are no longer pinned. duckdb was here to read the raw
 # archive export this backend never had a reader for, and requests is unused —
 # ingestion speaks urllib from the standard library.

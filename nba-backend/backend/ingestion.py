@@ -594,6 +594,86 @@ def _slices(start: date, end: date, days: int) -> list[tuple[date, date]]:
     return out
 
 
+class _DayWindows:
+    """One bar per ``NBA_SLICE_DAYS`` window of a one-request-per-day sweep.
+
+    This is MLB's progress shape copied at the level that matters, because
+    MLB's bars are not MLB's code.  ``pybaseball.statcast`` wraps its per-day
+    sub-requests in ``tqdm(total=len(date_range))`` and that bar is drawn
+    inside the chunk loop which logs ``Chunk: a -> b``, so an operator
+    watching a captured Kaggle cell sees three things per window: the line
+    naming it, a bar walking ``0/N`` to ``N/N`` while the days are really
+    being requested, and the ``-> N pitches`` line after it.
+
+    A day-per-request sweep has the same work behind that bar, so the same
+    three things are emitted here and each tick is a day actually walked.  The
+    windows are for reporting only: which days are requested, how they are
+    cached, and the sweep's budget are all unchanged.  MLB's own bar skips
+    offseason days and totals 46 where the window has 60; this one does not
+    skip, because an NBA window is a request for every day of it, and the days
+    it did not skip are the days it did not have to ask about twice.
+    """
+
+    def __init__(self, start: date, end: date, slice_days: int, desc: str,
+                 unit: str) -> None:
+        self.windows = _slices(start, end, slice_days) or [(start, end)]
+        self.desc = desc
+        self.unit = unit
+        #: Games, requests and cache hits since the current window opened.  The
+        #: ``-> N`` line reports these, so the count is the window's own and
+        #: not the sweep's running total.
+        self.window_games = 0
+        self.window_fetched = 0
+        self.window_cached = 0
+        self._at = 0
+        self._lo = self._hi = start
+        self.bar: progress._Bar | None = None
+        self._ctx: Any | None = None
+
+    def __enter__(self) -> "_DayWindows":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        # Closes the window in flight on every exit, including the exceptional
+        # one, so a sweep that dies mid-window still says where it got to.
+        self._close()
+
+    def _close(self) -> None:
+        if self.bar is None:
+            return
+        logger.info("    -> %d game(s) over %d day(s) (%d fetched, %d from cache)",
+                    self.window_games, (self._hi - self._lo).days + 1,
+                    self.window_fetched, self.window_cached)
+        # The bar is closed HERE rather than left to a stack of contexts, and
+        # the difference is the whole display.  A stack unwinds in reverse at
+        # the end of the sweep, so every window's bar would have stayed open
+        # until the last day: they would have stacked on top of each other in
+        # a terminal, emitted cursor-move escapes at each other in a captured
+        # log, and - worst - the ``100%`` line for a window would have arrived
+        # after the bar for the window three windows later.  MLB's log has them
+        # in the order the work happened, and so does this one.
+        ctx, self._ctx = self._ctx, None
+        self.bar = None
+        if ctx is not None:
+            ctx.__exit__(None, None, None)
+        self.window_games = self.window_fetched = self.window_cached = 0
+
+    def day(self, day: date) -> progress._Bar:
+        """The bar for ``day``, opening the window that contains it."""
+        if self.bar is None or day > self._hi:
+            self._close()
+            self._lo, self._hi = self.windows[self._at]
+            self._at += 1
+            logger.info("  Chunk: %s -> %s", self._lo, self._hi)
+            self._ctx = progress.track((self._hi - self._lo).days + 1,
+                                       desc=self.desc, unit=self.unit)
+            self.bar = self._ctx.__enter__()
+        return self.bar
+
+    def __len__(self) -> int:
+        return len(self.windows)
+
+
 def _season_bounds(first: int) -> tuple[date, date]:
     """The calendar span of the season that starts in year ``first``.
 
@@ -684,7 +764,10 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     rest of the pipeline is sliced at 60 days.  That asymmetry is the honest
     outcome, not an oversight: the reason is at the top of this module, and
     ``_answered_a_different_day`` is what stops the alternative from being
-    attempted by accident and believed.
+    attempted by accident and believed.  The 60-day windows are reported the
+    way MLB reports its own - a ``Chunk:`` line, a bar counting the days in
+    it, an ``-> N games`` line after it - which is reporting only and asks for
+    exactly the same days in exactly the same order.
 
     A run of consecutive failures ends the sweep. That guard is not an
     optimization: against a refusing host this sweep does not fail quickly, it
@@ -705,7 +788,14 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     last_reason = ""
     logger.info("schedule: %d day(s) from %s to %s, one request per day "
                 "(ESPN's scoreboard has no date range)", days, start, end)
-    with progress.track(days, desc="schedule days", unit="day") as bar:
+    with _DayWindows(start, end, _int_env(SLICE_DAYS_ENV, DEFAULT_SLICE_DAYS),
+                     desc="schedule", unit="day") as windows:
+        # The bar stays as bare as MLB's.  It names no window and carries no
+        # running totals, because the ``Chunk:`` line above it names the window
+        # and the ``-> N games`` line below it reports the result, and because a
+        # bar line long enough to wrap turns into a staircase of escape
+        # sequences in a captured log - which is the mess the operator is
+        # watching, traded for detail that is already on screen twice.
         for offset in range(days):
             if time.time() > deadline:
                 logger.warning("schedule sweep hit its budget after %d of %d days; "
@@ -713,12 +803,14 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
                                offset, days)
                 break
             day = start + timedelta(days=offset)
-            with bar.item(lambda: f"{day}  {fetched} fetched  {cached} cached"):
+            with windows.day(day).item():
                 path = _schedule_path(day)
                 existing = (pd.DataFrame() if _flag(FULL_REPULL_ENV)
                             else _read_parquet(path))
                 if _schedule_hit(existing, path):
                     cached += 1
+                    windows.window_cached += 1
+                    windows.window_games += 0 if existing.empty else len(existing)
                     frames.append(existing)
                     continue
                 _ensure_probed("espn")
@@ -765,7 +857,9 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
                 day_frame = day_frame.assign(_day=day)
                 _write_parquet(day_frame, path)
                 fetched += 1
+                windows.window_fetched += 1
                 if not day_frame.empty:
+                    windows.window_games += len(day_frame)
                     frames.append(day_frame)
     if not frames:
         return pd.DataFrame()
@@ -852,7 +946,10 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
                         unit="slice") as bar:
         for number, (label, season_type, game_type, lo, hi) in enumerate(
                 units, start=1):
-            with bar.item(lambda: f"{lo} -> {hi}  {label} {season_type}"):
+            # No postfix on the bar: the ``Chunk:`` line inside this block
+            # already names the window, the season and the type, and a bar that
+            # repeated them would be the longest line in the log.
+            with bar.item():
                 # MLB's chunked pulls announce each window as they take it
                 # (``Chunk: start -> end``). The season and type ride along
                 # because two seasons are in flight at once near an October
@@ -1014,8 +1111,7 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     logger.info("play-by-play: %d candidate game(s), sweeping %d",
                 len(eligible), len(targets))
 
-    with progress.track(len(targets), desc="play-by-play games",
-                        unit="game") as bar:
+    with progress.track(len(targets), desc="play-by-play", unit="game") as bar:
         deadline = time.time() + _float_env(PBP_BUDGET_ENV, DEFAULT_PBP_BUDGET_SEC)
         pause = _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC)
         max_failures = _int_env(PBP_MAX_FAILURES_ENV, DEFAULT_PBP_MAX_FAILURES)
@@ -1023,9 +1119,7 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         frames: list[pd.DataFrame] = []
         for number, (_, row) in enumerate(targets.iterrows(), start=1):
             nba_id = str(row.nba_game_id)
-            with bar.item(lambda: f"{nba_id}  {info['fetched']} fetched  "
-                                  f"{info['cached']} cached  "
-                                  f"{info['failed']} failed"):
+            with bar.item(nba_id):
                 path = _pbp_path(nba_id)
                 existing = _read_parquet(path)
                 if not existing.empty:

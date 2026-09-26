@@ -10,31 +10,48 @@ does:
   an iterable, and never returns a value the caller uses.  The only thing it
   owns is a counter.
 * ``tqdm`` is used when it is importable and falls back to the log line the
-  pipeline already wrote when it is not, so the Kaggle notebook does not gain a
-  dependency it does not already install.
-* It never *draws* a bar when the output is not a terminal (a Kaggle log, a
-  pipe, a captured run), because a bar redrawn into a log file is just noise,
-  and it is switched off outright by ``NBA_PROGRESS=0``.  It still *reports*:
-  the same count, rate and ETA go out as a log line on a heartbeat, so a
-  captured run says what it is doing while it is doing it.
+  pipeline already wrote when it is not, so the notebook needs no dependency
+  the backend does not already install.
+* It draws the bar whenever ``tqdm`` is there - terminal, pipe or captured
+  Kaggle cell alike - because that is the rule MLB runs under, and it is
+  switched off outright by ``NBA_PROGRESS=0``.  The log line is not a second
+  rendering of the bar, it is what is left when ``tqdm`` is absent.
 
 The guardrail is the invariant a caller can rely on: with the bar on, off, or
 unavailable, the pipeline returns exactly the same artifacts.  The only
 difference is what the operator sees.
 
 That distinction is the whole reason the log lines are here, and it is a
-distinction this module originally got wrong.  Bars are rightly suppressed when
-stderr is not a terminal - but the code suppressed *everything* with them, so
-on Kaggle, where stderr is captured and never a tty, a run that spent ten
-minutes walking 1024 schedule days printed nothing at all until it finished.
-Silence is the correct rendering of a bar.  It is not the correct rendering of
-work in progress, and the operator watching a notebook cannot tell a hung cell
-from a working one.  So the count is reported on a heartbeat either way, and
-only the redrawing is conditional.
+distinction this module originally got wrong twice.
+
+First: bars were suppressed when stderr is not a terminal, but the code
+suppressed *everything* with them, so on Kaggle, where stderr is captured and
+never a tty, a run that spent ten minutes walking 1024 schedule days printed
+nothing at all until it finished.  Silence is the correct rendering of a bar.
+It is not the correct rendering of work in progress, and the operator watching
+a notebook cannot tell a hung cell from a working one.  So the count is
+reported on a heartbeat either way.
+
+Second, and more recently: the bar itself was then withheld from a captured
+stream on the theory that a redrawn bar in a log file is noise.  That is the
+theory *tqdm* does not have, and it is why MLB's captured run is full of
+working bars.  MLB's are not drawn by MLB: ``pybaseball.statcast`` wraps its
+per-day sub-requests in ``tqdm(total=len(date_range))`` and constructs it with
+stock defaults, and stock ``tqdm`` writes to a captured stream exactly as it
+writes to a terminal.  The 60-day chunk, the ``0%|  | 0/46 [00:00<?, ?it/s]``
+that becomes ``100%|...| 46/46 [00:52<00:00, 1.15s/it]``, the ``-> 164216
+pitches`` after it - all of that survives into a Kaggle log for the same reason
+this module now draws: the output is not asked whether it is a terminal.
+
+So the gate is gone, and what is left of the old design is kept because it is
+still needed.  ``tqdm`` is an optional import, and a backend that has to run
+before the dependency lands should still say what it is doing; the heartbeat
+counter is what it says.
 """
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import os
 import sys
@@ -56,22 +73,22 @@ def _flag() -> bool:
     return raw.strip().lower() not in OFF_WORDS
 
 
-def _drawable() -> bool:
-    """True only when a bar would actually be seen.
-
-    Kaggle and CI both capture stderr, and a bar written into a capture becomes
-    a wall of carriage returns in the run log.  Refusing to draw there costs
-    nothing and keeps the logs readable.
-    """
-    try:
-        return bool(sys.stderr) and sys.stderr.isatty()
-    except Exception:  # noqa: BLE001 - a broken stream is simply not drawable
-        return False
+#: How the bar reads when the run is straight-line and the phases are wildly
+#: uneven in cost, so a rate and an ETA computed off one or two samples would
+#: read as a measurement and be nothing of the kind.  This is the default
+#: ``tqdm`` format minus the rate; every other bar gets stock ``tqdm``.
+NO_RATE_BAR = "{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}"
 
 
 def enabled() -> bool:
-    """Whether bars should be drawn at all.  Cheap; safe to call in a loop."""
-    return _flag() and _drawable()
+    """Whether bars should be drawn at all.  Cheap; safe to call in a loop.
+
+    True whenever the run is not switched off *and* ``tqdm`` is importable.
+    Deliberately silent about whether the output is a terminal, because that is
+    the question that made this backend's bars invisible on Kaggle while MLB's
+    animated on exactly the same host.  See the module docstring.
+    """
+    return _flag() and _tqdm() is not None
 
 
 def _eta(seconds: float) -> str:
@@ -124,12 +141,14 @@ def ok(text: str) -> None:
     _write(f"  ✅ {text}")
 
 
+@functools.lru_cache(maxsize=1)
 def _tqdm() -> Any | None:
     """Return ``tqdm.tqdm`` if it is installed, else ``None``.
 
-    Imported per bar rather than at module scope: the import is cheap, but
-    resolving it lazily means a missing dependency is a ``None`` return and
-    never an ImportError at pipeline start.
+    Imported lazily rather than at module scope: a missing dependency is then a
+    ``None`` return and never an ImportError at pipeline start.  Cached because
+    ``enabled()`` is documented as safe to call in a loop and a repeated import
+    lookup in a per-day sweep is a repeated sys.modules walk.
     """
     try:
         from tqdm import tqdm  # type: ignore[import-not-found]
@@ -215,15 +234,51 @@ class _Bar:
                  show_rate: bool = True) -> None:
         self._inner: Any | None = None
         self._counter = _Counter(total, desc, unit, show_rate)
-        if not enabled():
+        if not _flag():
             return
         factory = _tqdm()
         if factory is None:
             return
+        # Stock tqdm, the way ``pybaseball`` constructs it: no ``bar_format``,
+        # no ``dynamic_ncols``, ``leave=True``, ``disable`` left at its own
+        # default.  That is what puts
+        # ``100%|...| 46/46 [00:52<00:00, 1.15s/it]`` in MLB's captured Kaggle
+        # log, and a hand-rolled format is the one thing that would have made
+        # this bar look nothing like the one it is imitating.  The postfix
+        # rides along inside tqdm's own ``r_bar`` rather than needing a format
+        # to place it.
+        #
+        # ``disable`` is worth naming because it is the whole ball game and it
+        # is not what it looks like.  ``tqdm`` *can* suppress itself on a
+        # non-terminal - ``std.py`` says ``if disable is None and
+        # not file.isatty(): disable = True`` - but the parameter's default is
+        # ``False``, not ``None``, so that branch is unreachable unless a caller
+        # opts into it, and a stock bar writes into a pipe, a file and a
+        # captured cell exactly as it writes to a terminal.  The old gate here
+        # was therefore not reading tqdm's rule; it was inventing a stricter
+        # one, and it is the only reason this backend's bars were invisible
+        # where MLB's were not.
+        #
+        # ``position=0`` is the last of them and the least obvious.  Left to
+        # itself tqdm stacks a bar *above* any bar already open, and rewinds the
+        # cursor a line on every redraw to keep them apart.  On a terminal that
+        # is invisible; in a capture it is an ``ESC[A`` and a blank line after
+        # every refresh, which is the kind of dirt the capture rule exists to
+        # keep out.  MLB never hits it because it pulls before it starts a
+        # phase bar, so its bars are the only ones open and land at position 0
+        # by default.  Here the ten-phase bar does span the ingest and the
+        # three sweeps do run under it - but never at the same time, because
+        # the phase bar redraws only when ``advance()`` is called and the
+        # sweeps are all closed before it is.  Pinning every bar to position 0
+        # states that instead of leaving it to a collision that does not happen.
+        # If a future change ever does want two bars live at once, the cost of
+        # this line is one overpainted row in a terminal, which is cheaper than
+        # the log noise it buys back.
+        kwargs: dict[str, Any] = {"position": 0}
+        if not show_rate:
+            kwargs["bar_format"] = NO_RATE_BAR
         self._inner = factory(total=total, desc=desc, unit=unit or None,
-                              leave=True, dynamic_ncols=True,
-                              bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} "
-                                         "[{elapsed}<{remaining}] {postfix}")
+                              leave=True, **kwargs)
 
     def update(self, n: int = 1) -> None:
         if self._inner is not None:
@@ -245,6 +300,9 @@ class _Bar:
 
     def close(self) -> None:
         if self._inner is not None:
+            # ``leave`` is tqdm's default, so a completed bar stays on the line
+            # that drew it: in a captured log the run ends with a row of bars
+            # that each reached 100%, which is the whole point of the format.
             self._inner.close()
         else:
             self._counter.close()

@@ -1030,6 +1030,32 @@ def _refuse_all(calls: list):
     return handler
 
 
+class _CapturedStream:
+    """A stderr that is not a terminal, which is what Kaggle hands the run.
+
+    ``tqdm`` resolves ``sys.stderr`` when a bar is constructed, so replacing it
+    with this is enough to see exactly what a captured cell would have been
+    sent - and ``isatty()`` answers False, which is the condition the removed
+    gate used to hide the bar behind.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+
+    def write(self, text: str) -> int:
+        self._chunks.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def text(self) -> str:
+        return "".join(self._chunks)
+
+
 class TestRefusedHost:
     """What happens when a host says no.
 
@@ -1680,16 +1706,19 @@ class TestSilentFallback:
 class TestProgressIsVisible:
     """The run that produced no log at all.
 
-    A captured stream - a Kaggle cell, a pipe - is not a terminal, so no bar
-    draws. The code suppressed the *count* along with the bar, and a run spent
-    ten minutes walking 1,024 schedule days saying nothing, which is
-    indistinguishable from a hang.
+    A captured stream - a Kaggle cell, a pipe - drew no bar, and the code
+    suppressed the *count* along with it, so a run spent ten minutes walking
+    1,024 schedule days saying nothing, which is indistinguishable from a hang.
+    The bar now draws into a capture exactly as MLB's does, so what is left to
+    test is the state where ``tqdm`` genuinely is not installed: there the
+    heartbeat line is the whole report, and it has to carry the count, the
+    rate and the ETA on its own.
     """
 
     @pytest.fixture
     def _captured(self, monkeypatch):
-        """Force the not-a-terminal case, and speed the heartbeat up."""
-        monkeypatch.setattr(ing.progress, "_drawable", lambda: False)
+        """Force the no-tqdm state, and speed the heartbeat up."""
+        monkeypatch.setattr(ing.progress, "_tqdm", lambda: None)
         monkeypatch.setattr(ing.progress._Counter, "HEARTBEAT_SEC", 0.0)
         yield
 
@@ -1721,8 +1750,27 @@ class TestProgressIsVisible:
 
     def test_it_is_on_by_default(self, monkeypatch):
         monkeypatch.delenv(ing.progress.ENV, raising=False)
-        monkeypatch.setattr(ing.progress, "_drawable", lambda: True)
         assert ing.progress.enabled()
+
+    def test_bars_stay_on_where_the_output_is_not_a_terminal(self, monkeypatch):
+        """The Kaggle log that started this.
+
+        MLB's bars animate inside a captured cell because ``tqdm`` writes to a
+        non-terminal exactly as it writes to a terminal, and this backend had
+        added a rule of its own that suppressed them there. If that rule comes
+        back, the test that fails is this one and not a 70-minute run nobody
+        was watching.
+        """
+        monkeypatch.delenv(ing.progress.ENV, raising=False)
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        with ing.progress.track(3, desc="days", unit="day") as bar:
+            for _ in range(3):
+                bar.update(1)
+        drawn = stream.text()
+        assert "3/3" in drawn
+        assert "100%" in drawn
+        assert "days" in drawn
 
     def test_every_phase_announces_itself(self, caplog):
         with caplog.at_level("INFO", logger="nba_progress"):
@@ -1797,3 +1845,145 @@ class TestProgressIsVisible:
         assert ing.progress._eta(9) == "9s"
         assert ing.progress._eta(252) == "4m12s"
         assert ing.progress._eta(7200 + 300) == "2h05m"
+
+
+class TestChunkedSweepBars:
+    """MLB's per-chunk progress, measured against MLB's log.
+
+    The reference is ``0%|  | 0/46 [00:00<?, ?it/s]`` becoming
+    ``100%|...| 46/46 [00:52<00:00, 1.15s/it]`` between a ``Chunk: a -> b``
+    line and an ``-> 164216 pitches`` line.  Three things have to be true for
+    that to be a report of this pipeline's work rather than a decoration: the
+    window has to be announced, the bar has to count the days in that window,
+    and every tick has to be a day the sweep really walked.
+    """
+
+    def test_each_window_is_announced_and_counted(self, monkeypatch):
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        start = date(2024, 1, 1)
+        with ing._DayWindows(start, start + timedelta(days=64), 60,
+                             desc="schedule", unit="day") as windows:
+            for offset in range(65):
+                with windows.day(start + timedelta(days=offset)).item():
+                    pass
+        drawn = stream.text()
+        # Sixty days, then the five that are left - one bar each, each
+        # finished, which is the shape MLB's log has for every one of its
+        # windows.
+        assert "60/60" in drawn
+        assert "5/5" in drawn
+        assert "100%" in drawn
+
+    def test_a_window_finishes_before_the_next_one_opens(self, monkeypatch):
+        """MLB's log reads 46/46, then ``Chunk:``, then 0/60. Bars left open
+        until the sweep ends put every window's 100% line in the wrong place
+        and stack them on top of each other, so the order is the feature as
+        much as the bar is."""
+        stream = _CapturedStream()
+        monkeypatch.setattr(ing.progress.sys, "stderr", stream)
+        start = date(2024, 1, 1)
+        with ing._DayWindows(start, start + timedelta(days=9), 5,
+                             desc="schedule", unit="day") as windows:
+            for offset in range(10):
+                with windows.day(start + timedelta(days=offset)).item():
+                    pass
+        drawn = stream.text()
+        first_closed = drawn.find("5/5")
+        second_opened = drawn.find("0/5", first_closed)
+        assert first_closed != -1 and second_opened != -1
+        assert first_closed < second_opened
+        # And nothing was left holding the cursor: one window, one bar, no
+        # cursor-move escapes in a capture that a person has to read.
+        assert "\x1b" not in drawn
+
+    def test_a_closed_window_reports_what_it_walked(self, caplog):
+        start = date(2024, 1, 1)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            with ing._DayWindows(start, start + timedelta(days=1), 60,
+                                 desc="schedule", unit="day") as windows:
+                for offset in range(2):
+                    with windows.day(start + timedelta(days=offset)).item():
+                        windows.window_cached += 1
+                        windows.window_games += 5
+        assert "Chunk: 2024-01-01 -> 2024-01-02" in caplog.text
+        assert "-> 10 game(s) over 2 day(s) (0 fetched, 2 from cache)" \
+            in caplog.text
+
+    def test_the_window_is_a_report_and_not_a_request(self, monkeypatch,
+                                                      tmp_path):
+        """The guardrail. Chunking is display; the days asked for are identical
+        with it and without it, or the bar is measuring a different sweep than
+        the one that runs."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        monkeypatch.setenv(ing.FULL_REPULL_ENV, "1")
+        ing._PROBED.add("espn")
+        asked: list[date] = []
+        monkeypatch.setattr(ing.sources, "espn_schedule_frame", lambda _e: pd.DataFrame())
+        monkeypatch.setattr(ing, "http_json", lambda *_a, **_k: {"events": []})
+        start = date(2024, 1, 1)
+        try:
+            for slice_days in ("7", "60", "10000"):
+                asked.clear()
+                for path in (tmp_path / "schedule").glob("*.parquet"):
+                    path.unlink()
+                monkeypatch.setenv(ing.SLICE_DAYS_ENV, slice_days)
+                ing._fetch_schedule(start, start + timedelta(days=9))
+                asked.extend(sorted(path.stem for path in
+                                    (tmp_path / "schedule").glob("*.parquet")))
+        finally:
+            ing._PROBED.discard("espn")
+        assert asked == [f"{start + timedelta(days=n):%Y%m%d}" for n in range(10)]
+
+    def test_a_budget_break_closes_the_open_window(self, caplog):
+        """A sweep that stops mid-window still reports the window it stopped
+        in, rather than leaving the last bar undrawn and the count unsaid."""
+        start = date(2024, 1, 1)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            with ing._DayWindows(start, start + timedelta(days=59), 60,
+                                 desc="schedule", unit="day") as windows:
+                for offset in range(3):
+                    with windows.day(start + timedelta(days=offset)).item():
+                        windows.window_cached += 1
+                    if offset == 2:
+                        break  # the sweep gave up here
+        assert "-> 0 game(s) over 60 day(s) (0 fetched, 3 from cache)" \
+            in caplog.text
+
+    def test_the_budget_still_stops_the_sweep_before_any_request(
+            self, monkeypatch, tmp_path, caplog):
+        """The windows are reporting, so they cannot be the reason a sweep runs
+        long: a budget already spent still means zero requests.  The clock is
+        moved rather than the budget set, because ``_float_env`` refuses a
+        non-positive value and answers the default instead - a sweep cannot be
+        made to overrun by typing a number, and this test leans on that rather
+        than fighting it."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        stamps = [1_000.0, 5_000.0]  # started, then the first budget check
+
+        def clock() -> float:
+            return stamps.pop(0) if len(stamps) > 1 else stamps[0]
+
+        monkeypatch.setattr(ing.time, "time", clock)
+
+        def explode(*_a, **_k):
+            raise AssertionError("a spent budget must not buy a request")
+
+        monkeypatch.setattr(ing, "http_json", explode)
+        with caplog.at_level("INFO", logger="nba_ingestion"):
+            ing._fetch_schedule(date(2024, 1, 1), date(2024, 3, 1))
+        assert "hit its budget after 0 of 61 days" in caplog.text
+        assert not list((tmp_path / "schedule").glob("*.parquet"))
+
+    def test_a_zero_budget_is_the_default_and_not_an_off_switch(self, monkeypatch):
+        """Worth pinning because it reads the other way: someone limiting a run
+        to no time at all would type 0, and get the full 30 minutes instead of
+        a sweep that stops immediately. The hardening is right - a budget is
+        never accidentally unbounded - but it is silent, so it is a test."""
+        monkeypatch.delenv(ing.SCHEDULE_BUDGET_ENV, raising=False)
+        for value in ("0", "-5", "", "nonsense"):
+            monkeypatch.setenv(ing.SCHEDULE_BUDGET_ENV, value)
+            assert ing._float_env(ing.SCHEDULE_BUDGET_ENV,
+                                  ing.DEFAULT_SCHEDULE_BUDGET_SEC) \
+                == ing.DEFAULT_SCHEDULE_BUDGET_SEC
+

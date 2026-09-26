@@ -126,7 +126,8 @@ fetched elsewhere.
 
 Window and sweep controls are environment variables: `NBA_START_DATE` /
 `NBA_END_DATE` bound the window; `NBA_FULL_REPULL=1` ignores every cache;
-`NBA_SLICE_DAYS` sets the season-log slice width (default 60);
+`NBA_SLICE_DAYS` sets the season-log slice width (default 60) and the width of
+the windows the schedule sweep reports in;
 `NBA_FETCH_PLAY_BY_PLAY=0` skips the play-by-play sweep; `NBA_PBP_MAX_GAMES`,
 `NBA_PBP_BUDGET_SEC`, `NBA_PBP_PAUSE_SEC` and `NBA_PBP_LOOKBACK_DAYS` size it;
 `NBA_SCHEDULE_BUDGET_SEC` bounds the day-by-day schedule sweep; and
@@ -136,19 +137,58 @@ Window and sweep controls are environment variables: `NBA_START_DATE` /
 ### How the run reports itself
 
 A run prints a banner per phase and a `✅` line with the numbers each one
-produced, MLB's idiom, and every sweep carries a progress bar: the schedule
-days, the season-log slices, and the play-by-play games. Where a terminal can
-draw a bar (`tqdm`, if installed) that is what you get; where one cannot — a
-Kaggle cell, a pipe, CI — the same count, rate and ETA go out as a log line
-every ten seconds instead.
+produced, MLB's idiom, and every sweep carries a `tqdm` bar: the schedule
+days, the season-log slices, and the play-by-play games.
 
-That distinction is deliberate and was learned the hard way. Suppressing a
-*bar* in a captured log is right, because a carriage-return redraw becomes a
-wall of noise. Suppressing the *count* along with it is not: the run this was
-written for spent ten minutes walking 1,024 schedule days and printed nothing
-at all until it finished, which is indistinguishable from a hang. The bars are
-display only — with them on, off, or unavailable, the run returns byte-identical
-artifacts.
+**The bars draw in a captured log too**, and that is the whole point of the
+shape. MLB's are not MLB's code — `pybaseball.statcast` wraps its per-day
+sub-requests in `tqdm(total=len(date_range))`, and `tqdm` writes to a pipe, a
+file and a Kaggle cell exactly as it writes to a terminal. The MLB log this
+mirrors reads:
+
+```
+  Chunk: 2024-03-01 → 2024-04-29
+  0%|          | 0/46 [00:00<?, ?it/s]
+100%|██████████| 46/46 [00:52<00:00,  1.15s/it]
+    → 164216 pitches
+```
+
+Three things per window, in that order: the line naming it, a bar that walks
+`0/N` to `N/N` while the work happens, and the line reporting what it got. The
+schedule sweep does the same over `NBA_SLICE_DAYS`-day windows, one request per
+day, so every tick is a day actually walked:
+
+```
+  Chunk: 2024-01-01 -> 2024-02-29
+schedule:   0%|          | 0/60 [00:00<?, ?day/s]
+schedule: 100%|##########| 60/60 [00:31<00:00,  1.93s/day]
+    -> 407 game(s) over 60 day(s) (0 fetched, 60 from cache)
+```
+
+Two details make the capture readable, and both are about keeping the bar line
+short. The bar names no window and carries no running totals, because the
+`Chunk:` line above it names the window and the `-> N games` line below it
+reports the result; and every bar is pinned to `position=0`, because a bar that
+tqdm stacks above another rewinds the cursor on every redraw, which is invisible
+on a terminal and an `ESC[A` per refresh in a log. The season-log bar counts
+slices (one request each) rather than days for the same reason: 34 requests is
+the honest total, and a bar that counted 2,040 days would be measuring a
+different sweep than the one that runs.
+
+`NBA_PROGRESS=0` silences the display without changing any result, and a
+`requirements.txt` without `tqdm` falls back to a heartbeat log line every ten
+seconds carrying the count, rate and ETA. The bars are display only — with them
+on, off, or unavailable, the run returns byte-identical artifacts.
+
+That fallback exists, but it should not be what you see. The first version of
+this module refused to draw a bar unless `sys.stderr.isatty()`, on the theory
+that a redrawn bar in a log file is noise; on Kaggle, where stderr is captured
+and never a tty, that meant a run that spent ten minutes walking 1,024 schedule
+days printed nothing at all until it finished — indistinguishable from a hang,
+and a stricter rule than `tqdm` itself keeps. The gate is gone. `tqdm` can
+suppress itself on a non-terminal (`std.py`: `if disable is None and not
+file.isatty()`), but `disable` defaults to `False`, not `None`, so that branch
+is unreachable unless a caller asks for it.
 
 One rule matters if you add a sweep: **tick the counter on the way out of the
 unit, not on the way in.** `bar.item()` exists for this and is the thing to
