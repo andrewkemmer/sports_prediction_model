@@ -772,11 +772,9 @@ def eligible_games(games: pd.DataFrame) -> pd.DataFrame:
     """Games the model may train or predict on.
 
     Both game types the contract declares are kept - regular season and
-    playoffs - because ``is_playoffs`` is a model feature. Anything outside
-    them (an all-star game, which ESPN files under ``regular-season`` because
-    the league has no other code for it) is dropped, along with rows with no
-    identity, since a feature row that cannot be joined to a schedule card is
-    not a game.
+    playoffs - because ``is_playoffs`` is a model feature. Anything outside them
+    is dropped, along with rows with no identity, since a feature row that
+    cannot be joined to a schedule card is not a game.
     """
     if games is None or games.empty:
         return pd.DataFrame()
@@ -785,6 +783,45 @@ def eligible_games(games: pd.DataFrame) -> pd.DataFrame:
     out = out[pd.to_numeric(out.game_type, errors="coerce").isin(
         config.GAME_TYPES)]
     return out.sort_values(["gameday", "game_id"]).reset_index(drop=True)
+
+
+def trainable_games(games: pd.DataFrame) -> pd.DataFrame:
+    """Settled games that have feature rows to learn from.
+
+    A finished game is only trainable if the season log has player lines for
+    it, which is exactly what an ``nba_game_id`` records. Some finished games
+    have none, and they are not edge cases in a schedule:
+
+    * a **postponed** game ESPN kept on the calendar;
+    * the **NBA Cup final**, played at a neutral site and therefore absent from
+      ``LeagueGameLog`` under ``Regular Season`` (the 2024 one is the
+      Bucks-Thunder game on 2024-12-17, which ESPN reports as a 97-81 final);
+    * the **All-Star** games, which ESPN files as ``regular-season`` and whose
+      squads (KEN, CHK, CAN, SHQ) are not league teams at all.
+
+    Every one of these looks finished and settled, so a pipeline that splits on
+    the score alone turns it into a training row whose every feature is NaN -
+    and NaN is a value a model will fit to rather than reject. The requirement
+    is general rather than a list of known exceptions: a game nobody in the
+    season log played cannot become a training label.
+    """
+    if games is None or games.empty:
+        return pd.DataFrame()
+    out = games.copy()
+    settled = out[out.home_score.notna() & out.away_score.notna()]
+    has_lines = settled.get("nba_game_id", pd.Series("", index=settled.index))
+    keep = settled[has_lines.astype(str).str.len() > 0]
+    missing = settled[has_lines.astype(str).str.len() == 0]
+    if len(missing):
+        logger.info(
+            "%d finished game(s) have no season-log player lines and so no "
+            "features; they are excluded from training. These are the "
+            "postponed, neutral-site and all-star games, not a join failure: "
+            "%s", len(missing),
+            ", ".join(
+                f"{pd.to_datetime(r.gameday):%Y-%m-%d} {r.away_team}@{r.home_team}"
+                for r in missing.head(6).itertuples()))
+    return keep.sort_values(["gameday", "game_id"]).reset_index(drop=True)
 
 
 def _validate(facts: NBAFacts) -> None:

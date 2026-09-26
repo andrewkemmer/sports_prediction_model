@@ -867,3 +867,42 @@ class TestEligibility:
                              team_events=pd.DataFrame(), play_by_play=pd.DataFrame(),
                              team_names={})
         ing._validate(facts)
+
+
+class TestTrainableGames:
+    """A finished game with no player lines cannot become a training label."""
+
+    def _games(self):
+        return pd.DataFrame([
+            # A normal game: finished, with season-log lines.
+            _schedule_row(game_id="a", nba_id="0022301200"),
+            # The NBA Cup final: finished on ESPN, absent from LeagueGameLog.
+            _schedule_row(game_id="b", nba_id="", home="OKC", away="MIL",
+                          home_score=97.0, away_score=81.0),
+            # An all-star game: finished, and its squads are not league teams.
+            _schedule_row(game_id="c", nba_id="", home="KEN", away="CHK",
+                          home_score=50.0, away_score=47.0),
+            # A pending game: no score yet, and no lines yet either.
+            _schedule_row(game_id="d", nba_id="", home="BOS", away="LAL",
+                          home_score=np.nan, away_score=np.nan),
+        ])
+
+    def test_a_finished_game_with_no_lines_is_not_trainable(self):
+        trainable = ing.trainable_games(self._games())
+        assert set(trainable.game_id) == {"a"}
+
+    def test_the_exclusion_is_reported_with_the_games_named(self, caplog):
+        with caplog.at_level("INFO"):
+            ing.trainable_games(self._games())
+        assert "no season-log player lines" in caplog.text
+        assert "MIL@OKC" in caplog.text
+
+    def test_a_pending_game_is_left_for_the_slate_not_dropped(self):
+        """trainable_games only narrows the settled side; the slate is built
+        from the full eligible set."""
+        eligible = ing.eligible_games(self._games())
+        pending = eligible[eligible.home_score.isna() | eligible.away_score.isna()]
+        assert set(pending.game_id) == {"d"}
+
+    def test_an_empty_frame_is_handled(self):
+        assert ing.trainable_games(pd.DataFrame()).empty

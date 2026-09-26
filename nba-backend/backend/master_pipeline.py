@@ -279,7 +279,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     prog.advance("ingest features")
     prog.advance("ingest play-by-play")
     games = ingestion.eligible_games(facts.games)
-    settled = games[games.home_score.notna() & games.away_score.notna()].copy()
+    # Settled is not "has a score": it is "has a score AND player lines". A
+    # finished game nobody in the season log played - a postponement, the NBA
+    # Cup final, an all-star game - would otherwise be a training row whose
+    # every feature is NaN, and a model fits NaN rather than rejecting it.
+    settled = ingestion.trainable_games(games)
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
