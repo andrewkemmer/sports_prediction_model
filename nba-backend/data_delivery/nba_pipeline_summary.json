@@ -1,0 +1,230 @@
+{
+ "status": "ok",
+ "run_date": "2026-09-26",
+ "artifacts": [
+  "nba_moneyline_v1_20260926.json",
+  "nba_player_leader_matchup_20260926.json",
+  "nba_calibration_20260926.json",
+  "nba_predictions_history_20260926.csv",
+  "nba_oof_moneyline.csv",
+  "nba_oof_distribution.csv",
+  "nba_fold_table.csv",
+  "nba_run_engine_markets_20260926.csv",
+  "nba_run_engine_markets_20260926.meta.json",
+  "nba_power_rankings_20260926.csv",
+  "nba_feature_v1_20260926.json",
+  "nba_feature_workbook_20260926.xlsx",
+  "nba_feature_selection_20260926.json",
+  "nba_run_engine_feature_drift_20260926.csv",
+  "nba_run_engine_feature_coverage_20260926.csv",
+  "models\\nba_ensemble_latest.joblib",
+  "nba_model_monitor_20260926.json",
+  "nba_run_engine_monitor_20260926.json",
+  "nba_production_cards_history.csv"
+ ],
+ "weights": {
+  "elasticnet": 0.471,
+  "lightgbm": 0.0,
+  "xgboost": 0.529
+ },
+ "folds": {
+  "n_folds": 41,
+  "partial_tail_folds": 1,
+  "first_val_start": "2024-11-22",
+  "last_val_end": "2026-06-13",
+  "min_train": 229,
+  "max_train": 2626,
+  "total_val_games": 2133
+ },
+ "n_settled": 2768,
+ "n_slate": 9,
+ "n_features": 32,
+ "play_by_play": {
+  "actions": 304775,
+  "event_rows": 1218,
+  "games_covered": 609,
+  "cross_check": {
+   "fga": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fgm": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3a": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3m": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fta": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "ftm": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "oreb": {
+    "compared": 1218,
+    "exact": 1205,
+    "max_abs_diff": 2.0,
+    "mean_abs_diff": 0.014
+   },
+   "dreb": {
+    "compared": 1218,
+    "exact": 1172,
+    "max_abs_diff": 7.0,
+    "mean_abs_diff": 0.0887
+   },
+   "tov": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "pf": {
+    "compared": 1218,
+    "exact": 757,
+    "max_abs_diff": 5.0,
+    "mean_abs_diff": 0.555
+   },
+   "assists": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "points": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   }
+  }
+ },
+ "elapsed_seconds": 68.91,
+ "source_manifest": {
+  "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "window": [
+   "2024-04-09",
+   "2026-09-26"
+  ],
+  "seasons": [
+   "2023-24",
+   "2024-25",
+   "2025-26",
+   "2026-27"
+  ],
+  "tables": {
+   "games": 2782,
+   "team_stats": 5536,
+   "player_stats": 59625,
+   "team_events": 1218,
+   "play_by_play": 304775
+  },
+  "play_by_play": {
+   "fga": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fgm": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3a": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fg3m": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "fta": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "ftm": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "oreb": {
+    "compared": 1218,
+    "exact": 1205,
+    "max_abs_diff": 2.0,
+    "mean_abs_diff": 0.014
+   },
+   "dreb": {
+    "compared": 1218,
+    "exact": 1172,
+    "max_abs_diff": 7.0,
+    "mean_abs_diff": 0.0887
+   },
+   "tov": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "pf": {
+    "compared": 1218,
+    "exact": 757,
+    "max_abs_diff": 5.0,
+    "mean_abs_diff": 0.555
+   },
+   "assists": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   },
+   "points": {
+    "compared": 1218,
+    "exact": 1218,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0
+   }
+  },
+  "feature_set_version": "nba-prod-v2.0-events"
+ },
+ "sync": {
+  "staged_files": [],
+  "delivery_scope": "nba-backend/data_delivery",
+  "skipped": "automatic Git staging/commit/push disabled"
+ }
+}
