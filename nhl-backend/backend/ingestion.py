@@ -102,6 +102,33 @@ def _progress_bar(total: int, desc: str):
         return None
 
 
+BAR_WIDTH = 20
+
+
+def _bar(fraction: float, width: int = BAR_WIDTH) -> str:
+    """A fixed-width ASCII bar — the one progress affordance that survives
+    a captured log.
+
+    A tqdm bar repaints in place with ``\r``, which a file-backed sink records
+    as a stream of partial repaints rather than as a bar: the Kaggle run is a
+    ``subprocess`` whose stderr is a pipe, so an in-place bar is both
+    unavailable (no TTY) and unreadable if forced on. These are ordinary
+    printable characters, so the same line reads as a bar filling up in the
+    notebook output pane, in a CI log, and on a terminal.
+
+    ASCII only on purpose: the log is written by ``logging`` under whatever
+    encoding the host console has, and a box-drawing glyph raises
+    ``UnicodeEncodeError`` on a cp1252 console — turning a progress
+    decoration into a failed run.
+    """
+    width = max(1, int(width))
+    frac = min(1.0, max(0.0, float(fraction)))
+    # Round half UP, not Python's banker's rounding: a bar that shows nothing
+    # at exactly half is a bar that looks broken.
+    filled = int(frac * width + 0.5)
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
 class _PullProgress:
     """Durable, terminal-independent progress for a multi-minute pull.
 
@@ -118,6 +145,9 @@ class _PullProgress:
     when it matters — a rate-limited or stalling API is a SLOW rate, so a
     count-triggered line can be minutes wide. The seconds floor bounds the
     worst gap no matter how slow the pull gets.
+
+    Every line carries an inline ``_bar`` so the log itself is the bar chart,
+    in the one context that has no live one.
     """
 
     def __init__(self, total: int, desc: str, every: int = 50,
@@ -153,11 +183,17 @@ class _PullProgress:
             parts.append(f"{self.failed} unavailable")
         return ", ".join(parts)
 
+    def _bar_at(self, done: int) -> str:
+        """The bar for this position. A zero-item window reads as complete
+        rather than dividing by zero — nothing was asked for, so nothing is
+        outstanding."""
+        return _bar(done / self.total if self.total else 1.0)
+
     def _line(self, done: int, now: float) -> str:
         elapsed = max(0.0, now - self._start)
         rate = self._rate(done, elapsed)
-        head = (f"{self.desc} {done}/{self.total} ({self._counts()}) "
-                f"{elapsed:.1f}s {rate:.2f}/s")
+        head = (f"{self.desc} {done}/{self.total} {self._bar_at(done)} "
+                f"({self._counts()}) {elapsed:.1f}s {rate:.2f}/s")
         if rate > 0 and done < self.total:
             return f"{head} eta {(self.total - done) / rate:.0f}s"
         return head
@@ -202,9 +238,10 @@ class _PullProgress:
         if not self.total or not self.done or self._reported:
             return
         elapsed = max(0.0, time.monotonic() - self._start)
-        logger.info("%s done %d/%d (%s) in %.1fs (%.2f/s)",
-                    self.desc, self.done, self.total, self._counts(),
-                    elapsed, self._rate(self.done, elapsed))
+        logger.info("%s %s done %d/%d (%s) in %.1fs (%.2f/s)",
+                    self.desc, self._bar_at(self.done), self.done, self.total,
+                    self._counts(), elapsed,
+                    self._rate(self.done, elapsed))
         # close() is idempotent: the bar's is, and a second call (a re-entered
         # loop, an already-torn-down bar) must not restate the result.
         self._reported = True
