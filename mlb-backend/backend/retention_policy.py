@@ -95,7 +95,7 @@ Consumer audit (traced at HEAD 827de1b):
   *_triage_* records              | audit trail                                  | record                              | NEVER DELETE
   masters (game_level_features.csv, model_history.json, model_version_history.json,
            umpire_*.csv, lineups.parquet, batter_woba.parquet, team_woba.parquet,
-           statsapi_roof_cache.json) | multiple                                | master                              | NEVER DELETE
+           il_stints.parquet, statsapi_roof_cache.json) | multiple             | master                              | NEVER DELETE
 
 Notes
 -----
@@ -146,6 +146,13 @@ EXACT_MASTER_NAMES = frozenset({
     "lineups.parquet",
     "batter_woba.parquet",
     "team_woba.parquet",
+    # Injured-list stint table (expected-lineup features.py lineup_agg): the
+    # daily pipeline CONSUMES it and only build_il_stints.py regenerates it.
+    # Dateless name, so without this the date-gate classifies it stale on the
+    # very next run and git rms it — which does not fail loudly, it silently
+    # reverts every expected-lineup feature to the unfiltered pool.
+    "il_stints.parquet",
+    "il_stints.meta.json",
     # Maintained umpire data access (umpires.py): cumulative map + per-umpire
     # diagnostics table updated IN PLACE every run.
     "umpire_map.csv",
