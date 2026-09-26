@@ -42,6 +42,7 @@ exists in this shape.
 """
 from __future__ import annotations
 
+import logging
 import re
 import urllib.parse
 from typing import Any
@@ -52,6 +53,8 @@ import pandas as pd
 import config
 import source_contract as contract
 from source_contract import ContractError, SourceSpec, make_source
+
+logger = logging.getLogger(__name__)
 
 #: Eastern time. ESPN's ``dates`` parameter is a UTC calendar key, so a game is
 #: grouped under the UTC date it tipped off on; an 8pm ET tipoff therefore
@@ -220,14 +223,41 @@ def _to_eastern(value):
     return None if pd.isna(stamp) else stamp.tz_convert(_EASTERN)
 
 
+def _is_franchise_game(row: dict) -> bool:
+    """Whether both sides of a parsed event are one of the 30 franchises.
+
+    The season-type check below cannot catch the all-star event, because ESPN
+    files it as ``regular-season``: the league has no other code for it. What
+    gives it away is the participants. A league game is played by two
+    franchises, and these are not franchises - they are the all-star squads,
+    which ESPN abbreviates STARS, STRIPES and WORLD. The season log agrees and
+    is the proof: it returns zero player lines for every one of them, so such
+    an event can never contribute a feature, a win, or a point.
+
+    The 2026 all-star made this a correctness problem rather than a tidiness
+    one. It was a four-game tournament on a single date, and two of those games
+    were the same two teams, so the orientation-free date/team-pair key that
+    joins the schedule to the season log - which is unique precisely because a
+    team plays at most once a day - was not unique. That raised
+    ``MergeError: Merge keys are not unique in left dataset`` and took the
+    whole pipeline down over four games nobody can train on.
+    """
+    for side in ("home_team", "away_team"):
+        if config.team_category_id(row.get(side)) == config.UNK_TEAM_ID:
+            return False
+    return True
+
+
 def espn_schedule_frame(day_events: list[dict]) -> pd.DataFrame:
     """A list of raw ESPN scoreboard events into contract games rows.
 
     The event's own ``season.type`` decides the game type, and a date whose
     season type is neither regular season nor post-season is dropped: the
-    model's windows are defined over those two, and admitting the all-star
-    game as a regular-season game would put one team's all-star roster into a
-    season-total aggregate.
+    model's windows are defined over those two.
+
+    An event between two non-franchises is dropped as well, which is the only
+    thing that catches the all-star event. Both drops happen here rather than
+    in the eligibility filter so that these games never enter the frames.
     """
     rows = []
     for event in day_events or []:
@@ -236,16 +266,23 @@ def espn_schedule_frame(day_events: list[dict]) -> pd.DataFrame:
         espn_type = (event.get("season") or {}).get("type")
         game_type = ESPN_GAME_TYPE.get(espn_type)
         if game_type is None:
-            # A game whose season type is neither regular season nor post-season
-            # is not one the model can score. The all-star game is the live
-            # example: ESPN files it under ``regular-season`` because the league
-            # has no other code for it, and admitting it would put one team's
-            # all-star roster into a season aggregate. Dropping it here rather
-            # than in the eligibility filter keeps it out of the frames entirely.
+            # A game whose season type is neither regular season nor
+            # post-season is not one the model can score. The all-star event
+            # is NOT caught here - it arrives as ``regular-season`` - which is
+            # what ``_is_franchise_game`` below is for.
             continue
         row = _parse_espn_event(event, game_type)
-        if row is not None:
-            rows.append(row)
+        if row is None:
+            continue
+        if not _is_franchise_game(row):
+            logger.warning(
+                "dropping %s on %s (%s vs %s): a side is not one of the 30 "
+                "franchises, and the season log has no player lines for it, "
+                "so it is not a game this model can score",
+                row.get("game_id"), row.get("gameday"),
+                row.get("home_team"), row.get("away_team"))
+            continue
+        rows.append(row)
     if not rows:
         return pd.DataFrame()
     frame = pd.DataFrame(rows)

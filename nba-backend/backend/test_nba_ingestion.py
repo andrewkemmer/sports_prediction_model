@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 
@@ -740,17 +741,282 @@ class TestHttp:
         assert ing._decompress(raw, None) == raw
 
     def test_the_user_agent_is_not_a_browser_impersonation(self):
-        """A full Chrome agent is refused by stats.nba.com (it accepts the
-        connection and then never answers) and by ESPN (403). Both serve the
-        bare agent in about 0.15s, so the request was never the problem."""
-        assert ing.USER_AGENT == "Mozilla/5.0"
-        for headers in (ing.STATS_HEADERS, ing.ESPN_HEADERS):
-            assert headers["User-Agent"] == "Mozilla/5.0"
+        """A full Chrome agent is reproducibly refused by ESPN with an
+        immediate 403 (5 runs out of 5), so the agent must not look like a
+        browser.
+
+        This test previously also asserted that stats.nba.com tarpits a
+        browser agent. That was measured once during the rewrite and does not
+        reproduce - the endpoint now answers 4.5 MB in about 3s with the full
+        browser header set - so the claim was dropped rather than carried
+        forward as fact. See the comment above ``USER_AGENT``.
+        """
         assert "Chrome" not in ing.USER_AGENT
+        assert "Safari" not in ing.USER_AGENT
+        assert "Mozilla" not in ing.USER_AGENT
+        for headers in (ing.STATS_HEADERS, ing.ESPN_HEADERS):
+            assert headers["User-Agent"] == ing.USER_AGENT
 
     def test_espn_and_stats_nba_get_their_own_headers(self):
         assert "x-nba-stats-token" in ing.STATS_HEADERS
         assert "x-nba-stats-token" not in ing.ESPN_HEADERS
+
+
+# ---------------------------------------------------------------------------
+# Games that are not league games
+# ---------------------------------------------------------------------------
+
+
+class TestNonFranchiseGames:
+    """The all-star event, which is not a game and used to stop the run.
+
+    ESPN files it as ``regular-season``, so the season-type check cannot see it.
+    In 2026 the all-star became a four-game tournament on a single date and
+    played the same two squads twice, which made the date/team-pair join key
+    ambiguous and raised ``MergeError`` for the whole pipeline. The participants
+    are the tell: a league game is played by two franchises.
+    """
+
+    @staticmethod
+    def _tournament() -> list[dict]:
+        return [_espn_event(event_id="401838140", home="STARS",
+                            away="WORLD", when="2026-02-15T19:00Z"),
+                _espn_event(event_id="401838141", home="STRIPES",
+                            away="STARS", when="2026-02-15T19:00Z"),
+                _espn_event(event_id="401838142", home="STRIPES",
+                            away="WORLD", when="2026-02-15T19:00Z"),
+                _espn_event(event_id="401838143", home="STRIPES",
+                            away="STARS", when="2026-02-15T19:00Z")]
+
+    def test_the_tournament_is_dropped_entirely(self):
+        assert src.espn_schedule_frame(self._tournament()).empty
+
+    def test_a_real_game_on_the_same_date_survives(self):
+        events = self._tournament() + [
+            _espn_event(event_id="401585814", home="BOS", away="LAL",
+                        when="2026-02-15T19:00Z")]
+        frame = src.espn_schedule_frame(events)
+        assert list(frame.game_id) == ["401585814"]
+
+    def test_espn_aliases_are_still_recognised_as_franchises(self):
+        """The franchise test goes through the alias table, so a team ESPN
+        spells differently must not be mistaken for a non-franchise."""
+        for espn_name in ("GS", "NO", "NY", "SA", "UTAH", "WSH"):
+            event = _espn_event(event_id="401585815", home=espn_name,
+                                away="BOS", when="2024-02-15T19:00Z")
+            assert not src.espn_schedule_frame([event]).empty, espn_name
+
+    def test_a_duplicate_join_key_drops_the_extra_game_instead_of_raising(
+            self, monkeypatch):
+        """The key is unique only because a team plays at most once a day. That
+        is an assumption about the world, so a collision is resolved rather than
+        allowed to fail the run."""
+        games = pd.DataFrame({
+            "game_id": ["401838141", "401838143", "401585814"],
+            "gameday": [pd.Timestamp("2026-02-15")] * 3,
+            "home_team": ["STRIPES", "STRIPES", "BOS"],
+            "away_team": ["STARS", "STARS", "LAL"],
+        })
+        key = src.pair_key(pd.Timestamp("2026-02-15"), "STRIPES", "STARS")
+        monkeypatch.setattr(
+            ing.sources, "games_from_log",
+            lambda _log: pd.DataFrame({"pair_key": [key],
+                                       "nba_game_id": ["0022500001"]}))
+        out = ing._attach_game_ids(games, pd.DataFrame({"nba_game_id": ["1"]}))
+        assert len(out) == 2
+        assert set(out.game_id) == {"401838141", "401585814"}
+
+
+# ---------------------------------------------------------------------------
+# A host that refuses this client
+# ---------------------------------------------------------------------------
+
+
+class _Response:
+    """The minimum surface ``http_json`` touches."""
+
+    def __init__(self, body: bytes):
+        self._body = body
+        self.headers: dict = {}
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _refuse(request, timeout=None):
+    raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+
+def _probe_then_refuse(calls: list):
+    """Answer the preflight probe, refuse everything after it.
+
+    Separating the two is what lets a test assert about the sweep rather than
+    about the probe that precedes it.
+    """
+    def handler(request, timeout=None):
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            return _Response(b'{"events": [], "resultSets": []}')
+        return _refuse(request, timeout)
+    return handler
+
+
+def _refuse_all(calls: list):
+    """Refuse every request, the probe included."""
+    def handler(request, timeout=None):
+        calls.append(request.full_url)
+        return _refuse(request, timeout)
+    return handler
+
+
+class TestRefusedHost:
+    """What happens when a host says no.
+
+    The remote run that prompted this group answered 403 on every one of the
+    1,024 days in its window, and the sweep walked all of them before reporting
+    that the schedule was missing - which names the wrong culprit. These pin
+    the opposite behaviour: one request to find out, and then a stop.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_probes(self):
+        ing._PROBED.clear()
+        yield
+        ing._PROBED.clear()
+
+    @staticmethod
+    def _games(count: int) -> pd.DataFrame:
+        today = date.today()
+        return pd.DataFrame({
+            "nba_game_id": [f"0022400{i:03d}" for i in range(count)],
+            "gameday": [pd.Timestamp(today - timedelta(days=i))
+                        for i in range(count)],
+        })
+
+    def test_a_refused_host_costs_exactly_one_request(self, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen", _refuse_all(calls))
+        with pytest.raises(ing.HostUnavailable) as excinfo:
+            ing.preflight(["espn"])
+        assert len(calls) == 1
+        assert "ESPN" in str(excinfo.value)
+
+    def test_the_refusal_says_what_continuing_would_cost(self, monkeypatch):
+        """The number is the argument for stopping, so it belongs in the error."""
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen", _refuse_all(calls))
+        with pytest.raises(ing.HostUnavailable) as excinfo:
+            ing.preflight(["espn"])
+        assert "1024" in str(excinfo.value)
+
+    def test_a_host_is_probed_once_per_process(self, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen", _refuse_all(calls))
+        with pytest.raises(ing.HostUnavailable):
+            ing.preflight(["espn"])
+        # Recorded even though it raised, so a caller that retries in-process
+        # does not pay for the same answer twice.
+        ing.preflight(["espn"])
+        assert len(calls) == 1
+
+    def test_the_espn_headers_carry_nothing_unjustified(self):
+        """ESPN's edge is sensitive to header combinations in a way that is not
+        reproducible: the same dictionary answers 200 through urllib and 403
+        through requests. So the rule is not "which header is bad" but "ship
+        only what a measurement justifies" - which here is the same minimal
+        set MLB's working ESPN path sends."""
+        assert set(ing.ESPN_HEADERS) == {"User-Agent", "Accept"}
+        assert ing.ESPN_HEADERS["Accept"] == "*/*"
+        assert "Accept-Language" not in ing.ESPN_HEADERS
+
+    def test_the_stats_probe_is_one_day_of_the_real_endpoint(self):
+        """A probe aimed elsewhere could answer while the call that matters is
+        the one being refused, so it has to be the same endpoint and headers."""
+        url, headers = ing._probe_url("stats")
+        assert url.startswith(src.SEASON_LOG_URL)
+        assert headers["User-Agent"] == ing.USER_AGENT
+        query = dict(urllib.parse.parse_qsl(url.split("?", 1)[1]))
+        assert query["DateFrom"] == query["DateTo"] != ""
+
+    def test_the_schedule_sweep_stops_instead_of_asking_every_day(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen",
+                            _probe_then_refuse(calls))
+        with pytest.raises(ing.ScheduleUnavailable) as excinfo:
+            ing._fetch_schedule(date(2024, 1, 1), date(2024, 12, 31))
+        # One probe plus the three consecutive failures, not 366 requests.
+        assert len(calls) == 1 + ing.DEFAULT_SCHEDULE_MAX_FAILURES
+        assert "in a row" in str(excinfo.value)
+
+    def test_a_fully_cached_schedule_never_touches_the_network(
+            self, monkeypatch, tmp_path):
+        """A warm cache must not fail on a host it has no reason to ask."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        start = date(2024, 1, 1)
+        for offset, day in enumerate([start, start + timedelta(days=1),
+                                      start + timedelta(days=2)]):
+            event = _espn_event(event_id=f"4015858{offset}",
+                                when=f"2024-01-0{offset + 1}T19:00Z")
+            ing._write_parquet(src.espn_schedule_frame([event]),
+                               ing._schedule_path(day))
+
+        def explode(*_a, **_k):
+            raise AssertionError("a warm cache must not reach the network")
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", explode)
+        assert len(ing._fetch_schedule(start, start + timedelta(days=2))) == 3
+
+    def test_the_season_log_pull_stops_after_consecutive_failures(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen",
+                            _probe_then_refuse(calls))
+        with pytest.raises(ing.SeasonLogUnavailable) as excinfo:
+            ing._fetch_season_logs(date(2024, 1, 1), date(2024, 6, 30))
+        # That window is four season-types; the pull gave up after two.
+        assert len(calls) == 1 + ing.DEFAULT_SEASON_LOG_MAX_FAILURES
+        assert "stopped early" in str(excinfo.value)
+
+    def test_a_refused_play_by_play_stops_the_sweep_but_not_the_run(
+            self, monkeypatch, tmp_path):
+        """Play-by-play feeds a feature that is forward-filled without it, so
+        losing it is a thinner model rather than a wrong one. What is not
+        acceptable is paying per game to rediscover a refusal."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+        monkeypatch.setattr(ing.urllib.request, "urlopen",
+                            _probe_then_refuse(calls))
+        frame, info = ing._fetch_play_by_play(self._games(8))
+        assert info["tripped"] is True
+        assert len(calls) == 1 + ing.DEFAULT_PBP_MAX_FAILURES
+        assert frame.empty
+
+    def test_one_unreadable_game_does_not_trip_the_breaker(
+            self, monkeypatch, tmp_path):
+        """A single game with no play-by-play is ordinary; a host refusing every
+        request is not. The threshold exists to tell those apart."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        calls: list = []
+
+        def fail_once(request, timeout=None):
+            calls.append(request.full_url)
+            if len(calls) == 2:
+                return _refuse(request, timeout)
+            return _Response(b'{"game": {"actions": []}}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", fail_once)
+        _frame, info = ing._fetch_play_by_play(self._games(3))
+        assert info["tripped"] is False
+        assert info["requested"] == 3
 
 
 # ---------------------------------------------------------------------------

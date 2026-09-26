@@ -87,6 +87,8 @@ SCHEDULE_BUDGET_ENV = "NBA_SCHEDULE_BUDGET_SEC"
 REQUEST_TIMEOUT_ENV = "NBA_REQUEST_TIMEOUT_SEC"
 REQUEST_ATTEMPTS_ENV = "NBA_REQUEST_ATTEMPTS"
 PBP_PAUSE_SEC_ENV = "NBA_PBP_PAUSE_SEC"
+SCHEDULE_MAX_FAILURES_ENV = "NBA_SCHEDULE_MAX_CONSECUTIVE_FAILURES"
+PBP_MAX_FAILURES_ENV = "NBA_PBP_MAX_CONSECUTIVE_FAILURES"
 
 #: A single request's ceiling. 90s is deliberately long: a slow answer that
 #: eventually arrives is worth waiting for, while the retry policy below means a
@@ -114,23 +116,50 @@ DEFAULT_PBP_LOOKBACK_DAYS = 240
 #: The window's own default, in days back from today. The schedule sweep asks
 #: ESPN one question per day, so this is what bounds a cold schedule pull.
 DEFAULT_WINDOW_DAYS = 900
+#: A sweep that has met a refusing host has to stop rather than keep asking.
+#: The pre-rewrite code knew this - it gave up after one failed season log - and
+#: rebuilding the data layer dropped the guard. What that cost was measured, not
+#: guessed: against a refusing ESPN the day-by-day sweep issued all 1024
+#: requests for a 2024-01-01..2026-10-20 window and then reported that the
+#: schedule was missing, which names the wrong culprit. A 403 returns instantly
+#: so that run cost about a minute; against a host that tarpits, at the 90s
+#: request timeout, the same code would have spent roughly 25 hours proving one
+#: thing. Three in a row is the threshold rather than one, because a single
+#: failure is a blip and a short run of them is a decision about this client
+#: rather than about the network.
+DEFAULT_SCHEDULE_MAX_FAILURES = 3
+DEFAULT_SEASON_LOG_MAX_FAILURES = 2
+#: Higher than the schedule's, because one game genuinely having no play-by-play
+#: is ordinary and a short run of them can be a sparse game list, not a block.
+DEFAULT_PBP_MAX_FAILURES = 5
+#: A probe is not a request the pipeline needed, so it gets a short ceiling: its
+#: only job is to fail fast, and 20s is long enough to survive a slow answer.
+DEFAULT_PROBE_TIMEOUT_SEC = 20.0
+#: How far back the stats.nba.com probe asks for a day of game log. Any date
+#: answers; one day is a few hundred rows rather than a season's worth.
+DEFAULT_PROBE_LOOKBACK_DAYS = 90
 
-#: The User-Agent is a BARE ``Mozilla/5.0``, and that is load-bearing rather
-#: than lazy. A full browser impersonation - the string the previous version of
-#: this pipeline sent - is refused by both upstreams on this host:
+#: The User-Agent identifies this as a script. A full browser impersonation -
+#: the string the pre-rewrite pipeline sent - is reproducibly refused by ESPN
+#: with an immediate HTTP 403, measured five times out of five, so that much is
+#: solid and a test pins it.
 #:
-#: * ``stats.nba.com`` accepts the connection and then never answers. The read
-#:   times out at 35s with no status line, which is what an edge that has
-#:   decided to tarpit a client looks like from Python. It is also exactly the
-#:   symptom reported from a remote host, which is why this is worth pinning
-#:   rather than leaving to chance.
-#: * ``site.api.espn.com`` answers HTTP 403 immediately.
+#: What is NOT solid, and was previously written here as though it were, is the
+#: claim that stats.nba.com tarpits a browser agent. That was measured once,
+#: early in the rewrite, and it no longer reproduces: the same endpoint now
+#: returns 4.5 MB in about 3s with the full browser header set. It was
+#: transient, or it was this host's own rate limit after a long sweep. The
+#: earlier version of this comment asserted it as fact and would have sent the
+#: next reader looking for a block that does not exist.
 #:
-#: With the bare agent both answer in about 0.15s. So the request is not the
-#: problem and neither host is blocked; the costume was. Anything that re-adds
-#: a browser string here will reintroduce a failure that presents as an
-#: unreachable host, so a test asserts this value.
-USER_AGENT = "Mozilla/5.0"
+#: The remote Kaggle run is a third case again: it received HTTP 403 from ESPN
+#: for all 1,024 days of its window, while the identical request made from a
+#: workstation returns 200 four times out of four. That difference could not be
+#: reproduced locally and is not claimed to be understood here. What the
+#: pipeline does about it is ``preflight``, which is worth more than a guess at
+#: the cause: it converts an unknowable-in-advance full-window sweep into a
+#: 20-second failure that names the host.
+USER_AGENT = "sports-prediction-model/1.0"
 
 STATS_HEADERS = {
     "Host": "stats.nba.com",
@@ -144,13 +173,22 @@ STATS_HEADERS = {
     "Origin": "https://www.nba.com",
 }
 
-#: ESPN's scoreboard is a different vendor behind a different edge, and it
-#: needs none of stats.nba.com's tokens. The one header the two share is the
-#: user agent, and for the same reason.
+#: ESPN's scoreboard is a different vendor behind a different edge, and it needs
+#: none of stats.nba.com's tokens. This is deliberately the smallest header set
+#: that works, and it matches what MLB's working ESPN path sends: an honest
+#: client agent, ``Accept: */*``, and nothing else.
+#:
+#: The reduction is deliberate rather than incidental. While chasing the Kaggle
+#: 403 it became clear how fragile the previous hand-written set was - the SAME
+#: header dictionary returns 200 through urllib and 403 through requests,
+#: because the two libraries add different ``Accept-Encoding`` and ``Connection``
+#: headers and ESPN's edge is sensitive to the combination. Every header here is
+#: one that cannot be justified by a measurement, so there are fewer of them.
+#: ``Accept-Language`` in particular was observed flipping 200 to 403 under one
+#: transport and not the other, which is not a rule worth relying on.
 ESPN_HEADERS = {
     "User-Agent": USER_AGENT,
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "*/*",
 }
 
 #: The route this run is recorded as having taken, for the run manifest. Kept
@@ -351,6 +389,112 @@ def _short(exc: Exception | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
+
+#: Each upstream under the name a failure should print. Someone eleven seconds
+#: into a failed run has not read the URL, and the URL is the thing they need.
+HOST_LABELS = {
+    "espn": "ESPN's scoreboard (site.api.espn.com)",
+    "stats": "stats.nba.com",
+}
+
+#: What continuing would have cost, per host. This is the number that makes the
+#: early stop worth taking rather than a tradeoff.
+HOST_SWEEP_COST = {
+    "espn": ("the schedule sweep asks ESPN one question per day, so a 1024-day "
+             "window is 1024 requests, each burning the full timeout before "
+             "failing identically"),
+    "stats": ("the season log and every game's play-by-play both come from "
+              "stats.nba.com, so a cold window is hundreds of requests and "
+              "each one burns the full timeout before failing identically"),
+}
+
+#: Hosts already probed in this process, so a run that pulls from both asks
+#: each one once rather than once per source.
+_PROBED: set[str] = set()
+
+
+def _probe_url(host: str) -> tuple[str, dict[str, str]]:
+    """The single request that settles whether ``host`` serves this client.
+
+    Both probes are the endpoint and the header set the real pull uses, only
+    smaller. A probe aimed at some other endpoint could answer while the call
+    that actually matters is the one being refused, and a false reassurance
+    costs the whole sweep.
+    """
+    if host == "espn":
+        return sources.espn_scoreboard_url(date.today()), ESPN_HEADERS
+    if host == "stats":
+        query = dict(urllib.parse.parse_qsl(sources.season_log_query(
+            season_label(date.today()), sources.SEASON_TYPE_REGULAR)))
+        # One day of the league instead of a whole season. ``DateFrom`` and
+        # ``DateTo`` are already part of the query the pull sends, so filling
+        # them in cannot introduce a parameter the endpoint would reject as an
+        # unknown enum - which stats.nba.com answers with a 500. Verified: a
+        # single in-season day returns a couple of hundred rows in under a
+        # second.
+        day = date.today() - timedelta(days=DEFAULT_PROBE_LOOKBACK_DAYS)
+        query["DateFrom"] = query["DateTo"] = day.strftime("%m/%d/%Y")
+        return (f"{sources.SEASON_LOG_URL}?"
+                f"{urllib.parse.urlencode(query)}"), STATS_HEADERS
+    raise ValueError(f"no preflight probe is defined for {host!r}")
+
+
+def preflight(hosts: Iterable[str] = ("espn", "stats")) -> dict[str, float]:
+    """Ask each host one question before a sweep starts, and fail naming it.
+
+    A refusing host is ruinously expensive to discover by sweeping, because the
+    refusal is cheap per request and total across a sweep. The remote run this
+    was written for answered 403 on every one of 1024 days, burned the whole
+    window proving it, and then raised an error about a missing schedule.
+
+    Probed hosts are remembered for the life of the process, and callers only
+    ask for a probe on the way to a request they do not already hold cached, so
+    a fully cached run never probes and can never fail here.
+    """
+    report: dict[str, float] = {}
+    for host in hosts:
+        if host in _PROBED:
+            continue
+        url, headers = _probe_url(host)
+        label = HOST_LABELS.get(host, host)
+        started = time.time()
+        try:
+            http_json(url, headers, timeout=DEFAULT_PROBE_TIMEOUT_SEC,
+                      attempts=1)
+        except HostUnavailable as exc:
+            # Recorded before raising so a caller that catches this and retries
+            # in the same process does not pay for the probe twice.
+            _PROBED.add(host)
+            cost = HOST_SWEEP_COST.get(host, "the sweep would only repeat it")
+            raise HostUnavailable(
+                f"{label} refused a single request made before the pull "
+                f"began: {_short(exc)}. That is a host refusing this client, "
+                f"not a malformed request, and no header this pipeline can "
+                f"send will change the answer; {cost} instead. Run where the "
+                f"host is reachable, or warm the cache here and re-run with "
+                f"--skip-pull."
+            ) from exc
+        _PROBED.add(host)
+        report[host] = time.time() - started
+        logger.info("preflight: %s answered in %.2fs", label, report[host])
+    return report
+
+
+def _ensure_probed(host: str) -> None:
+    """Probe ``host`` the first time this process needs to ask it for something.
+
+    Deliberately called outside the caller's ``try``: a refusal here is a
+    decision about the host, and counting it as one more ordinary per-day
+    failure would let the sweep carry on past the thing that explains them all.
+    """
+    if host not in _PROBED:
+        preflight([host])
+
+
+# ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
 
@@ -411,17 +555,26 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     MLB's ``_espn_events_for_et_date`` solves the same problem for baseball by
     probing two UTC days and filtering on the converted Eastern date; that
     fix is applied inside the adapter instead, so a caller here only has to ask
-    for an ET date and get that date's games. An empty day is cached as an
+    for an ET date and get that date's games.    An empty day is cached as an
     empty frame rather than retried forever: most days in a window are genuinely
     game-free, and treating those as failures would report a broken host.
+
+    A run of consecutive failures ends the sweep. That guard is not an
+    optimization: against a refusing host this sweep does not fail quickly, it
+    fails slowly, one burned timeout at a time, and the error it eventually
+    raises blames the schedule rather than the host.
     """
     if _flag(FULL_REPULL_ENV):
         logger.info("%s is set; every schedule day is refetched", FULL_REPULL_ENV)
-    deadline = time.time() + _float_env(SCHEDULE_BUDGET_ENV,
-                                        DEFAULT_SCHEDULE_BUDGET_SEC)
+    started = time.time()
+    deadline = started + _float_env(SCHEDULE_BUDGET_ENV,
+                                    DEFAULT_SCHEDULE_BUDGET_SEC)
+    max_failures = _int_env(SCHEDULE_MAX_FAILURES_ENV,
+                            DEFAULT_SCHEDULE_MAX_FAILURES)
     days = (end - start).days + 1
     frames: list[pd.DataFrame] = []
     fetched = cached = 0
+    consecutive = 0
     for offset in range(days):
         if time.time() > deadline:
             logger.warning("schedule sweep hit its budget after %d of %d days; "
@@ -435,13 +588,29 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
             cached += 1
             frames.append(existing)
             continue
+        _ensure_probed("espn")
         try:
             payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
                                 timeout=25.0, attempts=2)
         except HostUnavailable as exc:
-            logger.warning("ESPN scoreboard unavailable for %s: %s", day,
-                           _short(exc))
+            consecutive += 1
+            logger.warning("ESPN scoreboard unavailable for %s (%d in a row): %s",
+                           day, consecutive, _short(exc))
+            if consecutive >= max_failures:
+                remaining = days - offset - 1
+                raise ScheduleUnavailable(
+                    f"ESPN's scoreboard failed {consecutive} days in a row "
+                    f"(last {day}), so the sweep stopped rather than ask the "
+                    f"same question {remaining} more time(s). It had spent "
+                    f"{time.time() - started:.0f}s of its budget proving one "
+                    f"thing, which is what a host refusing this client looks "
+                    f"like: an instant 403, or a connection that is accepted "
+                    f"and then never answered. Nothing this pipeline sends "
+                    f"will change that. Run where ESPN is reachable, or warm "
+                    f"the cache here and re-run with --skip-pull."
+                ) from exc
             continue
+        consecutive = 0
         day_frame = sources.espn_schedule_frame(payload.get("events", []))
         day_frame = day_frame.assign(_day=day)
         _write_parquet(day_frame, path)
@@ -478,6 +647,10 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
     seasons = season_starts(start, end)
     frames: list[pd.DataFrame] = []
     failures: list[str] = []
+    max_failures = _int_env(SCHEDULE_MAX_FAILURES_ENV,
+                            DEFAULT_SEASON_LOG_MAX_FAILURES)
+    consecutive = 0
+    stopped_early = False
     for first in seasons:
         label = f"{first}-{str(first + 1)[2:]}"
         for season_type, game_type in ((sources.SEASON_TYPE_REGULAR,
@@ -496,16 +669,28 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
                 logger.info("%s %s: %d rows from cache", label, season_type,
                             len(cached))
                 frames.append(cached)
+                consecutive = 0
                 continue
             url = (f"{sources.SEASON_LOG_URL}?"
                    f"{sources.season_log_query(label, season_type)}")
+            _ensure_probed("stats")
             try:
                 payload = http_json(url, STATS_HEADERS, timeout=90.0, attempts=3)
             except HostUnavailable as exc:
+                consecutive += 1
                 failures.append(f"{label} {season_type}: {_short(exc)}")
-                logger.error("stats.nba.com season log unavailable, %s %s: %s",
-                             label, season_type, _short(exc))
+                logger.error("stats.nba.com season log unavailable, %s %s "
+                             "(%d in a row): %s", label, season_type,
+                             consecutive, _short(exc))
+                if consecutive >= max_failures:
+                    logger.error("NBA season-log pull stopping after %d "
+                                 "consecutive failures; the endpoint is not "
+                                 "answering, so the remaining seasons would "
+                                 "only repeat it.", consecutive)
+                    stopped_early = True
+                    break
                 continue
+            consecutive = 0
             log = _result_set_to_frame(payload)
             if log.empty:
                 # A season type that has not started answers with zero rows. That
@@ -520,12 +705,16 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
             _write_parquet(log, path)
             frames.append(log)
     if failures:
+        stopped = (" The pull stopped early rather than work through the "
+                   "remaining seasons, because the endpoint was not answering "
+                   "and each of them would have burned its full timeout to say "
+                   "the same thing." if stopped_early else "")
         raise SeasonLogUnavailable(
             "stats.nba.com could not return the season log for "
-            f"{len(failures)} season-type(s): {'; '.join(failures)}. "
-            "There is no second feature source, so a missing season log is a "
-            "stopped run rather than a thinner one. Re-run where stats.nba.com "
-            "is reachable, or warm the cache.")
+            f"{len(failures)} season-type(s): {'; '.join(failures)}."
+            f"{stopped} There is no second feature source, so a missing "
+            "season log is a stopped run rather than a thinner one. Re-run "
+            "where stats.nba.com is reachable, or warm the cache.")
     if not frames:
         return pd.DataFrame()
     return pd.concat([f for f in frames if not f.empty], ignore_index=True)
@@ -584,7 +773,8 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     info: dict[str, Any] = {"enabled": _flag(PBP_ENABLED_ENV, True),
                             "requested": 0, "cached": 0, "fetched": 0,
-                            "failed": 0, "unattributed_rebounds": 0}
+                            "failed": 0, "unattributed_rebounds": 0,
+                            "tripped": False}
     if not info["enabled"]:
         logger.info("%s is off; play-by-play is not fetched", PBP_ENABLED_ENV)
         return pd.DataFrame(), info
@@ -615,6 +805,8 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     deadline = time.time() + _float_env(PBP_BUDGET_ENV, DEFAULT_PBP_BUDGET_SEC)
     pause = _float_env(PBP_PAUSE_SEC_ENV, DEFAULT_PBP_PAUSE_SEC)
+    max_failures = _int_env(PBP_MAX_FAILURES_ENV, DEFAULT_PBP_MAX_FAILURES)
+    consecutive = 0
     frames: list[pd.DataFrame] = []
     for number, (_, row) in enumerate(targets.iterrows(), start=1):
         nba_id = str(row.nba_game_id)
@@ -633,14 +825,43 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         url = (f"{sources.PLAY_BY_PLAY_URL}?"
                f"{sources.play_by_play_query(nba_id)}")
         try:
+            _ensure_probed("stats")
+        except HostUnavailable as exc:
+            # A refusal at the probe is about the host, not about this game,
+            # and it is not worth re-testing once per game: every one of them
+            # would fail identically for the same reason. Play-by-play is
+            # optional - the event features it feeds are forward-filled
+            # without it - so this ends the sweep and not the run.
+            info["tripped"] = True
+            logger.error("play-by-play sweep not started: %s", _short(exc))
+            break
+        try:
             payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=2)
         except HostUnavailable as exc:
             info["failed"] += 1
+            consecutive += 1
             # Log sparsely: a budget-limited sweep can hit thousands of these.
             if info["failed"] <= 3 or info["failed"] % 50 == 0:
                 logger.warning("play-by-play unavailable for %s: %s", nba_id,
                                _short(exc))
+            if consecutive >= max_failures:
+                # Not fatal. Play-by-play feeds a trailing feature that is
+                # forward-filled across games without it, so a run with no
+                # play-by-play is a thinner model rather than a wrong one.
+                # What is not acceptable is spending the whole budget
+                # rediscovering a refusal once per game, so the sweep stops
+                # and says why.
+                info["tripped"] = True
+                logger.error(
+                    "play-by-play sweep stopping after %d games in a row could "
+                    "not be read; stats.nba.com is refusing this client, and "
+                    "the remaining %d game(s) would only repeat it. The run "
+                    "continues with no play-by-play, so the event features "
+                    "will be absent from the model rather than wrong.",
+                    consecutive, len(targets) - number + 1)
+                break
             continue
+        consecutive = 0
         actions = sources.play_by_play_actions(payload, nba_id, row.gameday)
         if actions.empty:
             logger.warning("play-by-play for %s returned no actions", nba_id)
@@ -681,6 +902,15 @@ def _attach_game_ids(games: pd.DataFrame, log: pd.DataFrame) -> pd.DataFrame:
     home/away, and the key is the one fact both upstreams agree on: these two
     teams played on this date. A team plays at most once a day, so that key is
     unique, which is what makes the one-to-one validation meaningful.
+
+    "At most once a day" held until the 2026 all-star, which was a four-game
+    tournament on one date and played the same two squads twice. Two schedule
+    rows then carried the same key and the merge refused to proceed. The
+    adapter now drops non-franchise participants, so that event is gone before
+    it reaches here - but the assumption is still an assumption about the
+    world rather than about the data, so a collision is resolved rather than
+    raised. Losing one game to a duplicate key is recoverable; losing the run
+    is not.
     """
     if log.empty or games.empty:
         return games.assign(nba_game_id="")
@@ -695,6 +925,14 @@ def _attach_game_ids(games: pd.DataFrame, log: pd.DataFrame) -> pd.DataFrame:
     out = games.drop(columns=["nba_game_id"], errors="ignore").copy()
     out["pair_key"] = [sources.pair_key(g, a, b) for g, a, b in
                        zip(out.gameday, out.home_team, out.away_team)]
+    if out.pair_key.duplicated().any():
+        collided = out.loc[out.pair_key.duplicated(keep=False), "pair_key"]
+        logger.warning(
+            "%d schedule game(s) share a date/team-pair key that the join "
+            "assumes is unique - %s. The key cannot tell them apart, so the "
+            "extra game(s) are dropped rather than allowed to fail the run.",
+            len(collided), "; ".join(sorted(set(collided))[:5]))
+        out = out.drop_duplicates("pair_key", keep="first")
     merged = out.merge(keys, on="pair_key", how="left", validate="one_to_one")
     missing = int((merged.nba_game_id.fillna("") == "").sum())
     if missing:

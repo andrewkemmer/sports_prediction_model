@@ -124,6 +124,33 @@ Window and sweep controls are environment variables: `NBA_START_DATE` /
 `NBA_SCHEDULE_BUDGET_SEC` bounds the day-by-day schedule sweep; and
 `NBA_REQUEST_TIMEOUT_SEC` / `NBA_REQUEST_ATTEMPTS` bound a single request.
 
+### A host that refuses this client
+
+Both upstreams can and do refuse a given client, and the symptom is expensive
+to diagnose by sweeping: a refusal is cheap per request and ruinous in
+aggregate. The schedule sweep asks ESPN one question per day, so a 1,024-day
+window is 1,024 requests; a 403 returns instantly and the sweep finished the
+whole window before reporting that the schedule was *missing*, which names the
+wrong culprit. Against a host that accepts the connection and then stops
+answering — what `stats.nba.com` does — the same code would have spent roughly
+25 hours at the 90s request timeout proving one thing.
+
+So refusal is detected before it is suffered:
+
+* **A preflight probe.** The first time a process needs to ask a host for
+  something it has not cached, it makes one cheap request against the same
+  endpoint and headers the sweep uses, with a 20s ceiling. A refusal raises
+  immediately, naming the host, the reason, and what continuing would have
+  cost. A fully cached run never probes, so it can never fail here.
+* **A consecutive-failure breaker.** Each sweep stops after a short run of
+  failures — 3 days for the schedule, 2 season logs, 5 games of play-by-play —
+  because a single failure is a blip and a run of them is a decision about this
+  client rather than about the network. `NBA_SCHEDULE_MAX_CONSECUTIVE_FAILURES`
+  and `NBA_PBP_MAX_CONSECUTIVE_FAILURES` tune the thresholds. The play-by-play
+  breaker stops the sweep *without* failing the run: that feature is
+  forward-filled across games without it, so no play-by-play is a thinner model
+  rather than a wrong one, and the run manifest records that the sweep tripped.
+
 A cold play-by-play sweep is the long pole: ~0.25s per game, so a 1,300-game
 window takes about five minutes once and nothing after. The default cap is
 sized to cover a real share of the window on purpose — the event features are
@@ -131,6 +158,23 @@ trailing, so a sweep that reaches 8% of the games leaves 92% of the rows with no
 event history at all, and the run manifest reports the share that was reached.
 
 The production graph does not import another sport's backend.
+
+## Games that are not league games
+
+The schedule adapter drops any event with a side that is not one of the 30
+franchises, using the same alias table the join uses, so a team ESPN spells
+differently (`GS`, `NO`, `NY`, `SA`, `UTAH`, `WSH`) is still recognised.
+
+This exists because the all-star event cannot be caught any other way. ESPN
+files it as `regular-season`, so the season-type check cannot see it, and in
+2026 the all-star became a four-game tournament on a single date that played the
+same two squads twice. That made the orientation-free date/team-pair join key
+ambiguous — it is unique only because a team plays at most once a day — and
+raised `MergeError` for the entire pipeline, over four games that have no player
+lines in the season log and so could never have been trained on. The drop is
+logged by name rather than done silently, and the join also resolves a
+duplicate key with a warning rather than failing, because the uniqueness it
+relies on is an assumption about the world and not about the data.
 
 ## Model
 
