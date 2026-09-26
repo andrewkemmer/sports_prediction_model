@@ -2113,3 +2113,144 @@ def test_the_budget_covers_the_whole_fallback_not_each_season(
     assert len(seen) > 1, "the window spans several seasons"
     assert len(set(seen)) == 1, (
         "every season in one window must share one deadline, not reset it")
+
+
+# --------------------------------------------------------------------------
+# The diagnostic has to name the layer that failed, not just that one did
+# --------------------------------------------------------------------------
+
+
+def _all_ok() -> dict[str, tuple[str, str, float]]:
+    """A step table where every hop answers, which is the reachable host."""
+    return {name: ("OK", "fine", 0.1) for name in (
+        "dns", "tls", "http root", "prime", "season log + cookie",
+        "season log no cookie", "cdn box score")}
+
+
+def test_the_diagnostic_names_the_first_hop_that_does_not_answer() -> None:
+    """The pipeline's own log cannot do this: a timeout and a 403 are the same line.
+
+    A blocked host and an expired session both arrive as "no response", and they
+    have opposite fixes.  The diagnostic exists to separate them, so each broken
+    layer has to produce a verdict about itself rather than falling through to
+    the generic one.
+    """
+    import smoke_nba
+
+    # Each layer owns a phrase no other layer's verdict contains, so a verdict
+    # is correct only if it names its own layer and nobody else's.  A generic
+    # fallback for every broken layer would pass a "did it say something"
+    # test and still be useless.
+    owned = {
+        "dns": "does not even resolve",
+        "tls": "TLS handshake never completes",
+        "http root": "edge block on this client or egress IP",
+    }
+    for layer, phrase in owned.items():
+        steps = _all_ok()
+        steps[layer] = ("SILENT", "TimeoutError", 45.0)
+        verdict = " ".join(smoke_nba._verdict(steps))
+        assert phrase in verdict, f"the {layer} verdict did not name the {layer}"
+        for other, other_phrase in owned.items():
+            if other != layer:
+                assert other_phrase not in verdict, (
+                    f"the {layer} verdict blamed {other}")
+
+
+def test_a_primed_but_still_silent_season_log_rules_out_the_cookie() -> None:
+    """This is the case the Kaggle failure looked like, and it is decidable.
+
+    The run logs a successful prime and then two timeouts.  That is the
+    question the diagnostic exists to answer: was the cookie the missing piece?
+    If a primed session is still silent, it was not, and re-priming is just
+    another timeout budget.
+    """
+    import smoke_nba
+
+    steps = _all_ok()
+    steps["prime"] = ("OK", "jar kept 4", 1.6)
+    steps["season log + cookie"] = ("SILENT", "TimeoutError", 45.0)
+    steps["season log no cookie"] = ("SILENT", "TimeoutError", 45.0)
+
+    verdict = " ".join(smoke_nba._verdict(steps))
+    assert "cookie is not the missing piece" in verdict
+    assert "priming again" in verdict, "the verdict has to say what not to do"
+
+
+def test_a_host_that_needs_no_cookie_is_reported_as_the_better_answer() -> None:
+    """Both probes answering is not a redundant result; it is the diagnosis.
+
+    If the season log reads without the cookie, then no header, cookie, or
+    retry can explain a host where the same request goes quiet, and the
+    difference is the client.  Silently returning the generic verdict here
+    would leave the operator re-priming forever.
+    """
+    import smoke_nba
+
+    steps = _all_ok()
+    verdict = " ".join(smoke_nba._verdict(steps))
+    assert "with AND without the session cookie" in verdict
+    assert "the difference is the client" in verdict
+
+
+def test_an_unusable_session_is_caught_before_it_is_blamed_on_the_network() -> None:
+    """A host that serves cookies the jar drops is a cookie problem, not a block.
+
+    ``SameSite=None`` without ``Secure`` is dropped by the jar without a word,
+    so the pipeline sees a prime that "succeeded" and a session that is empty.
+    """
+    import smoke_nba
+
+    steps = _all_ok()
+    steps["prime"] = ("OK", "served 5 Set-Cookie; jar kept 0; EMPTY]", 1.6)
+    steps["season log + cookie"] = ("SILENT", "TimeoutError", 45.0)
+
+    verdict = " ".join(smoke_nba._verdict(steps))
+    assert "no usable session cookie" in verdict
+    assert "not load-bearing" not in verdict
+
+
+def test_a_reachable_host_says_so_rather_than_only_diagnosing_failures() -> None:
+    """A diagnostic that cannot report success is a diagnostic that cannot be
+    used to tell a fix worked, which is the other half of its job."""
+    import smoke_nba
+
+    steps = _all_ok()
+    steps["season log no cookie"] = ("SILENT", "TimeoutError", 45.0)
+    verdict = " ".join(smoke_nba._verdict(steps))
+    assert "answers from this host" in verdict
+    assert "slightly different" not in verdict
+
+
+def test_the_probe_table_reaches_the_same_url_the_pull_requests() -> None:
+    """A probe against a different URL proves nothing about the failing one.
+
+    The query is shared rather than retyped, so this cannot drift; the test
+    exists so that a future edit to the pull that bypasses the helper is
+    caught instead of quietly making the diagnostic a liar.
+    """
+    import smoke_nba
+
+    seen: list[str] = []
+    monkey_query = ing._season_log_query("2024-25", ing.SEASON_TYPE_REGULAR)
+    assert monkey_query.startswith("LeagueID=00"), "the pull's own parameter set"
+
+    real_get = ing._get_json
+
+    def capture(url, **kwargs):
+        seen.append(url)
+        return real_get(url, **kwargs)
+
+    original = ing._get_json
+    ing._get_json = capture
+    try:
+        ing._fetch_season_log("2024-25", ing.SEASON_TYPE_REGULAR, 0.0)
+    except Exception:
+        pass  # the stubbed cache/network is the point, not the result
+    finally:
+        ing._get_json = original
+
+    assert seen, "the season log must go through _get_json"
+    assert seen[0].split("?", 1)[1] == monkey_query, (
+        "the diagnostic and the pull must request the same query")
+    assert smoke_nba.ing.SEASON_LOG_URL == ing.SEASON_LOG_URL

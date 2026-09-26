@@ -774,6 +774,27 @@ def _season_log_path(season: str, season_type: str) -> Path:
     return config.CACHE_DIR / f"season_log_{season}_{slug}.parquet"
 
 
+def _season_log_query(season: str, season_type: str) -> str:
+    """The URL-encoded query the season log is read with.
+
+    Split out of ``_fetch_season_log`` so a diagnostic can request the exact
+    same URL the pull does.  A probe that succeeds against a slightly
+    different query proves nothing about the query that actually fails.
+    """
+    return urllib.parse.urlencode({
+        "LeagueID": "00", "PerMode": "PerGame", "Season": season,
+        "SeasonType": season_type, "College": "", "Conference": "",
+        "Country": "", "DateFrom": "", "DateTo": "", "Division": "",
+        "DraftPick": "", "DraftYear": "", "GameScope": "", "GameSegment": "",
+        "Height": "", "LastNGames": "0", "Location": "", "MeasureType": "Base",
+        "Month": "0", "OpponentTeamID": "0", "Outcome": "", "PORound": "0",
+        "PaceAdjust": "N", "Period": "0", "PlayerExperience": "",
+        "PlayerPosition": "", "PlusMinus": "N", "Rank": "N", "SeasonSegment": "",
+        "ShotClockRange": "", "StarterBench": "", "TeamID": "0", "VsConference": "",
+        "VsDivision": "", "Weight": "",
+    })
+
+
 def _fetch_season_log(season: str, season_type: str,
                       pause: float) -> pd.DataFrame:
     """One request per season and season type, cached on disk as it lands.
@@ -793,18 +814,7 @@ def _fetch_season_log(season: str, season_type: str,
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not read %s (%s); re-fetching", path.name, exc)
 
-    query = urllib.parse.urlencode({
-        "LeagueID": "00", "PerMode": "PerGame", "Season": season,
-        "SeasonType": season_type, "College": "", "Conference": "",
-        "Country": "", "DateFrom": "", "DateTo": "", "Division": "",
-        "DraftPick": "", "DraftYear": "", "GameScope": "", "GameSegment": "",
-        "Height": "", "LastNGames": "0", "Location": "", "MeasureType": "Base",
-        "Month": "0", "OpponentTeamID": "0", "Outcome": "", "PORound": "0",
-        "PaceAdjust": "N", "Period": "0", "PlayerExperience": "",
-        "PlayerPosition": "", "PlusMinus": "N", "Rank": "N", "SeasonSegment": "",
-        "ShotClockRange": "", "StarterBench": "", "TeamID": "0", "VsConference": "",
-        "VsDivision": "", "Weight": "",
-    })
+    query = _season_log_query(season, season_type)
     time.sleep(pause)
     try:
         payload = _get_json(f"{SEASON_LOG_URL}?{query}", headers=_STATS_HEADERS)
@@ -1921,8 +1931,8 @@ def _pull_seasons(start: date, end: date) -> tuple[pd.DataFrame, pd.DataFrame,
                 f"NBA could not read {start}..{end} from any source. "
                 f"stats.nba.com: every season log failed "
                 f"({', '.join(unavailable) or 'none attempted'}). "
-                f"cdn.nba.com box scores {_failure_verdict(exc)}."
-                ". A host that never answers is a network block, not a bad "
+                f"cdn.nba.com box scores {_failure_verdict(exc)}. "
+                "A host that never answers is a network block, not a bad "
               "request: nothing this pipeline sends will change it, so run "
               "where these hosts are reachable, or warm the cache here. "
             + _NO_SOURCE_REMEDY) from exc
