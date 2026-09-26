@@ -309,17 +309,34 @@ def main(argv: list[str] | None = None) -> int:
             f"fold geometry violation: first validation season {first_val_season} "
             f"!= OOF_FIRST_SEASON {config.OOF_FIRST_SEASON}")
     gd_dates = pd.to_datetime(game_df["gameday"])
-    print(f"  eligible settled games : {len(game_df)}")
-    print(f"  game date range        : {gd_dates.min().date()} .. {gd_dates.max().date()}")
-    print(f"  warm-up                : {config.WARMUP_DAYS} days (MLB-style; "
-          f"first OOF validation {fold_list[0].val_start.date()})")
-    print(f"  last OOF validation    : {fold_list[-1].val_end.date()} "
-          f"(fold {fold_list[-1].fold_id}, n_val={len(fold_list[-1].val_idx)})")
-    print(f"  validation windows     : {len(fold_list)} "
-          f"(7-observed-date, non-overlapping, expanding training)")
-    print(f"  training observations  : {fold_info['min_train']} (first) .. "
-          f"{fold_info['max_train']} (last)")
-    print(f"  validation observations: {fold_info['total_val_games']}")
+    # Logged, not printed. This block is the run's central PIT claim - the
+    # fold geometry every later phase rests on - and it was the only phase
+    # output that carried no timestamp AND did not flush. Its position in a
+    # captured run was a side effect of the logger call below flushing the
+    # shared stdout buffer, not of the block itself: stdout is block-buffered
+    # on a pipe (exactly the Kaggle subprocess), so these lines surface when
+    # something ELSE happens to flush. `logging` writes to stdout too (see the
+    # module header's one-stream rule) and its handler flushes every record,
+    # so a single record here is both timestamped and self-flushing.
+    #
+    # The last window also names its ordinal next to its id. "fold 45" beside
+    # Phase 5's "fold 46/46" reads as a contradiction unless you already know
+    # one is a 0-based id and the other a count.
+    logger.info("fold geometry:\n%s", "\n".join([
+        f"  eligible settled games : {len(game_df)}",
+        f"  game date range        : {gd_dates.min().date()} .. "
+        f"{gd_dates.max().date()}",
+        f"  warm-up                : {config.WARMUP_DAYS} days (MLB-style; "
+        f"first OOF validation {fold_list[0].val_start.date()})",
+        f"  last OOF validation    : {fold_list[-1].val_end.date()} "
+        f"(last of {len(fold_list)} windows, fold_id {fold_list[-1].fold_id}, "
+        f"n_val={len(fold_list[-1].val_idx)})",
+        f"  validation windows     : {len(fold_list)} "
+        f"(7-observed-date, non-overlapping, expanding training)",
+        f"  training observations  : {fold_info['min_train']} (first) .. "
+        f"{fold_info['max_train']} (last)",
+        f"  validation observations: {fold_info['total_val_games']}",
+    ]))
     fold_tbl.to_csv(out_dir / "nhl_fold_table.csv", index=False)
     logger.info("folds: %s", json.dumps(fold_info))
 
@@ -360,9 +377,20 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",
                 dist.get("n_folds", len(fold_list)))
     sig = dist_mod.calibrate_dispersion(oof_dist)
+    # Report the VERDICT, not just the numbers. `calibrate_dispersion` already
+    # decides whether the fit sits at the Poisson limit (both alphas at or
+    # under the floor) and returned that decision as `poisson_limit` - which
+    # the log line dropped. Two zeros in a line reading "NB dispersion" are
+    # indistinguishable from a broken estimator; the honest reading is "no
+    # over-dispersion left to model, so the NB has collapsed to a Poisson and
+    # the dispersion term is inactive". 2026-09-26 printed 0.0000/0.0000
+    # with no way to tell those apart.
     logger.info("calibrated NB dispersion (MLB pooled method-of-moments): "
-                "alpha_home %.4f, alpha_away %.4f",
-                sig["alpha_home"], sig["alpha_away"])
+                "alpha_home %.4f, alpha_away %.4f - %s",
+                sig["alpha_home"], sig["alpha_away"],
+                "POISSON LIMIT: no over-dispersion to model, the NB term is "
+                "inactive and scoring is Poisson" if sig.get("poisson_limit")
+                else "over-dispersed fit active")
 
     # ── 8. Ensemble calibration (prequential OOF Platt, FAVORED space) ────
     _banner("PHASE 8", "calibration")
@@ -379,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     fold_calibrators: dict[int, dict | None] = {}
     cal_fitted = 0
     cal_identity = 0
+    cal_identity_ids: list[int] = []
     p_cal_prequential = np.full(len(oof_ml), np.nan)
     fold_ids = oof_ml["fold_id"].to_numpy()
     for fold in fold_list:
@@ -391,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         fold_calibrators[int(fold.fold_id)] = fold_cal
         if fold_cal is None:
             cal_identity += 1
+            cal_identity_ids.append(int(fold.fold_id))
         else:
             cal_fitted += 1
         if val_mask.any() and okp[val_mask].any():
@@ -410,8 +440,16 @@ def main(argv: list[str] | None = None) -> int:
                     twin[val_mask] = ml_mod.moneyline_apply(
                         pm[val_mask], fold_calibrators[int(fold.fold_id)])
             oof_ml[f"p_{name}_calibrated"] = twin
-    logger.info("prequential per-fold calibration: %d fitted, %d identity",
-                cal_fitted, cal_identity)
+    # Name the identity folds, and say why. A bare count cannot distinguish
+    # the expected thin start (fold 0 has no prior OOF rows at all, and the
+    # earliest windows hold a handful of games) from calibration failing on
+    # folds scattered through the run - which would be a real defect. Their
+    # probabilities are served uncalibrated, so the count is part of what
+    # the calibrated OOF metrics below are measured over.
+    logger.info("prequential per-fold calibration: %d fitted, %d identity%s",
+                cal_fitted, cal_identity,
+                f" (folds {cal_identity_ids}: too few prior OOF rows to fit, "
+                f"left uncalibrated)" if cal_identity_ids else "")
 
     platt = ml_mod.moneyline_fit(p_ens[okp], y_oof[okp])
     if platt is not None:
@@ -693,7 +731,13 @@ def main(argv: list[str] | None = None) -> int:
     _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
                          anchor_iso=end_date)
 
-    _banner("DONE", f"{len(artifacts)} artifacts in {time.time() - t0:.0f}s")
+    # "written", not "produced": the manifest counts files this run put on
+    # disk, which is NOT what delivery pushed. 2026-09-26 wrote 15 and pushed
+    # 14 - nhl_production_cards_history.csv had 0 new rows, so its bytes were
+    # unchanged and git had nothing to commit for it. Counting the manifest
+    # made the run look like it had dropped an artifact.
+    _banner("DONE", f"{len(artifacts)} artifacts written in "
+                    f"{time.time() - t0:.0f}s")
     summary = {
         "status": "ok",
         "run_date": run_date,
@@ -1129,7 +1173,9 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
         stale.append(p)
     if kept_protected:
         logger.info("retention: kept %d protected file(s)", kept_protected)
-    logger.info("retention: kept %d artifact(s) within the window (anchor %s -10d)",
+    logger.info("retention: kept %d artifact(s) within the window (anchor %s "
+                "-10d; the anchor is the DATA WINDOW END, which a backfill "
+                "can push past today - files newer than it are never touched)",
                 kept_current, anchor)
     if stale:
         for old in stale:

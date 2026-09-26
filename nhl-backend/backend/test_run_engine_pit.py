@@ -34,6 +34,7 @@ Run with: python nhl-backend/backend/test_run_engine_pit.py
 from __future__ import annotations
 
 import sys
+import ast
 import logging
 import tempfile
 from datetime import date, timedelta
@@ -2316,6 +2317,129 @@ def test_a_captured_pull_line_carries_a_readable_bar():
     assert fills[-1] == ing.BAR_WIDTH, f"a finished window is not full: {fills}"
     assert fills[0] == round(ing.BAR_WIDTH * 10 / 60), fills[0]
     assert all(m.isascii() for m in msgs), "a log line is not plain ASCII"
+
+
+def _log_call_containing(src: str, needle: str):
+    """The ``logger.info(...)`` call whose first constant argument contains
+    ``needle``, or None. Log lines are the run's audit record, so what a line
+    is allowed to claim is a contract like any other."""
+    for node in ast.walk(ast.parse(src)):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "info" and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and needle in str(node.args[0].value)):
+            return node
+    return None
+
+
+def test_fold_geometry_is_a_logged_record_not_a_bare_print():
+    """The fold geometry is the run's central PIT claim, and it was the one
+    block printed instead of logged.
+
+    Two consequences, both from the 2026-09-26 log: the block carried no
+    timestamp, so it could not be correlated with the phases around it; and
+    `print` does not flush, so its position depended on the NEXT statement
+    happening to be a logging call whose handler flushed the shared stdout
+    buffer. That is not a property of the block -- it is a coincidence with
+    the line below it, and stdout is block-buffered on a pipe, which is
+    exactly the Kaggle subprocess.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    printed = [ast.unparse(n) for n in ast.walk(ast.parse(src))
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+               and n.func.id == "print"
+               and "eligible settled games" in ast.unparse(n)]
+    assert not printed, (
+        f"the fold geometry is printed again, so it is un-timestamped and "
+        f"un-flushed: {printed[:1]}")
+    node = _log_call_containing(src, "fold geometry")
+    assert node is not None, "the fold geometry block is no longer logged at all"
+    # "fold 45" next to Phase 5's "fold 46/46" reads as a contradiction
+    # unless you already know one is a 0-based id and the other a count.
+    assert "last of" in ast.unparse(node), (
+        "the last window does not name its ordinal beside its fold_id")
+
+
+def test_dispersion_log_reports_the_poisson_limit_it_computed():
+    """Two zeros in a line reading "NB dispersion" must not be ambiguous.
+
+    `calibrate_dispersion` already returns a `poisson_limit` verdict and the
+    log line dropped it, so 0.0000/0.0000 was indistinguishable from a broken
+    estimator. The honest reading is that no over-dispersion was left to
+    model: the NB has collapsed to a Poisson and the dispersion term is
+    inactive.
+    """
+    n = 500
+    mu = np.full(n, 3.0)
+    # A perfectly Poisson sample: observed variance 0 is UNDER the Poisson
+    # expectation, which the estimator floors to zero deterministically.
+    perfect = pd.DataFrame({"home_score": mu.copy(), "away_score": mu.copy(),
+                            "mu_h": mu, "mu_a": mu})
+    sig = dist_mod.calibrate_dispersion(perfect)
+    assert (sig["alpha_home"], sig["alpha_away"]) == (0.0, 0.0), sig
+    assert sig["poisson_limit"] is True, \
+        f"a zero-dispersion fit was not reported as the Poisson limit: {sig}"
+    # And the flag is not constant: a genuinely over-dispersed fit must not
+    # be described as the Poisson limit.
+    spread = np.where(np.arange(n) % 2 == 0, 0.0, 9.0)
+    over = pd.DataFrame({"home_score": spread, "away_score": spread,
+                         "mu_h": mu, "mu_a": mu})
+    sig2 = dist_mod.calibrate_dispersion(over)
+    assert sig2["alpha_home"] > 0.0 and sig2["poisson_limit"] is False, sig2
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    node = _log_call_containing(src, "method-of-moments")
+    assert node is not None, "the dispersion log line is gone"
+    assert "poisson_limit" in ast.unparse(node), \
+        "the dispersion log line drops the verdict the estimator computed"
+
+
+def test_identity_calibration_folds_are_named_not_just_counted():
+    """A bare count cannot tell the expected thin start from a real failure.
+
+    Fold 0 has no prior OOF rows at all and the earliest windows hold a
+    handful of games, so some identity folds are normal at the START of the
+    walk-forward. The same count could also mean calibration failed on folds
+    scattered through the run, which is a defect. Those folds' probabilities
+    are served uncalibrated, so which ones they are belongs in the log.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    node = _log_call_containing(src, "prequential per-fold calibration")
+    assert node is not None, "the prequential calibration log line is gone"
+    text = ast.unparse(node)
+    assert "cal_identity_ids" in text, \
+        f"the identity folds are counted but not named: {text[:200]}"
+
+
+def test_retention_line_says_what_the_anchor_is_anchored_on():
+    """`anchor 20260929 -10d` on a 2026-09-26 run reads as a future date.
+
+    The anchor is deliberately the data WINDOW END, because a backfill pushes
+    it past the run date and files newer than it must never be touched. That
+    is a sound design; it is the log that fails to say so.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    node = _log_call_containing(src, "within the window (anchor")
+    assert node is not None, "the retention window log line is gone"
+    assert "WINDOW END" in ast.unparse(node), \
+        "the retention line does not name what its anchor is"
+
+
+def test_done_banner_counts_written_artifacts_not_delivered_ones():
+    """The manifest counts files on disk, which is not what delivery pushed.
+
+    2026-09-26 wrote 15 artifacts and pushed 14: the cards history store had
+    0 new rows, so its bytes were unchanged and git had nothing to commit for
+    it. Both numbers were true; only one was labelled, and the unlabelled one
+    made the run look like it had dropped an artifact.
+    """
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    banners = [ast.unparse(n) for n in ast.walk(ast.parse(src))
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+               and n.func.id == "_banner" and "DONE" in ast.unparse(n)]
+    assert banners, "the DONE banner is gone"
+    assert "written" in banners[0], \
+        f"the DONE banner implies delivery it did not perform: {banners[0]}"
 
 
 def _run_all() -> int:
