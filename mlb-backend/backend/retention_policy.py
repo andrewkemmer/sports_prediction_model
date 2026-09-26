@@ -82,8 +82,12 @@ Consumer audit (traced at HEAD 827de1b):
   features_metadata_*.json        | never read standalone (embedded in monitor)  | newest-only                         | 10-day window
   shap_game_*.csv                 | board per-game card fetch (per date)         | newest-only per navigable date      | board-backed
   power_rankings_*.csv            | Home / power_rankings page (newest)          | newest-only                         | 10-day window
-  pbp_defense_*.parquet(+meta)    | defense ablation harnesses GLOB ALL dated    | **SERIES (research)**               | NEVER DELETE
-                                  |   files (ablation_defense / runline defense) |                                     |
+  pbp_defense_*.parquet(+meta)      | build_pbp_chunks._newest_source and   | newest-only          | blanket 10-day       |
+                                    | build_il_stints.default_pbp_source, BOTH |                      | window               |
+                                    | take sorted(...)[-1]; the two harnesses |                      |                      |
+                                    | this row cited (ablation_defense,     |                      |                      |
+                                    | runline defense) were deleted in ff372c3, |                      |                      |
+                                    | so the NEVER DELETE outlived its consumers |                      |                      |
   pbp_chunks/                     | build_pbp_defense (cumulative raw chunks)    | **SERIES (cumulative)**             | NEVER DELETE
   models/                         | ensemble/monitor loaders (newest)            | newest-only; staged every run       | NEVER DELETE
   mlb_feature_selection_*.json    | RFE engine prior-verdict memory (newest      | newest prior trace                  | 10-day window
@@ -170,11 +174,14 @@ SERIES_PREFIXES = (
     # Producer folds ALL dated monitors into the rolling per-line series
     # (pipeline._run_engine_monitor_json). Never reset the monitor history.
     "run_engine_monitor_",
-    # Defense ablation harnesses glob ALL dated caches
-    # (ablation_defense.py / run_mlb_runline_defense_ablation.py). Research
-    # series — exempt per guardrail 1 even though nothing in production reads
-    # across dates.
-    "pbp_defense_",
+    # NOT pbp_defense_. It used to sit here citing two ablation harnesses
+    # (ablation_defense.py, run_mlb_runline_defense_ablation.py) that were
+    # deleted in ff372c3, so the exemption protected nothing. Both live
+    # consumers — build_pbp_chunks._newest_source and
+    # build_il_stints.default_pbp_source — read sorted(glob(...))[-1], i.e.
+    # the newest file only. Leaving it protected cost 13.1 MB of pitch
+    # projection per run, forever: 52 files / 333 MB on 2026-09-26, and
+    # every Kaggle run clones the whole set before it can start.
 )
 
 # -- Triage records (prefix): audit trail — never deleted.                  --
@@ -193,6 +200,16 @@ MLB_EXEMPT_NAMES = frozenset({
     # universe width (the worst failure mode: no error, wrong behavior).
     "mlb_feature_selection_state.json",
 })
+
+
+# NOTE on the pbp_defense family: it is the only family whose members are
+# ~13 MB rather than kilobytes (the daily 27-column projection of
+# pitches.parquet), so the blanket 10-day window pins ~130 MB of parquet in
+# the tree that every Kaggle run clones before it starts. It is bounded now
+# (2026-09-26 fix: the NEVER DELETE exemption outlived its consumers), but
+# tightening it below the blanket window needs a real per-family window in
+# classify_artifact — ``retention_days`` on FamilyPolicy is NOT consulted
+# there, so this note is the only place that fact is recorded.
 
 
 @dataclass(frozen=True)
@@ -292,8 +309,10 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                        "run, nothing reads it back — 10-day window"),
     FamilyPolicy("pbp_defense", "pbp_defense_", retention_days=None,
                  allowlisted=False,
-                 notes="SERIES (research) — defense ablation harnesses glob "
-                       "ALL dated caches"),
+                 notes="newest-only (traced 2026-09-26): both consumers take "
+                       "sorted(glob(...))[-1], so it rides the blanket "
+                       "10-day window instead of growing without bound — "
+                       "52 files / 333 MB when the stale exemption was found"),
 )
 
 # -- Predicates ---------------------------------------------------------------
