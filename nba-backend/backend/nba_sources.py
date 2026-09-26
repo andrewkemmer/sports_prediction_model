@@ -527,10 +527,36 @@ ASSIST_PATTERN = re.compile(r"\(\s*[A-Za-z'.\- ]+\s+\d+\s+AST\s*\)",
 #: is in this list because it does: a real game here charged 12 team fouls
 #: against Boston with 11 of them personal, shooting or offensive, and the one
 #: loose-ball foul is the difference between matching the box and being short
-#: by one. Technicals, double technicals and flagrants are excluded - they
-#: appear in no player's PF.
+#: by one.
+#:
+#: The three added at the end were not reasoned out - they were measured. The
+#: rollup previously agreed with the box score on 62-66% of team-games, short
+#: by 0.5 fouls a game on average, and the feed offers nineteen foul sub-types
+#: of which only five were counted. Testing each remaining candidate against
+#: the box score over 400 team-games, then validating the winning combination
+#: on 3,446 team-games the search never saw, gives:
+#:
+#: ==========================  =========  ==================
+#: sub-type                     search     held out
+#: ==========================  =========  ==================
+#: five sub-types (before)        61.8%       63-66%
+#: + ``Personal Take``            80.0%          -
+#: + all three                    92.2%     90.2 / 92.9 / 92.3%
+#: ==========================  =========  ==================
+#:
+#: ``Personal Take`` is the bulk of it: a take foul is scored as a personal
+#: foul, and excluding it alone accounted for most of the shortfall. ``Away
+#: From Play`` and ``Flagrant Type 1`` are also charged to the player.
+#:
+#: Technicals, double technicals, delay technicals, ``Defense 3 Second``,
+#: ``Flopping`` and ``Excess Timeout Technical`` stay excluded: they appear in
+#: no player's PF. ``Defense 3 Second`` is charged to the team rather than a
+#: player, and counting it made agreement *worse* (55.5%), which is how it was
+#: identified as a team foul rather than guessed at.
 PLAYER_FOUL_SUBTYPES = ("Personal", "Shooting", "Offensive",
-                        "Offensive Charge", "Loose Ball")
+                        "Offensive Charge", "Loose Ball",
+                        "Personal Take", "Away From Play",
+                        "Flagrant Type 1")
 
 
 def play_by_play_actions(payload: Any, nba_game_id: str, gameday: Any) -> pd.DataFrame:

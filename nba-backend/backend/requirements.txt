@@ -5,6 +5,12 @@ scikit-learn
 xgboost
 lightgbm
 joblib
+# The artifact publisher. github_sync.py drives the delivery push - clone,
+# stage, commit, retry on rejection, verify the remote tree - with GitPython
+# rather than hand-rolled ``git`` subprocesses. Pinned the same floor MLB uses;
+# without it a Kaggle run reaches the delivery phase and dies on ImportError,
+# after the model has already finished.
+GitPython>=3.1.0
 # The Parquet engine. Never imported by name: pandas reaches it through
 # to_parquet/read_parquet, and the cache is Parquet end to end.
 pyarrow

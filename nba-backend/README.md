@@ -187,6 +187,29 @@ NBA totals and point-spread grids. No sportsbook data is used.
 ## Notebook
 
 `kaggle_nba_run.ipynb` at repository root is orchestration only: it clones the
-repo, installs `requirements-kaggle.txt`, runs `master_pipeline.py`, and stages
-`nba-backend/data_delivery` for human review without committing or pushing. All
+repo, installs `requirements-kaggle.txt`, and runs `master_pipeline.py`. All
 backend logic lives in this directory.
+
+### Delivery
+
+The pipeline publishes its own artifacts, in its final phase, to
+`nba-backend/data_delivery` on `main` — the same boundary MLB, NFL and NHL
+publish on. It uses a throwaway clone rather than the run's own checkout, so a
+delivery problem cannot disturb the code it just ran, and it pushes with
+retries and then verifies the paths on the remote tree: a push that reports
+success and delivers nothing would otherwise be indistinguishable from a good
+run, because both report success.
+
+Publication requires `GITHUB_TOKEN` in the environment. Without one the run
+skips delivery and says so in the `sync` block of its summary, with the reason;
+it does not silently succeed. `NBA_PUSH=0` forces the skip, and `NBA_PUSH=1`
+forces the attempt so a missing token fails loudly instead of quietly skipping.
+The remote comes from `GITHUB_REPO_URL` when set, otherwise from the checkout's
+own `origin`.
+
+This phase used to be a no-op that returned `staged_files: []` and the message
+"automatic Git staging/commit/push disabled". On Kaggle, where the working
+directory is ephemeral, that meant every run wrote its artifacts and then lost
+them at session end, and `nba-backend/data_delivery` stayed empty on `main`
+permanently while the notebook went on reporting that artifacts had been
+pushed. NBA was the only sport not publishing.

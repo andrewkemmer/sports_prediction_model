@@ -20,6 +20,9 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -237,21 +240,138 @@ def _prune(out_dir: Path, date_c: str, seen: set) -> None:
                 pass
 
 
-def _sync_data_delivery(repo_root: Path) -> dict:
-    """Report the NBA delivery boundary without performing Git operations.
+#: Delivery is on by default when a token is present, and off without one, so a
+#: workstation run syncs nothing and says so while a Kaggle run - which has a
+#: token - publishes. ``NBA_PUSH=0`` forces the skip; ``NBA_PUSH=1`` forces the
+#: attempt even without a token, which then fails loudly rather than quietly.
+PUSH_ENV = "NBA_PUSH"
+REPO_URL_ENV = "GITHUB_REPO_URL"
+TOKEN_ENV = "GITHUB_TOKEN"
+BRANCH = "main"
+DELIVERY_REL = "nba-backend/data_delivery"
 
-    Delivery publication is intentionally outside the training pipeline.  A
-    notebook may explicitly stage ``nba-backend/data_delivery`` for a later
-    human-reviewed publication, but this function never changes remotes,
-    stages files, commits, or pushes.  Keeping the seam here makes the scope
-    auditable while honoring the repository-wide no-commit/no-push guardrail.
+
+def _push_enabled() -> tuple[bool, str]:
+    """Whether to publish, and the honest reason if not."""
+    raw = str(os.environ.get(PUSH_ENV, "")).strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False, f"{PUSH_ENV} is set to {raw!r}"
+    if not str(os.environ.get(TOKEN_ENV, "")).strip():
+        if raw in {"1", "true", "yes", "on"}:
+            return True, ""  # asked for explicitly: let it fail loudly
+        return False, (f"no {TOKEN_ENV} in the environment, so there is "
+                       f"nothing to authenticate a push with")
+    return True, ""
+
+
+def _remote_url(repo_root: Path) -> str:
+    """The push remote: an explicit override, else this checkout's origin.
+
+    Read from the checkout rather than hardcoded, so the pipeline publishes to
+    whatever it was cloned from - which on Kaggle is already the right repo.
     """
-    delivery = (Path("nba-backend") / "data_delivery").as_posix()
-    return {
-        "staged_files": [],
-        "delivery_scope": delivery,
-        "skipped": "automatic Git staging/commit/push disabled",
-    }
+    override = str(os.environ.get(REPO_URL_ENV, "")).strip()
+    if override:
+        return override
+    try:
+        out = subprocess.run(["git", "-C", str(repo_root), "remote", "get-url",
+                              "origin"], capture_output=True, text=True,
+                             timeout=30)
+        url = out.stdout.strip()
+        if out.returncode == 0 and url:
+            return url
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("could not read the origin remote: %s", exc)
+    return ""
+
+
+def _sync_data_delivery(repo_root: Path) -> dict:
+    """Publish this run's artifacts to ``nba-backend/data_delivery`` on main.
+
+    Mirrors MLB's Phase 5: a throwaway clone, the run's artifacts copied in,
+    one commit, a push that retries on rejection, and a verification of the
+    remote tree before the run is allowed to call itself a success.
+
+    This used to be a no-op returning ``staged_files: []``, which meant a
+    Kaggle run wrote its 19 artifacts into an ephemeral working directory and
+    lost them at session end while ``data_delivery`` on ``main`` stayed empty.
+    NBA was the only sport not publishing.
+
+    One deliberate difference from MLB: the whole delivery directory is staged,
+    not just files whose mtime moved. MLB needs the mtime filter because it
+    ships a directory that accumulates across runs; NBA's ``_prune`` runs
+    immediately before this call and has already deleted every artifact the run
+    did not regenerate, so the directory's contents *are* this run's set.
+    """
+    delivery = DELIVERY_REL
+    enabled, reason = _push_enabled()
+    if not enabled:
+        return {"pushed": False, "staged_files": [], "delivery_scope": delivery,
+                "skipped": reason}
+
+    source = config.DATA_DELIVERY_DIR
+    if not source.exists():
+        return {"pushed": False, "staged_files": [], "delivery_scope": delivery,
+                "skipped": f"{source} does not exist; nothing to publish"}
+
+    repo_url = _remote_url(repo_root)
+    if not repo_url:
+        raise RuntimeError(
+            "NBA artifact delivery needs a remote to push to. Set "
+            f"{REPO_URL_ENV} or clone with an origin remote; refusing to "
+            "report a successful run whose artifacts were not published.")
+
+    token = str(os.environ.get(TOKEN_ENV, "")).strip()
+    auth_url = (repo_url.replace("https://", f"https://{token}@")
+                if token and repo_url.startswith("https://") else repo_url)
+
+    import git
+    from github_sync import (push_with_retry, sync_remote_tip,
+                             verify_pushed_paths)
+
+    artifacts = sorted(p for p in source.rglob("*") if p.is_file())
+    if not artifacts:
+        return {"pushed": False, "staged_files": [], "delivery_scope": delivery,
+                "skipped": "this run produced no artifacts to publish"}
+
+    tmp_dir = tempfile.mkdtemp(prefix="nba_sync_")
+    try:
+        repo = git.Repo.clone_from(auth_url, tmp_dir, branch=BRANCH, depth=1)
+        dest_root = Path(tmp_dir) / DELIVERY_REL
+        dest_root.mkdir(parents=True, exist_ok=True)
+        staged: list[str] = []
+        for artifact in artifacts:
+            rel = artifact.relative_to(source).as_posix()
+            dest = dest_root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(artifact, dest)
+            staged.append(f"{delivery}/{rel}")
+
+        def _restage() -> None:
+            for rel in staged:
+                dest = Path(tmp_dir) / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / rel[len(delivery) + 1:], dest)
+            repo.index.add(staged)
+            repo.index.commit(
+                f"Update NBA features + predictions: "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+        repo.index.add(staged)
+        repo.index.commit(f"Update NBA features + predictions: "
+                          f"{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        push_with_retry(repo, BRANCH, restage=_restage, log=print)
+        verify_pushed_paths(repo, BRANCH, staged)
+        return {"pushed": True, "staged_files": staged,
+                "delivery_scope": delivery,
+                "commit": repo.head.commit.hexsha}
+    except Exception as exc:  # noqa: BLE001 - reported, then fatal below
+        raise RuntimeError(
+            f"NBA artifact delivery did not complete: {exc}. The artifacts are "
+            f"intact under {source} on this machine; refusing to report a "
+            f"successful run whose delivery failed.") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def run(run_date: str | None = None, out_dir: str | Path | None = None,

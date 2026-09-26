@@ -827,6 +827,161 @@ class TestNonFranchiseGames:
         assert set(out.game_id) == {"401838141", "401585814"}
 
 
+class TestPlayerFoulRule:
+    """Which foul sub-types the box score charges to a player.
+
+    The list was measured, not reasoned: 19 sub-types appear in the feed, 5
+    were counted, and the rollup then agreed with the box score on 62-66% of
+    team-games. These pin the sub-types that measurement put in, and - just as
+    importantly - the one that measurement put out.
+    """
+
+    def test_the_measured_subtypes_are_counted(self):
+        for sub_type in ("Personal", "Shooting", "Offensive",
+                         "Offensive Charge", "Loose Ball",
+                         "Personal Take", "Away From Play", "Flagrant Type 1"):
+            assert sub_type in src.PLAYER_FOUL_SUBTYPES, sub_type
+
+    def test_personal_take_is_the_bulk_of_the_shortfall(self):
+        """Excluding this one alone held agreement to 80% rather than 92%."""
+        assert "Personal Take" in src.PLAYER_FOUL_SUBTYPES
+
+    def test_a_team_foul_is_not_a_player_foul(self):
+        """``Defense 3 Second`` is charged to the team and appears in no
+        player's PF. Counting it made agreement worse (55.5%), which is how it
+        was identified as a team foul rather than guessed at."""
+        assert "Defense 3 Second" not in src.PLAYER_FOUL_SUBTYPES
+
+    @pytest.mark.parametrize("sub_type", [
+        "Technical", "Double Technical", "Delay Technical",
+        "Excess Timeout Technical", "Too Many Players Technical", "Flopping"])
+    def test_technicals_appear_in_no_player_pf(self, sub_type):
+        assert sub_type not in src.PLAYER_FOUL_SUBTYPES
+
+    def test_a_take_foul_counts_once_in_the_rollup(self):
+        payload = {"game": {"actions": [
+            {"actionId": 1, "actionNumber": 1, "period": 1, "clock": "12:00",
+             "teamId": 1610612737, "teamTricode": "BOS",
+             "personId": 1628369, "playerName": "P. Player", "actionType": "Foul",
+             "subType": "Personal Take", "description": "Take foul",
+             "scoreHome": 0, "scoreAway": 0},
+        ]}}
+        frame = src.play_by_play_actions(payload, "0022400001", "2024-10-22")
+        rollup = src.team_events_from_actions(frame, pd.DataFrame(
+            {"game_id": ["g1"], "nba_game_id": ["0022400001"],
+             "gameday": ["2024-10-22"], "home_team": ["BOS"],
+             "away_team": ["LAL"], "home_score": [110], "away_score": [104]}))
+        assert float(rollup.pf.iloc[0]) == 1.0
+
+
+class TestDeliverySync:
+    """The delivery phase, with git mocked out.
+
+    No test here touches the network. The push path is exercised against fakes
+    so that a regression in the retry or verification logic is caught without a
+    test run being able to write to the repository.
+    """
+
+    def test_no_token_skips_and_says_why(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("NBA_PUSH", raising=False)
+        import master_pipeline as mp
+        monkeypatch.setattr(mp.config, "DATA_DELIVERY_DIR", tmp_path)
+        (tmp_path / "artifact.json").write_text("{}")
+        out = mp._sync_data_delivery(tmp_path)
+        assert out["pushed"] is False
+        assert out["staged_files"] == []
+        assert "GITHUB_TOKEN" in out["skipped"]
+
+    def test_push_off_skips_even_with_a_token(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("GITHUB_TOKEN", "fake")
+        monkeypatch.setenv("NBA_PUSH", "0")
+        import master_pipeline as mp
+        monkeypatch.setattr(mp.config, "DATA_DELIVERY_DIR", tmp_path)
+        (tmp_path / "artifact.json").write_text("{}")
+        out = mp._sync_data_delivery(tmp_path)
+        assert out["pushed"] is False
+        assert "NBA_PUSH" in out["skipped"]
+
+    def test_a_push_that_delivers_nothing_is_a_failure(self):
+        """The run reports success off the same signal as the push, so an
+        unverified push turns a delivery failure into a silent one."""
+        from github_sync import verify_pushed_paths
+
+        class FakeGit:
+            def fetch(self, *_a): return ""
+            def rev_parse(self, *_a): return "deadbeef"
+            def ls_tree(self, *_a):
+                return "nba-backend/data_delivery/present.json"
+
+        class FakeRepo:
+            git = FakeGit()
+
+        with pytest.raises(RuntimeError) as excinfo:
+            verify_pushed_paths(FakeRepo(), "main",
+                                ["nba-backend/data_delivery/absent.json"])
+        assert "absent.json" in str(excinfo.value)
+
+    def test_a_rejected_push_is_retried_onto_the_new_tip(self, monkeypatch):
+        """A non-fast-forward rejection is a race, not a verdict. Re-syncing and
+        replaying is what stops a race from costing the run its artifacts."""
+        import git
+        from github_sync import push_with_retry
+
+        class Info:
+            def __init__(self, flags, summary="rejected"):
+                self.flags = flags
+                self.summary = summary
+
+        class Remote:
+            def __init__(self, results):
+                self.results = list(results)
+                self.calls = 0
+
+            def push(self, _branch):
+                self.calls += 1
+                return [self.results.pop(0)]
+
+        class FakeRepo:
+            def __init__(self, remote):
+                self.remote_obj = remote
+                self.resynced = 0
+
+            def remote(self, _name):
+                return self.remote_obj
+
+        remote = Remote([Info(git.PushInfo.REJECTED), Info(0)])
+        repo = FakeRepo(remote)
+        restaged = []
+        monkeypatch.setattr("github_sync.sync_remote_tip",
+                            lambda *_a, **_k: setattr(repo, "resynced", repo.resynced + 1))
+        push_with_retry(repo, "main", restage=lambda: restaged.append(1))
+        assert remote.calls == 2
+        assert repo.resynced == 1, "must re-sync to the new tip before replaying"
+        assert restaged == [1], "must replay this run's artifacts"
+
+    def test_exhausted_retries_raise(self, monkeypatch):
+        import git
+        from github_sync import push_with_retry
+
+        class Info:
+            flags = git.PushInfo.REJECTED
+            summary = "non-fast-forward"
+
+        class Remote:
+            def push(self, _branch):
+                return [Info()]
+
+        class FakeRepo:
+            def remote(self, _name):
+                return Remote()
+
+        monkeypatch.setattr("github_sync.sync_remote_tip", lambda *_a, **_k: None)
+        with pytest.raises(RuntimeError) as excinfo:
+            push_with_retry(FakeRepo(), "main", attempts=2)
+        assert "non-fast-forward" in str(excinfo.value)
+
+
 # ---------------------------------------------------------------------------
 # A host that refuses this client
 # ---------------------------------------------------------------------------
