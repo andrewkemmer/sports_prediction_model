@@ -75,9 +75,8 @@ appearances are the announcement, not a return. All 19 survivors are
 exactly that case.
 
 Regeneration path for data_delivery/il_stints.parquet (like
-backfill_lineups.py / build_batter_woba.py -- not part of the daily run,
-because the feature degrades loudly rather than failing closed when the
-table is stale):
+backfill_lineups.py -- not part of the daily run, because the feature
+degrades loudly rather than failing closed when the table is stale):
 
     python build_il_stints.py --start 2023-01-01 --end 2026-09-25
 """

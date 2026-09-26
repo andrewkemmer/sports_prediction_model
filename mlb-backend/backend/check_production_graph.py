@@ -32,11 +32,8 @@ PRODUCTION_ALLOWLIST: dict[str, str] = {
     "check_production_graph.py": "this guard",
     "backfill_lineups.py": (
         "documented regeneration path for data_delivery/lineups.parquet — "
-        "features.add_lineup_delta_features(require_caches=True) names it in "
-        "its FileNotFoundError text"),
-    "build_batter_woba.py": (
-        "documented regeneration path for data_delivery/batter_woba.parquet + "
-        "team_woba.parquet — same lineup-delta failure text names it"),
+        "kept as the declared batting order for any future correct "
+        "lineup-delta re-implementation; nothing on the daily run reads it"),
     "build_il_stints.py": (
         "documented regeneration path for data_delivery/il_stints.parquet — "
         "features.register_il_stints names it in its fallback warning, and "

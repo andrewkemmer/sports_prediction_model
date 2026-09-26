@@ -143,13 +143,13 @@ EXACT_MASTER_NAMES = frozenset({
     "statsapi_roof_cache.json",
     "model_history.json",
     "model_version_history.json",
-    # Lineup-delta feature runtime inputs (Phase 2, aead200): the daily
-    # pipeline CONSUMES these; only the standalone builders regenerate them.
-    # Dateless names -> the date-gate can never save them (42ef3f7 deleted
-    # them; the pipeline failed loud without them).
+    # Lineup runtime input: the declared batting order from the StatsAPI
+    # boxscore. Nothing in the daily run reads it any more (the six
+    # lineup_actual_*/lineup_rest_count_* columns were removed 2026-09-26),
+    # but it is the input any correct re-implementation needs, so it stays
+    # protected rather than aged out. batter_woba.parquet / team_woba.parquet
+    # left this list WITH their builder (build_batter_woba.py) on 2026-09-26.
     "lineups.parquet",
-    "batter_woba.parquet",
-    "team_woba.parquet",
     # Injured-list stint table (expected-lineup features.py lineup_agg): the
     # daily pipeline CONSUMES it and only build_il_stints.py regenerates it.
     # Dateless name, so without this the date-gate classifies it stale on the
