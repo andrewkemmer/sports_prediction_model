@@ -24,10 +24,12 @@ the engine's honesty depends on:
   9. delivery honesty: the gates run BEFORE monitoring writes, retention can
      never delete a file the run itself just wrote, and the run-log lines
      that decide what a log means name what they actually measured;
- 10. pull progress: a captured run (no TTY, so no tqdm bar) still records a
-     live position, a readable fixed-width bar, and a closing summary, on a
-     seconds floor as well as an item cadence, and partitions cache hits
-     from fetches from dead pages.
+ 10. pull progress: a real tqdm bar is drawn in every context, including a
+     pipe (the notebook drives the pipeline through subprocess, so stderr is
+     never a terminal), and where no bar can be drawn the log line carries a
+     fixed-width one of its own. Either way the log records a live position
+     and a closing summary, on a seconds floor as well as an item cadence,
+     and partitions cache hits from fetches from dead pages.
 
 Run with: python nhl-backend/backend/test_run_engine_pit.py
 """
@@ -202,19 +204,47 @@ def test_boxscore_pull_is_identical_chunked_or_unchunked():
     pd.testing.assert_frame_equal(chunked, plain)
 
 
+def test_pull_progress_bar_is_drawn_even_when_stderr_is_not_a_terminal():
+    """The bar must exist wherever the work does — including a pipe.
+
+    This is the whole bug behind "the NHL run shows no progress bars". The
+    bar was gated on ``stderr.isatty()``, and the Kaggle notebook drives the
+    pipeline through ``subprocess``, so stderr is ALWAYS a pipe there and the
+    gate made the bar a terminal-only feature: the 2026-09-26 boxscore phase
+    spent three minutes per chunk with no bar at all.
+
+    MLB already has the behaviour to copy. Its bars come from
+    ``pybaseball.statcast()``, which wraps each chunk fetch in its own tqdm
+    and emits regardless of TTY, and they render in the notebook output. A
+    ``\\r``-repainting bar is not the unreadable "stream of snapshots" it was
+    assumed to be: the notebook redraws it, and a redirected log keeps one
+    readable line per refresh. Suppressing it was the defect, not the fix.
+    """
+    assert not getattr(sys.stderr, "isatty", lambda: False)(), (
+        "this test is only meaningful under a non-tty stderr")
+    bar = ing._progress_bar(10, "score chunk 1/11")
+    assert bar is not None, (
+        "no bar is drawn when stderr is a pipe - the bar is still gated on a "
+        "terminal, so every captured run has none")
+    try:
+        bar.update(1)
+        bar.close()
+    except Exception as exc:  # noqa: BLE001
+        raise AssertionError(f"the bar raised on a pipe: {exc!r}") from exc
+
+
 def test_pull_progress_bar_never_breaks_a_run():
-    """The bar is decoration: it must never be able to fail a run, it must
-    stay off when stderr is redirected, and the pull's data must be identical
-    with a bar driving it and with no bar at all."""
-    # Real helper under a non-tty stderr (every piped / CI run): no bar.
-    assert ing._progress_bar(10, "x") is None
-    # Even a tqdm that explodes on attribute access must not escape.
+    """The bar is decoration: it must never be able to fail a run, and the
+    pull's data must be identical with a bar driving it and with no bar."""
+    # A tqdm that explodes on attribute access must not escape.
     class _BoomModule:
         def __getattr__(self, name):
             raise RuntimeError("boom")
     with _mock_patch.dict(sys.modules, {"tqdm": _BoomModule()}):
-        with _mock_patch.object(sys.stderr, "isatty", return_value=True, create=True):
-            assert ing._progress_bar(10, "x") is None
+        assert ing._progress_bar(10, "x") is None
+    # And an absent tqdm is the fallback the inline bar exists for.
+    with _mock_patch.dict(sys.modules, {"tqdm": None}):
+        assert ing._progress_bar(10, "x") is None
 
     ids = ["2024010101", "2024010201"]
     gamedays = {g: pd.Timestamp(g[:8]) for g in ids}
@@ -2110,15 +2140,12 @@ class _Clock:
 
 
 def test_pull_progress_records_its_position_when_there_is_no_bar():
-    """A redirected stderr means no bar, so the log has to carry the position.
+    """Even with no bar at all, the log has to carry the position.
 
-    This is the Kaggle run: stderr goes to a file, ``_progress_bar`` returns
-    ``None``, and the 2026-09-26 boxscore phase then spent three minutes per
-    chunk emitting nothing at all — a working pull and a hung one were
-    indistinguishable in the only artifact a remote run produces.
+    tqdm can be absent or broken, and then the per-window line is the only
+    place progress can appear. It must still show a live position and a
+    closing summary rather than going quiet for the length of a chunk.
     """
-    assert ing._progress_bar(10, "x") is None, (
-        "stderr is not a terminal under pytest, so the bar must stay off")
     box = []
     with _mock_patch.object(ing, "_progress_bar", return_value=None):
         def _drive():
@@ -2293,13 +2320,14 @@ def test_progress_bar_is_fixed_width_printable_ascii():
     assert ing._bar(0.5).isascii()
 
 
-def test_a_captured_pull_line_carries_a_readable_bar():
-    """With no terminal there is no bar at all — so the line must BE the bar.
+def test_a_pull_line_carries_a_readable_bar_when_there_is_no_tqdm():
+    """Where no bar can be drawn, the log line must BE the bar.
 
-    This is the Kaggle run: a subprocess whose stderr is a pipe, so the log
-    is the only place progress can be seen. A tqdm bar would repaint with
-    \\r and a file-backed sink records that as a stream of snapshots; these
-    are ordinary characters, so the pane shows a bar filling up.
+    That context is real: tqdm may be absent (the Kaggle notebook installs
+    it explicitly, and a kernel that has not run that cell has no tqdm), and
+    it may be broken. Then the line is the only place progress can appear,
+    so it carries its own fixed-width bar. These are ordinary characters, so
+    it reads as a bar filling up in the log.
     """
     import re
 
@@ -2317,6 +2345,59 @@ def test_a_captured_pull_line_carries_a_readable_bar():
     assert fills[-1] == ing.BAR_WIDTH, f"a finished window is not full: {fills}"
     assert fills[0] == round(ing.BAR_WIDTH * 10 / 60), fills[0]
     assert all(m.isascii() for m in msgs), "a log line is not plain ASCII"
+
+
+def test_a_drawn_bar_suppresses_the_inline_one_so_progress_is_not_drawn_twice():
+    """A live bar and an inline bar for the same position is noise.
+
+    The tqdm bar is moving in the operator's face; repeating the position as
+    a second bar in the log line right above it reads as two disagreeing
+    bars. The latch is taken at CONSTRUCTION, so `close()` — which clears
+    the bar before logging the window's result — still knows a bar drew, and
+    the closing line does not grow one late.
+    """
+    class _Fake:
+        def __init__(self):
+            self.updates = 0
+            self.closed = 0
+
+        def update(self, n=1):
+            self.updates += n
+
+        def set_postfix(self, **kw):
+            pass
+
+        def close(self):
+            self.closed += 1
+
+    bar = _Fake()
+    with _mock_patch.object(ing, "_progress_bar", return_value=bar):
+        def _drive():
+            prog = ing._PullProgress(60, "score chunk 1/11 [x]", every=10)
+            for _ in range(60):
+                prog.tick(cached=False)
+            prog.close()
+        msgs = _pull_log(_drive)
+    assert not any("[" in m and "#" in m for m in msgs), \
+        f"the inline bar is drawn alongside a live bar: {[m for m in msgs if '#' in m][:1]}"
+    # The counts still ride along, and the bar still tracked the pull.
+    assert any("60/60" in m and "60 fetched" in m for m in msgs), msgs
+    assert bar.updates == 60 and bar.closed == 1, \
+        f"the bar did not track the pull (updates={bar.updates}, closed={bar.closed})"
+
+
+def test_the_kaggle_notebook_installs_tqdm_or_there_is_no_bar_to_draw():
+    """The notebook installs the pipeline's dependencies by hand.
+
+    tqdm is in MLB's list precisely because the bar is the operator's only
+    view of a multi-minute chunked pull. The NHL list omitted it, so even
+    with the isatty gate removed the Kaggle run had nothing to draw with and
+    the bar stayed invisible. A dependency the notebook must install is
+    part of the bar's contract.
+    """
+    # BACKEND is <repo>/nhl-backend/backend, so the notebook is two levels up.
+    nb = (BACKEND.parents[1] / "kaggle_nhl_run.ipynb").read_text(encoding="utf-8")
+    assert "tqdm" in nb, "the NHL Kaggle notebook never installs tqdm"
 
 
 def _log_call_containing(src: str, needle: str):

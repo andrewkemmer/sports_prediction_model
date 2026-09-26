@@ -24,6 +24,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import sys
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -85,19 +86,35 @@ SETTLE_GRACE_DAYS = 2
 
 
 def _progress_bar(total: int, desc: str):
-    """A tqdm bar when tqdm is installed AND stderr is a terminal, else None.
+    """A tqdm bar whenever tqdm is importable, else None.
 
-    Total best-effort by design: it writes nothing to stdout, never raises
-    (a missing, broken, or absent tqdm must not fail a run), and stays off
-    when stderr is redirected so a piped log collects no control characters.
-    The logger lines are the durable record of progress either way.
+    Drawn UNCONDITIONALLY, not only on a terminal — that gate is what made
+    the bar a terminal-only feature and left the Kaggle run with none, since
+    the notebook drives the pipeline through ``subprocess`` and stderr is
+    therefore a pipe. MLB already has the behaviour to copy: the bars in its
+    run come from ``pybaseball.statcast()``, which wraps each chunk fetch in
+    its own tqdm and emits regardless of TTY, and they render in the notebook
+    output. A ``\\r``-repainting bar is not a stream of unreadable snapshots —
+    the notebook redraws it, and a redirected log keeps one readable line per
+    refresh. Hiding the bar is what made the pull invisible.
+
+    ``leave=True`` so the completed 100% bar survives, the way MLB's does, and
+    ``ascii`` left at tqdm's own default so it picks block glyphs under UTF-8
+    and degrades to ASCII on a cp1252 console by itself.
+
+    Total best-effort by design: it writes to stderr only, never raises (a
+    missing, broken, or absent tqdm must not fail a run), and the per-window
+    log lines remain the durable record of progress either way.
     """
+    # NB: the bare `except` below will swallow a NameError here, so anything
+    # this function touches must be imported at module scope. It did once:
+    # `sys` was only imported inside the old body, and dropping that import
+    # turned the bar into a silent None instead of an error.
+
     try:
         from tqdm import tqdm
-        import sys
-        if not getattr(sys.stderr, "isatty", lambda: False)():
-            return None
-        return tqdm(total=total, desc=desc, unit="game", leave=False)
+        return tqdm(total=total, desc=desc, unit="game", leave=True,
+                    dynamic_ncols=True, file=sys.stderr)
     except Exception:  # noqa: BLE001 — decoration must never break ingestion
         return None
 
@@ -132,13 +149,14 @@ def _bar(fraction: float, width: int = BAR_WIDTH) -> str:
 class _PullProgress:
     """Durable, terminal-independent progress for a multi-minute pull.
 
-    A tqdm bar is the right affordance on a terminal and useless in a
-    captured log: ``_progress_bar`` hands back ``None`` whenever stderr is
-    not a TTY, which is exactly the Kaggle run — the 2026-09-26 boxscore
-    phase spent three minutes per chunk emitting nothing at all, so a run
-    that was working and a run that had hung looked identical. This emits
-    one plain log line per window instead, so the log is the record in every
-    context, and still drives the bar when there is one.
+    A tqdm bar is the right affordance and this emits one plain log line per
+    window beside it, so BOTH are present in every context: the bar for the
+    operator watching a cell scroll, the line for the durable record. The bar
+    used to be suppressed whenever stderr was not a terminal, which is every
+    captured run — the 2026-09-26 boxscore phase spent three minutes per
+    chunk emitting nothing at all, so a run that was working and a run that
+    had hung looked identical. Where a real bar is drawing, the log line
+    drops its own inline bar so the position is not rendered twice.
 
     The window closes on whichever comes first: ``every`` items, or
     ``interval`` seconds. A cadence counted only in items goes quiet exactly
@@ -146,8 +164,8 @@ class _PullProgress:
     count-triggered line can be minutes wide. The seconds floor bounds the
     worst gap no matter how slow the pull gets.
 
-    Every line carries an inline ``_bar`` so the log itself is the bar chart,
-    in the one context that has no live one.
+    Every line carries an inline ``_bar`` only when no tqdm bar is drawing,
+    so a run with neither a terminal nor tqdm still reads as progress.
     """
 
     def __init__(self, total: int, desc: str, every: int = 50,
@@ -164,6 +182,10 @@ class _PullProgress:
         self._last = self._start
         self._reported = False
         self._bar = _progress_bar(self.total, self.desc)
+        # Latched at construction, not read live: `close()` clears `self._bar`
+        # before it logs the window's result, and the closing line must still
+        # know whether a bar DREW for this window.
+        self._drew_bar = self._bar is not None
 
     @staticmethod
     def _rate(done: int, elapsed: float) -> float:
@@ -184,15 +206,23 @@ class _PullProgress:
         return ", ".join(parts)
 
     def _bar_at(self, done: int) -> str:
-        """The bar for this position. A zero-item window reads as complete
-        rather than dividing by zero — nothing was asked for, so nothing is
-        outstanding."""
+        """The bar for this position, or empty when a real bar is drawing.
+
+        Two bars for one position is noise, not emphasis: the tqdm bar is
+        live and moving, so the line carries only the numbers it cannot show.
+        With no tqdm the line IS the bar, and keeps its own. A zero-item
+        window reads as complete rather than dividing by zero — nothing was
+        asked for, so nothing is outstanding.
+        """
+        if self._drew_bar:
+            return ""
         return _bar(done / self.total if self.total else 1.0)
 
     def _line(self, done: int, now: float) -> str:
         elapsed = max(0.0, now - self._start)
         rate = self._rate(done, elapsed)
-        head = (f"{self.desc} {done}/{self.total} {self._bar_at(done)} "
+        bar = self._bar_at(done)
+        head = (f"{self.desc} {done}/{self.total}{' ' + bar if bar else ''} "
                 f"({self._counts()}) {elapsed:.1f}s {rate:.2f}/s")
         if rate > 0 and done < self.total:
             return f"{head} eta {(self.total - done) / rate:.0f}s"
@@ -238,8 +268,9 @@ class _PullProgress:
         if not self.total or not self.done or self._reported:
             return
         elapsed = max(0.0, time.monotonic() - self._start)
-        logger.info("%s %s done %d/%d (%s) in %.1fs (%.2f/s)",
-                    self.desc, self._bar_at(self.done), self.done, self.total,
+        bar = self._bar_at(self.done)
+        logger.info("%s%s done %d/%d (%s) in %.1fs (%.2f/s)",
+                    self.desc, f" {bar}" if bar else "", self.done, self.total,
                     self._counts(), elapsed,
                     self._rate(self.done, elapsed))
         # close() is idempotent: the bar's is, and a second call (a re-entered
