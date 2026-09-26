@@ -1329,6 +1329,173 @@ class TestTrainableGames:
         assert ing.trainable_games(pd.DataFrame()).empty
 
 
+class TestCardPresentationFields:
+    """Tipoff, arena, and the postponed state a card has to be able to show.
+
+    The delivered moneyline JSON carried ``start_time_utc`` and ``venue`` as
+    columns that were always null, and every ``p_*`` player field was null too,
+    so the board showed no tipoff and no top player for either side. Three
+    separate causes, all upstream of the frontend: the parser dropped fields
+    ESPN had already sent, the contract discarded what survived, and the player
+    lookup asked for a column name the contract never produced.
+    """
+
+    @staticmethod
+    def _row(event) -> dict:
+        return src._parse_espn_event(event, config.GAME_TYPE_REG)
+
+    def test_the_tipoff_survives_as_a_utc_instant(self):
+        row = self._row(_espn_event(when="2026-10-20T23:00Z"))
+        assert row["start_time_utc"] == "2026-10-20T23:00:00Z"
+
+    def test_the_tipoff_is_normalized_rather_than_copied(self):
+        """A board date is an Eastern date; the instant is what converts back."""
+        row = self._row(_espn_event(when="2025-01-10T03:30Z"))
+        assert row["start_time_utc"].endswith("Z")
+        # 03:30Z on Jan 10 is 22:30 ET on Jan 9 - the rollover the guard in
+        # ``_answered_a_different_day`` already tolerates on the schedule side.
+        assert str(row["gameday"])[:10] == "2025-01-09"
+
+    def test_an_unparseable_tipoff_yields_nothing_rather_than_midnight(self):
+        """A fabricated midnight UTC lands on the prior Eastern evening and
+        renders as a plausible, wrong tipoff."""
+        assert src._utc_iso(None) == ""
+        assert src._utc_iso(pd.NaT) == ""
+        assert src._utc_iso("not a date") == ""
+
+    def test_the_contract_keeps_the_fields_rather_than_dropping_them(self):
+        """``normalize`` projects to the declared schema, so an undeclared
+        column is silently dropped - which is how a delivered artifact ends up
+        with an empty ``start_time_utc`` column."""
+        for column in ("start_time_utc", "venue", "game_state",
+                       "game_status_detail"):
+            assert column in contract.SCHEMAS["games"], column
+
+    def test_the_venue_is_carried_when_the_schedule_publishes_one(self):
+        event = _espn_event()
+        event["competitions"][0]["venue"] = {"fullName": "TD Garden"}
+        assert self._row(event)["venue"] == "TD Garden"
+
+    def test_a_game_with_no_venue_reports_none_rather_than_placeholder(self):
+        assert self._row(_espn_event())["venue"] == ""
+
+    def test_the_state_and_detail_are_carried_for_the_card_to_label(self):
+        row = self._row(_espn_event(state="pre", completed=False,
+                                    detail="Postponed"))
+        assert row["game_state"] == "pre"
+        assert row["game_status_detail"] == "Postponed"
+        assert not row["is_final"]
+
+    def test_a_postponed_game_is_recognised_by_detail_not_by_a_word_list(self):
+        assert src.is_postponed_detail("Postponed")
+        assert src.is_postponed_detail("Canceled")
+        assert src.is_postponed_detail("Suspended")
+        assert src.is_postponed_detail("Rescheduled to a later date")
+        assert not src.is_postponed_detail("Final")
+        assert not src.is_postponed_detail("7:30 PM ET")
+        assert not src.is_postponed_detail("")
+
+    def test_serving_refuses_to_invent_a_tipoff(self):
+        """Mirrors the NHL rule: a date with no time is not a tipoff."""
+        import serving
+        assert serving._start_time_utc({"start_time_utc": ""}) is None
+        assert serving._start_time_utc({"start_time_utc": "2026-10-20"}) is None
+        assert serving._start_time_utc(
+            {"start_time_utc": "2026-10-20T23:00:00Z"}) == "2026-10-20T23:00:00Z"
+
+    def test_a_postponed_game_is_labelled_postponed_on_the_card(self, tmp_path):
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2025-01-09"),
+            "home_team": "LAL", "away_team": "CHA",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4,
+            "game_status_detail": "Postponed"}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Postponed"
+
+    def test_an_unplayed_game_with_no_detail_is_still_scheduled(self, tmp_path):
+        import serving
+        slate = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-20"),
+            "home_team": "BOS", "away_team": "DET",
+            "home_score": np.nan, "away_score": np.nan,
+            "home_win_prob_model": 0.6, "away_win_prob_model": 0.4}])
+        record = serving.write_moneyline_json(tmp_path / "m.json", slate,
+                                              [0.6], [0.6])
+        assert record["games"][0]["game_status"] == "Scheduled"
+
+    def test_a_qualifying_player_is_actually_found(self):
+        """End to end over the real column names, because a name-only test
+        cannot tell a fixed guard from a still-empty one."""
+        import player_enrichment
+        games = pd.DataFrame([
+            {"game_id": f"g{n}", "gameday": pd.Timestamp("2026-01-0%d" % (n + 1)),
+             "home_team": "BOS", "away_team": "DET",
+             "home_score": 110.0, "away_score": 100.0}
+            for n in range(config.PLAYER_WINDOW_GAMES)])
+        rows = []
+        for n in range(config.PLAYER_WINDOW_GAMES):
+            for minutes, points, ast in ((36, 30, 11), (12, 4, 1), (5, 2, 0)):
+                rows.append({
+                    "game_id": f"g{n}", "team": "BOS", "player_id": "p1",
+                    "player_name": "J. Player", "minutes": minutes,
+                    "points": points, "ast": ast})
+        record = player_enrichment._player_for_team(
+            pd.DataFrame(rows), "BOS", pd.Timestamp("2026-02-01"), games)
+        assert record.get("name") == "J. Player"
+        assert record["ppg"] > record.get("apg", 0)
+        assert record["games"] == config.PLAYER_WINDOW_GAMES
+
+    def test_a_cached_day_from_an_older_parser_is_refetched(self, tmp_path):
+        """A cache entry written before the frame gained a tipoff reads back as
+        a hit and silently yields empty values, so a whole window reports no
+        tipoff while a freshly fetched day reports one. A stale shape is a
+        miss, and the refetch overwrites it in place."""
+        path = tmp_path / "schedule" / "20250109.parquet"
+        ing._write_parquet(pd.DataFrame({
+            "game_id": ["1"], "gameday": [pd.Timestamp("2025-01-09")],
+            "home_team": ["LAL"], "away_team": ["CHA"],
+            "home_score": [np.nan], "away_score": [np.nan]}),
+            path)
+        stale = pd.DataFrame({"game_id": ["1"]})
+        assert not ing._schedule_hit(stale, path)
+        fresh = pd.DataFrame({"game_id": ["1"], "start_time_utc": ["x"],
+                              "venue": ["TD Garden"], "game_state": ["pre"],
+                              "game_status_detail": ["7:30 PM ET"]})
+        assert ing._schedule_hit(fresh, path)
+
+    def test_a_genuinely_empty_day_stays_a_hit(self, tmp_path):
+        """Most days in a window have no games, and that emptiness is the fact
+        worth keeping - refetching them would cost a request to learn nothing."""
+        path = tmp_path / "schedule" / "20250110.parquet"
+        ing._write_parquet(pd.DataFrame(), path)
+        assert ing._schedule_hit(pd.DataFrame(), path)
+
+    def test_a_postponed_game_is_not_offered_as_upcoming(self):
+        """MLB's decided-frame rule in one line: postponements are excluded.
+        Left in the slate it is indistinguishable from a real game, which is
+        how a January 2025 postponement reached a board dated October 2026."""
+        games = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2025-01-09"),
+            "home_team": "LAL", "away_team": "CHA", "season": 2025,
+            "home_score": np.nan, "away_score": np.nan,
+            "game_type": config.GAME_TYPE_REG,
+            "game_status_detail": "Postponed"}])
+        slate = feat.build_slate_features(games)
+        assert slate.empty
+
+    def test_a_real_upcoming_game_is_still_offered(self):
+        games = pd.DataFrame([{
+            "game_id": "1", "gameday": pd.Timestamp("2026-10-20"),
+            "home_team": "BOS", "away_team": "DET", "season": 2027,
+            "home_score": np.nan, "away_score": np.nan,
+            "game_type": config.GAME_TYPE_REG,
+            "game_status_detail": "7:30 PM ET"}])
+        assert len(feat.build_slate_features(games)) == 1
+
+
 class TestSixtyDaySlices:
     """The 60-day pull, and the reason it is only applied where it works.
 
@@ -1581,6 +1748,50 @@ class TestProgressIsVisible:
         """The guardrail: display only. Same items, same order, bar or no bar."""
         items = [3, 1, 2]
         assert list(ing.progress.wrap(iter(items), len(items), "x")) == items
+
+    def test_the_count_follows_the_work_and_never_leads_it(self, _captured, caplog):
+        """The 2026-09-26 Kaggle run closed a 1,024-day sweep on "1023 fetched"
+        and then summarised "1024 fetched", because the bar was ticked at the
+        top of the loop body. The count has to follow the work, and the closing
+        line is the one that has to agree with the summary after it."""
+        fetched = 0
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(4, desc="days", unit="day") as bar:
+                for _ in range(4):
+                    with bar.item(lambda: f"{fetched} fetched"):
+                        fetched += 1
+        assert "days: 4/4 (100%)" in caplog.text
+        assert "days: 4 of 4 days done (4 fetched)" in caplog.text
+
+    def test_a_unit_that_continues_still_ticks_exactly_once(self, _captured, caplog):
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(3, desc="days", unit="day") as bar:
+                for _ in range(3):
+                    with bar.item():
+                        continue
+        assert "days: 3/3 (100%)" in caplog.text
+
+    def test_a_unit_that_fails_is_still_counted(self, _captured, caplog):
+        """A failure is a completed attempt; hiding it would make a broken
+        sweep look like a merely shorter one."""
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with pytest.raises(ing.HostUnavailable):
+                with ing.progress.track(2, desc="days", unit="day") as bar:
+                    with bar.item():
+                        raise ing.HostUnavailable("refused")
+        assert "days: 1/2 (50%)" in caplog.text
+
+    def test_a_unit_never_attempted_does_not_tick(self, _captured, caplog):
+        """A budget break taken before the block leaves the count short of the
+        total, which is the honest reading: those days were not asked about."""
+        with caplog.at_level("INFO", logger="nba_progress"):
+            with ing.progress.track(5, desc="days", unit="day") as bar:
+                for index in range(5):
+                    if index == 3:
+                        break
+                    with bar.item():
+                        pass
+        assert "days: 3/5 (60%)" in caplog.text
 
     def test_the_eta_reads_like_a_duration(self):
         assert ing.progress._eta(9) == "9s"

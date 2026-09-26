@@ -11,8 +11,10 @@ import pandas as pd
 
 try:
     from backend import config
+    from backend import nba_sources as sources
 except ImportError:
     import config
+    import nba_sources as sources
 
 
 def _clean(value: Any) -> Any:
@@ -74,6 +76,29 @@ def _prob_array(value: Any, length: int) -> np.ndarray:
     return array
 
 
+def _start_time_utc(g) -> str | None:
+    """Return the official UTC tipoff, or null when it is unavailable.
+
+    Mirrors the NHL backend's rule exactly, and for the same reason: ``gameday``
+    is an Eastern board date, so fabricating midnight UTC for a missing tipoff
+    places the instant on the prior Eastern evening and makes a real board date
+    look valid. A card with no tipoff is honest; a card with the wrong one is
+    not, and the difference is invisible to the reader.
+    """
+    raw = str(g.get("start_time_utc", "") or "").strip()
+    if not raw or ("T" not in raw and " " not in raw):
+        return None
+    try:
+        stamp = pd.Timestamp(raw)
+        if stamp.tzinfo is None:
+            stamp = stamp.tz_localize("UTC")
+        else:
+            stamp = stamp.tz_convert("UTC")
+        return stamp.isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
                          team_names=None, config_meta=None,
                          player_leaders=None) -> dict:
@@ -94,16 +119,26 @@ def write_moneyline_json(path, slate: pd.DataFrame, p_home, p_home_cal,
         pick = None if shown is None else (game.get("home_team") if shown >= 0.5 else game.get("away_team"))
         hs, as_ = game.get("home_score"), game.get("away_score")
         final = pd.notna(hs) and pd.notna(as_)
+        detail = str(game.get("game_status_detail", "") or "")
+        postponed = sources.is_postponed_detail(detail)
         row = {
             "game_id": str(game.get("game_id", "")),
             "game_date": _date(game.get("gameday", game.get("game_date"))),
-            "start_time_utc": _clean(game.get("start_time_utc")),
+            "start_time_utc": _start_time_utc(game),
             "home_team": game.get("home_team"), "away_team": game.get("away_team"),
             "home_team_name": game.get("home_team_name") or team_names.get(game.get("home_team"), game.get("home_team")),
             "away_team_name": game.get("away_team_name") or team_names.get(game.get("away_team"), game.get("away_team")),
             "home_record": _clean(game.get("home_record")), "away_record": _clean(game.get("away_record")),
             "venue": _clean(game.get("venue")),
-            "game_status": "Final" if final else (game.get("game_status") or "Scheduled"),
+            # "Postponed" is a distinct state from "Scheduled", MLB's structure:
+            # the game has no tip to predict against and no result to show, and
+            # labelling it either way misleads.  When ESPN reschedules it the
+            # event keeps its id, moves to the new date and settles there, so it
+            # reappears on the card for the day it is actually played.
+            "game_status": ("Postponed" if postponed else
+                            "Final" if final else
+                            (game.get("game_status") or "Scheduled")),
+            "game_status_detail": detail,
             "home_score": _clean(hs), "away_score": _clean(as_),
             "home_win_prob_model": shown,
             "away_win_prob_model": None if shown is None else 1 - shown,

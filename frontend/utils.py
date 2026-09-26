@@ -3421,7 +3421,15 @@ def nba_moneyline_to_frame(data) -> pd.DataFrame:
             "home_win_prob_model": ph, "away_win_prob_model": None if ph is None else 1 - ph,
             "home_record": record.get("home_record"), "away_record": record.get("away_record"),
             "edge_home": _nl(record.get("edge_home")), "edge_away": _nl(record.get("edge_away")),
-            "start_time_utc": _repair_start_iso(record.get("start_time_utc")) or (f"{game_date}T00:00:00Z" if game_date else ""),
+            # Never fabricate a tipoff.  ``game_date`` is an Eastern *board*
+            # date, so a missing kickoff defaulted to midnight UTC rendered as
+            # 7:00 PM ET the previous evening - a plausible-looking time on
+            # every game that had none, which is how a board of unslotted
+            # games came to show a confident, wrong start.  The NHL adapter
+            # passes ``None`` for the same reason, and the MLB card already
+            # renders "PREGAME" when the start is unknown; both consumers here
+            # (``_is_evening_start``, the card) treat an absent time as absent.
+            "start_time_utc": _repair_start_iso(record.get("start_time_utc")) or None,
             "venue": record.get("venue") or record.get("arena") or "",
             "model_pick": pick or "", "home_score": hs, "away_score": as_,
             "game_status": status, "game_date": game_date,

@@ -43,8 +43,14 @@ def _player_for_team(stats: pd.DataFrame | None, team: str, target_date,
                      games: pd.DataFrame | None = None) -> dict:
     if stats is None or not len(stats):
         return {}
+    # ``ast`` is the contract's name for assists (``nba_sources._LOG_RENAME``
+    # maps ESPN's ``AST`` to it, alongside points/fga/tov/pf).  This set asked
+    # for ``assists``, which the contract has never produced, so the guard below
+    # failed for every game on every team and the top-player matchup was empty
+    # on every run - while looking like a deliberate fail-closed refusal rather
+    # than a name that never existed.
     required = {"team", "player_id", "player_name", "game_id",
-                "points", "assists", "minutes"}
+                "points", "ast", "minutes"}
     if not required.issubset(stats.columns):
         return {}
     game_ids = _completed_team_games(games, team, target_date)
@@ -77,7 +83,7 @@ def _player_for_team(stats: pd.DataFrame | None, team: str, target_date,
     if frame.empty:
         return {}
     frame["points"] = pd.to_numeric(frame.get("points"), errors="coerce")
-    frame["assists"] = pd.to_numeric(frame.get("assists"), errors="coerce")
+    frame["ast"] = pd.to_numeric(frame.get("ast"), errors="coerce")
     frame["minutes"] = pd.to_numeric(frame.get("minutes"), errors="coerce")
     candidates = []
     for pid, group in frame.groupby("player_id", dropna=False):
@@ -98,7 +104,7 @@ def _player_for_team(stats: pd.DataFrame | None, team: str, target_date,
         # Stable tie break: highest PPG, then player ID.  This keeps cards
         # deterministic when two players share a rounded average.
         candidates.append((float(points.mean()),
-                           float(group.assists.mean()) if group.assists.notna().any() else np.nan,
+                           float(group.ast.mean()) if group.ast.notna().any() else np.nan,
                            str(name or pid), appearances, str(pid)))
     if not candidates:
         return {}

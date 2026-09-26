@@ -641,6 +641,35 @@ def _schedule_path(day: date):
     return _cache_dir() / "schedule" / f"{day:%Y%m%d}.parquet"
 
 
+#: Columns the schedule parser emits beyond the contract's required set. A
+#: cached day missing any of them was written by an older parser and is
+#: refetched rather than trusted.
+_SCHEDULE_PRESENT_COLUMNS = frozenset({"start_time_utc", "venue",
+                                       "game_state", "game_status_detail"})
+
+
+def _schedule_hit(frame: pd.DataFrame, path) -> bool:
+    """Whether this cached day is usable by the current parser.
+
+    A cache entry written before the schedule frame carried a tipoff, an arena
+    and a game state reads back as a hit and silently yields empty values for
+    all four. That is worse than a miss: the run reports a whole window of
+    games with no tipoff while a freshly fetched day reports one, and the
+    difference looks like flaky data rather than a stale cache. Treating a
+    stale shape as a miss refetches only the days that are actually stale and
+    overwrites them in place, so the cache heals without a version bump or a
+    flag.
+
+    An empty day is still a valid answer and stays a hit: most days in a window
+    genuinely have no games, and their emptiness is the fact.
+    """
+    if not path.exists():
+        return False
+    if frame.empty:
+        return True
+    return _SCHEDULE_PRESENT_COLUMNS.issubset(frame.columns)
+
+
 def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
     """Every game in the window, from ESPN, one request per day.
 
@@ -684,57 +713,60 @@ def _fetch_schedule(start: date, end: date) -> pd.DataFrame:
                                offset, days)
                 break
             day = start + timedelta(days=offset)
-            bar.update(1)
-            bar.set_postfix(f"{day}  {fetched} fetched  {cached} cached")
-            path = _schedule_path(day)
-            existing = pd.DataFrame() if _flag(FULL_REPULL_ENV) else _read_parquet(path)
-            if not existing.empty or path.exists():
-                cached += 1
-                frames.append(existing)
-                continue
-            _ensure_probed("espn")
-            try:
-                payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
-                                    timeout=25.0, attempts=2)
-                day_frame = sources.espn_schedule_frame(payload.get("events", []))
-                answered = _answered_a_different_day(day_frame, day)
-                if answered is not None:
-                    # Raised inside the same handler as a 403 on purpose: a
-                    # wrong answer and a refusal are the same operational fact,
-                    # and both must trip the breaker rather than be cached as a
-                    # day's schedule.
-                    raise HostUnavailable(
-                        f"asked ESPN for {day} and every game it returned came "
-                        f"back dated {answered}. Its scoreboard ignores a date "
-                        f"it does not recognise and answers with whatever "
-                        f"slate it currently holds")
-            except HostUnavailable as exc:
-                consecutive += 1
-                last_reason = _short(exc)
-                logger.warning("ESPN scoreboard unavailable for %s (%d in a row): %s",
-                               day, consecutive, last_reason)
-                if consecutive >= max_failures:
-                    remaining = days - offset - 1
-                    raise ScheduleUnavailable(
-                        f"ESPN's scoreboard failed {consecutive} days in a row "
-                        f"(last {day}), so the sweep stopped rather than ask the "
-                        f"same question {remaining} more time(s). It had spent "
-                        f"{time.time() - started:.0f}s of its budget proving one "
-                        f"thing, which is what a host refusing this client looks "
-                        f"like: an instant 403, a connection that is accepted "
-                        f"and then never answered, or an answer about a "
-                        f"different day entirely. The last one was: "
-                        f"{last_reason}. Nothing this pipeline sends will change "
-                        f"any of them. Run where ESPN is reachable, or warm "
-                        f"the cache here and re-run with --skip-pull."
-                    ) from exc
-                continue
-            consecutive = 0
-            day_frame = day_frame.assign(_day=day)
-            _write_parquet(day_frame, path)
-            fetched += 1
-            if not day_frame.empty:
-                frames.append(day_frame)
+            with bar.item(lambda: f"{day}  {fetched} fetched  {cached} cached"):
+                path = _schedule_path(day)
+                existing = (pd.DataFrame() if _flag(FULL_REPULL_ENV)
+                            else _read_parquet(path))
+                if _schedule_hit(existing, path):
+                    cached += 1
+                    frames.append(existing)
+                    continue
+                _ensure_probed("espn")
+                try:
+                    payload = http_json(sources.espn_scoreboard_url(day), ESPN_HEADERS,
+                                        timeout=25.0, attempts=2)
+                    day_frame = sources.espn_schedule_frame(payload.get("events", []))
+                    answered = _answered_a_different_day(day_frame, day)
+                    if answered is not None:
+                        # Raised inside the same handler as a 403 on purpose: a
+                        # wrong answer and a refusal are the same operational
+                        # fact, and both must trip the breaker rather than be
+                        # cached as a day's schedule.
+                        raise HostUnavailable(
+                            f"asked ESPN for {day} and every game it returned "
+                            f"came back dated {answered}. Its scoreboard "
+                            f"ignores a date it does not recognise and answers "
+                            f"with whatever slate it currently holds")
+                except HostUnavailable as exc:
+                    consecutive += 1
+                    last_reason = _short(exc)
+                    logger.warning(
+                        "ESPN scoreboard unavailable for %s (%d in a row): %s",
+                        day, consecutive, last_reason)
+                    if consecutive >= max_failures:
+                        remaining = days - offset - 1
+                        raise ScheduleUnavailable(
+                            f"ESPN's scoreboard failed {consecutive} days in "
+                            f"a row (last {day}), so the sweep stopped rather "
+                            f"than ask the same question {remaining} more "
+                            f"time(s). It had spent "
+                            f"{time.time() - started:.0f}s of its budget "
+                            f"proving one thing, which is what a host refusing "
+                            f"this client looks like: an instant 403, a "
+                            f"connection that is accepted and then never "
+                            f"answered, or an answer about a different day "
+                            f"entirely. The last one was: {last_reason}. "
+                            f"Nothing this pipeline sends will change any of "
+                            f"them. Run where ESPN is reachable, or warm the "
+                            f"cache here and re-run with --skip-pull."
+                        ) from exc
+                    continue
+                consecutive = 0
+                day_frame = day_frame.assign(_day=day)
+                _write_parquet(day_frame, path)
+                fetched += 1
+                if not day_frame.empty:
+                    frames.append(day_frame)
     if not frames:
         return pd.DataFrame()
     games = pd.concat([f for f in frames if not f.empty], ignore_index=True)
@@ -820,70 +852,69 @@ def _fetch_season_logs(start: date, end: date) -> pd.DataFrame:
                         unit="slice") as bar:
         for number, (label, season_type, game_type, lo, hi) in enumerate(
                 units, start=1):
-            bar.update(1)
-            bar.set_postfix(f"{lo} -> {hi}  {label} {season_type}")
-            # MLB's chunked pulls announce each window as they take it
-            # (``Chunk: start -> end``). The season and type ride along because
-            # two seasons are in flight at once near an October boundary, and a
-            # bare date range would not say which one this was.
-            logger.info("  Chunk: %s -> %s  %s %s", lo, hi, label, season_type)
-            path = _season_log_path(label, season_type, lo, hi)
-            if _flag(FULL_REPULL_ENV):
+            with bar.item(lambda: f"{lo} -> {hi}  {label} {season_type}"):
+                # MLB's chunked pulls announce each window as they take it
+                # (``Chunk: start -> end``). The season and type ride along
+                # because two seasons are in flight at once near an October
+                # boundary, and a bare date range would not say which one.
+                logger.info("  Chunk: %s -> %s  %s %s", lo, hi, label, season_type)
+                path = _season_log_path(label, season_type, lo, hi)
+                if _flag(FULL_REPULL_ENV):
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+                cached = _read_parquet(path)
+                if path.exists():
+                    # ``path.exists()`` rather than ``not cached.empty``: a
+                    # window with no games in it is cached as an empty file, and
+                    # testing the frame instead would re-ask for that window on
+                    # every run forever - which is exactly the "has not started
+                    # yet" answer this cache exists to remember.
+                    if not cached.empty:
+                        logger.info("%s %s %s..%s: %d rows from cache", label,
+                                    season_type, lo, hi, len(cached))
+                        frames.append(cached)
+                    else:
+                        logger.info("%s %s %s..%s: cached, no games in this window",
+                                    label, season_type, lo, hi)
+                    consecutive = 0
+                    continue
+                url = (f"{sources.SEASON_LOG_URL}?"
+                       f"{sources.season_log_query(label, season_type, lo, hi)}")
+                _ensure_probed("stats")
                 try:
-                    path.unlink()
-                except OSError:
-                    pass
-            cached = _read_parquet(path)
-            if path.exists():
-                # ``path.exists()`` rather than ``not cached.empty``: a window
-                # with no games in it is cached as an empty file, and testing the
-                # frame instead would re-ask for that window on every run
-                # forever - which is exactly the "has not started yet" answer
-                # this cache exists to remember.
-                if not cached.empty:
-                    logger.info("%s %s %s..%s: %d rows from cache", label,
-                                season_type, lo, hi, len(cached))
-                    frames.append(cached)
-                else:
-                    logger.info("%s %s %s..%s: cached, no games in this window",
-                                label, season_type, lo, hi)
+                    payload = http_json(url, STATS_HEADERS, timeout=90.0, attempts=3)
+                except HostUnavailable as exc:
+                    consecutive += 1
+                    failures.append(f"{label} {season_type} {lo}..{hi}: {_short(exc)}")
+                    logger.error("stats.nba.com season log unavailable, %s %s "
+                                 "%s..%s (%d in a row): %s", label, season_type,
+                                 lo, hi, consecutive, _short(exc))
+                    if consecutive >= max_failures:
+                        logger.error("NBA season-log pull stopping after %d "
+                                     "consecutive failures; the endpoint is not "
+                                     "answering, so the remaining %d slice(s) "
+                                     "would only repeat it.", consecutive,
+                                     len(units) - number)
+                        stopped_early = True
+                        break
+                    continue
                 consecutive = 0
-                continue
-            url = (f"{sources.SEASON_LOG_URL}?"
-                   f"{sources.season_log_query(label, season_type, lo, hi)}")
-            _ensure_probed("stats")
-            try:
-                payload = http_json(url, STATS_HEADERS, timeout=90.0, attempts=3)
-            except HostUnavailable as exc:
-                consecutive += 1
-                failures.append(f"{label} {season_type} {lo}..{hi}: {_short(exc)}")
-                logger.error("stats.nba.com season log unavailable, %s %s "
-                             "%s..%s (%d in a row): %s", label, season_type,
-                             lo, hi, consecutive, _short(exc))
-                if consecutive >= max_failures:
-                    logger.error("NBA season-log pull stopping after %d "
-                                 "consecutive failures; the endpoint is not "
-                                 "answering, so the remaining %d slice(s) "
-                                 "would only repeat it.", consecutive,
-                                 len(units) - number)
-                    stopped_early = True
-                    break
-                continue
-            consecutive = 0
-            log = _result_set_to_frame(payload)
-            if log.empty:
-                # A window nobody has played in answers with zero rows. That is
-                # an answer, not a failure, and caching it stops the next run
-                # asking again.
-                logger.info("%s %s %s..%s: no rows (no games in this window)",
-                            label, season_type, lo, hi)
-            else:
-                logger.info("%s %s %s..%s: %d player rows", label, season_type,
-                            lo, hi, len(log))
-            log = sources.rename_log(log)
-            log = log.assign(game_type=game_type)
-            _write_parquet(log, path)
-            frames.append(log)
+                log = _result_set_to_frame(payload)
+                if log.empty:
+                    # A window nobody has played in answers with zero rows. That
+                    # is an answer, not a failure, and caching it stops the next
+                    # run asking again.
+                    logger.info("%s %s %s..%s: no rows (no games in this window)",
+                                label, season_type, lo, hi)
+                else:
+                    logger.info("%s %s %s..%s: %d player rows", label, season_type,
+                                lo, hi, len(log))
+                log = sources.rename_log(log)
+                log = log.assign(game_type=game_type)
+                _write_parquet(log, path)
+                frames.append(log)
     if failures:
         stopped = (" The pull stopped early rather than work through the "
                    "remaining slices, because the endpoint was not answering "
@@ -991,74 +1022,76 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         consecutive = 0
         frames: list[pd.DataFrame] = []
         for number, (_, row) in enumerate(targets.iterrows(), start=1):
-            bar.update(1)
             nba_id = str(row.nba_game_id)
-            bar.set_postfix(
-                f"{nba_id}  {info['fetched']} fetched  "
-                f"{info['cached']} cached  {info['failed']} failed")
-            path = _pbp_path(nba_id)
-            existing = _read_parquet(path)
-            if not existing.empty:
-                info["cached"] += 1
-                frames.append(existing)
-                continue
-            if time.time() > deadline:
-                logger.warning("play-by-play sweep hit its budget at %d of %d "
-                               "games; the rest is cached and the next run "
-                               "continues", number - 1, len(targets))
-                break
-            info["requested"] += 1
-            url = (f"{sources.PLAY_BY_PLAY_URL}?"
-                   f"{sources.play_by_play_query(nba_id)}")
-            try:
-                _ensure_probed("stats")
-            except HostUnavailable as exc:
-                # A refusal at the probe is about the host, not about this game,
-                # and it is not worth re-testing once per game: every one of them
-                # would fail identically for the same reason. Play-by-play is
-                # optional - the event features it feeds are forward-filled
-                # without it - so this ends the sweep and not the run.
-                info["tripped"] = True
-                logger.error("play-by-play sweep not started: %s", _short(exc))
-                break
-            try:
-                payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=2)
-            except HostUnavailable as exc:
-                info["failed"] += 1
-                consecutive += 1
-                # Log sparsely: a budget-limited sweep can hit thousands of these.
-                if info["failed"] <= 3 or info["failed"] % 50 == 0:
-                    logger.warning("play-by-play unavailable for %s: %s", nba_id,
-                                   _short(exc))
-                if consecutive >= max_failures:
-                    # Not fatal. Play-by-play feeds a trailing feature that is
-                    # forward-filled across games without it, so a run with no
-                    # play-by-play is a thinner model rather than a wrong one.
-                    # What is not acceptable is spending the whole budget
-                    # rediscovering a refusal once per game, so the sweep stops
-                    # and says why.
-                    info["tripped"] = True
-                    logger.error(
-                        "play-by-play sweep stopping after %d games in a row could "
-                        "not be read; stats.nba.com is refusing this client, and "
-                        "the remaining %d game(s) would only repeat it. The run "
-                        "continues with no play-by-play, so the event features "
-                        "will be absent from the model rather than wrong.",
-                        consecutive, len(targets) - number + 1)
+            with bar.item(lambda: f"{nba_id}  {info['fetched']} fetched  "
+                                  f"{info['cached']} cached  "
+                                  f"{info['failed']} failed"):
+                path = _pbp_path(nba_id)
+                existing = _read_parquet(path)
+                if not existing.empty:
+                    info["cached"] += 1
+                    frames.append(existing)
+                    continue
+                if time.time() > deadline:
+                    logger.warning("play-by-play sweep hit its budget at %d of %d "
+                                   "games; the rest is cached and the next run "
+                                   "continues", number - 1, len(targets))
                     break
-                continue
-            consecutive = 0
-            actions = sources.play_by_play_actions(payload, nba_id, row.gameday)
-            if actions.empty:
-                logger.warning("play-by-play for %s returned no actions", nba_id)
-                info["failed"] += 1
-                continue
-            info["unattributed_rebounds"] += sources.unattributed_rebounds(actions)
-            _write_parquet(actions, path)
-            frames.append(actions)
-            info["fetched"] += 1
-            if pause:
-                time.sleep(pause)
+                info["requested"] += 1
+                url = (f"{sources.PLAY_BY_PLAY_URL}?"
+                       f"{sources.play_by_play_query(nba_id)}")
+                try:
+                    _ensure_probed("stats")
+                except HostUnavailable as exc:
+                    # A refusal at the probe is about the host, not about this
+                    # game, and it is not worth re-testing once per game: every
+                    # one of them would fail identically for the same reason.
+                    # Play-by-play is optional - the event features it feeds are
+                    # forward-filled without it - so this ends the sweep and not
+                    # the run.
+                    info["tripped"] = True
+                    logger.error("play-by-play sweep not started: %s", _short(exc))
+                    break
+                try:
+                    payload = http_json(url, STATS_HEADERS, timeout=45.0, attempts=2)
+                except HostUnavailable as exc:
+                    info["failed"] += 1
+                    consecutive += 1
+                    # Log sparsely: a budget-limited sweep can hit thousands of
+                    # these.
+                    if info["failed"] <= 3 or info["failed"] % 50 == 0:
+                        logger.warning("play-by-play unavailable for %s: %s",
+                                       nba_id, _short(exc))
+                    if consecutive >= max_failures:
+                        # Not fatal. Play-by-play feeds a trailing feature that
+                        # is forward-filled across games without it, so a run
+                        # with no play-by-play is a thinner model rather than a
+                        # wrong one. What is not acceptable is spending the
+                        # whole budget rediscovering a refusal once per game, so
+                        # the sweep stops and says why.
+                        info["tripped"] = True
+                        logger.error(
+                            "play-by-play sweep stopping after %d games in a row "
+                            "could not be read; stats.nba.com is refusing this "
+                            "client, and the remaining %d game(s) would only "
+                            "repeat it. The run continues with no play-by-play, "
+                            "so the event features will be absent from the model "
+                            "rather than wrong.",
+                            consecutive, len(targets) - number + 1)
+                        break
+                    continue
+                consecutive = 0
+                actions = sources.play_by_play_actions(payload, nba_id, row.gameday)
+                if actions.empty:
+                    logger.warning("play-by-play for %s returned no actions", nba_id)
+                    info["failed"] += 1
+                    continue
+                info["unattributed_rebounds"] += sources.unattributed_rebounds(actions)
+                _write_parquet(actions, path)
+                frames.append(actions)
+                info["fetched"] += 1
+                if pause:
+                    time.sleep(pause)
     logger.info("play-by-play: %d fetched, %d from cache, %d unavailable",
                 info["fetched"], info["cached"], info["failed"])
     if not frames:

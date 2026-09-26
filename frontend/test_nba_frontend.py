@@ -466,3 +466,71 @@ def test_all_nba_tabs_have_honest_missing_artifact_states(monkeypatch) -> None:
         for filename, needle in expectations.items():
             app = _run_page(filename)
             assert needle in _all_text(app), (filename, _all_text(app))
+
+
+class TestCardStartTimeAndMatchup:
+    """The two fields a today's-games card cannot be read without.
+
+    Both were delivered as columns that were always null, and the adapter
+    covered the gap by fabricating midnight UTC - which, because ``game_date``
+    is an Eastern *board* date, rendered as 7:00 PM ET on the previous evening.
+    Every unslotted game therefore showed a confident, wrong start.
+    """
+
+    @staticmethod
+    def _frame(**overrides) -> pd.DataFrame:
+        game = {"game_id": GAME_ID, "game_date": DATE_ISO,
+                "home_team": "ATL", "away_team": "BOS",
+                "home_win_prob_model": 0.64, "game_status": "Scheduled"}
+        game.update(overrides)
+        return utils.nba_moneyline_to_frame(
+            {"created_utc": "2099-01-01T00:00:00Z", "slate_date": DATE_ISO,
+             "n_games": 1, "games": [game]})
+
+    def test_a_real_tipoff_is_carried_through(self):
+        frame = self._frame(start_time_utc="2099-01-01T23:30:00Z")
+        assert frame.start_time_utc.iloc[0] == "2099-01-01T23:30:00Z"
+
+    def test_a_missing_tipoff_is_not_invented(self):
+        """Midnight UTC on an Eastern board date is 7 PM the night before."""
+        assert self._frame().start_time_utc.iloc[0] is None
+
+    def test_a_missing_tipoff_renders_as_pregame_not_as_a_time(self):
+        assert nba_todays_page._start_time_et(None) == ""
+        assert nba_todays_page._start_time_et("") == ""
+
+    def test_a_real_tipoff_renders_in_eastern(self):
+        assert nba_todays_page._start_time_et(
+            "2099-01-01T23:30:00Z") == "6:30 PM ET"
+
+    def test_the_card_shows_pregame_when_the_start_is_unknown(self):
+        card = nba_todays_page._nba_mirror_card_html(
+            self._frame().iloc[0], None, "")
+        assert "PREGAME" in card
+
+    def test_an_unknown_start_is_not_counted_as_an_evening_game(self):
+        assert utils._is_evening_start(None) is False
+        assert utils._is_evening_start("") is False
+
+    def test_both_sides_player_matchup_reaches_the_card(self):
+        row = {"p_home_name": "Home Star", "p_home_ppg": 30.0, "p_home_apg": 8.0,
+               "p_away_name": "Away Star", "p_away_ppg": 22.0, "p_away_apg": 5.0}
+        html = nba_todays_page._player_matchup_html(row)
+        assert "Home Star" in html and "Away Star" in html
+        assert "30.0" in html and "22.0" in html
+        assert "8.0" in html and "5.0" in html
+
+    def test_the_matchup_keeps_mlb_two_stat_geometry(self):
+        html = nba_todays_page._player_matchup_html(
+            {"p_home_name": "A", "p_away_name": "B"})
+        assert html.count("fb-pitcher") == 3   # wrapper + one per side
+        assert html.count("pstats") == 2
+
+    def test_a_missing_player_renders_a_box_rather_than_crashing(self):
+        html = nba_todays_page._player_matchup_html({})
+        assert "fb-pitchers" in html
+
+    def test_the_venue_reaches_the_card(self):
+        card = nba_todays_page._nba_mirror_card_html(
+            self._frame(venue="Little Caesars Arena").iloc[0], None, "")
+        assert "Little Caesars Arena" in card

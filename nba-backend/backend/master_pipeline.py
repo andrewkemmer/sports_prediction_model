@@ -431,6 +431,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # every feature is NaN, and a model fits NaN rather than rejecting it.
     settled = ingestion.trainable_games(games)
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
+    # The slate is "games with no result yet", and a postponed game has no
+    # result *because it is not being played*. Leaving it in makes the run
+    # report games nobody is going to see, which is what put a January 2025
+    # postponement on a board dated October 2026.  The same rule as
+    # ``build_slate_features``, and deliberately so: the count this line
+    # reports and the rows that get written have to agree.
+    if "game_status_detail" in pending.columns and len(pending):
+        postponed = pending.game_status_detail.astype(str).map(
+            ingestion.sources.is_postponed_detail)
+        if postponed.any():
+            logger.info("excluding %d postponed game(s) from the slate: %s",
+                        int(postponed.sum()),
+                        ", ".join(sorted(pending.loc[postponed, "game_id"]
+                                         .astype(str).head(5))))
+            pending = pending[~postponed].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
 

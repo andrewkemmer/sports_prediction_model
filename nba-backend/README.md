@@ -150,6 +150,37 @@ at all until it finished, which is indistinguishable from a hang. The bars are
 display only — with them on, off, or unavailable, the run returns byte-identical
 artifacts.
 
+One rule matters if you add a sweep: **tick the counter on the way out of the
+unit, not on the way in.** `bar.item()` exists for this and is the thing to
+wrap a loop body in. Ticking at the top of the body — the obvious way to write
+it — makes the count lead the work, and the 2026-09-26 Kaggle run showed exactly
+what that costs: the schedule sweep closed on `1023 fetched` and then summarised
+`1024 fetched`, and the play-by-play sweep closed on `608 fetched` and then
+summarised `609 fetched`. Two numbers for one fact, a few lines apart, in the
+log an operator is relying on. A budget `break` taken before the block leaves
+the count short of the total, which is the honest reading: those units were
+never asked about.
+
+### How much play-by-play a run actually gets
+
+The event features — offensive and defensive rebounds, fouls, possessions — are
+counted from per-game play-by-play, and the sweep is deliberately partial. It
+takes the most recent `NBA_PBP_LOOKBACK_DAYS` (240) days of played games, capped
+at `NBA_PBP_MAX_GAMES` (1,500) and bounded by `NBA_PBP_BUDGET_SEC` (5,400).
+
+**The lookback is what binds, not the cap or the budget.** Measured on the
+2026-09-26 window: 2,768 games carry an NBA game id, of which 609 fall inside
+240 days, 1,315 inside 400, and all 2,768 inside 900 — while the 1,500 cap and
+the 5,400s budget are both slack (the whole 609-game sweep took 2.6s warm and
+283s cold). So `team_events` covers roughly 18% of settled games, and the
+event-derived features are forward-filled or absent for the rest.
+
+That is a policy choice rather than a defect, and it is the obvious lever if the
+event features are worth more than the fetch time: raising the lookback to cover
+the window would fill `team_events` for every training game, at roughly 2.2
+games/s. On a cold Kaggle run that is ~26 minutes added to a ~10 minute run, so
+it is a deliberate trade rather than something to change silently.
+
 ### 60 days where the endpoint allows it, one day where it does not
 
 The season log is pulled in 60-day slices, which is MLB's number

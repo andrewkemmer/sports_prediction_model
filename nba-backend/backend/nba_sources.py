@@ -184,12 +184,11 @@ def _parse_espn_event(event: dict, game_type: int | None) -> dict | None:
         return None
 
     status = (comp.get("status") or {}).get("type") or {}
-    is_final = bool(status.get("completed")) or str(status.get("state")) == "post"
-    if is_final:
-        detail = str(status.get("detail") or "").lower()
-        if any(word in detail for word in ("postpon", "cancel", "suspend",
-                                           "delay", "reschedul")):
-            is_final = False
+    status_state = str(status.get("state") or "")
+    status_detail = str(status.get("detail") or "")
+    is_final = bool(status.get("completed")) or status_state == "post"
+    if is_final and is_postponed_detail(status_detail):
+        is_final = False
 
     def _score(competitor: dict) -> float:
         if not is_final:
@@ -237,6 +236,15 @@ def _parse_espn_event(event: dict, game_type: int | None) -> dict | None:
         "game_type": game_type if game_type is not None else np.nan,
         "is_final": is_final,
         "espn_name": event.get("name") or "",
+        # Passthrough presentation facts, MLB's structure.  None of these are
+        # features and none reach a fold: the tipoff and the arena are what a
+        # card needs to be readable, and ESPN has been publishing both in the
+        # payload this function already parses.  Carrying them is a passthrough;
+        # the contract declares them, so nothing here can leak into the model.
+        "start_time_utc": _utc_iso(gameday),
+        "venue": str((comp.get("venue") or {}).get("fullName") or "").strip(),
+        "game_state": status_state,
+        "game_status_detail": status_detail,
     }
 
 
@@ -244,6 +252,40 @@ def _to_eastern(value):
     """Eastern time as a tz-aware ``Timestamp``; None if unparseable."""
     stamp = pd.to_datetime(value, errors="coerce", utc=True)
     return None if pd.isna(stamp) else stamp.tz_convert(_EASTERN)
+
+
+#: Words ESPN uses in ``status.type.detail`` for a game that will not be played
+#: as scheduled.  Defined once and shared: the parser decides what counts as
+#: final, the slate decides what counts as upcoming, and the card decides what
+#: to label.  Three separate lists would drift, and a drift between them shows
+#: up as a postponed game with a result on it.
+POSTPONED_WORDS = ("postpon", "cancel", "suspend", "reschedul")
+
+
+def is_postponed_detail(detail) -> bool:
+    """Whether an ESPN status detail describes a game that is not being played."""
+    text = str(detail or "").lower()
+    return any(word in text for word in POSTPONED_WORDS)
+
+
+def _utc_iso(stamp) -> str:
+    """A UTC instant as ``...Z``, or "" when there is no instant to report.
+
+    Deliberately never substitutes midnight.  ``gameday`` is an Eastern *board*
+    date, so a fabricated midnight UTC lands on the previous evening in New
+    York and renders as a plausible, wrong tipoff - which is the exact failure
+    the NHL backend refuses to risk in ``serving._start_time_utc``.  An absent
+    tipoff is reported as absent.
+    """
+    if stamp is None or pd.isna(stamp):
+        return ""
+    try:
+        moment = pd.Timestamp(stamp)
+        if moment.tzinfo is None:
+            moment = moment.tz_localize("UTC")
+        return moment.tz_convert("UTC").isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
+        return ""
 
 
 def _is_franchise_game(row: dict) -> bool:

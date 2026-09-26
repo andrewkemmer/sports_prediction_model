@@ -39,7 +39,7 @@ import logging
 import os
 import sys
 import time
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Callable, Iterable, Iterator, Sequence
 
 logger = logging.getLogger("nba_progress")
 
@@ -248,6 +248,36 @@ class _Bar:
             self._inner.close()
         else:
             self._counter.close()
+
+    @contextlib.contextmanager
+    def item(self, postfix: str | Callable[[], str] = "") -> Iterator[None]:
+        """Mark one unit complete on the way out, however the block exits.
+
+        Ticking at the *top* of a loop body is the obvious thing to write and it
+        is wrong, in a way this only showed up once a real sweep was watched.
+        The count then leads the work instead of following it, so the closing
+        line of a sweep reports one fewer unit than actually completed and
+        "N of N done" is printed while the Nth unit is still in flight. A
+        1,024-day schedule sweep closed on "1023 fetched" and then summarised
+        "1024 fetched"; a 609-game play-by-play sweep closed on "608 fetched"
+        and then summarised "609 fetched". Two numbers for the same fact, in
+        the same log, a few lines apart.
+
+        Wrapping the body makes the correct order the easy one. ``continue``
+        still ticks exactly once, a budget ``break`` taken before the block
+        ticks not at all (that unit genuinely was not attempted), and a unit
+        that fails still ticks, because a failure is a completed attempt and
+        hiding it would make a broken sweep look like a shorter one.
+
+        ``postfix`` may be a callable, evaluated on the way out so it can report
+        counters the block has just updated.
+        """
+        try:
+            yield
+        finally:
+            self.update(1)
+            if postfix:
+                self.set_postfix(postfix() if callable(postfix) else postfix)
 
 
 @contextlib.contextmanager
