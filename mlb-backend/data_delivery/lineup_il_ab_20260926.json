@@ -5979,7 +5979,7 @@
    "il_flag_vs_widened_t": 1.16,
    "il_flag_vs_widened_d_auc": -0.0022
   },
-  "note": "The sign of the IL-filter effect flips between the two sources: on contaminated data the filter looked strongly positive; on the production source it is a small net negative on top of the widened pool, and the package as a whole is flat on logloss. Widening alone is the only positive signal (d_auc +0.0059) and it FAILS the RFE_ECE_GUARD (+0.0056 > 0.005). After the reconciliation fix the effect is still flat on logloss and the filter remains a small net negative on top of the widened pool, so the feature was kept for the calibration it provides, not for accuracy. See lineup_il_ab_20260926_fixed.json.",
+  "note": "The sign of the IL-filter effect flips between the two sources: on contaminated data the filter looked strongly positive; on the production source it is a small net negative on top of the widened pool, and the package as a whole is flat on logloss. Widening alone is the only positive signal (d_auc +0.0059) and it FAILS the RFE_ECE_GUARD (+0.0056 > 0.005). After the reconciliation fix the effect is still flat on logloss and the filter remains a small net negative on top of the widened pool, so the feature was kept for the calibration it provides, not for accuracy. See lineup_il_ab_20260926_fixed.json. Production confirmation of the fix: run 3c9c76f (artifacts 208709a) gave auc 0.5877 / logloss 0.6776 against 0.5846 / 0.6778 for the run before it, on byte-identical input. Accuracy up; ECE up slightly (0.0160 -> 0.0167, calibrated 0.0068 -> 0.0095), so the fix is not free on calibration. No guard fired.",
   "fixed_by": "lineup_il_ab_20260926_fixed.json",
   "corrected_after_fix": {
    "il_swap_d_logloss": 0.000197,

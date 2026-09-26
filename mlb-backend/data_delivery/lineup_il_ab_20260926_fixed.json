@@ -5964,6 +5964,30 @@
  },
  "source_note": "All three arms produced by the real _build_game_level on the PRODUCTION source (data_delivery/pbp_defense_20260925.parquet, the 27-column projection of pitches.parquet). The participants and widen_noil arms are carried over unchanged from lineup_il_ab_20260926_prod.json -- neither registers il_stints, so rebuilding the table cannot move them. Only the il arm was rebuilt.",
  "fix": "il_stints.parquet is now reconciled against observed plate appearances (build_il_stints.reconcile_with_plate_appearances): a stint ends at the batter's first plate appearance after the placement, so no interval can span a game he was in the lineup for. Residual defect (player-games the table calls on-IL while the batter batted) 3,522 -> 0; 19 same-date placement/appearance pairs remain by design and are not counted. Regex and time-cap alternatives were measured first and are strictly worse (recall/contract-selection closes recover 29% of the defect, a 120-day cap 68%); unlike a cap this rule never releases a date the batter did not play, so it costs zero genuine absences. The build now refuses to write a table whose residual exceeds _MAX_RESIDUAL_ON_IL_PGAMES.",
- "verdict": "The defect is fixed and the feature stays, but it is honestly neutral: removing the pathology did NOT make the IL filter a win. il_swap vs baseline is flat on logloss (+0.0002, t=+0.26) with d_auc +0.0021, and the IL flag on top of the widened pool is still a small net negative (d_logloss +0.0011, t=+1.45; d_auc -0.0038). What the filter DOES buy is calibration: the widened pool alone drifts +0.0056 ECE and FAILS RFE_ECE_GUARD, while widened+filter drifts +0.0040 and passes both guards. So the shipped combination is defensible as a calibration control, not as an accuracy gain. Widening alone remains the only arm with a real signal (d_auc +0.0059, d_logloss -0.0009).",
- "supersedes": "lineup_il_ab_20260926.json (contaminated source), lineup_il_ab_20260926_prod.json (correct source, unreconciled table)"
+ "verdict": "The defect is fixed and the feature stays, but it is honestly neutral on accuracy: in the A/B, il_swap vs baseline was flat on logloss (+0.0002, t=+0.26) with d_auc +0.0021, and the IL flag on top of the widened pool was still a small net negative (d_logloss +0.0011, t=+1.45; d_auc -0.0038). The first production run on the reconciled table agrees on accuracy (auc +0.0031, logloss -0.0002 vs the run before it).\n\nCORRECTION to an earlier version of this field: it claimed the IL filter is 'load-bearing for calibration', on the strength of widened+filter drifting +0.0040 ECE against widened-alone at +0.0056. That comparison was between two arms of the SAME broken table and does not measure the fix. The production before/after moves ECE from 0.0160 to 0.0167 and ECE-calibrated from 0.0068 to 0.0095, i.e. the opposite direction. What is actually established: the filter does not degrade calibration relative to the widened pool (a property of the arm comparison), and correcting the table costs about +0.0007 ECE / +0.0027 ECE-calibrated in production (a measured cost of the fix, not a benefit). Widening alone remains the only arm with a real accuracy signal (d_auc +0.0059, d_logloss -0.0009) and it FAILS RFE_ECE_GUARD.",
+ "supersedes": "lineup_il_ab_20260926.json (contaminated source), lineup_il_ab_20260926_prod.json (correct source, unreconciled table)",
+ "production_confirmation": {
+  "run_head": "3c9c76f",
+  "artifact_commit": "208709a",
+  "note": "First production run on the reconciled table. Identical input to the run before it (2,155,496 pitches, 7,334 games, decided-frame hash 3a6f4a586d9d) and the only backend change between the two runs was build_il_stints.py, so the deltas belong to the fix.",
+  "before": {
+   "auc": 0.5846,
+   "logloss": 0.6778,
+   "ece": 0.016,
+   "ece_calibrated": 0.0068
+  },
+  "after": {
+   "auc": 0.5877,
+   "logloss": 0.6776,
+   "ece": 0.0167,
+   "ece_calibrated": 0.0095
+  },
+  "delta": {
+   "auc": 0.0031,
+   "logloss": -0.0002,
+   "ece": 0.0007,
+   "ece_calibrated": 0.0027
+  },
+  "reads": "Accuracy improved and matches the A/B's point estimate (which predicted d_auc +0.0021, d_logloss +0.0002). Calibration moved the other way by a small amount; no guard fired and absolute ECE-calibrated stays at 0.0095."
+ }
 }
