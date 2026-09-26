@@ -46,6 +46,34 @@ so ``_OFF_ROSTER`` closes the stint and any later placement opens a new one.
   asked), trades and waiver claims (the receiving team INHERITS the IL spot --
   calling those a close would mark an injured player available).
 
+RECONCILED AGAINST OBSERVED PLATE APPEARANCES, NOT ONLY THE WORD "ACTIVATED".
+The transactions feed is a club's narrative and it is incomplete: a player on
+a long IL who rehabbed four times and shuttled to the minors is never given an
+"activated" row, so his single interval ran 2023-05-19 to the end of the
+window -- three years during which he batted in 320 games. The filter then
+deleted a real hitter from his own team's projected nine in every one of
+them, which is why the first A/B of this feature came back net NEGATIVE:
+56 batters, 3,541 player-games where the table said "on the IL" and the batter
+demonstrably had a plate appearance.
+
+A batter who had a plate appearance in a game was in the lineup for that game,
+so no IL interval may span it. Where a stint's transaction close is later than
+the batter's first appearance after the placement, the appearance is the
+truth and the stint ends there. Regexes for recall/contract-selection recover
+29% of those cases; a blunt 120-day time cap recovers 68%; this recovers
+99.5% (3,541 -> 19 player-games) and, unlike a time cap, it never closes a
+stint on a date where the player did NOT play, so it costs zero real
+absences: every unflagged date is one on which he was in the lineup.
+
+PIT: still strictly subtractive at the FAR end only. A game before the
+batter's first appearance keeps him flagged, which is both correct and
+knowable at that date. A game after it does not, which is knowable then too
+because his own prior appearances are already in the record. A plate
+appearance ON the placement date is ignored, not treated as a close: clubs
+file the IL transaction the same evening a player is hurt, so same-date
+appearances are the announcement, not a return. All 19 survivors are
+exactly that case.
+
 Regeneration path for data_delivery/il_stints.parquet (like
 backfill_lineups.py / build_batter_woba.py -- not part of the daily run,
 because the feature degrades loudly rather than failing closed when the
@@ -65,6 +93,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 _BACKEND_DIR = Path(__file__).resolve().parent
@@ -98,6 +127,23 @@ _OFF_ROSTER = re.compile(r"\bdesignated\b.*\bfor assignment\b"
 # printed and recorded in the meta so drift stays visible either way.
 _MIN_MEDIAN_ON_IL = 20
 _MAX_MEDIAN_ON_IL = 450
+
+# Second gate, same spirit: the residual defect count. After reconciliation
+# the table may only claim a batter is on the IL for dates on which he had no
+# plate appearance, so the residual must be ~0. Measured 19 on 2023-2026, and
+# every one of them is a same-date placement/appearance pair that is correct
+# behaviour, so the budget is set well clear of the real number to catch a
+# silent regression (an unclosed stint, a dropped reconciliation, a wrong
+# batter key) rather than to police the announcement-lag cases.
+_MAX_RESIDUAL_ON_IL_PGAMES = 250
+
+# Third gate, and the one that keeps the second honest: a pitch projection
+# that stops months before the window end finds no appearances after that
+# date, so reconciliation silently becomes a no-op and the residual counter
+# -- which measures against the SAME file -- reports zero while every stint
+# after the cut stays unclosed. Generous enough not to false-fail a legitimate
+# end-of-season rebuild.
+_MAX_PBP_LAG_DAYS = 45
 
 # The first season of the moneyline training window opens 2024-03-20, but
 # stints placed in autumn 2023 are still open when it does. Fetch a full
@@ -183,6 +229,119 @@ def stints_from_events(events: dict[int, list[tuple[str, int]]]) -> pd.DataFrame
             .reset_index(drop=True))
 
 
+def reconcile_with_plate_appearances(iv: pd.DataFrame,
+                                     pa: pd.DataFrame) -> pd.DataFrame:
+    """End a stint at the batter's first observed plate appearance.
+
+    ``pa`` is a frame of (batter, game_date) plate appearances. A stint that
+    the transactions left open, or closed late, is truncated at the earliest
+    appearance STRICTLY AFTER ``il_start``; a stint whose transaction close
+    already precedes that appearance is untouched. The result is a no-op on
+    every date where the batter did not play: the rule can only shorten an
+    interval at a date where the batter was in the lineup, so it cannot
+    release a genuine absence back into the projected nine.
+    """
+    if iv.empty or pa.empty:
+        return iv
+    out = iv.copy()
+    days = {int(b): g.game_date.to_numpy(dtype="datetime64[ns]")
+            for b, g in pa.sort_values(["batter", "game_date"])
+                           .groupby("batter", sort=False)}
+    ends: list[object] = []
+    for batter, start, end in zip(out.batter, out.il_start, out.il_end):
+        arr = days.get(int(batter))
+        nxt = None
+        if arr is not None:
+            i = int(np.searchsorted(arr, np.datetime64(start), side="right"))
+            if i < len(arr):
+                nxt = pd.Timestamp(arr[i])
+        if nxt is not None and (pd.isna(end) or nxt < end):
+            end = nxt
+        ends.append(end)
+    out["il_end"] = ends
+    out = out[out.il_end.isna() | (out.il_end > out.il_start)]
+    return out.reset_index(drop=True)
+
+
+def load_plate_appearances(pbp_path: Path) -> pd.DataFrame:
+    """(batter, game_date) for every game in which the batter had a PA."""
+    import duckdb
+    con = duckdb.connect(database=":memory:")
+    try:
+        return con.execute(
+            """
+            SELECT DISTINCT CAST(batter AS BIGINT) AS batter,
+                            CAST(game_date AS DATE)   AS game_date
+            FROM read_parquet(?)
+            WHERE events IS NOT NULL AND batter IS NOT NULL
+            """, [str(pbp_path)]).df()
+    finally:
+        con.close()
+
+
+def residual_on_il_player_games(iv: pd.DataFrame, pa: pd.DataFrame) -> int:
+    """Player-games the table flags as on-IL where the batter actually had a
+    plate appearance. The defect count the second gate is watching.
+
+    Appearances ON the placement date are not counted: clubs file the IL
+    transaction the same evening a player is hurt, so a batter who appears
+    and is placed the same day is the announcement, not a contradiction.
+    Counted per (batter, game_date) once even where intervals overlap.
+    """
+    if iv.empty or pa.empty:
+        return 0
+    hit = 0
+    for batter, group in pa.groupby("batter", sort=False):
+        days = np.sort(group.game_date.to_numpy(dtype="datetime64[ns]"))
+        sel = iv[iv.batter == batter]
+        if sel.empty:
+            continue
+        covered = np.zeros(len(days), dtype=bool)
+        for _, s in sel.iterrows():
+            end = s.il_end
+            lo = int(np.searchsorted(days, np.datetime64(s.il_start), side="right"))
+            hi = (len(days) if pd.isna(end)
+                  else int(np.searchsorted(days, np.datetime64(end), side="left")))
+            if hi > lo:
+                covered[lo:hi] = True
+        hit += int(covered.sum())
+    return int(hit)
+
+
+def check_pbp_covers(pbp_name: str, pa: pd.DataFrame,
+                     end: pd.Timestamp) -> None:
+    """Refuse a pitch projection that stops long before the window end.
+
+    A projection that stops months early finds no appearances after that
+    date, so reconciliation silently becomes a no-op and the residual counter
+    -- measured against the SAME file -- still reports zero while every stint
+    after the cut stays unclosed. That is the one way the second gate can be
+    blinded, so it is checked before anything is written.
+    """
+    if pa.empty:
+        raise SystemExit(f"{pbp_name} yielded no plate appearances at all; "
+                         f"reconciling against it would be a silent no-op")
+    lag = (end - pd.Timestamp(pa.game_date.max())).days
+    if lag > _MAX_PBP_LAG_DAYS:
+        raise SystemExit(
+            f"{pbp_name} stops {lag} days before the window end "
+            f"(budget {_MAX_PBP_LAG_DAYS}). Reconciliation would find no "
+            f"appearances after that date and silently do nothing while the "
+            f"residual counter, measured against the same file, still reads "
+            f"zero. Rebuild the projection or pass --pbp")
+
+
+def default_pbp_source() -> Path | None:
+    """Newest committed pitch projection, used to observe plate appearances.
+
+    data_delivery/pbp_defense_*.parquet is the daily run's own 27-column
+    projection of pitches.parquet -- the same rows the feature is built from,
+    so reconciling against it introduces no new source of truth.
+    """
+    cands = sorted(Path(DATA_DELIVERY_DIR).glob("pbp_defense_*.parquet"))
+    return cands[-1] if cands else None
+
+
 def build_events(tx: list[dict]) -> dict[int, list[tuple[str, int]]]:
     events: dict[int, list[tuple[str, int]]] = defaultdict(list)
     for t in tx:
@@ -238,6 +397,12 @@ def main() -> None:
                     help="re-fetch even when a cached year exists")
     ap.add_argument("--offline", action="store_true",
                     help="cache only; never touch the network")
+    ap.add_argument("--pbp", type=Path, default=None,
+                    help="pitch projection used to observe plate appearances "
+                         "(default: newest data_delivery/pbp_defense_*.parquet)")
+    ap.add_argument("--no-reconcile", action="store_true",
+                    help="skip plate-appearance reconciliation; only for "
+                         "reproducing the pre-reconciliation table")
     args = ap.parse_args()
 
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
@@ -261,6 +426,28 @@ def main() -> None:
             tx += fetch_year(y, cache, refresh=args.refresh)
 
     iv = stints_from_events(build_events(tx))
+    pbp = args.pbp or default_pbp_source()
+    pa = pd.DataFrame()
+    tx_residual = 0
+    if not args.no_reconcile:
+        if pbp is None or not pbp.exists():
+            raise SystemExit(
+                "no pitch projection for plate-appearance reconciliation "
+                "(pass --pbp PATH). Reconciling is not optional: without it a "
+                "player whose return is recorded as a minor-league recall never "
+                "closes his stint and the table claims he is on the IL for "
+                "years while he bats every day")
+        pa = load_plate_appearances(pbp)
+        check_pbp_covers(pbp.name, pa, end)
+        tx_residual = residual_on_il_player_games(iv, pa)
+        before = len(iv)
+        iv = reconcile_with_plate_appearances(iv, pa)
+        print(f"reconciled against {pbp.name}: {len(pa):,} plate appearances, "
+              f"{before:,} -> {len(iv):,} stints")
+    else:
+        print("WARNING: --no-reconcile; the table is NOT reconciled against "
+              "observed plate appearances and the unclosed-stint defect is back")
+    residual = residual_on_il_player_games(iv, pa)
     dur = (iv.il_end - iv.il_start).dt.days.dropna()
     gate_from = max(start, start + pd.Timedelta(days=GATE_WARMUP_DAYS))
     med = median_on_il(iv, gate_from, end)
@@ -271,11 +458,19 @@ def main() -> None:
           f"p90 {dur.quantile(0.9):.0f} max {dur.max():.0f}")
     print(f"  on-IL weekly median by season: {per_season}")
     print(f"  on-IL league-wide (weekly median from {gate_from.date()}): {med:.0f}")
+    print(f"  on-IL while batting: {residual} player-games "
+          f"({tx_residual} before reconciliation, budget "
+          f"{_MAX_RESIDUAL_ON_IL_PGAMES})")
     if not _MIN_MEDIAN_ON_IL <= med <= _MAX_MEDIAN_ON_IL:
         raise SystemExit(
             f"IMPLAUSIBLE on-IL median {med:.0f} "
             f"(band {_MIN_MEDIAN_ON_IL}..{_MAX_MEDIAN_ON_IL}; per-season "
             f"{per_season}) - the state machine regressed; refusing to write")
+    if residual > _MAX_RESIDUAL_ON_IL_PGAMES:
+        raise SystemExit(
+            f"{residual:,} player-games claim a batter is on the IL while he "
+            f"had a plate appearance (budget {_MAX_RESIDUAL_ON_IL_PGAMES}) - "
+            f"reconciliation did not run or regressed; refusing to write")
 
     out = args.out or (Path(DATA_DELIVERY_DIR) / "il_stints.parquet")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -294,6 +489,13 @@ def main() -> None:
         "stint_length_days_median": float(dur.median()),
         "pit_rule": "interval bounds are transaction DATES, not effectiveDate",
         "source": "MLB StatsAPI /api/v1/transactions?sportId=1",
+        "reconciled_against": None if args.no_reconcile else pbp.name,
+        "plate_appearances": int(len(pa)),
+        "plate_appearances_through": (None if pa.empty
+                                      else str(pd.Timestamp(pa.game_date.max()).date())),
+        "on_il_while_batting_player_games": int(residual),
+        "on_il_while_batting_before_reconcile": int(tx_residual),
+        "residual_budget": _MAX_RESIDUAL_ON_IL_PGAMES,
     }
     out.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB) + .meta.json")
