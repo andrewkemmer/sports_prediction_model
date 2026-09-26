@@ -62,17 +62,21 @@ import numpy as np
 import pandas as pd
 
 try:
-    from backend import config, progress
+    from backend import config, nba_sources, progress, source_contract
 except ImportError:
     import config
+    import nba_sources
     import progress
+    import source_contract
 
 logger = logging.getLogger(__name__)
 
-SEASON_LOG_URL = "https://stats.nba.com/stats/LeagueGameLog"
-BOXSCORE_URL = "https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{game_id}.json"
-PLAY_BY_PLAY_URL = ("https://cdn.nba.com/static/json/liveData/playbyplay/"
-                    "playbyplay_{game_id}.json")
+# The endpoints and their parameter sets are declared in ``nba_sources`` so a
+# second vendor can be added without editing this module. These aliases keep
+# every existing call site working.
+SEASON_LOG_URL = nba_sources.SEASON_LOG_URL
+BOXSCORE_URL = nba_sources.BOXSCORE_URL
+PLAY_BY_PLAY_URL = nba_sources.PLAY_BY_PLAY_URL
 
 SOURCE_ID = "nba.com"
 # Which upstream actually answered. Cloud hosts refuse nba.com at the IP
@@ -779,20 +783,11 @@ def _season_log_query(season: str, season_type: str) -> str:
 
     Split out of ``_fetch_season_log`` so a diagnostic can request the exact
     same URL the pull does.  A probe that succeeds against a slightly
-    different query proves nothing about the query that actually fails.
+    different query proves nothing about the query that actually fails.  The
+    parameter set itself is declared in ``nba_sources``; that is the file that
+    knows which endpoints 500 on which values.
     """
-    return urllib.parse.urlencode({
-        "LeagueID": "00", "PerMode": "PerGame", "Season": season,
-        "SeasonType": season_type, "College": "", "Conference": "",
-        "Country": "", "DateFrom": "", "DateTo": "", "Division": "",
-        "DraftPick": "", "DraftYear": "", "GameScope": "", "GameSegment": "",
-        "Height": "", "LastNGames": "0", "Location": "", "MeasureType": "Base",
-        "Month": "0", "OpponentTeamID": "0", "Outcome": "", "PORound": "0",
-        "PaceAdjust": "N", "Period": "0", "PlayerExperience": "",
-        "PlayerPosition": "", "PlusMinus": "N", "Rank": "N", "SeasonSegment": "",
-        "ShotClockRange": "", "StarterBench": "", "TeamID": "0", "VsConference": "",
-        "VsDivision": "", "Weight": "",
-    })
+    return nba_sources.season_log_query(season, season_type)
 
 
 def _fetch_season_log(season: str, season_type: str,
@@ -984,7 +979,13 @@ def _games_frame(log: pd.DataFrame) -> pd.DataFrame:
     out["margin"] = out.home_score - out.away_score
     out["total"] = out.home_score + out.away_score
     out["home_win"] = np.where(out.home_score > out.away_score, 1.0, 0.0)
-    return out.sort_values(["gameday", "game_id"]).reset_index(drop=True)
+    # Normalized at the boundary so nothing downstream of here has to know
+    # that this frame came from a season log. A source whose frame the
+    # contract rejects is refused here, naming the column, rather than
+    # producing a feature that is quietly wrong for the rest of the run.
+    return source_contract.normalize(
+        out.sort_values(["gameday", "game_id"]).reset_index(drop=True),
+        "games", source=SEASON_LOG_URL)
 
 
 def _attach_team_names(games: pd.DataFrame, names: dict[str, str]) -> pd.DataFrame:
@@ -1017,9 +1018,10 @@ def _team_stats_frame(log: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
                                 ("ftm", "fta", "free_throw_pct")):
         if made in out.columns and attempt in out.columns:
             out[name] = np.where(out[attempt] > 0, out[made] / out[attempt], np.nan)
-    return out.drop(columns=[c for c in ("home_team", "away_team",
-                                         "home_score", "away_score")
-                             if c in out.columns])
+    out = out.drop(columns=[c for c in ("home_team", "away_team",
+                                        "home_score", "away_score")
+                            if c in out.columns])
+    return source_contract.normalize(out, "team_stats", source=SEASON_LOG_URL)
 
 
 def _derive_player_shooting(out: pd.DataFrame) -> pd.DataFrame:
@@ -1054,43 +1056,33 @@ def _player_stats_frame(log: pd.DataFrame) -> pd.DataFrame:
          "free_throw_pct", *sorted(_STAT_SUMS))) if c in log.columns]
     out = _derive_player_shooting(log[keep].copy())
     out = out.drop_duplicates(["game_id", "player_id"], keep="last")
-    return out.sort_values(["gameday", "game_id", "player_id"]).reset_index(drop=True)
+    out = out.sort_values(["gameday", "game_id", "player_id"]).reset_index(drop=True)
+    return source_contract.normalize(out, "player_stats", source=SEASON_LOG_URL)
 
 
 def _play_by_play_frame(payload: Any, game_id: str,
                         gameday: Any) -> pd.DataFrame:
-    """Flatten one game's action list into rows."""
-    actions = ((payload or {}).get("game") or {}).get("actions") or []
-    if not actions:
-        return pd.DataFrame()
-    fields = ("actionId", "sequenceNumber", "period", "gameClock", "teamTricode",
-              "personId", "actionType", "subType", "description", "descriptor",
-              "scoreHome", "scoreAway", "pointsTotal", "shotDistance",
-              "shotResult", "isFieldGoalAttempted", "isMade", "loc", "isHundred")
-    records = [{**{key: action.get(key) for key in fields},
-                "game_id": game_id,
-                "gameday": gameday}
-               for action in actions]
-    frame = pd.DataFrame(records)
-    frame = frame.rename(columns={
-        "actionId": "action_id", "sequenceNumber": "sequence_number",
-        "period": "period", "gameClock": "game_clock",
-        "teamTricode": "team", "personId": "player_id",
-        "actionType": "action_type", "subType": "sub_type",
-        "scoreHome": "score_home",
-        "scoreAway": "score_away", "pointsTotal": "points",
-        "shotDistance": "shot_distance", "shotResult": "shot_result",
-        "isFieldGoalAttempted": "is_field_goal_attempted", "isMade": "is_made",
-        "isHundred": "is_hundred",
-    })
-    frame["team"] = frame["team"].map(_team)
-    frame["gameday"] = pd.to_datetime(frame["gameday"], errors="coerce", utc=True)
-    frame["gameday"] = frame["gameday"].dt.tz_convert(None)
-    for column in ("period", "sequence_number", "score_home", "score_away",
-                   "points", "shot_distance", "action_id"):
-        if column in frame.columns:
-            frame[column] = pd.to_numeric(frame[column], errors="coerce")
-    return frame
+    """Flatten one game's action list into rows, then put it in the contract.
+
+    The flattening itself lives in ``nba_sources`` because it is a property of
+    the upstream payload, not of this module.  What stays here is the step
+    that makes the frame safe to consume: the team's tricode is mapped to the
+    league's abbreviation, and the whole frame is normalized against the
+    declared play-by-play schema, so a payload that loses a field is caught
+    here rather than as a column of nulls three phases later.
+    """
+    frame = nba_sources._play_by_play_actions(payload, game_id, gameday)
+    if frame.empty:
+        # An empty frame still declares its columns. A caller that checks
+        # ``if "action_id" in frame.columns`` to decide whether play-by-play is
+        # usable would otherwise be told "no schema" instead of "no rows yet",
+        # and the two mean very different things to a run deciding whether to
+        # keep sweeping.
+        return source_contract.normalize(pd.DataFrame(), "play_by_play",
+                                         source=PLAY_BY_PLAY_URL)
+    if "team" in frame.columns:
+        frame["team"] = frame["team"].map(_team)
+    return source_contract.normalize(frame, "play_by_play", source=PLAY_BY_PLAY_URL)
 
 
 # --------------------------------------------------------------------------
@@ -1117,19 +1109,40 @@ def _read_cache(path: Path) -> pd.DataFrame:
 
 def _write_cache(tables: dict[str, pd.DataFrame], paths: dict[str, Path],
                  keys: dict[str, list[str]]) -> None:
-    """Merge each table into its cache, newest row wins on identity."""
+    """Merge each table into its cache, newest row wins on identity.
+
+    A cache written before the contract existed holds columns in whatever
+    dtypes the old writer produced - ``player_id`` as int64, where the contract
+    says str.  Concatenating those two frames yields an object column holding
+    ints in some rows and strings in others, and ``to_parquet`` then refuses
+    the mixed column with a type error that says nothing about the cause.  So
+    the rows about to be written are re-normalized after the merge, which
+    costs a cheap column-wise pass and makes the cache self-healing: a file
+    written by an older version of this pipeline is corrected on the next run
+    rather than needing a migration.
+    """
     for name, path in paths.items():
         frame = tables.get(name)
         if frame is None:
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = pd.DataFrame() if _flag(FULL_REPULL_ENV, False) else _read_cache(path)
+        # Both sides are normalized BEFORE the merge, not after. Order is the
+        # whole point: the merge dedupes on the identity columns, so a cache
+        # holding int64 ``player_id`` and an incoming frame holding str would
+        # fail to recognize a single row as already-seen, and the cache would
+        # grow a full duplicate of the window on every run. Normalizing first
+        # makes the identity comparable, and the file self-heals.
+        fresh = source_contract.normalize(frame, name, source="pull",
+                                          allow_missing=True)
         if existing.empty:
-            merged = frame
+            merged = fresh
         else:
-            identity = [c for c in keys.get(name, []) if c in frame.columns
-                        and c in existing.columns]
-            merged = pd.concat([frame, existing], ignore_index=True)
+            stale = source_contract.normalize(existing, name, source="cache",
+                                              allow_missing=True)
+            identity = [c for c in keys.get(name, []) if c in fresh.columns
+                        and c in stale.columns]
+            merged = pd.concat([fresh, stale], ignore_index=True)
             if identity:
                 merged = merged.drop_duplicates(subset=identity, keep="first")
         merged.to_parquet(path, index=False)
