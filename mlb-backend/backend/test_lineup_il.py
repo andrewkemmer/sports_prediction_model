@@ -352,6 +352,161 @@ def test_state_machine_never_dips_below_zero():
     assert iv.empty or (iv.il_end >= iv.il_start).all()
 
 
+# ── reconciliation against observed plate appearances ───────────────────────
+#
+# The shipped A/B came back net negative and the cause was not the feature:
+# 3,522 player-games where the table said "on the IL" and the batter had a
+# plate appearance. The transactions feed never closes a player whose return
+# is filed as a minor-league recall, so one interval ran three years over a
+# batter who played 320 games inside it.
+
+def _pa(*rows):
+    return pd.DataFrame(rows, columns=["batter", "game_date"])
+
+
+def _ivs(*rows):
+    return pd.DataFrame(rows, columns=["batter", "il_start", "il_end"])
+
+
+def test_appearance_after_placement_closes_an_unclosed_stint():
+    """No activation row ever arrives for a player who rehabbed repeatedly
+    and shuttled to the minors; his appearance is the only return signal."""
+    iv = _ivs([1, pd.Timestamp("2023-05-19"), pd.NaT])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2026-05-16")]))
+    assert len(out) == 1
+    assert out.il_end.iloc[0] == pd.Timestamp("2026-05-16")
+
+
+def test_appearance_truncates_a_late_transaction_close():
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.Timestamp("2024-09-01")])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-06-20")]))
+    assert out.il_end.iloc[0] == pd.Timestamp("2024-06-20")
+
+
+def test_earlier_transaction_close_is_left_alone():
+    """Reconciling must never move a close EARLIER: the batter played inside
+    the stint, so the stint was real and ended when the club activated him."""
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.Timestamp("2024-06-10")])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-06-20")]))
+    assert out.il_end.iloc[0] == pd.Timestamp("2024-06-10")
+
+
+def test_same_day_appearance_does_not_close_the_stint():
+    """Clubs file the IL transaction the same evening a player is hurt, so a
+    plate appearance ON the placement date is the announcement, not a return.
+    All 19 residual cases in the real table are exactly this."""
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.NaT])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-06-01")]))
+    assert out.il_end.iloc[0] is pd.NaT or pd.isna(out.il_end.iloc[0])
+
+
+def test_reconcile_never_releases_a_date_the_batter_did_not_play():
+    """The rule is strictly subtractive: it can only shorten an interval at a
+    date where the batter was in the lineup, so a genuine absence is never
+    handed back to the projected nine."""
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.Timestamp("2024-07-01")])
+    absent = pd.Timestamp("2024-06-15")
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-08-01")]))
+    assert out.il_start.iloc[0] <= absent < out.il_end.iloc[0]
+
+
+def test_reconcile_drops_a_stint_collapsed_onto_its_own_start():
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.Timestamp("2024-06-01")])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-06-02")]))
+    assert out.empty
+
+
+def test_reconcile_keeps_players_with_no_observed_appearances():
+    """A batter outside the pitch window is not evidence of anything; his
+    stint must survive untouched rather than being closed by a lookup miss."""
+    iv = _ivs([7, pd.Timestamp("2024-06-01"), pd.NaT])
+    out = build_il_stints.reconcile_with_plate_appearances(
+        iv, _pa([1, pd.Timestamp("2024-06-20")]))
+    assert len(out) == 1 and pd.isna(out.il_end.iloc[0])
+
+
+def test_reconcile_is_a_noop_without_appearances():
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.NaT])
+    out = build_il_stints.reconcile_with_plate_appearances(iv, _pa())
+    assert len(out) == 1 and pd.isna(out.il_end.iloc[0])
+
+
+def test_residual_counter_finds_the_defect_and_the_fix_clears_it():
+    """The tripwire. It is the reason this class of bug cannot come back
+    silently: a table that claims a batter is hurt while he bats fails the
+    build instead of quietly degrading the projection."""
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.NaT])
+    pa = _pa([1, pd.Timestamp("2024-06-20")], [1, pd.Timestamp("2024-07-20")])
+    assert build_il_stints.residual_on_il_player_games(iv, pa) == 2
+    fixed = build_il_stints.reconcile_with_plate_appearances(iv, pa)
+    assert build_il_stints.residual_on_il_player_games(fixed, pa) == 0
+
+
+def test_residual_counter_counts_a_player_game_once():
+    """Overlapping intervals must not double-count, or the tripwire fires on
+    a table that is merely redundant (this bug inflated the count 3,522 ->
+    3,813 before it was found)."""
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.Timestamp("2024-08-01")],
+              [1, pd.Timestamp("2024-07-01"), pd.NaT])
+    pa = _pa([1, pd.Timestamp("2024-07-15")])
+    assert build_il_stints.residual_on_il_player_games(iv, pa) == 1
+
+
+def test_residual_counter_ignores_same_day_appearances():
+    iv = _ivs([1, pd.Timestamp("2024-06-01"), pd.NaT])
+    pa = _pa([1, pd.Timestamp("2024-06-01")])
+    assert build_il_stints.residual_on_il_player_games(iv, pa) == 0
+
+
+def test_stale_pitch_projection_is_refused():
+    """A projection that stops months early makes reconciliation a silent
+    no-op AND blinds the residual counter, which measures against the same
+    file -- the table would look clean while every stint after the cut stayed
+    unclosed. This is the one way the defect can come back unobserved."""
+    pa = _pa([1, pd.Timestamp("2026-09-24")])
+    build_il_stints.check_pbp_covers(
+        "pbp.parquet", pa, pd.Timestamp("2026-09-25"))  # current: fine
+    with pytest.raises(SystemExit):
+        build_il_stints.check_pbp_covers(
+            "pbp.parquet", pa, pd.Timestamp("2026-12-31"))
+    with pytest.raises(SystemExit):
+        build_il_stints.check_pbp_covers("pbp.parquet", _pa(),
+                                         pd.Timestamp("2026-09-25"))
+
+
+def test_shipped_table_has_no_residual_defect():
+    """The committed table itself, read from data_delivery, against the pitch
+    projection. Skips when either artifact is absent (fresh clone)."""
+    import config
+    dd = Path(config.DATA_DELIVERY_DIR)
+    pbp = sorted(dd.glob("pbp_defense_*.parquet"))
+    if not (dd / "il_stints.parquet").exists() or not pbp:
+        pytest.skip("il_stints.parquet or the pitch projection is absent")
+    iv = pd.read_parquet(dd / "il_stints.parquet")
+    pa = build_il_stints.load_plate_appearances(pbp[-1])
+    residual = build_il_stints.residual_on_il_player_games(iv, pa)
+    assert residual <= build_il_stints._MAX_RESIDUAL_ON_IL_PGAMES, (
+        f"{residual} player-games claim on-IL while batting")
+
+
+def test_shipped_table_stays_inside_the_plausibility_band():
+    import json
+    import config
+    dd = Path(config.DATA_DELIVERY_DIR)
+    if not (dd / "il_stints.meta.json").exists():
+        pytest.skip("il_stints.meta.json is absent")
+    meta = json.loads((dd / "il_stints.meta.json").read_text())
+    lo, hi = meta["gate_band"]
+    assert lo <= meta["median_on_il_weekly"] <= hi
+    assert meta["reconciled_against"], "the table was built without reconciling"
+
+
 # ── serving contract ───────────────────────────────────────────────────────
 
 def test_swapped_columns_are_in_the_moneyline_width():
