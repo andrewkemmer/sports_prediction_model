@@ -21,6 +21,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 try:
     import resource  # POSIX-only stdlib (ru_maxrss); absent on Windows
@@ -2378,7 +2379,8 @@ def refine_dome_game_level(df: pd.DataFrame,
     df["dome_is_neutral_game"] = pd.Series(refined, index=df.index,
                                            dtype="float64")
     n_open = int((df["dome_is_neutral_game"] == 0).sum())
-    logger.warning(
+    log = logger.warning if unknown_retractable else logger.info
+    log(
         "Dome refinement: %d/%d games resolved; %d retractable games have "
         "UNKNOWN roof state (teams: %s) - venue fallback applied, never "
         "silently treated as closed",
@@ -2729,7 +2731,11 @@ def add_exp2_features(game_df: pd.DataFrame,
     return df
 
 
-# ── Lineup-delta features (Phase 2, moneyline-only) ───────────────────────────
+# ── Lineup-delta features (Phase 2, moneyline-only) ── RETIRED 2026-09-26 ────
+# No longer on the daily run path: pipeline.py stopped calling
+# add_lineup_delta_features, and build_batter_woba.py + its two caches were
+# deleted. Retained as the documented shape of a correct re-implementation
+# (one built from PROJECTED lineups on both sides, not post-game actuals).
 # mean wOBA of tonight's ACTUAL starting 9 (and its top-3) minus the team's
 # season-to-date wOBA, per side. The model otherwise only sees season-average
 # lineup stats, so resting-star days are invisible. Sources:
@@ -2747,13 +2753,23 @@ LINEUP_MIN_PA = 20   # batters below this use the team season mean (never a 3-PA
 LINEUP_REST_PA = 50  # "regular" floor for the top-5 rest-count
 LINEUP_TOP5_K = 5
 
-# Required committed runtime inputs (shipped with aead200). The daily
-# pipeline CONSUMES these — only the standalone builders (backfill_lineups.py,
-# fetch_pbp_chunks.py, build_batter_woba.py) regenerate them — so a fresh
-# clone MUST contain them. They are exact-name protected from the Phase 6
-# cleanup (master_pipeline._PROTECTED_DELIVERY_NAMES / _PREFIXES).
-_LINEUP_REQUIRED_FILES = ("lineups.parquet", "batter_woba.parquet",
-                          "team_woba.parquet")
+# RETIRED 2026-09-26. The six lineup_actual_* / lineup_rest_count_* columns
+# left MONEYLINE_FEATURE_COLS on 2026-08-29 (training.py) as a train-serve
+# skew fix — populated from post-game ACTUAL lineups in the decided frame but
+# always NULL at bet time — and pipeline.py stopped calling this module's
+# enrichment the same day. build_batter_woba.py and its two caches are
+# deleted: that builder read pbp_chunks/, whose producer (fetch_pbp_chunks.py)
+# was removed in ff372c3, so it could never again produce current data.
+# Nothing on the daily run reads any of it. lineups.parquet and
+# backfill_lineups.py survive for a future correct re-implementation and stay
+# exact-name protected from the Phase 6 cleanup.
+_LINEUP_REQUIRED_FILES = ("lineups.parquet",)
+# Tripwire threshold: how far the caches may trail the decided frame before
+# the loader warns. The caches are rebuilt only by the standalone builders, so
+# without this a silent freeze reads as "the feature has no signal" instead of
+# "the feature has no data". Offseason legitimately runs ~4-5 months ahead of
+# the last decided game, so the bar is a month, not a day.
+LINEUP_CACHE_MAX_LAG_DAYS = 31
 _lineup_cache: dict = {}
 
 
@@ -2768,12 +2784,76 @@ def _missing_lineup_artifacts() -> list[str]:
     return [n for n in _LINEUP_REQUIRED_FILES if not (base / n).exists()]
 
 
+def lineup_cache_staleness(max_date: "pd.Timestamp | None" = None) -> dict[str, Any]:
+    """How far the lineup/wOBA caches trail the decided frame, in days.
+
+    The 2026-08-29 removal note blamed train-serve skew for the lineup-delta
+    features looking weak, but the real reason they looked weak for months was
+    simpler: ``lineups.parquet`` froze at 2026-08-24 and ``batter_woba`` /
+    ``team_woba`` followed it, so every 2024 game and all 316 September 2026
+    games silently shipped NULL. Nothing failed, nothing warned, and the
+    feature was simply absent for 40% of history — which then made an A/B of
+    it read as noise (or worse, as a coverage artifact).
+
+    These caches are only rebuilt by the standalone builders
+    (backfill_lineups.py / build_pbp_chunks.py / build_batter_woba.py), so
+    nothing in the daily run notices them falling behind. This check is the
+    missing tripwire: compare each cache's max game_date against the decided
+    frame's and report the lag. Returns {} when the caches are absent or
+    unreadable (the missing-file path already reports that separately).
+
+    ``max_date`` defaults to the decided frame on disk, so callers that
+    already hold the frame can pass its max and skip the CSV re-read.
+    """
+    base = _lineup_base_dir()
+    if any(not (base / n).exists() for n in _LINEUP_REQUIRED_FILES):
+        return {}
+    if max_date is None:
+        csv_path = base / "game_level_features.csv"
+        if not csv_path.exists():
+            return {}
+        try:
+            max_date = pd.to_datetime(
+                pd.read_csv(csv_path, usecols=["game_date"])["game_date"],
+                errors="coerce").max()
+        except Exception:
+            return {}
+    if pd.isna(max_date):
+        return {}
+    ref = pd.Timestamp(max_date).normalize()
+
+    out: dict[str, Any] = {"reference_max_game_date": str(ref.date())}
+    worst = 0
+    for name, key in (("lineups.parquet", "lineups"),
+                      ("batter_woba.parquet", "batter"),
+                      ("team_woba.parquet", "team")):
+        try:
+            cache_max = pd.to_datetime(
+                pd.read_parquet(base / name, columns=["game_date"])["game_date"],
+                errors="coerce").max()
+        except Exception:
+            out[key] = None
+            continue
+        if pd.isna(cache_max):
+            out[key] = None
+            continue
+        lag = int((ref - pd.Timestamp(cache_max).normalize()).days)
+        out[key] = {"max_game_date": str(pd.Timestamp(cache_max).date()),
+                    "lag_days": lag}
+        worst = max(worst, lag)
+    out["max_lag_days"] = worst
+    return out
+
+
 def _load_lineup_cache() -> dict:
     """Lazy-load the three lineup/wOBA artifacts (cached across calls).
 
     On missing artifacts, degrades to {} WITH a warning naming the files —
     the caller decides whether that is acceptable (require_caches=True on the
-    training path turns the same condition into a loud error instead)."""
+    training path turns the same condition into a loud error instead).
+
+    Also warns when the caches are merely STALE: present, loadable, and
+    quietly short of the decided frame. See lineup_cache_staleness()."""
     if _lineup_cache:
         return _lineup_cache
     base = _lineup_base_dir()
@@ -2796,6 +2876,21 @@ def _load_lineup_cache() -> dict:
             "columns stay NaN", e)
         _lineup_cache.clear()
         return {}
+    try:
+        stale = lineup_cache_staleness()
+    except Exception as e:  # the tripwire must never break feature building
+        logger.debug("lineup staleness check failed (ignored): %s", e)
+        stale = {}
+    if stale and stale.get("max_lag_days", 0) > LINEUP_CACHE_MAX_LAG_DAYS:
+        detail = ", ".join(
+            f"{k}={v['max_game_date']} (lag {v['lag_days']}d)"
+            for k, v in stale.items()
+            if isinstance(v, dict))
+        logger.warning(
+            "add_lineup_delta_features: lineup caches are %d days STALE "
+            "vs the decided frame (%s) — every game after those dates ships "
+            "NULL lineup-delta features. Re-run backfill_lineups.py.",
+            stale["max_lag_days"], detail)
     return _lineup_cache
 
 
@@ -2861,7 +2956,7 @@ def add_lineup_delta_features(game_df: pd.DataFrame,
                 ". Without them the 6 lineup_actual_* columns stay NaN and the "
                 "shipped moneyline feature trains DEAD. Restore these files "
                 "(they are protected from Phase 6 cleanup) or rebuild them via "
-                "backfill_lineups.py + build_batter_woba.py before training.")
+                "backfill_lineups.py before training.")
     caches = _load_lineup_cache()
     if not caches:
         if require_caches:

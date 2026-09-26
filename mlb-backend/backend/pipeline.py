@@ -406,11 +406,6 @@ def _carry_forward_slate_details(slate: pd.DataFrame, target_date_str: str) -> p
         "sp_era_home", "sp_k9_home", "sp_era_away", "sp_k9_away",
         "sp_id_home", "sp_id_away",
         "moneyline_home", "moneyline_away", "total_line", "run_line_home", "juice",
-        # Phase 2 lineup-delta features: a morning run may already have posted
-        # lineups; restore them onto an evening rebuild (they never go stale).
-        "lineup_actual_woba_delta_home", "lineup_actual_woba_delta_away",
-        "lineup_actual_top3_delta_home", "lineup_actual_top3_delta_away",
-        "lineup_rest_count_home", "lineup_rest_count_away",
     ) if c in prev.columns and c in slate.columns]
     if not carry_cols:
         return slate
@@ -1712,14 +1707,13 @@ def run_daily_pipeline(
         # the existing paths). Moneyline-only: the run engine excludes
         # *_delta_* columns in derive_run_features.
         games = add_form_delta_features(games)
-        # Phase 2 lineup deltas (actual starting-9 wOBA − team season, per
-        # side) from data_delivery/lineups.parquet + batter/team sd-wOBA
-        # tables. Idempotent; moneyline-only (run engine excludes them).
-        # require_caches=True: the feature is SHIPPED -- a fresh clone missing
-        # the committed artifacts must fail LOUD (FileNotFoundError naming the
-        # file), never silently train with dead columns (see aead200/42ef3f7
-        # cleanup incident).
-        games = add_lineup_delta_features(games, require_caches=True)
+        # Phase 2 lineup deltas REMOVED 2026-09-26: the six lineup_actual_*/
+        # lineup_rest_count_* columns left MONEYLINE_FEATURE_COLS on
+        # 2026-08-29 (training.py) as a train-serve skew fix. This
+        # require_caches=True call survived that and was the only thing
+        # keeping the feature alive -- it hard-failed the whole training run
+        # when a fresh clone lacked the committed caches, over columns no
+        # model reads. See the slate-path comment above for the full rationale.
         if WEATHER_BACKFILL_ALL:
             # Full-history weather mode: the cache-backed backfill applies
             # real point-in-time weather to every decided game (see
@@ -1945,23 +1939,21 @@ def run_daily_pipeline(
                 # Slate rows missing a source column ship NaN, like every
                 # other feature (never a fabricated 0).
                 slate = add_exp2_features(slate)
-                try:
-                    slate = _fetch_slate_lineups(slate, target_date)
-                except Exception as exc:
-                    # Blast-radius containment: a lineup-enrichment failure
-                    # must never cost the day's artifacts (2026-09-22 shipped
-                    # zero dated files and every dashboard fell back a day).
-                    # All six lineup-delta columns stay NaN -- exactly the
-                    # PIT-correct state of a morning slate with nothing
-                    # posted -- and prediction proceeds.
-                    logger.error(
-                        "Slate lineup enrichment failed (%s); shipping the "
-                        "slate with NULL lineup-delta columns so today's "
-                        "artifacts still publish", exc)
-                    from features import LINEUP_DELTA_COLS
-                    for c in LINEUP_DELTA_COLS:
-                        if c not in slate.columns:
-                            slate[c] = pd.NA
+                # Lineup-delta enrichment REMOVED 2026-09-26: the six
+                # lineup_actual_*/lineup_rest_count_* columns were cut from
+                # MONEYLINE_FEATURE_COLS on 2026-08-29 (training.py) as a
+                # train-serve skew fix -- populated from post-game ACTUAL
+                # lineups in the decided frame but always NULL at bet time --
+                # so nothing scored them. The feature stayed live only as a
+                # require_caches=True hard gate: a fresh clone missing
+                # lineups.parquet / batter_woba.parquet / team_woba.parquet
+                # failed the whole daily run over six unscored columns.
+                # build_batter_woba.py is deleted; lineups.parquet survives as
+                # the declared batting order, still the input any correct
+                # re-implementation (projected lineups on BOTH sides) needs.
+                # _fetch_slate_lineups / _attach_slate_lineup_keys /
+                # _nearest_slate_pk stay defined (the former two are covered by
+                # test_run_engine_contract.py) but are no longer on the run path.
                 if weather:
                     slate = apply_weather_features(slate, weather)
                 games = pd.concat([games, slate], ignore_index=True)

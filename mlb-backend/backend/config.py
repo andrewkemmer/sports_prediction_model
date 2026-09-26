@@ -370,10 +370,12 @@ RFE_CANDIDATE_COLS = [
     "bullpen_era_delta_away",
     "lineup_woba_mean_delta_away",
     "lineup_woba_top3_delta_away",
-    "lineup_actual_top3_delta_away",
-    "lineup_actual_top3_delta_home",
-    "lineup_actual_woba_delta_away",
-    "lineup_actual_woba_delta_home",
+    # lineup_actual_*/lineup_rest_count_* REMOVED 2026-09-26. They were
+    # addition-ELIGIBLE here only because feature_selection.CANDIDATE_COLS is
+    # "RFE_CANDIDATE_COLS minus MONEYLINE_FEATURE_COLS" -- and these four left
+    # the model on 2026-08-29 as a train-serve skew fix. Leaving known-leaked,
+    # never-scored columns in the addition pool invites an RFE run to select
+    # them on post-game-actual signal. The pipeline no longer computes them.
     # --- diff cols culled from universe, never ablated (S-family cull 2026-09-07) (7) ---
     "sp_k9_diff",
     "sp_k9_5g_diff",
