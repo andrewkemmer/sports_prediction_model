@@ -24,9 +24,10 @@ the engine's honesty depends on:
   9. delivery honesty: the gates run BEFORE monitoring writes, retention can
      never delete a file the run itself just wrote, and the run-log lines
      that decide what a log means name what they actually measured;
- 10. pull progress: a captured run (no TTY, so no bar) still records a live
-     position and a closing summary, on a seconds floor as well as an item
-     cadence, and partitions cache hits from fetches from dead pages.
+ 10. pull progress: a captured run (no TTY, so no tqdm bar) still records a
+     live position, a readable fixed-width bar, and a closing summary, on a
+     seconds floor as well as an item cadence, and partitions cache hits
+     from fetches from dead pages.
 
 Run with: python nhl-backend/backend/test_run_engine_pit.py
 """
@@ -2268,6 +2269,53 @@ def test_a_fully_cached_score_window_still_reports_progress():
     assert "0 fetched" in final, \
         f"an unavailable page was reported as fetched: {final}"
     assert len(calls) == 1, f"the cached dates were re-pulled: {calls}"
+
+
+def test_progress_bar_is_fixed_width_printable_ascii():
+    """The bar has to survive whatever sink the run is attached to.
+
+    It is plain ASCII on purpose: `logging` writes under whatever encoding
+    the host console has, and a box-drawing glyph raises
+    UnicodeEncodeError on cp1252 - which would turn a progress decoration
+    into a failed run. Fixed width so a line does not reflow as it fills.
+    """
+    w = ing.BAR_WIDTH
+    for frac in (0.0, 0.01, 0.25, 0.5, 0.999, 1.0):
+        assert len(ing._bar(frac)) == w + 2, (frac, ing._bar(frac))
+    assert ing._bar(0.0) == "[" + "-" * w + "]"
+    assert ing._bar(1.0) == "[" + "#" * w + "]"
+    assert ing._bar(0.5).count("#") == w // 2
+    # Out-of-range positions clamp instead of over- or under-filling.
+    assert ing._bar(1.5) == ing._bar(1.0)
+    assert ing._bar(-0.5) == ing._bar(0.0)
+    assert ing._bar(0.5, 1) == "[#]", "a zero-width bar is not a bar"
+    assert ing._bar(0.5).isascii()
+
+
+def test_a_captured_pull_line_carries_a_readable_bar():
+    """With no terminal there is no bar at all — so the line must BE the bar.
+
+    This is the Kaggle run: a subprocess whose stderr is a pipe, so the log
+    is the only place progress can be seen. A tqdm bar would repaint with
+    \\r and a file-backed sink records that as a stream of snapshots; these
+    are ordinary characters, so the pane shows a bar filling up.
+    """
+    import re
+
+    with _mock_patch.object(ing, "_progress_bar", return_value=None):
+        def _drive():
+            prog = ing._PullProgress(60, "score chunk 1/11 [x]", every=10)
+            for _ in range(60):
+                prog.tick(cached=False)
+        msgs = _pull_log(_drive)
+    found = [re.search(r"\[#*\-*\]", m) for m in msgs]
+    assert msgs, "the window logged nothing at all"
+    assert all(found), [m for m, b in zip(msgs, found) if not b]
+    fills = [b.group().count("#") for b in found]
+    assert fills == sorted(fills), f"the bar went backwards: {fills}"
+    assert fills[-1] == ing.BAR_WIDTH, f"a finished window is not full: {fills}"
+    assert fills[0] == round(ing.BAR_WIDTH * 10 / 60), fills[0]
+    assert all(m.isascii() for m in msgs), "a log line is not plain ASCII"
 
 
 def _run_all() -> int:
