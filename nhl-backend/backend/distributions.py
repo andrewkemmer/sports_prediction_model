@@ -6,11 +6,22 @@ Structural mirror of the NFL distributions.py (MLB lineage):
 * one LightGBM Poisson regressor for away goals;
 * the active binary-moneyline feature contract is the sole source feature list;
 * genuine NaNs remain intact for native LightGBM missing-value routing;
-* NHL-specific negative-binomial dispersion is estimated from walk-forward OOF;
+* negative-binomial dispersion is estimated from walk-forward OOF with MLB's
+  pooled method-of-moments estimator;
 * one Monte Carlo score-pair sample supplies every total/margin probability.
 
-The binary moneyline model is intentionally not imported or modified here.
-Grids are NHL-sized: spread -8..+8 (goals), totals 4..12, sigma ≈ 2.2.
+FEATURE PARITY (MLB parity, structural not incidental). MLB's run engine does
+not own a run-line feature list: ``build_side_frame(..., strict_feature_parity
+=True)`` imports ``training.active_moneyline_feature_cols`` and hands the SAME
+resolved list to both side regressors. This module does the same thing through
+the NHL equivalent: the run-line matrix is built by the binary moneyline's own
+``moneyline.member_matrix`` helper, so the run line PULLS the production moneyline
+contract by construction rather than through a parallel path that merely agrees
+today. Adopted RFE additions/removals therefore reach the run line
+automatically, and there is no second list to keep in sync. The binary moneyline
+is only ever READ here — never modified, and never re-fit.
+
+Grids are NHL-sized: spread -8..+8 (goals), totals 4..12.
 """
 from __future__ import annotations
 
@@ -23,18 +34,23 @@ import pandas as pd
 try:
     from backend import config
     from backend import folds as folds_mod
-    from backend import features as feat_mod
+    from backend import moneyline as ml_mod
 except ImportError:
     import config
     import folds as folds_mod
-    import features as feat_mod
+    import moneyline as ml_mod
 
 logger = logging.getLogger(__name__)
+
+# The moneyline member whose matrix the run-line regressors consume. The
+# run-line models are LightGBM Poisson — tree family — so the tree member's
+# view is the correct one (mirrors MLB's RUN_TREE_CATEGORICAL_COLS routing:
+# the categorical team-ID pair rides with the tree view, never the linear one).
+MONEYLINE_TREE_MEMBER = "lightgbm"
 
 MC_DRAWS = 10_000
 MC_SEED = 42
 ALPHA_FLOOR = 1e-8
-ALPHA_CAP = 2.0
 
 # Retained for backwards-compatible diagnostics/tests; production uses NB MC.
 MARGIN_SUPPORT = np.arange(-config.MARGIN_PMF_MAX, config.MARGIN_PMF_MAX + 1)
@@ -94,13 +110,16 @@ class ScoreRegressor:
         self.feature_columns: list[str] = []
 
     def _matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        # The binary moneyline tree view WITH the categorical team-ID context
-        # (config.TREE_CATEGORICAL_COLS): the same structural treatment the
-        # binary tree members get (MLB parity — the run-engine regressors
-        # there also see the team-ID pair). This module never owns a run-line
-        # feature list, so the run line PULLS the moneyline contract by
-        # construction. Do not fill NaN: LightGBM handles missing natively.
-        X = feat_mod.tree_view(df)
+        # Resolved through the binary moneyline's OWN member_matrix helper —
+        # the NHL equivalent of MLB's
+        # ``from training import active_moneyline_feature_cols``. That helper
+        # is the single point where the production moneyline decides its
+        # feature contract (adopted RFE subset or the full universe, plus the
+        # tree family's categorical team-ID pair), so calling it here makes
+        # "the run line uses exactly the moneyline production feature set" a
+        # structural property instead of a convention two paths happen to
+        # agree on. Do not fill NaN: LightGBM handles missing natively.
+        X = ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df)
         if not self.feature_columns:
             self.feature_columns = list(X.columns)
         return X.reindex(columns=self.feature_columns)
@@ -120,20 +139,35 @@ class ScoreRegressor:
 
 
 def estimate_alpha(y: np.ndarray, mu: np.ndarray) -> float:
-    """Estimate NB alpha from OOF residual dispersion.
+    """Estimate NB alpha from OOF residual dispersion — MLB's estimator.
 
-    For NB variance ``mu + alpha*mu²``, the method-of-moments estimate is the
-    non-negative ratio of excess squared residuals to squared means. A value
-    near zero is the Poisson limit.
+    For NB variance ``mu + alpha*mu²``, the method-of-moments estimate is
+    ``alpha = max((var_obs - lam_bar) / lam_bar², 0)``: the excess of observed
+    variance over the Poisson expectation, divided by the squared mean
+    intensity. A value near zero is the Poisson limit.
+
+    This is byte-for-byte the same estimator as MLB's ``run_engine.fit_alpha``
+    (mlb-backend/backend/run_engine.py:786) — pooled and UNWEIGHTED, rounded to
+    4 dp, and deliberately UNCAPPED. The prior NHL form was a different,
+    mu²-weighted moment ratio with a 2.0 saturation cap: a genuinely
+    over-dispersed fit could be silently clipped, and the weighting made the
+    estimate disagree with MLB whenever lambda was heterogeneous (mildly so on
+    the full walk-forward OOF, where both forms sit at the Poisson limit). Both
+    are gone. The only addition over MLB is the degenerate-input guard (MLB
+    never needs it because its lambda is clipped at 1e-6 before it arrives
+    here).
     """
     y = np.asarray(y, dtype=float)
     mu = np.asarray(mu, dtype=float)
     ok = np.isfinite(y) & np.isfinite(mu) & (mu > 0)
     if ok.sum() < 2:
         return 0.0
-    excess = np.sum((y[ok] - mu[ok]) ** 2 - y[ok])
-    denom = np.sum(mu[ok] ** 2)
-    return float(np.clip(max(excess / max(denom, 1e-12), 0.0), 0.0, ALPHA_CAP))
+    lam = mu[ok]
+    lam_bar = float(lam.mean())
+    if lam_bar <= 0.0:
+        return 0.0
+    var_obs = float(y[ok].var(ddof=0))
+    return round(max((var_obs - lam_bar) / (lam_bar ** 2), 0.0), 4)
 
 
 def calibrate_dispersion(oof: pd.DataFrame) -> dict[str, float]:
@@ -268,10 +302,48 @@ def apply_distribution(df: pd.DataFrame, params: dict | None = None,
     return pd.concat([base.reset_index(drop=True), dist.reset_index(drop=True)], axis=1)
 
 
+def feature_contract(df: pd.DataFrame | None = None) -> dict[str, Any]:
+    """MLB-shaped record of the feature contract the run line actually consumes.
+
+    Mirrors ``run_engine.run_oof``'s ``summary["feature_contract"]`` so the two
+    engines publish the same audit trail. When ``df`` is supplied the contract
+    is resolved from the real moneyline matrix for that frame and the record
+    reports the FITTED width; the ``active_moneyline_feature_cols`` count is
+    reported alongside it so a frame that silently dropped a contract column is
+    visible instead of silent.
+    """
+    active = list(config.active_moneyline_feature_cols())
+    contract: dict[str, Any] = {
+        "mode": "strict_active_moneyline",
+        "n_features": len(active),
+        "feature_cols": active,
+        "tree_categorical_cols": list(config.TREE_CATEGORICAL_COLS),
+        "resolved_via": (f"moneyline.member_matrix({MONEYLINE_TREE_MEMBER!r})"),
+    }
+    if df is not None:
+        fitted = list(ml_mod.member_matrix(MONEYLINE_TREE_MEMBER, df).columns)
+        contract["n_features_fitted"] = len(fitted)
+        contract["fitted_cols"] = fitted
+        if len(fitted) < len(active) + len(config.TREE_CATEGORICAL_COLS):
+            missing = [c for c in active if c not in fitted]
+            logger.warning(
+                "run-line feature contract: %d active moneyline feature(s) "
+                "absent from this frame and therefore NOT fitted: %s",
+                len(missing), missing)
+    return contract
+
+
 def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
                      progress_every: int = 25,
                      fold_list: list | None = None) -> dict:
-    """Fit two LightGBM Poisson models on shared walk-forward folds."""
+    """Fit two LightGBM Poisson models on shared walk-forward folds.
+
+    ``fold_list`` is the SAME expanding walk-forward fold list the binary
+    moneyline walks (master_pipeline builds it once and hands the identical
+    object to both), so the run line's OOF periods are the moneyline's OOF
+    periods by construction — the MLB structural requirement that expected-
+    scoring folds never drift from the moneyline fold geometry.
+    """
     df = folds_mod.canonical_sort(game_df, date_col)
     fold_list = fold_list if fold_list is not None else folds_mod.make_folds(df, date_col=date_col)
     parts: list[pd.DataFrame] = []
@@ -314,7 +386,9 @@ def walk_forward_oof(game_df: pd.DataFrame, date_col: str = "gameday",
     if len(oof):
         oof["resid_margin"] = oof["margin"] - (oof["mu_h"] - oof["mu_a"])
         oof["resid_total"] = oof["total"] - (oof["mu_h"] + oof["mu_a"])
-    return {"oof": oof, "fold_table": pd.DataFrame(fold_rows)}
+    return {"oof": oof, "fold_table": pd.DataFrame(fold_rows),
+            "feature_contract": feature_contract(df),
+            "n_folds": n_folds}
 
 
 def fit_final(game_df: pd.DataFrame) -> ScoreRegressor:
