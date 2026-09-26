@@ -22,6 +22,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -55,7 +56,12 @@ except ImportError:
     import serving
 
 logger = logging.getLogger("nba_master_pipeline")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# ``stream=sys.stdout``, matching MLB's ``master_pipeline``. Not a style
+# choice: a log stream a host may drop is how a run ends up silent while it
+# works, and the run this was written for produced no visible output for ten
+# minutes because nothing had said it had started.
+logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                    format="%(asctime)s %(levelname)s %(message)s")
 
 
 # The steps of a run, in order, for the phase bar.  Named once here so the bar
@@ -387,17 +393,37 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     # run below is byte-for-byte the run it was before it existed.
     prog = progress.phases(PHASES)
 
+    def _step(name: str, done: str = "") -> None:
+        """Banner a phase, tick the bar, and print MLB's ``✅`` result line.
+
+        One call, so a phase cannot be announced without being counted and the
+        banner cannot disagree with the bar about how far the run got.  The
+        ``✅`` carries the numbers, which is what makes the log readable
+        afterwards: a run that took ten minutes should leave behind ten minutes
+        worth of evidence, not a single line at the end.
+        """
+        progress.banner(name)
+        prog.advance(name)
+        if done:
+            progress.ok(done)
+
+    progress.banner("PHASE 1-3  NBA data acquisition - ESPN schedule, "
+                    "stats.nba.com features, play-by-play")
     facts = ingestion.load_ingested(
         use_cache=not skip_pull,
         allow_download=not skip_pull,
     )
+    progress.ok(f"facts: {len(facts.games)} games, "
+                f"{len(facts.player_stats)} player rows, "
+                f"{len(facts.team_events)} event rows, "
+                f"{len(facts.play_by_play)} play-by-play actions")
     # The three ingest phases are one call - ``load_ingested`` owns all three
-    # upstreams - so the bar is advanced past the features and play-by-play
-    # labels here. They are separate labels because the three upstreams fail
-    # independently, and a run that died during the play-by-play sweep should
-    # say so rather than reporting that feature-building failed.
-    prog.advance("ingest features")
-    prog.advance("ingest play-by-play")
+    # upstreams - so the three ingest labels are ticked together here. They are
+    # separate labels because the three upstreams fail independently, and a run
+    # that died during the play-by-play sweep should say so rather than
+    # reporting that feature-building failed.
+    for _name in PHASES[:3]:
+        prog.advance(_name)
     games = ingestion.eligible_games(facts.games)
     # Settled is not "has a score": it is "has a score AND player lines". A
     # finished game nobody in the season log played - a postponement, the NBA
@@ -419,7 +445,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     fold_info = folds_mod.fold_summary(fold_list)
     if not fold_list:
         raise RuntimeError("NBA walk-forward produced no eligible folds after 30-day warm-up")
-    prog.advance()
+    _step("features", f"{len(game_df)} games, "
+                      f"{len(config.active_moneyline_feature_cols())} features, "
+                      f"{len(fold_list)} folds")
 
     ml = ml_mod.walk_forward_oof(game_df, fold_list=fold_list)
     ml_oof = _merge_oof_metadata(ml["oof"], game_df)
@@ -438,7 +466,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     dispersion = dist_mod.calibrate_dispersion(dist_oof)
     oof_markets = _marketize(ml_oof, dist_oof, "oof", dispersion)
     oof_markets, market_calibration = dist_mod.calibrate_market_frame(oof_markets)
-    prog.advance()
+    _step("walk-forward", f"{len(ml_oof)} out-of-fold rows over "
+                          f"{len(fold_list)} folds")
 
     final_models, _ = ml_mod.fit_final_models(game_df)
     final_reg = dist_mod.fit_final(game_df)
@@ -461,7 +490,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     else:
         slate_markets = pd.DataFrame()
         leaders = pd.DataFrame()
-    prog.advance()
+    _step("final fit", f"{len(final_models)} ensemble member(s), "
+                       f"{len(slate)} upcoming game(s) scored")
 
     artifacts: list[str] = []
     p_ml = out / config.MONEYLINE_JSON.format(date=date_c)
@@ -512,7 +542,7 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     p_feat = out / config.FEATURE_JSON.format(date=date_c)
     serving.write_feature_json(p_feat, coverage, _config_meta(facts), fold_info)
     artifacts.append(p_feat.name)
-    prog.advance()
+    _step("serve", f"{len(artifacts)} artifact(s) written to {out}")
 
     selection = feature_selection.run_rfe(game_df, out, date_c)
     selection_name = f"nba_feature_selection_{date_c}.json"
@@ -524,7 +554,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         out, date_c, game_df, game_df.tail(min(60, len(game_df))),
         {feature: 0.0 for feature in config.active_moneyline_feature_cols()})
     artifacts.extend(drift_names)
-    prog.advance()
+    _step("feature report", f"selection {selection_name}, "
+                            f"{len(drift_names)} drift/coverage file(s)")
 
     import joblib
     bundle = {
@@ -544,9 +575,11 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     members = monitoring.ensemble_table(ml_oof, ml["member_weights"])
     drift = monitoring.feature_drift(game_df, game_df.tail(min(60, len(game_df))))
     cov = monitoring.coverage(game_df)
+    brier = monitoring.rolling_brier(ml_oof)
+    latest_brier = f"{brier[-1]['brier']:.4f}" if brier else "n/a"
     monitoring.write_monitor_json(
         out / config.MODEL_MONITOR_JSON.format(date=date_c), date_c, drift, cov,
-        members, monitoring.rolling_brier(ml_oof),
+        members, brier,
         float(1 - ml_oof.home_win.mean()), _config_meta(facts), fold_info,
         cal_metrics, platt)
     artifacts.append(config.MODEL_MONITOR_JSON.format(date=date_c))
@@ -566,7 +599,8 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     if len(slate):
         _validate_slate_contract(slate, slate_markets)
-    prog.advance()
+    _step("monitor", f"rolling Brier {latest_brier} over {len(brier)} day(s), "
+                     f"{len(members)} ensemble member(s)")
 
     summary = {"status": "ok", "run_date": run_day, "artifacts": artifacts,
                "weights": ml["member_weights"], "folds": fold_info,
@@ -586,7 +620,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     summary["sync"] = sync
     (out / "nba_pipeline_summary.json").write_text(
         json.dumps(summary, indent=1, default=str))
-    prog.advance()
+    _step("publish", f"status {summary['status']}, "
+                     f"{summary['elapsed_seconds']}s, sync "
+                     f"{sync.get('pushed', sync.get('status', 'n/a'))}")
     prog.close()
     return summary
 

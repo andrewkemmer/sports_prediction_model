@@ -25,7 +25,7 @@ companies: no single NBA vendor has both.
 | Frame | Upstream | Why that one |
 |---|---|---|
 | schedule, sides, results | **ESPN scoreboard** | the only one that can report a game nobody has played yet, which is what a pending slate *is*. stats.nba.com reports no future games. |
-| features (box score, player lines) | **stats.nba.com `LeagueGameLog`** | one request per season returns every player line of that season — 26,306 rows for 2024-25. No per-game API reaches the same data in fewer requests, because a per-game API is one request per game. |
+| features (box score, player lines) | **stats.nba.com `LeagueGameLog`** | one request per 60-day slice returns every player line in that slice. No per-game API reaches the same data in fewer requests, because a per-game API is one request per game. |
 | play-by-play | **stats.nba.com `playbyplayv3`** | one request per game, ~0.1s. Counted into a per-team event rollup that the feature ladder reads. |
 
 No key, quota, or paid tier is involved on any of them.
@@ -108,10 +108,17 @@ The normalized cache lives outside the repository (by default under
 `~/.cache/sports_prediction_model/nba`; set `NBA_CACHE_DIR` to override it, and
 Kaggle/CI can point it at a mounted volume). It is **per-source and per-key**
 rather than one file per run: `schedule/YYYYMMDD.parquet` per day,
-`season_logs/log_<season>_<type>.parquet` per season, and
+`season_logs/log_<season>_<type>_<from>_<to>.parquet` per 60-day slice, and
 `play_by_play/pbp_<nba_game_id>.parquet` per game. A partial or failed sweep
 therefore re-fetches only what it did not get, which is what makes a
 1,300-game play-by-play sweep affordable to run incrementally.
+
+The slice width is part of the key on purpose. A whole-season file and a
+60-day file are not interchangeable, and a key loose enough to let one stand in
+for the other would let a run assemble its window from whichever granularity
+happened to be on disk. One consequence to expect: the first run after this
+change re-pulls the season log into slices and leaves the old
+`log_<season>_<type>.parquet` files behind, unused.
 
 `--skip-pull` serves from the cache without touching the network, so a host that
 can reach neither upstream can still run the model against a window that was
@@ -119,10 +126,55 @@ fetched elsewhere.
 
 Window and sweep controls are environment variables: `NBA_START_DATE` /
 `NBA_END_DATE` bound the window; `NBA_FULL_REPULL=1` ignores every cache;
+`NBA_SLICE_DAYS` sets the season-log slice width (default 60);
 `NBA_FETCH_PLAY_BY_PLAY=0` skips the play-by-play sweep; `NBA_PBP_MAX_GAMES`,
 `NBA_PBP_BUDGET_SEC`, `NBA_PBP_PAUSE_SEC` and `NBA_PBP_LOOKBACK_DAYS` size it;
 `NBA_SCHEDULE_BUDGET_SEC` bounds the day-by-day schedule sweep; and
 `NBA_REQUEST_TIMEOUT_SEC` / `NBA_REQUEST_ATTEMPTS` bound a single request.
+`NBA_PROGRESS=0` silences the progress display without changing any result.
+
+### How the run reports itself
+
+A run prints a banner per phase and a `✅` line with the numbers each one
+produced, MLB's idiom, and every sweep carries a progress bar: the schedule
+days, the season-log slices, and the play-by-play games. Where a terminal can
+draw a bar (`tqdm`, if installed) that is what you get; where one cannot — a
+Kaggle cell, a pipe, CI — the same count, rate and ETA go out as a log line
+every ten seconds instead.
+
+That distinction is deliberate and was learned the hard way. Suppressing a
+*bar* in a captured log is right, because a carriage-return redraw becomes a
+wall of noise. Suppressing the *count* along with it is not: the run this was
+written for spent ten minutes walking 1,024 schedule days and printed nothing
+at all until it finished, which is indistinguishable from a hang. The bars are
+display only — with them on, off, or unavailable, the run returns byte-identical
+artifacts.
+
+### 60 days where the endpoint allows it, one day where it does not
+
+The season log is pulled in 60-day slices, which is MLB's number
+(`results.SCHEDULE_CHUNK_DAYS`, `statcast_chunk_days`) and is measured here
+too: a 60-day slice of 2023-24 returned 8,627 player rows across 405 games in
+1.98s against 26,401 rows in 2.84s for the whole season, and each slice's game
+set was a strict subset of the season's. A 1,024-day window over three seasons
+is 28 requests instead of 6, each a third of the size, each individually
+restartable, and the run's model output is unchanged.
+
+The schedule is **not** sliced, and that is not an oversight. MLB can chunk its
+schedule because StatsAPI's `schedule` endpoint takes `startDate`/`endDate`.
+ESPN's scoreboard has no equivalent: given a range it either refuses outright
+(HTTP 400) or ignores the date and answers with whatever slate it currently
+holds. Measured 2026-09-26, a request spanning January 2024 came back `200`
+with one game dated October 2026.
+
+The second behaviour is the dangerous one, because nothing complains. A 60-day
+schedule sweep would issue 18 requests, receive 18 copies of the same game, and
+report a plausible 18-game schedule with no error raised. So
+`_answered_a_different_day` treats a response whose every game falls outside the
+day requested as a refusal, which routes it into the same consecutive-failure
+breaker a 403 does. A single stray game does not trip it — ESPN's `date` is UTC
+and the frame is Eastern, so a late start legitimately lands a game on the next
+day — which is why the check asks whether *every* row is off-day.
 
 ### A host that refuses this client
 

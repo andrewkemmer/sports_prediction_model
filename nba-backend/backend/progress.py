@@ -12,13 +12,25 @@ does:
 * ``tqdm`` is used when it is importable and falls back to the log line the
   pipeline already wrote when it is not, so the Kaggle notebook does not gain a
   dependency it does not already install.
-* It is silent when the output is not a terminal (a Kaggle log, a pipe, a
-  captured run), because a bar redrawn into a log file is just noise, and it is
-  switched off outright by ``NBA_PROGRESS=0``.
+* It never *draws* a bar when the output is not a terminal (a Kaggle log, a
+  pipe, a captured run), because a bar redrawn into a log file is just noise,
+  and it is switched off outright by ``NBA_PROGRESS=0``.  It still *reports*:
+  the same count, rate and ETA go out as a log line on a heartbeat, so a
+  captured run says what it is doing while it is doing it.
 
 The guardrail is the invariant a caller can rely on: with the bar on, off, or
 unavailable, the pipeline returns exactly the same artifacts.  The only
 difference is what the operator sees.
+
+That distinction is the whole reason the log lines are here, and it is a
+distinction this module originally got wrong.  Bars are rightly suppressed when
+stderr is not a terminal - but the code suppressed *everything* with them, so
+on Kaggle, where stderr is captured and never a tty, a run that spent ten
+minutes walking 1024 schedule days printed nothing at all until it finished.
+Silence is the correct rendering of a bar.  It is not the correct rendering of
+work in progress, and the operator watching a notebook cannot tell a hung cell
+from a working one.  So the count is reported on a heartbeat either way, and
+only the redrawing is conditional.
 """
 from __future__ import annotations
 
@@ -26,6 +38,7 @@ import contextlib
 import logging
 import os
 import sys
+import time
 from typing import Any, Iterable, Iterator, Sequence
 
 logger = logging.getLogger("nba_progress")
@@ -61,6 +74,56 @@ def enabled() -> bool:
     return _flag() and _drawable()
 
 
+def _eta(seconds: float) -> str:
+    """A duration in the units a person waiting actually wants: ``4m12s``."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, sec = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m{sec:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+def _write(text: str) -> None:
+    """Print a display line, whatever the output stream can encode.
+
+    MLB's banner is box-drawing characters and a check mark, and MLB runs on
+    Kaggle where stdout is UTF-8.  This pipeline also runs on a Windows console
+    whose default codec is cp1252, and there the first banner raised
+    ``UnicodeEncodeError`` and took the run down on its very first line - a
+    display-only feature killing a run that had not yet done any work.  A bar
+    that cannot be drawn is not a reason to stop, so an unencodable glyph is
+    replaced rather than raised.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(text.encode(encoding, "replace").decode(encoding, "replace"))
+
+
+def banner(text: str) -> None:
+    """MLB's phase banner, verbatim: ``_banner`` in its ``master_pipeline``.
+
+    ``print`` and not ``logger`` on purpose.  MLB's operator-facing run markers
+    go to stdout and are the one thing guaranteed to be visible in a Kaggle
+    notebook, a pipe, and a terminal alike; routing them through a log stream
+    that a host may swallow is how a run ends up silent while it works.
+    """
+    _write(f"\n{'━' * 70}\n  {text}\n{'━' * 70}")
+
+
+def ok(text: str) -> None:
+    """MLB's per-phase result line: the check mark and what it produced.
+
+    Present as a function rather than left as a ``print`` at each call site so
+    there is exactly one place that knows about the glyph.
+    """
+    _write(f"  ✅ {text}")
+
+
 def _tqdm() -> Any | None:
     """Return ``tqdm.tqdm`` if it is installed, else ``None``.
 
@@ -84,16 +147,48 @@ class _Counter:
     pipeline has always emitted rather than to silence.
     """
 
-    def __init__(self, total: int | None, desc: str, unit: str) -> None:
+    #: Longest silence between progress lines.  Long enough to stay legible in
+    #: a captured log, short enough that a stalled run is obviously stalled
+    #: rather than merely quiet.
+    HEARTBEAT_SEC = 10.0
+
+    def __init__(self, total: int | None, desc: str, unit: str,
+                 show_rate: bool = True) -> None:
         self.total = total
         self.desc = desc
         self.unit = unit
+        self.show_rate = show_rate
         self.count = 0
         self._label = desc
         self._postfix = ""
+        self._started = time.monotonic()
+        self._last = self._started
 
     def update(self, n: int = 1) -> None:
         self.count += int(n)
+        now = time.monotonic()
+        if now - self._last >= self.HEARTBEAT_SEC:
+            self._last = now
+            logger.info("  %s", self._line(now))
+
+    def _line(self, now: float | None = None) -> str:
+        """One progress line: count, share, rate, ETA, and the current detail."""
+        now = time.monotonic() if now is None else now
+        rate = self.count / max(1e-9, now - self._started)
+        head = self._label
+        if self.total:
+            head = f"{self._label}: {self.count}/{self.total} " \
+                   f"({100.0 * self.count / self.total:.0f}%)"
+            if self.show_rate and rate > 0 and self.count < self.total:
+                head += f", eta {_eta((self.total - self.count) / rate)}"
+        else:
+            head += f": {self.count}"
+        parts = [head]
+        if self.show_rate:
+            parts.append(f"{rate:.1f} {self.unit or 'step'}/s")
+        if self._postfix:
+            parts.append(self._postfix)
+        return "  ".join(parts)
 
     def set_description(self, text: str, **_kwargs: Any) -> None:
         self._label = text
@@ -116,9 +211,10 @@ class _Counter:
 class _Bar:
     """A ``tqdm`` bar, or the counter, behind one interface."""
 
-    def __init__(self, total: int | None, desc: str, unit: str) -> None:
+    def __init__(self, total: int | None, desc: str, unit: str,
+                 show_rate: bool = True) -> None:
         self._inner: Any | None = None
-        self._counter = _Counter(total, desc, unit)
+        self._counter = _Counter(total, desc, unit, show_rate)
         if not enabled():
             return
         factory = _tqdm()
@@ -155,15 +251,22 @@ class _Bar:
 
 
 @contextlib.contextmanager
-def track(total: int | None, desc: str = "NBA", unit: str = "step") -> Iterator[_Bar]:
+def track(total: int | None, desc: str = "NBA", unit: str = "step",
+          show_rate: bool = True) -> Iterator[_Bar]:
     """A bar that lives exactly as long as the ``with`` block.
 
     The total is only used to draw; a caller that cannot know it in advance can
     pass ``None`` and update per item.  Closing is guaranteed on the way out,
     including on an exception, so a failed phase does not leave a half-drawn
     line behind in a captured log.
+
+    ``show_rate=False`` drops the per-second figure and the ETA.  They are
+    honest for a loop of similar items and actively misleading for one that is
+    not: ten phases where the first took 2 seconds and the walk-forward is
+    about to take five minutes produces "0.0 phase/s, eta 6m03s" off a single
+    sample, which reads as a measurement and is not one.
     """
-    bar = _Bar(total, desc, unit)
+    bar = _Bar(total, desc, unit, show_rate)
     try:
         yield bar
     finally:
@@ -171,13 +274,20 @@ def track(total: int | None, desc: str = "NBA", unit: str = "step") -> Iterator[
 
 
 def phases(names: Sequence[str], desc: str = "NBA pipeline") -> _Phases:
-    """A phase bar for a straight-line run.
-
-    ``run()`` is a sequence of steps that either happens or raises; it is not a
-    loop to be wrapped.  This is the shape that fits: name the steps once, call
+    """A phase bar for a straight-line run.    ``run()`` is a sequence of steps that either happens or raises; it is not
+    a loop to be wrapped.  This is the shape that fits: name the steps once, call
     ``advance()`` as each finishes.  A name that is not in the list is still
     allowed and simply advances the bar, because losing a step's name must
     never turn into losing the step itself.
+
+    ``advance()`` labels the step it is entering, so a caller that calls it
+    after the work reports the phase that just completed; the log line names
+    the phase that is now running, which is the one an operator needs.
+
+    Phases are wildly uneven in cost, so the rate and ETA are switched off: the
+    count and the name of the phase now running are the useful signal, and an
+    ETA computed from a single completed phase would be a guess wearing a
+    decimal point.
     """
     return _Phases(names, desc)
 
@@ -186,7 +296,8 @@ class _Phases:
     def __init__(self, names: Sequence[str], desc: str) -> None:
         self._names = list(names)
         self._done = 0
-        self._ctx = track(len(self._names), desc=desc, unit="phase")
+        self._ctx = track(len(self._names), desc=desc, unit="phase",
+                          show_rate=False)
         self._bar: _Bar = self._ctx.__enter__()
 
     def advance(self, name: str = "") -> None:
@@ -197,6 +308,11 @@ class _Phases:
         self._done += 1
         self._bar.set_description(label)
         self._bar.update(1)
+        # Every phase announces itself as it starts, not only as the bar
+        # closes.  A bar cannot be read after the fact and a run that is four
+        # minutes into its first phase has said nothing at all, which is
+        # indistinguishable from a hang.
+        logger.info("  phase %d/%d  %s", self._done, len(self._names), label)
 
     def close(self) -> None:
         self._ctx.__exit__(None, None, None)

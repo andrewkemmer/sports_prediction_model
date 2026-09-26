@@ -45,6 +45,7 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
+from datetime import date
 from typing import Any
 
 import numpy as np
@@ -104,11 +105,33 @@ RIM_FEET = 5.0
 MID_FEET = 22.0
 
 
-def season_log_query(season: str, season_type: str) -> str:
-    """``LeagueGameLog``'s query string, shared by the pull and any probe."""
+#: The date format ``LeagueGameLog`` expects. Month-first, and the only one
+#: this module sends. Verified 2026-09-26 by reading the rows back: a
+#: ``DateFrom``/``DateTo`` pair in this format returns rows whose ``GAME_DATE``
+#: falls inside the window, and a window in this format is what the 60-day
+#: slices are built from.
+STATS_DATE_FMT = "%m/%d/%Y"
+
+
+def stats_date(when: date) -> str:
+    return when.strftime(STATS_DATE_FMT)
+
+
+def season_log_query(season: str, season_type: str,
+                     date_from: date | None = None,
+                     date_to: date | None = None) -> str:
+    """``LeagueGameLog``'s query string, shared by the pull and any probe.
+
+    ``date_from``/``date_to`` narrow the request to a window and default to
+    empty, which is the unfiltered season.  The empty default is load-bearing
+    rather than a convenience: the preflight probe builds on this call and
+    fills in a single day of its own, so a required argument here would have
+    forced the probe to restate the question the sweep asks.
+    """
     return urllib.parse.urlencode({
         **_STATS_QUERY, "Season": season, "SeasonType": season_type,
-        "DateFrom": "", "DateTo": "",
+        "DateFrom": stats_date(date_from) if date_from else "",
+        "DateTo": stats_date(date_to) if date_to else "",
     })
 
 
