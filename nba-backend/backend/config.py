@@ -60,13 +60,20 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
-FEATURE_SET_VERSION = "nba-prod-v1.0-team-categories"
+FEATURE_SET_VERSION = "nba-prod-v2.0-events"
 
 CALIBRATION_MODE = "platt"
 MIN_OOF_FOR_FIT = 300
 
 # One authoritative moneyline feature contract.  Every model, monitor,
 # manifest, and run-line regressor projects this list.
+#
+# The eight ``event_*`` entries are the play-by-play contribution. They are
+# named for what they measure, not for where they came from, so a second source
+# of play-by-play can fill them without touching this list. All eight are
+# home-minus-away differences, which is the form every comparable pair in this
+# list takes; a level feature would let the model learn a team's standing
+# rather than the matchup.
 MONEYLINE_FEATURE_COLS = [
     "elo_diff", "win_pct_diff", "rest_days_diff", "back_to_back_diff",
     "ewm_net_points_diff", "ewm_off_rating_diff", "ewm_def_rating_diff",
@@ -76,7 +83,39 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_off_rating_home", "ewm_off_rating_away",
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
     "rest_days_away", "is_home",
+    # Play-by-play: where shots come from, which turnovers were live ball, how
+    # much foul pressure the team generates, and how it scores late.
+    "event_three_rate_diff", "event_rim_rate_diff",
+    "event_live_tov_rate_diff", "event_and_in_rate_diff",
+    "event_shot_distance_diff", "event_possessions_diff",
+    "event_shooting_fouls_diff", "event_q4_points_diff",
 ]
+
+#: The trailing statistics the play-by-play rollup contributes, and the window
+#: each is read over. ``ewm`` means an exponentially weighted mean of the
+#: per-game value, which is how every other rolling feature in the ladder is
+#: built, so these need no new machinery.
+EVENT_TRAILING_SPECS: dict[str, str] = {
+    "three_rate": "ewm",
+    "rim_rate": "ewm",
+    "live_tov_rate": "ewm",
+    "and_in_rate": "ewm",
+    "shot_distance": "ewm",
+    "possessions": "ewm",
+    "shooting_fouls": "ewm",
+    "q4_points": "ewm",
+}
+
+#: Columns the event ladder derives from the raw per-team rollup. Kept as a
+#: mapping rather than computed inline so the rate's denominator is named once:
+#: a rate whose denominator changes silently is a feature whose meaning changes
+#: silently with it.
+EVENT_RATE_DENOMINATORS: dict[str, str] = {
+    "three_rate": "fga",
+    "rim_rate": "fga",
+    "live_tov_rate": "possessions",
+    "and_in_rate": "possessions",
+}
 
 # Stable current-team categories.  The upstream numeric team IDs are
 # resolved to these abbreviations during ingestion; unknown values receive a
@@ -88,9 +127,19 @@ NBA_TEAM_ID: dict[str, int] = {
     "NOP": 18, "NYK": 19, "OKC": 20, "ORL": 21, "PHI": 22, "PHX": 23,
     "POR": 24, "SAC": 25, "SAS": 26, "TOR": 27, "UTA": 28, "WAS": 29,
 }
+# Every spelling of a team that any source may hand us, folded to the one the
+# model uses.  The ESPN scoreboard is the schedule source, and it abbreviates
+# six of the thirty teams differently from stats.nba.com does: ESPN says GS,
+# NO, NY, SA, UTAH and WSH where the season log says GSW, NOP, NYK, SAS, UTA
+# and WAS.  A join on team name therefore drops every game involving five of
+# them - about a sixth of the schedule - with no error anywhere, because the
+# unmatched side is simply absent rather than wrong.  ``test_nba_contract``
+# pins these against the live scoreboard.
 TEAM_ALIASES = {
     "WSH": "WAS", "NJN": "BKN", "NJ": "BKN", "NOH": "NOP", "SEA": "OKC",
     "VAN": "MEM", "CHH": "CHA", "SAN": "SAS", "PHX": "PHX",
+    # ESPN's spellings.
+    "GS": "GSW", "NO": "NOP", "NY": "NYK", "SA": "SAS", "UTAH": "UTA",
 }
 UNK_TEAM_ID = 99
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]

@@ -46,6 +46,15 @@ GAMES_SCHEMA: dict[str, str] = {
     "home_score": "float", "away_score": "float",
     "game_type": "int", "margin": "float", "total": "float",
     "home_win": "float",
+    # ``game_id`` is the SCHEDULE source's identifier, not stats.nba.com's.
+    # The schedule is ESPN's scoreboard, so ``game_id`` is an ESPN event id -
+    # which is the only identifier that also exists for a game nobody has
+    # played yet. stats.nba.com names the same game with its own id, and that
+    # id is what the play-by-play endpoint is keyed on, so it is carried
+    # alongside rather than swapped in. A game with no ``nba_game_id`` is one
+    # nobody has played: no player lines, no play-by-play, and no reason for
+    # the feature code to pretend otherwise.
+    "nba_game_id": "str", "is_final": "bool",
 }
 # ``season`` is derivable from the tipoff, so a source is not required to
 # supply it. Everything here has to arrive from the source: a games frame
@@ -85,27 +94,69 @@ PLAYER_STATS_SCHEMA: dict[str, str] = {
 PLAYER_STATS_REQUIRED = ("game_id", "player_id", "team")
 
 PLAY_BY_PLAY_SCHEMA: dict[str, str] = {
-    "game_id": "str", "gameday": "datetime", "action_id": "float",
+    "game_id": "str", "nba_game_id": "str",
+    "gameday": "datetime", "action_id": "float",
     "action_number": "float", "period": "float", "clock": "str",
-    "team": "str", "player_id": "float", "action_type": "str",
-    "sub_type": "str", "description": "str", "score_home": "float",
-    "score_away": "float", "points": "float", "shot_distance": "float",
-    "shot_result": "str", "is_field_goal": "float", "shot_value": "float",
+    "team": "str", "player_id": "float", "player_name": "str",
+    "action_type": "str", "sub_type": "str", "description": "str",
+    "location": "str", "score_home": "float", "score_away": "float",
+    "points": "float", "shot_distance": "float", "shot_result": "str",
+    "is_field_goal": "float", "shot_value": "float",
     "x": "float", "y": "float",
 }
 PLAY_BY_PLAY_REQUIRED = ("game_id", "action_id")
+
+# The play-by-play rollup: one row per team per game, counted from the action
+# list. This is the frame that makes play-by-play part of the model rather
+# than a parquet nobody reads, so it is declared with the same authority as
+# the box score.
+#
+# It carries the shared counts (``fga``, ``fgm``, ``fta``, ``ftm``, ``oreb``,
+# ``dreb``, ``tov``, ``pf``) *on purpose*, even though the box score already
+# has them. Two independent counts of the same game that agree are evidence
+# the pull is correct, and two that disagree mean one of them is wrong - a
+# signal nothing else in the pipeline can produce. The consumer keeps the box
+# score as the model's fact and uses this frame to check it.
+#
+# The rest is what only an event stream knows: where on the floor a shot came
+# from, which turnovers were live ball, how many possessions ended in a foul
+# with the shot made, and how the scoring distributed across quarters.
+#
+# There is deliberately NO team-rebound column. The feed emits team rebounds as
+# ``Hawks Rebound`` with no player AND no team, so they cannot be attributed to
+# a side, and a per-team column for them would be structurally always zero -
+# looking populated by column count while carrying nothing. The count of these
+# is reported per game instead, by ``nba_sources.unattributed_rebounds``.
+TEAM_EVENTS_SCHEMA: dict[str, str] = {
+    "game_id": "str", "gameday": "datetime", "team": "str",
+    "is_home": "bool", "opponent": "str",
+    "fga": "float", "fgm": "float", "fta": "float", "ftm": "float",
+    "fg3a": "float", "fg3m": "float",
+    "oreb": "float", "dreb": "float",
+    "tov": "float", "pf": "float", "assists": "float",
+    "points": "float", "ot_points": "float",
+    "rim_attempts": "float", "mid_attempts": "float",
+    "corner_three_attempts": "float",
+    "live_turnovers": "float", "shooting_fouls": "float", "and_in": "float",
+    "shot_distance": "float", "possessions": "float",
+    "q1_points": "float", "q2_points": "float",
+    "q3_points": "float", "q4_points": "float",
+}
+TEAM_EVENTS_REQUIRED = ("game_id", "team")
 
 SCHEMAS: dict[str, dict[str, str]] = {
     "games": GAMES_SCHEMA,
     "team_stats": TEAM_STATS_SCHEMA,
     "player_stats": PLAYER_STATS_SCHEMA,
     "play_by_play": PLAY_BY_PLAY_SCHEMA,
+    "team_events": TEAM_EVENTS_SCHEMA,
 }
 REQUIRED: dict[str, tuple[str, ...]] = {
     "games": GAMES_REQUIRED,
     "team_stats": TEAM_STATS_REQUIRED,
     "player_stats": PLAYER_STATS_REQUIRED,
     "play_by_play": PLAY_BY_PLAY_REQUIRED,
+    "team_events": TEAM_EVENTS_REQUIRED,
 }
 
 # Columns that are derived rather than measured, so a source must not supply
@@ -125,11 +176,21 @@ class ContractError(ValueError):
 
 def _coerce(frame: pd.DataFrame, column: str, kind: str) -> pd.Series:
     if kind == "str":
-        return frame[column].astype(str)
+        # A missing string must become "" and not the literal "nan".  Both
+        # ``nba_game_id`` and every team abbreviation flow into a join key, and
+        # a join key of "nan" is a key that silently matches nothing while
+        # looking perfectly populated to any length() or notna() check.
+        return frame[column].where(frame[column].notna(), "").astype(str)
     if kind == "datetime":
         return pd.to_datetime(frame[column], errors="coerce", utc=True).dt.tz_convert(None)
     if kind == "bool":
-        return frame[column].astype(bool)
+        # ``astype(bool)`` maps NaN to True, which would mark every unplayed
+        # game as final and every unplayed side as home.
+        values = frame[column]
+        if values.dtype == object:
+            values = values.map({True: True, False: False, "true": True,
+                                 "True": True, "false": False, "False": False})
+        return values.fillna(False).astype(bool) if values.dtype == object else values.fillna(False).astype(bool)
     values = pd.to_numeric(frame[column], errors="coerce")
     # Every measured quantity is a float even where the values happen to be
     # whole numbers, because a source that sends 110 for a score and another
@@ -173,7 +234,7 @@ def normalize(frame: pd.DataFrame, name: str, *, source: str = "unknown",
         else:
             out[column] = np.nan
 
-    if name in ("team_stats", "player_stats") and len(out):
+    if name in ("team_stats", "player_stats", "team_events", "play_by_play") and len(out):
         out["game_id"] = out["game_id"].astype(str)
     if name == "games" and len(out):
         out["game_id"] = out["game_id"].astype(str)

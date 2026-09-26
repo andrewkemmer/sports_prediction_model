@@ -19,6 +19,46 @@ REQUIRED_GAME_COLS = [
     "home_score", "away_score",
 ]
 
+#: The columns the play-by-play rollup contributes to the ladder.
+#:
+#: This is an ALLOW-LIST, and that is the point. The rollup also re-counts the
+#: box score's own columns - fga, fgm, fta, ftm, oreb, dreb, tov, pf - and those
+#: counts are the cross-check, not the model's input: where they disagree the
+#: box score wins, because it is a sum over player lines while the event stream
+#: is a narration, and the residual differences are real (offensive rebounds
+#: agree on 88 of 90 team-games, personal fouls on 60). Merging them anyway
+#: would leave a noisier duplicate of every fact in the frame, one suffix away
+#: from being read by a future change that does not know which one is which.
+#:
+#: So the rollup contributes only what an event stream knows and a box score
+#: does not: where shots came from, which turnovers were live ball, how many
+#: possessions ended in a foul with the shot made, and the quarter split.
+#:
+#: The rate denominators are on the list too, and they are the one deliberate
+#: exception: a run with no team facts still needs ``fga`` to divide by. They
+#: are merged with the event frame keeping the left (box-score) value on a
+#: collision, so they are a fallback and not an override.
+EVENT_ONLY_COLUMNS = (
+    "rim_attempts", "mid_attempts", "corner_three_attempts",
+    "live_turnovers", "shooting_fouls", "personal_fouls", "and_in",
+    "shot_distance", "possessions",
+    "q1_points", "q2_points", "q3_points", "q4_points", "ot_points",
+)
+
+#: Rate denominators, merged as a fallback when the box score has none.
+EVENT_DENOMINATOR_COLUMNS = tuple(sorted(set(config.EVENT_RATE_DENOMINATORS.values())))
+
+#: Numerator for each event rate. The denominators live in
+#: ``config.EVENT_RATE_DENOMINATORS``; naming the numerators here keeps the two
+#: halves of each ratio in the same place instead of spread across a config
+#: module and the feature code that reads it.
+_EVENT_RATE_NUMERATORS = {
+    "three_rate": "fg3a",
+    "rim_rate": "rim_attempts",
+    "live_tov_rate": "live_turnovers",
+    "and_in_rate": "and_in",
+}
+
 
 def team_events(games: pd.DataFrame) -> pd.DataFrame:
     """Explode game rows into one chronological row per team."""
@@ -187,11 +227,98 @@ def _attach_stats(ev: pd.DataFrame, team_stats: pd.DataFrame | None) -> pd.DataF
     return out
 
 
+def _attach_events(ev: pd.DataFrame,
+                   event_stats: pd.DataFrame | None) -> pd.DataFrame:
+    """Merge the play-by-play rollup onto the event frame and derive its rates.
+
+    The rollup is optional. A window with no play-by-play still builds every
+    other feature; the event columns are simply absent and the ladder fills them
+    with neutral defaults rather than failing. That is deliberate - the event
+    features are then NaN-free but constant, and a constant column carries no
+    signal instead of a wrong one.
+
+    The rates are computed here, on the per-game values, BEFORE any window is
+    applied, so a rolling mean of a rate is a mean of rates rather than a ratio
+    of means. Those are different numbers and only the first is a rate.
+    """
+    out = ev.copy()
+    raw_columns = list(config.EVENT_TRAILING_SPECS) + list(
+        config.EVENT_RATE_DENOMINATORS.values())
+    if event_stats is not None and len(event_stats):
+        if {"game_id", "team"}.issubset(event_stats.columns):
+            extra = [c for c in dict.fromkeys(
+                EVENT_ONLY_COLUMNS + EVENT_DENOMINATOR_COLUMNS)
+                if c in event_stats.columns]
+            if extra:
+                stats = event_stats[["game_id", "team", *extra]].copy()
+                stats["game_id"] = stats.game_id.astype(str)
+                stats["team"] = stats.team.astype(str)
+                # The rollup can carry both a traditional and an event family
+                # for the same fact; keep the most complete row per team-game
+                # so the join stays one-to-one.
+                quality = stats[extra].notna().sum(axis=1)
+                stats = (stats.assign(_q=quality)
+                         .sort_values(["game_id", "team", "_q"],
+                                      ascending=[True, True, False])
+                         .drop_duplicates(["game_id", "team"], keep="first")
+                         .drop(columns="_q"))
+                out = out.merge(stats, on=["game_id", "team"], how="left",
+                                validate="many_to_one",
+                                suffixes=("", "_event"))
+    # Neutral defaults. A rate and a mean are both undefined with no
+    # denominator and no observations, so they are NaN; a count is zero when
+    # the rollup said nothing happened. The distinction matters: defaulting a
+    # mean to 0 would make a team with no play-by-play look like the league's
+    # best close-range team. ``fga`` and ``possessions`` are rate denominators:
+    # the box score normally supplies fga, but a run with no team facts must
+    # leave it undefined rather than zero, or every rate divides by zero and
+    # reads as "no rim pressure" instead of "unknown".
+    neutral = {"fga": np.nan, "possessions": np.nan, "shot_distance": np.nan}
+    for column in raw_columns:
+        if column not in out:
+            out[column] = neutral.get(column, 0.0)
+        out[column] = pd.to_numeric(out[column], errors="coerce")
+    for column, default in neutral.items():
+        if column not in out:
+            out[column] = default
+    for rate, denominator in config.EVENT_RATE_DENOMINATORS.items():
+        numerator = _EVENT_RATE_NUMERATORS[rate]
+        num = (pd.to_numeric(out[numerator], errors="coerce")
+               if numerator in out else pd.Series(np.nan, index=out.index))
+        den = (pd.to_numeric(out[denominator], errors="coerce")
+               if denominator in out else pd.Series(np.nan, index=out.index))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out[rate] = np.where(den > 0, num / den, np.nan)
+    return out
+
+
 def team_stats_ladder(events: pd.DataFrame,
-                      team_stats: pd.DataFrame | None = None) -> pd.DataFrame:
+                      team_stats: pd.DataFrame | None = None,
+                      event_stats: pd.DataFrame | None = None
+                      ) -> pd.DataFrame:
     """Build per-team trailing state, sorted chronologically."""
     ev = _attach_stats(events, team_stats)
+    ev = _attach_events(ev, event_stats)
     srt = ev.sort_values(["team", "gameday", "game_id"]).reset_index(drop=True)
+    # Carry each team's event profile forward across games that have no
+    # play-by-play. The sweep is incremental - a few hundred games per run - so
+    # for most of a run's history the rollup is simply absent, and an EWM over
+    # a column with interior NaNs propagates them: every value after the first
+    # gap is NaN and every event feature is empty. Filling forward uses only
+    # what the team had already shown, so it stays point-in-time safe, and a
+    # team whose profile is genuinely unknown stays NaN rather than becoming a
+    # league average.
+    event_columns = [c for c in srt.columns
+                     if c in config.EVENT_TRAILING_SPECS
+                     or c in config.EVENT_RATE_DENOMINATORS
+                     or c in set(config.EVENT_RATE_DENOMINATORS.values())
+                     or c in {"rim_attempts", "mid_attempts",
+                              "corner_three_attempts", "live_turnovers",
+                              "and_in", "shooting_fouls", "avg_shot_distance",
+                              "possessions", "q4_points", "ot_points"}]
+    if event_columns:
+        srt[event_columns] = (srt.groupby("team", sort=False)[event_columns]
+                              .ffill())
     srt["elo_entering"] = pd.to_numeric(srt["elo_entering"], errors="coerce")
     srt["win_pct"] = _trailing(srt, "team_win", config.WINPCT_WINDOW)
     prior_date = srt.groupby("team", sort=False)["gameday"].shift()
@@ -213,6 +340,17 @@ def team_stats_ladder(events: pd.DataFrame,
             col = f"{metric}_{window}"
             srt[col] = (_ewm(srt, metric) if window == "ewm"
                         else _trailing(srt, metric, config.PBP_ROLL_WINDOW))
+    # The play-by-play contribution, read over the same EWM machinery the
+    # box-score features use. ``shot_distance`` arrives as the rollup's
+    # per-game mean rather than as a sum, which is why it is excluded from the
+    # sum-aggregated list above and read here.
+    for metric, window in config.EVENT_TRAILING_SPECS.items():
+        if metric not in srt:
+            srt[metric] = np.nan
+        srt[f"{metric}_{window}"] = (_ewm(srt, metric)
+                                     if window == "ewm"
+                                     else _trailing(srt, metric,
+                                                    config.PBP_ROLL_WINDOW))
     return srt
 
 
@@ -278,6 +416,14 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
             out[f"nba_{col}_diff"] = h - a
             out[f"nba_{col}_home"] = h
             out[f"nba_{col}_away"] = a
+    # The play-by-play contribution: every event feature is a home-minus-away
+    # difference of the same trailing statistic, which is the form the rest of
+    # the contract uses and the form a level feature must not take. The window
+    # is part of how the ladder reads the metric, not part of the feature's
+    # name, so the contract column is ``event_<metric>_diff`` and the config
+    # declaration and this line cannot drift apart.
+    for metric, window in config.EVENT_TRAILING_SPECS.items():
+        out[f"event_{metric}_diff"] = _diff(ladder, ids, f"{metric}_{window}")
     for col in config.MONEYLINE_FEATURE_COLS:
         if col not in out:
             out[col] = np.nan
@@ -299,9 +445,11 @@ def _records_for(out: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_game_features(games: pd.DataFrame,
-                        team_stats: pd.DataFrame | None = None) -> pd.DataFrame:
+                        team_stats: pd.DataFrame | None = None,
+                        event_stats: pd.DataFrame | None = None
+                        ) -> pd.DataFrame:
     ev = compute_elo(team_events(games))
-    ladder = team_stats_ladder(ev, team_stats)
+    ladder = team_stats_ladder(ev, team_stats, event_stats)
     out = _attach_contract(games.copy(), ladder)
     out = _records_for(out, ev)
     out["home_score"] = pd.to_numeric(out.get("home_score"), errors="coerce")
@@ -314,7 +462,9 @@ def build_game_features(games: pd.DataFrame,
 
 
 def build_slate_features(schedule: pd.DataFrame,
-                         team_stats: pd.DataFrame | None = None) -> pd.DataFrame:
+                         team_stats: pd.DataFrame | None = None,
+                         event_stats: pd.DataFrame | None = None
+                         ) -> pd.DataFrame:
     sched = schedule.copy()
     for col in ("home_score", "away_score"):
         if col not in sched:
@@ -333,7 +483,7 @@ def build_slate_features(schedule: pd.DataFrame,
     pending_events["elo_entering"] = pending_events.team.map(
         lambda t: ratings.get(t, config.ELO_PRIOR))
     combined = pd.concat([decided_events, pending_events], ignore_index=True)
-    ladder = team_stats_ladder(combined, team_stats)
+    ladder = team_stats_ladder(combined, team_stats, event_stats)
     out = _attach_contract(pending, ladder)
     out = _records_for(out, decided_events)
     out["home_score"] = np.nan

@@ -1,9 +1,18 @@
 """The single authoritative NBA production pipeline.
 
 Run from ``nba-backend/backend``.  Every artifact and delivery path is NBA-only;
-no other sport backend is imported.  Data comes from NBA.com's public APIs: the
-stats.nba.com season log, or cdn.nba.com per-game box scores when the season log
-cannot be read.  There is no third source.
+no other sport backend is imported.
+
+Data comes from three upstreams, each asked for the one thing it is good at, in
+the same division of labour MLB already runs: ESPN's scoreboard supplies the
+SCHEDULE (the only one of the three that can report a game nobody has played
+yet), stats.nba.com's ``LeagueGameLog`` supplies the FEATURES (one request per
+season returns every player line of that season), and stats.nba.com's
+``playbyplayv3`` supplies the PLAY-BY-PLAY (one request per game, counted into a
+per-team event rollup that the feature ladder reads).  There is no fallback
+route between them: a missing source stops the run and says which one, because a
+feature set quietly assembled from a different set of games each run is not a
+feature set.
 """
 from __future__ import annotations
 
@@ -50,7 +59,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # and the log agree, and so a run that dies halfway says which half it reached.
 # These are descriptions, not control flow: the order below is the order the
 # calls in ``run`` already happen in, and adding a name changes no result.
-PHASES = ("ingest", "features", "walk-forward", "final fit", "serve",
+PHASES = ("ingest schedule", "ingest features", "ingest play-by-play",
+          "features", "walk-forward", "final fit", "serve",
           "feature report", "monitor", "publish")
 
 
@@ -71,13 +81,20 @@ def _config_meta(facts=None) -> dict:
     """
     manifest = getattr(facts, "manifest", None) or {}
     source = manifest.get("source_route") or ingestion.SOURCE_ID
+    tables = manifest.get("tables", {})
+    frames = manifest.get("frame_sources", {})
     return {"sport": "nba", "feature_set_version": config.FEATURE_SET_VERSION,
             "seed": config.RANDOM_SEED, "warmup_days": config.WARMUP_DAYS,
             "cadence_days": config.RETRAIN_CADENCE_DAYS,
             "min_val_fold_games": config.MIN_VAL_FOLD_GAMES,
             "members": list(config.ENSEMBLE_MEMBERS), "market_free": True,
             "source": source,
-            "player_rows": int(manifest.get("tables", {}).get("player_stats", 0))}
+            "player_rows": int(tables.get("player_stats", 0)),
+            # Per-frame provenance, so an artifact says which upstream filled
+            # each part of it rather than naming one vendor for everything.
+            "frame_sources": dict(frames),
+            "play_by_play_rows": int(tables.get("play_by_play", 0)),
+            "event_rows": int(tables.get("team_events", 0))}
 
 
 def _merge_oof_metadata(oof: pd.DataFrame, game_df: pd.DataFrame) -> pd.DataFrame:
@@ -254,14 +271,21 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
         use_cache=not skip_pull,
         allow_download=not skip_pull,
     )
+    # The three ingest phases are one call - ``load_ingested`` owns all three
+    # upstreams - so the bar is advanced past the features and play-by-play
+    # labels here. They are separate labels because the three upstreams fail
+    # independently, and a run that died during the play-by-play sweep should
+    # say so rather than reporting that feature-building failed.
+    prog.advance("ingest features")
+    prog.advance("ingest play-by-play")
     games = ingestion.eligible_games(facts.games)
     settled = games[games.home_score.notna() & games.away_score.notna()].copy()
     pending = games[games.home_score.isna() | games.away_score.isna()].copy()
     if len(settled) < max(10, config.MIN_VAL_FOLD_GAMES):
         raise RuntimeError("NBA window has too few settled eligible games for walk-forward training")
-    prog.advance()
 
-    game_df = feat_mod.build_game_features(settled, facts.team_stats)
+    game_df = feat_mod.build_game_features(settled, facts.team_stats,
+                                           facts.team_events)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional, and the tree members are
@@ -294,7 +318,9 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
 
     final_models, _ = ml_mod.fit_final_models(game_df)
     final_reg = dist_mod.fit_final(game_df)
-    slate = feat_mod.build_slate_features(games, facts.team_stats) if len(pending) else pd.DataFrame()
+    slate = (feat_mod.build_slate_features(games, facts.team_stats,
+                                           facts.team_events)
+             if len(pending) else pd.DataFrame())
     if len(slate):
         slate["home_win_prob_model"] = ml_mod.predict_slate(
             final_models, slate, ml["member_weights"])
@@ -421,6 +447,14 @@ def run(run_date: str | None = None, out_dir: str | Path | None = None,
     summary = {"status": "ok", "run_date": run_day, "artifacts": artifacts,
                "weights": ml["member_weights"], "folds": fold_info,
                "n_settled": len(settled), "n_slate": len(slate),
+               "n_features": len(config.active_moneyline_feature_cols()),
+               "play_by_play": {
+                   "actions": int(len(facts.play_by_play)),
+                   "event_rows": int(len(facts.team_events)),
+                   "games_covered": int(facts.team_events.game_id.nunique())
+                   if len(facts.team_events) else 0,
+                   "cross_check": facts.manifest.get("play_by_play", {}),
+               },
                "elapsed_seconds": round(time.time() - started, 2),
                "source_manifest": facts.manifest}
     _prune(out, date_c, set(artifacts))
