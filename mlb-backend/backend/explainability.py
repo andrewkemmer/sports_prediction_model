@@ -278,7 +278,13 @@ def compute_shap_per_game(
     explainers: dict[str, tuple[Any, Optional[float]]] = {}
     if has_shap:
         for name, model in models.items():
-            if name in ("scaler", "logistic", "impute_median"):
+            # TreeExplainer only supports the tree members.  The linear
+            # ensemble member and persisted metadata are intentionally not
+            # explainable members; attempting them only emits misleading
+            # "unsupported model" warnings and does not affect the XGB/LGBM
+            # attribution paths below.
+            if name in ("scaler", "logistic", "impute_median",
+                        "categorical_vocab", "elasticnet"):
                 continue
             try:
                 ex = shap.TreeExplainer(model)
@@ -319,8 +325,21 @@ def compute_shap_per_game(
                     if sv is None and name in explainers:
                         explainer, base = explainers[name]
                         sv = _shap_vector(explainer.shap_values(Xin), n_full)
-                        if sv is not None and name == "xgboost":
-                            shap_path_used[name] = "shap_TreeExplainer_fallback"
+                        if sv is not None:
+                            # Record the path for EVERY member, not just
+                            # xgboost. lightgbm reaches TreeExplainer through
+                            # this same branch (the `name == "xgboost"` gate
+                            # above only routes the xgboost-native attempt),
+                            # so gating the assignment on xgboost left
+                            # shap_path_used empty for lightgbm and the
+                            # additivity summary printed "via ?" on every
+                            # run -- the label could never resolve.
+                            # xgboost keeps its two historical labels; for
+                            # every other member TreeExplainer IS the primary
+                            # path, not a fallback.
+                            shap_path_used[name] = (
+                                "shap_TreeExplainer_fallback" if name == "xgboost"
+                                else "shap_TreeExplainer")
                     if sv is None:
                         continue  # loud logging already happened upstream
                     tree_shaps.append(sv)
