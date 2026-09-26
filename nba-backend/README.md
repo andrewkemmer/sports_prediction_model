@@ -336,3 +336,61 @@ directory is ephemeral, that meant every run wrote its artifacts and then lost
 them at session end, and `nba-backend/data_delivery` stayed empty on `main`
 permanently while the notebook went on reporting that artifacts had been
 pushed. NBA was the only sport not publishing.
+
+### Retention: what the dashboard will serve
+
+The board offers a **rolling 10-day window**, the same shape MLB's frontend
+enforces (the backend half of MLB's policy is `retention_policy.py`; the
+frontend half is the valid-date filter in `frontend/utils.py`). The NBA's is
+enforced in that same place, and it is the only thing bounding which dates a
+card can be rendered for.
+
+**The anchor is the newest date the board can serve, not today.** That is the
+one place the NBA cannot copy MLB verbatim, and it is a property of the data
+rather than a preference. MLB's boards are same-day slates, so "today" and "the
+newest board" are the same day. The NBA run publishes the slate it is *about to
+play*: measured on the deployed branch at 2026-09-26, the moneyline was
+`slate_date 2026-10-20` (24 days ahead) while the newest played game in the
+retained history was `2026-06-13` (105 days behind) — the season does not exist
+between them. A today-anchored window would hold neither and the board would
+render empty for the whole offseason and pre-season.
+
+So the window runs from the newest served date back ten days, which is MLB's
+own rule read precisely ("keeps the run's anchor date and the 10 days before
+it", where the anchor is the run's window end, which *is* the newest slate).
+It buys a guarantee the today-anchored version does not have: the newest date
+is inside its own window by construction, so the truncation can never empty the
+board it applies to. The production slate also wins the anchor over history on
+purpose — a history date past the slate must not push the slate out of the
+window and land the board back on an archive card.
+
+Measured before and after, against the deployed artifacts:
+
+| | dates offered | range |
+|---|---|---|
+| before | 284 | 2024-11-22 .. 2026-10-20 |
+| after | 1 | 2026-10-20 |
+
+Every dropped date predates the window (newest dropped: `2026-06-13`) and no
+in-window date was lost.
+
+This is what retires the archive card. The board's render gate already refused
+a date outside its valid set, so bounding the valid set means a date that is no
+longer served cannot reach a card by any path — including the history fallback
+that rebuilds a card from the OOF prediction-history CSV. An NBA dashboard
+therefore never shows a card for a date whose published prediction has aged out,
+which is the invariant the same rule buys MLB.
+
+Two things are deliberately **not** done here:
+
+- **No backend pruning.** MLB's policy has a second half that `git rm`s dated
+  artifacts outside the window in its delivery phase. The NBA has no equivalent,
+  so `nba-backend/data_delivery` keeps accumulating dated artifacts that the
+  dashboard will never serve. Adding it is a backend change and is out of scope
+  for this one; the frontend window already makes those files invisible, at the
+  cost of repository growth.
+- **No change to the board itself.** The card layout, the date rail, the
+  prev/next stepping, the calendar and the history fallback are all untouched.
+  The frozen-cards store is still consulted first for a served date, and the
+  OOF CSV is still the last resort — MLB keeps that same ladder, and MLB's
+  invariant rests on the window rather than on removing the fallback.
