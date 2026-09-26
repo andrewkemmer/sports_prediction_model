@@ -20,7 +20,13 @@ the engine's honesty depends on:
      production matrix, resolved through the moneyline module itself, and it
      follows the active RFE subset;
   8. monitor line-pair contract: canonical totals (5,6,7) / spreads (1,2)
-     priced at fair lines with honest outcomes.
+     priced at fair lines with honest outcomes;
+  9. delivery honesty: the gates run BEFORE monitoring writes, retention can
+     never delete a file the run itself just wrote, and the run-log lines
+     that decide what a log means name what they actually measured;
+ 10. pull progress: a captured run (no TTY, so no bar) still records a live
+     position and a closing summary, on a seconds floor as well as an item
+     cadence, and partitions cache hits from fetches from dead pages.
 
 Run with: python nhl-backend/backend/test_run_engine_pit.py
 """
@@ -1840,6 +1846,428 @@ def test_rfe_trace_is_stamped_with_the_run_date_not_the_api_horizon():
     # would stop covering upcoming games.
     assert "end_date, window_end = _env_end_bounds()" in src, (
         "the NHL API window is no longer bounded by _env_end_bounds()")
+
+
+def test_retention_never_deletes_an_artifact_this_run_wrote():
+    """`seen` must actually reach ``classify_artifact``, or backfills vanish.
+
+    The retention window is anchored on ``end_date`` (NHL_END_DATE), which
+    operators push past today and a BACKFILL sets to a horizon far beyond its
+    own run date. ``artifacts`` is a manifest of BARE names while
+    ``classify_artifact`` is handed the path relative to ``out_dir.parent``
+    ("data_delivery/<name>"), so ``rel in seen`` was False for every file and
+    the documented "seen - staged by this run" verdict was unreachable. A
+    backfill therefore wrote its artifacts, listed them in the summary and the
+    DONE banner, and then unlinked them seconds later.
+
+    The fix must stay scoped: a genuinely old artifact that this run did NOT
+    write still has to age out.
+    """
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        fresh = out_dir / "nhl_power_rankings_20260614.csv"
+        fresh.write_text("feature,value\nelo,1\n", encoding="utf-8")
+        ancient = out_dir / "nhl_calibration_20260612.json"
+        ancient.write_text("{}", encoding="utf-8")
+
+        mp._prune_old_artifacts(
+            out_dir, "20260614",
+            seen={"nhl_power_rankings_20260614.csv"},  # bare manifest name
+            anchor_iso="2026-09-29")
+
+        assert fresh.exists(), (
+            "retention deleted an artifact THIS RUN wrote "
+            "(nhl_power_rankings_20260614.csv); the 'seen' verdict is not "
+            "reachable, so a backfill anchored on a later end_date erases its "
+            "own delivery")
+        assert not ancient.exists(), (
+            "retention stopped aging out artifacts this run did not write; the "
+            "seen guard was widened beyond the files in the manifest")
+
+
+def test_prune_hands_the_policy_the_same_identifier_it_classifies_with():
+    """The `seen` set and the `rel` key must be in ONE shape, on every OS.
+
+    On Windows ``str(Path.relative_to(...))`` yields ``data_delivery\\name.csv``
+    while the manifest carries ``name.csv``; a POSIX-only rel would not have
+    exposed that, and vice versa. Pin the key shape directly so the two sides
+    cannot drift apart again silently.
+    """
+    import retention_policy as rp
+    import master_pipeline as mp
+
+    seen_by_policy: set[str] = set()
+    rels: list[str] = []
+    real = rp.classify_artifact
+
+    def spy(rel, seen, *a, **k):
+        rels.append(rel)
+        seen_by_policy.update(seen)
+        return real(rel, seen, *a, **k)
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        (out_dir / "nhl_power_rankings_20260614.csv").write_text(
+            "feature,value\nelo,1\n", encoding="utf-8")
+        with _mock_patch.object(rp, "classify_artifact", spy):
+            mp._prune_old_artifacts(
+                out_dir, "20260614",
+                seen={"nhl_power_rankings_20260614.csv"},
+                anchor_iso="2026-09-29")
+
+    assert rels, "the pruner classified nothing"
+    for rel in rels:
+        assert "\\" not in rel, (
+            f"retention classified {rel!r} with a backslash separator; `seen` "
+            "is built posix, so the two can never match on Windows")
+        assert rel in seen_by_policy, (
+            f"{rel!r} was classified but is absent from the `seen` set "
+            f"{sorted(seen_by_policy)} — the run's own artifacts are "
+            "unprotectable")
+
+
+def test_schema_gates_are_evaluated_before_monitoring_is_written():
+    """PHASE 13 must precede PHASE 14, and monitoring must follow the gates.
+
+    The module header argues that one STDOUT stream must show one TRUE order,
+    yet the gate block was written after the monitoring block, so every run
+    log printed "PHASE 14 - monitoring" and then "PHASE 13 - schema
+    validation" — the coverage verdict appeared to belong to an unvalidated
+    delivery, and the drift / coverage CSVs plus the monitor JSON were written
+    and counted into the manifest before anything validated them.
+    """
+    import ast
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    banner_line: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "_banner" and node.args
+                and isinstance(node.args[0], ast.Constant)):
+            banner_line.setdefault(str(node.args[0].value), node.lineno)
+    assert "PHASE 13" in banner_line and "PHASE 14" in banner_line, (
+        f"phase banners missing: {sorted(banner_line)}")
+    assert banner_line["PHASE 13"] < banner_line["PHASE 14"], (
+        f"PHASE 13 gates are printed at line {banner_line['PHASE 13']} but "
+        f"PHASE 14 monitoring at line {banner_line['PHASE 14']}; the banners "
+        "no longer run in numeric order")
+
+    monitor_call = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+         and n.func.attr == "write_run_engine_feature_artifacts"), None)
+    assert monitor_call is not None, (
+        "monitoring no longer writes the drift / coverage artifacts")
+    assert banner_line["PHASE 13"] < monitor_call.lineno, (
+        f"the gates run at line {banner_line['PHASE 13']} but the drift / "
+        f"coverage artifacts are written at line {monitor_call.lineno} — an "
+        "ungated monitoring artifact can still reach the delivery tree")
+
+
+def test_push_counts_come_from_the_same_rows_as_the_scored_metric():
+    """`n_pushes` must partition the PRICED rows, not the whole frame.
+
+    A push has no binary outcome, so it leaves the scored population. Counting
+    ``(margin == fair_spread)`` over the unfiltered frame also counted rows
+    whose price was non-finite and which the metric had therefore dropped, so
+    ``n + n_pushes`` could overshoot the OOF population in the summary JSON.
+    """
+    import evaluation as eval_mod
+
+    oof = pd.DataFrame({
+        "margin": [0.0, 0.0, -1.0, 2.0],
+        "total": [5.0, 5.0, 6.0, 7.0],
+        "mu_h": [2.0, 2.0, 2.0, 2.0],
+        "mu_a": [2.0, 2.0, 2.0, 2.0]})
+
+    # Game 1 lands exactly on the fair line in BOTH markets AND cannot be
+    # priced. That is the only shape that separates the two populations: it is
+    # a push, so the unfiltered count calls it one, but it was dropped from
+    # the metric for being unpriceable, so the scored count does not.
+    def fake_sim(mu_h, mu_a, a_home, a_away, n_draws=0, **kw):
+        n = len(mu_h)
+        return {
+            "p_cover_fair": pd.Series([0.5, np.nan, 0.5, 0.5]),
+            "p_over_fair": pd.Series([0.5, np.nan, 0.5, 0.5]),
+            "fair_spread": pd.Series(np.zeros(n)),
+            "fair_total": pd.Series(np.full(n, 5.0)),
+        }
+
+    with _mock_patch.object(eval_mod.dist_mod, "simulate_distributions",
+                            fake_sim):
+        out = nb_distribution_metrics(
+            oof, {"alpha_home": 0.0, "alpha_away": 0.0}, n_draws=10)
+
+    run_line = out["run_line"]
+    assert run_line["n"] + run_line["n_pushes"] == 3, (
+        f"run_line n={run_line['n']} + n_pushes={run_line['n_pushes']} does "
+        "not partition the 3 priced rows; the unpriceable push is counted "
+        "twice")
+    assert run_line["n_pushes"] == 1, (
+        f"expected only the PRICED margin==0 game to be the push, got "
+        f"{run_line['n_pushes']}")
+    totals = out["totals"]
+    assert totals["n"] + totals["n_pushes"] == 3, (
+        f"totals n={totals['n']} + n_pushes={totals['n_pushes']} does not "
+        "partition the 3 priced rows; the unpriceable push is counted twice")
+    assert totals["n_pushes"] == 1, (
+        f"expected only the PRICED total==5 game to be the push, got "
+        f"{totals['n_pushes']}")
+
+
+def test_run_line_contract_log_reports_the_fitted_matrix_width():
+    """The contract log must state the FITTED width, not just the declared one.
+
+    ``feature_contract`` carries both ``n_features`` (the active subset) and
+    ``n_features_fitted`` (what ``moneyline.member_matrix`` actually resolved
+    for this frame). Only the declared count was logged, so a frame that
+    resolved a narrower matrix produced a line byte-identical to a healthy
+    run — defeating the train/serve-skew audit the contract exists for.
+    """
+    import ast
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    found = None
+    for node in ast.walk(ast.parse(src)):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "info" and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and "run-line feature contract" in node.args[0].value):
+            found = node
+            break
+    assert found is not None, (
+        "the run-line feature contract is no longer logged from "
+        "master_pipeline")
+    assert "n_features_fitted" in ast.unparse(found), (
+        "the run-line contract log still reports only the declared feature "
+        "count; the fitted matrix width is the half that catches skew")
+
+
+def test_calibrated_oof_log_names_the_layer_it_measures():
+    """The `moneyline OOF calib` line must say it is the PREQUENTIAL layer.
+
+    Phase 8 fits two different maps: a prequential per-fold map (the
+    evaluation layer, evaluated in Phase 9) and one pooled map that serves
+    tonight's slate. A pooled Platt map is monotone, so it preserves AUC
+    exactly — reading the prequential AUC being below the raw AUC as
+    "calibration hurt the model" is a misreading of which map was measured.
+    """
+    import ast
+
+    src = (BACKEND / "master_pipeline.py").read_text(encoding="utf-8")
+    found = None
+    for node in ast.walk(ast.parse(src)):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "info" and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and "moneyline OOF calib" in node.args[0].value):
+            found = node
+            break
+    assert found is not None, "the calibrated OOF metric line is gone"
+    assert "prequential" in ast.unparse(found), (
+        "the calibrated OOF line does not identify itself as the prequential "
+        "layer, so it reads as the pooled calibrator that actually serves")
+
+
+# ---------------------------------------------------------------------------
+# 10. Pull progress: a durable record that does not need a terminal
+# ---------------------------------------------------------------------------
+def _pull_log(fn):
+    """Run ``fn`` with the ingestion logger captured; return the messages."""
+    cap = _LogCapture()
+    ing.logger.addHandler(cap)
+    ing.logger.setLevel(logging.INFO)
+    try:
+        fn()
+    finally:
+        ing.logger.removeHandler(cap)
+    return cap.messages
+
+
+class _Clock:
+    """A stand-in for the ``time`` module whose monotonic clock is hand-driven.
+
+    Patching ``ing.time.monotonic`` would patch it for the whole process
+    (it is the one module object); this keeps every other attribute real.
+    """
+
+    def __init__(self, now=0.0):
+        self.now = float(now)
+
+    def monotonic(self):
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(sys.modules["time"], name)
+
+
+def test_pull_progress_records_its_position_when_there_is_no_bar():
+    """A redirected stderr means no bar, so the log has to carry the position.
+
+    This is the Kaggle run: stderr goes to a file, ``_progress_bar`` returns
+    ``None``, and the 2026-09-26 boxscore phase then spent three minutes per
+    chunk emitting nothing at all — a working pull and a hung one were
+    indistinguishable in the only artifact a remote run produces.
+    """
+    assert ing._progress_bar(10, "x") is None, (
+        "stderr is not a terminal under pytest, so the bar must stay off")
+    box = []
+    with _mock_patch.object(ing, "_progress_bar", return_value=None):
+        def _drive():
+            prog = ing._PullProgress(60, "score chunk 1/11 [x]", every=50)
+            box.append(prog)
+            for _ in range(60):
+                prog.tick(cached=False)
+            prog.close()
+        msgs = _pull_log(_drive)
+    prog = box[0]
+    assert any("50/60" in m for m in msgs), \
+        f"the 50-item cadence never fired: {msgs}"
+    assert any("60/60" in m for m in msgs), f"the window never closed: {msgs}"
+    # The item cadence line still carries a rate and a forward estimate.
+    mid = next(m for m in msgs if "50/60" in m)
+    assert "eta" in mid and "/s" in mid, mid
+    # The close summary must not double-report a window that already finished.
+    assert sum("60/60" in m for m in msgs) == 1, msgs
+
+
+def test_pull_progress_seconds_floor_fires_below_the_item_cadence():
+    """Progress must not depend on a COUNT of items completing.
+
+    A count-triggered line is minutes wide exactly when it matters: a
+    rate-limited API is a SLOW rate, so `every=50` on a stalling pull is the
+    same silence the reporter exists to remove. The seconds floor bounds the
+    worst gap however few items have finished.
+    """
+    clock = _Clock(0.0)
+    box = []
+    with _mock_patch.object(ing, "_progress_bar", return_value=None), \
+            _mock_patch.object(ing, "time", clock):
+        def _drive():
+            prog = ing._PullProgress(200, "boxscore chunk 1/10 [x]",
+                                     every=50, interval=30.0)
+            box.append(prog)
+            for _ in range(16):
+                clock.now += 4.0          # 4 s per item: 50 items = 200 s
+                prog.tick(cached=False)
+        msgs = _pull_log(_drive)
+    assert box[0].done == 16, box[0].done
+    # The line is "<desc> N/total (...) ...", so the position follows the
+    # window label rather than a fixed word.
+    fired = [int(m.split("[x] ", 1)[1].split("/", 1)[0])
+             for m in msgs if "eta" in m]
+    # First window closes at the 30 s floor (item 8), next at item 16 —
+    # never the 50-item cadence, which 16 items cannot reach.
+    assert fired == [8, 16], f"seconds floor did not drive the cadence: {msgs}"
+    assert all(p < 50 for p in fired), "a line fired on the item cadence"
+
+
+def test_pull_progress_partitions_cached_fetched_and_unavailable():
+    """The three outcomes are counted apart, never merged.
+
+    An unavailable page advances the loop but returns nothing. Counting it as
+    a fetch made the progress line overstate the window by exactly the number
+    of pages that failed, so the line and the window's own
+    `resolved: ... cache hits, ... fetched` summary could disagree.
+    """
+    box = []
+    with _mock_patch.object(ing, "_progress_bar", return_value=None):
+        def _drive():
+            prog = ing._PullProgress(5, "score chunk 1/2 [x]", every=1,
+                                     interval=0.0)
+            box.append(prog)
+            prog.tick(cached=True)
+            prog.tick(cached=True)
+            prog.tick(cached=False)
+            prog.tick(failed=True)
+            prog.tick(cached=False)
+        msgs = _pull_log(_drive)
+    prog = box[0]
+    assert (prog.hits, prog.fetched, prog.failed) == (2, 2, 1), vars(prog)
+    assert prog.done == 5, "a tick was counted twice or not at all"
+    last = msgs[-1]
+    assert "2 cached" in last and "2 fetched" in last and "1 unavailable" in last, last
+    # A clean window does not advertise a failure count it does not have.
+    assert "unavailable" in last, last
+
+
+def test_pull_progress_close_reports_a_window_once_and_never_raises():
+    """Decoration may fail; the reporter's own bookkeeping may not.
+
+    `close()` is where a window's result is recorded, so it must be safe to
+    call twice (a bar that is already gone, a re-entered loop) and safe when
+    the bar itself raises on every call.
+    """
+    class _Boom:
+        def update(self, n=1):
+            raise RuntimeError("boom")
+
+        def set_postfix(self, **kw):
+            raise RuntimeError("boom")
+
+        def close(self):
+            raise RuntimeError("boom")
+
+    box = []
+    with _mock_patch.object(ing, "_progress_bar", return_value=_Boom()):
+        def _drive():
+            prog = ing._PullProgress(3, "boxscore chunk 1/10 [x]", every=99,
+                                     interval=1e9)
+            box.append(prog)
+            prog.tick(cached=False)
+            prog.tick(cached=False)
+            prog.close()
+            prog.close()          # idempotent
+        msgs = _pull_log(_drive)
+    assert box[0].done == 2, "the exploding bar cost the loop its position"
+    assert sum("done 2/3" in m for m in msgs) == 1, \
+        f"close() reported the window {sum('done 2/3' in m for m in msgs)}x: {msgs}"
+
+
+def test_a_fully_cached_score_window_still_reports_progress():
+    """A window that never hits the network must not go silent.
+
+    The old counter was `if fetched and (i % 50 == 0 ...)` — gated on
+    `fetched`, so a cache-served window and an unavailable-date window both
+    reported nothing at all. The two paths that produce no result are the
+    two paths that used to vanish from the log.
+    """
+    dates = [f"2024-10-{d:02d}" for d in range(1, 6)]
+    calls = []
+
+    def _dead(url):
+        calls.append(url)
+        raise RuntimeError("page unavailable")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp)
+
+        def _path(name):
+            return cache / name
+
+        # Four dates cached (settled, empty pages), one date never written.
+        for d in dates[:-1]:
+            name = f"score_{ing.SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet"
+            pd.DataFrame(columns=ing.SCORE_KEEP).to_parquet(_path(name),
+                                                            index=False)
+        with _mock_patch.object(ing, "_http_json", side_effect=_dead), \
+                _mock_patch.object(ing, "_cache_path", side_effect=_path), \
+                _mock_patch.object(ing, "_progress_bar", return_value=None):
+            msgs = _pull_log(lambda: ing.load_score_dates(dates, use_cache=True))
+    progress = [m for m in msgs if "score chunk 1/" in m and " 5/5" in m]
+    assert progress, f"the window never reported its final position: {msgs}"
+    final = progress[-1]
+    assert "4 cached" in final, final
+    assert "1 unavailable" in final, f"a dead page is not accounted for: {final}"
+    assert "0 fetched" in final, \
+        f"an unavailable page was reported as fetched: {final}"
+    assert len(calls) == 1, f"the cached dates were re-pulled: {calls}"
 
 
 def _run_all() -> int:

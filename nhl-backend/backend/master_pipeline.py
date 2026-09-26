@@ -347,10 +347,15 @@ def main(argv: list[str] | None = None) -> int:
     dist = dist_mod.walk_forward_oof(game_df, fold_list=fold_list)
     oof_dist = dist["oof"]
     fcontract = dist.get("feature_contract", {})
+    # Report the FITTED width next to the declared one. Both are in the
+    # contract, but only the declared count was logged, so a frame that
+    # resolved a narrower matrix read exactly like a healthy run and the
+    # train/serve-skew audit this contract exists for was invisible in the log.
     logger.info("run-line feature contract: %s, %d active moneyline feature(s) "
-                "+ %d tree categorical(s), resolved via %s",
+                "+ %d tree categorical(s) = %d fitted column(s), resolved via %s",
                 fcontract.get("mode"), fcontract.get("n_features"),
                 len(fcontract.get("tree_categorical_cols", [])),
+                fcontract.get("n_features_fitted", fcontract.get("n_features")),
                 fcontract.get("resolved_via"))
     logger.info("run-line OOF folds: %d (shared with the moneyline walk-forward)",
                 dist.get("n_folds", len(fold_list)))
@@ -420,7 +425,14 @@ def main(argv: list[str] | None = None) -> int:
     raw_m = eval_mod.binary_metrics(oof_ml["p_ensemble"], y_oof)
     cal_m = eval_mod.binary_metrics(oof_ml["p_ensemble_calibrated"], y_oof)
     logger.info("moneyline OOF raw:    %s", json.dumps(raw_m))
-    logger.info("moneyline OOF calib:  %s", json.dumps(cal_m))
+    # Name the layer. `cal_m` is the PREQUENTIAL per-fold map (fold k fitted on
+    # folds < k only), NOT the pooled calibrator that serves tonight's slate
+    # (logged one phase earlier). The two are different monotone maps, so the
+    # two AUCs are not comparable and a pooled map would preserve the raw AUC
+    # exactly — reading "calib AUC < raw AUC" as "calibration hurt the model"
+    # is a misreading of which number this is.
+    logger.info("moneyline OOF calib:  %s (prequential per-fold layer; the "
+                "pooled calibrator is what serves the slate)", json.dumps(cal_m))
     member_rows = monitoring.ensemble_table(oof_ml, weights)
     for r in member_rows:
         logger.info("  member %-13s w=%.3f auc=%.4f brier=%.4f",
@@ -632,11 +644,30 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
-    # ── 14. Monitoring ────────────────────────────────────────────────────
-    _banner("PHASE 14", "monitoring")
     recent = game_df.tail(60)
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
+
+    # ── 13. Schema validation (gates) ─────────────────────────────────────
+    # Gates run BEFORE monitoring on purpose. This module's own header argues
+    # that one STDOUT stream must show one TRUE order; the gates were still
+    # printed under "PHASE 14 - monitoring" because the block was written
+    # first, so every run log showed 14 -> 13 and the coverage verdict read as
+    # if it belonged to the unvalidated delivery. It also meant the drift /
+    # coverage CSVs and the monitor JSON were written, counted into
+    # `artifacts` and could be synced before anything had validated them. Both
+    # blocks read only pre-Phase-12 state, so ordering them numerically is
+    # free: a failed gate now aborts BEFORE monitoring writes a word.
+    _banner("PHASE 13", "schema validation")
+    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
+    for name, ok in gates.items():
+        logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
+    if not all(gates.values()):
+        failed = [k for k, v in gates.items() if not v]
+        raise RuntimeError(f"validation gates failed: {failed}")
+
+    # ── 14. Monitoring ────────────────────────────────────────────────────
+    _banner("PHASE 14", "monitoring")
     drift = monitoring.feature_drift(game_df, recent, weights=feature_weights)
     cov_rows = monitoring.coverage(game_df, slate_df=slate)
     # The Phase 3 table is a single coverage_pct per feature, which counts a
@@ -657,15 +688,6 @@ def main(argv: list[str] | None = None) -> int:
                                   rb, baseline, config_meta, fold_info,
                                   metrics=cal_m, platt=platt)
     artifacts.append(p.name)
-
-    # ── 13. Schema validation (gates) ─────────────────────────────────────
-    _banner("PHASE 13", "schema validation")
-    gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
-    for name, ok in gates.items():
-        logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
-    if not all(gates.values()):
-        failed = [k for k, v in gates.items() if not v]
-        raise RuntimeError(f"validation gates failed: {failed}")
 
     # retention: enforce the rolling-retention policy (retention_policy.py).
     _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
@@ -1040,7 +1062,21 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
     """
     import retention_policy as rp
 
-    seen = seen or set()
+    # `classify_artifact` matches `seen` against the path RELATIVE TO
+    # out_dir.parent ("data_delivery/<name>"), but `artifacts` is a manifest
+    # of BARE names (`p.name`), so `rel in seen` was False for every single
+    # file and the "seen - staged by this run" verdict was unreachable. The
+    # 10-day window is anchored on end_date, which operators push past today
+    # (2026-09-29 on the 2026-09-25 run) and which a BACKFILL sets to a
+    # horizon far beyond its own run date — so a backfill's freshly written
+    # artifacts fell outside the window and were unlinked seconds after being
+    # written, while the run log and the summary still listed them. Normalize
+    # both sides to one posix shape here; the shared predicate stays the only
+    # decision-maker.
+    _seen_names = {str(s).replace("\\", "/").rsplit("/", 1)[-1]
+                   for s in (seen or set())}
+    _dd = out_dir.name.replace("\\", "/")
+    seen = set(_seen_names) | {f"{_dd}/{n}" for n in _seen_names}
     anchor = (anchor_iso or date_c).replace("-", "")
     anchor_obj = datetime.strptime(anchor, "%Y%m%d").date()
     retention_dates = {(anchor_obj - timedelta(days=i)).strftime("%Y%m%d")
@@ -1077,7 +1113,8 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
     for p in sorted(out_dir.rglob("*")):
         if not p.is_file() or p.name.startswith("~$"):
             continue
-        rel = str(p.relative_to(out_dir.parent))
+        # posix, so the key matches `seen` on Windows as well as posix.
+        rel = p.relative_to(out_dir.parent).as_posix()
         verdict = rp.classify_artifact(
             rel, seen, retention_dates, recent_dates, board_dates,
             anchor_date=anchor, game_dates=game_dates)

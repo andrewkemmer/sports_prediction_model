@@ -102,6 +102,114 @@ def _progress_bar(total: int, desc: str):
         return None
 
 
+class _PullProgress:
+    """Durable, terminal-independent progress for a multi-minute pull.
+
+    A tqdm bar is the right affordance on a terminal and useless in a
+    captured log: ``_progress_bar`` hands back ``None`` whenever stderr is
+    not a TTY, which is exactly the Kaggle run — the 2026-09-26 boxscore
+    phase spent three minutes per chunk emitting nothing at all, so a run
+    that was working and a run that had hung looked identical. This emits
+    one plain log line per window instead, so the log is the record in every
+    context, and still drives the bar when there is one.
+
+    The window closes on whichever comes first: ``every`` items, or
+    ``interval`` seconds. A cadence counted only in items goes quiet exactly
+    when it matters — a rate-limited or stalling API is a SLOW rate, so a
+    count-triggered line can be minutes wide. The seconds floor bounds the
+    worst gap no matter how slow the pull gets.
+    """
+
+    def __init__(self, total: int, desc: str, every: int = 50,
+                 interval: float = 30.0) -> None:
+        self.total = max(0, int(total))
+        self.desc = str(desc)
+        self.every = max(1, int(every))
+        self.interval = max(0.0, float(interval))
+        self.done = 0
+        self.hits = 0
+        self.fetched = 0
+        self.failed = 0
+        self._start = time.monotonic()
+        self._last = self._start
+        self._reported = False
+        self._bar = _progress_bar(self.total, self.desc)
+
+    @staticmethod
+    def _rate(done: int, elapsed: float) -> float:
+        return done / elapsed if elapsed > 0 and done > 0 else 0.0
+
+    def _counts(self) -> str:
+        """`N cached, M fetched` — plus unavailable pages when there are any.
+
+        The three outcomes are kept apart on purpose. An unavailable page
+        advances the loop but returns nothing, so counting it as a fetch
+        would make the progress line disagree with the window's own
+        `resolved: ... cache hits, ... fetched` summary by exactly the
+        number of pages that failed.
+        """
+        parts = [f"{self.hits} cached", f"{self.fetched} fetched"]
+        if self.failed:
+            parts.append(f"{self.failed} unavailable")
+        return ", ".join(parts)
+
+    def _line(self, done: int, now: float) -> str:
+        elapsed = max(0.0, now - self._start)
+        rate = self._rate(done, elapsed)
+        head = (f"{self.desc} {done}/{self.total} ({self._counts()}) "
+                f"{elapsed:.1f}s {rate:.2f}/s")
+        if rate > 0 and done < self.total:
+            return f"{head} eta {(self.total - done) / rate:.0f}s"
+        return head
+
+    def tick(self, *, cached: bool = False, failed: bool = False) -> None:
+        """Record one finished item and log a line if the window has closed.
+
+        Exactly one outcome per call: a cache hit (``cached=True``), a page
+        the API would not serve (``failed=True``), or — the default — a
+        completed fetch. Every exit from the pull loops routes through here,
+        so the position is live no matter which path ran.
+        """
+        self.done += 1
+        if failed:
+            self.failed += 1
+        elif cached:
+            self.hits += 1
+        else:
+            self.fetched += 1
+        if self._bar is not None:
+            try:
+                self._bar.update(1)
+                self._bar.set_postfix(cached=self.hits, fetched=self.fetched)
+            except Exception:  # noqa: BLE001 — decoration only
+                self._bar = None
+        now = time.monotonic()
+        final = self.done >= self.total
+        if (final or self.done % self.every == 0
+                or (now - self._last) >= self.interval):
+            logger.info("%s", self._line(self.done, now))
+            self._last = now
+            self._reported = self._reported or final
+
+    def close(self) -> None:
+        """Close the bar (if any) and log the window's result once."""
+        if self._bar is not None:
+            try:
+                self._bar.close()
+            except Exception:  # noqa: BLE001 — decoration only
+                pass
+            self._bar = None
+        if not self.total or not self.done or self._reported:
+            return
+        elapsed = max(0.0, time.monotonic() - self._start)
+        logger.info("%s done %d/%d (%s) in %.1fs (%.2f/s)",
+                    self.desc, self.done, self.total, self._counts(),
+                    elapsed, self._rate(self.done, elapsed))
+        # close() is idempotent: the bar's is, and a second call (a re-entered
+        # loop, an already-torn-down bar) must not restate the result.
+        self._reported = True
+
+
 def _chunk_games(game_ids: list[str], gameday_by_id: dict | None,
                  chunk_days: int = PULL_CHUNK_DAYS) -> list[tuple[str, list[str]]]:
     """Group game ids into ascending ``chunk_days`` calendar windows.
@@ -258,12 +366,15 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
     for w, (wlabel, wdates) in enumerate(windows, 1):
         logger.info("score chunk %d/%d [%s]: %d dates",
                     w, len(windows), wlabel, len(wdates))
+        prog = _PullProgress(
+            len(wdates), f"score chunk {w}/{len(windows)} [{wlabel}]")
         for i, d in enumerate(wdates, 1):
             path = _cache_path(f"score_{SCORE_CACHE_VERSION}_{d.replace('-', '')}.parquet")
             if use_cache and path.exists():
                 try:
                     frames.append(pd.read_parquet(path))
                     hits += 1
+                    prog.tick(cached=True)
                     continue
                 except Exception as exc:  # corrupt cache → re-pull
                     logger.warning("score cache %s unreadable (%s)", path.name, exc)
@@ -271,8 +382,10 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
                 payload = _http_json(f"{NHL_API_BASE}/score/{d}")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("score page unavailable for %s: %s", d, exc)
+                prog.tick(failed=True)
                 continue
             fetched += 1
+            prog.tick(cached=False)
             rows = [_parse_score_game(g) for g in (payload.get("games") or [])]
             df = pd.DataFrame(rows, columns=SCORE_KEEP)
             unplayed = (df[df["home_score"].isna()] if len(df) else df)
@@ -295,13 +408,15 @@ def load_score_dates(dates: list[str], use_cache: bool = True) -> pd.DataFrame:
                             "cached, within the %d-day posting lag",
                             d, n_unplayed, SETTLE_GRACE_DAYS)
             frames.append(df)
-            # Progress, so a slow or rate-limited pull is VISIBLE. Without this
+            # Progress, so a slow or rate-limited pull is VISIBLE. Without it
             # the loop between the Phase 2 banner and its result line emits
             # nothing, and a multi-minute network stall is indistinguishable
-            # from a hang.
-            if fetched and (i % 50 == 0 or i == len(wdates)):
-                logger.info("  score pull %d/%d dates in chunk (%d cached, %d fetched)",
-                            i, len(wdates), hits, fetched)
+            # from a hang. _PullProgress owns that line, on an item AND a
+            # seconds cadence, and it advances on EVERY exit above — the old
+            # counter was skipped by the cache and unavailable-date paths, so
+            # a window that never fetched anything reported no progress at
+            # all.
+        prog.close()
     logger.info("score dates resolved: %d requested in %d chunk(s), "
                 "%d cache hits, %d fetched",
                 len(dates), len(windows), hits, fetched)
@@ -569,16 +684,18 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
     for n, (label, chunk_ids) in enumerate(chunks, 1):
         logger.info("boxscore chunk %d/%d [%s]: %d games",
                     n, len(chunks), label, len(chunk_ids))
-        bar = _progress_bar(len(chunk_ids), f"boxscores {n}/{len(chunks)}")
+        # The bar alone was the only progress a chunk had, and it is disabled
+        # whenever stderr is not a terminal - i.e. in every captured run. The
+        # _PullProgress writes the durable log line in both cases.
+        prog = _PullProgress(
+            len(chunk_ids), f"boxscore chunk {n}/{len(chunks)} [{label}]")
         for gid in chunk_ids:
             path = _cache_path(f"boxscore_{BOXSCORE_CACHE_VERSION}_{gid}.parquet")
             if use_cache and path.exists():
                 try:
                     frames.append(pd.read_parquet(path))
                     hits += 1
-                    if bar is not None:
-                        bar.update(1)
-                        bar.set_postfix(cached=hits, fetched=fetched)
+                    prog.tick(cached=True)
                     continue
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("boxscore cache %s unreadable (%s)", path.name, exc)
@@ -588,18 +705,14 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
                 df = pd.DataFrame([row], columns=BOXSCORE_COLS)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("boxscore unavailable for game %s: %s", gid, exc)
-                if bar is not None:
-                    bar.update(1)
+                prog.tick(failed=True)
                 continue
             fetched += 1
             if not df.empty:
                 df.to_parquet(path, index=False)
             frames.append(df)
-            if bar is not None:
-                bar.update(1)
-                bar.set_postfix(cached=hits, fetched=fetched)
-        if bar is not None:
-            bar.close()
+            prog.tick(cached=False)
+        prog.close()
         if pause_sec and n < len(chunks):
             time.sleep(pause_sec)
     logger.info("boxscores resolved: %d requested in %d chunk(s), "

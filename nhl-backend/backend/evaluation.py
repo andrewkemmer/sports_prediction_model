@@ -160,8 +160,18 @@ def nb_distribution_metrics(oof: pd.DataFrame, params: dict,
     p_over = sim["p_over_fair"].to_numpy(float)
     fair_s = sim["fair_spread"].to_numpy(float)
     fair_t = sim["fair_total"].to_numpy(float)
-    ok_m = np.isfinite(p_cover) & (margin != fair_s)
-    ok_t = np.isfinite(p_over) & (total != fair_t)
+    # A push has no binary outcome, so it leaves the scored population. It
+    # must leave the PUSH COUNT by the same filter: counting `(margin ==
+    # fair_s)` over the whole frame also counted rows the metric had dropped
+    # for a non-finite price, and `n + n_pushes` then overshot the OOF
+    # population in the summary JSON. Partition on finiteness first, then
+    # split each side into scored / push.
+    fin_m = np.isfinite(p_cover)
+    fin_t = np.isfinite(p_over)
+    ok_m = fin_m & (margin != fair_s)
+    ok_t = fin_t & (total != fair_t)
+    n_push_m = int(np.sum(fin_m & (margin == fair_s)))
+    n_push_t = int(np.sum(fin_t & (total == fair_t)))
 
     def _metrics(p, y):
         if not len(p):
@@ -176,7 +186,7 @@ def nb_distribution_metrics(oof: pd.DataFrame, params: dict,
 
     return {
         "run_line": dict(_metrics(p_cover[ok_m], (margin[ok_m] > fair_s[ok_m]).astype(float)),
-                          n_pushes=int((margin == fair_s).sum())),
+                          n_pushes=n_push_m),
         "totals": dict(_metrics(p_over[ok_t], (total[ok_t] > fair_t[ok_t]).astype(float)),
-                        n_pushes=int((total == fair_t).sum())),
+                        n_pushes=n_push_t),
     }
