@@ -542,22 +542,47 @@ def load_nextgen(seasons: list[int] | None = None,
 
 # Snap counts: per (game, team, player, position) offense/defense snap
 # totals + shares. Available 2013+ (full coverage of the configured window;
-# a season without the endpoint is warned and skipped). Cache SNAPS cache v1.
+# a season without the endpoint is warned and skipped). Cache v2 adds the
+# per-row ``pfr_player_id``: the weekly injury-share family prices a report
+# row with the player's own snap history, and the report feed keys players by
+# gsis_id while the snap feed carries pfr_player_id — so the id must survive
+# the cache narrow. (v1 stored no id column and its frames cannot feed the
+# family; the bump forces the one-time re-pull.)
+SNAPS_CACHE_VERSION = "v2"
 SNAPS_NEEDS = ["game_id", "season", "week", "team", "opponent", "position",
+               "pfr_player_id",
                "offense_snaps", "offense_pct", "defense_snaps", "defense_pct"]
+
+# The injury-share family prices a flag with the player's last-8 snap history
+# across BOTH sides of the ball, so the pull must reach well before the 2016
+# feature window: a week-1 2016 report is priced from 2013-2015 snaps.
+# A constant (not a derived offset) so the pull, the feature builder's
+# history expectation and the progress-bar denominator cannot drift apart.
+SNAPS_HISTORY_FIRST_SEASON = 2013
+
+
+def snap_count_seasons(seasons: list[int]) -> list[int]:
+    """Season window for the snap-count pull.
+
+    The pipeline window extended back to SNAPS_HISTORY_FIRST_SEASON (and at
+    least one warmup season before the window, like every trailing source)
+    so the earliest report week still has multi-season prior snap history."""
+    first = min(SNAPS_HISTORY_FIRST_SEASON, min(seasons) - 1)
+    return list(range(first, max(seasons) + 1))
 
 
 def load_snap_counts(seasons: list[int] | None = None,
                      use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse snap counts narrowed to the participation rollup needs.
 
-    Per-season parquet caches (SNAPS cache v1); a failed season is warned
-    and skipped, never fatal. Returns None only when NO season loaded."""
+    Per-season parquet caches (SNAPS cache v2, includes pfr_player_id); a
+    failed season is warned and skipped, never fatal. Returns None only when
+    NO season loaded."""
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
         try:
-            path = _cache_path(f"snaps_v1_{season}.parquet")
+            path = _cache_path(f"snaps_{SNAPS_CACHE_VERSION}_{season}.parquet")
             if use_cache and path.exists():
                 try:
                     frames.append(pd.read_parquet(path))
@@ -627,6 +652,108 @@ def load_ftn_charting(seasons: list[int] | None = None,
     if not frames:
         return None
     return pd.concat(frames, ignore_index=True)
+
+
+# GSIS <-> PFR player-id crosswalk (nflreadpy.load_players, one league-wide
+# request): the weekly injury report keys players by gsis_id while snap
+# counts carry pfr_player_id. Cached once (v1). A report row whose player is
+# absent from the crosswalk cannot be priced and is dropped by the family
+# builder — measured against 2016-2025 reports, >= 99.87% of Out/Doubtful
+# OL/DEF report rows resolve in every season.
+PLAYERS_CACHE_VERSION = "v1"
+
+
+def load_player_id_crosswalk(use_cache: bool = True) -> pd.DataFrame:
+    """GSIS id -> PFR id for every published player (one league-wide pull)."""
+    path = _cache_path(f"players_crosswalk_{PLAYERS_CACHE_VERSION}.parquet")
+    if use_cache and path.exists():
+        try:
+            return pd.read_parquet(path)
+        except Exception as exc:  # corrupt cache -> re-pull
+            logger.warning("player crosswalk cache unreadable (%s): %s",
+                           path.name, exc)
+    try:
+        from nflreadpy import load_players
+    except Exception as exc:  # noqa: BLE001
+        logger.error("nflreadpy unavailable: %s", exc)
+        return pd.DataFrame(columns=["gsis_id", "pfr_id"])
+    df = _polars_to_pandas(load_players())
+    keep = [c for c in ("gsis_id", "pfr_id") if c in df.columns]
+    if len(keep) < 2:
+        logger.warning("player crosswalk source missing id columns; empty")
+        return pd.DataFrame(columns=["gsis_id", "pfr_id"])
+    df = df[keep].dropna(how="any").drop_duplicates("gsis_id", keep="first")
+    df.to_parquet(path, index=False)
+    return df
+
+
+# Weekly injury reports (nflreadpy.load_injuries), REPORT-CYCLE semantics.
+# The strict-PIT loader above (load_injuries_pit) fails closed on a missing
+# date_modified and feeds the projected-lineup EPA family; nflverse stopped
+# publishing per-report timestamps after 2024, so it yields nothing for
+# 2025/2026. THIS loader needs no timestamp at all: a (season, week, team)
+# report row is, by league rule, published during that week's report cycle
+# and is therefore pre-kickoff information for that team-week's game. Each
+# row is joined to its OWN team-week game only — never a date guess — which
+# is exactly the join the strict-PIT loader performs when timestamps exist
+# (gate: report-cycle vs strict-PIT agrees on >= 99% of 2016-2024 rows).
+INJ_WEEKLY_NEEDS = ("gsis_id", "season", "game_type", "team", "week",
+                    "report_status")
+INJ_WEEKLY_CACHE_VERSION = "v1"
+
+
+def load_injuries_weekly(seasons: list[int] | None = None,
+                         use_cache: bool = True, progress=None) -> pd.DataFrame:
+    """Raw weekly report rows for the injury-share family.
+
+    Narrow (gsis_id, season, game_type, team, week, report_status) frame,
+    per-season parquet caches (INJ_WEEKLY cache v1). No timestamp gate: the
+    report-cycle rule substitutes for the missing publication timestamps of
+    the 2025/2026 sources. Status interpretation (which spellings exclude a
+    player) lives in features.injury_share_table, so this stays a faithful
+    cache of the source rows."""
+    seasons = seasons or config.ALL_SEASONS
+    frames: list[pd.DataFrame] = []
+    for season in seasons:
+        try:
+            path = _cache_path(
+                f"inj_weekly_{INJ_WEEKLY_CACHE_VERSION}_{season}.parquet")
+            if use_cache and path.exists():
+                try:
+                    frames.append(pd.read_parquet(path))
+                    continue
+                except Exception as exc:  # corrupt cache -> re-pull
+                    logger.warning("weekly injury cache %s unreadable (%s)",
+                                   path.name, exc)
+        finally:
+            if progress is not None:
+                progress()
+        try:
+            from nflreadpy import load_injuries
+            logger.info("loading weekly injury report season %s", season)
+            df = _polars_to_pandas(load_injuries(season))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("weekly injury report unavailable for %s: %s",
+                           season, exc)
+            continue
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+        # Canonicalize the season_type spelling before narrowing (same
+        # source-schema tolerance as load_injuries_pit).
+        if "game_type" not in df.columns and "season_type" in df.columns:
+            df["game_type"] = df["season_type"]
+        for c in INJ_WEEKLY_NEEDS:
+            if c not in df.columns:
+                df[c] = pd.NA
+        df = df[list(INJ_WEEKLY_NEEDS)]
+        df.to_parquet(path, index=False)
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=list(INJ_WEEKLY_NEEDS))
+    out = pd.concat(frames, ignore_index=True)
+    for c in INJ_WEEKLY_NEEDS:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out[list(INJ_WEEKLY_NEEDS)]
 
 
 def load_team_names() -> dict[str, str]:
@@ -889,7 +1016,10 @@ def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:
         "pbp": len(core_seasons),
         "player_stats": extended,
         "nextgen": len(NGS_GROUPS) * extended,
-        "snap_counts": extended,
+        # The snap pull reaches back to SNAPS_HISTORY_FIRST_SEASON so the
+        # injury-share family can price the earliest report weeks.
+        "snap_counts": len(snap_count_seasons(core_seasons)),
         "ftn_charting": len(core_seasons),
         "injuries": len(core_seasons),
+        "injuries_weekly": len(core_seasons),
     }

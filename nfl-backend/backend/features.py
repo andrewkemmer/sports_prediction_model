@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -1699,6 +1700,267 @@ def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Weekly-report injury-share family (2026-09-27 Tier B promotion)
+# ---------------------------------------------------------------------------
+# The served contract's injury availability signal: for each unit (ol, def)
+# it reads THIS week's own team report and prices every Out / Injured
+# Reserve / Doubtful row with the player's own recent unit-snap share, all
+# strictly before the target week. Three definitions:
+#
+#   inj_<unit>_out_<rep>      count of Out/IR/Doubtful report rows
+#   <unit>_snaps_lost_share   SUM of the flagged players' mean unit-snap
+#                             share over HIS OWN last 8 active games
+#                             (cross-team, as-of strictly before the flag
+#                             week; no prior history -> 0.0, never NaN)
+#   <unit>_key_out_<rep>      1 if any flagged player's mean share >= 0.60
+#
+# PIT rule (REPORT CYCLE): a (season, week, team) report row is pre-kickoff
+# information for that team-week's game by league rule. The strict-PIT
+# loader fails closed on the missing date_modified of the 2025/2026 sources,
+# which would zero the family exactly where a slate needs it; the report-
+# cycle join replicates the strict-PIT loader's own (team, season, week)
+# join and agrees with it on >= 99% of 2016-2024 rows (pinned in
+# test_production). No date guessing: a row applies only to its own
+# (team, season, week) game.
+INJURY_SHARE_UNIT_POSITIONS = {
+    "ol": ("T", "G", "C"),
+    "def": ("LB", "CB", "S", "DE", "DT", "NT", "ILB", "OLB", "MLB",
+            "DB", "SAF", "SS", "FS", "DL", "EDGE"),
+}
+INJURY_SHARE_SNAP_PCT = {"ol": "offense_pct", "def": "defense_pct"}
+INJURY_SHARE_HISTORY_WINDOW = 8   # player's last 8 ACTIVE games, cross-team
+INJURY_SHARE_KEY_THRESHOLD = 0.60
+# Match the named designation tokens only (plus Injured Reserve), the same
+# classifier as ingestion.injury_availability_weight.
+INJURY_SHARE_OUT_TOKENS = frozenset({"out", "ir", "doubtful"})
+
+INJURY_SHARE_COLS = [
+    f"{name}_{rep}"
+    for base in INJURY_SHARE_UNIT_POSITIONS
+    for name in (f"inj_{base}_out", f"{base}_snaps_lost_share",
+                 f"{base}_key_out")
+    for rep in ("home", "away", "diff")
+]
+
+
+def _injured_report_status(status: object) -> bool:
+    """True for the Out / IR (incl. Injured Reserve) / Doubtful spellings."""
+    if status is None or (isinstance(status, float) and status != status):
+        return False
+    tokens = re.findall(r"[a-z]+", str(status).strip().lower())
+    injured_reserve = any(tokens[i:i + 2] == ["injured", "reserve"]
+                          for i in range(len(tokens) - 1))
+    return bool(set(tokens) & INJURY_SHARE_OUT_TOKENS) or injured_reserve
+
+
+def _normalize_player_id(value) -> str | None:
+    """Canonical player id, or None for the several null spellings."""
+    if value is None:
+        return None
+    try:
+        if value != value:  # NaN
+            return None
+    except TypeError:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "<na>", "null"}:
+        return None
+    return text
+
+
+def injury_share_table(snaps: pd.DataFrame | None,
+                       weekly_injuries: pd.DataFrame | None,
+                       crosswalk: pd.DataFrame | None) -> pd.DataFrame:
+    """Per (team, game) injury-share aggregates, or an empty frame.
+
+    Inputs are the raw snap-count cache rows (needs pfr_player_id), the raw
+    weekly report rows and the GSIS->PFR crosswalk. Degrades to empty when
+    any input is missing, so the served columns fall back to the
+    no-source default (0.0) in _attach_injury_share_features.
+    """
+    empty = pd.DataFrame(
+        columns=["season", "week", "team"]
+        + [f"inj_{u}_out" for u in INJURY_SHARE_UNIT_POSITIONS]
+        + [f"{u}_snaps_lost_share" for u in INJURY_SHARE_UNIT_POSITIONS]
+        + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS])
+    if (snaps is None or snaps.empty
+            or weekly_injuries is None or weekly_injuries.empty
+            or crosswalk is None or crosswalk.empty
+            or not {"gsis_id", "pfr_id"} <= set(crosswalk.columns)):
+        return empty
+
+    s = snaps.copy()
+    s["season"] = pd.to_numeric(s["season"], errors="coerce")
+    s["week"] = pd.to_numeric(s["week"], errors="coerce")
+    s["team"] = s["team"].astype("string").str.strip().str.upper()
+    s["position"] = s["position"].astype("string").str.strip().str.upper()
+    s = s.dropna(subset=["pfr_player_id", "season", "week"])
+    s = s[~s["pfr_player_id"].isin(["", "nan", "none", "<na>", "null"])]
+    # merge_asof requires EXACT key dtypes on both sides; parquet-backed
+    # frames arrive with pandas StringDtype while dict-built frames carry
+    # object, so normalize to plain object before any asof join.
+    s["pfr_player_id"] = s["pfr_player_id"].astype(object)
+
+    inj = weekly_injuries.copy()
+    inj["season"] = pd.to_numeric(inj["season"], errors="coerce")
+    inj["week"] = pd.to_numeric(inj["week"], errors="coerce")
+    inj["team"] = inj["team"].astype("string").str.strip().str.upper()
+    inj["player_id"] = inj["gsis_id"].map(_normalize_player_id)
+    inj = inj.dropna(subset=["player_id", "team", "season", "week"])
+    inj = inj[inj["report_status"].map(_injured_report_status)]
+    if inj.empty:
+        return empty
+    xw = crosswalk[["gsis_id", "pfr_id"]].dropna(how="any").drop_duplicates(
+        "gsis_id", keep="first")
+    inj["pfr_id"] = inj["player_id"].map(
+        xw.set_index("gsis_id")["pfr_id"].to_dict())
+    inj = inj.dropna(subset=["pfr_id"])
+    if inj.empty:
+        return empty
+    inj["pfr_id"] = inj["pfr_id"].astype(object)  # asof key dtype parity
+    # Report-cycle ordinal (season*30 + week; nflverse weeks never reach 30):
+    # one sortable key for the asof join below. Both sides are cast int64 so
+    # merge_asof sees one dtype.
+    inj = inj[inj["team"].ne("")]
+    inj["ord"] = (inj["season"] * 30 + inj["week"]).astype("int64")
+    s["ord"] = (s["season"] * 30 + s["week"]).astype("int64")
+    inj = inj.sort_values("ord", kind="mergesort")
+
+    # Unit attribution: a report row belongs to the unit of the player's
+    # most recent PRIOR active snap (the snap feed is the only position
+    # source; the report feed carries none). A player with no prior active
+    # snap has no attributable unit and prices 0.0 in both.
+    _active = s[pd.to_numeric(s["offense_snaps"], errors="coerce").fillna(0).gt(0)
+                | pd.to_numeric(s["defense_snaps"], errors="coerce").fillna(0).gt(0)]
+    _pos_asof = pd.merge_asof(
+        inj,
+        _active[["pfr_player_id", "ord", "position"]]
+        .rename(columns={"pfr_player_id": "pfr_id"})
+        .sort_values("ord", kind="mergesort"),
+        on="ord", by="pfr_id", direction="backward",
+        allow_exact_matches=False)
+    inj["unit_position"] = pd.Series(
+        _pos_asof["position"].to_numpy(), index=inj.index)
+
+    agg_parts = []
+    for unit, positions in INJURY_SHARE_UNIT_POSITIONS.items():
+        pct_col = INJURY_SHARE_SNAP_PCT[unit]
+        snaps_col = "offense_snaps" if unit == "ol" else "defense_snaps"
+        hist = s[s["position"].isin(positions)].copy()
+        hist[pct_col] = pd.to_numeric(hist[pct_col], errors="coerce")
+        hist[snaps_col] = pd.to_numeric(hist[snaps_col], errors="coerce")
+        # ACTIVE unit snaps only: share history is priced from games the
+        # player actually took the field at this unit (probe-pinned rule 2;
+        # the team-window alternative measures ~0% key_out — structurally
+        # blind — which is why the window is cross-team).
+        hist = hist[hist[snaps_col].gt(0) & hist[pct_col].notna()]
+        hist = hist[["pfr_player_id", "ord", pct_col]].sort_values(
+            ["pfr_player_id", "ord"], kind="mergesort")
+        if hist.empty:
+            hist = hist.assign(share=pd.Series(dtype=float))
+        else:
+            # Mean share over HIS OWN last 8 ACTIVE games, CROSS-TEAM (no
+            # team key in the grouping), min_periods=1: the first active
+            # game is already a usable prior, and no prior history at all
+            # prices 0.0 below — never NaN (probe-pinned rule 1; measured
+            # 100% team-game coverage this way).
+            hist["share"] = (hist.groupby("pfr_player_id", sort=False)
+                             [pct_col].transform(
+                                 lambda x: x.rolling(
+                                     INJURY_SHARE_HISTORY_WINDOW,
+                                     min_periods=1).mean()))
+        # ASOF STRICTLY BEFORE the flag week, cross-team: the flag week's
+        # own game is excluded (it has not happened when the report cycle
+        # runs). A player with no prior active game gets share 0.0.
+        unit_inj = inj[inj["unit_position"].isin(positions)]
+        priced = pd.merge_asof(
+            unit_inj,
+            hist.rename(columns={"pfr_player_id": "pfr_id"})
+            .sort_values("ord", kind="mergesort"),
+            on="ord", by="pfr_id", direction="backward",
+            allow_exact_matches=False)
+        priced["share"] = pd.to_numeric(priced["share"],
+                                        errors="coerce").fillna(0.0)
+        grp = (priced.groupby(["season", "week", "team"], as_index=False)
+               .agg(out_cnt=("share", "size"),
+                    snaps_lost=("share", "sum"),
+                    max_share=("share", "max")))
+        grp[f"inj_{unit}_out"] = grp["out_cnt"].astype(float)
+        grp[f"{unit}_snaps_lost_share"] = grp["snaps_lost"].astype(float)
+        grp[f"{unit}_key_out"] = grp["max_share"].ge(
+            INJURY_SHARE_KEY_THRESHOLD).astype(float)
+        agg_parts.append(grp[["season", "week", "team", f"inj_{unit}_out",
+                              f"{unit}_snaps_lost_share",
+                              f"{unit}_key_out"]])
+
+    res = agg_parts[0]
+    for extra in agg_parts[1:]:
+        res = res.merge(extra, on=["season", "week", "team"], how="outer")
+    for u in INJURY_SHARE_UNIT_POSITIONS:
+        for c in (f"inj_{u}_out", f"{u}_snaps_lost_share", f"{u}_key_out"):
+            res[c] = pd.to_numeric(res[c], errors="coerce").fillna(0.0)
+    return res[["season", "week", "team"]
+               + [f"inj_{u}_out" for u in INJURY_SHARE_UNIT_POSITIONS]
+               + [f"{u}_snaps_lost_share" for u in INJURY_SHARE_UNIT_POSITIONS]
+               + [f"{u}_key_out" for u in INJURY_SHARE_UNIT_POSITIONS]]
+
+
+def _attach_injury_share_features(df: pd.DataFrame,
+                                  table: pd.DataFrame | None,
+                                  games: pd.DataFrame) -> pd.DataFrame:
+    """Serve the injury-share family in ONE concat (home/away/diff).
+
+    The table is keyed (season, week, team) — the report-cycle key — and is
+    joined to each side of the SCHEDULE's team-games, so the current week's
+    slate rows get THIS week's report values even though snap counts only
+    cover settled games. Rows with no table entry (no report row, or a
+    missing source) fill the documented default 0.0 — measured 100%
+    team-game coverage on 2016-2025 — and the diff is home minus away.
+    """
+    n = len(df)
+    sides: dict[str, np.ndarray] = {}
+    sched_ok = (games is not None
+                and {"game_id", "home_team", "away_team"}.issubset(
+                    set(games.columns)))
+    if not sched_ok or table is None or table.empty:
+        for col in INJURY_SHARE_COLS:
+            sides[col] = np.zeros(n, dtype=float)
+        return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+    gids = df["game_id"].astype(str)
+    g = (games[["game_id", "season", "week", "home_team", "away_team"]]
+         .copy())
+    g["game_id"] = g["game_id"].astype(str)
+    g["season"] = pd.to_numeric(g["season"], errors="coerce")
+    g["week"] = pd.to_numeric(g["week"], errors="coerce")
+    for c in ("home_team", "away_team"):
+        g[c] = g[c].astype("string").str.strip().str.upper()
+    g = g.dropna(subset=["season", "week"])
+    keyed = table.copy()
+    for c in ("season", "week"):
+        keyed[c] = pd.to_numeric(keyed[c], errors="coerce")
+    keyed["team"] = keyed["team"].astype("string").str.strip().str.upper()
+    keyed = keyed.dropna(subset=["season", "week"])
+    for col in INJURY_SHARE_COLS:
+        base = col.rsplit("_", 1)[0]
+        if base not in keyed.columns:
+            keyed[base] = 0.0
+    for col in INJURY_SHARE_COLS:
+        base = col.rsplit("_", 1)[0]
+        for side, team_col in (("home", "home_team"), ("away", "away_team")):
+            side_team = (g[["game_id", "season", "week", team_col]]
+                         .rename(columns={team_col: "team"})
+                         .drop_duplicates("game_id"))
+            joined = side_team.merge(
+                keyed, on=["season", "week", "team"], how="left")
+            m = (joined.set_index("game_id")[base].reindex(gids))
+            sides[f"{base}_{side}"] = pd.to_numeric(
+                m, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        sides[col] = sides[f"{base}_home"] - sides[f"{base}_away"]
+    return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+
+# ---------------------------------------------------------------------------
 # Public builders
 # ---------------------------------------------------------------------------
 def build_game_features(games: pd.DataFrame,
@@ -1708,7 +1970,9 @@ def build_game_features(games: pd.DataFrame,
                         snaps: pd.DataFrame | None = None,
                         ftn: pd.DataFrame | None = None,
                         weather: pd.DataFrame | None = None,
-                        injuries: pd.DataFrame | None = None) -> pd.DataFrame:
+                        injuries: pd.DataFrame | None = None,
+                        weekly_injuries: pd.DataFrame | None = None,
+                        crosswalk: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
@@ -1771,6 +2035,8 @@ def build_game_features(games: pd.DataFrame,
     df = _attach_record_fields(df, ev)
     df = _attach_epa_quality_features(
         df, _epa_quality_agg(games, pbp, ps, injuries), games)
+    df = _attach_injury_share_features(
+        df, injury_share_table(snaps, weekly_injuries, crosswalk), games)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
@@ -1783,10 +2049,12 @@ def build_slate_features(schedule: pd.DataFrame,
                          pbp: pd.DataFrame | None,
                          ps: pd.DataFrame | None = None,
                          ngs: pd.DataFrame | None = None,
-                          snaps: pd.DataFrame | None = None,
+                         snaps: pd.DataFrame | None = None,
                          ftn: pd.DataFrame | None = None,
                          weather: pd.DataFrame | None = None,
-                         injuries: pd.DataFrame | None = None) -> pd.DataFrame:
+                         injuries: pd.DataFrame | None = None,
+                         weekly_injuries: pd.DataFrame | None = None,
+                         crosswalk: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full schedule timeline. A pending row's trailing
@@ -1860,6 +2128,8 @@ def build_slate_features(schedule: pd.DataFrame,
     df = _attach_record_fields(df, combined)
     df = _attach_epa_quality_features(
         df, _epa_quality_agg(sched, pbp, ps, injuries), sched)
+    df = _attach_injury_share_features(
+        df, injury_share_table(snaps, weekly_injuries, crosswalk), sched)
     return df
 
 

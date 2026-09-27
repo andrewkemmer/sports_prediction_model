@@ -799,6 +799,84 @@ FEATURE_MANIFEST = {
     },
 }
 
+# Weekly-report injury-share family (2026-09-27 Tier B promotion): served
+# entries generated from one doc table, name-for-name with
+# config.INJURY_SHARE_BASES (validated by validate()). These were promoted
+# straight into the contract (never RFE candidates), so they are documented
+# here directly instead of being re-homed from the candidate manifest.
+_INJURY_SHARE_DOC = {
+    "inj_ol_out": (
+        "Out/IR/Doubtful offensive-line report rows",
+        "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is an offensive-line position (T/G/C)",
+        "nflverse weekly injury reports",
+        "this week's report cycle",
+        "count of Out/IR/Doubtful report rows",
+        "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+        "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025"),
+    "ol_snaps_lost_share": (
+        "Offensive-line snap share lost to Out/IR/Doubtful designations",
+        "Sum over the week's flagged OL players of the player's mean offensive snap share over HIS OWN last 8 active games (any team; offense_snaps > 0 and a published offense_pct)",
+        "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+        "each flagged player's last 8 active games, strictly before the flag week",
+        "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+        "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+        "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025"),
+    "ol_key_out": (
+        "Key offensive lineman unavailable flag",
+        "1.0 when any OL player flagged Out/IR/Doubtful this week carries a mean offensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+        "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+        "each flagged player's last 8 active games, strictly before the flag week",
+        "threshold flag over per-player rolling(8) mean unit-snap shares",
+        "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+        "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025"),
+    "inj_def_out": (
+        "Out/IR/Doubtful defensive report rows",
+        "Count of the team's OWN-week report rows carrying an Out, Injured Reserve or Doubtful designation whose player's most recent prior active snap position is a defensive position (LB/CB/S/DE/DT/NT/ILB/OLB/MLB/DB/SAF/SS/FS/DL/EDGE)",
+        "nflverse weekly injury reports",
+        "this week's report cycle",
+        "count of Out/IR/Doubtful report rows",
+        "a (season, week, team) report row is pre-kickoff information for that team-week's game by league rule (report cycle; >=99% agreement with the strict-PIT loader on 2016-2024); a row never applies to another week or team",
+        "0.0 when the report source is unavailable or the team-week has no admissible rows; measured 100% team-game coverage 2016-2025"),
+    "def_snaps_lost_share": (
+        "Defensive snap share lost to Out/IR/Doubtful designations",
+        "Sum over the week's flagged defensive players of the player's mean defensive snap share over HIS OWN last 8 active games (any team; defense_snaps > 0 and a published defense_pct)",
+        "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+        "each flagged player's last 8 active games, strictly before the flag week",
+        "sum of per-player rolling(8, min_periods=1) mean unit-snap shares",
+        "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+        "0.0 when a player has no prior history or the report/snap source is unavailable; measured 100% team-game coverage 2016-2025"),
+    "def_key_out": (
+        "Key defensive player unavailable flag",
+        "1.0 when any defensive player flagged Out/IR/Doubtful this week carries a mean defensive snap share >= 0.60 over his own last 8 active games, else 0.0",
+        "nflverse weekly injury reports + snap counts keyed by the GSIS-PFR player crosswalk",
+        "each flagged player's last 8 active games, strictly before the flag week",
+        "threshold flag over per-player rolling(8) mean unit-snap shares",
+        "share history is an as-of join strictly BEFORE the flag week (the flag week's own game is excluded, cross-team); a player with no prior active game prices 0.0, never NaN",
+        "0.0 when no flagged player clears the 0.60 share threshold or the source is unavailable; measured 100% team-game coverage 2016-2025"),
+}
+_INJURY_REP_DOC = {
+    "home": ("The home team's {desc}", "raw home level (tree members)", ["tree"]),
+    "away": ("The away team's {desc}", "raw away level (tree members)", ["tree"]),
+    "diff": ("Home minus away {desc}", "difference (all model families)",
+             ["linear", "tree", "mlp"]),
+}
+for _base, _doc in _INJURY_SHARE_DOC.items():
+    _desc, _definition, _source, _lookback, _aggregation, _pit, _mvp = _doc
+    for _rep, (_desc_t, _repr, _fams) in _INJURY_REP_DOC.items():
+        FEATURE_MANIFEST[f"{_base}_{_rep}"] = {
+            "description": _desc_t.format(desc=_desc),
+            "definition": _definition,
+            "source": _source,
+            "lookback": _lookback,
+            "aggregation": _aggregation,
+            "point_in_time_rule": _pit,
+            "missing_value_policy": _mvp,
+            "representation": _repr,
+            "model_family_availability": _fams,
+            "feature_version": 9,
+        }
+
+
 # All 12 EPA columns are production members, not candidates. Create their
 # metadata from the same shared side/PIT description; the two raw levels are
 # tree-only while the home-away diff is shared by every model family.

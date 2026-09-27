@@ -276,10 +276,13 @@ def main(argv: list[str] | None = None) -> int:
     ngs = ingestion.load_nextgen(
         seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull,
         progress=_pop.advance)
-    # Snap-count participation (2013+) and FTN charting (2022+): the platoon
-    # candidate sources. Trailing windows need the warmup season for snaps.
+    # Snap-count participation (2013+; cache v2 carries pfr_player_id so the
+    # injury-share family can price report rows with snap history) and FTN
+    # charting (2022+): the platoon candidate sources. The snap pull reaches
+    # back to SNAPS_HISTORY_FIRST_SEASON because a report week is priced from
+    # the player's own PRIOR-season snap history.
     snaps = ingestion.load_snap_counts(
-        seasons=[seasons[0] - 1] + seasons, use_cache=not full_repull,
+        seasons=ingestion.snap_count_seasons(seasons), use_cache=not full_repull,
         progress=_pop.advance)
     ftn = ingestion.load_ftn_charting(seasons=seasons,
                                       use_cache=not full_repull,
@@ -289,9 +292,19 @@ def main(argv: list[str] | None = None) -> int:
     injuries = ingestion.load_injuries_pit(
         schedule, seasons=seasons, use_cache=not full_repull,
         refresh_upcoming=not args.skip_pull, progress=_pop.advance)
+    # Weekly report-cycle injury rows + the GSIS->PFR crosswalk for the
+    # injury-share family (config.INJURY_SHARE_BASES). The weekly loader is
+    # the report-cycle source that covers 2025/2026, where the strict-PIT
+    # feed above is empty (no date_modified published).
+    weekly_injuries = ingestion.load_injuries_weekly(
+        seasons=seasons, use_cache=not full_repull, progress=_pop.advance)
+    crosswalk = ingestion.load_player_id_crosswalk(
+        use_cache=not full_repull)
     _pop.close()
     logger.info("PIT injury designation rows: %s",
                 len(injuries))
+    logger.info("weekly injury report rows: %s | player crosswalk rows: %s",
+                len(weekly_injuries), len(crosswalk))
     logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs))
@@ -310,7 +323,8 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 3", "point-in-time feature engine")
     game_df = feat_mod.build_game_features(
         decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
-        ftn=ftn, weather=pit_weather, injuries=injuries)
+        ftn=ftn, weather=pit_weather, injuries=injuries,
+        weekly_injuries=weekly_injuries, crosswalk=crosswalk)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional and the tree members are
@@ -589,7 +603,8 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 11", "current-slate serving")
     slate = feat_mod.build_slate_features(
         schedule, pbp, ps=ps, ngs=ngs, snaps=snaps,
-        ftn=ftn, weather=pit_weather, injuries=injuries)
+        ftn=ftn, weather=pit_weather, injuries=injuries,
+        weekly_injuries=weekly_injuries, crosswalk=crosswalk)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)

@@ -352,7 +352,7 @@ check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
 check("active moneyline contract includes the 12 EPA lineup features",
       set(config.EPA_QUALITY_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 48)
+      and len(config.MONEYLINE_FEATURE_COLS) == 66)
 
 _weather_games = _pit_games.copy()
 _weather_games["temp"] = 111.0
@@ -1306,7 +1306,11 @@ check("master_pipeline fetches PIT weather before feature construction",
       and mp_src.index("weather_mod.fetch_games_weather(schedule)")
       < mp_src.index("feat_mod.build_game_features("))
 check("master_pipeline passes the same validated weather to history and slate",
-      mp_src.count("ftn=ftn, weather=pit_weather, injuries=injuries)") >= 2)
+      mp_src.count("ftn=ftn, weather=pit_weather, injuries=injuries,") >= 2)
+check("master_pipeline passes the weekly injury rows and crosswalk into both builders",
+      mp_src.count("weekly_injuries=weekly_injuries, crosswalk=crosswalk") >= 2
+      and mp_src.index("load_injuries_weekly(")
+      < mp_src.index("feat_mod.build_game_features("))
 check("master_pipeline loads PIT injuries before history feature construction",        "load_injuries_pit(" in mp_src
       and mp_src.index("load_injuries_pit(") < mp_src.index("feat_mod.build_game_features("))
 check("master_pipeline passes the same PIT injury rows into history and slate",
@@ -1821,7 +1825,12 @@ _uc = ingest_mod.population_unit_counts(list(range(2016, 2027)))
 check("population_unit_counts counts NGS per (season, group), not per season",
       _uc["nextgen"] == 3 * (len(range(2016, 2027)) + 1)
       and _uc["pbp"] == len(range(2016, 2027))
-      and _uc["player_stats"] == _uc["snap_counts"] == len(range(2016, 2027)) + 1)
+      and _uc["player_stats"] == len(range(2016, 2027)) + 1
+      # The snap pull reaches back to SNAPS_HISTORY_FIRST_SEASON so report
+      # weeks can be priced from prior-season snap history.
+      and _uc["snap_counts"] == len(ingest_mod.snap_count_seasons(
+          list(range(2016, 2027))))
+      and _uc["injuries_weekly"] == len(range(2016, 2027)))
 check("the Open-Meteo archive window is 14 days, matching MLB exactly",
       weather_mod._BATCH_DAYS == 14
       and weather_mod._BATCH_SIZE == 15
@@ -2206,7 +2215,7 @@ check("the 12 EPA lineup columns are in the served production contract",
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
               for c in _expected_epa_features)
-      and len(config.MONEYLINE_FEATURE_COLS) == 48)
+      and len(config.MONEYLINE_FEATURE_COLS) == 66)
 check("EPA lineup routing matches MLB: sides tree-only, diff shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
@@ -2268,7 +2277,190 @@ check("the served contract now carries an explicit defensive quantity",
       # Before this promotion the contract held NO defensive column at all:
       # defensive quality arrived only via the opponent's Elo/win%/net-points.
       any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 48)
+      and len(config.MONEYLINE_FEATURE_COLS) == 66)
+
+# ---------------------------------------------------------------------------
+# Weekly-report injury-share family (2026-09-27 Tier B promotion, 18 cols).
+# Promoted for sharpness (structural availability signal the contract lacked
+# since the old out-counts were removed); the A/B showed neutral pooled
+# logloss with last-10-fold improvement and a large member-weight reshuffle
+# (lightgbm 0.304 -> 0.469). Gates below pin structure, routing, the
+# report-cycle PIT rule, and the two probe-pinned value rules.
+# ---------------------------------------------------------------------------
+_expected_injury_features = [
+    f"{base}_{side}"
+    for base in ("inj_ol_out", "ol_snaps_lost_share", "ol_key_out",
+                 "inj_def_out", "def_snaps_lost_share", "def_key_out")
+    for side in ("home", "away", "diff")
+]
+check("the 18 injury-share columns are in the served production contract",
+      config.INJURY_SHARE_FEATURE_COLS == _expected_injury_features
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
+              and c in manifest.FEATURE_MANIFEST
+              and c not in manifest.CANDIDATE_MANIFEST
+              for c in _expected_injury_features))
+check("injury-share routing matches the contract's rule: sides tree-only, diff shared",
+      all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
+          for base in config.INJURY_SHARE_BASES for side in ("home", "away"))
+      and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
+              for base in config.INJURY_SHARE_BASES)
+      and all(manifest.FEATURE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
+              == ["tree"]
+              for base in config.INJURY_SHARE_BASES for side in ("home", "away"))
+      and all(manifest.FEATURE_MANIFEST[f"{base}_diff"]["model_family_availability"]
+              == ["linear", "tree", "mlp"]
+              for base in config.INJURY_SHARE_BASES))
+check("both builders accept the weekly-report family inputs",
+      "weekly_injuries" in inspect.getsource(feat_mod.build_game_features)
+      and "weekly_injuries" in inspect.getsource(feat_mod.build_slate_features)
+      and inspect.getsource(feat_mod.build_game_features).count(
+          "_attach_injury_share_features") == 1
+      and inspect.getsource(feat_mod.build_slate_features).count(
+          "_attach_injury_share_features") == 1,
+      "serving must never drift from training: one family, both frames")
+
+# REPORT-CYCLE PIT gate: the weekly family's per-player designation must
+# agree with the strict-PIT loader on the population strict-PIT resolves
+# (rows lacking a publication timestamp are outside that population by
+# construction — which is exactly why the family needs the report-cycle
+# rule for 2025/2026, and is demonstrated by the second check). Synthetic
+# rows are written straight into a mocked cache so no network call is made.
+_rc_games = pd.DataFrame([{
+    "game_id": "RC_TARGET", "season": 2024, "week": 3,
+    "game_type": "REG", "home_team": "HOME", "away_team": "AWAY",
+    "gameday": "2024-09-08", "gametime": "13:00",
+}])  # kickoff = 17:00 UTC
+_rc_rows = pd.DataFrame([
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out",
+     "date_modified": "2024-09-08T16:00:00Z"},
+    {"gsis_id": "P2", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Probable",
+     "date_modified": "2024-09-08T16:30:00Z"},
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "report_status": "Doubtful",
+     "date_modified": "2024-09-08T16:30:00Z"},
+    {"gsis_id": "P6", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out",
+     "date_modified": None},  # no timestamp: strict-PIT fails closed
+    {"gsis_id": "P9", "season": 2024, "game_type": "REG", "team": "OTHER",
+     "week": 3, "report_status": "Out",
+     "date_modified": "2024-09-08T16:30:00Z"},  # another team's report
+])
+with tempfile.TemporaryDirectory() as _rc_dir:
+    _rc_rows.to_parquet(Path(_rc_dir) / "inj_pit_v3_2024.parquet", index=False)
+    _rc_rows[["gsis_id", "season", "game_type", "team", "week",
+              "report_status"]].to_parquet(
+        Path(_rc_dir) / "inj_weekly_v1_2024.parquet", index=False)
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_rc_dir)):
+        _rc_pit = ingest_mod.load_injuries_pit(
+            _rc_games, seasons=[2024], use_cache=True, refresh_upcoming=False)
+        _rc_weekly = ingest_mod.load_injuries_weekly(
+            seasons=[2024], use_cache=True)
+_pit_injured = set(_rc_pit[
+    _rc_pit["team"].isin(["HOME", "AWAY"])
+    & _rc_pit["availability_weight"].eq(0.0)]["player_id"])
+_weekly_injured = set(_rc_weekly[
+    _rc_weekly["team"].isin(["HOME", "AWAY"])
+    & _rc_weekly["report_status"].map(feat_mod._injured_report_status)
+]["gsis_id"])
+check("report-cycle rule agrees with strict-PIT on every resolved player",
+      _weekly_injured & {"P1", "P2", "P4"} == _pit_injured == {"P1", "P4"},
+      f"weekly={sorted(_weekly_injured)} pit={sorted(_pit_injured)}")
+check("report-cycle covers the no-timestamp rows strict-PIT must fail closed on",
+      "P6" in _weekly_injured and "P6" not in _pit_injured
+      and "P9" not in _weekly_injured and "P9" not in _pit_injured,
+      "the 2025/2026 sources publish no date_modified at all")
+
+# Family value gates: price the flag with the player's own snap history.
+# P5's week-3 snap row must NOT enter his share (as-of strictly before the
+# flag week), P10 has no history and prices 0.0 (never NaN), and a week-4
+# report row must not attach to the week-3 game.
+_inj_snaps = pd.DataFrame([
+    {"game_id": "S1", "season": 2024, "week": 1, "team": "HOME",
+     "position": "DE", "pfr_player_id": "PFR5",
+     "offense_snaps": 0.0, "offense_pct": 0.0,
+     "defense_snaps": 50.0, "defense_pct": 0.8},
+    {"game_id": "S2", "season": 2024, "week": 2, "team": "HOME",
+     "position": "DE", "pfr_player_id": "PFR5",
+     "offense_snaps": 0.0, "offense_pct": 0.0,
+     "defense_snaps": 48.0, "defense_pct": 0.6},
+    {"game_id": "S3", "season": 2024, "week": 3, "team": "HOME",
+     "position": "DE", "pfr_player_id": "PFR5",
+     "offense_snaps": 0.0, "offense_pct": 0.0,
+     "defense_snaps": 51.0, "defense_pct": 0.9},  # flag week: excluded
+    {"game_id": "S4", "season": 2024, "week": 1, "team": "AWAY",
+     "position": "LB", "pfr_player_id": "PFR4",
+     "offense_snaps": 0.0, "offense_pct": 0.0,
+     "defense_snaps": 40.0, "defense_pct": 0.4},
+    {"game_id": "S5", "season": 2024, "week": 2, "team": "AWAY",
+     "position": "LB", "pfr_player_id": "PFR4",
+     "offense_snaps": 0.0, "offense_pct": 0.0,
+     "defense_snaps": 44.0, "defense_pct": 0.6},
+    {"game_id": "S6", "season": 2024, "week": 1, "team": "AWAY",
+     "position": "T", "pfr_player_id": "PFR11",
+     "offense_snaps": 60.0, "offense_pct": 0.9,
+     "defense_snaps": 0.0, "defense_pct": 0.0},
+    {"game_id": "S7", "season": 2024, "week": 2, "team": "AWAY",
+     "position": "T", "pfr_player_id": "PFR11",
+     "offense_snaps": 58.0, "offense_pct": 0.7,
+     "defense_snaps": 0.0, "defense_pct": 0.0},
+])
+_inj_crosswalk = pd.DataFrame([
+    {"gsis_id": "P4", "pfr_id": "PFR4"},
+    {"gsis_id": "P5", "pfr_id": "PFR5"},
+    {"gsis_id": "P10", "pfr_id": "PFR10"},
+    {"gsis_id": "P11", "pfr_id": "PFR11"},
+])
+_inj_weekly_family = pd.DataFrame([
+    {"gsis_id": "P5", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out"},
+    {"gsis_id": "P10", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Doubtful"},
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "report_status": "Doubtful"},
+    {"gsis_id": "P11", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "report_status": "Out"},
+    {"gsis_id": "P12", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 4, "report_status": "Out"},  # another week: never joins
+])
+_inj_table = feat_mod.injury_share_table(
+    _inj_snaps, _inj_weekly_family, _inj_crosswalk)
+_fam_games = pd.DataFrame([{
+    "game_id": "INJ_TARGET", "season": 2024, "week": 3,
+    "game_type": "REG", "home_team": "HOME", "away_team": "AWAY",
+}])
+_inj_served = feat_mod._attach_injury_share_features(
+    pd.DataFrame({"game_id": ["INJ_TARGET"]}), _inj_table, _fam_games)
+_inj_row = _inj_served.iloc[0]
+check("injury-share prices the flag with the player's own prior snap history",
+      # P10 (no prior snap, no attributable unit) counts nowhere; the week-4
+      # row and P12 (no crosswalk entry) never reach the week-3 game.
+      int(_inj_row["inj_def_out_home"]) == 1
+      and int(_inj_row["inj_def_out_away"]) == 1
+      and np.isclose(float(_inj_row["def_snaps_lost_share_home"]), 0.7)
+      and np.isclose(float(_inj_row["def_snaps_lost_share_away"]), 0.5)
+      and np.isclose(float(_inj_row["def_snaps_lost_share_diff"]), 0.2)
+      and float(_inj_row["def_key_out_home"]) == 1.0
+      and float(_inj_row["def_key_out_away"]) == 0.0
+      and np.isclose(float(_inj_row["ol_snaps_lost_share_away"]), 0.8)
+      and float(_inj_row["ol_key_out_away"]) == 1.0
+      and int(_inj_row["inj_ol_out_home"]) == 0
+      and int(_inj_row["inj_ol_out_away"]) == 1,
+      f"home={_inj_row['def_snaps_lost_share_home']}, "
+      f"away={_inj_row['def_snaps_lost_share_away']}")
+check("injury-share is as-of strictly before the flag week and never NaN",
+      # P5's week-3 0.9 snap share must not enter his prior-window mean;
+      # P10 has no snap history and contributes 0.0 rather than NaN.
+      np.isclose(float(_inj_row["def_snaps_lost_share_home"]), 0.7)
+      and np.isfinite(float(_inj_row["def_snaps_lost_share_home"]))
+      and all(np.isfinite(float(_inj_row[c])) for c in config.INJURY_SHARE_FEATURE_COLS))
+_nosource = feat_mod._attach_injury_share_features(
+    pd.DataFrame({"game_id": ["INJ_TARGET"]}), None, _fam_games)
+check("missing sources degrade the family to the documented 0.0 default",
+      all(float(_nosource.iloc[0][c]) == 0.0
+          for c in config.INJURY_SHARE_FEATURE_COLS))
 
 # Raw pace magnitude (2026-09-27): the diff answers "who is faster" but the
 # game-level magnitude — both teams slow → low-scoring total, whatever the

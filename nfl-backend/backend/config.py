@@ -83,7 +83,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v8.0-epa-lineup-pit"
+FEATURE_SET_VERSION = "nfl-prod-v9.0-injury-share"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -134,10 +134,17 @@ MONEYLINE_FEATURE_COLS = [
     # weather eligibility: a retractable or domed venue says nothing about the
     # game-day state, so it keeps failing closed.
     "is_turf_home", "temp_f", "wind_mph", "is_precip", "is_snow",
-    # The former four injury out-counts remain removed: they require report
-    # rows/timestamps that are not available across all seasons. The EPA
-    # lineup-quality features below use an injury row only when its publication
-    # is strictly before target kickoff; absent timestamps cause no exclusion.
+# Weekly-report injury availability (2026-09-27 Tier B promotion): the
+# former four injury out-counts were removed because they lacked a PIT-safe
+# join; this family is that signal, rebuilt. A (season, week, team) report
+# row is pre-kickoff information for that team-week's game by league rule
+# (REPORT CYCLE — validated >=99% agreement with the strict-PIT loader on
+# 2016-2024, where timestamps exist), so no publication timestamp is needed
+# and the family covers 2025/2026 where the strict-PIT source is empty.
+# Out/IR/Doubtful rows are priced with the player's own last-8 unit-snap
+# share (cross-team, as-of strictly before the flag week; no history -> 0.0,
+# never NaN). Diff serves every family; raw per-side levels route tree-only
+# via RAW_PER_SIDE_COLS. Evidence: .nfl_cache/_probe_inj/ab_results.json.
     # RFE promotion (2026-09-22 sweep, 1-SE gate): trailing passing depth,
     # the sweep's only committed addition. The diff serves every family; the
     # raw per-side levels route tree-only via RAW_PER_SIDE_COLS below.
@@ -185,6 +192,15 @@ MONEYLINE_FEATURE_COLS = [
     "epa_rb_home", "epa_rb_away", "epa_rb_diff",
     # constant home anchor last, so the linear member's positional contract is
     # unchanged by the raw-side block above (MLB parity: training.RAW_PER_SIDE_COLS)
+    # 2026-09-27 Tier B injury-share family (18 columns): OL/DEF availability.
+    "inj_ol_out_home", "inj_ol_out_away", "inj_ol_out_diff",
+    "ol_snaps_lost_share_home", "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home", "ol_key_out_away", "ol_key_out_diff",
+    "inj_def_out_home", "inj_def_out_away", "inj_def_out_diff",
+    "def_snaps_lost_share_home", "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home", "def_key_out_away", "def_key_out_diff",
     "is_home",
 ]
 
@@ -418,6 +434,20 @@ EPA_QUALITY_FEATURE_COLS: list[str] = [
 if not set(EPA_QUALITY_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
     raise RuntimeError("EPA quality features must all be in the production contract")
 
+# Promoted weekly-report injury-share bases (2026-09-27 Tier B). Built by
+# features.injury_share_table from the weekly reports, the pfr-keyed snap
+# counts and the GSIS->PFR crosswalk; served home/away/diff per base with
+# the diff routed to every family and the raw levels tree-only.
+INJURY_SHARE_BASES: tuple[str, ...] = (
+    "inj_ol_out", "ol_snaps_lost_share", "ol_key_out",
+    "inj_def_out", "def_snaps_lost_share", "def_key_out")
+INJURY_SHARE_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in INJURY_SHARE_BASES
+    for rep in ("home", "away", "diff")
+]
+if not set(INJURY_SHARE_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("injury-share features must all be in the production contract")
+
 # Served candidate names, derived from the specs — never hand-listed.
 PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
     f"{family}_{metric}_{window}_{rep}"
@@ -446,7 +476,8 @@ RAW_PER_SIDE_COLS = frozenset({
      for spec in specs.values()
      for m, ws in spec.items() for w in ws for s in ("home", "away")}
     | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")}
-    | {f"{m}_{s}" for m in EPA_QUALITY_BASES for s in ("home", "away")})
+    | {f"{m}_{s}" for m in EPA_QUALITY_BASES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in INJURY_SHARE_BASES for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
