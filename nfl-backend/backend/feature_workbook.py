@@ -291,8 +291,9 @@ NFL_API_SOURCES = [
      "(shotgun/no-huddle), timeouts, score state, penalties, third/fourth-down "
      "conversions, field-goal results, drive metadata — plus the payload's own "
      "temp/wind/humidity and roof/surface columns.",
-     "Narrowed at load to PBP_NEEDS (28 columns). The game rollup "
-     "(features.pbp_team_agg) aggregates yards/pace PLUS the per-game "
+     "Narrowed at load to PBP_NEEDS, including passer/receiver/rusher player "
+     "IDs and role-specific opportunity flags for the lineup EPA features. The "
+     "game rollup (features.pbp_team_agg) aggregates yards/pace PLUS the per-game "
      "efficiency/rate/situation metrics behind the pbp candidate pool: EPA "
      "per play, QB EPA per dropback, defensive EPA allowed, cpoe, air "
      "yards, YAC, turnovers/takeaways, sack/dropback/third-down rates, "
@@ -430,15 +431,15 @@ NFL_UNLOADED_ENDPOINTS = [
      "excluded)."),
     ("load_participation", "Advanced participation and alignment data.",
      "Coverage/pressure context (higher effort)."),
-    ("load_injuries (was loaded, now unloaded)",
-     "Official weekly injury-report statuses, with report timestamps through "
-     "the 2024 season.",
-     "Served inj_qb/tackle/edge/starters_out_diff until 2026-09-25, then "
-     "REMOVED from the contract: upstream stopped publishing per-report "
-     "timestamps, so no pre-kickoff-proven status exists for later seasons "
-     "and a week-level status would postdate kickoff. Re-evaluate only "
-     "against a timestamped source; expected-participation features are the "
-     "replacement signal."),
+    ("load_injuries_pit (loaded)",
+     "Official weekly injury-report statuses with report publication timestamps "
+     "when provided by the source.",
+     "Used only for projected EPA lineup membership: the latest report strictly "
+     "before the target kickoff excludes players designated Out, IR/Injured "
+     "Reserve, or Doubtful. The player's EPA rolling history is built first and "
+     "is preserved; other statuses, missing reports, or missing timestamps do "
+     "not exclude. The former team-level injury out-count features remain "
+     "removed because they lack full-history PIT coverage."),
     ("load_pfr", "PFR advanced passing/rushing metrics.",
      "Pressure-rate and coverage-grade context."),
     ("load_qbr", "ESPN QBR (weekly and season).",

@@ -84,7 +84,7 @@ MIN_VAL_FOLD_GAMES = 15    # ordinary OOF validation minimum; final tail retaine
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nfl-prod-v7.2-pit-core"
+FEATURE_SET_VERSION = "nfl-prod-v8.0-epa-lineup-pit"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -135,14 +135,10 @@ MONEYLINE_FEATURE_COLS = [
     # weather eligibility: a retractable or domed venue says nothing about the
     # game-day state, so it keeps failing closed.
     "is_turf_home", "temp_f", "wind_mph", "is_precip", "is_snow",
-    # The four injury out-counts (inj_qb/tackle/edge/starters_out_diff) were
-    # REMOVED from the served contract. They could not be populated honestly:
-    # the source stopped publishing per-report timestamps after 2024, and the
-    # self-timestamped fallback is roll-forward only, so 2 of 11 seasons were
-    # structurally uncovered and the live slate was mostly NaN. Availability is
-    # now expressed by the expected-participation family (projected starters,
-    # snap-share concentration, replacement quality), which is derived from
-    # strictly-prior games and therefore covers the full history.
+    # The former four injury out-counts remain removed: they require report
+    # rows/timestamps that are not available across all seasons. The EPA
+    # lineup-quality features below use an injury row only when its publication
+    # is strictly before target kickoff; absent timestamps cause no exclusion.
     # RFE promotion (2026-09-22 sweep, 1-SE gate): trailing passing depth,
     # the sweep's only committed addition. The diff serves every family; the
     # raw per-side levels route tree-only via RAW_PER_SIDE_COLS below.
@@ -156,6 +152,13 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
+    # MLB lineup-wOBA structural analogue: position quality for the projected
+    # offensive lineup. Diffs route to every model family; home/away levels are
+    # tree-only through RAW_PER_SIDE_COLS.
+    "epa_qb_home", "epa_qb_away", "epa_qb_diff",
+    "epa_wr_home", "epa_wr_away", "epa_wr_diff",
+    "epa_te_home", "epa_te_away", "epa_te_diff",
+    "epa_rb_home", "epa_rb_away", "epa_rb_diff",
     # constant home anchor last, so the linear member's positional contract is
     # unchanged by the raw-side block above (MLB parity: training.RAW_PER_SIDE_COLS)
     "is_home",
@@ -376,13 +379,20 @@ def team_category_id(abbr: object) -> int:
 TREE_CATEGORICAL_COLS = ["home_team_id", "away_team_id"]
 
 # ---------------------------------------------------------------------------
-# The four injury diffs are served directly and require a timestamped report
-# row strictly before kickoff. Their raw home/away levels are still generated
-# for schema stability, but are not independent RFE candidates: duplicating a
-# served PIT signal as a separate trial would not add a new information source.
-STATIC_SIDE_CANDIDATES: list[str] = [
-    "travel_miles",
+# Unserved static side facts that RFE may consider.
+STATIC_SIDE_CANDIDATES: list[str] = ["travel_miles"]
+STATIC_DIFF_CANDIDATES: list[str] = []
+
+# Promoted projected-lineup EPA quality families. The position-specific
+# builders live in features.py; these base names define their symmetric served
+# columns and tree-only raw-side routing.
+EPA_QUALITY_BASES: tuple[str, ...] = ("epa_qb", "epa_wr", "epa_te", "epa_rb")
+EPA_QUALITY_FEATURE_COLS: list[str] = [
+    f"{base}_{rep}" for base in EPA_QUALITY_BASES
+    for rep in ("home", "away", "diff")
 ]
+if not set(EPA_QUALITY_FEATURE_COLS) <= set(MONEYLINE_FEATURE_COLS):
+    raise RuntimeError("EPA quality features must all be in the production contract")
 
 # Served candidate names, derived from the specs — never hand-listed.
 PBP_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
@@ -410,7 +420,8 @@ RAW_PER_SIDE_COLS = frozenset({
      for family, specs in CANDIDATE_FAMILIES.items()
      for spec in specs.values()
      for m, ws in spec.items() for w in ws for s in ("home", "away")}
-    | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")})
+    | {f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")}
+    | {f"{m}_{s}" for m in EPA_QUALITY_BASES for s in ("home", "away")})
 
 # The full candidate list (RFE trial space), defined ONCE. Additions may only
 # name these; the RFE never derives candidates from a frame. A candidate must
@@ -420,7 +431,8 @@ RAW_PER_SIDE_COLS = frozenset({
 # adoption record, so the universe stays the single source of truth).
 RFE_CANDIDATE_COLS: list[str] = list(dict.fromkeys(
     [c for c in PBP_CANDIDATE_COLS if c not in set(MONEYLINE_FEATURE_COLS)]
-    + [f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")]))
+    + [f"{m}_{s}" for m in STATIC_SIDE_CANDIDATES for s in ("home", "away")]
+    + [f"{m}_{s}" for m in STATIC_DIFF_CANDIDATES for s in ("diff",)]))
 
 # Trial / validation pool: universe first (canonical), then candidates.
 # set_feature_subset validates against the POOL, because an adopted RFE record

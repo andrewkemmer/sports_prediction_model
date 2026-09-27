@@ -349,8 +349,9 @@ check("first prior home venue is unavailable rather than guessed",
 _weather_features = {"temp_f", "wind_mph", "is_precip", "is_snow"}
 check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
-check("active moneyline contract is the 31-feature PIT set",
-      len(config.MONEYLINE_FEATURE_COLS) == 31)
+check("active moneyline contract includes the 12 EPA lineup features",
+      set(config.EPA_QUALITY_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
+      and len(config.MONEYLINE_FEATURE_COLS) == 43)
 
 _weather_games = _pit_games.copy()
 _weather_games["temp"] = 111.0
@@ -1164,7 +1165,11 @@ check("master_pipeline fetches PIT weather before feature construction",
       and mp_src.index("weather_mod.fetch_games_weather(schedule)")
       < mp_src.index("feat_mod.build_game_features("))
 check("master_pipeline passes the same validated weather to history and slate",
-      mp_src.count("ftn=ftn, weather=pit_weather)") >= 2)
+      mp_src.count("ftn=ftn, weather=pit_weather, injuries=injuries)") >= 2)
+check("master_pipeline loads PIT injuries before history feature construction",        "load_injuries_pit(" in mp_src
+      and mp_src.index("load_injuries_pit(") < mp_src.index("feat_mod.build_game_features("))
+check("master_pipeline passes the same PIT injury rows into history and slate",
+      mp_src.count("injuries=injuries") >= 2)
 check("Phase 4 prints a visible fold report",
       "first OOF validation" in mp_src and "validation windows" in mp_src)
 check("Phase 4 persists nfl_fold_table.csv",
@@ -1842,6 +1847,332 @@ try:
           _targeted == "nfl_feature_workbook_2026-09-21_targeted_1234.xlsx", _targeted)
 except Exception as exc:  # noqa: BLE001
     check("RFE workbook naming helper available", False, str(exc))
+
+
+# ---------------------------------------------------------------------------
+print("\n== 13. EPA production contract and injury-status PIT regressions ==")
+_expected_epa_features = [
+    f"epa_{position}_{side}"
+    for position in ("qb", "wr", "te", "rb")
+    for side in ("home", "away", "diff")
+]
+check("the 12 EPA lineup columns are in the served production contract",
+      config.EPA_QUALITY_FEATURE_COLS == _expected_epa_features
+      and all(c in config.MONEYLINE_FEATURE_COLS
+              and c not in config.RFE_CANDIDATE_COLS
+              and c in manifest.FEATURE_MANIFEST
+              and c not in manifest.CANDIDATE_MANIFEST
+              for c in _expected_epa_features)
+      and len(config.MONEYLINE_FEATURE_COLS) == 43)
+check("EPA lineup routing matches MLB: sides tree-only, diff shared",
+      all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
+          for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
+      and all(f"{base}_diff" not in config.RAW_PER_SIDE_COLS
+              for base in config.EPA_QUALITY_BASES)
+      and all(manifest.FEATURE_MANIFEST[f"{base}_{side}"]["model_family_availability"]
+              == ["tree"]
+              for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
+      and all(manifest.FEATURE_MANIFEST[f"{base}_diff"]["model_family_availability"]
+              == ["linear", "tree", "mlp"]
+              for base in config.EPA_QUALITY_BASES))
+
+_injury_status_cases = [
+    ("Out", 0.0), ("IR", 0.0), ("Doubtful", 0.0),
+    ("Injured Reserve", 0.0), ("out (ankle)", 0.0),
+    ("Injury", 1.0), ("Reserve", 1.0), ("Questionable", 1.0),
+    ("questionable", 1.0), ("Probable", 1.0), ("Healthy", 1.0),
+    ("Active", 1.0), ("Available", 1.0), ("Note", 1.0),
+    ("Limited", 1.0), ("", 1.0), (None, 1.0), (pd.NA, 1.0),
+    (np.nan, 1.0),
+]
+_classifier_matches = [
+    float(ingest_mod.injury_availability_weight(status)) == expected
+    for status, expected in _injury_status_cases
+]
+check("only Out/IR/Doubtful (or Injured Reserve) map to injury weight 0",
+      all(_classifier_matches),
+      f"{sum(_classifier_matches)}/{len(_classifier_matches)} cases")
+
+# Cached synthetic injury rows exercise the production loader's ET->UTC
+# conversion, strict pre-kickoff cutoff, latest-report selection, and tie rule.
+_injury_target = pd.DataFrame([{
+    "game_id": "INJ_TARGET", "season": 2024, "week": 3,
+    "game_type": "REG", "home_team": "HOME", "away_team": "AWAY",
+    "gameday": "2024-09-08", "gametime": "13:00",
+}])  # kickoff = 17:00 UTC
+_injury_rows = pd.DataFrame([
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Questionable",
+     "date_modified": "2024-09-08T16:00:00Z"},
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Probable",
+     "date_modified": "2024-09-08T16:59:00Z"},
+    {"gsis_id": "P1", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out",
+     "date_modified": "2024-09-08T17:00:00Z"},  # equal: excluded
+    {"gsis_id": "P2", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Probable",
+     "date_modified": "2024-09-08T17:00:00Z"},  # equal: excluded
+    {"gsis_id": "P3", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Questionable",
+     "date_modified": "2024-09-08T17:01:00Z"},  # after: excluded
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "report_status": "Probable",
+     "date_modified": "2024-09-08T16:00:00Z"},
+    {"gsis_id": "P4", "season": 2024, "game_type": "REG", "team": "AWAY",
+     "week": 3, "report_status": "Doubtful",
+     "date_modified": "2024-09-08T16:30:00Z"},  # latest pre-kickoff: injured
+    {"gsis_id": "P5", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Questionable",
+     "date_modified": "2024-09-08T16:30:00Z"},
+    {"gsis_id": "P5", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out",
+     "date_modified": "2024-09-08T16:30:00Z"},  # tie: injured wins
+    {"gsis_id": "P6", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Out",
+     "date_modified": None},  # no publication time: cannot exclude
+    {"gsis_id": "P7", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Healthy",
+     "date_modified": "2024-09-08T16:30:00Z"},
+    {"gsis_id": "P8", "season": 2024, "game_type": "REG", "team": "HOME",
+     "week": 3, "report_status": "Note",
+     "date_modified": "2024-09-08T16:30:00Z"},
+    {"gsis_id": "P9", "season": 2024, "game_type": "REG", "team": "OTHER",
+     "week": 3, "report_status": "Out",
+     "date_modified": "2024-09-08T16:30:00Z"},  # another team's report cannot join
+])
+with tempfile.TemporaryDirectory() as _injury_cache_dir:
+    _injury_cache_path = Path(_injury_cache_dir) / "inj_pit_v3_2024.parquet"
+    _injury_rows.to_parquet(_injury_cache_path, index=False)
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_injury_cache_dir)):
+        _loaded_injuries = ingest_mod.load_injuries_pit(
+            _injury_target, seasons=[2024], use_cache=True,
+            refresh_upcoming=False)
+_injury_by_player = _loaded_injuries.set_index("player_id")
+check("injury loader is team-specific, latest-report and strict pre-kickoff",
+      set(_loaded_injuries["player_id"]) == {"P1", "P4", "P5", "P7", "P8"}
+      and _injury_by_player.loc["P1", "status"] == "probable"
+      and float(_injury_by_player.loc["P1", "availability_weight"]) == 1.0
+      and _injury_by_player.loc["P4", "status"] == "doubtful"
+      and float(_injury_by_player.loc["P4", "availability_weight"]) == 0.0
+      and _injury_by_player.loc["P5", "status"] == "out"
+      and float(_injury_by_player.loc["P5", "availability_weight"]) == 0.0
+      and float(_injury_by_player.loc["P7", "availability_weight"]) == 1.0
+      and float(_injury_by_player.loc["P8", "availability_weight"]) == 1.0
+      and _injury_by_player.loc["P1", "team"] == "HOME"
+      and      set(_loaded_injuries["team"]) == {"HOME", "AWAY"})
+
+_naive_injury_rows = _injury_rows.copy()
+_naive_injury_rows.loc[
+    _naive_injury_rows["gsis_id"] == "P6", "date_modified"] = "2024-09-08 16:30:00"
+with tempfile.TemporaryDirectory() as _naive_injury_cache_dir:
+    _naive_injury_path = Path(_naive_injury_cache_dir) / "inj_pit_v3_2024.parquet"
+    _naive_injury_rows.to_parquet(_naive_injury_path, index=False)
+    with mock.patch.object(ingest_mod, "CACHE_DIR", Path(_naive_injury_cache_dir)):
+        _naive_loaded_injuries = ingest_mod.load_injuries_pit(
+            _injury_target, seasons=[2024], use_cache=True,
+            refresh_upcoming=False)
+check("timezone-naive injury publication timestamps fail closed",
+      "P6" not in set(_naive_loaded_injuries["player_id"]))
+
+# Synthetic historical player-games, with EPA/opportunity totals derived
+# from raw play rows through the production functions. P3 has the largest QB
+# workload but is Out before kickoff, proving his history remains while his
+# target-game membership is removed. WR/TE/RB rows exercise every served side.
+_epa_calc_games = pd.DataFrame([
+    {"game_id": "G1", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "HOME", "away_team": "O1"},
+    {"game_id": "G2", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "HOME", "away_team": "O2"},
+    {"game_id": "G3", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "HOME", "away_team": "O3"},
+    {"game_id": "G4", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "O4", "away_team": "AWAY"},
+    {"game_id": "G5", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "HOME", "away_team": "O5"},
+    {"game_id": "G6", "season": 2024, "week": 2, "gameday": "2024-09-07",
+     "gametime": "13:00", "home_team": "AWAY", "away_team": "O6"},
+    {"game_id": "EPA_TARGET", "season": 2024, "week": 3,
+     "gameday": "2024-09-08", "gametime": "13:00",
+     "home_team": "HOME", "away_team": "AWAY"},
+])
+_epa_player_specs = [
+    ("G1", "HOME", "P1", 5.0, 10),
+    ("G2", "HOME", "P2", 2.0, 20),
+    ("G3", "HOME", "P3", 9.0, 30),
+    ("G4", "AWAY", "P4", 0.0, 10),
+]
+_epa_play_rows = []
+_epa_position_rows = []
+for _game_id, _team, _player_id, _epa_total, _opportunities in _epa_player_specs:
+    _epa_position_rows.append({
+        "game_id": _game_id, "team": _team,
+        "player_id": _player_id, "position": "QB",
+    })
+    for _play_no in range(_opportunities):
+        _epa_play_rows.append({
+            "game_id": _game_id,
+            "play_id": f"{_game_id}-{_play_no}",
+            "posteam": _team,
+            "epa": _epa_total / _opportunities,
+            "passer_player_id": _player_id,
+            "receiver_player_id": None,
+            "rusher_player_id": None,
+            "qb_dropback": 1.0,
+            "pass_attempt": 1.0,
+            "rush_attempt": 0.0,
+        })
+
+# Receiver opportunity flags are pass_attempt; rusher opportunity flags are
+# rush_attempt. Include FB on the home side to verify it rolls into EPA RB.
+_epa_skill_specs = [
+    ("G5", "HOME", "W1", "WR", 6.0, 20, "receiver"),
+    ("G5", "HOME", "T1", "TE", 2.0, 8, "receiver"),
+    ("G5", "HOME", "R1", "RB", 3.0, 15, "rusher"),
+    ("G5", "HOME", "F1", "FB", 0.4, 4, "rusher"),
+    ("G6", "AWAY", "W2", "WR", 4.0, 20, "receiver"),
+    ("G6", "AWAY", "T2", "TE", 1.0, 8, "receiver"),
+    ("G6", "AWAY", "R2", "RB", 2.0, 15, "rusher"),
+]
+for _game_id, _team, _player_id, _position, _epa_total, _opportunities, _role in _epa_skill_specs:
+    _epa_position_rows.append({
+        "game_id": _game_id, "team": _team,
+        "player_id": _player_id, "position": _position,
+    })
+    for _play_no in range(_opportunities):
+        _epa_play_rows.append({
+            "game_id": _game_id,
+            "play_id": f"{_game_id}-{_player_id}-{_play_no}",
+            "posteam": _team,
+            "epa": _epa_total / _opportunities,
+            "passer_player_id": None,
+            "receiver_player_id": _player_id if _role == "receiver" else None,
+            "rusher_player_id": _player_id if _role == "rusher" else None,
+            "qb_dropback": 1.0 if _role == "receiver" else 0.0,
+            "pass_attempt": 1.0 if _role == "receiver" else 0.0,
+            "rush_attempt": 1.0 if _role == "rusher" else 0.0,
+        })
+_epa_calc_pbp = pd.DataFrame(_epa_play_rows)
+_epa_calc_ps = pd.DataFrame(_epa_position_rows)
+_epa_calc_injuries = pd.DataFrame([
+    # P1 remains in the candidate pool from the pre-kickoff non-injury report;
+    # his later Out exactly at kickoff is inadmissible.
+    {"game_id": "EPA_TARGET", "team": "HOME", "player_id": "P1",
+     "status": "probable", "availability_weight": 1.0,
+     "published": "2024-09-08T16:00:00Z"},
+    {"game_id": "EPA_TARGET", "team": "HOME", "player_id": "P1",
+     "status": "out", "availability_weight": 0.0,
+     "published": "2024-09-08T17:00:00Z"},  # at kickoff, excluded
+    # P3's pre-kickoff Out removes him from this target lineup only. His prior
+    # PBP rating still contributes to the historical player table and prior.
+    {"game_id": "EPA_TARGET", "team": "HOME", "player_id": "P3",
+     "status": "out", "availability_weight": 0.0,
+     "published": "2024-09-08T16:30:00Z"},
+    # P2 has no injury report for the target game: he remains eligible.
+    {"game_id": "EPA_TARGET", "team": "AWAY", "player_id": "P4",
+     "status": "probable", "availability_weight": 1.0,
+     "published": "2024-09-08T16:00:00Z"},
+])
+_epa_hist_opps = feat_mod.epa_opportunity_table(_epa_calc_pbp)
+_epa_quality_agg = feat_mod._epa_quality_agg(
+    _epa_calc_games, _epa_calc_pbp, _epa_calc_ps, _epa_calc_injuries)
+_epa_target_features = feat_mod._attach_epa_quality_features(
+    _epa_calc_games.tail(1).reset_index(drop=True), _epa_quality_agg,
+    _epa_calc_games)
+_epa_target_row = _epa_target_features.iloc[0]
+# Perturb target-day PBP and add a much stronger future game. Neither may alter
+# the target team's prior rating or its position prior.
+_epa_changed_target_pbp = _epa_calc_pbp.copy()
+_epa_changed_target_pbp.loc[
+    _epa_changed_target_pbp["game_id"] == "EPA_TARGET", "epa"] += 100.0
+_epa_future_game = pd.DataFrame([{
+    "game_id": "EPA_FUTURE", "season": 2024, "week": 4,
+    "gameday": "2024-09-15", "gametime": "13:00",
+    "home_team": "HOME", "away_team": "O5",
+}])
+_epa_future_pbp = pd.DataFrame([{
+    "game_id": "EPA_FUTURE", "play_id": "EPA_FUTURE-1", "posteam": "HOME",
+    "epa": 999.0, "passer_player_id": "P1", "receiver_player_id": None,
+    "rusher_player_id": None, "qb_dropback": 1.0, "pass_attempt": 1.0,
+    "rush_attempt": 0.0,
+}])
+_epa_future_ps = pd.DataFrame([{
+    "game_id": "EPA_FUTURE", "team": "HOME", "player_id": "P1", "position": "QB",
+}])
+_epa_augmented_agg = feat_mod._epa_quality_agg(
+    pd.concat([_epa_calc_games, _epa_future_game], ignore_index=True),
+    pd.concat([_epa_changed_target_pbp, _epa_future_pbp], ignore_index=True),
+    pd.concat([_epa_calc_ps, _epa_future_ps], ignore_index=True),
+    _epa_calc_injuries)
+_epa_augmented_features = feat_mod._attach_epa_quality_features(
+    _epa_calc_games.tail(1).reset_index(drop=True), _epa_augmented_agg,
+    pd.concat([_epa_calc_games, _epa_future_game], ignore_index=True))
+_epa_augmented_home = float(_epa_augmented_features.iloc[0]["epa_qb_home"])
+_epa_mu = 16.0 / 70.0
+_epa_skill_hist = _epa_quality_agg.set_index(["team", "position"])
+_epa_skill_checks = all(
+    pd.notna(_epa_target_row[f"epa_{pos}_{side}"])
+    for pos in ("qb", "wr", "te", "rb") for side in ("home", "away"))
+_epa_skill_checks = (_epa_skill_checks and all(
+    np.isclose(_epa_target_row[f"epa_{pos}_diff"],
+               _epa_target_row[f"epa_{pos}_home"] - _epa_target_row[f"epa_{pos}_away"])
+    for pos in ("qb", "wr", "te", "rb")))
+_epa_fb_in_rb = ("HOME", "RB") in _epa_skill_hist.index
+
+# The production helper uses the median of the chronological expanding medians
+# of player rolling-8 denominators, not one terminal median over the sample.
+_epa_prior_medians = [10.0, 15.0, 20.0, 15.0]
+_epa_k = 0.20 * float(np.median(_epa_prior_medians))
+_epa_history_obs = (
+    _epa_hist_opps
+    .merge(_epa_calc_ps, on=["game_id", "team", "player_id"], how="inner")
+    .merge(_epa_calc_games[["game_id", "gameday", "gametime"]],
+           on="game_id", how="inner"))
+_epa_history_obs["kickoff_utc"] = feat_mod._kickoff_utc(_epa_history_obs)
+_epa_history = feat_mod.epa_quality_ratings(_epa_history_obs)
+_epa_prior = feat_mod._position_priors_asof(
+    _epa_history, pd.Series(["2024-09-08"]))
+_epa_qb_prior = _epa_prior[_epa_prior["position"] == "QB"].iloc[0]
+_epa_p1_q = (5.0 + _epa_mu * _epa_k) / (10.0 + _epa_k)
+_epa_p2_q = (2.0 + _epa_mu * _epa_k) / (20.0 + _epa_k)
+_epa_expected_home = (_epa_p1_q + _epa_p2_q) / 2.0
+_epa_unfiltered_p3_q = (9.0 + _epa_mu * _epa_k) / (30.0 + _epa_k)
+_epa_expected_away = (_epa_mu * _epa_k) / (10.0 + _epa_k)
+check("Out exclusion changes target lineup membership, not P3's lagged EPA",
+      np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "epa"], 9.0)
+      and np.isclose(_epa_hist_opps.set_index("player_id").loc["P3", "opp"], 30.0)
+      and np.isclose(_epa_history.set_index("player_id").loc["P3", "_num"], 9.0)
+      and np.isclose(_epa_history.set_index("player_id").loc["P3", "_den"], 30.0)
+      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
+      and not np.isclose(_epa_target_row["epa_qb_home"],
+                         (_epa_p1_q + _epa_p2_q + _epa_unfiltered_p3_q) / 3.0),
+      f"P3 historical rolling total remains 9/30 while home target mean="
+      f"{_epa_target_row['epa_qb_home']:.9f}")
+check("all QB/WR/TE/RB lineup aggregates populate both team sides",
+      _epa_skill_checks,
+      "position-specific aggregates and home-away differences emitted")
+check("FB opportunity history is grouped into the RB lineup family",
+      _epa_fb_in_rb)
+check("epa_qb_home follows PIT-qualified player EPA shrinkage and lineup mean",
+      np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "epa"], 5.0)
+      and np.isclose(_epa_hist_opps.set_index("player_id").loc["P1", "opp"], 10.0)
+      and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "epa"], 2.0)
+      and np.isclose(_epa_hist_opps.set_index("player_id").loc["P2", "opp"], 20.0)
+      and np.isclose(_epa_target_row["epa_qb_home"], _epa_expected_home)
+      and np.isclose(_epa_qb_prior["mu"], _epa_mu)
+      and np.isclose(_epa_qb_prior["k"], _epa_k)
+      and np.isclose(_epa_target_row["epa_qb_away"], _epa_expected_away)
+      and np.isclose(_epa_target_row["epa_qb_diff"],
+                     _epa_expected_home - _epa_expected_away)
+      and np.isclose(_epa_augmented_home, _epa_expected_home),
+      f"home={_epa_target_row['epa_qb_home']:.9f}, "
+      f"away={_epa_target_row['epa_qb_away']:.9f}, "
+      f"diff={_epa_target_row['epa_qb_diff']:.9f}; "
+      f"changed target/future home={_epa_augmented_home:.9f}")
+print("  EPA worked example (synthetic, production functions): "
+      f"mu={_epa_mu:.9f}, k={_epa_k:.3f}, "
+      f"P1={_epa_p1_q:.9f}, P2={_epa_p2_q:.9f}, "
+      f"epa_qb_home={_epa_expected_home:.9f}")
 
 
 # ---------------------------------------------------------------------------

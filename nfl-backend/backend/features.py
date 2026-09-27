@@ -1295,6 +1295,417 @@ def _attach_record_fields(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFram
 
 
 # ---------------------------------------------------------------------------
+# Player quality — per-position shrunk EPA
+#
+# MLB's shrunk_woba + lineup_agg structural analogue (MLB features.py):
+# retain lagged player ratings and remove players explicitly designated
+# Out/IR/Doubtful before selecting the projected offensive pool. EPA and
+# opportunity history is constructed independently of current-game status.
+# The per-position shrunk ratings are aggregated to team features, with raw
+# home/away inputs routed tree-only and home-away diffs shared by all members.
+# k is 20% of the position's pooled prior median rolling-8 opportunities.
+
+# ---------------------------------------------------------------------------
+EPA_QB_POSITIONS = ("QB", "WR", "TE", "RB")
+EPA_QUALITY_WINDOW = 8
+EPA_QUALITY_K_FRAC = 0.20
+# NFL bye weeks can leave 14–17 days between a team's games; keep the same
+# widened-candidate-roster pattern as MLB while allowing a three-week roster
+# freshness window so a bye does not erase every projected-lineup candidate.
+EPA_QUALITY_POOL_DAYS = 21
+EPA_QUALITY_TOP_N = 11
+
+
+# Fullbacks are grouped with running backs, consistent with the existing
+# player usage and snap-count aggregates.
+def _normalize_epa_lineup_positions(positions: pd.Series) -> pd.Series:
+    return positions.astype("string").str.upper().str.strip().replace({"FB": "RB"})
+
+
+# nflverse opportunity flags, summed per player-game.  These replace a
+# play_type derivation because they handle the cases play_type gets wrong:
+# a scramble is a qb_dropback on a play_type of "run", and pass_attempt is 0
+# on a play a defensive penalty nullified.  Measured league-wide 2025, a
+# player-game with EPA but all three flags at zero does not exist (0 of
+# 5,598), so the denominator has no structural zero.
+EPA_FLAG_COLS = ("qb_dropback", "pass_attempt", "rush_attempt")
+EPA_ROLE_COLS = (("passer_player_id", "qb_dropback"),
+                 ("receiver_player_id", "pass_attempt"),
+                 ("rusher_player_id", "rush_attempt"))
+
+EPA_QUALITY_METRICS = tuple(f"epa_{p.lower()}" for p in EPA_QB_POSITIONS)
+EPA_QUALITY_AGG_COLS = ["game_id", "team", "position", "epa_q"]
+
+
+def epa_opportunity_table(pbp: pd.DataFrame | None) -> pd.DataFrame:
+    """Per-(game_id, team, player) EPA and role-specific opportunity count.
+
+    Each player is matched to the opportunity flag for his play role (passer
+    -> qb_dropback, receiver -> pass_attempt, rusher -> rush_attempt). If one
+    player is credited under multiple roles on a single play, the play is
+    counted once, with the maximum applicable role flag, for both EPA and
+    opportunity totals.
+    """
+    cols = ["game_id", "team", "player_id", "epa", "opp"]
+    if pbp is None or "epa" not in getattr(pbp, "columns", []):
+        return pd.DataFrame(columns=cols)
+    need = ["game_id", "posteam", "epa", "play_id"] + \
+        [c for pair in EPA_ROLE_COLS for c in pair]
+    if any(c not in pbp.columns for c in need):
+        return pd.DataFrame(columns=cols)
+    p = pbp.copy()
+    p["epa"] = pd.to_numeric(p["epa"], errors="coerce")
+    p = p[p["epa"].notna() & p["posteam"].notna()]
+
+    long: list[pd.DataFrame] = []
+    for role_col, flag in EPA_ROLE_COLS:
+        s = p[["game_id", "play_id", "posteam", "epa", role_col, flag]].rename(
+            columns={role_col: "player_id", flag: "opp"})
+        s["player_id"] = s["player_id"].astype("string")
+        s = s[s["player_id"].notna()
+              & ~s["player_id"].isin(["", "nan", "None"])]
+        long.append(s)
+    if not long:
+        return pd.DataFrame(columns=cols)
+    L = pd.concat(long, ignore_index=True)
+    L["opp"] = pd.to_numeric(L["opp"], errors="coerce").fillna(0.0)
+    # A player's opportunity is the flag for the role that identified him
+    # (dropback for passer, pass attempt for receiver, rush attempt for rusher).
+    # Deduplicate same-player/same-play dual-role rows, counting EPA once and
+    # one play opportunity rather than adding unrelated PBP flags together.
+    per_play = (L.groupby(["game_id", "posteam", "player_id", "play_id"],
+                          as_index=False)
+                .agg(epa=("epa", "first"), opp=("opp", "max")))
+    out = (per_play.groupby(["game_id", "posteam", "player_id"], as_index=False)
+           .agg(epa=("epa", "sum"), opp=("opp", "sum"))
+           .rename(columns={"posteam": "team", "epa": "epa"}))
+    return out[cols]
+
+
+def epa_quality_ratings(obs: pd.DataFrame) -> pd.DataFrame:
+    """Post-game rolling player totals used to rate the next game.
+
+    ``_num`` / ``_den`` are inclusive through this player's most recent
+    observed game. The team aggregator admits rows only from an earlier
+    calendar date than the target, so neither the target result nor another
+    game still in progress that date can enter the rating.
+    """
+    empty_cols = list(obs.columns) + ["_num", "_den", "_vol"]
+    if obs.empty:
+        return obs.assign(_num=np.nan, _den=np.nan, _vol=np.nan)
+    d = obs.copy()
+    required = {"game_id", "team", "player_id", "position", "gameday",
+                "kickoff_utc", "epa", "opp"}
+    if not required.issubset(d.columns):
+        return pd.DataFrame(columns=empty_cols)
+    d["game_id"] = d["game_id"].astype(str)
+    d["player_id"] = d["player_id"].astype("string").str.strip()
+    d["gameday"] = pd.to_datetime(d["gameday"], errors="coerce").dt.normalize()
+    d["kickoff_utc"] = pd.to_datetime(d["kickoff_utc"], errors="coerce", utc=True)
+    d["position"] = _normalize_epa_lineup_positions(d["position"])
+    d["epa"] = pd.to_numeric(d["epa"], errors="coerce")
+    d["opp"] = pd.to_numeric(d["opp"], errors="coerce")
+    d = d.dropna(subset=["player_id", "gameday", "kickoff_utc", "position",
+                         "epa", "opp"])
+    d = d[d["position"].isin(EPA_QB_POSITIONS)]
+    d = d[~d["player_id"].isin(["", "nan", "none", "<na>", "null"])]
+    if d.empty:
+        return d.assign(_num=np.nan, _den=np.nan, _vol=np.nan)
+    d = d.sort_values(["player_id", "gameday", "kickoff_utc", "game_id"])
+    # Exactly one observation per player-game, in exact chronological order.
+    d = d.drop_duplicates(["game_id", "player_id"], keep="last")
+    g = d.groupby("player_id", sort=False)
+    # The current row represents the completed historical game; target
+    # aggregation chooses only rows with gameday < target gameday.
+    d["_num"] = g["epa"].transform(
+        lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).sum())
+    d["_den"] = g["opp"].transform(
+        lambda s: s.rolling(EPA_QUALITY_WINDOW, min_periods=1).sum())
+    d["_vol"] = d["_den"]
+    return d
+
+
+def _position_priors_asof(history: pd.DataFrame,
+                          target_days: pd.Series) -> pd.DataFrame:
+    """Position mu and k known before each target calendar date.
+
+    ``mu`` is a pooled EPA/opportunity ratio over all earlier dates.
+    ``k`` is 20% of the median rolling-8 opportunity total across all prior
+    player-game rows. Same-day rows are excluded, avoiding ordering leaks for
+    games that are still in progress when a same-date target kicks off.
+    """
+    targets = pd.Series(pd.to_datetime(target_days, errors="coerce")).dropna()
+    targets = targets.dt.normalize().drop_duplicates().sort_values()
+    if targets.empty:
+        return pd.DataFrame(columns=["target_day", "position", "mu", "k"])
+    target_values = targets.to_numpy(dtype="datetime64[ns]")
+    rows: list[dict] = []
+    for pos in EPA_QB_POSITIONS:
+        p = (history.loc[history["position"].eq(pos),
+                         ["game_id", "gameday", "epa", "opp", "_den"]]
+             .dropna(subset=["gameday", "epa", "opp", "_den"])
+             .sort_values(["gameday", "game_id"]))
+        if p.empty:
+            rows.extend({"target_day": day, "position": pos,
+                         "mu": np.nan, "k": np.nan} for day in targets)
+            continue
+
+        daily = (p.groupby("gameday", sort=True)
+                 .agg(day_epa=("epa", "sum"), day_opp=("opp", "sum")))
+        daily["prior_epa"] = daily["day_epa"].cumsum()
+        daily["prior_opp"] = daily["day_opp"].cumsum()
+        dates = daily.index.to_numpy(dtype="datetime64[ns]")
+        idx = np.searchsorted(dates, target_values, side="left") - 1
+        mu = np.full(len(target_values), np.nan, dtype=float)
+        valid = idx >= 0
+        if valid.any():
+            num = daily["prior_epa"].to_numpy(dtype=float)[idx[valid]]
+            den = daily["prior_opp"].to_numpy(dtype=float)[idx[valid]]
+            mu[valid] = np.divide(num, den, out=np.full(len(num), np.nan),
+                                  where=den > 0)
+
+        # Expanding medians across historical player-games are computed in
+        # chronological order. Keep the last value of each date (so all
+        # player-games on that date are included together), then as-of join
+        # strictly before the target date.
+        p["expanding_den_median"] = p["_den"].expanding(min_periods=1).median()
+        med_by_day = p.groupby("gameday", sort=True)["expanding_den_median"].last()
+        med_dates = med_by_day.index.to_numpy(dtype="datetime64[ns]")
+        med_idx = np.searchsorted(med_dates, target_values, side="left") - 1
+        k = np.full(len(target_values), np.nan, dtype=float)
+        med_valid = med_idx >= 0
+        if med_valid.any():
+            k[med_valid] = (EPA_QUALITY_K_FRAC
+                            * med_by_day.to_numpy(dtype=float)[med_idx[med_valid]])
+        rows.extend({"target_day": pd.Timestamp(day), "position": pos,
+                     "mu": float(m), "k": float(kv)}
+                    for day, m, kv in zip(targets, mu, k))
+    return pd.DataFrame(rows, columns=["target_day", "position", "mu", "k"])
+
+
+def _strict_pit_timestamp(value):
+    """Normalize explicitly zoned PIT timestamps to UTC; reject naive values."""
+    if value is None or pd.isna(value):
+        return pd.NaT
+    try:
+        stamp = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return pd.NaT
+    if stamp.tzinfo is None or stamp.utcoffset() is None:
+        return pd.NaT
+    return stamp.tz_convert("UTC")
+
+
+def epa_quality_team_agg(history: pd.DataFrame, games: pd.DataFrame,
+                         injuries: pd.DataFrame | None = None
+                         ) -> pd.DataFrame:
+    """Per-(game, team, position) mean of PIT-shrunk EPA player ratings.
+
+    Candidate pool: each team's latest player EPA rating from a game date
+    strictly before the target date and within the 21-calendar-day window,
+    covering ordinary bye-week gaps.
+    Only a strictly pre-kickoff Out/IR/Doubtful designation excludes the
+    player; other statuses and no admissible report leave him eligible. The
+    rolling player rating is computed before current-game membership filtering,
+    so a current injury never erases prior-game EPA. Eligible player ratings
+    are averaged unweighted by position (no absent-player padding). This
+    mirrors MLB's lagged player ratings -> candidate roster -> IL membership
+    filter -> team aggregate structure, with NFL positional outputs.
+    """
+    cols = list(EPA_QUALITY_AGG_COLS)
+    if history.empty or games is None or games.empty:
+        return pd.DataFrame(columns=cols)
+    needed_history = {"game_id", "team", "player_id", "position", "gameday",
+                      "kickoff_utc", "epa", "opp", "_num", "_den"}
+    needed_games = {"game_id", "gameday", "gametime", "home_team", "away_team"}
+    if (not needed_history.issubset(history.columns)
+            or not needed_games.issubset(games.columns)):
+        return pd.DataFrame(columns=cols)
+
+    d = history.copy()
+    d["game_id"] = d["game_id"].astype(str)
+    d["player_id"] = d["player_id"].astype("string").str.strip()
+    d["team"] = d["team"].astype("string").str.strip().str.upper()
+    d["gameday"] = pd.to_datetime(d["gameday"], errors="coerce").dt.normalize()
+    d["kickoff_utc"] = pd.to_datetime(d["kickoff_utc"], errors="coerce", utc=True)
+    d["position"] = _normalize_epa_lineup_positions(d["position"])
+    d = d.dropna(subset=["gameday", "kickoff_utc", "player_id", "position",
+                         "_num", "_den"])
+    if d.empty:
+        return pd.DataFrame(columns=cols)
+
+    tgt = games[["game_id", "gameday", "gametime", "home_team", "away_team"]].copy()
+    tgt["game_id"] = tgt["game_id"].astype(str)
+    tgt["home_team"] = tgt["home_team"].astype("string").str.strip().str.upper()
+    tgt["away_team"] = tgt["away_team"].astype("string").str.strip().str.upper()
+    tgt["gameday"] = pd.to_datetime(tgt["gameday"], errors="coerce").dt.normalize()
+    tgt["kickoff_utc"] = _kickoff_utc(tgt)
+    tgt = tgt.dropna(subset=["gameday", "kickoff_utc"])
+    if tgt.empty:
+        return pd.DataFrame(columns=cols)
+    tgt = pd.concat([
+        tgt[["game_id", "gameday", "kickoff_utc", "home_team"]]
+        .rename(columns={"home_team": "team"}),
+        tgt[["game_id", "gameday", "kickoff_utc", "away_team"]]
+        .rename(columns={"away_team": "team"}),
+    ], ignore_index=True).drop_duplicates(["game_id", "team"])
+    tgt = tgt.rename(columns={"gameday": "target_day"})
+
+    pool = (d[["game_id", "team", "player_id", "position", "gameday",
+               "_num", "_den"]]
+            .rename(columns={"game_id": "history_game_id",
+                             "gameday": "rating_day"}))
+    j = tgt.merge(pool, on="team", how="inner")
+    # Only prior calendar dates qualify. PBP/player stats do not supply an
+    # authoritative end-of-game publication time, so a same-day prior kickoff
+    # is not proof that the completed EPA rating was known before target kickoff.
+    j = j[(j["rating_day"] < j["target_day"])
+          & (j["rating_day"] >= j["target_day"]
+             - pd.Timedelta(days=EPA_QUALITY_POOL_DAYS))]
+    j = (j.sort_values(["game_id", "team", "player_id", "rating_day",
+                        "history_game_id"])
+         .drop_duplicates(["game_id", "team", "player_id"], keep="last"))
+
+    if injuries is not None and not injuries.empty:
+        pit_cols = {"game_id", "team", "player_id", "availability_weight",
+                    "published"}
+        if not pit_cols.issubset(injuries.columns):
+            raise ValueError("injuries must come from load_injuries_pit and carry "
+                             "game_id, team, player_id, availability_weight, published")
+        pit = injuries[["game_id", "team", "player_id", "availability_weight",
+                        "published"]].copy()
+        pit["game_id"] = pit["game_id"].astype(str)
+        pit["team"] = pit["team"].astype("string").str.strip().str.upper()
+        pit["player_id"] = pit["player_id"].astype("string").str.strip()
+        pit = pit.dropna(subset=["team", "player_id"])
+        pit = pit[pit["team"].ne("") & pit["player_id"].ne("")]
+        pit["availability_weight"] = pd.to_numeric(
+            pit["availability_weight"], errors="coerce")
+        pit["published"] = pd.to_datetime(
+            pit["published"].map(_strict_pit_timestamp), errors="coerce", utc=True)
+        target_kickoff = tgt[["game_id", "kickoff_utc"]].drop_duplicates("game_id")
+        pit = pit.merge(target_kickoff, on="game_id", how="inner")
+        pit = pit[pit["published"] < pit["kickoff_utc"]]
+        # For conflicting rows at an identical latest timestamp, an explicit
+        # injury designation (weight 0) wins; latest admissible PIT report wins
+        # otherwise. The team key prevents another matchup's report bleeding
+        # onto this player's target-team lineup.
+        pit = (pit.sort_values(["game_id", "team", "player_id", "published",
+                                "availability_weight"],
+                               ascending=[True, True, True, True, False],
+                               kind="mergesort")
+               .drop_duplicates(["game_id", "team", "player_id"], keep="last")
+               [["game_id", "team", "player_id", "availability_weight"]])
+        j = j.merge(pit, on=["game_id", "team", "player_id"], how="left")
+        # Missing reports/timestamps and every status other than the explicit
+        # Out/IR/Doubtful classifier value leave the player in the candidate
+        # pool. The historical rolling EPA/_den was computed before this join.
+        j["availability_weight"] = pd.to_numeric(
+            j["availability_weight"], errors="coerce")
+        j = j[~j["availability_weight"].eq(0.0)]
+
+    if j.empty:
+        return pd.DataFrame(columns=cols)
+    # Mirror MLB's candidate-roster -> injury filter -> lineup-rank structure:
+    # after exclusions, select the team's top 11 eligible offensive players by
+    # prior-window opportunities, then aggregate their ratings by position.
+    # Player ID breaks workload ties deterministically.
+    j = (j.sort_values(["game_id", "team", "_den", "player_id"],
+                       ascending=[True, True, False, True],
+                       kind="mergesort")
+         .assign(rn=lambda x: x.groupby(["game_id", "team"]).cumcount() + 1))
+    top = j[j["rn"] <= EPA_QUALITY_TOP_N].copy()
+    if top.empty:
+        return pd.DataFrame(columns=cols)
+
+    priors = _position_priors_asof(d, tgt["target_day"])
+    top = top.merge(priors, on=["target_day", "position"], how="left")
+    denom = top["_den"] + top["k"]
+    ok = (top["mu"].notna() & top["k"].notna() & denom.gt(0))
+    top["epa_q"] = np.where(
+        ok, (top["_num"] + top["mu"] * top["k"]) / denom, np.nan)
+    out = (top.groupby(["game_id", "team", "position"], as_index=False)["epa_q"]
+           .mean())
+    return out[cols]
+
+
+def _epa_quality_agg(games: pd.DataFrame, pbp: pd.DataFrame | None,
+                     ps: pd.DataFrame | None,
+                     injuries: pd.DataFrame | None) -> pd.DataFrame:
+    """Build PIT per-position player quality aggregates, degrading to NaN
+    when play-by-play, player IDs/positions, or exact schedule kickoff is
+    unavailable.
+    """
+    empty = pd.DataFrame(columns=EPA_QUALITY_AGG_COLS)
+    obs = epa_opportunity_table(pbp)
+    if (obs.empty or ps is None
+            or not {"game_id", "team", "player_id", "position"} <= set(ps.columns)
+            or not {"game_id", "gameday", "gametime"} <= set(games.columns)):
+        return empty
+
+    days = games[["game_id", "gameday", "gametime"]].copy()
+    days["game_id"] = days["game_id"].astype(str)
+    days["gameday"] = pd.to_datetime(days["gameday"], errors="coerce").dt.normalize()
+    days["kickoff_utc"] = _kickoff_utc(days)
+    obs["game_id"] = obs["game_id"].astype(str)
+    obs["player_id"] = obs["player_id"].astype("string").str.strip()
+    obs["team"] = obs["team"].astype("string").str.strip()
+    obs = obs.merge(days, on="game_id", how="inner", validate="many_to_one")
+    pos = ps[["game_id", "team", "player_id", "position"]].copy()
+    pos["game_id"] = pos["game_id"].astype(str)
+    pos["team"] = pos["team"].astype("string").str.strip()
+    pos["player_id"] = pos["player_id"].astype("string").str.strip()
+    pos["position"] = _normalize_epa_lineup_positions(pos["position"])
+    pos = pos.dropna(subset=["player_id", "position"])
+    pos = pos[~pos["player_id"].isin(["", "nan", "none", "<na>", "null"])]
+    pos = pos.drop_duplicates(["game_id", "team", "player_id"], keep="last")
+    obs = obs.merge(pos, on=["game_id", "team", "player_id"],
+                    how="inner", validate="one_to_one")
+    obs = obs.dropna(subset=["gameday", "kickoff_utc"])
+    history = epa_quality_ratings(obs)
+    return epa_quality_team_agg(history, games, injuries)
+
+
+def _attach_epa_quality_features(df: pd.DataFrame, agg: pd.DataFrame,
+                                 games: pd.DataFrame) -> pd.DataFrame:
+    """Serve the per-position quality columns in ONE concat (home/away/diff).
+
+    The team lookup joins against the SCHEDULE, not df: df is the served game
+    frame and is not contracted to carry home_team/away_team, so reading them
+    from there would make this family depend on an incidental column.
+    """
+    n = len(df)
+    sides: dict[str, np.ndarray] = {}
+    sched_ok = (games is not None
+                and {"game_id", "home_team", "away_team"}.issubset(
+                    set(games.columns)))
+    if agg is None or agg.empty or not sched_ok:
+        for metric in EPA_QUALITY_METRICS:
+            for rep in ("home", "away", "diff"):
+                sides[f"{metric}_{rep}"] = np.full(n, np.nan)
+        return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+    gids = df["game_id"].astype(str)
+    sched = (games[["game_id", "home_team", "away_team"]].copy()
+             .assign(game_id=lambda x: x["game_id"].astype(str))
+             .drop_duplicates("game_id").set_index("game_id"))
+    for metric, pos in zip(EPA_QUALITY_METRICS, EPA_QB_POSITIONS):
+        sub = agg.loc[agg["position"] == pos, ["game_id", "team", "epa_q"]]
+        keyed = (sub.assign(game_id=sub["game_id"].astype(str))
+                 .set_index(["game_id", "team"])["epa_q"])
+        for side, team_col in (("home", "home_team"), ("away", "away_team")):
+            idx = pd.MultiIndex.from_arrays(
+                [gids.to_numpy(), sched["home_team"].reindex(gids).to_numpy()
+                 if side == "home"
+                 else sched["away_team"].reindex(gids).to_numpy()])
+            sides[f"{metric}_{side}"] = pd.to_numeric(
+                keyed.reindex(idx), errors="coerce").to_numpy(dtype=float)
+    for metric in EPA_QUALITY_METRICS:
+        sides[f"{metric}_diff"] = sides[f"{metric}_home"] - sides[f"{metric}_away"]
+    return pd.concat([df, pd.DataFrame(sides, index=df.index)], axis=1)
+
+
+# ---------------------------------------------------------------------------
 # Public builders
 # ---------------------------------------------------------------------------
 def build_game_features(games: pd.DataFrame,
@@ -1303,15 +1714,21 @@ def build_game_features(games: pd.DataFrame,
                         ngs: pd.DataFrame | None = None,
                         snaps: pd.DataFrame | None = None,
                         ftn: pd.DataFrame | None = None,
-                        weather: pd.DataFrame | None = None) -> pd.DataFrame:
+                        weather: pd.DataFrame | None = None,
+                        injuries: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the warmup timeline (2018+) so early games carry
     real priors; every trailing value is shifted strictly prior. ``ps``/
     ``ngs`` is an optional skill source; ``weather`` is a
-    provenance-complete hourly Open-Meteo PIT table. Absent or inadmissible
-    sources degrade their features to NaN per the missing-value policy.
-    Returns the served diff features + the per-side values the tree view needs.
+    provenance-complete hourly Open-Meteo PIT table.    ``injuries`` is the
+    strictly-PIT designation table from ingestion.load_injuries_pit; only a
+    PIT Out/IR/Doubtful report removes a player's target-game lineup membership.
+    Historical player-game EPA is calculated independently and is retained.
+
+    Absent or inadmissible sources degrade their features to NaN per the
+    missing-value policy. Returns the served diff features + the per-side
+    values the tree view needs.
     """
     ev = compute_elo(team_events(games))
     agg = pbp_team_agg(pbp)
@@ -1357,6 +1774,8 @@ def build_game_features(games: pd.DataFrame,
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
     df = _attach_record_fields(df, ev)
+    df = _attach_epa_quality_features(
+        df, _epa_quality_agg(games, pbp, ps, injuries), games)
 
     # targets (kept beside features for OOF assembly; never model inputs)
     df["margin"] = df["home_score"].astype(float) - df["away_score"].astype(float)
@@ -1371,15 +1790,17 @@ def build_slate_features(schedule: pd.DataFrame,
                          ngs: pd.DataFrame | None = None,
                           snaps: pd.DataFrame | None = None,
                          ftn: pd.DataFrame | None = None,
-                         weather: pd.DataFrame | None = None) -> pd.DataFrame:
+                         weather: pd.DataFrame | None = None,
+                         injuries: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full schedule timeline. A pending row's trailing
     values come only from its own strictly-prior rows; settled rows after it
     cannot leak backward (same shift(1) discipline, monotonicity asserted).
-    ``weather`` follows the same boundary as decided games: a forecast-valid
-    hourly row must be strictly earlier than kickoff and forecast provenance
-    itself must be pre-kickoff.
+    Player EPA candidates use only prior calendar dates (conservative for
+    overlapping kickoffs), and injury status is accepted only from the
+    strict-PIT injury loader. ``weather`` follows the same boundary as decided
+    games: forecasts and provenance must both be pre-kickoff.
     """
     sched = schedule.copy()
     for c in ("home_score", "away_score"):
@@ -1440,6 +1861,8 @@ def build_slate_features(schedule: pd.DataFrame,
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
     df = _attach_record_fields(df, combined)
+    df = _attach_epa_quality_features(
+        df, _epa_quality_agg(sched, pbp, ps, injuries), sched)
     return df
 
 
