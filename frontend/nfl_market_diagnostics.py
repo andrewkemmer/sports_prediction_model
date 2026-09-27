@@ -828,14 +828,33 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
 
     rows = []
     for r, w in zip(records, weight_pcts):
-        psi = r.get("psi")
-        psi_str = "—"
-        try:
-            _p = float(psi)
-            psi_str = "nan" if pd.isna(_p) else f"{_p:.3f}"
-        except (TypeError, ValueError):
-            pass  # None/invalid psi (constant feature) renders as em-dash
         status = r.get("status", "OK")
+        # Show the value the STATUS was assigned from, not the raw PSI. The raw
+        # figure includes sampling noise: between two same-distribution
+        # samples of the 39-60 row window this report uses, it reads 0.08-0.12
+        # on its own, so printing it as the headline number made 15 of 43
+        # features look like drift when the backend had (correctly) called
+        # them unchanged. psi_adjusted is the raw value minus the noise floor
+        # for these exact sample sizes (MLB parity); older artifacts that
+        # predate it fall back to raw.
+        def _psi_field():
+            for _k in ("psi_adjusted", "psi"):
+                if r.get(_k) is not None:
+                    try:
+                        _v = float(r[_k])
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(_v):
+                        return _v
+            return None
+
+        _judged = _psi_field()
+        psi_str = "—" if _judged is None else f"{_judged:.3f}"
+        # An INSUFFICIENT row has no verdict to render a number beside: the
+        # window was too small to judge, and quoting a PSI there invites the
+        # reader to treat an unjudged number as a judgment.
+        if status == "INSUFFICIENT":
+            psi_str = "n/a"
         psi_color = utils.AMBER if status == "WARN" else (
             utils.RED if status == "ALERT" else utils.TEXT)
         pill_cls = {"OK": "ok", "WARN": "warn", "ALERT": "alert",
@@ -869,8 +888,11 @@ def render_run_engine_drift(drift: pd.DataFrame | None) -> None:
           </table>
         </div>
         <div style="color:#64748B;font-size:0.78rem;margin-top:6px;">
-          Same windows as the moneyline drift; statuses on noise-adjusted PSI.
-          INSUFFICIENT = window too small to judge drift.
+          Same windows as the moneyline drift. PSI is shown NOISE-ADJUSTED —
+          the raw value minus the sampling-noise floor for these exact sample
+          sizes — because raw PSI between two identical distributions at a
+          39-60 row window already reads near the WARN threshold. INSUFFICIENT =
+          window too small to judge drift at all.
           MODEL WEIGHT = blend-weighted feature importance from the shared
           feature-drift analysis (run engine has no per-model weight; '—' = no
           weight for this feature).
