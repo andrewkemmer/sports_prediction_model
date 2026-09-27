@@ -189,8 +189,13 @@ def main(argv: list[str] | None = None) -> int:
             "distribution": "negative_binomial",
             "simulation": "monte_carlo",
             "mc_draws": dist_mod.MC_DRAWS,
+            # The run line owns no feature list: it consumes the binary
+            # moneyline contract in full plus the team-ID pair (MLB parity —
+            # run_engine strict parity mode). Recorded explicitly so the
+            # artifact states which set both models were fit on.
             "feature_contract": "binary_moneyline",
             "feature_columns": list(config.active_moneyline_feature_cols()),
+            "appended_categorical_cols": list(config.TREE_CATEGORICAL_COLS),
         },
         "random_seed": config.RANDOM_SEED,
         "weather": {
@@ -742,6 +747,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # model bundle (joblib)
     import joblib
+    # Contract gate: the binary moneyline and the run line must ship the SAME
+    # feature set, and both must match the code that will load this bundle.
+    # Without this the artifact is self-describing but never verified, and a
+    # narrower-than-serve frame fails deep inside predict() instead of here.
+    _served_cols = list(config.active_moneyline_feature_cols())
+    _runline_cols = list(getattr(final_reg, "feature_columns", []) or [])
+    if _runline_cols[:len(_served_cols)] != _served_cols:
+        raise RuntimeError(
+            "refusing to persist a bundle whose run line does not match the "
+            f"binary moneyline contract ({len(_served_cols)} vs "
+            f"{len(_runline_cols)} columns)")
     bundle = {
         "moneyline_models": {k: v["model"] for k, v in final_models.items()},
         "moneyline_preprocessors": {k: v["pre"] for k, v in final_models.items()},
@@ -751,7 +767,8 @@ def main(argv: list[str] | None = None) -> int:
         "distribution": sig,
         "market_calibration": market_calibration,
         "feature_set_version": config.FEATURE_SET_VERSION,
-        "feature_columns": config.active_moneyline_feature_cols(),
+        "feature_columns": _served_cols,
+        "run_line_feature_columns": _runline_cols,
         "trained_utc": _now_utc(),
         "config": config_meta,
     }
