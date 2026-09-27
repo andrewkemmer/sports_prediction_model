@@ -1323,6 +1323,27 @@ def _fetch_play_by_play(games: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                     "sweeping the most recent %d instead", lookback, cap)
         recent = eligible
     targets = recent.tail(cap)
+    # Backfill the oldest cache holes. The recent slice only ever moves
+    # forward - a stretch of games that fell outside the lookback before any
+    # run fetched them stays uncached forever, and every first game after
+    # such a hole has no play-by-play history to read (the event features sit
+    # at ~95% coverage instead of 100% because of 22 such holes in spring
+    # 2024). Appending the oldest uncached games spends the same deadline
+    # backward: each download-enabled run extends coverage one stretch at a
+    # time, and a complete cache makes this pass free. Hole detection is a
+    # filesystem probe, not a request - the pass costs nothing unless there
+    # is something to fill.
+    uncached = [str(gid) for gid in eligible.nba_game_id
+                if not _pbp_path(str(gid)).exists()]
+    if uncached:
+        targets = pd.concat([targets, eligible[eligible.nba_game_id.isin(uncached)]
+                             .sort_values("gameday").head(cap)],
+                            ignore_index=True).drop_duplicates("nba_game_id")
+        logger.info("play-by-play backfill: %d game(s) have no cached "
+                    "rollup; sweeping the oldest %d after the recent slice",
+                    len(uncached), len(targets) - len(recent.tail(cap)))
+    else:
+        logger.info("play-by-play backfill: cache complete, nothing to fill")
     logger.info("play-by-play: %d candidate game(s), sweeping %d",
                 len(eligible), len(targets))
 

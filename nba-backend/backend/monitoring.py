@@ -231,7 +231,10 @@ def feature_drift(baseline_games: pd.DataFrame, current_games: pd.DataFrame,
 #: exact zero in these columns is AMBIGUOUS between "measured 0" and "no
 #: data, defaulted". The coverage table's n_default_zero uses this set to
 #: keep its count honest instead of flagging every tie game's net_points.
-DEFAULT_ZERO_FEATURES = frozenset({"back_to_back_diff", "back_to_back"})
+DEFAULT_ZERO_FEATURES = frozenset({
+    "back_to_back_diff", "back_to_back",
+    "back_to_back_home", "back_to_back_away",
+})
 
 
 def coverage(baseline_games: pd.DataFrame,

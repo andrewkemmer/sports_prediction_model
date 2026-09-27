@@ -60,7 +60,43 @@ RFE_COMMIT_SE_MULTIPLE = 1.0
 RFE_NOISE_SIGMA = 1.0
 RFE_MAX_STEPS = 120
 
-FEATURE_SET_VERSION = "nba-prod-v2.0-events"
+FEATURE_SET_VERSION = "nba-prod-v2.1-per-side"
+
+#: The raw per-side metrics behind the diff contract. Every ``*_diff`` in the
+#: list below is a home-minus-away comparison of a ladder statistic; the
+#: families here publish that statistic's home and away values alongside the
+#: difference, the way ``elo_home``/``elo_away`` and the ``event_*_diff``
+#: family's structure (and the NFL ``pace_plays_min_home/_away`` pattern) do.
+#: The mapping is ladder column -> published stem, declared once so the
+#: builder, the contract and the provenance map cannot drift apart: a stem
+#: named here gets ``{stem}_home``/``{stem}_away`` published, joins the served
+#: contract, and is excluded from the linear (level-safe) view because a raw
+#: side value is exactly the level feature the diff form exists to avoid.
+PER_SIDE_SOURCES: dict[str, str] = {
+    # Box-score form family (the ladder's shifted EWM state).
+    "back_to_back": "back_to_back",
+    "ewm_net_points": "ewm_net_points",
+    "ewm_pace": "ewm_pace",
+    "ewm_efg_pct": "ewm_efg_pct",
+    "ewm_turnover_margin": "ewm_turnover_margin",
+    "ewm_rebound_margin": "ewm_rebound_margin",
+    "ewm_ast_per_game": "ewm_ast_per_game",
+    # Play-by-play family: the per-side EWM behind each ``event_*_diff``.
+    "three_rate_ewm": "event_three_rate",
+    "rim_rate_ewm": "event_rim_rate",
+    "live_tov_rate_ewm": "event_live_tov_rate",
+    "and_in_rate_ewm": "event_and_in_rate",
+    "shot_distance_ewm": "event_shot_distance",
+    "possessions_ewm": "event_possessions",
+    "shooting_fouls_ewm": "event_shooting_fouls",
+    "q4_points_ewm": "event_q4_points",
+}
+#: Derived, not hand-written: 15 stems x (home, away). The diff columns stay
+#: hand-listed above so the served order stays deliberate.
+PER_SIDE_FEATURE_COLS: list[str] = [
+    f"{stem}_{side}"
+    for stem in PER_SIDE_SOURCES.values()
+    for side in ("home", "away")]
 
 CALIBRATION_MODE = "platt"
 MIN_OOF_FOR_FIT = 300
@@ -82,7 +118,13 @@ MONEYLINE_FEATURE_COLS = [
     "elo_home", "elo_away", "win_pct_home", "win_pct_away",
     "ewm_off_rating_home", "ewm_off_rating_away",
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
-    "rest_days_away", "is_home",
+    "rest_days_away",
+    # Sides retained for every remaining diff: the raw home and away values
+    # behind each difference above, so the board can show both teams' form and
+    # not only the gap. Derived from PER_SIDE_SOURCES; each pair's diff is the
+    # already-published ``*_diff`` column.
+    *PER_SIDE_FEATURE_COLS,
+    "is_home",
     # Play-by-play: where shots come from, which turnovers were live ball, how
     # much foul pressure the team generates, and how it scores late.
     "event_three_rate_diff", "event_rim_rate_diff",
@@ -189,7 +231,8 @@ RAW_PER_SIDE_COLS = frozenset({
     "ewm_off_rating_home", "ewm_off_rating_away",
     "ewm_def_rating_home", "ewm_def_rating_away", "rest_days_home",
     "rest_days_away",
-} | {f"nba_{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
+} | set(PER_SIDE_FEATURE_COLS)
+  | {f"nba_{m}_{w}_{s}" for m, ws in TEAM_CANDIDATE_TRAILING_SPECS.items()
      for w in ws for s in ("home", "away")})
 RFE_CANDIDATE_COLS = [c for c in NBA_CANDIDATE_COLS
                       if c not in set(MONEYLINE_FEATURE_COLS)]

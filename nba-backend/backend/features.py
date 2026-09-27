@@ -408,6 +408,14 @@ def _attach_contract(df: pd.DataFrame, ladder: pd.DataFrame) -> pd.DataFrame:
                       ("ewm_def_rating", "ewm_def_rating"), ("rest_days", "rest_days")):
         out[f"{side}_home"] = _side(ladder, ids, col, True)
         out[f"{side}_away"] = _side(ladder, ids, col, False)
+    # The remaining diff families publish their sides too; config.PER_SIDE_SOURCES
+    # owns the mapping so the builder, the contract and the provenance map
+    # cannot drift apart. Each pair's difference is the ``*_diff`` column built
+    # above from the SAME ladder column, so ``diff == home - away`` holds by
+    # construction rather than by coincidence.
+    for ladder_col, stem in config.PER_SIDE_SOURCES.items():
+        out[f"{stem}_home"] = _side(ladder, ids, ladder_col, True)
+        out[f"{stem}_away"] = _side(ladder, ids, ladder_col, False)
     out["is_home"] = 1.0
     raw_type = out.get("game_type", pd.Series(config.GAME_TYPE_REG, index=out.index))
     type_num = pd.to_numeric(raw_type, errors="coerce")

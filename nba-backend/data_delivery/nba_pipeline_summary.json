@@ -1,5 +1,6 @@
 {
  "status": "ok",
+ "errors": [],
  "run_date": "2026-09-27",
  "artifacts": [
   "nba_moneyline_v1_20260927.json",
@@ -23,9 +24,9 @@
   "nba_run_engine_monitor_20260927.json"
  ],
  "weights": {
-  "elasticnet": 0.3554,
+  "elasticnet": 0.371,
   "lightgbm": 0.0,
-  "xgboost": 0.6446
+  "xgboost": 0.629
  },
  "folds": {
   "n_folds": 41,
@@ -38,7 +39,7 @@
  },
  "n_settled": 2754,
  "n_slate": 0,
- "n_features": 41,
+ "n_features": 71,
  "features_empty": {
   "frame": [],
   "slate": []
@@ -122,7 +123,7 @@
    }
   }
  },
- "elapsed_seconds": 109.76,
+ "elapsed_seconds": 104.98,
  "source_manifest": {
   "source_id": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
   "source_route": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
@@ -224,7 +225,7 @@
     "mean_abs_diff": 0.0
    }
   },
-  "feature_set_version": "nba-prod-v2.0-events"
+  "feature_set_version": "nba-prod-v2.1-per-side"
  },
  "sync": {
   "pushed": false,

@@ -684,6 +684,32 @@ class TestEventFeatures:
         for column in config.EVENT_TRAILING_SPECS:
             assert f"event_{column}_diff" in slate.columns, column
 
+    def test_every_per_side_feature_is_published_with_its_diff(self):
+        """The raw home and away values behind each diff are part of the
+        contract, the way elo_home/elo_away have always been - and each pair
+        is built from the SAME ladder column its diff reads, so the identity
+        diff == home - away holds by construction rather than by luck."""
+        built = feat.build_game_features(self._ladder_rows(), None,
+                                         self._event_stats())
+        for ladder_col, stem in config.PER_SIDE_SOURCES.items():
+            for side in ("home", "away"):
+                column = f"{stem}_{side}"
+                assert column in built.columns, column
+                assert column in config.MONEYLINE_FEATURE_COLS, column
+            ident = (built[f"{stem}_home"] - built[f"{stem}_away"]
+                     - built[f"{stem}_diff"]).abs()
+            assert not (ident.dropna() > 1e-9).any(), stem
+
+    def test_a_raw_side_is_excluded_from_the_linear_view(self):
+        """A raw side value is exactly the level feature the diff form exists
+        to avoid: the linear member trains on differences only, and the tree
+        members are the ones that may see the sides."""
+        linear = feat.linear_feature_columns()
+        assert not set(config.PER_SIDE_FEATURE_COLS) & set(linear)
+        # The pre-existing per-side columns stay excluded too - the new
+        # families changed nothing about that rule.
+        assert "elo_home" not in linear and "elo_away" not in linear
+
 
 # ---------------------------------------------------------------------------
 # HTTP
@@ -1198,6 +1224,53 @@ class TestRefusedHost:
         _frame, info = ing._fetch_play_by_play(self._games(3))
         assert info["tripped"] is False
         assert info["requested"] == 3
+
+    def test_the_sweep_backfills_the_oldest_cache_holes(
+            self, monkeypatch, tmp_path):
+        """A stretch of games that fell outside the lookback before any run
+        fetched it stays uncached forever, and every first game after the hole
+        has no event history to read. The budget is a deadline, not a count,
+        so after the recent slice it is spent backward on the oldest holes."""
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        games = self._games(6)
+        old = pd.DataFrame({
+            "nba_game_id": [f"0012400{i:03d}" for i in range(4)],
+            "gameday": [pd.Timestamp(date.today() - timedelta(days=400 - i))
+                        for i in range(4)],
+        })
+        for gid in games.nba_game_id:
+            ing._write_parquet(pd.DataFrame({"x": [1.0]}),
+                               ing._pbp_path(str(gid)))
+        eligible = pd.concat([games, old], ignore_index=True)
+        calls: list = []
+
+        def answer(request, timeout=None):
+            calls.append(request.full_url)
+            return _Response(b'{"game": {"actions": []}}')
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", answer)
+        _frame, info = ing._fetch_play_by_play(eligible)
+        # The probe plus one attempt per old, uncached game - the recent
+        # games were all cached and never requested.
+        assert info["requested"] == 4, len(calls)
+        assert info["tripped"] is False
+
+    def test_a_complete_cache_makes_the_backfill_free(
+            self, monkeypatch, tmp_path):
+        monkeypatch.setenv(ing.CACHE_DIR_ENV, str(tmp_path))
+        games = self._games(6)
+        for gid in games.nba_game_id:
+            ing._write_parquet(pd.DataFrame({"x": [1.0]}),
+                               ing._pbp_path(str(gid)))
+        calls: list = []
+
+        def explode(*_a, **_k):
+            raise AssertionError("a complete cache must not reach the network")
+
+        monkeypatch.setattr(ing.urllib.request, "urlopen", explode)
+        _frame, info = ing._fetch_play_by_play(games)
+        assert info["requested"] == 0
+        assert info["cached"] == 6
 
 
 # ---------------------------------------------------------------------------

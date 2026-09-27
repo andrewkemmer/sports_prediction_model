@@ -123,6 +123,39 @@ FEATURE_UPSTREAM.update({
         f"{UPSTREAM_PLAY_BY_PLAY}: actionType Foul, subType Shooting",
     "event_q4_points_diff": f"{UPSTREAM_PLAY_BY_PLAY}: period=4 scoring",
 })
+# --- Raw per-side metrics: the home/away half of a published diff ----------
+# Mirrors config.PER_SIDE_SOURCES: every stem there gets both sides here. A
+# stem added to config without a text entry below fails check_contract's
+# ``unmapped`` audit, which is the loud way to find out.
+PER_SIDE_UPSTREAM: dict[str, str] = {
+    "back_to_back": f"{UPSTREAM_SCHEDULE} (date) -> prior games",
+    "ewm_net_points": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
+    "ewm_pace": f"{UPSTREAM_SEASON_LOG}: PTS summed per team",
+    "ewm_efg_pct": f"{UPSTREAM_SEASON_LOG}: FGM/FGA/FG3M",
+    "ewm_turnover_margin": f"{UPSTREAM_SEASON_LOG}: TOV",
+    "ewm_rebound_margin": f"{UPSTREAM_SEASON_LOG}: REB",
+    "ewm_ast_per_game": f"{UPSTREAM_SEASON_LOG}: AST",
+    "event_three_rate":
+        f"{UPSTREAM_PLAY_BY_PLAY}: shotValue=3, actionType Made/Missed Shot",
+    "event_rim_rate":
+        f"{UPSTREAM_PLAY_BY_PLAY}: shotDistance <= {src.RIM_FEET}ft",
+    "event_live_tov_rate":
+        f"{UPSTREAM_PLAY_BY_PLAY}: actionType Turnover, subType in "
+        f"{list(src.LIVE_TURNOVER_SUBTYPES)}",
+    "event_and_in_rate":
+        f"{UPSTREAM_PLAY_BY_PLAY}: Shooting foul -> Free Throw 1 of 1",
+    "event_shot_distance": f"{UPSTREAM_PLAY_BY_PLAY}: shotDistance",
+    "event_possessions":
+        f"{UPSTREAM_PLAY_BY_PLAY}: FGA + 0.44*FTA - OREB + TOV",
+    "event_shooting_fouls":
+        f"{UPSTREAM_PLAY_BY_PLAY}: actionType Foul, subType Shooting",
+    "event_q4_points": f"{UPSTREAM_PLAY_BY_PLAY}: period=4 scoring",
+}
+FEATURE_UPSTREAM.update({
+    f"{stem}_{side}": f"{text} ({side} side)"
+    for stem, text in PER_SIDE_UPSTREAM.items()
+    for side in ("home", "away")
+})
 
 
 def declared_features() -> list[str]:

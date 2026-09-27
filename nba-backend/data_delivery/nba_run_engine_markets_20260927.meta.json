@@ -1,9 +1,9 @@
 {
  "record": "nba_run_engine_markets",
- "written_utc": "2026-09-27T19:04:31.834735+00:00",
+ "written_utc": "2026-09-27T20:45:25.442096+00:00",
  "config": {
   "sport": "nba",
-  "feature_set_version": "nba-prod-v2.0-events",
+  "feature_set_version": "nba-prod-v2.1-per-side",
   "seed": 42,
   "warmup_days": 30,
   "cadence_days": 7,
@@ -15,7 +15,7 @@
   ],
   "market_free": true,
   "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
-  "player_rows": 74449,
+  "player_rows": 59310,
   "frame_sources": {
    "games": "espn scoreboard",
    "team_stats": "stats.nba.com LeagueGameLog",
@@ -27,9 +27,9 @@
   "event_rows": 1202
  },
  "columns": 478,
- "n_rows": 2136,
+ "n_rows": 2133,
  "n_oof": 2133,
- "n_slate": 3,
+ "n_slate": 0,
  "grids": {
   "spread": [
    -20,
