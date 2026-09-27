@@ -1,8 +1,8 @@
 {
  "record": "nfl_run_engine_markets",
- "written_utc": "2026-09-27T16:22:20.410855+00:00",
+ "written_utc": "2026-09-27T21:31:45.860744+00:00",
  "config": {
-  "feature_set_version": "nfl-prod-v8.0-epa-lineup-pit",
+  "feature_set_version": "nfl-prod-v9.1-injury-share-side-twins",
   "warmup_seasons": [
    2016
   ],
@@ -49,6 +49,8 @@
     "ewm_ypp_diff",
     "pace_plays_min_diff",
     "rest_short_diff",
+    "rest_short_home",
+    "rest_short_away",
     "div_game",
     "travel_miles_diff",
     "altitude_home",
@@ -64,6 +66,8 @@
     "pbp_def_epa_play_ewm_diff",
     "pbp_def_epa_play_ewm_home",
     "pbp_def_epa_play_ewm_away",
+    "travel_miles_home",
+    "travel_miles_away",
     "elo_home",
     "elo_away",
     "win_pct_home",
@@ -88,6 +92,24 @@
     "epa_rb_home",
     "epa_rb_away",
     "epa_rb_diff",
+    "inj_ol_out_home",
+    "inj_ol_out_away",
+    "inj_ol_out_diff",
+    "ol_snaps_lost_share_home",
+    "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home",
+    "ol_key_out_away",
+    "ol_key_out_diff",
+    "inj_def_out_home",
+    "inj_def_out_away",
+    "inj_def_out_diff",
+    "def_snaps_lost_share_home",
+    "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home",
+    "def_key_out_away",
+    "def_key_out_diff",
     "is_home"
    ],
    "appended_categorical_cols": [
@@ -107,8 +129,8 @@
  },
  "columns": 241,
  "n_rows": 1672,
- "n_oof": 1658,
- "n_slate": 14,
+ "n_oof": 1667,
+ "n_slate": 5,
  "grids": {
   "spread": [
    -14,

@@ -5,48 +5,48 @@
  "markets_persist_error": null,
  "winner_cards": {
   "over_under": {
-   "n": 1610,
-   "actual_win_rate": 0.5317,
-   "win_rate": 0.5317,
-   "predicted_mean": 0.5297,
-   "auc": 0.5402,
-   "ece_raw": 0.031,
-   "ece_calibrated": 0.031,
-   "brier": 0.2483,
-   "logloss": 0.6897,
+   "n": 1627,
+   "actual_win_rate": 0.5243,
+   "win_rate": 0.5243,
+   "predicted_mean": 0.524,
+   "auc": 0.541,
+   "ece_raw": 0.0388,
+   "ece_calibrated": 0.0388,
+   "brier": 0.2492,
+   "logloss": 0.6916,
    "holdout": {},
    "source": "oof_decided_store"
   },
   "run_line": {
-   "n": 1614,
-   "actual_win_rate": 0.5006,
-   "win_rate": 0.5006,
-   "predicted_mean": 0.5017,
-   "auc": 0.5208,
-   "ece_raw": 0.0375,
-   "ece_calibrated": 0.0375,
-   "brier": 0.2511,
-   "logloss": 0.6955,
+   "n": 1612,
+   "actual_win_rate": 0.4919,
+   "win_rate": 0.4919,
+   "predicted_mean": 0.5012,
+   "auc": 0.5226,
+   "ece_raw": 0.0462,
+   "ece_calibrated": 0.0462,
+   "brier": 0.2507,
+   "logloss": 0.6947,
    "holdout": {},
    "source": "oof_decided_store"
   },
   "derived_ml": {
-   "n": 1658,
-   "actual_win_rate": 0.6448,
-   "win_rate": 0.6448,
-   "predicted_mean": 0.6338,
-   "auc": 0.5999,
-   "ece_raw": 0.0178,
-   "ece_calibrated": 0.0178,
-   "brier": 0.2228,
-   "logloss": 0.6367,
+   "n": 1667,
+   "actual_win_rate": 0.6395,
+   "win_rate": 0.6395,
+   "predicted_mean": 0.634,
+   "auc": 0.6022,
+   "ece_raw": 0.0319,
+   "ece_calibrated": 0.0319,
+   "brier": 0.2238,
+   "logloss": 0.6388,
    "holdout": {},
    "source": "oof_decided_store",
    "ml_reference": {
     "source": "ml_win_prob",
-    "n": 1658,
-    "win_rate": 0.6429,
-    "predicted_mean": 0.5552
+    "n": 1667,
+    "win_rate": 0.6389,
+    "predicted_mean": 0.5554
    }
   }
  },
@@ -54,104 +54,104 @@
   {
    "card": "over_under",
    "date": "2026-09-27",
-   "ece_calibrated": 0.031,
-   "brier": 0.2483,
-   "logloss": 0.6897,
-   "predicted_mean": 0.5297,
-   "n": 1610
+   "ece_calibrated": 0.0388,
+   "brier": 0.2492,
+   "logloss": 0.6916,
+   "predicted_mean": 0.524,
+   "n": 1627
   },
   {
    "card": "run_line",
    "date": "2026-09-27",
-   "ece_calibrated": 0.0375,
-   "brier": 0.2511,
-   "logloss": 0.6955,
-   "predicted_mean": 0.5017,
-   "n": 1614
+   "ece_calibrated": 0.0462,
+   "brier": 0.2507,
+   "logloss": 0.6947,
+   "predicted_mean": 0.5012,
+   "n": 1612
   },
   {
    "card": "derived_ml",
    "date": "2026-09-27",
-   "ece_calibrated": 0.0178,
-   "brier": 0.2228,
-   "logloss": 0.6367,
-   "predicted_mean": 0.6338,
-   "n": 1658
+   "ece_calibrated": 0.0319,
+   "brier": 0.2238,
+   "logloss": 0.6388,
+   "predicted_mean": 0.634,
+   "n": 1667
   }
  ],
  "fit": {
   "total_tail": {
    "k_ge": 60,
-   "obs_ge": 0.1508,
-   "mod_ge": 0.1454,
+   "obs_ge": 0.1506,
+   "mod_ge": 0.1452,
    "k_le": 35,
-   "obs_le": 0.2455,
-   "mod_le": 0.2507
+   "obs_le": 0.2454,
+   "mod_le": 0.2497
   },
   "margin_tail": {
-   "obs_home_win": 0.5452,
-   "mod_home_win": 0.5309,
+   "obs_home_win": 0.5471,
+   "mod_home_win": 0.5305,
    "obs_push": 0.0042,
-   "mod_push": 0.008
+   "mod_push": 0.0079
   },
   "variance_obs": {
-   "home": 9.78,
+   "home": 9.82,
    "away": 9.32
   }
  },
  "market_metrics": {
   "over_38": {
-   "engine_ece_raw": 0.0487,
-   "engine_ece_calibrated": 0.0487,
-   "engine_brier": 0.2155,
-   "engine_logloss": 0.6216,
-   "n": 1626
+   "engine_ece_raw": 0.0455,
+   "engine_ece_calibrated": 0.0455,
+   "engine_brier": 0.2157,
+   "engine_logloss": 0.622,
+   "n": 1635
   },
   "over_42": {
-   "engine_ece_raw": 0.0363,
-   "engine_ece_calibrated": 0.0363,
-   "engine_brier": 0.2429,
-   "engine_logloss": 0.6787,
-   "n": 1627
+   "engine_ece_raw": 0.0409,
+   "engine_ece_calibrated": 0.0409,
+   "engine_brier": 0.2436,
+   "engine_logloss": 0.6802,
+   "n": 1636
   },
   "over_46": {
-   "engine_ece_raw": 0.0214,
-   "engine_ece_calibrated": 0.0214,
-   "engine_brier": 0.243,
-   "engine_logloss": 0.6793,
-   "n": 1618
+   "engine_ece_raw": 0.0295,
+   "engine_ece_calibrated": 0.0295,
+   "engine_brier": 0.2442,
+   "engine_logloss": 0.6817,
+   "n": 1627
   },
   "over_50": {
-   "engine_ece_raw": 0.0257,
-   "engine_ece_calibrated": 0.0257,
-   "engine_brier": 0.2203,
-   "engine_logloss": 0.6322,
-   "n": 1621
+   "engine_ece_raw": 0.0158,
+   "engine_ece_calibrated": 0.0158,
+   "engine_brier": 0.2212,
+   "engine_logloss": 0.6344,
+   "n": 1630
   },
   "over_54": {
-   "engine_ece_raw": 0.0219,
-   "engine_ece_calibrated": 0.0219,
-   "engine_brier": 0.1818,
-   "engine_logloss": 0.5483,
-   "n": 1622
+   "engine_ece_raw": 0.0193,
+   "engine_ece_calibrated": 0.0193,
+   "engine_brier": 0.1827,
+   "engine_logloss": 0.5511,
+   "n": 1631
   },
   "home_cover_3": {
-   "engine_ece_raw": 0.0318,
-   "engine_ece_calibrated": 0.0318,
-   "engine_brier": 0.2222,
-   "engine_logloss": 0.6362,
-   "n": 1535
+   "engine_ece_raw": 0.0344,
+   "engine_ece_calibrated": 0.0344,
+   "engine_brier": 0.223,
+   "engine_logloss": 0.6376,
+   "n": 1542
   },
   "derived_moneyline": {
-   "engine_ece_raw": 0.035,
-   "engine_ece_calibrated": 0.035,
-   "engine_brier": 0.2221,
-   "engine_logloss": 0.6352,
-   "n": 1651
+   "engine_ece_raw": 0.0457,
+   "engine_ece_calibrated": 0.0457,
+   "engine_brier": 0.2232,
+   "engine_logloss": 0.6375,
+   "n": 1660
   }
  },
  "config": {
-  "feature_set_version": "nfl-prod-v8.0-epa-lineup-pit",
+  "feature_set_version": "nfl-prod-v9.1-injury-share-side-twins",
   "warmup_seasons": [
    2016
   ],
@@ -198,6 +198,8 @@
     "ewm_ypp_diff",
     "pace_plays_min_diff",
     "rest_short_diff",
+    "rest_short_home",
+    "rest_short_away",
     "div_game",
     "travel_miles_diff",
     "altitude_home",
@@ -213,6 +215,8 @@
     "pbp_def_epa_play_ewm_diff",
     "pbp_def_epa_play_ewm_home",
     "pbp_def_epa_play_ewm_away",
+    "travel_miles_home",
+    "travel_miles_away",
     "elo_home",
     "elo_away",
     "win_pct_home",
@@ -237,6 +241,24 @@
     "epa_rb_home",
     "epa_rb_away",
     "epa_rb_diff",
+    "inj_ol_out_home",
+    "inj_ol_out_away",
+    "inj_ol_out_diff",
+    "ol_snaps_lost_share_home",
+    "ol_snaps_lost_share_away",
+    "ol_snaps_lost_share_diff",
+    "ol_key_out_home",
+    "ol_key_out_away",
+    "ol_key_out_diff",
+    "inj_def_out_home",
+    "inj_def_out_away",
+    "inj_def_out_diff",
+    "def_snaps_lost_share_home",
+    "def_snaps_lost_share_away",
+    "def_snaps_lost_share_diff",
+    "def_key_out_home",
+    "def_key_out_away",
+    "def_key_out_diff",
     "is_home"
    ],
    "appended_categorical_cols": [
