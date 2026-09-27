@@ -334,13 +334,27 @@ ENSEMBLE_WEIGHTS = {
 
 # MLB production values (mlb-backend/backend/config.py, L5 re-tune 2026-09-21)
 # — the NHL ensemble is deliberately the identical ensemble.
+# Optuna-tuned on the 2,792-game/46-fold walk-forward (offline harness,
+# MLB-style protocol; 44 trials, objective = pooled member OOF logloss over
+# the first 42 folds): the depth-2 / colsample~0.40 / gamma 3-5 family
+# converged (top-10 spread 8 bps), pooled OOF logloss 0.66509 vs 0.66776 for
+# the inherited MLB block. Sealed 4-fold holdout (last windows, frozen)
+# confirmed: member 0.64290 vs 0.65673, served ensemble 0.64576 vs 0.66059
+# (+148 bps). Full-population blend-survival check: ensemble raw logloss
+# 0.66379 vs 0.66768, brier 0.23586 vs 0.23768, AUC 0.6261 vs 0.6154 — the
+# rolling SLSQP blend re-earned weights xgboost=1.000 (the tuned member
+# dominates the accumulated OOF pool; weights stay evidence-earned, no
+# floors by design). LIGHTGBM_PARAMS was tuned too (80 trials, pooled OOF
+# 0.67731 vs 0.67933) but its gain REVERSED on the sealed holdout (member
+# -34 bps, ensemble -23 bps) — the same tune-gain-does-not-survive-the-blend
+# failure MLB documented for its rounds test — so that block is unchanged.
 XGBOOST_PARAMS = {
-    "max_depth": 3,
-    "min_child_weight": 12,
-    "gamma": 2.4178,
-    "subsample": 0.812,
-    "colsample_bytree": 0.6382,
-    "learning_rate": 0.1097,
+    "max_depth": 2,
+    "min_child_weight": 23,
+    "gamma": 2.9109,
+    "subsample": 0.5406,
+    "colsample_bytree": 0.4025,
+    "learning_rate": 0.1864,
     "random_state": RANDOM_SEED,
     "eval_metric": "logloss",
     "enable_categorical": True,

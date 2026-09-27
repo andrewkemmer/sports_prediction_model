@@ -230,18 +230,31 @@ def test_pull_progress_bar_is_drawn_even_when_stderr_is_not_a_terminal():
     ``\\r``-repainting bar is not the unreadable "stream of snapshots" it was
     assumed to be: the notebook redraws it, and a redirected log keeps one
     readable line per refresh. Suppressing it was the defect, not the fix.
+
+    The captured context is SIMULATED rather than assumed: ``sys.stderr`` is
+    swapped for a non-tty in-memory stream for the test body, so the pin
+    holds under every invocation shape — console, pipe, file, or Windows'
+    NUL device (which answers ``isatty()`` True as a character device and
+    used to break ``2>/dev/null`` smoke runs of this suite at this test's
+    precondition).
     """
-    assert not getattr(sys.stderr, "isatty", lambda: False)(), (
-        "this test is only meaningful under a non-tty stderr")
-    bar = ing._progress_bar(10, "score chunk 1/11")
-    assert bar is not None, (
-        "no bar is drawn when stderr is a pipe - the bar is still gated on a "
-        "terminal, so every captured run has none")
+    import io
+
+    captured = io.StringIO()
+    real_stderr = sys.stderr
     try:
-        bar.update(1)
-        bar.close()
-    except Exception as exc:  # noqa: BLE001
-        raise AssertionError(f"the bar raised on a pipe: {exc!r}") from exc
+        sys.stderr = captured
+        bar = ing._progress_bar(10, "score chunk 1/11")
+        assert bar is not None, (
+            "no bar is drawn when stderr is a pipe - the bar is still gated "
+            "on a terminal, so every captured run has none")
+        try:
+            bar.update(1)
+            bar.close()
+        except Exception as exc:  # noqa: BLE001
+            raise AssertionError(f"the bar raised on a pipe: {exc!r}") from exc
+    finally:
+        sys.stderr = real_stderr
 
 
 def test_pull_progress_bar_never_breaks_a_run():

@@ -417,11 +417,19 @@ def test_ensemble_members_are_the_mlb_ensemble():
     assert ml_mod.LINEAR_MEMBERS == {"elasticnet"}
 
 
-def test_member_params_are_exact_mlb_copies():
+def test_member_params_nhl_tuned_xgb_plus_mlb_copies():
+    """The NHL XGB block is TUNED ON NHL DATA (offline harness, MLB-style
+    protocol: pooled member OOF logloss over folds[:-4], sealed 4-fold
+    holdout confirmation, full-population blend-survival check — provenance
+    recorded in config.py beside the block). The LGBM block stays an exact
+    MLB copy: its tuned candidate won on pooled OOF (+20 bps) but REVERSED
+    on the sealed holdout (member -34 bps, ensemble -23 bps) — the same
+    tune-gain-does-not-survive-the-blend failure MLB documented for its own
+    rounds test. Elastic-net remains the shared MLB block."""
     xg = config.XGBOOST_PARAMS
     assert (xg["max_depth"], xg["min_child_weight"], xg["gamma"],
             xg["subsample"], xg["colsample_bytree"], xg["learning_rate"]) == \
-        (3, 12, 2.4178, 0.812, 0.6382, 0.1097)
+        (2, 23, 2.9109, 0.5406, 0.4025, 0.1864)
     lg = config.LIGHTGBM_PARAMS
     assert (lg["n_estimators"], lg["max_depth"], lg["num_leaves"],
             lg["min_child_samples"], lg["min_gain_to_split"],
@@ -429,12 +437,13 @@ def test_member_params_are_exact_mlb_copies():
             lg["learning_rate"]) == (50, 6, 6, 70, 1.2224, 0.4518, 0.7632, 0.0332)
     en = config.ELASTICNET_PARAMS
     assert (en["l1_ratio"], en["C"], en["max_iter"]) == (0.5, 0.03, 4000)
-    # Numeric parity against the MLB source of truth, verified in-tree.
+    # LGBM/elastic-net numeric parity against the MLB source of truth,
+    # verified in-tree. XGB is deliberately decoupled (NHL-tuned) and is
+    # NOT parity-checked against MLB.
     mlb_config_path = BACKEND_DIR.parents[1] / "mlb-backend" / "backend" / "config.py"
     assert mlb_config_path.exists()
     text = mlb_config_path.read_text(encoding="utf-8", errors="replace")
-    for token in ("2.4178", "0.6382", "0.1097", "1.2224", "0.4518",
-                  "0.7632", "0.0332"):
+    for token in ("1.2224", "0.4518", "0.7632", "0.0332"):
         assert token in text, f"MLB tuned param {token} drifted in-tree"
 
 
