@@ -33,14 +33,32 @@ PSI_ALERT = 0.25
 
 def feature_status(psi: float) -> str:
     """The module's PSI status rule (the same thresholds feature_drift
-    applies): ALERT >= 0.25, WARN >= 0.10, else OK."""
+    applies): ALERT >= 0.25, WARN >= 0.10, else OK. A PSI that cannot be
+    computed is INSUFFICIENT, never OK -- "cannot judge" is not "no drift"."""
     if not np.isfinite(psi):
-        return "OK"
+        return "INSUFFICIENT"
     if psi >= PSI_ALERT:
         return "ALERT"
     if psi >= PSI_WARN:
         return "WARN"
     return "OK"
+
+
+def psi_noise_floor(n_baseline: int, n_current: int, n_bins: int = 10) -> float:
+    """Expected PSI from sampling noise alone when both samples are drawn
+    from the SAME distribution (MLB's psi_noise_floor).
+
+    For two independent samples the per-bin proportion error is O(1/sqrt(n)),
+    giving E[PSI] ~ (k-1)/2 * (1/n_baseline + 1/n_current). At the drift
+    window's sizes (~2,800 baseline vs ~60 current games) this is ~0.08 —
+    most of the way to the WARN threshold — so raw PSI between
+    same-distribution samples of this size routinely crosses 0.10 on its own
+    and statuses must be assigned on the NOISE-ADJUSTED PSI, or identical
+    distributions page constantly.
+    """
+    if n_baseline <= 0 or n_current <= 0:
+        return 0.0
+    return (n_bins - 1) / 2.0 * (1.0 / n_baseline + 1.0 / n_current)
 
 
 def _psi(current: np.ndarray, baseline: np.ndarray, n_bins: int = 10) -> float:
@@ -54,7 +72,14 @@ def _psi(current: np.ndarray, baseline: np.ndarray, n_bins: int = 10) -> float:
         qs = np.unique(np.quantile(b, np.linspace(0, 1, n_bins + 1)))
     except Exception:
         return np.nan
-    if len(qs) < 2:
+    if len(qs) < 3:
+        # A baseline that quantile-bins into a single effective bin (binary or
+        # near-constant features: is_playoffs, is_home) cannot support a PSI
+        # verdict — every distribution maps to that one bin and PSI is 0 by
+        # construction, which read as "OK" on a FULL regime shift (a current
+        # window entirely inside the playoffs vs a 6%-playoffs baseline
+        # measured PSI 0.000). NaN routes the row to INSUFFICIENT; the
+        # mean_shift / location_shift columns carry the signal instead.
         return np.nan
     qb = np.clip(np.searchsorted(qs, b, side="right") - 1, 0, len(qs) - 2)
     qc = np.clip(np.searchsorted(qs, c, side="right") - 1, 0, len(qs) - 2)
@@ -101,29 +126,69 @@ def feature_importance_weights(models: dict,
 
 def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
                   weights: dict[str, float] | None = None) -> list[dict]:
-    """PSI per served feature: recent slate window vs full-history baseline."""
+    """PSI per served feature: recent slate window vs full-history baseline.
+
+    MLB-shaped rows (mlb-backend/backend/explainability.py
+    ``compute_feature_drift``): the status keys on the NOISE-ADJUSTED PSI and
+    escalates only when the mean ALSO moved beyond its sampling noise. Raw
+    PSI between same-distribution samples of this size already averages
+    ~0.07, so near-equal means with raw PSI 0.10-0.30 are binning wiggle,
+    not regime change; the raw PSI stays in the row for transparency. A
+    window too small to judge (n_baseline < 100 or n_current < 30), or a
+    feature whose PSI cannot be binned, is INSUFFICIENT: informational only,
+    it never pages anyone.
+    """
     wmap = weights or {}
     has_weight_map = weights is not None
     rows = []
     for f in config.active_moneyline_feature_cols():
         if f not in full_df.columns:
             continue
-        psi = _psi(recent_df[f].to_numpy(float), full_df[f].to_numpy(float))
-        mean_cur = (float(np.nanmean(recent_df[f])) if len(recent_df) else np.nan)
-        mean_base = float(np.nanmean(full_df[f]))
+        base_vals = pd.Series(full_df[f]).dropna().to_numpy(float)
+        cur_vals = (pd.Series(recent_df[f]).dropna().to_numpy(float)
+                    if len(recent_df) else np.empty(0, dtype=float))
+        n_b, n_c = int(len(base_vals)), int(len(cur_vals))
+        psi = _psi(cur_vals, base_vals)
+        noise = psi_noise_floor(n_b, n_c)
+        psi_adjusted = max(psi - noise, 0.0) if np.isfinite(psi) else 0.0
+        mean_shift = (float(cur_vals.mean() - base_vals.mean())
+                      if n_b and n_c else 0.0)
+        if n_b > 1 and n_c > 1:
+            pooled_sd = float(np.sqrt(
+                ((n_b - 1) * base_vals.var(ddof=1)
+                 + (n_c - 1) * cur_vals.var(ddof=1)) / (n_b + n_c - 2)))
+        else:
+            pooled_sd = 0.0
+        if pooled_sd > 0:
+            # The 1.5 factor is MLB's clustering inflation: a drift window
+            # shares teams across consecutive games, so the naive SE
+            # understates true variance.
+            shift_se = float(pooled_sd * np.sqrt(1.0 / n_b + 1.0 / n_c) * 1.5)
+            location_shift = bool(abs(mean_shift) > 2.0 * shift_se)
+        else:
+            shift_se = 0.0
+            location_shift = bool(psi_adjusted > 0)  # degenerate: fall back
+        if n_b < 100 or n_c < 30 or not np.isfinite(psi):
+            status = "INSUFFICIENT"
+        else:
+            status = feature_status(psi_adjusted) if location_shift else "OK"
         rows.append({
             "feature": f,
-            "current_mean": mean_cur,
-            "baseline_mean": mean_base,
+            "current_mean": (round(float(cur_vals.mean()), 4)
+                             if n_c else np.nan),
+            "baseline_mean": (round(float(base_vals.mean()), 4)
+                              if n_b else np.nan),
             "psi": psi,
-            "psi_adjusted": psi,
-            "status": ("ALERT" if (np.isfinite(psi) and psi >= PSI_ALERT)
-                       else "WARN" if (np.isfinite(psi) and psi >= PSI_WARN)
-                       else "OK"),
+            "psi_adjusted": round(psi_adjusted, 6),
+            "noise_floor": round(noise, 6),
+            "mean_shift": round(mean_shift, 6),
+            "shift_se": round(shift_se, 6),
+            "location_shift": location_shift,
+            "status": status,
             "weight_pct": (round(100.0 * float(wmap.get(f, 0.0)), 2)
                            if has_weight_map else None),
-            "n_baseline": int(full_df[f].notna().sum()),
-            "n_current": int(recent_df[f].notna().sum()) if len(recent_df) else 0,
+            "n_baseline": n_b,
+            "n_current": n_c,
         })
     return rows
 

@@ -489,6 +489,70 @@ FEATURE_MANIFEST = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Player pool (24 columns)
+# ---------------------------------------------------------------------------
+# One entry per situation x position x representation, generated from the same
+# rules the feature builder uses so the two cannot drift: the manifest is
+# documentation that is checked against config.MONEYLINE_FEATURE_COLS by
+# manifest.validate(), and a hand-written block of 24 near-identical entries is
+# exactly where documentation drifts from behaviour.
+_POOL_SITUATION_NAME = {"5on5": "even-strength (EVO)", "5on4": "power-play (PPO)"}
+_POOL_POSITION_NAME = {"C": "centres", "L": "left wings", "R": "right wings",
+                       "D": "defencemen"}
+_POOL_REPRESENTATION = {
+    "away": "raw away level (tree members)",
+    "home": "raw home level (tree members)",
+    "diff": "difference (all model families)",
+}
+
+for _sit, _metric in (("5on5", "EVO"), ("5on4", "PPO")):
+    for _pos in ("C", "L", "R", "D"):
+        for _rep in ("away", "home", "diff"):
+            FEATURE_MANIFEST[f"pl_{_metric.lower()}_{_pos.lower()}_{_rep}"] = {
+                "description":
+                    f"{_POOL_SITUATION_NAME[_sit]} {_POOL_POSITION_NAME[_pos]} "
+                    f"healthy-pool mean shrunk rate, {_rep}",
+                "definition":
+                    f"mean shrunk_rate_per60 over the player's rating for "
+                    f"{_sit}/{_pos}, aggregated over the healthy pool -- the "
+                    f"most recent trailing-30-game rating per player whose "
+                    f"source game date is strictly earlier than the target "
+                    f"date, gated at >=900s prior ice time, with any player on "
+                    f"an Out/Injured Reserve/IR/Doubtful interval captured "
+                    f"before puck drop REMOVED from the pool before the mean. "
+                    f"MLB's _LINEUP_AGG_ROSTER shape. No top-N cut: all 18 "
+                    f"dressed skaters contribute in hockey. The rating itself "
+                    f"is never modified; the flag removes a row, it does not "
+                    f"discount a value. diff = home - away.",
+                "source": "MoneyPuck regular-season skater game-by-game "
+                          "archives (xGoals, icetime) + ESPN timestamped "
+                          "injury status snapshots",
+                "lookback": "trailing 30 played games per player and situation "
+                            "(game grain); source games within "
+                            "injury_stints.POOL_LOOKBACK_DAYS = 45 of the "
+                            "target date",
+                "aggregation": "mean of surviving player-level shrunk rates",
+                "point_in_time_rule":
+                    "a candidate rating enters a target game's pool only when "
+                    "its source game date is STRICTLY earlier than the target "
+                    "date (date-grain source feeds cannot prove within-day "
+                    "publish ordering), so a target game's own row can never "
+                    "enter its own pool; the injury interval opens only on a "
+                    "captured snapshot timestamp strictly before exact puck "
+                    "drop (Out / Injured Reserve / IR / Doubtful -- never a "
+                    "provider filing or projected return date), and the "
+                    "exclusion is evaluated at the game date, per game.",
+                "missing_value_policy":
+                    "position prior (measured 2023-25 default) when a side has "
+                    "no pool row; never NaN, never 0 -- 0 would read as "
+                    "deliberately inert",
+                "representation": _POOL_REPRESENTATION[_rep],
+                "model_family_availability": (
+                    ["linear", "tree"] if _rep == "diff" else ["tree"]),
+                "feature_version": 2,
+            }
+
 
 def validate() -> list[str]:
     """Name-for-name parity: FEATURE_MANIFEST <-> the served contract.

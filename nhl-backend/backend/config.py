@@ -98,7 +98,7 @@ MIN_VAL_FOLD_GAMES = 40    # MLB value (NFL uses 15; NHL's dense slate fills
 # ---------------------------------------------------------------------------
 # Feature set version
 # ---------------------------------------------------------------------------
-FEATURE_SET_VERSION = "nhl-prod-v1.0-goalies-team-categories"
+FEATURE_SET_VERSION = "nhl-prod-v1.1-player-game-ratings"
 
 # ---------------------------------------------------------------------------
 # Moneyline calibration (MLB structural parity; favored-team space ONLY)
@@ -136,6 +136,18 @@ MONEYLINE_FEATURE_COLS = [
     # constant home anchor last, so the linear member's positional contract
     # is unchanged by the raw-side block above (MLB parity)
     "is_home",
+    # Player pool (MLB's _LINEUP_AGG_ROSTER shape): healthy-pool mean shrunk
+    # rate per 60 for each situation x position, served home / away / diff.
+    # The injury flag REMOVES players from the pool before this mean; it is
+    # never a column of its own, because MLB applies a flag and emits none.
+    "pl_evo_c_away", "pl_evo_c_home", "pl_evo_c_diff",
+    "pl_evo_l_away", "pl_evo_l_home", "pl_evo_l_diff",
+    "pl_evo_r_away", "pl_evo_r_home", "pl_evo_r_diff",
+    "pl_evo_d_away", "pl_evo_d_home", "pl_evo_d_diff",
+    "pl_ppo_c_away", "pl_ppo_c_home", "pl_ppo_c_diff",
+    "pl_ppo_l_away", "pl_ppo_l_home", "pl_ppo_l_diff",
+    "pl_ppo_r_away", "pl_ppo_r_home", "pl_ppo_r_diff",
+    "pl_ppo_d_away", "pl_ppo_d_home", "pl_ppo_d_diff",
 ]
 
 # ---------------------------------------------------------------------------
@@ -155,6 +167,28 @@ NHL_TEAM_ID: dict[str, int] = {
     "WPG": 30, "WSH": 31,
 }
 UNK_TEAM_ID = 99
+
+#: Vendor labels that mean a club in ``NHL_TEAM_ID`` under another name.
+#:
+#: MoneyPuck writes the Utah club ``ARI`` through the 2023-24 season and
+#: ``UTA`` after the relocation; the score sheet only ever writes ``UTA``.
+#: Nothing else in the repo invents a team name, so the ratings frame is the
+#: ONLY place two vocabularies meet, and this is where they are reconciled.
+#:
+#: Without it the join in ``injury_stints._expand_to_games`` simply does not
+#: match, and the failure is invisible: that club gets NO player pool at all
+#: for the affected seasons, so the 24 ``pl_*`` columns fall back to the
+#: position prior and the injury flag has no roster to exclude anyone from.
+#: Measured: 31 rated skaters and ~82 team-sides of the 2024-25 OOF window
+#: were reading the prior instead of a rate.
+NHL_TEAM_ALIASES: dict[str, str] = {"ARI": "UTA"}
+
+
+def canonical_team(abbr: object) -> object:
+    """Fold a vendor team label to the repo's canonical abbreviation."""
+    if not isinstance(abbr, str):
+        return abbr
+    return NHL_TEAM_ALIASES.get(abbr, abbr)
 
 
 def team_category_id(abbr: object) -> int:
@@ -396,3 +430,32 @@ GOALIE_FIELDS = [
 
 # Coin-flip threshold for model_pick display
 COIN_FLIP_THRESHOLD = 0.02
+
+# ---------------------------------------------------------------------------
+# Player-level offense ratings (EVO / PPO) — the NHL analogue of MLB's wOBA
+# ---------------------------------------------------------------------------
+# Built by backend/player_ratings.py from MoneyPuck's regular-season skater
+# game logs. These per-game rolling ratings feed the 24 pl_* production
+# features and therefore require a fresh OOF validation/model refit under the
+# feature version above before new bundles can safely serve them.
+#
+# Shrinkage: each rating is pulled toward a POSITION-SEGMENTED league prior.
+# A single league mean is wrong for hockey because the situations do not share
+# an opportunity: a defenceman's individual 5on5 xG rate is ~25% of a winger's
+# (0.0030 vs 0.0116 per 60, measured 2023-25), so one prior would over-rate
+# every defenceman ~2.7x. Prior strength mirrors MLB's 120-PA convention, which
+# is 20% of a 600-PA season, carried over per position in ice time:
+#     k[position, situation] = PLAYER_RATING_SHRINK_FRACTION * mean season ice time
+# which puts ~17% prior weight on a player at his own average season.
+PLAYER_RATING_SHRINK_FRACTION = 0.20
+# Trailing played-game rows summed independently per player and situation.
+PLAYER_RATING_PRIOR_ROWS = 30
+# MoneyPuck situations: 5on5 is even strength (EVO), 5on4 is the power play (PPO).
+PLAYER_RATING_SITUATIONS = ("5on5", "5on4")
+PLAYER_RATING_POSITIONS = ("C", "L", "R", "D")
+# MoneyPuck season start-years loaded as historical warm-up for the rolling
+# rating builder. The source-date gate—not a season-end serving label—decides
+# which player-game rows are eligible for each target game.
+PLAYER_RATING_SEASONS = (2008, 2009, 2010, 2011, 2012, 2013, 2014,
+                         2015, 2016, 2017, 2018, 2019, 2020, 2021,
+                         2022, 2023, 2024, 2025)

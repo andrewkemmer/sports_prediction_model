@@ -34,8 +34,14 @@ import pandas as pd
 
 try:
     from backend import config
+    from backend import ingestion
+    from backend import injury_stints
+    from backend import player_ratings as _pr
 except ImportError:
     import config
+    import ingestion
+    import injury_stints
+    import player_ratings as _pr
 
 logger = logging.getLogger(__name__)
 
@@ -637,8 +643,409 @@ def _records_string(events: pd.DataFrame) -> pd.Series:
 # Public builders
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Player pool: the 24 MLB-structural columns
+# ---------------------------------------------------------------------------
+#: Situation code -> metric label. The pool aggregates on the raw situation
+#: code; the feature name uses the metric, matching the rating table's labels.
+#: SITUATION-FIRST, because that is the direction the pool is keyed on.
+_SITUATION_METRIC = {"5on5": "EVO", "5on4": "PPO"}
+
+PLAYER_POOL_POSITIONS = ("C", "L", "R", "D")
+
+#: Position prior for a side with no pool row. NEVER 0: "unknown" must not read
+#: as "no offence", which would tell the model the side is deliberately inert.
+_POSITION_PRIOR = {
+    "EVO": {"C": 0.052, "L": 0.049, "R": 0.049, "D": 0.033},
+    "PPO": {"C": 0.310, "L": 0.300, "R": 0.300, "D": 0.180},
+}
+
+#: The full produced set, in canonical order.
+PLAYER_POOL_COLS = [
+    f"pl_{metric.lower()}_{pos.lower()}_{rep}"
+    for metric in ("EVO", "PPO")
+    for pos in PLAYER_POOL_POSITIONS
+    for rep in ("away", "home", "diff")
+]
+
+#: Receipt for the injury flag. NOT a model input. Zero means a covered,
+#: timestamped report window with no removals; NaN means report coverage or an
+#: exact pregame decision timestamp is unavailable.
+PLAYER_POOL_DIAGNOSTIC_COLS = ["pl_il_out_fraction"]
+
+
+def add_player_pool_features(
+    games: pd.DataFrame,
+    *,
+    player_ratings: pd.DataFrame | None = None,
+    stints: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Attach the 24 MLB-structural player-pool columns.
+
+    Four positions x two situations x three representations. Structurally this
+    mirrors MLB's ``batter_shifted`` -> ``batter_rolling`` -> ``batter_ratings``
+    -> ``lineup_pool`` -> ``lineup_agg`` sequence: game-grain player stats,
+    trailing 30 played games, one most-recent pregame rate per player, exact
+    binary injury exclusion, and the mean of the surviving roster. A player's
+    rating remains unchanged on all of his prior games; injury affects only the
+    target game's candidate-pool membership. Hockey retains every eligible
+    skater rather than MLB's top-nine cut.
+
+    Ratings and target games join by team and source-game date < target-game
+    date. Injury status is replayed from complete ESPN snapshots and only exact
+    Out / Injured Reserve / IR / Doubtful remove a candidate. Snapshot capture
+    must be strictly earlier than the exact puck-drop timestamp; unknown
+    history is never inferred as healthy, and postgame snapshots cannot alter
+    the game's pool. Boxscore appearance/nonappearance is not injury evidence.
+    """
+    date_col = "gameday" if "gameday" in games.columns else "game_date"
+    df = games.copy().reset_index(drop=True)
+    # Normalise ONCE and use the converted series everywhere. Reaching for
+    # df[date_col].dt later assumes the caller handed us datetimes, and a
+    # string-typed date column raises deep inside a MultiIndex reindex where
+    # the cause is three lines away from the mistake.
+    d = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
+    df["_d"] = d
+
+    if "season" not in df.columns:
+        df["_season"] = d.dt.year
+    else:
+        df["_season"] = pd.to_numeric(df["season"], errors="coerce")
+    # MLB's grid: SELECT DISTINCT game_date, team, over BOTH sides of the sheet.
+    #
+    # The season MUST be renamed to `season`, not left as `_season`. The pool
+    # expansion and the appearance derivation both take a games frame that
+    # "already carries a season column" as authoritative and fall back to
+    # `game_date.dt.year` when they do not see one -- and the calendar year is
+    # not the season. A game on 2025-01-15 is season 2024; read as 2025 it
+    # looks for a rating stamped 2025-04-17, which is three months in its
+    # future, so the served-recency filter drops it and that side has no pool
+    # at all.
+    #
+    # That is not a missing feature, it is a MISSING FEATURE THAT LOOKS LIKE
+    # A DELIBERATE ONE: from January to March every side in the league fell
+    # back to the position prior, the 24 pl_* columns froze at their priors,
+    # and the injury flag had no pool to remove anyone from -- so the flag read
+    # as 0% covered for four months of every season while October to December
+    # looked perfectly healthy.
+    grid_cols = ["_d", "_season"] + [
+        c for c in ("game_id", "start_time_utc") if c in df.columns]
+    game_grid = df[grid_cols].rename(columns={"_d": "game_date",
+                                               "_season": "season"})
+    grid = pd.concat([
+        game_grid.assign(team=df["home_team"].to_numpy()),
+        game_grid.assign(team=df["away_team"].to_numpy()),
+    ], ignore_index=True).dropna(subset=["game_date"]).drop_duplicates()
+
+    if player_ratings is None:
+        player_ratings = _load_player_ratings()
+    sources = None
+    if stints is None:
+        stints, sources = _load_injury_stints(player_ratings, grid, games)
+
+    if sources is None and stints is not None and len(stints):
+        # Explicitly supplied intervals still need capture provenance; a
+        # caller-provided ad-hoc report-date table cannot bypass the PIT gate.
+        stints.attrs["snapshot_times"] = list(
+            stints.attrs.get("snapshot_times", []))
+
+    il_bound = False
+    accepted_snapshot_times: list[pd.Timestamp] = []
+    if sources is not None:
+        # Gate each captured feed on its own provenance, including a valid
+        # all-clear archive with zero open injury intervals. Only snapshots
+        # from a source that passes the PIT checks count as known coverage.
+        gated = []
+        for name, src in sources.items():
+            part = src.get("stints")
+            if part is None:
+                continue
+            try:
+                injury_stints.assert_pit(
+                    player_ratings, part, decided_max_date=d.max(),
+                    window_end=src.get("window_end"),
+                    snapshot_based=bool(src.get("snapshot_based")))
+                gated.append(part)
+                if len(part):
+                    il_bound = True
+                accepted_snapshot_times.extend(
+                    injury_stints._utc_naive(t)
+                    for t in src.get("snapshot_times", [])
+                    if pd.notna(injury_stints._utc_naive(t)))
+                logger.info("injury source %r: %d stints bound through %s",
+                            name, len(part), src.get("window_end"))
+            except injury_stints.PitViolation as exc:
+                logger.warning(
+                    "injury source %r dropped; the unfiltered pool is used "
+                    "for it: %s", name, exc)
+        stints = pd.concat(gated, ignore_index=True) if gated else pd.DataFrame()
+        stints.attrs["snapshot_based"] = bool(accepted_snapshot_times)
+        stints.attrs["snapshot_history"] = bool(accepted_snapshot_times)
+        stints.attrs["snapshot_times"] = accepted_snapshot_times
+    elif stints is not None and len(stints):
+        # A caller that passed its own stints keeps the single-source gate.
+        try:
+            injury_stints.assert_pit(
+                player_ratings, stints, decided_max_date=d.max(),
+                window_end=stints.attrs.get("window_end"),
+                snapshot_based=bool(stints.attrs.get("snapshot_based")))
+            il_bound = True
+            accepted_snapshot_times = [
+                injury_stints._utc_naive(t)
+                for t in stints.attrs.get("snapshot_times", [])
+                if pd.notna(injury_stints._utc_naive(t))]
+        except injury_stints.PitViolation as exc:
+            logger.warning(
+                "IL filter falling back to the unfiltered pool: %s", exc)
+            stints = None
+
+    if not accepted_snapshot_times and stints is not None:
+        accepted_snapshot_times = [
+            injury_stints._utc_naive(t)
+            for t in stints.attrs.get("snapshot_times", [])
+            if pd.notna(injury_stints._utc_naive(t))]
+    accepted_snapshot_times = sorted(set(accepted_snapshot_times))
+    snapshot_coverage = bool(accepted_snapshot_times)
+
+    # Keep provenance on the combined frame: pandas concat does not preserve
+    # DataFrame.attrs, and the pool predicate needs strict snapshot semantics.
+    if stints is not None and snapshot_coverage:
+        stints.attrs["snapshot_based"] = True
+        stints.attrs["snapshot_history"] = True
+        stints.attrs["snapshot_times"] = accepted_snapshot_times
+
+    pool, audit = injury_stints.team_game_rates(
+        player_ratings, stints=stints, games=grid)
+    if not len(pool):
+        logger.warning("player pool produced no rows; every side falls back "
+                       "to the position prior")
+        pool = pd.DataFrame(columns=["_pd", "team", "position", "metric",
+                                     "rate", "n_players"])
+
+    pool = pool.rename(columns={"game_date": "_pd"}) \
+        if "game_date" in pool.columns else pool
+    if len(pool):
+        pool["metric"] = pool["situation"].map(_SITUATION_METRIC)
+
+    hk = pd.MultiIndex.from_arrays([df["_d"], df["home_team"]])
+    ak = pd.MultiIndex.from_arrays([df["_d"], df["away_team"]])
+
+    # _SITUATION_METRIC is keyed situation -> metric, so the loop variables
+    # are (situation, metric) in that order. Getting this backwards silently
+    # matched NOTHING: every group lookup came back empty, the 24 columns were
+    # never created, and the feature contract reported them as uncovered. That
+    # is the failure mode to fear here -- not a crash, a contract that quietly
+    # loses 24 columns.
+    for sit, metric in _SITUATION_METRIC.items():
+        tag = metric.lower()
+        for pos in PLAYER_POOL_POSITIONS:
+            # An unknown side gets the position prior, never NaN and never 0.
+            # NaN would read as "no data about this side" to a coverage audit
+            # and as "uninformative" to a tree; 0 would read as "deliberately
+            # inert". The prior is the measured default and says neither.
+            prior = _POSITION_PRIOR[metric][pos]
+            h = np.full(len(df), prior, dtype=float)
+            a = np.full(len(df), prior, dtype=float)
+            sel = pool[(pool["metric"] == metric) & (pool["position"] == pos)] \
+                if len(pool) else pool
+            if len(sel):
+                r = sel.set_index(["_pd", "team"])["rate"]
+                h = np.where(np.isnan(r.reindex(hk).to_numpy(dtype=float)),
+                             prior, r.reindex(hk).to_numpy(dtype=float))
+                a = np.where(np.isnan(r.reindex(ak).to_numpy(dtype=float)),
+                             prior, r.reindex(ak).to_numpy(dtype=float))
+            df[f"pl_{tag}_{pos.lower()}_away"] = a
+            df[f"pl_{tag}_{pos.lower()}_home"] = h
+            df[f"pl_{tag}_{pos.lower()}_diff"] = h - a
+
+    # Visible receipt for the flag, NOT a model input (MLB applies a flag and
+    # emits no injury column). Unknown report periods remain NaN rather than
+    # looking like confirmed full availability. PER GAME, because the question
+    # it answers is "how much of tonight's pool survived the injury filter";
+    # a frame total
+    # answers a different one: a single number repeated on every row, which is
+    # a receipt wearing a feature's clothes.
+    #
+    # ``n_unavailable`` is a per-SIDE count carried on each of that side's
+    # situation x position groups, so it is read with ``max`` and not summed:
+    # summing it multiplies it by the number of buckets and reports 85% removed
+    # when the true figure is 51%. ``n_players`` IS a per-group count and is
+    # summed. Getting that distinction wrong makes a working filter look like a
+    # catastrophe, which is its own kind of bug.
+    removed = 0.0
+    if len(pool):
+        per_side = pool.groupby([pool["_pd"], pool["team"]], dropna=False).agg(
+            kept=("n_players", "sum"), out=("n_unavailable", "max"))
+        share = (per_side["out"]
+                 / per_side["kept"].add(per_side["out"]).replace(0.0, np.nan))
+        per_game = share.groupby(level=0).mean()
+        measured = d.map(per_game)
+        removed = float(per_side["out"].sum())
+    else:
+        measured = pd.Series(np.nan, index=df.index, dtype=float)
+
+    if snapshot_coverage and "snapshot_times" not in stints.attrs:
+        snapshot_coverage = False
+
+    if snapshot_coverage:
+        # A zero removal is evidence only after at least one complete snapshot
+        # was captured before puck drop. Before the archive begins (or when its
+        # last known state is too old), keep the diagnostic unknown rather than
+        # presenting missing injury history as proof that every player was fit.
+        decisions = ([injury_stints._utc_naive(t) for t in df["start_time_utc"]]
+                     if "start_time_utc" in df.columns
+                     else [pd.NaT] * len(df))
+        covered = []
+        for decision in decisions:
+            known = [captured for captured in accepted_snapshot_times
+                     if captured < decision]
+            covered.append(bool(
+                known and (decision - known[-1]).total_seconds()
+                <= injury_stints.STINT_MAX_LAG_DAYS * 86400))
+        df["pl_il_out_fraction"] = np.where(
+            covered, measured.fillna(0.0).to_numpy(dtype=float), np.nan)
+    else:
+        df["pl_il_out_fraction"] = np.nan
+    logger.info("player pool: %d rows, %d stints, %d player-removals across "
+                "%d sides, il_bound=%s", len(pool),
+                0 if stints is None else len(stints), int(removed),
+                len(pool[["_pd", "team"]].drop_duplicates()) if len(pool) else 0,
+                il_bound)
+    return df.drop(columns=["_d", "_season"])
+
+
+def _load_player_ratings() -> pd.DataFrame:
+    """MoneyPuck skater game logs -> trailing, shrunk EVO/PPO ratings."""
+    try:
+        games = ingestion.load_moneypuck_player_games(
+            seasons=list(config.PLAYER_RATING_SEASONS), use_cache=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("player ratings unavailable (%s); pool columns use "
+                       "position priors", exc)
+        return pd.DataFrame()
+    if games is None or not len(games):
+        logger.warning("MoneyPuck player-game history unavailable; player-pool "
+                       "columns use position priors")
+        return pd.DataFrame()
+
+    games = games[games.situation.isin(config.PLAYER_RATING_SITUATIONS)].copy()
+    frame = pd.DataFrame({
+        "player_id": games.playerId.astype(str), "player_name": games.name,
+        "team": games.playerTeam.map(config.canonical_team),
+        "position": games.position, "situation": games.situation,
+        "season": pd.to_numeric(games.season, errors="coerce"),
+        "game_id": games.gameId.astype(str),
+        "game_date": pd.to_datetime(
+            games.gameDate.astype(str), format="%Y%m%d", errors="coerce"),
+        "xg": pd.to_numeric(games["I_F_xGoals"], errors="coerce"),
+        "ice_seconds": pd.to_numeric(games.icetime, errors="coerce"),
+    })
+    ratings, audit = _pr.build_player_ratings(
+        frame, id_col="player_id", window=config.PLAYER_RATING_PRIOR_ROWS)
+    logger.info("player ratings: %d raw game rows -> %d rolling rows across "
+                "%d players (%d bad/dropped source rows)",
+                len(frame), len(ratings), ratings["player_id"].nunique()
+                if len(ratings) else 0,
+                int(audit.get("dropped_bad_values", 0)
+                    + audit.get("dropped_unknown_position", 0)
+                    + audit.get("dropped_bad_situation", 0)))
+    return ratings
+
+
+def _load_injury_stints(ratings: pd.DataFrame | None = None,
+                        grid: pd.DataFrame | None = None,
+                        games: pd.DataFrame | None = None
+                        ) -> tuple[pd.DataFrame, dict | None]:
+    """Load the report-snapshot injury intervals used by the player pool.
+
+    Boxscore appearances are intentionally not consulted: participation does
+    not distinguish injury from healthy scratch, roster turnover, or other
+    reasons for not dressing. ESPN snapshots are timestamped when captured and
+    replayed as complete status states, with Out/IR/Doubtful intervals only.
+    """
+    stints, snapshot_at = _load_espn_stints(ratings)
+    if snapshot_at is None:
+        return pd.DataFrame(), {}
+    snapshot_times = list(stints.attrs.get("snapshot_times", []))
+    stints.attrs["snapshot_based"] = True
+    stints.attrs["snapshot_history"] = bool(snapshot_times)
+    stints.attrs["window_end"] = snapshot_at
+    sources = {
+        "espn": {
+            "stints": stints,
+            "window_end": snapshot_at,
+            "snapshot_based": True,
+            "snapshot_history": bool(snapshot_times),
+            "snapshot_times": snapshot_times,
+        }
+    }
+    return stints, sources
+
+
+def _load_espn_stints(ratings: pd.DataFrame | None
+                      ) -> tuple[pd.DataFrame, object]:
+    """Replay captured ESPN status snapshots into rating-ID injury intervals.
+
+    Legacy rows carrying only a provider ``report_date`` or a calendar-day
+    ``snapshot_date`` are not accepted: neither proves the status was known by
+    puck drop. A successful empty snapshot is retained by ingestion as a marker
+    row so it can clear prior Out/IR states.
+    """
+    try:
+        reports = ingestion.load_espn_injuries(use_cache=True, snapshot=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("injury report unavailable (%s)", exc)
+        return pd.DataFrame(), None
+    if reports is None or not len(reports) or "snapshot_at" not in reports.columns:
+        return pd.DataFrame(), None
+
+    reports = reports.copy()
+    reports["_snapshot_at"] = pd.to_datetime(
+        reports["snapshot_at"], errors="coerce", utc=True).dt.tz_localize(None)
+    reports = reports.dropna(subset=["_snapshot_at"])
+    if not len(reports):
+        logger.warning("ESPN injury archive has no captured timestamps; "
+                       "ignoring report-date-only history")
+        return pd.DataFrame(), None
+    fetch_date = reports["_snapshot_at"].max()
+    reports["snapshot_at"] = reports["_snapshot_at"]
+    reports = reports.drop(columns=["_snapshot_at"])
+    if "snapshot_marker" not in reports.columns:
+        reports["snapshot_marker"] = False
+    reports["snapshot_marker"] = reports["snapshot_marker"].fillna(False).astype(bool)
+
+    snapshot_times = sorted(pd.Timestamp(t) for t in reports["snapshot_at"].dropna().unique())
+    markers = reports[reports["snapshot_marker"]].copy()
+    actual = reports[~reports["snapshot_marker"]].copy()
+    ratings_by_name = ratings
+    if (ratings_by_name is not None and len(ratings_by_name)
+            and "player_name" not in ratings_by_name.columns
+            and "name" in ratings_by_name.columns):
+        ratings_by_name = ratings_by_name.rename(columns={"name": "player_name"})
+    if len(actual):
+        if "player_id" not in actual.columns:
+            return pd.DataFrame(), None
+        actual[injury_stints.OUT_PLAYER] = actual["player_id"].astype(str)
+        if ratings_by_name is not None and len(ratings_by_name):
+            actual, maudit = injury_stints.map_reports_to_rating_ids(
+                actual, ratings_by_name)
+            logger.info("injury id bridge: %d/%d reports matched (%.1f%%), "
+                        "%d ambiguous, %d unmatched",
+                        maudit["matched"], maudit["report_rows"],
+                        100.0 * maudit["match_rate"], maudit["ambiguous"],
+                        maudit["unmatched"])
+    reports = pd.concat([actual, markers], ignore_index=True, sort=False)
+    stints, audit = injury_stints.build_stint_intervals(reports)
+    stints.attrs["snapshot_based"] = bool(audit.get("snapshot_based"))
+    stints.attrs["window_end"] = fetch_date
+    stints.attrs["snapshot_times"] = snapshot_times
+    return stints, fetch_date
+
+
 def build_game_features(games: pd.DataFrame,
-                        boxscores: pd.DataFrame | None = None) -> pd.DataFrame:
+                        boxscores: pd.DataFrame | None = None,
+                        player_ratings: pd.DataFrame | None = None,
+                        stints: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for DECIDED games (one row per game).
 
     ``games`` must include the full settled timeline so early games carry
@@ -695,6 +1102,10 @@ def build_game_features(games: pd.DataFrame,
     df["home_record"] = df["home_team"].map(fmt)
     df["away_record"] = df["away_team"].map(fmt)
 
+    # Player-pool features (MLB's roster -> injury flag -> healthy-pool mean).
+    df = add_player_pool_features(df, player_ratings=player_ratings,
+                                  stints=stints)
+
     # Targets (kept beside features for OOF assembly; never model inputs).
     df["margin"] = pd.to_numeric(df["home_score"], errors="coerce") \
         - pd.to_numeric(df["away_score"], errors="coerce")
@@ -705,7 +1116,9 @@ def build_game_features(games: pd.DataFrame,
 
 
 def build_slate_features(schedule: pd.DataFrame,
-                         boxscores: pd.DataFrame | None = None) -> pd.DataFrame:
+                         boxscores: pd.DataFrame | None = None,
+                         player_ratings: pd.DataFrame | None = None,
+                         stints: pd.DataFrame | None = None) -> pd.DataFrame:
     """Point-in-time feature frame for SCHEDULED (undecided) games.
 
     The ladder spans the full decided timeline; the scheduled rows are the
@@ -782,6 +1195,14 @@ def build_slate_features(schedule: pd.DataFrame,
     rec, fmt = _records_string(ev_decided)
     df["home_record"] = df["home_team"].map(fmt)
     df["away_record"] = df["away_team"].map(fmt)
+
+    # The slate is what production actually SHIPS for upcoming games, so the
+    # player pool has to be attached here too. Leaving it on the decided-frame
+    # path only would make the contract name 24 columns the slate frame never
+    # produces -- reported as STARVED/absent_column, which is a wiring defect
+    # and not a coverage measurement.
+    df = add_player_pool_features(df, player_ratings=player_ratings,
+                                  stints=stints)
     return df
 
 

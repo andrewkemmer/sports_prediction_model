@@ -8,12 +8,12 @@ no auth. Endpoints used:
                                     TOI/decision; skaters incl. SOG, PPG,
                                     faceoff%, hits, blocks, PIM, G/A)
 
-Optional enrichment family (user-approved design): MoneyPuck free season
-CSVs (``moneypuck.com/data.htm``, 2007+, non-commercial, credit required)
-add shot-level xG. ``load_moneypuck_shots`` downloads and caches the season
-shots file; when a season file is unavailable the enrichment columns degrade
-to NaN per the documented missing-value policy — never fabricated, and the
-production feature contract never DEPENDS on them.
+Player-level family: MoneyPuck free skater game-by-game archives
+(``moneypuck.com/data.htm``, non-commercial, credit required) feed the
+player-pool pl_* features via ``load_moneypuck_player_games`` ->
+``features._load_player_ratings``; when the archives are unavailable the
+pool columns degrade to position priors per the documented missing-value
+policy — never fabricated.
 
 Cache directory: OUTSIDE the git tree (repo root's parent), ``.nhl_cache/``
 — the NFL pattern. All frames carry normalized NHL-API column names; the
@@ -25,7 +25,9 @@ import io
 import json
 import logging
 import sys
+import tempfile
 import time
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -44,8 +46,39 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path(config.ROOT_DIR.parent) / ".nhl_cache"
 
 NHL_API_BASE = "https://api-web.nhle.com/v1"
-MONEYPUCK_SHOTS_URL = ("https://moneypuck.com/moneyPuck/playerDataByGame/"
-                       "shotsAllYears.csv")
+# MoneyPuck public downloads. NOTE: the previously-wired
+# ``moneyPuck/playerDataByGame/shotsAllYears.csv`` URL now 404s (verified
+# 2026-09-26). Live player and team data links are listed on moneypuck.com/data.htm.
+# MoneyPuck permits these downloads for non-commercial use with attribution;
+# do not scrape paths that are not published on that page.
+MONEYPUCK_BASE = "https://moneypuck.com/moneypuck"
+# Per PLAYER x GAME x SITUATION regular-season data. The game-by-game ZIPs are
+# linked in MoneyPuck's official "Game By Game Level Data" table. They contain
+# individual ``I_F_*`` metrics, including xGoals, and ``icetime`` in seconds.
+# The ZIP's historical directory name says seasonPlayersSummary, but the CSV
+# has gameId/gameDate rows (verified against the published 2024 archive).
+MONEYPUCK_PLAYER_GAMES_ZIP_URL = (
+    "https://peter-tanner.com/moneypuck/downloads/"
+    "seasonPlayersSummary/skaters/{season}.zip")
+MONEYPUCK_PLAYER_GAMES_HISTORY_URL = (
+    "https://peter-tanner.com/moneypuck/downloads/"
+    "seasonPlayersSummary/skaters/2008_to_2024.zip")
+MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS = tuple(range(2008, 2025))
+# ESPN publishes a dated, per-team NHL injury report. There is NO official NHL
+# injury endpoint (verified 2026-09-26: /v1/injury, /v1/injuries and
+# /v1/injury-report all 404), so this is the third-party feed of record.
+ESPN_NHL_INJURIES_URL = ("https://site.api.espn.com/apis/site/v2/sports/hockey/"
+                         "nhl/injuries")
+# ESPN's edge answers 403 to the shared product user-agent, so this family needs
+# a browser agent. Counter-intuitively the SHORT agent is the one that works:
+# verified 2026-09-26 against this exact URL, "Mozilla/5.0" -> 200, a full
+# Chrome UA string ("...Chrome/124.0 Safari/537.36") -> 403, and the product
+# agent -> 403. Do not "improve" this to a fuller browser string.
+ESPN_USER_AGENT = "Mozilla/5.0"
+ESPN_HEADERS = {
+    "User-Agent": ESPN_USER_AGENT,
+    "Accept": "application/json, text/plain, */*",
+}
 
 # Per-game keep-list from /v1/score/{date} games[] — the schedule/board
 # population. Scores stay None for unplayed games (honest pre-game rows).
@@ -57,13 +90,28 @@ SCORE_KEEP = [
 
 # Cache schema versions: bump whenever the keep-list widens so stale caches
 # are ignored rather than silently serving the old column set.
-SCORE_CACHE_VERSION = "v1"
+# v2 adds start_time_utc, which is required to compare local report capture
+# timestamps to the actual puck-drop decision in the injury pool.
+SCORE_CACHE_VERSION = "v2"
 # v4: starter selection now keys on the API's ``starter`` boolean (v3 keyed on
 # a ``decision`` set that omitted the overtime-loss code "O", so those games
 # resolved to the 00:00 scratch goalie), and ``powerPlayShotsAgainst="0/0"``
 # is now recorded as the measured 0 it is rather than a null.
 BOXSCORE_CACHE_VERSION = "v4"
-MP_CACHE_VERSION = "v1"
+#: Per-game DRESSED-ROSTER cache, retained for legacy roster-availability
+#: diagnostics only. Production injury status is sourced from timestamped ESPN
+#: report snapshots; dressed/non-dressed status is not injury evidence.
+SKATERS_CACHE_VERSION = "v1"
+# Cache schema version for the player-game archive family (pl_* ratings).
+MP_PLAYER_GAME_VERSION = "v2"
+MP_PLAYER_GAME_CHUNK_SIZE = 100_000
+INJURY_VERSION = "v2"
+# A same-day cache may still be obsolete by puck drop. Refresh within a run at
+# this cadence rather than equating "same UTC date" with a current report.
+INJURY_CACHE_TTL_HOURS = 6
+
+# MoneyPuck ``situation`` values. 5on5 = even strength, 5on4 = power play.
+MONEYPUCK_SITUATIONS = ("5on5", "5on4")
 
 # Structural mirror of MLB's ``_chunked_statcast``: the pull is grouped into
 # fixed calendar windows so a multi-thousand-game pull reports progress per
@@ -733,6 +781,169 @@ BOXSCORE_COLS = [
 ]
 
 
+def load_game_skaters(game_ids: list[str], use_cache: bool = True,
+                      max_workers: int = 8,
+                      fetch_missing: bool = True) -> pd.DataFrame:
+    """Per-game DRESSED ROSTER for legacy availability diagnostics.
+
+    Emitted per row: the skaters listed in that side's ``forwards`` and
+    ``defense`` arrays. A skater absent from those arrays did not dress, but
+    nonparticipation does not distinguish injury from healthy scratch, roster
+    movement, or other causes. This is NOT consumed by the production injury
+    flag; that flag uses captured Out/IR report snapshots.
+
+    ``playerId`` is the NHL API id and the same space as MoneyPuck's, which is
+    useful for roster diagnostics without a name bridge.
+
+    ``fetch_missing=False`` reads the cache and NOTHING else. The pipeline
+    calls it that way, for two reasons that are both about not lying: a game
+    that has not been played has no boxscore, so a live slate would otherwise
+    issue one doomed request per game every run; and a backtest that silently
+    fetched what it was missing would hide a gap in the archive behind an HTTP
+    call, which is the one thing a PIT claim cannot afford. Backfilling the
+    history is a deliberate, separate step.
+    """
+    ids = [str(g) for g in game_ids]
+    out: list[pd.DataFrame] = []
+    todo: list[str] = []
+    for gid in ids:
+        path = _cache_path(f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
+        if use_cache and path.exists():
+            try:
+                out.append(pd.read_parquet(path))
+                continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("skaters cache %s unreadable (%s)", path.name, exc)
+        todo.append(gid)
+    if todo and not fetch_missing:
+        logger.info("skaters: %d cached, %d absent from the cache and not "
+                    "fetched (cache-only)", len(ids) - len(todo), len(todo))
+    elif todo:
+        logger.info("skaters: %d cached, %d to fetch", len(ids) - len(todo), len(todo))
+        _fetch_skaters(todo, use_cache, max_workers)
+        if use_cache:
+            for gid in todo:
+                path = _cache_path(
+                    f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
+                if path.exists():
+                    try:
+                        out.append(pd.read_parquet(path))
+                    except Exception:  # noqa: BLE001
+                        continue
+    if not out:
+        return pd.DataFrame(columns=SKATER_COLS)
+    return pd.concat(out, ignore_index=True)
+
+
+SKATER_COLS = ["game_id", "side", "team", "player_id", "player_name"]
+
+
+def load_game_appearance_record(games: pd.DataFrame,
+                                use_cache: bool = True,
+                                max_workers: int = 8,
+                                fetch_missing: bool = False) -> pd.DataFrame:
+    """Join the dressed-roster diagnostic to date/team schedule context.
+
+    The result is ``(game_date, team, player_id, player_name, game_id)`` for
+    legacy availability analysis. A missing row means only that the player was
+    not listed as dressed; it is NOT an injury label. Production injury
+    features do not call this helper and instead use timestamped ESPN status
+    snapshots. Rows whose side matches no schedule row are dropped rather than
+    assigned to the wrong club.
+    """
+    if games is None or len(games) == 0:
+        return pd.DataFrame(columns=["game_date", "team", "player_id",
+                                     "player_name", "game_id"])
+    need = [c for c in ("game_id", "game_date", "home_team", "away_team")
+            if c not in games.columns]
+    if need:
+        logger.warning("appearance record unavailable: games frame missing %s",
+                       need)
+        return pd.DataFrame(columns=["game_date", "team", "player_id",
+                                     "player_name", "game_id"])
+
+    sheet = games[["game_id", "game_date", "home_team", "away_team"]].copy()
+    sheet["game_id"] = sheet["game_id"].astype(str)
+    sheet["game_date"] = pd.to_datetime(sheet["game_date"],
+                                        errors="coerce").dt.normalize()
+    sides = pd.concat([
+        sheet[["game_id", "game_date", "home_team"]]
+            .rename(columns={"home_team": "team"}).assign(side="home"),
+        sheet[["game_id", "game_date", "away_team"]]
+            .rename(columns={"away_team": "team"}).assign(side="away"),
+    ], ignore_index=True)
+    sides["team"] = sides["team"].astype(str)
+    sides = sides.dropna(subset=["game_date"]).drop_duplicates(["game_id", "side"])
+
+    skaters = load_game_skaters(sorted(sheet.game_id.unique().tolist()),
+                                use_cache=use_cache, max_workers=max_workers,
+                                fetch_missing=fetch_missing)
+    if skaters is None or len(skaters) == 0:
+        return pd.DataFrame(columns=["game_date", "team", "player_id",
+                                     "player_name", "game_id"])
+    skaters = skaters.drop(columns=[c for c in ("team",) if c in skaters.columns])
+
+    out = skaters.merge(sides, on=["game_id", "side"], how="inner")
+    out["player_id"] = out["player_id"].astype(str)
+    out = (out[["game_date", "team", "player_id", "player_name", "game_id"]]
+           .drop_duplicates(["game_date", "team", "player_id"]))
+    logger.info("appearance record: %d rows over %d team-sides in %d games",
+                len(out), len(sides), sides.game_id.nunique())
+    return out.reset_index(drop=True)
+
+
+def _skater_rows(bs: dict, game_id: str) -> list[dict]:
+    """One row per skater who DRESSED, from the two per-side arrays."""
+    rows: list[dict] = []
+    stats = bs.get("playerByGameStats") or {}
+    for side, key in (("home", "homeTeam"), ("away", "awayTeam")):
+        block = stats.get(key) or {}
+        skaters = list(block.get("forwards") or []) + list(
+            block.get("defense") or [])
+        for s in skaters:
+            pid = s.get("playerId")
+            if pid is None:
+                continue
+            nm = (s.get("name") or {}).get("default") or (s.get("name") or {}).get("full")
+            rows.append({"game_id": str(game_id), "side": side,
+                         "team": None, "player_id": str(pid),
+                         "player_name": nm})
+    return rows
+
+
+def _fetch_skaters(game_ids: list[str], use_cache: bool, max_workers: int
+                   ) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(gid: str) -> bool:
+        path = _cache_path(f"skaters_{SKATERS_CACHE_VERSION}_{gid}.parquet")
+        if use_cache and path.exists():
+            return True
+        try:
+            bs = _http_json(f"{NHL_API_BASE}/gamecenter/{gid}/boxscore")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("skaters unavailable for %s: %s", gid, exc)
+            return False
+        rows = _skater_rows(bs, gid)
+        if not rows:
+            logger.warning("skaters: %s returned no skater rows", gid)
+            return False
+        try:
+            pd.DataFrame(rows, columns=SKATER_COLS).to_parquet(path)
+        except OSError as exc:
+            logger.warning("skaters cache write failed for %s: %s", gid, exc)
+            return False
+        return True
+
+    ok = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for i, done in enumerate(pool.map(one, game_ids), 1):
+            ok += int(done)
+            if i % 200 == 0:
+                logger.info("skaters: %d/%d (%d ok)", i, len(game_ids), ok)
+    logger.info("skaters: fetched %d of %d", ok, len(game_ids))
+
+
 def load_boxscores(game_ids: list[str], use_cache: bool = True,
                    gameday_by_id: dict | None = None,
                    chunk_days: int = PULL_CHUNK_DAYS,
@@ -801,44 +1012,387 @@ def load_boxscores(game_ids: list[str], use_cache: bool = True,
 
 
 # ---------------------------------------------------------------------------
-# MoneyPuck enrichment (optional; honest NaN degradation)
+# MoneyPuck player-game archives: the production substrate for the player-pool
+# pl_* family (trailing 30-game shrunk EVO/PPO ratings -> team pool means).
+# Consumed by features._load_player_ratings; nothing else loads MoneyPuck.
 # ---------------------------------------------------------------------------
 
-def load_moneypuck_shots(seasons: list[int] | None = None,
-                         use_cache: bool = True) -> pd.DataFrame | None:
-    """MoneyPuck shot-level season CSV (optional enrichment family).
+def _moneypuck_season_start(values: pd.Series) -> pd.Series:
+    """Normalize MoneyPuck's YYYY or YYYY-YYYY season labels to start year."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    start = numeric.where(numeric < 10_000, np.floor(numeric / 10_000))
+    text_year = pd.to_numeric(
+        values.astype("string").str.extract(r"^\s*(\d{4})", expand=False),
+        errors="coerce")
+    return start.fillna(text_year).astype("Int64")
 
-    The public download is one all-years shots file; it is cached once and
-    filtered to the requested seasons. A failed/absent download returns None
-    (the pipeline logs it and continues — the enrichment columns degrade to
-    NaN per the documented policy; production features never depend on
-    them). MoneyPuck data is non-commercial and requires credit.
+
+def _read_moneypuck_player_game_archive(
+    archive: zipfile.ZipFile,
+    seasons: set[int],
+    required: list[str],
+) -> pd.DataFrame:
+    """Read only requested game seasons/situations, keeping CSV memory bounded."""
+    members = [name for name in archive.namelist()
+               if name.lower().endswith(".csv")]
+    if len(members) != 1:
+        raise ValueError(f"expected one player-game CSV in archive, found {len(members)}")
+
+    kept: list[pd.DataFrame] = []
+    with archive.open(members[0]) as source:
+        chunks = pd.read_csv(
+            source, usecols=required, low_memory=False,
+            dtype={"playerId": "string", "gameId": "string"},
+            chunksize=MP_PLAYER_GAME_CHUNK_SIZE)
+        for chunk in chunks:
+            chunk["season"] = _moneypuck_season_start(chunk["season"])
+            chunk = chunk[
+                chunk["season"].isin(seasons)
+                & chunk["situation"].isin(MONEYPUCK_SITUATIONS)
+            ]
+            if len(chunk):
+                kept.append(chunk.copy())
+    if not kept:
+        return pd.DataFrame(columns=required)
+    return pd.concat(kept, ignore_index=True)
+
+
+def _download_moneypuck_player_game_archive(
+    url: str,
+    seasons: set[int],
+    required: list[str],
+) -> pd.DataFrame:
+    """Stream the published ZIP to a temporary cache-local file before parsing."""
+    import requests
+
+    response = requests.get(
+        url, timeout=(10, 300), stream=True,
+        headers={"User-Agent": "sports-prediction-model/1.0"})
+    archive_path: Path | None = None
+    try:
+        response.raise_for_status()
+        cache_dir = _cache_path("moneypuck_player_games_download.tmp").parent
+        with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".zip", prefix="moneypuck_player_games_",
+                dir=cache_dir, delete=False) as target:
+            archive_path = Path(target.name)
+            iter_content = getattr(response, "iter_content", None)
+            if callable(iter_content):
+                for block in iter_content(chunk_size=1024 * 1024):
+                    if block:
+                        target.write(block)
+            else:  # simple in-memory response doubles in offline tests
+                target.write(response.content)
+        with zipfile.ZipFile(archive_path) as archive:
+            return _read_moneypuck_player_game_archive(
+                archive, seasons, required)
+    finally:
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+
+
+def load_moneypuck_player_games(
+    seasons: list[int] | None = None,
+    use_cache: bool = True,
+) -> pd.DataFrame | None:
+    """Load MoneyPuck's published regular-season player-game CSV archives.
+
+    The output has one row per player/game/situation with playerId, gameId,
+    date, team, position, individual xGoals, and ice time. Only 5on5 (EVO)
+    and 5on4 (PPO) rows are retained. ZIPs are downloaded to a temporary file
+    beside the parquet cache and parsed in bounded CSV chunks; the 2.6-GB
+    historical CSV is never decompressed into one in-memory DataFrame. Only
+    requested start-year seasons are retained and cached. A missing requested
+    season makes the family unavailable rather than returning incomplete
+    rolling history.
+
+    MoneyPuck data is free for non-commercial use and must be credited.
     """
-    path = _cache_path(f"moneypuck_shots_{MP_CACHE_VERSION}.parquet")
-    df: pd.DataFrame | None = None
-    if use_cache and path.exists():
-        try:
-            df = pd.read_parquet(path)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("moneypuck cache unreadable (%s)", exc)
-    if df is None:
+    defaults = [2021, 2022, 2023, 2024, 2025]
+    requested = sorted(set(int(s) for s in (defaults if seasons is None else seasons)))
+    if not requested:
+        return None
+
+    required = ["playerId", "name", "gameId", "season", "playerTeam",
+                "gameDate", "position", "situation", "icetime", "I_F_xGoals"]
+    frames: list[pd.DataFrame] = []
+    missing: list[int] = []
+    historical = sorted(set(requested) & set(MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS))
+
+    if historical:
+        path = _cache_path(
+            f"moneypuck_player_games_{MP_PLAYER_GAME_VERSION}_2008_to_2024.parquet")
+        history_frame: pd.DataFrame | None = None
+        if use_cache and path.exists():
+            try:
+                cached = pd.read_parquet(path)
+                if all(column in cached.columns for column in required):
+                    cached["season"] = _moneypuck_season_start(cached["season"])
+                    cached_seasons = set(cached["season"].dropna().astype(int))
+                    if set(historical).issubset(cached_seasons):
+                        history_frame = cached[
+                            cached["season"].isin(historical)
+                            & cached["situation"].isin(MONEYPUCK_SITUATIONS)
+                        ].copy()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MoneyPuck historical player-game cache unreadable (%s)",
+                               exc)
+        if history_frame is None:
+            try:
+                history_frame = _download_moneypuck_player_game_archive(
+                    MONEYPUCK_PLAYER_GAMES_HISTORY_URL,
+                    set(historical), required)
+                if history_frame.empty:
+                    raise ValueError("historical archive has no requested skater games")
+                history_frame.to_parquet(path, index=False)
+                logger.info("MoneyPuck historical player games: cached %d rows "
+                            "for seasons %s", len(history_frame), historical)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MoneyPuck historical player games unavailable: %s", exc)
+                missing.extend(historical)
+        if history_frame is not None:
+            frames.append(history_frame)
+
+    for season in (s for s in requested
+                   if s not in MONEYPUCK_PLAYER_GAMES_HISTORY_SEASONS):
+        path = _cache_path(
+            f"moneypuck_player_games_{MP_PLAYER_GAME_VERSION}_{season}.parquet")
+        frame: pd.DataFrame | None = None
+        if use_cache and path.exists():
+            try:
+                cached = pd.read_parquet(path)
+                if all(column in cached.columns for column in required):
+                    cached["season"] = _moneypuck_season_start(cached["season"])
+                    if (cached["season"] == season).any():
+                        frame = cached[
+                            cached["season"].eq(season)
+                            & cached["situation"].isin(MONEYPUCK_SITUATIONS)
+                        ].copy()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MoneyPuck player games %s cache unreadable (%s)",
+                               season, exc)
+        if frame is None:
+            try:
+                url = MONEYPUCK_PLAYER_GAMES_ZIP_URL.format(season=season)
+                frame = _download_moneypuck_player_game_archive(
+                    url, {season}, required)
+                if frame.empty:
+                    raise ValueError(
+                        f"archive has no regular-season skater rows for {season}")
+                frame.to_parquet(path, index=False)
+                logger.info("MoneyPuck player games %s: cached %d rows",
+                            season, len(frame))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MoneyPuck player games %s unavailable: %s", season, exc)
+                missing.append(season)
+                continue
+        frames.append(frame)
+
+    if missing:
+        logger.error("MoneyPuck player-game history incomplete; unavailable "
+                     "seasons: %s", missing)
+        return None
+    if not frames:
+        return None
+    out = pd.concat(frames, ignore_index=True)
+    out["season"] = _moneypuck_season_start(out["season"])
+    out = out[
+        out["season"].isin(requested)
+        & out["situation"].isin(MONEYPUCK_SITUATIONS)
+    ]
+    return out.reset_index(drop=True) if len(out) else None
+
+
+def _utc_now() -> pd.Timestamp:
+    """Return the current UTC time; isolated for deterministic snapshot tests."""
+    return pd.Timestamp.now(tz="UTC")
+
+
+def _valid_espn_injury_payload(payload: object) -> bool:
+    """Whether a payload is a complete enough current-injuries snapshot."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("injuries"), list):
+        return False
+    for team_block in payload["injuries"]:
+        if not isinstance(team_block, dict) or "injuries" not in team_block:
+            return False
+        records = team_block["injuries"]
+        if not isinstance(records, list):
+            return False
+        if any(not isinstance(row, dict) for row in records):
+            return False
+    return True
+
+
+def load_espn_injuries(use_cache: bool = True,
+                       snapshot: bool = True) -> pd.DataFrame | None:
+    """ESPN's dated NHL injury report -> a long, snapshot-appendable frame.
+
+    The official NHL API publishes no injury endpoint, so ESPN is the feed of
+    record. Structure:    ``injuries[] -> {team} -> {athlete, status, date,
+    type, details}``. Emitted rows carry both ESPN's ``report_date`` and our
+    UTC ``snapshot_at`` capture timestamp. The capture timestamp—not a
+    retrospective report date—is used for game-level point-in-time replay.
+
+    PIT IS SNAPSHOT-BASED. The endpoint serves only the CURRENT report and
+    ignores date parameters (verified 2026-09-26: ``?dates=``/``?date=`` both
+    return today's payload), and ESPN prunes records older than roughly ten
+    days. Every successful pull is appended with an exact UTC capture timestamp;
+    even an empty current injury list gets a marker row so the snapshot is not
+    confused with a failed fetch. History therefore starts only with the first
+    captured snapshot. Missing periods remain unknown, not healthy.
+
+    ESPN requires a browser user-agent: the shared ``sports-prediction-model/1.0``
+    agent is answered with 403 (verified 2026-09-26), which is a silent
+    "everyone is healthy" failure if the status code is not checked.
+    """
+    payload: dict | None = None
+    captured_at = None
+    now = _utc_now()
+    if use_cache:
+        cached = _cache_path(f"espn_injuries_{INJURY_VERSION}_latest.json")
+        if cached.exists():
+            try:
+                envelope = json.loads(cached.read_text(encoding="utf-8"))
+                if isinstance(envelope, dict) and "snapshot_payload" in envelope:
+                    payload = envelope.get("snapshot_payload")
+                    captured_at = pd.to_datetime(
+                        envelope.get("snapshot_at"), errors="coerce", utc=True)
+                    if (not _valid_espn_injury_payload(payload)
+                            or pd.isna(captured_at) or captured_at > now):
+                        # A malformed or future-dated cache is not a complete
+                        # report we can safely replay; fetch instead of making
+                        # its absence of rows look like a clean report.
+                        payload, captured_at = None, None
+                else:
+                    # A provider payload without our capture timestamp cannot
+                    # prove when we observed it; refresh rather than stamping it
+                    # with today's time and introducing look-ahead.
+                    logger.warning("legacy ESPN injury cache lacks capture "
+                                   "time; refreshing before use")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ESPN injury cache unreadable (%s)", exc)
+                payload, captured_at = None, None
+
+    # Reuse a recent capture across repeated feature builds, but refresh even
+    # within the same UTC day once the report cache exceeds its short TTL. A
+    # cached payload is never re-stamped as fresh: fetch again or retain only
+    # the previous genuinely dated history.
+    cache_age = (now - captured_at) if captured_at is not None else None
+    needs_fetch = (payload is None or captured_at is None
+                   or cache_age > pd.Timedelta(hours=INJURY_CACHE_TTL_HOURS))
+    if needs_fetch:
         try:
             import requests
-            resp = requests.get(MONEYPUCK_SHOTS_URL, timeout=120,
-                                headers={"User-Agent": "sports-prediction-model/1.0"})
+            resp = requests.get(ESPN_NHL_INJURIES_URL, timeout=45,
+                                headers=ESPN_HEADERS)
             resp.raise_for_status()
-            df = pd.read_csv(io.BytesIO(resp.content), low_memory=False)
-            df.to_parquet(path, index=False)
+            fetched = resp.json()
+            if not _valid_espn_injury_payload(fetched):
+                raise ValueError("ESPN injury payload missing a complete injuries list")
+            payload = fetched
+            captured_at = _utc_now()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("MoneyPuck shots unavailable (enrichment degrades "
-                           "to NaN): %s", exc)
-            return None
-    if df is None or df.empty:
+            logger.warning("ESPN injury report unavailable; preserving only "
+                           "previously captured history (unknown is not healthy): %s",
+                           exc)
+            return _injury_history() if snapshot else None
+        if use_cache:
+            try:
+                _cache_path(f"espn_injuries_{INJURY_VERSION}_latest.json").write_text(
+                    json.dumps({"snapshot_payload": payload,
+                                "snapshot_at": captured_at.isoformat()}),
+                    encoding="utf-8")
+            except OSError as exc:
+                logger.warning("ESPN latest injury cache write failed: %s", exc)
+
+    if not _valid_espn_injury_payload(payload):
+        logger.warning("ESPN injury snapshot is incomplete; ignoring it")
+        return _injury_history() if snapshot else None
+
+    rows: list[dict] = []
+    for team_block in payload["injuries"]:
+        team_abbr = None
+        team_obj = team_block.get("team") or {}
+        if isinstance(team_obj, dict):
+            team_abbr = team_obj.get("abbreviation") or team_obj.get("displayName")
+        team_abbr = team_abbr or team_block.get("displayName")
+        for rec in team_block.get("injuries", []):
+            athlete = rec.get("athlete")
+            athlete = athlete if isinstance(athlete, dict) else {}
+            details = rec.get("details")
+            details = details if isinstance(details, dict) else {}
+            itype = rec.get("type")
+            itype = itype if isinstance(itype, dict) else {}
+            rows.append({
+                "player_name": athlete.get("displayName"),
+                "player_id": rec.get("id"),
+                "team": team_abbr,
+                "status": rec.get("status"),
+                "status_code": itype.get("abbreviation") or itype.get("name"),
+                "report_date": rec.get("date"),
+                "return_date": details.get("returnDate"),
+                "injury_type": details.get("type"),
+                "detail": rec.get("shortComment"),
+                "snapshot_at": captured_at,
+                "snapshot_marker": False,
+            })
+    if not rows:
+        rows = [{
+            "player_name": None, "player_id": None, "team": None,
+            "status": None, "status_code": None, "report_date": None,
+            "return_date": None, "injury_type": None, "detail": None,
+            "snapshot_at": captured_at, "snapshot_marker": True,
+        }]
+    today = pd.DataFrame(rows)
+    if not snapshot:
+        return today
+    return _append_injury_snapshot(today)
+
+
+def _append_injury_snapshot(today: pd.DataFrame) -> pd.DataFrame:
+    """Append an exactly timestamped report snapshot, including empty reports."""
+    if "snapshot_at" not in today.columns or today.empty:
+        raise ValueError("injury snapshot must carry a capture timestamp")
+    stamps = pd.to_datetime(today["snapshot_at"], errors="coerce", utc=True)
+    if stamps.isna().any() or stamps.nunique() != 1:
+        raise ValueError("all injury rows must share one valid capture timestamp")
+    today = today.copy()
+    today["snapshot_at"] = stamps
+    path = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
+    prior: pd.DataFrame | None = None
+    if path.exists():
+        try:
+            prior = pd.read_parquet(path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ESPN injury history unreadable (%s)", exc)
+    if prior is None or not len(prior):
+        out = today
+    else:
+        if "snapshot_at" in prior.columns:
+            stamp = stamps.iloc[0]
+            prior_stamps = pd.to_datetime(prior["snapshot_at"],
+                                          errors="coerce", utc=True)
+            prior = prior.loc[prior_stamps != stamp]
+        out = pd.concat([prior, today], ignore_index=True, sort=False)
+    try:
+        out.to_parquet(path, index=False)
+    except Exception as exc:  # noqa: BLE001 — history is best-effort
+        logger.warning("could not persist injury history: %s", exc)
+    return out.reset_index(drop=True)
+
+
+def _injury_history() -> pd.DataFrame | None:
+    path = _cache_path(f"espn_injuries_{INJURY_VERSION}_history.parquet")
+    if not path.exists():
         return None
-    if seasons and "season" in df.columns:
-        df = df[pd.to_numeric(df["season"], errors="coerce")
-                .isin([int(s) * 10000 + (int(s) + 1) for s in seasons])
-                | pd.to_numeric(df["season"], errors="coerce").isin(seasons)]
+    try:
+        df = pd.read_parquet(path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ESPN injury history unreadable (%s)", exc)
+        return None
     return df.reset_index(drop=True) if len(df) else None
 
 

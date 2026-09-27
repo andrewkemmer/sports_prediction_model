@@ -47,6 +47,14 @@ import distributions as dist_mod                     # noqa: E402
 import moneyline as ml_mod                           # noqa: E402
 import manifest                                      # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Offline player-ratings stub. The MoneyPuck skater game-log archives are a
+# 366 MB download and this suite is documented as offline/no-data. The stub
+# returns the empty frame, which is the documented degradation path: every
+# pl_* pool column falls back to its position prior.
+feat_mod.ingestion.load_moneypuck_player_games = (
+    lambda *args, **kwargs: pd.DataFrame())
+
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -535,12 +543,25 @@ def test_retention_board_families_age_out_on_the_10_day_window():
             board_dates=set(), anchor_date="20260923")
         assert verdict == "stale", f"{rel} classified {verdict} — survives the window"
 
-    # A board STILL TRACKED keeps its companions even outside the window.
+    # A board STILL TRACKED keeps its COMPANIONS even outside the window.
     with_board = rp.classify_artifact(
-        "nhl-backend/data_delivery/nhl_run_engine_markets_20260911.csv",
+        "nhl-backend/data_delivery/nhl_predictions_history_20260911.csv",
         seen=set(), retention_dates=set(), recent_dates=set(),
         board_dates={"20260911"}, anchor_date="20260923")
     assert with_board == "current"
+
+    # ...but in the NHL the tracked board IS the markets family, so it must
+    # not be its own companion: a board-backed board would put its own date
+    # into board_dates and rescue itself out of the window forever. MLB
+    # cannot have this shape - its board is todays_games_, a separate and
+    # non-board-backed family.
+    self_rescue = rp.classify_artifact(
+        "nhl-backend/data_delivery/nhl_run_engine_markets_20260911.csv",
+        seen=set(), retention_dates=set(), recent_dates=set(),
+        board_dates={"20260911"}, anchor_date="20260923")
+    assert self_rescue == "stale", (
+        "the markets board reprieved itself via its own date in board_dates; "
+        "the board family must be allowlisted and NOT board-backed")
 
     # Backfill safety: artifacts NEWER than the run's anchor keep.
     backfill = rp.classify_artifact(

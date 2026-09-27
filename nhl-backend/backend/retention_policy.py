@@ -88,9 +88,14 @@ FAMILY_POLICY: tuple[FamilyPolicy, ...] = (
                  allowlisted=True,
                  notes="newest-only (shared rankings page); 10-day window"),
     FamilyPolicy("markets", "nhl_run_engine_markets_",
-                 retention_days=10, allowlisted=True, board_supported=True,
+                 retention_days=10, allowlisted=True, board_supported=False,
                  notes="newest-only (markets page + board enrichment, incl. "
-                       ".meta.json); 10-day blanket window"),
+                       ".meta.json); 10-day blanket window. This family IS the "
+                       "NHL's tracked board (MLB's todays_games_), and it must "
+                       "NOT be board-backed: a board-backed family supplies "
+                       "board_dates, so a board-backed board rescues ITSELF out "
+                       "of the window forever. MLB's board family is "
+                       "allowlisted and not board-backed for the same reason"),
     FamilyPolicy("markets_monitor", "nhl_run_engine_monitor_",
                  retention_days=None, allowlisted=False,
                  notes="SERIES - fold_slate_history folds ALL dated monitors"),

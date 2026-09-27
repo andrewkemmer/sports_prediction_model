@@ -242,11 +242,6 @@ def main(argv: list[str] | None = None) -> int:
         (schedule["gameday"] >= pd.Timestamp(start_date))
         & (schedule["gameday"] <= pd.Timestamp(window_end))].copy()
     logger.info("schedule rows (date window): %d", len(schedule))
-    # Optional MoneyPuck enrichment (never load-bearing; NaN degradation).
-    mp = ingestion.load_moneypuck_shots(seasons=seasons, use_cache=not full_repull) \
-        if _env_flag("NHL_MONEYPUCK") else None
-    logger.info("moneypuck enrichment: %s",
-                "loaded" if mp is not None else "off/unavailable (optional family)")
 
     decided_all = schedule[schedule["home_score"].notna()
                            & schedule["away_score"].notna()].copy()
@@ -1101,8 +1096,12 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
     MLB parity: blanket 10-day window anchor..anchor-10 (anchor = the run's
     end date — NHL_END_DATE when set, else today ET), never-delete masters
     and series readers untouched, backfill-safe anchor guard, board-backed
-    safety net. NHL SHAP files age by their EMBEDDED filename date (the
-    MLB convention — no game-date map needed).
+    safety net taken over TRACKED BOARDS (the serving
+    nhl_run_engine_markets_<date>.csv slate — MLB's todays_games_<date>.csv),
+    so a board-backed family ages out with the 10-day board window instead of
+    being reprieved by the decided population. NHL SHAP files still age by
+    their GAME date, which needs the game-date map because the official NHL
+    numeric game id carries no date of its own.
     """
     import retention_policy as rp
 
@@ -1130,24 +1129,32 @@ def _prune_old_artifacts(out_dir: Path, date_c: str, seen: set | None = None,
 
     board_dates: set[str] = set()
     game_dates: dict[str, str] = {}
+    # Board-backed retention, MLB structure (mlb-backend Phase 6): board_dates
+    # is the set of dates that still have a tracked BOARD artifact. MLB's
+    # board is todays_games_<date>.csv; the NHL's is the serving slate,
+    # nhl_run_engine_markets_<date>.csv. Those boards ride the blanket window
+    # themselves, so board_dates is a strict SUBSET of retention_dates and the
+    # board-backed rule is the safety net MLB documents it as ("at the 10-day
+    # blanket window the slate rule dominates; this stays a safety net").
+    #
+    # It used to be built from the GAME dates inside the moneyline record and
+    # the predictions history. That made the rule total rather than a net: the
+    # NHL plays on most days, so a run-dated nhl_predictions_history_<d>.csv or
+    # nhl_run_engine_markets_<d>.csv whose OWN date happened to be a game day
+    # was kept forever - measured 257 and 313 days past the anchor, where MLB
+    # prunes at 10. Those game dates are still needed, but only to age SHAP
+    # cards, which carry an official NHL numeric game id and no date at all.
+    for board in out_dir.glob("nhl_run_engine_markets_*.csv"):
+        board_day = rp.artifact_date(board.name)
+        if board_day:
+            board_dates.add(board_day)
     for rec in out_dir.glob("nhl_moneyline_v1_*.json"):
         try:
             for g in json.loads(rec.read_text(encoding="utf-8")).get("games", []):
                 d = str(g.get("game_date", ""))[:10].replace("-", "")
-                if len(d) == 8 and d.isdigit():
-                    board_dates.add(d)
-                    gid = str(g.get("game_id", ""))
-                    if gid:
-                        game_dates.setdefault(gid, d)
-        except Exception:
-            continue
-    for hist in out_dir.glob("nhl_predictions_history_*.csv"):
-        try:
-            for d in pd.read_csv(hist, usecols=["game_date"])["game_date"] \
-                    .dropna().astype(str):
-                d = d[:10].replace("-", "")
-                if len(d) == 8 and d.isdigit():
-                    board_dates.add(d)
+                gid = str(g.get("game_id", ""))
+                if len(d) == 8 and d.isdigit() and gid:
+                    game_dates.setdefault(gid, d)
         except Exception:
             continue
 

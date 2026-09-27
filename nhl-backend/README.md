@@ -13,8 +13,9 @@ python3 backend/master_pipeline.py --skip-pull  # use the .nhl_cache/ pulls
 * Official NHL API (`https://api-web.nhle.com/v1`) — `/score/{date}` per-date
   schedule/score pages and `/gamecenter/{id}/boxscore` per-game boxscores,
   cached per date/game under `.nhl_cache/` beside the repo.
-* MoneyPuck shots data is OPTIONAL enrichment (`load_moneypuck_shots`); the
-  pipeline never requires it.
+* MoneyPuck skater game-by-game archives feed the player-pool `pl_*` family
+  (`load_moneypuck_player_games`); unavailable archives degrade those columns
+  to position priors — the pipeline never requires them.
 * Market-free: no sportsbook data is ingested or used anywhere.
 
 ## Model family (identical to MLB/NFL)

@@ -276,12 +276,15 @@ NHL_API_SOURCES = [
      "goalie rolling-state input).",
      "Per-skater rows beyond the team rollup (individual quality is "
      "second-order vs team trailing stats)."),
-    ("MoneyPuck free downloads (optional enrichment, non-commercial)",
-     "Shot-level xG CSVs per season (2007+), game-by-game team CSVs.",
-     "OPTIONAL: load_moneypuck_shots caches the season shots file; the "
-     "production contract never depends on it (honest NaN degradation).",
-     "xG is not in any served feature; retained as a future candidate "
-     "family (would need a leakage-safe trailing rollup first)."),
+    ("MoneyPuck free skater game-by-game archives (non-commercial)",
+     "Per PLAYER x GAME x SITUATION regular-season xG/icetime ZIPs (2008+).",
+     "PRODUCTION for the pl_* family: load_moneypuck_player_games caches the "
+     "season archives; trailing 30-game shrunk EVO/PPO ratings -> team pool "
+     "means with binary injury exclusion (source date strictly before target "
+     "date). Unavailable archives degrade the 24 pl_* columns to position "
+     "priors — never fabricated.",
+     "Individual xG rates are the served pool features; the RFE trial space "
+     "carries all 24 pl_* names."),
 ]
 
 NHL_LOW_VALUE_FIELDS = [

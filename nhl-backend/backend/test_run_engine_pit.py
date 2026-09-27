@@ -36,6 +36,7 @@ Run with: python nhl-backend/backend/test_run_engine_pit.py
 from __future__ import annotations
 
 import sys
+import json
 import ast
 import logging
 import tempfile
@@ -58,6 +59,16 @@ import monitoring as mon                             # noqa: E402
 import ingestion as ing                               # noqa: E402
 import serving as serving_mod                         # noqa: E402
 from evaluation import nb_distribution_metrics       # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Offline player-ratings stub. The MoneyPuck skater game-log archives are a
+# 366 MB download (2.6 GB uncompressed) and these tests never fetch data.
+# The stub returns the empty frame, which is the documented degradation path:
+# _load_player_ratings() logs a warning and every pl_* column falls back to
+# its position prior. ESPN injury snapshots come from the repo cache and
+# already degrade gracefully offline.
+feat_mod.ingestion.load_moneypuck_player_games = (
+    lambda *args, **kwargs: pd.DataFrame())
 
 
 def _synth_games(n_days: int = 60, games_per_day: int = 6, seed: int = 7,
@@ -1194,6 +1205,61 @@ def test_write_run_engine_feature_artifacts_enumerates_active_width():
     assert set(cov["feature"]) == set(config.active_moneyline_feature_cols())
 
 
+def test_feature_drift_regime_shift_is_insufficient_and_noise_floor_adjusts():
+    """MLB-shaped drift: statuses key on the NOISE-ADJUSTED PSI, and a window
+    that cannot support a verdict is INSUFFICIENT, never OK.
+
+    Two pinned mutants:
+      * a current window entirely inside the playoffs vs a 6%-playoffs
+        baseline measured PSI 0.000 and read OK — the degenerate-bin
+        collapse turned a full regime shift into an all-clear;
+      * ``psi_adjusted`` was a literal passthrough of raw PSI, so
+        same-distribution samples of this size (noise floor ~0.08) paged on
+        binning wiggle alone.
+    """
+    rng = np.random.default_rng(7)
+    cols = list(config.active_moneyline_feature_cols())
+    n_b, n_c = 1000, 40
+    full = pd.DataFrame(rng.normal(0.0, 1.0, (n_b, len(cols))), columns=cols)
+    recent = pd.DataFrame(rng.normal(0.0, 1.0, (n_c, len(cols))), columns=cols)
+    full["is_playoffs"] = np.where(rng.random(n_b) < 0.06, 1.0, 0.0)
+    recent["is_playoffs"] = 1.0
+    full["is_home"] = 1.0
+    recent["is_home"] = 1.0
+
+    rows = {r["feature"]: r for r in mon.feature_drift(full, recent)}
+
+    # 1. Regime shift: unbinnable -> INSUFFICIENT with the signal in
+    #    mean_shift, not a fake 0.000 PSI "OK". The window is large enough
+    #    (1000/40) that INSUFFICIENT comes from the degenerate bins, not
+    #    the small-window rule.
+    p = rows["is_playoffs"]
+    assert p["status"] == "INSUFFICIENT"
+    assert not np.isfinite(p["psi"])
+    assert abs(p["mean_shift"]) > 0.5
+
+    # 2. Same-distribution continuous feature: raw PSI stays for
+    #    transparency, the adjusted value subtracts the sampling-noise
+    #    floor, and without a location shift the row cannot page.
+    e = rows["elo_diff"]
+    assert e["noise_floor"] > 0
+    assert e["psi_adjusted"] <= e["psi"]
+    assert e["status"] == "OK" or e["location_shift"]
+
+    # 3. MLB row schema (explainability.compute_feature_drift shape).
+    for key in ("psi", "psi_adjusted", "noise_floor", "mean_shift",
+                "shift_se", "location_shift", "n_baseline", "n_current"):
+        assert key in e, f"drift row dropped the MLB key {key!r}"
+
+
+def test_feature_status_cannot_judge_is_insufficient_not_ok():
+    """A PSI that cannot be computed must never read as an all-clear."""
+    assert mon.feature_status(float("nan")) == "INSUFFICIENT"
+    assert mon.feature_status(0.0) == "OK"
+    assert mon.feature_status(0.10) == "WARN"
+    assert mon.feature_status(0.25) == "ALERT"
+
+
 def test_nb_distribution_metrics_flags_degenerate_inputs():
     oof = pd.DataFrame({
         "home_score": [3.0, 2.0, 4.0], "away_score": [2.0, 3.0, 1.0],
@@ -1960,6 +2026,184 @@ def test_prune_hands_the_policy_the_same_identifier_it_classifies_with():
             f"{rel!r} was classified but is absent from the `seen` set "
             f"{sorted(seen_by_policy)} — the run's own artifacts are "
             "unprotectable")
+
+
+def test_board_backed_retention_reads_tracked_boards_not_the_population():
+    """``board_dates`` must mean "a board is still tracked", MLB style.
+
+    MLB builds it from ``todays_games_<date>.csv`` FILES, which ride the
+    blanket window, so it is a strict subset of the window and the board-backed
+    rule is the safety net MLB documents. NHL built it from the GAME dates
+    inside the moneyline record and the predictions history - i.e. the whole
+    decided population. The NHL plays on most days, so that made the rule
+    total: a run-dated predictions_history / markets artifact whose OWN date
+    happened to be a game day was reprieved forever. Measured on the tree at
+    2026-09-26, ``nhl_predictions_history_20260115.csv`` (257 days past the
+    anchor) and ``..._20251120.csv`` (313 days) both came back "current",
+    where MLB's rule says "stale".
+    """
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        # A decided population spread over months, as every real record is.
+        (out_dir / "nhl_moneyline_v1_20260929.json").write_text(
+            json.dumps({"games": [
+                {"game_id": "2026011501", "game_date": "2026-01-15"},
+                {"game_id": "2025112001", "game_date": "2025-11-20"},
+            ]}), encoding="utf-8")
+        # The tracked serving board, inside the window.
+        pd.DataFrame({"game_id": [1]}).to_csv(
+            out_dir / "nhl_run_engine_markets_20260929.csv", index=False)
+        pd.DataFrame({"game_id": [1], "game_date": ["2026-09-29"]}).to_csv(
+            out_dir / "nhl_predictions_history_20260929.csv", index=False)
+        # A 257-day-old history whose own date was a game day. No board is
+        # tracked for that date, so there is nothing to reprieve it.
+        ancient_hist = out_dir / "nhl_predictions_history_20260115.csv"
+        pd.DataFrame({"game_id": [1], "game_date": ["2026-01-15"]}).to_csv(
+            ancient_hist, index=False)
+
+        mp._prune_old_artifacts(out_dir, "20260929", seen=set(),
+                                anchor_iso="2026-09-29")
+
+        assert not ancient_hist.exists(), (
+            "retention kept a 257-day-old predictions history because its own "
+            "date was a game date: board_dates is carrying the decided "
+            "population, not the tracked boards")
+        assert (out_dir / "nhl_predictions_history_20260929.csv").exists(), (
+            "the board-backed rule must still keep families inside the window")
+        assert (out_dir / "nhl_run_engine_markets_20260929.csv").exists()
+
+
+def test_a_stale_board_prunes_itself_and_drains_its_companion():
+    """The board family must not rescue itself, and the drain takes two passes.
+
+    The NHL's tracked board IS the markets family, so a board-backed markets
+    family would put its own date into board_dates and reprieve ITSELF out of
+    the window - a self-sustaining leak MLB cannot have, because its board
+    family (todays_games_) is allowlisted and NOT board-backed. So the stale
+    board is pruned on the first pass, and its companion - which the stale
+    board rescued for that one pass, exactly as in MLB - goes on the second.
+    """
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        (out_dir / "nhl_moneyline_v1_20260929.json").write_text(
+            json.dumps({"games": []}), encoding="utf-8")
+        pd.DataFrame({"game_id": [1]}).to_csv(
+            out_dir / "nhl_run_engine_markets_20260929.csv", index=False)
+        stale_board = out_dir / "nhl_run_engine_markets_20260115.csv"
+        pd.DataFrame({"game_id": [1]}).to_csv(stale_board, index=False)
+        companion = out_dir / "nhl_predictions_history_20260115.csv"
+        pd.DataFrame({"game_id": [1], "game_date": ["2026-01-15"]}).to_csv(
+            companion, index=False)
+
+        mp._prune_old_artifacts(out_dir, "20260929", seen=set(),
+                                anchor_iso="2026-09-29")
+        assert not stale_board.exists(), (
+            "a 257-day-old markets board was kept: it is board_supported, so "
+            "it put its own date into board_dates and rescued itself")
+        assert companion.exists(), (
+            "the first pass must let the stale board rescue its companion; "
+            "that one-pass lag is the safety net, identical to MLB's")
+
+        mp._prune_old_artifacts(out_dir, "20260929", seen=set(),
+                                anchor_iso="2026-09-29")
+        assert not companion.exists(), (
+            "the companion survived the second pass: with its board gone, "
+            "nothing reprieves it and the 10-day window is the policy again")
+
+
+def test_board_dates_carries_tracked_boards_only_never_game_dates():
+    """The property is a property of the CONSTRUCTION, not the predicate.
+
+    ``classify_artifact`` cannot tell a board date from a game date - it is
+    handed one set. So the invariant has to be pinned where board_dates is
+    built: it holds the dates of tracked board FILES, and nothing else. A game
+    date with no board behind it must never enter the set, because that is
+    exactly how a 257-day-old artifact kept its reprieve.
+
+    (A board that is itself stale still rescues its companion for one extra
+    pass, in MLB too - the board is pruned in the same pass, so the rescue
+    dies on the next run. That one-pass lag is the safety net working, not a
+    leak, and neither side is treated as the policy.)
+    """
+    import retention_policy as rp
+    import master_pipeline as mp
+
+    captured: list[set] = []
+    real = rp.classify_artifact
+
+    def spy(rel, seen, *a, **k):
+        board_dates = a[2] if len(a) > 2 else k.get("board_dates", set())
+        captured.append(set(board_dates))
+        return real(rel, seen, *a, **k)
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        # A game date with NO board tracked for it.
+        (out_dir / "nhl_moneyline_v1_20260929.json").write_text(
+            json.dumps({"games": [
+                {"game_id": "2026011501", "game_date": "2026-01-15"},
+            ]}), encoding="utf-8")
+        (out_dir / "nhl_predictions_history_20260929.csv").write_text(
+            "game_date", encoding="utf-8")
+        # The one tracked board.
+        (out_dir / "nhl_run_engine_markets_20260929.csv").write_text(
+            "game_id", encoding="utf-8")
+        with _mock_patch.object(rp, "classify_artifact", spy):
+            mp._prune_old_artifacts(out_dir, "20260929", seen=set(),
+                                    anchor_iso="2026-09-29")
+
+    assert captured, "the pruner classified nothing"
+    handed = captured[0]
+    assert "20260929" in handed, (
+        f"the tracked board's own date is not in board_dates {sorted(handed)} "
+        "- the safety net that keeps a navigable board's run-engine data is gone")
+    assert "20260115" not in handed, (
+        "a GAME date with no board behind it entered board_dates; board_dates "
+        "is carrying the decided population again, which reprieves every "
+        "board-backed artifact dated on a day the league happened to play")
+
+
+def test_the_game_date_map_still_ages_shap_cards_after_the_board_change():
+    """Narrowing the moneyline loop must not stop SHAP ageing.
+
+    SHAP files carry an official NHL numeric game id and no date of their own,
+    so they - and only they - still need game dates out of the moneyline
+    record. The current slate's cards must survive on the map, and a card for
+    a game from last January must age out.
+    """
+    import master_pipeline as mp
+
+    with tempfile.TemporaryDirectory() as td:
+        out_dir = Path(td) / "nhl-backend" / "data_delivery"
+        out_dir.mkdir(parents=True)
+        (out_dir / "nhl_moneyline_v1_20260929.json").write_text(
+            json.dumps({"games": [
+                {"game_id": "2026020001", "game_date": "2026-09-29"},
+                {"game_id": "2025010001", "game_date": "2025-01-01"},
+            ]}), encoding="utf-8")
+        current = out_dir / "nhl_shap_game_2026020001.csv"
+        pd.DataFrame({"feature": ["elo"], "shap": [0.1]}).to_csv(
+            current, index=False)
+        ancient = out_dir / "nhl_shap_game_2025010001.csv"
+        pd.DataFrame({"feature": ["elo"], "shap": [0.1]}).to_csv(
+            ancient, index=False)
+
+        mp._prune_old_artifacts(out_dir, "20260929", seen=set(),
+                                anchor_iso="2026-09-29")
+
+        assert current.exists(), (
+            "the current slate's SHAP card was deleted: the game-date map is "
+            "no longer being built, and numeric NHL ids carry no date")
+        assert not ancient.exists(), (
+            "a January SHAP card was kept - the game-date map is no longer "
+            "aging SHAP files by their GAME date")
 
 
 def test_schema_gates_are_evaluated_before_monitoring_is_written():
