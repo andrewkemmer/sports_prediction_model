@@ -1,6 +1,6 @@
 {
   "generated_for": "20260927",
-  "n_features": 62,
+  "n_features": 98,
   "warnings": [],
   "features": {
     "is_home": {
@@ -403,11 +403,11 @@
       ],
       "tooltip": "What: Flags games where a tired pen is also performing poorly \u2014 late-inning blowup potential.\nFormula: bullpen_pitches_diff \u00d7 bullpen_whip_3g_diff\nSource: DuckDB feature engineering: workload \u00d7 form interaction\nWindow: 3d \u00d7 3g \u00b7 Units: index\nDirection: higher = home-side meltdown risk (negative for home)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "pitcher_regression_indicator": {
-      "name": "pitcher_regression_indicator",
+    "pitcher_regression_indicator_diff": {
+      "name": "pitcher_regression_indicator_diff",
       "summary": "SP velo diff \u00d7 ERA diff (physical drop vs surface results = regression)",
       "definition": "Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.",
-      "formula": "sp_fbvelo_diff \u00d7 sp_era_diff",
+      "formula": "sp_fbvelo_diff \u00d7 sp_era_5g_diff",
       "source": "DuckDB feature engineering: velo \u00d7 results interaction",
       "window": "season \u00d7 3g",
       "units": "index",
@@ -417,10 +417,40 @@
         "lightgbm",
         "logistic"
       ],
-      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
+      "tooltip": "What: Detects starters whose results outrun their stuff (or vice versa) \u2014 regression candidates.\nFormula: sp_fbvelo_diff \u00d7 sp_era_5g_diff\nSource: DuckDB feature engineering: velo \u00d7 results interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: n/a (regression signal)\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "lineup_depth_multiplier": {
-      "name": "lineup_depth_multiplier",
+    "pitcher_regression_indicator_home": {
+      "name": "pitcher_regression_indicator_home",
+      "summary": "SP regression indicator (fastball velo \u00d7 ERA, last 5 starts) \u2014 home side",
+      "definition": "Per-side interaction level: the home club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "pitcher_regression_indicator_home",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "n/a (regression signal) (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the home club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: pitcher_regression_indicator_home\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: n/a (regression signal) (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "pitcher_regression_indicator_away": {
+      "name": "pitcher_regression_indicator_away",
+      "summary": "SP regression indicator (fastball velo \u00d7 ERA, last 5 starts) \u2014 away side",
+      "definition": "Per-side interaction level: the away club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "pitcher_regression_indicator_away",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "n/a (regression signal) (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the away club's OWN product of the factors behind pitcher_regression_indicator_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: pitcher_regression_indicator_away\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: n/a (regression signal) (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "lineup_depth_multiplier_diff": {
+      "name": "lineup_depth_multiplier_diff",
       "summary": "Lineup mean wOBA diff \u00d7 top-3 wOBA diff (star power \u00d7 depth)",
       "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
       "formula": "lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff",
@@ -435,8 +465,38 @@
       ],
       "tooltip": "What: Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.\nFormula: lineup_woba_mean_diff \u00d7 lineup_woba_top3_diff\nSource: DuckDB feature engineering: depth \u00d7 star-power interaction\nWindow: season to date (shrunk) \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
     },
-    "ace_efficiency_factor": {
-      "name": "ace_efficiency_factor",
+    "lineup_depth_multiplier_home": {
+      "name": "lineup_depth_multiplier_home",
+      "summary": "Lineup depth multiplier (mean wOBA \u00d7 top-3 wOBA) \u2014 home side",
+      "definition": "Per-side interaction level: the home club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "lineup_depth_multiplier_home",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "higher = deeper, star-heavier lineup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the home club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: lineup_depth_multiplier_home\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = deeper, star-heavier lineup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "lineup_depth_multiplier_away": {
+      "name": "lineup_depth_multiplier_away",
+      "summary": "Lineup depth multiplier (mean wOBA \u00d7 top-3 wOBA) \u2014 away side",
+      "definition": "Per-side interaction level: the away club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "lineup_depth_multiplier_away",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "higher = deeper, star-heavier lineup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the away club's OWN product of the factors behind lineup_depth_multiplier_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: lineup_depth_multiplier_away\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = deeper, star-heavier lineup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "ace_efficiency_factor_diff": {
+      "name": "ace_efficiency_factor_diff",
       "summary": "SP K/9 diff \u00d7 whiff rate diff (high strikeout volume from raw stuff)",
       "definition": "Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.",
       "formula": "sp_k9_diff \u00d7 sp_whiff_diff",
@@ -450,6 +510,36 @@
         "logistic"
       ],
       "tooltip": "What: Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.\nFormula: sp_k9_diff \u00d7 sp_whiff_diff\nSource: DuckDB feature engineering: volume \u00d7 stuff interaction\nWindow: season \u00d7 3g \u00b7 Units: index\nDirection: higher = home advantage\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "ace_efficiency_factor_home": {
+      "name": "ace_efficiency_factor_home",
+      "summary": "Ace efficiency factor (K/9 \u00d7 whiff rate) \u2014 home side",
+      "definition": "Per-side interaction level: the home club's OWN product of the factors behind ace_efficiency_factor_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "ace_efficiency_factor_home",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "higher = strikeout volume backed by raw stuff (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the home club's OWN product of the factors behind ace_efficiency_factor_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: ace_efficiency_factor_home\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = strikeout volume backed by raw stuff (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "ace_efficiency_factor_away": {
+      "name": "ace_efficiency_factor_away",
+      "summary": "Ace efficiency factor (K/9 \u00d7 whiff rate) \u2014 away side",
+      "definition": "Per-side interaction level: the away club's OWN product of the factors behind ace_efficiency_factor_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.",
+      "formula": "ace_efficiency_factor_away",
+      "source": "DuckDB feature engineering: within-side product",
+      "window": "per game",
+      "units": "index",
+      "direction": "higher = strikeout volume backed by raw stuff (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side interaction level: the away club's OWN product of the factors behind ace_efficiency_factor_diff \u2014 the within-side form the cross-side gap summarizes (home \u2212 away of the pair equals the diff only up to cross terms). Tree-only routing; missing factors propagate NULL.\nFormula: ace_efficiency_factor_away\nSource: DuckDB feature engineering: within-side product\nWindow: per game \u00b7 Units: index\nDirection: higher = strikeout volume backed by raw stuff (away side)\nConsumed by: xgboost, lightgbm"
     },
     "home_elo": {
       "name": "home_elo",
@@ -970,6 +1060,456 @@
         "logistic"
       ],
       "tooltip": "What: 1 if the away club's primary closer is rested and usable tonight, 0 otherwise. Raw side-level companion to closer_availability_diff; see closer_available_home.\nFormula: 1 if away closer available else 0\nSource: Recent reliever usage (2-day rest heuristic)\nWindow: per-game \u00b7 Units: binary\nDirection: 1 = away bullpen at full strength\nConsumed by: xgboost, lightgbm, logistic"
+    },
+    "rest_days_home": {
+      "name": "rest_days_home",
+      "summary": "Days of rest entering the game \u2014 home team",
+      "definition": "Per-side level column: the home club's days of rest entering the game. This IS the rest_days_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "rest_days_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "per game (capped 1\u20136)",
+      "units": "days",
+      "direction": "more rest = fresher club (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's days of rest entering the game. This IS the rest_days_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: rest_days_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: per game (capped 1\u20136) \u00b7 Units: days\nDirection: more rest = fresher club (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "rest_days_away": {
+      "name": "rest_days_away",
+      "summary": "Days of rest entering the game \u2014 away team",
+      "definition": "Per-side level column: the away club's days of rest entering the game. This IS the rest_days_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "rest_days_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "per game (capped 1\u20136)",
+      "units": "days",
+      "direction": "more rest = fresher club (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's days of rest entering the game. This IS the rest_days_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: rest_days_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: per game (capped 1\u20136) \u00b7 Units: days\nDirection: more rest = fresher club (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "sp_era_5g_home": {
+      "name": "sp_era_5g_home",
+      "summary": "SP ERA, last 5 starts \u2014 home team",
+      "definition": "Per-side level column: the home club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_era_5g_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "5g",
+      "units": "ERA runs",
+      "direction": "lower = better (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = better (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "sp_era_5g_away": {
+      "name": "sp_era_5g_away",
+      "summary": "SP ERA, last 5 starts \u2014 away team",
+      "definition": "Per-side level column: the away club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_era_5g_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "5g",
+      "units": "ERA runs",
+      "direction": "lower = better (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's sp era, last 5 starts. This IS the sp_era_5g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_era_5g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 5g \u00b7 Units: ERA runs\nDirection: lower = better (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "sp_fbvelo_3g_home": {
+      "name": "sp_fbvelo_3g_home",
+      "summary": "SP fastball velocity, last 3 starts \u2014 home team",
+      "definition": "Per-side level column: the home club's sp fastball velocity, last 3 starts. This IS the sp_fbvelo_3g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_fbvelo_3g_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "3g",
+      "units": "mph",
+      "direction": "higher = better (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's sp fastball velocity, last 3 starts. This IS the sp_fbvelo_3g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_fbvelo_3g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 3g \u00b7 Units: mph\nDirection: higher = better (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "sp_fbvelo_3g_away": {
+      "name": "sp_fbvelo_3g_away",
+      "summary": "SP fastball velocity, last 3 starts \u2014 away team",
+      "definition": "Per-side level column: the away club's sp fastball velocity, last 3 starts. This IS the sp_fbvelo_3g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "sp_fbvelo_3g_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "3g",
+      "units": "mph",
+      "direction": "higher = better (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's sp fastball velocity, last 3 starts. This IS the sp_fbvelo_3g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: sp_fbvelo_3g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 3g \u00b7 Units: mph\nDirection: higher = better (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "lineup_woba_std_home": {
+      "name": "lineup_woba_std_home",
+      "summary": "Projected lineup wOBA dispersion (std dev) \u2014 home team",
+      "definition": "Per-side level column: the home club's projected lineup woba dispersion (std dev). This IS the lineup_woba_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "lineup_woba_std_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "n/a (order-quality spread) (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's projected lineup woba dispersion (std dev). This IS the lineup_woba_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: lineup_woba_std_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: n/a (order-quality spread) (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "lineup_woba_std_away": {
+      "name": "lineup_woba_std_away",
+      "summary": "Projected lineup wOBA dispersion (std dev) \u2014 away team",
+      "definition": "Per-side level column: the away club's projected lineup woba dispersion (std dev). This IS the lineup_woba_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "lineup_woba_std_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "season to date (shrunk)",
+      "units": "wOBA points",
+      "direction": "n/a (order-quality spread) (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's projected lineup woba dispersion (std dev). This IS the lineup_woba_std_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: lineup_woba_std_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: season to date (shrunk) \u00b7 Units: wOBA points\nDirection: n/a (order-quality spread) (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "bullpen_pitches_3d_home": {
+      "name": "bullpen_pitches_3d_home",
+      "summary": "Bullpen pitches thrown, last 3 days \u2014 home team",
+      "definition": "Per-side level column: the home club's bullpen pitches thrown, last 3 days. This IS the bullpen_pitches_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "bullpen_pitches_3d_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "3d",
+      "units": "pitches",
+      "direction": "more = heavier workload (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's bullpen pitches thrown, last 3 days. This IS the bullpen_pitches_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: bullpen_pitches_3d_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 3d \u00b7 Units: pitches\nDirection: more = heavier workload (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "bullpen_pitches_3d_away": {
+      "name": "bullpen_pitches_3d_away",
+      "summary": "Bullpen pitches thrown, last 3 days \u2014 away team",
+      "definition": "Per-side level column: the away club's bullpen pitches thrown, last 3 days. This IS the bullpen_pitches_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "bullpen_pitches_3d_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "3d",
+      "units": "pitches",
+      "direction": "more = heavier workload (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's bullpen pitches thrown, last 3 days. This IS the bullpen_pitches_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: bullpen_pitches_3d_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 3d \u00b7 Units: pitches\nDirection: more = heavier workload (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "team_hardhit_15g_home": {
+      "name": "team_hardhit_15g_home",
+      "summary": "Team hard-hit rate \u2014 home team",
+      "definition": "Per-side level column: the home club's team hard-hit rate. This IS the team_hardhit_15g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "team_hardhit_15g_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's team hard-hit rate. This IS the team_hardhit_15g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: team_hardhit_15g_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "team_hardhit_15g_away": {
+      "name": "team_hardhit_15g_away",
+      "summary": "Team hard-hit rate \u2014 away team",
+      "definition": "Per-side level column: the away club's team hard-hit rate. This IS the team_hardhit_15g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "team_hardhit_15g_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "15g",
+      "units": "rate (0\u20131)",
+      "direction": "higher = better (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's team hard-hit rate. This IS the team_hardhit_15g_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: team_hardhit_15g_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: 15g \u00b7 Units: rate (0\u20131)\nDirection: higher = better (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "time_zones_crossed_last_3d_home": {
+      "name": "time_zones_crossed_last_3d_home",
+      "summary": "Time zones crossed over the last 3 days \u2014 home team",
+      "definition": "Per-side level column: the home club's time zones crossed over the last 3 days. This IS the time_zones_crossed_last_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "time_zones_crossed_last_3d_home",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "last 3 days",
+      "units": "zones",
+      "direction": "more = travel fatigue (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the home club's time zones crossed over the last 3 days. This IS the time_zones_crossed_last_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: time_zones_crossed_last_3d_home\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: last 3 days \u00b7 Units: zones\nDirection: more = travel fatigue (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "time_zones_crossed_last_3d_away": {
+      "name": "time_zones_crossed_last_3d_away",
+      "summary": "Time zones crossed over the last 3 days \u2014 away team",
+      "definition": "Per-side level column: the away club's time zones crossed over the last 3 days. This IS the time_zones_crossed_last_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.",
+      "formula": "time_zones_crossed_last_3d_away",
+      "source": "Ingest-layer rolling/team state (same source as the diff)",
+      "window": "last 3 days",
+      "units": "zones",
+      "direction": "more = travel fatigue (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side level column: the away club's time zones crossed over the last 3 days. This IS the time_zones_crossed_last_3d_diff input for its side \u2014 the same strictly-prior source, so home \u2212 away reproduces the diff by construction. Tree-only routing; a side with no observation ships NULL like its diff.\nFormula: time_zones_crossed_last_3d_away\nSource: Ingest-layer rolling/team state (same source as the diff)\nWindow: last 3 days \u00b7 Units: zones\nDirection: more = travel fatigue (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_centered_k_home": {
+      "name": "exp2_centered_k_home",
+      "summary": "Centered strikeout matchup (SP K/9 vs opponent K-rate around league) \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_centered_k_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_centered_k_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home K matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_centered_k_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_centered_k_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home K matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_centered_k_away": {
+      "name": "exp2_centered_k_away",
+      "summary": "Centered strikeout matchup (SP K/9 vs opponent K-rate around league) \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_centered_k_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_centered_k_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home K matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_centered_k_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_centered_k_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home K matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_fastball_home": {
+      "name": "exp2_cat_k_fastball_home",
+      "summary": "Fastball category strikeout matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_fastball_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home fastball-K matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_fastball_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home fastball-K matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_fastball_away": {
+      "name": "exp2_cat_k_fastball_away",
+      "summary": "Fastball category strikeout matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_fastball_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home fastball-K matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_fastball_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home fastball-K matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_breaking_home": {
+      "name": "exp2_cat_k_breaking_home",
+      "summary": "Breaking category strikeout matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_breaking_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home breaking-K matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_breaking_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home breaking-K matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_breaking_away": {
+      "name": "exp2_cat_k_breaking_away",
+      "summary": "Breaking category strikeout matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_breaking_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home breaking-K matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_breaking_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home breaking-K matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_offspeed_home": {
+      "name": "exp2_cat_k_offspeed_home",
+      "summary": "Offspeed category strikeout matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_offspeed_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home offspeed-K matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_offspeed_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home offspeed-K matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_k_offspeed_away": {
+      "name": "exp2_cat_k_offspeed_away",
+      "summary": "Offspeed category strikeout matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_k_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_k_offspeed_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home offspeed-K matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_k_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_k_offspeed_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home offspeed-K matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_fastball_home": {
+      "name": "exp2_cat_xwoba_fastball_home",
+      "summary": "Fastball category xwOBA matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_fastball_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home fastball-xwOBA matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_fastball_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home fastball-xwOBA matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_fastball_away": {
+      "name": "exp2_cat_xwoba_fastball_away",
+      "summary": "Fastball category xwOBA matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_fastball_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home fastball-xwOBA matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_fastball_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home fastball-xwOBA matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_breaking_home": {
+      "name": "exp2_cat_xwoba_breaking_home",
+      "summary": "Breaking category xwOBA matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_breaking_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home breaking-xwOBA matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_breaking_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home breaking-xwOBA matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_breaking_away": {
+      "name": "exp2_cat_xwoba_breaking_away",
+      "summary": "Breaking category xwOBA matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_breaking_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home breaking-xwOBA matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_breaking_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_breaking_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home breaking-xwOBA matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_offspeed_home": {
+      "name": "exp2_cat_xwoba_offspeed_home",
+      "summary": "Offspeed category xwOBA matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_offspeed_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home offspeed-xwOBA matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_offspeed_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home offspeed-xwOBA matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_xwoba_offspeed_away": {
+      "name": "exp2_cat_xwoba_offspeed_away",
+      "summary": "Offspeed category xwOBA matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_xwoba_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_xwoba_offspeed_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home offspeed-xwOBA matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_xwoba_offspeed_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_xwoba_offspeed_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home offspeed-xwOBA matchup (away side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_platoon_k_fastball_home": {
+      "name": "exp2_cat_platoon_k_fastball_home",
+      "summary": "Platoon fastball strikeout matchup \u2014 home side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_platoon_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_platoon_k_fastball_home",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home platoon-K matchup (home side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_platoon_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_platoon_k_fastball_home\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home platoon-K matchup (home side)\nConsumed by: xgboost, lightgbm"
+    },
+    "exp2_cat_platoon_k_fastball_away": {
+      "name": "exp2_cat_platoon_k_fastball_away",
+      "summary": "Platoon fastball strikeout matchup \u2014 away side",
+      "definition": "Per-side half of the exp2 matchup composite exp2_cat_platoon_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.",
+      "formula": "exp2_cat_platoon_k_fastball_away",
+      "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+      "window": "season to date (strictly prior games)",
+      "units": "index",
+      "direction": "positive = more extreme home platoon-K matchup (away side)",
+      "members": [
+        "xgboost",
+        "lightgbm"
+      ],
+      "tooltip": "What: Per-side half of the exp2 matchup composite exp2_cat_platoon_k_fastball_diff: the same frozen per-side arithmetic the diff was computed from, served under a final name (home \u2212 away == diff by construction). Tree-only routing; a side without tracked pitch-category usage stays NULL.\nFormula: exp2_cat_platoon_k_fastball_away\nSource: Experiment #2 source layer (PIT-safe season-to-date aggregates)\nWindow: season to date (strictly prior games) \u00b7 Units: index\nDirection: positive = more extreme home platoon-K matchup (away side)\nConsumed by: xgboost, lightgbm"
     }
   },
   "categorical_context": {
