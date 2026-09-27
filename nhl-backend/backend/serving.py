@@ -269,27 +269,6 @@ def write_predictions_history_csv(path, oof: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Power rankings CSV — shared page shape (rank/team/team_name/elo/record)
 # ---------------------------------------------------------------------------
-def write_power_rankings_csv(path, ratings: dict[str, float],
-                             records: dict[str, tuple[int, int]],
-                             team_names: dict[str, str],
-                             ladder_stats: pd.DataFrame | None = None) -> pd.DataFrame:
-    rows = []
-    for team, elo in sorted(ratings.items(), key=lambda kv: -kv[1]):
-        w, l = records.get(team, (0, 0))
-        rows.append({
-            "rank": 0, "team": team,
-            "team_name": team_names.get(team, team),
-            "elo": round(float(elo), 1),
-            "wins": int(w), "losses": int(l),
-            "record": f"{int(w)}-{int(l)}",
-            "pct": round(w / (w + l), 3) if (w + l) else np.nan,
-            "run_diff": 0,
-            "l10": "", "home_pct": np.nan, "away_pct": np.nan,
-        })
-    df = pd.DataFrame(rows)
-    df["rank"] = range(1, len(df) + 1)
-    df.to_csv(path, index=False)
-    return df
 
 
 # ---------------------------------------------------------------------------

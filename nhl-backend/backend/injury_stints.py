@@ -48,8 +48,12 @@ IL_STATUSES: frozenset[str] = frozenset(
 STINT_MAX_LAG_DAYS = 45
 
 #: Maximum source-rating age for a candidate in the target-game pool.
-#: Keeps stale player/team associations out while covering ordinary rest gaps.
-POOL_LOOKBACK_DAYS = 45
+#: Keeps stale player/team associations (trades, retirements, injuries) out
+#: while covering ordinary rest gaps AND the offseason gap between the last
+#: decided game and the next season's first slate -- measured 107 days in the
+#: 2026-09-29 serving run, where 45 expired every rating and the entire slate
+#: fell back to position priors. 200 is roughly half a season of staleness.
+POOL_LOOKBACK_DAYS = 200
 
 #: Retained for legacy season-grain diagnostics only. Production player-game
 #: serving is strictly by source date < target game date.

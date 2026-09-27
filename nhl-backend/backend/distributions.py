@@ -57,41 +57,12 @@ MARGIN_SUPPORT = np.arange(-config.MARGIN_PMF_MAX, config.MARGIN_PMF_MAX + 1)
 TOTAL_SUPPORT = np.arange(0, config.TOTAL_PMF_MAX + 1)
 
 
-def discrete_normal_pmf(mu: float, sigma: float, support: np.ndarray) -> np.ndarray:
-    """Compatibility helper for old diagnostics; not the production sampler."""
-    if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0:
-        return np.full(len(support), np.nan)
-    z = (support - mu) / sigma
-    p = np.exp(-0.5 * z * z)
-    return p / p.sum()
-
-
 def _pmf_median(pmf: np.ndarray, support: np.ndarray) -> float:
     """Compatibility median helper for legacy diagnostics."""
     if not np.isfinite(pmf).all():
         return np.nan
     return float(support[min(int(np.searchsorted(np.cumsum(pmf), 0.5)),
                            len(support) - 1)])
-
-
-def margin_cdf_above(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
-    threshold = int(np.floor(line)) + 1
-    return float(pmf[support >= threshold].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def margin_pmf_at(pmf: np.ndarray, support: np.ndarray, line: float) -> float:
-    if line != int(line):
-        return 0.0
-    return float(pmf[support == int(line)].sum()) if np.isfinite(pmf).all() else np.nan
-
-
-def total_probabilities(pmf: np.ndarray, support: np.ndarray, line: float) -> tuple[float, float, float]:
-    if not np.isfinite(pmf).all():
-        return np.nan, np.nan, np.nan
-    push = float(pmf[support == int(line)].sum()) if line == int(line) else 0.0
-    over = float(pmf[support > line].sum())
-    under = float(pmf[support < line].sum())
-    return over, push, under
 
 
 def _make_reg():
@@ -414,7 +385,12 @@ def _apply_platt(p: np.ndarray, cal: dict | None) -> np.ndarray:
         return np.asarray(p, float)
     p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
     z = np.log(p / (1.0 - p))
-    return np.clip(1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"]))),
+    # Sigmoid saturates by |x|=35 (values ~1e-16), far outside the clip bounds
+    # below, so clamping the linear term is output-identical while keeping
+    # np.exp inside float range (a=1.27 slate logits reached ~-1e3 in the
+    # 2026-09-29 run and overflowed the exp before the clip could save it).
+    lin = np.clip(cal["a"] * z + cal["b"], -35.0, 35.0)
+    return np.clip(1.0 / (1.0 + np.exp(-lin)),
                    1e-7, 1 - 1e-7)
 
 
@@ -555,9 +531,3 @@ def apply_market_calibration(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
     return out
 
 
-def calibrate_sigma(resid_margin: np.ndarray, resid_total: np.ndarray) -> dict:
-    """Compatibility shim; callers should use calibrate_dispersion."""
-    return {"sigma_margin": float(np.nanstd(resid_margin)),
-            "sigma_total": float(np.nanstd(resid_total)),
-            "alpha_home": 0.0, "alpha_away": 0.0,
-            "distribution": "negative_binomial", "mc_draws": MC_DRAWS}

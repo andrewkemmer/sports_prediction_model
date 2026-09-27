@@ -191,17 +191,6 @@ def _family_for(rel: str) -> Optional[FamilyPolicy]:
     return best
 
 
-def family_prefixes(attr: str) -> tuple[str, ...]:
-    """All family prefixes where ``attr`` is truthy."""
-    return tuple(fp.prefix for fp in FAMILY_POLICY if getattr(fp, attr))
-
-
-def is_allowlisted(rel: str) -> bool:
-    """True when the path's family may ever be selected for deletion."""
-    fam = _family_for(rel)
-    return fam is not None and fam.allowlisted
-
-
 def classify_artifact(rel: str, seen: set,
                       retention_dates: set, recent_dates: set,
                       board_dates: set,

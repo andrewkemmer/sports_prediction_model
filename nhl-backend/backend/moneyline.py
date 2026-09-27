@@ -464,29 +464,6 @@ def get_calibration_mode() -> str:
     return mode
 
 
-def set_calibration_mode(mode: str) -> None:
-    """Switch the moneyline calibration mode in-process (harness/test use)."""
-    m = str(mode).strip().lower()
-    if m not in VALID_CALIBRATION_MODES:
-        raise ValueError(
-            f"unknown calibration mode {mode!r} (expected 'platt' or 'identity')")
-    config.CALIBRATION_MODE = m
-
-
-def is_identity(cal: dict | None) -> bool:
-    """True when ``cal`` applies no correction (None or a≈1, b≈0)."""
-    if not cal:
-        return True
-    if str(cal.get("method")) != FAVORED_CALIBRATOR_METHOD:
-        return True
-    try:
-        a = float(cal.get("a", 1.0))
-        b = float(cal.get("b", 0.0))
-    except (TypeError, ValueError):
-        return True
-    return abs(a - 1.0) < 1e-9 and abs(b) < 1e-9
-
-
 def fit_platt(p_fav: np.ndarray, y_fav: np.ndarray) -> dict | None:
     """Fit the 2-parameter logistic map p -> sigmoid(a*logit(p) + b) on
     FAVORED-space (p, y) pairs. Deterministic (LBFGS, no randomness).

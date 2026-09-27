@@ -1302,9 +1302,9 @@ class TestStrictSourceDatePool:
             ratings, stints=None, games=self._grid(dates=("2026-10-05",)))
         assert pool["rate"].iloc[0] == pytest.approx(0.060)
 
-    def test_candidates_older_than_the_45_day_default_expire(self):
+    def test_candidates_older_than_the_lookback_default_expire(self):
         ratings = make_pool_ratings(
-            [("1", "BOS", "C", 0.060, "2026-08-01")])   # 70 days stale
+            [("1", "BOS", "C", 0.060, "2026-01-01")])   # 282 days stale
         pool, _ = ist.team_game_rates(
             ratings, stints=None, games=self._grid())
         assert len(pool) == 0

@@ -838,60 +838,6 @@ def load_game_skaters(game_ids: list[str], use_cache: bool = True,
 SKATER_COLS = ["game_id", "side", "team", "player_id", "player_name"]
 
 
-def load_game_appearance_record(games: pd.DataFrame,
-                                use_cache: bool = True,
-                                max_workers: int = 8,
-                                fetch_missing: bool = False) -> pd.DataFrame:
-    """Join the dressed-roster diagnostic to date/team schedule context.
-
-    The result is ``(game_date, team, player_id, player_name, game_id)`` for
-    legacy availability analysis. A missing row means only that the player was
-    not listed as dressed; it is NOT an injury label. Production injury
-    features do not call this helper and instead use timestamped ESPN status
-    snapshots. Rows whose side matches no schedule row are dropped rather than
-    assigned to the wrong club.
-    """
-    if games is None or len(games) == 0:
-        return pd.DataFrame(columns=["game_date", "team", "player_id",
-                                     "player_name", "game_id"])
-    need = [c for c in ("game_id", "game_date", "home_team", "away_team")
-            if c not in games.columns]
-    if need:
-        logger.warning("appearance record unavailable: games frame missing %s",
-                       need)
-        return pd.DataFrame(columns=["game_date", "team", "player_id",
-                                     "player_name", "game_id"])
-
-    sheet = games[["game_id", "game_date", "home_team", "away_team"]].copy()
-    sheet["game_id"] = sheet["game_id"].astype(str)
-    sheet["game_date"] = pd.to_datetime(sheet["game_date"],
-                                        errors="coerce").dt.normalize()
-    sides = pd.concat([
-        sheet[["game_id", "game_date", "home_team"]]
-            .rename(columns={"home_team": "team"}).assign(side="home"),
-        sheet[["game_id", "game_date", "away_team"]]
-            .rename(columns={"away_team": "team"}).assign(side="away"),
-    ], ignore_index=True)
-    sides["team"] = sides["team"].astype(str)
-    sides = sides.dropna(subset=["game_date"]).drop_duplicates(["game_id", "side"])
-
-    skaters = load_game_skaters(sorted(sheet.game_id.unique().tolist()),
-                                use_cache=use_cache, max_workers=max_workers,
-                                fetch_missing=fetch_missing)
-    if skaters is None or len(skaters) == 0:
-        return pd.DataFrame(columns=["game_date", "team", "player_id",
-                                     "player_name", "game_id"])
-    skaters = skaters.drop(columns=[c for c in ("team",) if c in skaters.columns])
-
-    out = skaters.merge(sides, on=["game_id", "side"], how="inner")
-    out["player_id"] = out["player_id"].astype(str)
-    out = (out[["game_date", "team", "player_id", "player_name", "game_id"]]
-           .drop_duplicates(["game_date", "team", "player_id"]))
-    logger.info("appearance record: %d rows over %d team-sides in %d games",
-                len(out), len(sides), sides.game_id.nunique())
-    return out.reset_index(drop=True)
-
-
 def _skater_rows(bs: dict, game_id: str) -> list[dict]:
     """One row per skater who DRESSED, from the two per-side arrays."""
     rows: list[dict] = []
