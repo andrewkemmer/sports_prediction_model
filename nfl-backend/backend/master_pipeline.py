@@ -279,7 +279,14 @@ def main(argv: list[str] | None = None) -> int:
     ftn = ingestion.load_ftn_charting(seasons=seasons,
                                       use_cache=not full_repull,
                                       progress=_pop.advance)
+    # Refresh the current/upcoming season's injury report on ordinary runs;
+    # --skip-pull remains network-free and uses cached PIT-safe report rows.
+    injuries = ingestion.load_injuries_pit(
+        schedule, seasons=seasons, use_cache=not full_repull,
+        refresh_upcoming=not args.skip_pull, progress=_pop.advance)
     _pop.close()
+    logger.info("PIT injury designation rows: %s",
+                len(injuries))
     logger.info("player stats rows: %s | ngs rows: %s",
                 0 if ps is None else len(ps),
                 0 if ngs is None else len(ngs))
@@ -298,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 3", "point-in-time feature engine")
     game_df = feat_mod.build_game_features(
         decided_all, pbp, ps=ps, ngs=ngs, snaps=snaps,
-        ftn=ftn, weather=pit_weather)
+        ftn=ftn, weather=pit_weather, injuries=injuries)
     # Canonical (date_col, game_id) order: the one order every fold index is
     # valid for. See folds.canonical_sort for why a single-column sort is not
     # enough — fold labels are positional and the tree members are
@@ -570,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
     _banner("PHASE 11", "current-slate serving")
     slate = feat_mod.build_slate_features(
         schedule, pbp, ps=ps, ngs=ngs, snaps=snaps,
-        ftn=ftn, weather=pit_weather)
+        ftn=ftn, weather=pit_weather, injuries=injuries)
     if len(slate):
         slate = slate.sort_values("gameday").reset_index(drop=True)
         p_home = ml_mod.predict_slate(final_models, slate, weights)

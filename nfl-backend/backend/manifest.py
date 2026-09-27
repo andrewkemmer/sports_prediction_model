@@ -20,7 +20,8 @@ from __future__ import annotations
 # Generated entries for every declared RFE candidate
 # (config.PBP_CANDIDATE_COLS = pbp_<metric>_<window>_{diff,home,away}).
 # Candidates are NOT in config.MONEYLINE_FEATURE_COLS until an RFE adoption
-# promotes them, and validate() only checks the SERVED list name-for-name —
+# promotes them (or a feature family is explicitly promoted into the contract),
+# and validate() only checks the SERVED list name-for-name —
 # so candidate entries live in a side table consumed at admission time:
 #   * feature_selection._feature_context merges it into the workbook's
 #     per-feature metadata, so trials and the decision workbook document
@@ -277,11 +278,9 @@ def _build_candidate_manifest() -> None:
 _build_candidate_manifest()
 
 # ---------------------------------------------------------------------------
-# Static per-side candidate facts (config.STATIC_SIDE_CANDIDATES): raw
-# home/away levels of served DIFF-only facts, attached by
-# features._attach_static_team_facts. Candidate entries describe only names
-# that the config actually declares; served injury sides remain generated for
-# schema stability but are not a second RFE information source.
+# Static per-side facts: the unserved travel-distance candidate plus the
+# production EPA lineup levels. The EPA-side descriptions are generated from
+# _STATIC_SIDE_DOC_EPA and live in FEATURE_MANIFEST, never in the RFE pool.
 _STATIC_SIDE_DOC = {
     "travel_miles": (
         "Distance to game venue",
@@ -292,6 +291,81 @@ _STATIC_SIDE_DOC = {
 }
 
 
+_EPA_POSITION_LABEL = {
+    "epa_qb": "quarterback", "epa_wr": "wide receiver",
+    "epa_te": "tight end", "epa_rb": "running back",
+}
+# The per-position quality family is a DIFFERENT kind of static side fact from
+# travel_miles: its lookback is a rolling per-player window and its
+# aggregation is a mean of shrunk rates, not a per-game venue fact. It gets
+# its own metadata rather than being forced through the venue wording.
+_STATIC_SIDE_DOC_EPA = {
+    "epa_qb": (
+        "Projected-lineup quality",
+        "mean shrunk EPA per opportunity of the projected quarterbacks, over an "
+        "8-game strictly-prior window, shrunk to a position-segmented league prior",
+        "nflverse play-by-play EPA + qb_dropback/pass_attempt/rush_attempt "
+        "opportunity flags; weekly player stats for position labels",
+        "rolling(8) player rating from games dated before the target date; "
+        "candidate ratings come from the prior 21 calendar days to span bye weeks; "
+        "only an Out, "
+        "IR/Injured Reserve, or Doubtful report published strictly before "
+        "target kickoff excludes a player from the target pool",
+        "NaN when no projected player at this position has a prior rating; "
+        "non-injury statuses, missing/unreported status, and missing PIT "
+        "timestamps do not erase player history or exclude the player"),
+    "epa_wr": (
+        "Projected-lineup quality",
+        "mean shrunk EPA per opportunity of the projected wide receivers",
+        "nflverse play-by-play EPA + opportunity flags; weekly player stats "
+        "for position labels",
+        "rolling(8) player rating from games dated before the target date; "
+        "candidate ratings come from the prior 21 calendar days to span bye weeks; "
+        "only an Out, "
+        "IR/Injured Reserve, or Doubtful report published strictly before "
+        "target kickoff excludes a player from the target pool",
+        "NaN when no projected player at this position has a prior rating; "
+        "other/missing statuses and missing PIT timestamps do not exclude the "
+        "player"),
+    "epa_te": (
+        "Projected-lineup quality",
+        "mean shrunk EPA per opportunity of the projected tight ends",
+        "nflverse play-by-play EPA + opportunity flags; weekly player stats "
+        "for position labels",
+        "rolling(8) player rating from games dated before the target date; "
+        "candidate ratings come from the prior 21 calendar days to span bye weeks; "
+        "only an Out, "
+        "IR/Injured Reserve, or Doubtful report published strictly before "
+        "target kickoff excludes a player from the target pool",
+        "NaN when no projected player at this position has a prior rating; "
+        "other/missing statuses and missing PIT timestamps do not exclude the "
+        "player"),
+    "epa_rb": (
+        "Projected-lineup quality",
+        "mean shrunk EPA per opportunity of the projected running backs",
+        "nflverse play-by-play EPA + opportunity flags; weekly player stats "
+        "for position labels",
+        "rolling(8) player rating from games dated before the target date; "
+        "candidate ratings come from the prior 21 calendar days to span bye weeks; "
+        "only an Out, "
+        "IR/Injured Reserve, or Doubtful report published strictly before "
+        "target kickoff excludes a player from the target pool",
+        "NaN when no projected player at this position has a prior rating; "
+        "other/missing statuses and missing PIT timestamps do not exclude the "
+        "player"),
+}
+
+_STATIC_SIDE_AGGREGATION = {
+    "travel_miles": ("prior home games", "per-side point-in-time venue fact"),
+}
+_STATIC_SIDE_AGGREGATION_EPA = (
+    "8 player-games; 21-calendar-day roster window",
+    "unweighted mean by position among the team's top 11 prior-opportunity "
+    "leaders after excluding players with an Out/IR/Doubtful report published "
+    "strictly before target kickoff",
+)
+
+
 def _build_static_side_manifest() -> None:
     """Document every config.STATIC_SIDE_CANDIDATES base and both sides."""
     try:
@@ -299,24 +373,62 @@ def _build_static_side_manifest() -> None:
     except ImportError:  # running as a top-level module
         import config as _c
     for _base in _c.STATIC_SIDE_CANDIDATES:
-        desc, definition, source, pit, mvp = _STATIC_SIDE_DOC[_base]
+        if _base in _STATIC_SIDE_DOC_EPA:
+            desc, definition, source, pit, mvp = _STATIC_SIDE_DOC_EPA[_base]
+            lookback, aggregation = _STATIC_SIDE_AGGREGATION_EPA
+        else:
+            desc, definition, source, pit, mvp = _STATIC_SIDE_DOC[_base]
+            lookback, aggregation = _STATIC_SIDE_AGGREGATION[_base]
         for side, rep_name in (("home", "raw home level"), ("away", "raw away level")):
             CANDIDATE_MANIFEST[f"{_base}_{side}"] = {
                 "description": f"{side.capitalize()} team's {desc.lower()}",
                 "definition": f"The {side} team's {definition}",
                 "source": source,
-                "lookback": "prior home games",
-                "aggregation": "per-side point-in-time venue fact",
+                "lookback": lookback,
+                "aggregation": aggregation,
                 "point_in_time_rule": pit,
                 "missing_value_policy": mvp + "; in-model handling",
                 "representation": f"{rep_name} (tree members)",
                 "model_family_availability": ["tree"],
-                "feature_version": 5,
+                "feature_version": 6,
                 "candidate": True,
             }
 
 
+def _build_static_diff_manifest() -> None:
+    """Document every config.STATIC_DIFF_CANDIDATES base.
+
+    The diff is the home-side aggregate minus the away-side aggregate for the
+    same target game; the tree-only side levels remain available for RFE.
+    """
+    try:
+        from backend import config as _c
+    except ImportError:  # running as a top-level module
+        import config as _c
+    for _base in getattr(_c, "STATIC_DIFF_CANDIDATES", []):
+        src = _STATIC_SIDE_DOC_EPA.get(_base) or _STATIC_SIDE_DOC[_base]
+        desc, definition, source, pit, mvp = src
+        label = _EPA_POSITION_LABEL.get(_base, _base)
+        lookback, aggregation = (
+            _STATIC_SIDE_AGGREGATION_EPA if _base in _STATIC_SIDE_DOC_EPA
+            else _STATIC_SIDE_AGGREGATION[_base])
+        CANDIDATE_MANIFEST[f"{_base}_diff"] = {
+            "description": f"Home minus away {label} quality",
+            "definition": f"{_base}_home - {_base}_away",
+            "source": source,
+            "lookback": lookback,
+            "aggregation": aggregation,
+            "point_in_time_rule": pit,
+            "missing_value_policy": mvp + "; in-model handling",
+            "representation": "difference (all model families)",
+            "model_family_availability": ["linear", "tree", "mlp"],
+            "feature_version": 6,
+            "candidate": True,
+        }
+
+
 _build_static_side_manifest()
+_build_static_diff_manifest()
 
 # One entry per served feature. Field order mirrors the spec (section 11).
 FEATURE_MANIFEST = {
@@ -662,7 +774,45 @@ FEATURE_MANIFEST = {
         "feature_version": 1,
     },
 }
-# ---------------------------------------------------------------------------
+
+# All 12 EPA columns are production members, not candidates. Create their
+# metadata from the same shared side/PIT description; the two raw levels are
+# tree-only while the home-away diff is shared by every model family.
+try:
+    from backend import config as _epa_config
+except ImportError:  # running as a top-level module
+    import config as _epa_config
+for _base, _label in _EPA_POSITION_LABEL.items():
+    _desc, _definition, _source, _pit, _mvp = _STATIC_SIDE_DOC_EPA[_base]
+    _lookback, _aggregation = _STATIC_SIDE_AGGREGATION_EPA
+    for _side in ("home", "away"):
+        _name = f"{_base}_{_side}"
+        FEATURE_MANIFEST[_name] = {
+            "description": f"{_side.capitalize()} team's {_desc.lower()}",
+            "definition": f"The {_side} team's {_definition}",
+            "source": _source,
+            "lookback": _lookback,
+            "aggregation": _aggregation,
+            "point_in_time_rule": _pit,
+            "missing_value_policy": _mvp + "; in-model handling",
+            "representation": f"raw {_side} level (tree members)",
+            "model_family_availability": ["tree"],
+            "feature_version": 8,
+        }
+    _name = f"{_base}_diff"
+    FEATURE_MANIFEST[_name] = {
+        "description": f"Home minus away {_label} quality",
+        "definition": f"{_base}_home - {_base}_away",
+        "source": _source,
+        "lookback": _lookback,
+        "aggregation": _aggregation,
+        "point_in_time_rule": _pit,
+        "missing_value_policy": _mvp + "; in-model handling",
+        "representation": "difference (all model families)",
+        "model_family_availability": ["linear", "tree", "mlp"],
+        "feature_version": 8,
+    }
+
 # RFE promotions: candidates structurally promoted into the served contract
 # (config.MONEYLINE_FEATURE_COLS). Their manifest entries move OUT of the
 # candidate manifest (the trial space excludes served names), so re-home the
@@ -710,9 +860,8 @@ def validate() -> list[str]:
         if f not in pool:
             problems.append(f"raw per-side column {f!r} is not in the declared pool")
     # Candidate documentation must name the effective trial space exactly.
-    # (Candidates are triable-but-unserved, so they live in CANDIDATE_MANIFEST,
-    # not FEATURE_MANIFEST; structurally promoted names leave both the trial
-    # space and the candidate manifest together.)
+    # Triable-but-unserved names live in CANDIDATE_MANIFEST; structurally
+    # promoted names live in FEATURE_MANIFEST and leave the trial space.
     problems.extend(config_assert_candidate_parity(_c))
     required_fields = ("definition", "source", "lookback", "aggregation",
                        "point_in_time_rule", "missing_value_policy",

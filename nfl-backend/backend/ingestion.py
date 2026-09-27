@@ -10,6 +10,7 @@ place that interprets them.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -114,6 +115,14 @@ PBP_NEEDS = [
     # nflreadpy pbp release — charting structure rides the ftn family instead.
     "qtr", "down", "ydstogo", "goal_to_go", "score_differential",
     "half_seconds_remaining", "play_type",
+    # 2026-09-26 per-position player-quality family (features.epa_opportunity_
+    # table): the three role-attribution ids and the three opportunity flags.
+    # The flags are the denominator — they handle what play_type cannot, a
+    # scramble is a qb_dropback on a play_type of "run" — and they exist in
+    # every season 2016-2025, so the family is full history. pass_attempt is
+    # already in PBP_NEEDS above.
+    "passer_player_id", "receiver_player_id", "rusher_player_id",
+    "qb_dropback", "rush_attempt",
 ]
 
 # Cache schema version for the pbp parquets. Bump whenever PBP_NEEDS widens:
@@ -124,8 +133,9 @@ PBP_NEEDS = [
 # "v3" swaps the never-available raw "yac" for "yac_epa" (the YAC-as-EPA
 # decomposition nflreadpy actually publishes); "v4" adds the situational
 # columns (qtr/down/ydstogo/goal_to_go/score_differential/half_seconds_
-# remaining) behind the platoon rollups.
-PBP_CACHE_VERSION = "v4"
+# remaining) behind the platoon rollups; "v5" adds player-role IDs and
+# opportunity flags for per-position projected-lineup EPA features.
+PBP_CACHE_VERSION = "v5"
 
 
 def load_pbp(seasons: list[int] | None = None,
@@ -182,17 +192,241 @@ def load_pbp(seasons: list[int] | None = None,
 # Player stats / Next-Gen Stats — the skill inputs
 # (each narrowed at load, cached per season, degrading to NaN downstream)
 # ---------------------------------------------------------------------------
-# NOTE: the injury-report loader (INJ_* / load_injuries) was removed together
-# with the four inj_*_out_diff features. The source stopped publishing
-# per-report timestamps after 2024, so those flags could not be populated for
-# every game without either leaking a week-level status that postdates kickoff
-# or accepting a permanently NaN slate. Availability is now expressed by the
-# expected-participation feature family, derived from strictly-prior games.
+# The former inj_*_out_diff feature family was removed because the source
+# stopped publishing per-report timestamps after 2024. The PIT injury loader
+# below is separate: it is used only for the projected-player EPA candidates,
+# with strict publication-time filtering and the explicitly requested status
+# classifier; seasons without timestamps produce no eligible status rows.
+#
+# load_injuries_pit is the PIT-only injury source for the EPA lineup features.
+# Only an Out, IR (including the spelled-out Injured Reserve), or Doubtful
+# designation excludes a player from THAT target game's projected lineup.
+# Other statuses and the absence of an admissible report do not erase the
+# player's lagged EPA or remove him from the candidate pool.
+#
+# nflverse carries per-report date_modified through 2024, but not in the
+# 2025/2026 pulls currently available. Missing timestamps fail closed: no
+# injury exclusion is inferred without a strictly pre-kickoff publication.
+# v2 added team/game_type keys so a week's report can only apply to that
+# team's target game; v3 canonicalizes the source's game_type/season_type
+# spelling before caching so source-schema variants remain joinable.
+INJ_PIT_NEEDS = ("gsis_id", "season", "game_type", "team", "week",
+                 "report_status", "date_modified")
+INJ_PIT_CACHE_VERSION = "v3"
+INJ_PIT_INJURED_TOKENS = frozenset({"out", "ir", "doubtful"})
+
+
+def injury_availability_weight(status: object) -> float:
+    """1=not designated injured, 0=Out/IR/Doubtful.
+
+    Match the named designation tokens only (plus the equivalent phrase
+    ``Injured Reserve``); statuses such as ``Injury`` or ``Reserve`` by
+    themselves are not an exclusion. The weight is lineup membership only,
+    never a multiplier on the player's historical EPA.
+    """
+    if status is None or pd.isna(status):
+        return 1.0
+    tokens = re.findall(r"[a-z]+", str(status).strip().lower())
+    injured_reserve = any(tokens[i:i + 2] == ["injured", "reserve"]
+                          for i in range(len(tokens) - 1))
+    return 0.0 if (set(tokens) & INJ_PIT_INJURED_TOKENS) or injured_reserve else 1.0
+
+
+def _strict_utc_timestamp(value):
+    """Return UTC only when a report timestamp carries an explicit timezone.
+
+    Naive timestamps have no trustworthy timezone provenance and cannot be
+    compared strictly with the scheduled kickoff; reject rather than guessing.
+    """
+    if value is None or pd.isna(value):
+        return pd.NaT
+    try:
+        stamp = pd.Timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return pd.NaT
+    if stamp.tzinfo is None or stamp.utcoffset() is None:
+        return pd.NaT
+    return stamp.tz_convert("UTC")
+
+
+def _normalize_id(value) -> str | None:
+    """Canonical gsis player id, or None for the several null spellings."""
+    if value is None:
+        return None
+    try:
+        if value is not None and value != value:  # NaN
+            return None
+    except TypeError:
+        pass
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "<na>", "null"}:
+        return None
+    return text
+
+
+def load_injuries_pit(games: pd.DataFrame,
+                      seasons: list[int] | None = None,
+                      use_cache: bool = True, refresh_upcoming: bool = True,
+                      progress=None) -> pd.DataFrame:
+    """Latest per-player injury availability published strictly before kickoff.
+
+    ``gametime`` is ET and is converted to UTC. For each game/player, the
+    latest report row with ``date_modified < kickoff`` wins. Equal-to-kickoff
+    and later reports are excluded. Rows lacking their own publication
+    timestamp are never assigned a guessed time.
+
+    Any season with a future scheduled kickoff in ``games`` is refreshed on
+    every run because injury reports change during the week; historical
+    seasons may use their stable per-season cache. Reports are joined to the
+    exact target team and game type, then the latest matching publication
+    strictly before kickoff determines only lineup membership—not the
+    player's historical EPA rate.
+    """
+    cols = ["game_id", "team", "player_id", "status",
+            "availability_weight", "published"]
+    seasons = seasons or config.ALL_SEASONS
+    need_games = {"game_id", "gameday", "gametime", "season", "week",
+                  "game_type", "home_team", "away_team"}
+    if games is None or not need_games.issubset(set(games.columns)):
+        return pd.DataFrame(columns=cols)
+
+    g = games[["game_id", "gameday", "gametime", "season", "week",
+               "game_type", "home_team", "away_team"]].copy()
+    g["game_id"] = g["game_id"].astype(str)
+    g["season"] = pd.to_numeric(g["season"], errors="coerce")
+    g["week"] = pd.to_numeric(g["week"], errors="coerce")
+    for c in ("game_type", "home_team", "away_team"):
+        g[c] = g[c].astype("string").str.strip().str.upper()
+    g = g.drop_duplicates("game_id")
+    for c in ("game_type", "home_team", "away_team"):
+        g = g[g[c].notna() & g[c].ne("")]
+    gd = pd.to_datetime(g["gameday"], errors="coerce")
+    gt = g["gametime"].astype("string").str.strip()
+    local = pd.to_datetime(
+        gd.dt.strftime("%Y-%m-%d") + " " + gt.fillna(""), errors="coerce")
+    try:
+        g["kickoff"] = local.dt.tz_localize(
+            "America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert(
+                "UTC")
+    except (TypeError, ValueError):
+        # Bad or missing local kickoff is not replaced by a guessed midnight.
+        g["kickoff"] = pd.Series(pd.NaT, index=g.index, dtype="datetime64[ns, UTC]")
+    g = g.dropna(subset=["kickoff", "season", "week"])
+    if g.empty:
+        return pd.DataFrame(columns=cols)
+
+    now = pd.Timestamp.now(tz="UTC")
+    refresh_seasons = (set(g.loc[g["kickoff"] > now, "season"].astype(int))
+                       if refresh_upcoming else set())
+    frames = []
+    for s in seasons:
+        path = _cache_path(f"inj_pit_{INJ_PIT_CACHE_VERSION}_{s}.parquet")
+        cached = None
+        try:
+            if path.exists():
+                try:
+                    cached = pd.read_parquet(path)
+                except Exception as exc:  # corrupt cache -> re-pull
+                    logger.warning("injury PIT cache %s unreadable (%s)",
+                                   path.name, exc)
+            if use_cache and cached is not None and s not in refresh_seasons:
+                frames.append(cached)
+                continue
+            try:
+                from nflreadpy import load_injuries
+                df = _polars_to_pandas(load_injuries(s))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("injury PIT source unavailable for %s: %s", s, exc)
+                # A stale current-week cache can miss a new pre-kickoff update.
+                # Never reuse it for a season with a future target game.
+                if cached is not None and s not in refresh_seasons:
+                    logger.warning("using historical cached PIT report rows for %s", s)
+                    frames.append(cached)
+                continue
+            df = df.loc[:, ~df.columns.duplicated()].copy()
+            # nflreadr has published both game_type and season_type spellings;
+            # canonicalize before narrowing so the matchup join stays exact.
+            if "game_type" not in df.columns and "season_type" in df.columns:
+                df["game_type"] = df["season_type"]
+            # Keep a stable cache schema even when the source omits a field.
+            for c in INJ_PIT_NEEDS:
+                if c not in df.columns:
+                    df[c] = pd.NA
+            df = df[list(INJ_PIT_NEEDS)]
+            df.to_parquet(path, index=False)
+            frames.append(df)
+        finally:
+            if progress is not None:
+                progress()
+    if not frames:
+        return pd.DataFrame(columns=cols)
+
+    inj = pd.concat(frames, ignore_index=True)
+    # Also tolerate an older v2 cache written by a source exposing only
+    # season_type (the v3 cache path ensures normal pulls are rebuilt).
+    if "game_type" not in inj.columns and "season_type" in inj.columns:
+        inj["game_type"] = inj["season_type"]
+    if not {"gsis_id", "date_modified", "team", "game_type"} <= set(inj.columns):
+        return pd.DataFrame(columns=cols)
+    inj["player_id"] = inj["gsis_id"].map(_normalize_id)
+    inj["team"] = inj["team"].astype("string").str.strip().str.upper()
+    inj["game_type"] = inj["game_type"].astype("string").str.strip().str.upper()
+    inj = inj.dropna(subset=["player_id", "team", "game_type"])
+    inj = inj[inj["team"].ne("") & inj["game_type"].ne("")]
+    # FAIL CLOSED: no explicitly zoned publication timestamp, no designation.
+    inj["published"] = pd.to_datetime(
+        inj["date_modified"].map(_strict_utc_timestamp), errors="coerce", utc=True)
+    inj = inj[inj["published"].notna()]
+    if inj.empty:
+        return pd.DataFrame(columns=cols)
+    inj["status"] = (inj["report_status"].astype("string").str.strip()
+                     .str.lower().fillna(""))
+    inj["availability_weight"] = inj["status"].map(
+        injury_availability_weight).fillna(1.0).astype(float)
+    inj["season"] = pd.to_numeric(inj["season"], errors="coerce")
+    inj["week"] = pd.to_numeric(inj["week"], errors="coerce")
+    inj = inj.dropna(subset=["season", "week"])
+
+    # Expand each scheduled game into its two participating teams before
+    # joining the week-level feed. Joining only on (season, week) would leak
+    # another team's designation onto this matchup's player pool.
+    team_games = pd.concat([
+        g[["game_id", "season", "week", "game_type", "kickoff", "home_team"]]
+        .rename(columns={"home_team": "team"}),
+        g[["game_id", "season", "week", "game_type", "kickoff", "away_team"]]
+        .rename(columns={"away_team": "team"}),
+    ], ignore_index=True).drop_duplicates(["game_id", "team"])
+    pairs = team_games.merge(
+        inj[["player_id", "team", "season", "game_type", "week", "published",
+             "status", "availability_weight"]],
+        on=["team", "season", "game_type", "week"], how="inner")
+    pairs = pairs[pairs["published"] < pairs["kickoff"]]
+    if pairs.empty:
+        return pd.DataFrame(columns=cols)
+    # Latest admissible publication wins. If conflicting rows tie exactly,
+    # an explicit Out/IR/Doubtful (weight 0) wins that tie.
+    out = (pairs.sort_values(["game_id", "team", "player_id", "published",
+                              "availability_weight"],
+                             ascending=[True, True, True, True, False],
+                             kind="mergesort")
+           .drop_duplicates(["game_id", "team", "player_id"], keep="last")
+           [["game_id", "team", "player_id", "status", "availability_weight",
+             "published"]]
+           .reset_index(drop=True))
+    out["game_id"] = out["game_id"].astype(str)
+    return out[cols]
+
 
 PS_NEEDS = [
     "game_id", "team", "position", "carries", "rushing_yards", "targets",
     "receptions", "receiving_yards", "receiving_tds", "season_type",
+    # player_id joins the weekly row to the per-player EPA/opportunity table
+    # built from pbp.  Position labels ride along with it, which is why the
+    # per-position quality family does not need a separate roster source.
+    "player_id",
 ]
+
+PS_CACHE_VERSION = "v2"  # v2 includes player_id so EPA histories join by player
 
 # Weekly per-player tracking efficiency (week-0 rows are SEASON aggregates —
 # they mix future games into a week-1 value, so they are dropped at load).
@@ -211,13 +445,14 @@ def load_player_stats(seasons: list[int] | None = None,
                       use_cache: bool = True, progress=None) -> pd.DataFrame | None:
     """nflverse weekly player stats narrowed to the usage rollup needs.
 
-    Per-season parquet caches (PS cache v1); a failed season is warned and
-    skipped, never fatal. Returns None only when NO season could be loaded."""
+    Per-season parquet caches (PS cache v2 includes player_id); a failed
+    season is warned and skipped, never fatal. Returns None only when NO
+    season could be loaded."""
     seasons = seasons or config.ALL_SEASONS
     frames: list[pd.DataFrame] = []
     for season in seasons:
         try:
-            path = _cache_path(f"ps_v1_{season}.parquet")
+            path = _cache_path(f"ps_{PS_CACHE_VERSION}_{season}.parquet")
             if use_cache and path.exists():
                 try:
                     frames.append(pd.read_parquet(path))
@@ -506,4 +741,5 @@ def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:
         "nextgen": len(NGS_GROUPS) * extended,
         "snap_counts": extended,
         "ftn_charting": len(core_seasons),
+        "injuries": len(core_seasons),
     }
