@@ -3,3 +3,11 @@ pandas
 numpy
 pytest
 openpyxl
+# The progress bar. MLB's statcast pull draws its bar with tqdm and the
+# captured Kaggle log keeps it, because stock tqdm writes to a non-terminal
+# exactly as it writes to a terminal. ``StageProgress`` imports it lazily
+# inside a guarded ``_make_bar``, so a missing tqdm costs the bar and
+# nothing else: the run still completes and still reports a heartbeat line
+# in the same dialect. Pinned by name (NBA parity) because without it the
+# ingestion and OOF phases are a wall of numbers with no bar to watch.
+tqdm
