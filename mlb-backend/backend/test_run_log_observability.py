@@ -241,7 +241,7 @@ def test_genuinely_orphaned_entry_still_warns(monkeypatch):
 def test_metadata_still_covers_the_full_serving_width():
     """The fix narrows the WARNING, not the metadata itself."""
     meta, _ = feature_metadata.build_features_metadata()
-    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 62
+    assert len(meta) == len(training.MONEYLINE_FEATURE_COLS) == 98
     assert all(row.get("tooltip") for row in meta.values())
 
 
@@ -263,23 +263,31 @@ def _diff_output() -> tuple[set, set, pd.DataFrame]:
     return before, set(out.columns) - before, out
 
 
-def test_diff_pass_creates_thirty_six_columns():
-    """36, not the 35 every log line used to claim. The 36th is
-    lineup_il_flag_diff, added with the OUT/IR lineup filter."""
+def test_diff_pass_creates_fifty_six_columns():
+    """56 on the identity frame: the 36 the pass always created plus the
+    2026-09-27 twin expansion minus the 2 travel twins (renames are
+    in-place; the 12 level twins are absent inputs here, so they are
+    created NULL like their diffs; the 6 interaction twins and the 2
+    travel twins are new columns; the 16 exp2 twins belong to
+    add_exp2_features)."""
     _, created, _ = _diff_output()
-    assert len(created) == 36, sorted(created)
+    assert len(created) == 56, sorted(created)
 
 
 def test_created_set_carries_the_il_flag_diff():
     """The column that caused the drift must be in the produced set."""
     _, created, _ = _diff_output()
     assert "lineup_il_flag_diff" in created
-    # the eight non-`*_diff` interaction features are easy to forget
+    # the eight non-`*_diff` interaction features are easy to forget —
+    # renamed 2026-09-27 to their *_diff names, twins included
     extras = {
         "lineup_handedness_matchup_advantage", "dome_is_neutral",
         "wind_advantage_flyball_factor", "air_density_velocity_boost",
-        "bullpen_meltdown_risk", "pitcher_regression_indicator",
-        "lineup_depth_multiplier", "ace_efficiency_factor",
+        "bullpen_meltdown_risk", "pitcher_regression_indicator_diff",
+        "lineup_depth_multiplier_diff", "ace_efficiency_factor_diff",
+        "pitcher_regression_indicator_home", "pitcher_regression_indicator_away",
+        "lineup_depth_multiplier_home", "lineup_depth_multiplier_away",
+        "ace_efficiency_factor_home", "ace_efficiency_factor_away",
     }
     assert extras <= created, sorted(extras - created)
 

@@ -173,9 +173,20 @@ MONEYLINE_FEATURE_COLS = [
     "air_density_velocity_boost",
     # 29–32. Derived interaction features
     "bullpen_meltdown_risk",
-    "pitcher_regression_indicator",
-    "lineup_depth_multiplier",
-    "ace_efficiency_factor",
+    # RENAMED 2026-09-27 (structural): every model-side feature ends in
+    # _diff. The three interaction composites take their diff names plus
+    # per-side twins (the within-side product of their own factors —
+    # home − away of the pair equals the diff only up to cross terms, so
+    # the pair is the interaction's raw representation, not its halves).
+    "pitcher_regression_indicator_diff",
+    "pitcher_regression_indicator_home",
+    "pitcher_regression_indicator_away",
+    "lineup_depth_multiplier_diff",
+    "lineup_depth_multiplier_home",
+    "lineup_depth_multiplier_away",
+    "ace_efficiency_factor_diff",
+    "ace_efficiency_factor_home",
+    "ace_efficiency_factor_away",
     # 33–56. Raw per-side inputs (home/away pre-differenced values).
     # Gives every member the raw home and away values alongside their diffs,
     # letting tree members discover side-specific thresholds and interactions
@@ -345,6 +356,47 @@ MONEYLINE_FEATURE_COLS = list(dict.fromkeys(MONEYLINE_FEATURE_COLS))
 # order, so set_feature_subset's canonical reordering produces zero
 # positional churn for the 62-col matrix.
 MONEYLINE_FEATURE_COLS += ["closer_available_home", "closer_available_away"]
+
+# EXPANDED 2026-09-27 (structural, mirrors the NHL d83e0c1 per-side twin
+# rollout): every served diff family now also exposes its raw home/away
+# halves, so the tree members see the levels the matchup gaps summarize.
+#   * 12 level twins (rest_days, sp_era_5g, sp_fbvelo_3g, lineup_woba_std,
+#     bullpen_pitches_3d, team_hardhit_15g) + the travel twins are the
+#     diff pass's OWN input columns — the same strictly-prior source, so
+#     home − away == diff by construction and no second derivation can
+#     drift.
+#   * 16 exp2 twins are the per-side scratch add_exp2_features always
+#     computed and dropped; now served under final names from the same
+#     frozen arithmetic.
+#   * The 6 interaction twins above are the within-side products.
+# Twin coverage == diff coverage minus source availability: the exp2
+# offspeed family rides the documented 0.567 source floor (twins DOMINATE
+# their diff, so a diff can never be better covered than its halves).
+# Routing stays untouched: RAW_PER_SIDE_COLS (below) routes all 38 new
+# twins tree-only; the logistic member keeps its diffs-only view and the
+# run engine's λ view carries the levels but not the matchup composites#     (derive_run_features drops *_diff composites by rule and the six
+#     interaction twins by name). Universe 62 → 98.
+MONEYLINE_FEATURE_COLS += [
+    # Raw per-side levels for the remaining served diff families
+    "rest_days_home", "rest_days_away",
+    "sp_era_5g_home", "sp_era_5g_away",
+    "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
+    "lineup_woba_std_home", "lineup_woba_std_away",
+    "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
+    "team_hardhit_15g_home", "team_hardhit_15g_away",
+    "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
+    # Experiment #2 per-side halves (the diffs' own scratch, served; the
+    # literal contract mirrors features.EXP2_TWIN_COLS — same frozen names,
+    # owned here so the serving universe never depends on a builder import)
+    "exp2_centered_k_home", "exp2_centered_k_away",
+    "exp2_cat_k_fastball_home", "exp2_cat_k_fastball_away",
+    "exp2_cat_k_breaking_home", "exp2_cat_k_breaking_away",
+    "exp2_cat_k_offspeed_home", "exp2_cat_k_offspeed_away",
+    "exp2_cat_xwoba_fastball_home", "exp2_cat_xwoba_fastball_away",
+    "exp2_cat_xwoba_breaking_home", "exp2_cat_xwoba_breaking_away",
+    "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
+    "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
+]
 
 # ── Known feature pool (RFE trial space) ────────────────────────────────────
 # KNOWN_FEATURE_COLS = the generation universe plus every RFE candidate
@@ -783,9 +835,12 @@ RF_WITH_TEAM_IDS = True
 # to restore diffs+raws; predict-time routing auto-detects either bundle.
 LOGISTIC_USE_RAW_COLS = False
 
-# The 24 raw home/away per-side columns that mirror existing diff twins.
+# The raw home/away per-side columns that mirror existing diff twins.
 # Routing note: ONLY the logistic member honors LOGISTIC_USE_RAW_COLS — tree
 # members always receive them, and the MLP is untouched by this toggle.
+# 2026-09-27: expanded 24 → 60 with the 36 new twins (14 level/travel, 16
+# exp2, 6 interaction), so every served diff family's raw halves route
+# tree-only exactly like the originals.
 RAW_PER_SIDE_COLS = [
     "home_elo", "away_elo",
     "home_win_pct", "away_win_pct",
@@ -799,6 +854,27 @@ RAW_PER_SIDE_COLS = [
     "bullpen_whip_3g_home", "bullpen_whip_3g_away",
     "team_barrel_15g_home", "team_barrel_15g_away",
     "team_exitvelo_15g_home", "team_exitvelo_15g_away",
+    # 2026-09-27 twin expansion (all tree-only, mirroring the rule above)
+    "rest_days_home", "rest_days_away",
+    "sp_era_5g_home", "sp_era_5g_away",
+    "sp_fbvelo_3g_home", "sp_fbvelo_3g_away",
+    "lineup_woba_std_home", "lineup_woba_std_away",
+    "bullpen_pitches_3d_home", "bullpen_pitches_3d_away",
+    "team_hardhit_15g_home", "team_hardhit_15g_away",
+    "time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away",
+    "pitcher_regression_indicator_home", "pitcher_regression_indicator_away",
+    "lineup_depth_multiplier_home", "lineup_depth_multiplier_away",
+    "ace_efficiency_factor_home", "ace_efficiency_factor_away",
+    # exp2 twins — same frozen names as features.EXP2_TWIN_COLS (literal
+    # contract, no builder import)
+    "exp2_centered_k_home", "exp2_centered_k_away",
+    "exp2_cat_k_fastball_home", "exp2_cat_k_fastball_away",
+    "exp2_cat_k_breaking_home", "exp2_cat_k_breaking_away",
+    "exp2_cat_k_offspeed_home", "exp2_cat_k_offspeed_away",
+    "exp2_cat_xwoba_fastball_home", "exp2_cat_xwoba_fastball_away",
+    "exp2_cat_xwoba_breaking_home", "exp2_cat_xwoba_breaking_away",
+    "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
+    "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
 ]
 
 

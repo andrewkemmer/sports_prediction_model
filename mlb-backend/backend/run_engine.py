@@ -59,9 +59,18 @@ logger = logging.getLogger(__name__)
 RUN_EXTRA_EXCLUSIONS = {
     "lineup_handedness_matchup_advantage",
     "bullpen_meltdown_risk",          # pitches_diff × whip_diff
-    "pitcher_regression_indicator",   # velo_diff × era_diff
-    "lineup_depth_multiplier",        # woba_mean_diff × top3_diff
-    "ace_efficiency_factor",          # k9_diff × whiff_diff
+    # RENAMED 2026-09-27: the three interaction composites take their *_diff
+    # names; the run engine never consumed the composites, so the twins ride
+    # the same exclusion (matchup signal, not a scoring LEVEL).
+    "pitcher_regression_indicator_diff",   # velo_diff × era_diff
+    "pitcher_regression_indicator_home",   # within-side velo × era
+    "pitcher_regression_indicator_away",
+    "lineup_depth_multiplier_diff",        # woba_mean_diff × top3_diff
+    "lineup_depth_multiplier_home",
+    "lineup_depth_multiplier_away",
+    "ace_efficiency_factor_diff",          # k9_diff × whiff_diff
+    "ace_efficiency_factor_home",
+    "ace_efficiency_factor_away",
     # Phase 2 lineup-delta features (actual starting-9 wOBA vs team season) —
     # matchup/form signal, moneyline-only; excluded so the run engine's
     # raw-only view stays byte-identical (GOLDEN RULE: levels + environment).
@@ -165,6 +174,22 @@ RUN_DIFF_EXCEPTION = "park_factor_slug_diff"
 # feature) stay excluded. Two restored features show material drift
 # (woba_30g_diff 0.296, lineup_woba_top3_diff 0.104 WARN) but still net-improve
 # in the A/B; they are now drift-monitored so classify_drift_retention can act.
+# 2026-09-27 twin expansion: the 16 exp2 per-side twins are the halves of
+# matchup-gap diffs — same exclusion class as the gaps themselves (the λ
+# view carries LEVELS + environment, never matchup composites). The 14
+# level/travel twins flow in by the existing rule; the six interaction
+# twins are named in RUN_EXTRA_EXCLUSIONS above.
+RUN_EXP2_TWIN_EXCLUSIONS = frozenset({
+    "exp2_centered_k_home", "exp2_centered_k_away",
+    "exp2_cat_k_fastball_home", "exp2_cat_k_fastball_away",
+    "exp2_cat_k_breaking_home", "exp2_cat_k_breaking_away",
+    "exp2_cat_k_offspeed_home", "exp2_cat_k_offspeed_away",
+    "exp2_cat_xwoba_fastball_home", "exp2_cat_xwoba_fastball_away",
+    "exp2_cat_xwoba_breaking_home", "exp2_cat_xwoba_breaking_away",
+    "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
+    "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
+})
+
 RUN_RESTORED_DIFF_FEATURES = frozenset({
     "win_pct_diff", "elo_diff", "rest_days_diff",
     "sp_era_diff", "sp_era_5g_diff", "sp_k9_diff", "sp_k9_5g_diff",
@@ -238,7 +263,7 @@ def derive_run_features(feature_cols: list[str]) -> tuple[list[str], list[str]]:
         if f.endswith("_diff") and f not in RUN_RESTORED_DIFF_FEATURES \
                 and f != RUN_DIFF_EXCEPTION:
             dropped.append(f)
-        elif f in RUN_EXTRA_EXCLUSIONS:
+        elif f in RUN_EXTRA_EXCLUSIONS or f in RUN_EXP2_TWIN_EXCLUSIONS:
             dropped.append(f)
         elif f.endswith("_delta_home") or f.endswith("_delta_away"):
             # Momentum form deltas (recent − season baseline) are matchup/form

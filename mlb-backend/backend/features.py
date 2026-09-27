@@ -2540,7 +2540,16 @@ def add_form_delta_features(game_df: pd.DataFrame,
 # target_game_date, doubleheader-safe date-level ASOF), so the arithmetic
 # here adds no new temporal exposure. Coverage gaps (offspeed 0.56,
 # breaking 0.79) stay NULL — the feature matrix preserves NaN (tree members
-# route it; logistic/mlp impute).
+# route it; logistic/mlp impute). The gaps are a SOURCE-AVAILABILITY floor,
+# not an artifact: a starter with no tracked offspeed/breaking usage has no
+# per-side value, and the twins inherit exactly that floor (a twin dominates
+# its diff, so the diff can never be better covered than its halves).
+#
+# 2026-09-27 structural expansion: each diff also serves its raw per-side
+# halves under final names (exp2_*_home / exp2_*_away) — the very scratch
+# this function always computed and then dropped. Same arithmetic, same
+# sources, so home − away == diff by construction; 8 diffs + 16 twins =
+# 24 created columns.
 EXP2_CANDIDATE_COLS: list[str] = [
     "exp2_centered_k_diff",
     "exp2_cat_k_fastball_diff", "exp2_cat_k_breaking_diff",
@@ -2550,6 +2559,18 @@ EXP2_CANDIDATE_COLS: list[str] = [
     "exp2_cat_platoon_k_fastball_diff",
 ]
 _EXP2_CATEGORIES = ("fastball", "breaking", "offspeed")
+# Per-side twins of the candidates, in canonical order (the frame's scratch
+# values served under final names; tree-only routing per the level rule).
+EXP2_TWIN_COLS: list[str] = [
+    "exp2_centered_k_home", "exp2_centered_k_away",
+    "exp2_cat_k_fastball_home", "exp2_cat_k_fastball_away",
+    "exp2_cat_k_breaking_home", "exp2_cat_k_breaking_away",
+    "exp2_cat_k_offspeed_home", "exp2_cat_k_offspeed_away",
+    "exp2_cat_xwoba_fastball_home", "exp2_cat_xwoba_fastball_away",
+    "exp2_cat_xwoba_breaking_home", "exp2_cat_xwoba_breaking_away",
+    "exp2_cat_xwoba_offspeed_home", "exp2_cat_xwoba_offspeed_away",
+    "exp2_cat_platoon_k_fastball_home", "exp2_cat_platoon_k_fastball_away",
+]
 
 
 def add_exp2_features(game_df: pd.DataFrame,
@@ -2571,6 +2592,11 @@ def add_exp2_features(game_df: pd.DataFrame,
     frozen before results): candidate 1 mixes denominators — SP K/9 vs
     opponent/league K/PA — by design. Missing inputs propagate as NaN, never
     a fabricated 0.
+
+    2026-09-27: the per-side halves are ALSO served under final names
+    (exp2_*_home / exp2_*_away) — the same arithmetic's scratch values,
+    kept instead of dropped, so every served diff exposes its raw halves
+    (home − away == diff by construction). 24 columns created in total.
 
     Returns the frame (same object when inplace=True, else a copy).
     """
@@ -2597,11 +2623,11 @@ def add_exp2_features(game_df: pd.DataFrame,
         + [f"sp_usage_cat_fastball_{s}" for s in ("home", "away")]
     ) if c not in df.columns})
     if missing_src:
-        for c in EXP2_CANDIDATE_COLS:
+        for c in [*EXP2_CANDIDATE_COLS, *EXP2_TWIN_COLS]:
             df[c] = np.nan
         logger.warning(
             "add_exp2_features: %d source columns absent (%s…) — all 8 "
-            "candidates ship as NaN (thin/partial frame)",
+            "candidates + 16 per-side twins ship as NaN (thin/partial frame)",
             len(missing_src), ", ".join(missing_src[:5]))
         return df
 
@@ -2651,14 +2677,29 @@ def add_exp2_features(game_df: pd.DataFrame,
                  + rsh * (_num(f"team_k_pct_fb_vs_r_{other}") - lg_r))
         return sp_c * opp_c * _num(f"sp_usage_cat_fastball_{side}")
 
+    # Per-side twins served under FINAL names — the exact scratch values the
+    # diffs were computed from (home − away == diff by construction). The
+    # internal _exp2_side_* aliases remain until the cleanup below so the
+    # frozen arithmetic is untouched.
+    df["exp2_centered_k_home"] = df["_exp2_side_home_centered_k"]
+    df["exp2_centered_k_away"] = df["_exp2_side_away_centered_k"]
+    for cat in _EXP2_CATEGORIES:
+        df[f"exp2_cat_k_{cat}_home"] = df[f"_exp2_side_home_cat_k_{cat}"]
+        df[f"exp2_cat_k_{cat}_away"] = df[f"_exp2_side_away_cat_k_{cat}"]
+        df[f"exp2_cat_xwoba_{cat}_home"] = df[f"_exp2_side_home_cat_xwoba_{cat}"]
+        df[f"exp2_cat_xwoba_{cat}_away"] = df[f"_exp2_side_away_cat_xwoba_{cat}"]
+    df["exp2_cat_platoon_k_fastball_home"] = _platoon("home")
+    df["exp2_cat_platoon_k_fastball_away"] = _platoon("away")
+
     df["exp2_cat_platoon_k_fastball_diff"] = (_platoon("home")
                                               - _platoon("away"))
 
     df.drop(columns=[c for c in df.columns
                      if c.startswith("_exp2_side_")], inplace=True)
-    cov = {c: round(float(df[c].notna().mean()), 3)
-           for c in EXP2_CANDIDATE_COLS}
-    logger.info("add_exp2_features: 8 candidates computed, coverage %s", cov)
+    _exp2_all = [*EXP2_CANDIDATE_COLS, *EXP2_TWIN_COLS]
+    cov = {c: round(float(df[c].notna().mean()), 3) for c in _exp2_all}
+    logger.info("add_exp2_features: 8 candidates + 16 twins computed, "
+                "coverage %s", cov)
     return df
 
 
@@ -3005,7 +3046,7 @@ def add_diff_features(
     weather_data: dict | None = None,
     require_records: bool = False,
 ) -> pd.DataFrame:
-    """Compute all 36 model features from the raw home/away columns.
+    """Compute all 56 model features from the raw home/away columns.
 
     Exact feature layout (order matters — mirrors the spec sheet):
 
@@ -3059,15 +3100,33 @@ def add_diff_features(
                                × sp_era_diff
         31. air_density_velocity_boost  stadium_air_density × sp_fbvelo_diff
         32. bullpen_meltdown_risk       bullpen_pitches_diff × bullpen_whip_diff
-        33. pitcher_regression_indicator  sp_fbvelo_diff × sp_era_5g_diff
-        34. lineup_depth_multiplier      lineup_woba_mean_diff × lineup_woba_top3_diff
-        35. ace_efficiency_factor        sp_k9_5g_diff × sp_whiff_diff
+        33. pitcher_regression_indicator_diff
+                                        sp_fbvelo_diff × sp_era_5g_diff
+        34. lineup_depth_multiplier_diff
+                                        lineup_woba_mean_diff × lineup_woba_top3_diff
+        35. ace_efficiency_factor_diff   sp_k9_5g_diff × sp_whiff_diff
 
-    36 columns in total: the numbered run 1-35 plus 16b above.
+    56 model features in total: the numbered run 1-35 plus 16b, plus the
+    raw per-side twins documented below (12 level + 6 interaction; the 2
+    travel twins are ingest-layer frame columns that are only coerced
+    here). On a real frame 42 of those are NEW columns — the 14 level and
+    travel twins arrive as this function's own diff inputs and are
+    coerced in place — while frames lacking the raw inputs see all 56
+    created (the missing twins ship NULL, the same pattern as their
+    diffs).
 
     All diff features follow the convention: home − away (positive = home
     advantage).  Interaction features (29–35) are built from the diff
     features, so the model sees relative strengths directly.
+
+    Raw per-side twins (2026-09-27 structural expansion): every served diff
+    family above also exposes its raw home/away halves for the tree view.
+    The level families' twins ARE this function's own diff inputs (the same
+    strictly-prior source, so home − away == diff holds by construction and
+    a twin can never drift from its gap); the interaction features 33–35
+    ship the within-side product of their factors per side. Twins route
+    tree-only: the logistic member keeps its diffs-only slice and the run
+    engine's λ view carries levels but not matchup composites.
 
     Args:
         game_df: DataFrame with raw home/away columns.
@@ -3075,7 +3134,7 @@ def add_diff_features(
             air_density and wind_multiplier (from weather.fetch_day_weather).
             When provided, features 30–31 use real weather data.
 
-    Returns a copy of game_df with the 35 new columns appended.
+    Returns a copy of game_df with the new columns appended.
     """
     df = game_df.copy()
     n = len(df)
@@ -3162,6 +3221,31 @@ def add_diff_features(
     ]
     for out, h_col, a_col in simple_diffs:
         _diff(out, h_col, a_col)
+
+    # ── Raw per-side level twins (tree view) ───────────────────────────────
+    # These ARE the diff inputs above — the same strictly-prior source, so
+    # home − away == diff by construction and no second derivation exists
+    # to drift. Coerced to float (or created NULL when a side's observation
+    # is absent, the identical NULL pattern the diff inherits). Travel
+    # twins are assembled by the ingest layer, not here; they ride the same
+    # coercion so the serving matrix sees one dtype contract.
+    for h_col, a_col in (
+        ("rest_days_home", "rest_days_away"),
+        ("sp_era_5g_home", "sp_era_5g_away"),
+        ("sp_fbvelo_3g_home", "sp_fbvelo_3g_away"),
+        ("lineup_woba_std_home", "lineup_woba_std_away"),
+        ("bullpen_pitches_3d_home", "bullpen_pitches_3d_away"),
+        ("team_hardhit_15g_home", "team_hardhit_15g_away"),
+        ("time_zones_crossed_last_3d_home", "time_zones_crossed_last_3d_away"),
+    ):
+        for col in (h_col, a_col):
+            res = _resolve_col(col)
+            if res is not None:
+                df[res] = pd.to_numeric(df[res], errors="coerce")
+                if res != col:
+                    df[col] = df[res]
+            else:
+                df[col] = np.nan
 
     # ── 25. lineup_handedness_matchup_advantage
     # Each lineup's OPS against the hand of the starter it faces (assembled
@@ -3264,19 +3348,49 @@ def add_diff_features(
     # Overworked + low quality bullpen = elevated meltdown risk.
     df["bullpen_meltdown_risk"] = df["bullpen_pitches_diff"] * df["bullpen_whip_diff"]
 
-    # ── 33. pitcher_regression_indicator: sp_fbvelo_diff × sp_era_5g_diff
+    # Interaction twins: each side's OWN product of the interaction's
+    # factors (the within-side form the cross-side gap only summarizes).
+    # home − away of a twin pair equals the diff only up to cross terms, so
+    # the pair is served as the interaction's raw representation rather
+    # than as its halves. RENAMED 2026-09-27: every model-side feature ends
+    # in _diff; the old bare names are retired everywhere in the same
+    # commit (universe, routing, metadata, adopted RFE state).
+    def _twin(out: str, f1: str, f2: str) -> None:
+        """Within-side product of the interaction's own factor columns.
+
+        Missing factor columns (thin frame) ship NULL — the same pattern
+        as the diffs, never a fabricated 0. Aliases resolve like _diff."""
+        c1 = _resolve_col(f1)
+        c2 = _resolve_col(f2)
+        if c1 is None or c2 is None:
+            df[out] = np.nan
+        else:
+            df[out] = (pd.to_numeric(df[c1], errors="coerce")
+                       * pd.to_numeric(df[c2], errors="coerce"))
+
+    # ── 33. pitcher_regression_indicator_diff: sp_fbvelo_diff × sp_era_5g_diff
     # Physical velocity drop vs surface-level last-5-start ERA results —
     # flags regression candidates before the ERA fully catches up to the stuff.
-    df["pitcher_regression_indicator"] = df["sp_fbvelo_diff"] * df["sp_era_5g_diff"]
+    df["pitcher_regression_indicator_diff"] = (
+        df["sp_fbvelo_diff"] * df["sp_era_5g_diff"])
+    _twin("pitcher_regression_indicator_home", "sp_fbvelo_3g_home", "sp_era_5g_home")
+    _twin("pitcher_regression_indicator_away", "sp_fbvelo_3g_away", "sp_era_5g_away")
 
-    # ── 34. lineup_depth_multiplier: lineup_woba_mean_diff × lineup_woba_top3_diff
+    # ── 34. lineup_depth_multiplier_diff:
+    #        lineup_woba_mean_diff × lineup_woba_top3_diff
     # Star power vs complete batting order depth.
-    df["lineup_depth_multiplier"] = df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"]
+    df["lineup_depth_multiplier_diff"] = (
+        df["lineup_woba_mean_diff"] * df["lineup_woba_top3_diff"])
+    _twin("lineup_depth_multiplier_home", "lineup_woba_mean_home", "lineup_woba_top3_home")
+    _twin("lineup_depth_multiplier_away", "lineup_woba_mean_away", "lineup_woba_top3_away")
 
-    # ── 35. ace_efficiency_factor: sp_k9_5g_diff × sp_whiff_diff
+    # ── 35. ace_efficiency_factor_diff: sp_k9_5g_diff × sp_whiff_diff
     # Last-5-start strikeout volume driven by raw swing-and-miss stuff —
     # the true-ace differentiator.
-    df["ace_efficiency_factor"] = df["sp_k9_5g_diff"] * df["sp_whiff_diff"]
+    df["ace_efficiency_factor_diff"] = (
+        df["sp_k9_5g_diff"] * df["sp_whiff_diff"])
+    _twin("ace_efficiency_factor_home", "sp_k9_5g_home", "sp_whiff_3g_home")
+    _twin("ace_efficiency_factor_away", "sp_k9_5g_away", "sp_whiff_3g_away")
 
     _added = len(set(df.columns) - _cols_before)
     logger.info("Diff features complete: %d columns added", _added)

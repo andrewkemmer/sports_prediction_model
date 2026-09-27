@@ -345,16 +345,16 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "index",
         "direction": "higher = home-side meltdown risk (negative for home)",
     },
-    "pitcher_regression_indicator": {
+    "pitcher_regression_indicator_diff": {
         "summary": "SP velo diff × ERA diff (physical drop vs surface results = regression)",
         "definition": "Detects starters whose results outrun their stuff (or vice versa) — regression candidates.",
-        "formula": "sp_fbvelo_diff × sp_era_diff",
+        "formula": "sp_fbvelo_diff × sp_era_5g_diff",
         "source": "DuckDB feature engineering: velo × results interaction",
         "window": "season × 3g",
         "units": "index",
         "direction": "n/a (regression signal)",
     },
-    "lineup_depth_multiplier": {
+    "lineup_depth_multiplier_diff": {
         "summary": "Lineup mean wOBA diff × top-3 wOBA diff (star power × depth)",
         "definition": "Rewards lineups that are BOTH deep AND star-heavy; punishes one-dimensional construction.",
         "formula": "lineup_woba_mean_diff × lineup_woba_top3_diff",
@@ -363,7 +363,7 @@ _RICH: dict[str, dict[str, str]] = {
         "units": "index",
         "direction": "higher = home advantage",
     },
-    "ace_efficiency_factor": {
+    "ace_efficiency_factor_diff": {
         "summary": "SP K/9 diff × whiff rate diff (high strikeout volume from raw stuff)",
         "definition": "Confirms strikeout gaps are backed by genuine swing-and-miss stuff, not luck.",
         "formula": "sp_k9_diff × sp_whiff_diff",
@@ -519,6 +519,38 @@ _PER_SIDE_FAMILIES = {
     "team_exitvelo_15g": ("Team average exit velocity", "mph", "higher = better"),
 }
 
+# 2026-09-27 per-side twin families the originals above don't cover.
+# Level twins: tuple (label, units, direction, window) — the twin IS its
+# diff's input for that side, so home − away reproduces the diff.
+_LEVEL_TWIN_FAMILIES = {
+    "rest_days": ("Days of rest entering the game", "days", "more rest = fresher club", "per game (capped 1–6)"),
+    "sp_era_5g": ("SP ERA, last 5 starts", "ERA runs", "lower = better", "5g"),
+    "sp_fbvelo_3g": ("SP fastball velocity, last 3 starts", "mph", "higher = better", "3g"),
+    "lineup_woba_std": ("Projected lineup wOBA dispersion (std dev)", "wOBA points", "n/a (order-quality spread)", "season to date (shrunk)"),
+    "bullpen_pitches_3d": ("Bullpen pitches thrown, last 3 days", "pitches", "more = heavier workload", "3d"),
+    "team_hardhit_15g": ("Team hard-hit rate", "rate (0–1)", "higher = better", "15g"),
+    "time_zones_crossed_last_3d": ("Time zones crossed over the last 3 days", "zones", "more = travel fatigue", "last 3 days"),
+}
+
+# Interaction twins: each side's OWN product of the interaction's factors.
+_INTERACTION_TWIN_FAMILIES = {
+    "pitcher_regression_indicator": ("SP regression indicator (fastball velo × ERA, last 5 starts)", "index", "n/a (regression signal)"),
+    "lineup_depth_multiplier": ("Lineup depth multiplier (mean wOBA × top-3 wOBA)", "index", "higher = deeper, star-heavier lineup"),
+    "ace_efficiency_factor": ("Ace efficiency factor (K/9 × whiff rate)", "index", "higher = strikeout volume backed by raw stuff"),
+}
+
+# Experiment #2 per-side halves (the diffs' own scratch, served).
+_EXP2_FAMILIES = {
+    "exp2_centered_k": ("Centered strikeout matchup (SP K/9 vs opponent K-rate around league)", "index", "positive = more extreme home K matchup"),
+    "exp2_cat_k_fastball": ("Fastball category strikeout matchup", "index", "positive = more extreme home fastball-K matchup"),
+    "exp2_cat_k_breaking": ("Breaking category strikeout matchup", "index", "positive = more extreme home breaking-K matchup"),
+    "exp2_cat_k_offspeed": ("Offspeed category strikeout matchup", "index", "positive = more extreme home offspeed-K matchup"),
+    "exp2_cat_xwoba_fastball": ("Fastball category xwOBA matchup", "index", "positive = more extreme home fastball-xwOBA matchup"),
+    "exp2_cat_xwoba_breaking": ("Breaking category xwOBA matchup", "index", "positive = more extreme home breaking-xwOBA matchup"),
+    "exp2_cat_xwoba_offspeed": ("Offspeed category xwOBA matchup", "index", "positive = more extreme home offspeed-xwOBA matchup"),
+    "exp2_cat_platoon_k_fastball": ("Platoon fastball strikeout matchup", "index", "positive = more extreme home platoon-K matchup"),
+}
+
 # Momentum form-delta families (recent window − season-to-date baseline, per
 # side). Tuple: (label, units, direction, window). Direction is from the
 # DELTA's perspective: positive = recent better than the season baseline
@@ -657,6 +689,60 @@ def _rich_entry(name: str) -> Optional[dict[str, str]]:
                     "formula": f"{base}_recent_{side} − {base}_season_{side}",
                     "source": "Statcast aggregates via DuckDB feature engineering",
                     "window": window,
+                    "units": units,
+                    "direction": f"{direction} ({side} side)",
+                }
+            fam = _LEVEL_TWIN_FAMILIES.get(base)
+            if fam:
+                label, units, direction, window = fam
+                return {
+                    "summary": f"{label} — {side} team",
+                    "definition": (
+                        f"Per-side level column: the {side} club's {label.lower()}. "
+                        f"This IS the {base}_diff input for its side — the same "
+                        f"strictly-prior source, so home − away reproduces the diff "
+                        f"by construction. Tree-only routing; a side with no "
+                        f"observation ships NULL like its diff."
+                    ),
+                    "formula": name,
+                    "source": "Ingest-layer rolling/team state (same source as the diff)",
+                    "window": window,
+                    "units": units,
+                    "direction": f"{direction} ({side} side)",
+                }
+            fam = _INTERACTION_TWIN_FAMILIES.get(base)
+            if fam:
+                label, units, direction = fam
+                return {
+                    "summary": f"{label} — {side} side",
+                    "definition": (
+                        f"Per-side interaction level: the {side} club's OWN product "
+                        f"of the factors behind {base}_diff — the within-side form "
+                        f"the cross-side gap summarizes (home − away of the pair "
+                        f"equals the diff only up to cross terms). Tree-only "
+                        f"routing; missing factors propagate NULL."
+                    ),
+                    "formula": name,
+                    "source": "DuckDB feature engineering: within-side product",
+                    "window": "per game",
+                    "units": units,
+                    "direction": f"{direction} ({side} side)",
+                }
+            fam = _EXP2_FAMILIES.get(base)
+            if fam:
+                label, units, direction = fam
+                return {
+                    "summary": f"{label} — {side} side",
+                    "definition": (
+                        f"Per-side half of the exp2 matchup composite {base}_diff: "
+                        f"the same frozen per-side arithmetic the diff was computed "
+                        f"from, served under a final name (home − away == diff by "
+                        f"construction). Tree-only routing; a side without tracked "
+                        f"pitch-category usage stays NULL."
+                    ),
+                    "formula": name,
+                    "source": "Experiment #2 source layer (PIT-safe season-to-date aggregates)",
+                    "window": "season to date (strictly prior games)",
                     "units": units,
                     "direction": f"{direction} ({side} side)",
                 }
