@@ -1,0 +1,3148 @@
+{
+ "created_utc": "2026-09-27T06:02:18.795876+00:00",
+ "date": "20260927",
+ "config": {
+  "sport": "nba",
+  "feature_set_version": "nba-prod-v2.0-events",
+  "seed": 42,
+  "warmup_days": 30,
+  "cadence_days": 7,
+  "min_val_fold_games": 40,
+  "members": [
+   "xgboost",
+   "lightgbm",
+   "elasticnet"
+  ],
+  "market_free": true,
+  "source": "espn schedule + stats.nba.com LeagueGameLog + playbyplayv3",
+  "player_rows": 74449,
+  "frame_sources": {
+   "games": "espn scoreboard",
+   "team_stats": "stats.nba.com LeagueGameLog",
+   "player_stats": "stats.nba.com LeagueGameLog",
+   "play_by_play": "stats.nba.com playbyplayv3",
+   "team_events": "stats.nba.com playbyplayv3"
+  },
+  "play_by_play_rows": 300829,
+  "event_rows": 1202
+ },
+ "last_retrained": "20260927",
+ "last_retrained_note": "Fresh NBA model trained this run",
+ "next_retrain": "20261004",
+ "next_retrain_note": "next expected run in 7 day(s)",
+ "upset_note": "NBA upset rate is computed from settled walk-forward history.",
+ "alerts": {
+  "retrain": false,
+  "feature_drift": [
+   {
+    "feature": "elo_diff",
+    "current_mean": -12.470448820644993,
+    "baseline_mean": -1.0643145119348378,
+    "psi": 0.5453592416310169,
+    "psi_adjusted": 0.5453592416310169,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3461,
+    "n_current": 60
+   },
+   {
+    "feature": "win_pct_diff",
+    "current_mean": -0.029166666666666667,
+    "baseline_mean": 8.694041795087155e-05,
+    "psi": 0.5635377367653984,
+    "psi_adjusted": 0.5635377367653984,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "rest_days_diff",
+    "current_mean": 0.23333333333333334,
+    "baseline_mean": 0.1443089430894309,
+    "psi": 2.2362314896825324,
+    "psi_adjusted": 2.2362314896825324,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "back_to_back_diff",
+    "current_mean": 0.0,
+    "baseline_mean": -0.006678281068524971,
+    "psi": 1.3989025133985864,
+    "psi_adjusted": 1.3989025133985864,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_net_points_diff",
+    "current_mean": -2.31207801392725,
+    "baseline_mean": -0.08511792201029011,
+    "psi": 0.18321108966001384,
+    "psi_adjusted": 0.18321108966001384,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_off_rating_diff",
+    "current_mean": -2.31207801392725,
+    "baseline_mean": -0.08511792201029009,
+    "psi": 0.18321108966001384,
+    "psi_adjusted": 0.18321108966001384,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_def_rating_diff",
+    "current_mean": 2.312078013927251,
+    "baseline_mean": 0.08511792201029042,
+    "psi": 0.18321108966001384,
+    "psi_adjusted": 0.18321108966001384,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_pace_diff",
+    "current_mean": 0.030119353184378875,
+    "baseline_mean": -0.27665350262499877,
+    "psi": 0.6527430860745068,
+    "psi_adjusted": 0.6527430860745068,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_efg_pct_diff",
+    "current_mean": -0.006087552120334433,
+    "baseline_mean": -0.0005955938872409845,
+    "psi": 0.12741809472281415,
+    "psi_adjusted": 0.12741809472281415,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_ast_per_game_diff",
+    "current_mean": -0.46011125451089613,
+    "baseline_mean": -0.04140424631422931,
+    "psi": 0.13888582707381325,
+    "psi_adjusted": 0.13888582707381325,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "elo_home",
+    "current_mean": 1635.1844052635722,
+    "baseline_mean": 1507.7857550416945,
+    "psi": 5.796786920134446,
+    "psi_adjusted": 5.796786920134446,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3461,
+    "n_current": 60
+   },
+   {
+    "feature": "elo_away",
+    "current_mean": 1647.6548540842173,
+    "baseline_mean": 1508.8500695536295,
+    "psi": 5.930669592337077,
+    "psi_adjusted": 5.930669592337077,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3461,
+    "n_current": 60
+   },
+   {
+    "feature": "win_pct_home",
+    "current_mean": 0.6430555555555556,
+    "baseline_mean": 0.5036916018991491,
+    "psi": 3.546372469424909,
+    "psi_adjusted": 3.546372469424909,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3445,
+    "n_current": 60
+   },
+   {
+    "feature": "win_pct_away",
+    "current_mean": 0.6722222222222222,
+    "baseline_mean": 0.5036025952257458,
+    "psi": 3.6981469040085373,
+    "psi_adjusted": 3.6981469040085373,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3447,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_off_rating_home",
+    "current_mean": 104.14135620290736,
+    "baseline_mean": 100.08411686767838,
+    "psi": 1.2945396023318174,
+    "psi_adjusted": 1.2945396023318174,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3445,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_off_rating_away",
+    "current_mean": 106.45343421683462,
+    "baseline_mean": 100.16098889833347,
+    "psi": 1.665536141324531,
+    "psi_adjusted": 1.665536141324531,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3447,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_def_rating_home",
+    "current_mean": 95.85864379709272,
+    "baseline_mean": 99.91588313232165,
+    "psi": 1.2947540576802925,
+    "psi_adjusted": 1.2947540576802925,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3445,
+    "n_current": 60
+   },
+   {
+    "feature": "ewm_def_rating_away",
+    "current_mean": 93.54656578316549,
+    "baseline_mean": 99.83901110166656,
+    "psi": 1.6657305130452507,
+    "psi_adjusted": 1.6657305130452507,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3447,
+    "n_current": 60
+   },
+   {
+    "feature": "rest_days_home",
+    "current_mean": 2.5833333333333335,
+    "baseline_mean": 3.762844702467344,
+    "psi": 2.002841586462753,
+    "psi_adjusted": 2.002841586462753,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3445,
+    "n_current": 60
+   },
+   {
+    "feature": "rest_days_away",
+    "current_mean": 2.35,
+    "baseline_mean": 3.617058311575283,
+    "psi": 2.1019085099587898,
+    "psi_adjusted": 2.1019085099587898,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 3447,
+    "n_current": 60
+   },
+   {
+    "feature": "event_three_rate_diff",
+    "current_mean": 0.0036635528288151754,
+    "baseline_mean": -0.000720995661977605,
+    "psi": 0.14417691812886746,
+    "psi_adjusted": 0.14417691812886746,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 3444,
+    "n_current": 60
+   },
+   {
+    "feature": "event_rim_rate_diff",
+    "current_mean": -0.0012915425755010183,
+    "baseline_mean": -0.000841309170804253,
+    "psi": 0.2430107586881059,
+    "psi_adjusted": 0.2430107586881059,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   },
+   {
+    "feature": "event_live_tov_rate_diff",
+    "current_mean": 0.0015603236184107635,
+    "baseline_mean": 0.000858607981439013,
+    "psi": 0.18825494533875156,
+    "psi_adjusted": 0.18825494533875156,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   },
+   {
+    "feature": "event_shot_distance_diff",
+    "current_mean": 0.09384187183058555,
+    "baseline_mean": 0.03139107636453149,
+    "psi": 0.2751826822770546,
+    "psi_adjusted": 0.2751826822770546,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   },
+   {
+    "feature": "event_possessions_diff",
+    "current_mean": 0.08228314320814102,
+    "baseline_mean": -0.10356170408843855,
+    "psi": 2.539529242531043,
+    "psi_adjusted": 2.539529242531043,
+    "status": "ALERT",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   },
+   {
+    "feature": "event_shooting_fouls_diff",
+    "current_mean": 0.0003684445201909507,
+    "baseline_mean": -0.032132987700988866,
+    "psi": 0.13204579742719996,
+    "psi_adjusted": 0.13204579742719996,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   },
+   {
+    "feature": "event_q4_points_diff",
+    "current_mean": -0.08047662642642166,
+    "baseline_mean": -0.18051146264327564,
+    "psi": 0.18020885367440848,
+    "psi_adjusted": 0.18020885367440848,
+    "status": "WARN",
+    "weight_pct": null,
+    "n_baseline": 584,
+    "n_current": 60
+   }
+  ],
+  "coverage": [
+   {
+    "feature": "event_rim_rate_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_live_tov_rate_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_and_in_rate_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 2,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_shot_distance_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_possessions_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_shooting_fouls_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 1,
+    "status": "STARVED"
+   },
+   {
+    "feature": "event_q4_points_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 16.87,
+    "pct_nonnull": 16.87,
+    "n_default_zero": 3,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_c_away",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_c_home",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_c_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_f_away",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_f_home",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_f_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_g_away",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_g_home",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   },
+   {
+    "feature": "pl_ts_g_diff",
+    "window": "decided pool",
+    "n_games": 3461,
+    "pct_measured": 0.0,
+    "pct_nonnull": 0.0,
+    "n_default_zero": 0,
+    "status": "STARVED"
+   }
+  ]
+ },
+ "baseline_brier": 0.45850914205344584,
+ "brier_baseline": 0.45850914205344584,
+ "brier_baseline_label": "Constant home-edge",
+ "metrics": {
+  "n": 2133,
+  "auc": 0.7364021459113482,
+  "logloss": 0.597055825502175,
+  "brier": 0.20577378875592692,
+  "ece": 0.025440259905181624
+ },
+ "calibration": {
+  "method": "favored_platt_floor",
+  "a": 1.483286,
+  "b": -0.169788,
+  "n": 2133,
+  "floor": 0.5
+ },
+ "ensemble": [
+  {
+   "name": "xgboost",
+   "weight": 0.7034,
+   "n_eval": 2133,
+   "auc": 0.7359493267468727,
+   "brier": 0.206961016184636,
+   "logloss": 0.6002517754676866
+  },
+  {
+   "name": "lightgbm",
+   "weight": 0.0,
+   "n_eval": 2133,
+   "auc": 0.7112611655556441,
+   "brier": 0.2161010533969429,
+   "logloss": 0.6221408092631276
+  },
+  {
+   "name": "elasticnet",
+   "weight": 0.2966,
+   "n_eval": 2133,
+   "auc": 0.7305092998344532,
+   "brier": 0.20920506356081842,
+   "logloss": 0.6058460554089317
+  }
+ ],
+ "rolling_brier": [
+  {
+   "date": "2024-11-22",
+   "brier": 0.182672241081727,
+   "games": 8
+  },
+  {
+   "date": "2024-11-23",
+   "brier": 0.26980926900422536,
+   "games": 7
+  },
+  {
+   "date": "2024-11-24",
+   "brier": 0.196538454323303,
+   "games": 6
+  },
+  {
+   "date": "2024-11-25",
+   "brier": 0.23577112793853308,
+   "games": 9
+  },
+  {
+   "date": "2024-11-26",
+   "brier": 0.2902855572093478,
+   "games": 5
+  },
+  {
+   "date": "2024-11-27",
+   "brier": 0.2856634008347664,
+   "games": 14
+  },
+  {
+   "date": "2024-11-29",
+   "brier": 0.24268218429428184,
+   "games": 10
+  },
+  {
+   "date": "2024-11-30",
+   "brier": 0.29818456198336313,
+   "games": 5
+  },
+  {
+   "date": "2024-12-01",
+   "brier": 0.18942288805047552,
+   "games": 10
+  },
+  {
+   "date": "2024-12-02",
+   "brier": 0.13549775005403747,
+   "games": 4
+  },
+  {
+   "date": "2024-12-03",
+   "brier": 0.19195093214922856,
+   "games": 11
+  },
+  {
+   "date": "2024-12-04",
+   "brier": 0.2501966855029365,
+   "games": 6
+  },
+  {
+   "date": "2024-12-05",
+   "brier": 0.18391076378320836,
+   "games": 8
+  },
+  {
+   "date": "2024-12-06",
+   "brier": 0.3078475287857928,
+   "games": 7
+  },
+  {
+   "date": "2024-12-14",
+   "brier": 0.1269340586008204,
+   "games": 2
+  },
+  {
+   "date": "2024-12-15",
+   "brier": 0.18982204070745298,
+   "games": 7
+  },
+  {
+   "date": "2024-12-16",
+   "brier": 0.22991874457619196,
+   "games": 6
+  },
+  {
+   "date": "2024-12-19",
+   "brier": 0.31521670442308025,
+   "games": 13
+  },
+  {
+   "date": "2024-12-20",
+   "brier": 0.14723310378814702,
+   "games": 3
+  },
+  {
+   "date": "2024-12-21",
+   "brier": 0.23222592575447254,
+   "games": 12
+  },
+  {
+   "date": "2024-12-22",
+   "brier": 0.19851827634536776,
+   "games": 3
+  },
+  {
+   "date": "2024-12-23",
+   "brier": 0.18297450493117065,
+   "games": 14
+  },
+  {
+   "date": "2024-12-25",
+   "brier": 0.39250915294166644,
+   "games": 5
+  },
+  {
+   "date": "2024-12-26",
+   "brier": 0.2397311929338277,
+   "games": 9
+  },
+  {
+   "date": "2024-12-27",
+   "brier": 0.20038142835234132,
+   "games": 8
+  },
+  {
+   "date": "2024-12-28",
+   "brier": 0.19085674093156946,
+   "games": 9
+  },
+  {
+   "date": "2024-12-29",
+   "brier": 0.25046674602255053,
+   "games": 6
+  },
+  {
+   "date": "2024-12-30",
+   "brier": 0.1733890703261547,
+   "games": 7
+  },
+  {
+   "date": "2024-12-31",
+   "brier": 0.1779737445502939,
+   "games": 6
+  },
+  {
+   "date": "2025-01-01",
+   "brier": 0.21961081848460814,
+   "games": 8
+  },
+  {
+   "date": "2025-01-02",
+   "brier": 0.24202862313594617,
+   "games": 6
+  },
+  {
+   "date": "2025-01-03",
+   "brier": 0.20538483874891955,
+   "games": 9
+  },
+  {
+   "date": "2025-01-04",
+   "brier": 0.29703687905807263,
+   "games": 9
+  },
+  {
+   "date": "2025-01-05",
+   "brier": 0.2520833480107192,
+   "games": 6
+  },
+  {
+   "date": "2025-01-06",
+   "brier": 0.22257566584581745,
+   "games": 9
+  },
+  {
+   "date": "2025-01-07",
+   "brier": 0.25956884006874187,
+   "games": 7
+  },
+  {
+   "date": "2025-01-08",
+   "brier": 0.14233848745237396,
+   "games": 8
+  },
+  {
+   "date": "2025-01-09",
+   "brier": 0.2167300967827688,
+   "games": 7
+  },
+  {
+   "date": "2025-01-10",
+   "brier": 0.23510556591596818,
+   "games": 7
+  },
+  {
+   "date": "2025-01-11",
+   "brier": 0.17548613360277748,
+   "games": 4
+  },
+  {
+   "date": "2025-01-12",
+   "brier": 0.18577813205684576,
+   "games": 9
+  },
+  {
+   "date": "2025-01-13",
+   "brier": 0.2586282393422754,
+   "games": 6
+  },
+  {
+   "date": "2025-01-14",
+   "brier": 0.2622480567456747,
+   "games": 7
+  },
+  {
+   "date": "2025-01-15",
+   "brier": 0.2688726065979685,
+   "games": 11
+  },
+  {
+   "date": "2025-01-16",
+   "brier": 0.1641629973520292,
+   "games": 5
+  },
+  {
+   "date": "2025-01-17",
+   "brier": 0.24896444239606932,
+   "games": 9
+  },
+  {
+   "date": "2025-01-18",
+   "brier": 0.18712559155923233,
+   "games": 6
+  },
+  {
+   "date": "2025-01-19",
+   "brier": 0.13203104498242307,
+   "games": 7
+  },
+  {
+   "date": "2025-01-20",
+   "brier": 0.26653956971519593,
+   "games": 8
+  },
+  {
+   "date": "2025-01-21",
+   "brier": 0.19938386392093033,
+   "games": 5
+  },
+  {
+   "date": "2025-01-22",
+   "brier": 0.19348350038666978,
+   "games": 8
+  },
+  {
+   "date": "2025-01-23",
+   "brier": 0.27144125066926605,
+   "games": 9
+  },
+  {
+   "date": "2025-01-24",
+   "brier": 0.277291927685887,
+   "games": 3
+  },
+  {
+   "date": "2025-01-25",
+   "brier": 0.23449134301857436,
+   "games": 14
+  },
+  {
+   "date": "2025-01-26",
+   "brier": 0.16729026895200183,
+   "games": 1
+  },
+  {
+   "date": "2025-01-27",
+   "brier": 0.2037661505033492,
+   "games": 12
+  },
+  {
+   "date": "2025-01-28",
+   "brier": 0.24275203293508008,
+   "games": 4
+  },
+  {
+   "date": "2025-01-29",
+   "brier": 0.20494206404489912,
+   "games": 11
+  },
+  {
+   "date": "2025-01-30",
+   "brier": 0.11532937575174011,
+   "games": 5
+  },
+  {
+   "date": "2025-01-31",
+   "brier": 0.2579231505482085,
+   "games": 7
+  },
+  {
+   "date": "2025-02-01",
+   "brier": 0.324292602770459,
+   "games": 9
+  },
+  {
+   "date": "2025-02-02",
+   "brier": 0.20941201317800381,
+   "games": 5
+  },
+  {
+   "date": "2025-02-03",
+   "brier": 0.19473257045363593,
+   "games": 10
+  },
+  {
+   "date": "2025-02-04",
+   "brier": 0.2713142432820265,
+   "games": 7
+  },
+  {
+   "date": "2025-02-05",
+   "brier": 0.2261563997197088,
+   "games": 11
+  },
+  {
+   "date": "2025-02-06",
+   "brier": 0.1929192183229451,
+   "games": 6
+  },
+  {
+   "date": "2025-02-07",
+   "brier": 0.16979748673473002,
+   "games": 7
+  },
+  {
+   "date": "2025-02-08",
+   "brier": 0.197861593640566,
+   "games": 11
+  },
+  {
+   "date": "2025-02-09",
+   "brier": 0.16973294419486215,
+   "games": 3
+  },
+  {
+   "date": "2025-02-10",
+   "brier": 0.1787699410907264,
+   "games": 10
+  },
+  {
+   "date": "2025-02-11",
+   "brier": 0.23681730063928977,
+   "games": 4
+  },
+  {
+   "date": "2025-02-12",
+   "brier": 0.1878185819547737,
+   "games": 15
+  },
+  {
+   "date": "2025-02-13",
+   "brier": 0.2688017091766045,
+   "games": 5
+  },
+  {
+   "date": "2025-02-19",
+   "brier": 0.7096996025479819,
+   "games": 1
+  },
+  {
+   "date": "2025-02-20",
+   "brier": 0.16017902393029138,
+   "games": 9
+  },
+  {
+   "date": "2025-02-21",
+   "brier": 0.16059355507347095,
+   "games": 9
+  },
+  {
+   "date": "2025-02-22",
+   "brier": 0.3029351517177147,
+   "games": 5
+  },
+  {
+   "date": "2025-02-23",
+   "brier": 0.15916624470122034,
+   "games": 10
+  },
+  {
+   "date": "2025-02-24",
+   "brier": 0.2656317084321911,
+   "games": 8
+  },
+  {
+   "date": "2025-02-25",
+   "brier": 0.11639134547907037,
+   "games": 7
+  },
+  {
+   "date": "2025-02-26",
+   "brier": 0.12233034270884735,
+   "games": 9
+  },
+  {
+   "date": "2025-02-27",
+   "brier": 0.18737031617115302,
+   "games": 5
+  },
+  {
+   "date": "2025-02-28",
+   "brier": 0.22016824388500006,
+   "games": 10
+  },
+  {
+   "date": "2025-03-01",
+   "brier": 0.30954292102799497,
+   "games": 6
+  },
+  {
+   "date": "2025-03-02",
+   "brier": 0.1774963310385238,
+   "games": 9
+  },
+  {
+   "date": "2025-03-03",
+   "brier": 0.15133046757188726,
+   "games": 7
+  },
+  {
+   "date": "2025-03-04",
+   "brier": 0.15645090173341716,
+   "games": 9
+  },
+  {
+   "date": "2025-03-05",
+   "brier": 0.16673415550588955,
+   "games": 8
+  },
+  {
+   "date": "2025-03-06",
+   "brier": 0.19613828102734268,
+   "games": 6
+  },
+  {
+   "date": "2025-03-07",
+   "brier": 0.13436076798645336,
+   "games": 8
+  },
+  {
+   "date": "2025-03-08",
+   "brier": 0.2892772764136836,
+   "games": 8
+  },
+  {
+   "date": "2025-03-09",
+   "brier": 0.17648435447744548,
+   "games": 8
+  },
+  {
+   "date": "2025-03-10",
+   "brier": 0.26977264180971067,
+   "games": 12
+  },
+  {
+   "date": "2025-03-11",
+   "brier": 0.15769039181597766,
+   "games": 4
+  },
+  {
+   "date": "2025-03-12",
+   "brier": 0.16845814820944488,
+   "games": 9
+  },
+  {
+   "date": "2025-03-13",
+   "brier": 0.3111355586221101,
+   "games": 5
+  },
+  {
+   "date": "2025-03-14",
+   "brier": 0.15340809148493068,
+   "games": 10
+  },
+  {
+   "date": "2025-03-15",
+   "brier": 0.19068075231593923,
+   "games": 8
+  },
+  {
+   "date": "2025-03-16",
+   "brier": 0.23667604093606556,
+   "games": 8
+  },
+  {
+   "date": "2025-03-17",
+   "brier": 0.19679421062168506,
+   "games": 10
+  },
+  {
+   "date": "2025-03-18",
+   "brier": 0.1688614938824912,
+   "games": 4
+  },
+  {
+   "date": "2025-03-19",
+   "brier": 0.25765516598379784,
+   "games": 11
+  },
+  {
+   "date": "2025-03-20",
+   "brier": 0.2629205104295701,
+   "games": 5
+  },
+  {
+   "date": "2025-03-21",
+   "brier": 0.1571106836472227,
+   "games": 10
+  },
+  {
+   "date": "2025-03-22",
+   "brier": 0.1926555021236697,
+   "games": 5
+  },
+  {
+   "date": "2025-03-23",
+   "brier": 0.1596940617790814,
+   "games": 8
+  },
+  {
+   "date": "2025-03-24",
+   "brier": 0.22548475108872434,
+   "games": 8
+  },
+  {
+   "date": "2025-03-25",
+   "brier": 0.15037403204346644,
+   "games": 8
+  },
+  {
+   "date": "2025-03-26",
+   "brier": 0.27879722587576977,
+   "games": 6
+  },
+  {
+   "date": "2025-03-27",
+   "brier": 0.1313193861168943,
+   "games": 8
+  },
+  {
+   "date": "2025-03-28",
+   "brier": 0.13574213987951042,
+   "games": 7
+  },
+  {
+   "date": "2025-03-29",
+   "brier": 0.20687414406156288,
+   "games": 7
+  },
+  {
+   "date": "2025-03-30",
+   "brier": 0.17643340916744582,
+   "games": 8
+  },
+  {
+   "date": "2025-03-31",
+   "brier": 0.1785973254736446,
+   "games": 8
+  },
+  {
+   "date": "2025-04-01",
+   "brier": 0.21270253425205432,
+   "games": 7
+  },
+  {
+   "date": "2025-04-02",
+   "brier": 0.2656503365759412,
+   "games": 9
+  },
+  {
+   "date": "2025-04-03",
+   "brier": 0.15826915277894305,
+   "games": 6
+  },
+  {
+   "date": "2025-04-04",
+   "brier": 0.1345398479877971,
+   "games": 10
+  },
+  {
+   "date": "2025-04-05",
+   "brier": 0.16518163096619404,
+   "games": 5
+  },
+  {
+   "date": "2025-04-06",
+   "brier": 0.22524110067413305,
+   "games": 11
+  },
+  {
+   "date": "2025-04-07",
+   "brier": 0.21342793429851545,
+   "games": 2
+  },
+  {
+   "date": "2025-04-08",
+   "brier": 0.11469071827111044,
+   "games": 10
+  },
+  {
+   "date": "2025-04-09",
+   "brier": 0.3171460362002664,
+   "games": 10
+  },
+  {
+   "date": "2025-04-10",
+   "brier": 0.1991082010594429,
+   "games": 5
+  },
+  {
+   "date": "2025-04-11",
+   "brier": 0.1515776388332847,
+   "games": 15
+  },
+  {
+   "date": "2025-04-13",
+   "brier": 0.21935655231061302,
+   "games": 15
+  },
+  {
+   "date": "2025-10-23",
+   "brier": 0.12399719990781459,
+   "games": 2
+  },
+  {
+   "date": "2025-10-24",
+   "brier": 0.22851319395801248,
+   "games": 12
+  },
+  {
+   "date": "2025-10-25",
+   "brier": 0.1679386070220499,
+   "games": 5
+  },
+  {
+   "date": "2025-10-26",
+   "brier": 0.21884768929972115,
+   "games": 9
+  },
+  {
+   "date": "2025-10-27",
+   "brier": 0.16784173816839865,
+   "games": 11
+  },
+  {
+   "date": "2025-10-28",
+   "brier": 0.17337641778386242,
+   "games": 5
+  },
+  {
+   "date": "2025-10-29",
+   "brier": 0.16550609762742644,
+   "games": 10
+  },
+  {
+   "date": "2025-10-30",
+   "brier": 0.16486058193137257,
+   "games": 4
+  },
+  {
+   "date": "2025-10-31",
+   "brier": 0.2548586829793177,
+   "games": 8
+  },
+  {
+   "date": "2025-11-01",
+   "brier": 0.24409016039364007,
+   "games": 6
+  },
+  {
+   "date": "2025-11-02",
+   "brier": 0.1924003871078233,
+   "games": 8
+  },
+  {
+   "date": "2025-11-03",
+   "brier": 0.231192153635551,
+   "games": 9
+  },
+  {
+   "date": "2025-11-04",
+   "brier": 0.17642416319858978,
+   "games": 6
+  },
+  {
+   "date": "2025-11-05",
+   "brier": 0.2389211292233349,
+   "games": 11
+  },
+  {
+   "date": "2025-11-06",
+   "brier": 0.25,
+   "games": 1
+  },
+  {
+   "date": "2025-11-07",
+   "brier": 0.16906141877106784,
+   "games": 11
+  },
+  {
+   "date": "2025-11-08",
+   "brier": 0.1956147519101566,
+   "games": 8
+  },
+  {
+   "date": "2025-11-09",
+   "brier": 0.14454176963298276,
+   "games": 7
+  },
+  {
+   "date": "2025-11-10",
+   "brier": 0.16397378945884608,
+   "games": 9
+  },
+  {
+   "date": "2025-11-11",
+   "brier": 0.1550687832066401,
+   "games": 6
+  },
+  {
+   "date": "2025-11-12",
+   "brier": 0.21363565645195573,
+   "games": 12
+  },
+  {
+   "date": "2025-11-13",
+   "brier": 0.23857738597590838,
+   "games": 3
+  },
+  {
+   "date": "2025-11-14",
+   "brier": 0.08803532251801706,
+   "games": 9
+  },
+  {
+   "date": "2025-11-15",
+   "brier": 0.1554635613548373,
+   "games": 5
+  },
+  {
+   "date": "2025-11-16",
+   "brier": 0.18218408555770052,
+   "games": 8
+  },
+  {
+   "date": "2025-11-17",
+   "brier": 0.18877526672571732,
+   "games": 8
+  },
+  {
+   "date": "2025-11-18",
+   "brier": 0.1393859814097478,
+   "games": 6
+  },
+  {
+   "date": "2025-11-19",
+   "brier": 0.13557437667391803,
+   "games": 9
+  },
+  {
+   "date": "2025-11-20",
+   "brier": 0.22267633896401043,
+   "games": 4
+  },
+  {
+   "date": "2025-11-21",
+   "brier": 0.24717873015906708,
+   "games": 9
+  },
+  {
+   "date": "2025-11-22",
+   "brier": 0.24487158982335652,
+   "games": 7
+  },
+  {
+   "date": "2025-11-23",
+   "brier": 0.07254802160581626,
+   "games": 8
+  },
+  {
+   "date": "2025-11-24",
+   "brier": 0.2112843303652073,
+   "games": 10
+  },
+  {
+   "date": "2025-11-25",
+   "brier": 0.3210600934843035,
+   "games": 3
+  },
+  {
+   "date": "2025-11-26",
+   "brier": 0.13618681791269296,
+   "games": 9
+  },
+  {
+   "date": "2025-11-28",
+   "brier": 0.20279919007358382,
+   "games": 11
+  },
+  {
+   "date": "2025-11-29",
+   "brier": 0.2459025576808501,
+   "games": 8
+  },
+  {
+   "date": "2025-11-30",
+   "brier": 0.13522514125225576,
+   "games": 8
+  },
+  {
+   "date": "2025-12-01",
+   "brier": 0.3541696968633218,
+   "games": 9
+  },
+  {
+   "date": "2025-12-02",
+   "brier": 0.11099713036190956,
+   "games": 6
+  },
+  {
+   "date": "2025-12-03",
+   "brier": 0.3505003832998861,
+   "games": 9
+  },
+  {
+   "date": "2025-12-04",
+   "brier": 0.16091394656979344,
+   "games": 5
+  },
+  {
+   "date": "2025-12-12",
+   "brier": 0.24329153539055595,
+   "games": 7
+  },
+  {
+   "date": "2025-12-13",
+   "brier": 0.43220611364853795,
+   "games": 2
+  },
+  {
+   "date": "2025-12-14",
+   "brier": 0.30249996241383476,
+   "games": 8
+  },
+  {
+   "date": "2025-12-15",
+   "brier": 0.25628430839396593,
+   "games": 5
+  },
+  {
+   "date": "2025-12-17",
+   "brier": 0.3178937249481386,
+   "games": 2
+  },
+  {
+   "date": "2025-12-18",
+   "brier": 0.20011141267440127,
+   "games": 12
+  },
+  {
+   "date": "2025-12-19",
+   "brier": 0.2936891500354253,
+   "games": 5
+  },
+  {
+   "date": "2025-12-20",
+   "brier": 0.276912142813312,
+   "games": 10
+  },
+  {
+   "date": "2025-12-21",
+   "brier": 0.19297581016604523,
+   "games": 6
+  },
+  {
+   "date": "2025-12-22",
+   "brier": 0.1581938273200222,
+   "games": 7
+  },
+  {
+   "date": "2025-12-23",
+   "brier": 0.25502422558485854,
+   "games": 14
+  },
+  {
+   "date": "2025-12-25",
+   "brier": 0.22695008874247838,
+   "games": 5
+  },
+  {
+   "date": "2025-12-26",
+   "brier": 0.2680805054349979,
+   "games": 9
+  },
+  {
+   "date": "2025-12-27",
+   "brier": 0.2985273385930988,
+   "games": 9
+  },
+  {
+   "date": "2025-12-28",
+   "brier": 0.24634507980537038,
+   "games": 6
+  },
+  {
+   "date": "2025-12-29",
+   "brier": 0.22058628530328014,
+   "games": 11
+  },
+  {
+   "date": "2025-12-30",
+   "brier": 0.23702328137498083,
+   "games": 4
+  },
+  {
+   "date": "2025-12-31",
+   "brier": 0.24116929506995913,
+   "games": 9
+  },
+  {
+   "date": "2026-01-01",
+   "brier": 0.20237518953251862,
+   "games": 5
+  },
+  {
+   "date": "2026-01-02",
+   "brier": 0.22883025721287575,
+   "games": 10
+  },
+  {
+   "date": "2026-01-03",
+   "brier": 0.2961528037390609,
+   "games": 8
+  },
+  {
+   "date": "2026-01-04",
+   "brier": 0.21013235091947072,
+   "games": 8
+  },
+  {
+   "date": "2026-01-05",
+   "brier": 0.21099174439708943,
+   "games": 8
+  },
+  {
+   "date": "2026-01-06",
+   "brier": 0.16409526291353885,
+   "games": 6
+  },
+  {
+   "date": "2026-01-07",
+   "brier": 0.16589930111361964,
+   "games": 12
+  },
+  {
+   "date": "2026-01-08",
+   "brier": 0.2020570272009031,
+   "games": 3
+  },
+  {
+   "date": "2026-01-09",
+   "brier": 0.21466901449695164,
+   "games": 10
+  },
+  {
+   "date": "2026-01-10",
+   "brier": 0.353378383202041,
+   "games": 6
+  },
+  {
+   "date": "2026-01-11",
+   "brier": 0.2041868637165026,
+   "games": 10
+  },
+  {
+   "date": "2026-01-12",
+   "brier": 0.3849278028131597,
+   "games": 6
+  },
+  {
+   "date": "2026-01-13",
+   "brier": 0.1911740950010487,
+   "games": 7
+  },
+  {
+   "date": "2026-01-14",
+   "brier": 0.2142278810897274,
+   "games": 7
+  },
+  {
+   "date": "2026-01-15",
+   "brier": 0.1666813209081401,
+   "games": 9
+  },
+  {
+   "date": "2026-01-16",
+   "brier": 0.24882296511650462,
+   "games": 6
+  },
+  {
+   "date": "2026-01-17",
+   "brier": 0.18966109003345108,
+   "games": 9
+  },
+  {
+   "date": "2026-01-18",
+   "brier": 0.2260524826484861,
+   "games": 6
+  },
+  {
+   "date": "2026-01-19",
+   "brier": 0.12449116600976567,
+   "games": 9
+  },
+  {
+   "date": "2026-01-20",
+   "brier": 0.3666641599186586,
+   "games": 7
+  },
+  {
+   "date": "2026-01-21",
+   "brier": 0.16165682179014476,
+   "games": 7
+  },
+  {
+   "date": "2026-01-22",
+   "brier": 0.20633992468433993,
+   "games": 8
+  },
+  {
+   "date": "2026-01-23",
+   "brier": 0.3748387685020681,
+   "games": 8
+  },
+  {
+   "date": "2026-01-24",
+   "brier": 0.21326533495171038,
+   "games": 6
+  },
+  {
+   "date": "2026-01-25",
+   "brier": 0.337427838301255,
+   "games": 6
+  },
+  {
+   "date": "2026-01-26",
+   "brier": 0.1831294205156819,
+   "games": 7
+  },
+  {
+   "date": "2026-01-27",
+   "brier": 0.14380184424213902,
+   "games": 7
+  },
+  {
+   "date": "2026-01-28",
+   "brier": 0.3151577106253185,
+   "games": 9
+  },
+  {
+   "date": "2026-01-29",
+   "brier": 0.21331959727872934,
+   "games": 8
+  },
+  {
+   "date": "2026-01-30",
+   "brier": 0.20267407138193594,
+   "games": 9
+  },
+  {
+   "date": "2026-01-31",
+   "brier": 0.19408260692058843,
+   "games": 6
+  },
+  {
+   "date": "2026-02-01",
+   "brier": 0.16058945432816157,
+   "games": 10
+  },
+  {
+   "date": "2026-02-02",
+   "brier": 0.2737663123798858,
+   "games": 4
+  },
+  {
+   "date": "2026-02-03",
+   "brier": 0.21112896812948662,
+   "games": 10
+  },
+  {
+   "date": "2026-02-04",
+   "brier": 0.22516455952790945,
+   "games": 7
+  },
+  {
+   "date": "2026-02-05",
+   "brier": 0.2647507280984115,
+   "games": 8
+  },
+  {
+   "date": "2026-02-06",
+   "brier": 0.26875350703728135,
+   "games": 6
+  },
+  {
+   "date": "2026-02-07",
+   "brier": 0.1982805186915743,
+   "games": 10
+  },
+  {
+   "date": "2026-02-08",
+   "brier": 0.27119071097296416,
+   "games": 4
+  },
+  {
+   "date": "2026-02-09",
+   "brier": 0.24960460354330904,
+   "games": 10
+  },
+  {
+   "date": "2026-02-10",
+   "brier": 0.28036444857517834,
+   "games": 4
+  },
+  {
+   "date": "2026-02-11",
+   "brier": 0.1839519812549633,
+   "games": 14
+  },
+  {
+   "date": "2026-02-12",
+   "brier": 0.34273673563862866,
+   "games": 3
+  },
+  {
+   "date": "2026-02-19",
+   "brier": 0.17148240120632352,
+   "games": 10
+  },
+  {
+   "date": "2026-02-20",
+   "brier": 0.1488854660272888,
+   "games": 9
+  },
+  {
+   "date": "2026-02-21",
+   "brier": 0.13095569996868692,
+   "games": 6
+  },
+  {
+   "date": "2026-02-22",
+   "brier": 0.27898959713692,
+   "games": 11
+  },
+  {
+   "date": "2026-02-23",
+   "brier": 0.32672756389946644,
+   "games": 3
+  },
+  {
+   "date": "2026-02-24",
+   "brier": 0.19375465393448196,
+   "games": 11
+  },
+  {
+   "date": "2026-02-25",
+   "brier": 0.21518341679203204,
+   "games": 6
+  },
+  {
+   "date": "2026-02-26",
+   "brier": 0.21628965308549758,
+   "games": 10
+  },
+  {
+   "date": "2026-02-27",
+   "brier": 0.19994855146124996,
+   "games": 5
+  },
+  {
+   "date": "2026-02-28",
+   "brier": 0.2278831143722409,
+   "games": 5
+  },
+  {
+   "date": "2026-03-01",
+   "brier": 0.17654793512122904,
+   "games": 11
+  },
+  {
+   "date": "2026-03-02",
+   "brier": 0.07791986614887392,
+   "games": 4
+  },
+  {
+   "date": "2026-03-03",
+   "brier": 0.08953755266385241,
+   "games": 10
+  },
+  {
+   "date": "2026-03-04",
+   "brier": 0.1472274446192818,
+   "games": 6
+  },
+  {
+   "date": "2026-03-05",
+   "brier": 0.25270524051622945,
+   "games": 9
+  },
+  {
+   "date": "2026-03-06",
+   "brier": 0.10035141625716348,
+   "games": 7
+  },
+  {
+   "date": "2026-03-07",
+   "brier": 0.2816615554806807,
+   "games": 6
+  },
+  {
+   "date": "2026-03-08",
+   "brier": 0.20481274621510548,
+   "games": 10
+  },
+  {
+   "date": "2026-03-09",
+   "brier": 0.2747078346594696,
+   "games": 5
+  },
+  {
+   "date": "2026-03-10",
+   "brier": 0.16220189595138867,
+   "games": 11
+  },
+  {
+   "date": "2026-03-11",
+   "brier": 0.1823881239707392,
+   "games": 6
+  },
+  {
+   "date": "2026-03-12",
+   "brier": 0.14125920060996833,
+   "games": 9
+  },
+  {
+   "date": "2026-03-13",
+   "brier": 0.10964582731682704,
+   "games": 8
+  },
+  {
+   "date": "2026-03-14",
+   "brier": 0.20097051249399786,
+   "games": 7
+  },
+  {
+   "date": "2026-03-15",
+   "brier": 0.2767021035346999,
+   "games": 7
+  },
+  {
+   "date": "2026-03-16",
+   "brier": 0.15862633529268214,
+   "games": 8
+  },
+  {
+   "date": "2026-03-17",
+   "brier": 0.10407299685007848,
+   "games": 8
+  },
+  {
+   "date": "2026-03-18",
+   "brier": 0.17979181817241324,
+   "games": 9
+  },
+  {
+   "date": "2026-03-19",
+   "brier": 0.14983880782078524,
+   "games": 8
+  },
+  {
+   "date": "2026-03-20",
+   "brier": 0.15997527635195907,
+   "games": 6
+  },
+  {
+   "date": "2026-03-21",
+   "brier": 0.14057293973821056,
+   "games": 10
+  },
+  {
+   "date": "2026-03-22",
+   "brier": 0.20234594730057162,
+   "games": 5
+  },
+  {
+   "date": "2026-03-23",
+   "brier": 0.1735662137813369,
+   "games": 10
+  },
+  {
+   "date": "2026-03-24",
+   "brier": 0.08482340521999128,
+   "games": 4
+  },
+  {
+   "date": "2026-03-25",
+   "brier": 0.20029987259230933,
+   "games": 12
+  },
+  {
+   "date": "2026-03-26",
+   "brier": 0.15058269293846832,
+   "games": 3
+  },
+  {
+   "date": "2026-03-27",
+   "brier": 0.1280910451017464,
+   "games": 10
+  },
+  {
+   "date": "2026-03-28",
+   "brier": 0.19462388026996902,
+   "games": 6
+  },
+  {
+   "date": "2026-03-29",
+   "brier": 0.11732639988686319,
+   "games": 9
+  },
+  {
+   "date": "2026-03-30",
+   "brier": 0.11575583155242289,
+   "games": 8
+  },
+  {
+   "date": "2026-03-31",
+   "brier": 0.17898124570810142,
+   "games": 7
+  },
+  {
+   "date": "2026-04-01",
+   "brier": 0.11340515326319772,
+   "games": 9
+  },
+  {
+   "date": "2026-04-02",
+   "brier": 0.10322338799203123,
+   "games": 6
+  },
+  {
+   "date": "2026-04-03",
+   "brier": 0.10846741940567166,
+   "games": 9
+  },
+  {
+   "date": "2026-04-04",
+   "brier": 0.14328798263269596,
+   "games": 3
+  },
+  {
+   "date": "2026-04-05",
+   "brier": 0.1415804375887488,
+   "games": 11
+  },
+  {
+   "date": "2026-04-06",
+   "brier": 0.2416311224429339,
+   "games": 5
+  },
+  {
+   "date": "2026-04-07",
+   "brier": 0.12147508856302158,
+   "games": 10
+  },
+  {
+   "date": "2026-04-08",
+   "brier": 0.07238633874173842,
+   "games": 7
+  },
+  {
+   "date": "2026-04-09",
+   "brier": 0.1705521953472605,
+   "games": 6
+  },
+  {
+   "date": "2026-04-10",
+   "brier": 0.1843226560598902,
+   "games": 15
+  },
+  {
+   "date": "2026-06-08",
+   "brier": 0.3342972380022703,
+   "games": 1
+  },
+  {
+   "date": "2026-06-10",
+   "brier": 0.19475698226601953,
+   "games": 1
+  },
+  {
+   "date": "2026-06-13",
+   "brier": 0.2686374471717499,
+   "games": 1
+  }
+ ],
+ "feature_drift": [
+  {
+   "feature": "elo_diff",
+   "current_mean": -12.470448820644993,
+   "baseline_mean": -1.0643145119348378,
+   "psi": 0.5453592416310169,
+   "psi_adjusted": 0.5453592416310169,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3461,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_diff",
+   "current_mean": -0.029166666666666667,
+   "baseline_mean": 8.694041795087155e-05,
+   "psi": 0.5635377367653984,
+   "psi_adjusted": 0.5635377367653984,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_diff",
+   "current_mean": 0.23333333333333334,
+   "baseline_mean": 0.1443089430894309,
+   "psi": 2.2362314896825324,
+   "psi_adjusted": 2.2362314896825324,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "back_to_back_diff",
+   "current_mean": 0.0,
+   "baseline_mean": -0.006678281068524971,
+   "psi": 1.3989025133985864,
+   "psi_adjusted": 1.3989025133985864,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_net_points_diff",
+   "current_mean": -2.31207801392725,
+   "baseline_mean": -0.08511792201029011,
+   "psi": 0.18321108966001384,
+   "psi_adjusted": 0.18321108966001384,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_off_rating_diff",
+   "current_mean": -2.31207801392725,
+   "baseline_mean": -0.08511792201029009,
+   "psi": 0.18321108966001384,
+   "psi_adjusted": 0.18321108966001384,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_def_rating_diff",
+   "current_mean": 2.312078013927251,
+   "baseline_mean": 0.08511792201029042,
+   "psi": 0.18321108966001384,
+   "psi_adjusted": 0.18321108966001384,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_pace_diff",
+   "current_mean": 0.030119353184378875,
+   "baseline_mean": -0.27665350262499877,
+   "psi": 0.6527430860745068,
+   "psi_adjusted": 0.6527430860745068,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_efg_pct_diff",
+   "current_mean": -0.006087552120334433,
+   "baseline_mean": -0.0005955938872409845,
+   "psi": 0.12741809472281415,
+   "psi_adjusted": 0.12741809472281415,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_turnover_margin_diff",
+   "current_mean": 0.0,
+   "baseline_mean": 0.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_rebound_margin_diff",
+   "current_mean": 0.0,
+   "baseline_mean": 0.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_ast_per_game_diff",
+   "current_mean": -0.46011125451089613,
+   "baseline_mean": -0.04140424631422931,
+   "psi": 0.13888582707381325,
+   "psi_adjusted": 0.13888582707381325,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "is_playoffs",
+   "current_mean": 1.0,
+   "baseline_mean": 0.07252239237214678,
+   "psi": 0.0,
+   "psi_adjusted": 0.0,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 3461,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_home",
+   "current_mean": 1635.1844052635722,
+   "baseline_mean": 1507.7857550416945,
+   "psi": 5.796786920134446,
+   "psi_adjusted": 5.796786920134446,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3461,
+   "n_current": 60
+  },
+  {
+   "feature": "elo_away",
+   "current_mean": 1647.6548540842173,
+   "baseline_mean": 1508.8500695536295,
+   "psi": 5.930669592337077,
+   "psi_adjusted": 5.930669592337077,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3461,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_home",
+   "current_mean": 0.6430555555555556,
+   "baseline_mean": 0.5036916018991491,
+   "psi": 3.546372469424909,
+   "psi_adjusted": 3.546372469424909,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3445,
+   "n_current": 60
+  },
+  {
+   "feature": "win_pct_away",
+   "current_mean": 0.6722222222222222,
+   "baseline_mean": 0.5036025952257458,
+   "psi": 3.6981469040085373,
+   "psi_adjusted": 3.6981469040085373,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3447,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_off_rating_home",
+   "current_mean": 104.14135620290736,
+   "baseline_mean": 100.08411686767838,
+   "psi": 1.2945396023318174,
+   "psi_adjusted": 1.2945396023318174,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3445,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_off_rating_away",
+   "current_mean": 106.45343421683462,
+   "baseline_mean": 100.16098889833347,
+   "psi": 1.665536141324531,
+   "psi_adjusted": 1.665536141324531,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3447,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_def_rating_home",
+   "current_mean": 95.85864379709272,
+   "baseline_mean": 99.91588313232165,
+   "psi": 1.2947540576802925,
+   "psi_adjusted": 1.2947540576802925,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3445,
+   "n_current": 60
+  },
+  {
+   "feature": "ewm_def_rating_away",
+   "current_mean": 93.54656578316549,
+   "baseline_mean": 99.83901110166656,
+   "psi": 1.6657305130452507,
+   "psi_adjusted": 1.6657305130452507,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3447,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_home",
+   "current_mean": 2.5833333333333335,
+   "baseline_mean": 3.762844702467344,
+   "psi": 2.002841586462753,
+   "psi_adjusted": 2.002841586462753,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3445,
+   "n_current": 60
+  },
+  {
+   "feature": "rest_days_away",
+   "current_mean": 2.35,
+   "baseline_mean": 3.617058311575283,
+   "psi": 2.1019085099587898,
+   "psi_adjusted": 2.1019085099587898,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 3447,
+   "n_current": 60
+  },
+  {
+   "feature": "is_home",
+   "current_mean": 1.0,
+   "baseline_mean": 1.0,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 3461,
+   "n_current": 60
+  },
+  {
+   "feature": "event_three_rate_diff",
+   "current_mean": 0.0036635528288151754,
+   "baseline_mean": -0.000720995661977605,
+   "psi": 0.14417691812886746,
+   "psi_adjusted": 0.14417691812886746,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 3444,
+   "n_current": 60
+  },
+  {
+   "feature": "event_rim_rate_diff",
+   "current_mean": -0.0012915425755010183,
+   "baseline_mean": -0.000841309170804253,
+   "psi": 0.2430107586881059,
+   "psi_adjusted": 0.2430107586881059,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_live_tov_rate_diff",
+   "current_mean": 0.0015603236184107635,
+   "baseline_mean": 0.000858607981439013,
+   "psi": 0.18825494533875156,
+   "psi_adjusted": 0.18825494533875156,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_and_in_rate_diff",
+   "current_mean": 0.0002491882867330107,
+   "baseline_mean": -0.0002767056607262785,
+   "psi": 0.048582710193933516,
+   "psi_adjusted": 0.048582710193933516,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_shot_distance_diff",
+   "current_mean": 0.09384187183058555,
+   "baseline_mean": 0.03139107636453149,
+   "psi": 0.2751826822770546,
+   "psi_adjusted": 0.2751826822770546,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_possessions_diff",
+   "current_mean": 0.08228314320814102,
+   "baseline_mean": -0.10356170408843855,
+   "psi": 2.539529242531043,
+   "psi_adjusted": 2.539529242531043,
+   "status": "ALERT",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_shooting_fouls_diff",
+   "current_mean": 0.0003684445201909507,
+   "baseline_mean": -0.032132987700988866,
+   "psi": 0.13204579742719996,
+   "psi_adjusted": 0.13204579742719996,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "event_q4_points_diff",
+   "current_mean": -0.08047662642642166,
+   "baseline_mean": -0.18051146264327564,
+   "psi": 0.18020885367440848,
+   "psi_adjusted": 0.18020885367440848,
+   "status": "WARN",
+   "weight_pct": null,
+   "n_baseline": 584,
+   "n_current": 60
+  },
+  {
+   "feature": "pl_ts_c_away",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_c_home",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_c_diff",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_f_away",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_f_home",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_f_diff",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_g_away",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_g_home",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  },
+  {
+   "feature": "pl_ts_g_diff",
+   "current_mean": null,
+   "baseline_mean": null,
+   "psi": null,
+   "psi_adjusted": null,
+   "status": "OK",
+   "weight_pct": null,
+   "n_baseline": 0,
+   "n_current": 0
+  }
+ ],
+ "coverage": [
+  {
+   "feature": "elo_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 17,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 392,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 1982,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 2651,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_points_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_pace_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 1,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_efg_pct_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_turnover_margin_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 3444,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_rebound_margin_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 3444,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ast_per_game_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_playoffs",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 3210,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 34,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 46,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "event_three_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 2,
+   "status": "OK"
+  },
+  {
+   "feature": "event_rim_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_live_tov_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_and_in_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 2,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_shot_distance_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_possessions_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_shooting_fouls_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 1,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_q4_points_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 3,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  }
+ ],
+ "feature_coverage": [
+  {
+   "feature": "elo_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 17,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 392,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 1982,
+   "status": "OK"
+  },
+  {
+   "feature": "back_to_back_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 2651,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_net_points_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_pace_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 1,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_efg_pct_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_turnover_margin_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 3444,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_rebound_margin_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 3444,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_ast_per_game_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_playoffs",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 3210,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "elo_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 34,
+   "status": "OK"
+  },
+  {
+   "feature": "win_pct_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 46,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_off_rating_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "ewm_def_rating_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.54,
+   "pct_nonnull": 99.54,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "rest_days_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.6,
+   "pct_nonnull": 99.6,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "is_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 100.0,
+   "pct_nonnull": 100.0,
+   "n_default_zero": 0,
+   "status": "OK"
+  },
+  {
+   "feature": "event_three_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 99.51,
+   "pct_nonnull": 99.51,
+   "n_default_zero": 2,
+   "status": "OK"
+  },
+  {
+   "feature": "event_rim_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_live_tov_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_and_in_rate_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 2,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_shot_distance_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_possessions_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_shooting_fouls_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 1,
+   "status": "STARVED"
+  },
+  {
+   "feature": "event_q4_points_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 16.87,
+   "pct_nonnull": 16.87,
+   "n_default_zero": 3,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_c_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_f_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_away",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_home",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  },
+  {
+   "feature": "pl_ts_g_diff",
+   "window": "decided pool",
+   "n_games": 3461,
+   "pct_measured": 0.0,
+   "pct_nonnull": 0.0,
+   "n_default_zero": 0,
+   "status": "STARVED"
+  }
+ ],
+ "folds": {
+  "n_folds": 41,
+  "partial_tail_folds": 1,
+  "first_val_start": "2024-11-22",
+  "last_val_end": "2026-06-13",
+  "min_train": 229,
+  "max_train": 2626,
+  "total_val_games": 2133
+ },
+ "version_history": [],
+ "features_metadata": {}
+}
