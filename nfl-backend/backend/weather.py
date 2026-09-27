@@ -483,7 +483,11 @@ def _fetch_batched_weather(
             for row in targets
         )
         if missing:
-            logger.info("PIT weather recent: fetching %d..%d observed "
+            # ``recent_start``/``recent_end`` are datetime.date, so %d raises
+            # TypeError INSIDE logging: the handler catches it, prints a
+            # "--- Logging error ---" traceback, and the line is lost. %s
+            # renders the dates and cannot fail.
+            logger.info("PIT weather recent: fetching %s..%s observed "
                         "(forecast endpoint) for %d stadiums",
                         recent_start, recent_end, len(locations))
             recent = _fetch_batch_range(

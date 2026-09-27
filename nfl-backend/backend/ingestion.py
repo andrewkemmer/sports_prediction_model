@@ -10,7 +10,9 @@ place that interprets them.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -361,7 +363,14 @@ def load_injuries_pit(games: pd.DataFrame,
     if not frames:
         return pd.DataFrame(columns=cols)
 
-    inj = pd.concat(frames, ignore_index=True)
+    # A season whose source omits a field contributes an all-NA column, and
+    # pandas now warns that concat will stop ignoring those when inferring
+    # dtypes.  Keep the legacy behaviour explicitly: these frames are all
+    # built to the same narrow schema, so the all-NA entries are noise, and
+    # every field is re-parsed below anyway.
+    inj = pd.concat([f for f in frames if not f.empty],
+                    ignore_index=True) if any(not f.empty for f in frames) \
+        else pd.DataFrame(columns=frames[0].columns)
     # Also tolerate an older v2 cache written by a source exposing only
     # season_type (the v3 cache path ensures normal pulls are rebuilt).
     if "game_type" not in inj.columns and "season_type" in inj.columns:
@@ -656,73 +665,204 @@ def chunk_date_range(start, end, chunk_days: int = POPULATE_CHUNK_DAYS):
         cursor = chunk_end + pd.Timedelta(days=1)
 
 
+# ---------------------------------------------------------------------------
+# Progress bar — MLB statcast's idiom, verbatim.
+# ---------------------------------------------------------------------------
+# MLB's statcast pull draws its bar with ``tqdm``:
+# ``pybaseball.statcast`` wraps its per-day sub-requests in
+# ``tqdm(total=len(date_range))`` and constructs it with STOCK DEFAULTS. That
+# is the whole reference. The captured Kaggle log shows exactly what those
+# defaults produce:
+#
+#   0%|          | 0/36 [00:00<?, ?it/s]
+#   100%|########| 36/36 [00:40<00:00, 1.14s/it]
+#        -> 136267 pitches
+#
+# Two properties of that output are load-bearing and are the reason this class
+# exists in this shape.
+#
+# 1. STOCK DEFAULTS. No ``bar_format``, no ``dynamic_ncols``, ``leave=True``,
+#    ``disable`` left at its own default. A hand-rolled format is the one thing
+#    that would make this bar look nothing like the one it imitates. The
+#    previous hand-rolled bar did exactly that: ``[####----------------]  50%
+#    42/93  nflverse population`` shares no glyph, no punctuation, no timing
+#    and no rate with MLB's, so an operator reading both logs had to learn two
+#    vocabularies for the same fact.
+#
+# 2. IT DRAWS ON A CAPTURED STREAM. ``tqdm`` CAN suppress itself on a
+#    non-terminal -- ``std.py`` says ``if disable is None and not
+#    file.isatty(): disable = True`` -- but the parameter's default is
+#    ``False``, not ``None``, so that branch is unreachable unless a caller
+#    opts in. A stock bar therefore writes into a pipe, a file and a captured
+#    notebook cell exactly as it writes to a terminal. MLB's bars survive into
+#    its Kaggle log for that reason and no other. Any tty gate added here would
+#    be inventing a stricter rule than the one MLB runs under, and would be the
+#    single reason these bars vanished where MLB's do not.
+#
+# ``position=0`` is deliberate too. Left alone tqdm stacks a new bar ABOVE one
+# already open and rewinds the cursor a line per redraw; on a terminal that is
+# invisible, in a capture it is an ``ESC[A`` and a blank line after every
+# refresh. NFL's bars never overlap (the population bar closes before the OOF
+# bars open), so pinning position states that instead of leaving it to a
+# collision that does not happen.
+#
+# ``tqdm`` stays an OPTIONAL import (NBA parity). When it is absent the bar
+# degrades to the heartbeat counter below, which keeps the run's output a log
+# line rather than silence, and which is the only thing drawn when
+# ``NFL_PROGRESS=0``.
+#
+# Display only: the bar holds a counter, never touches the data, and cannot
+# change which requests a loader makes.
+def _hms(seconds: float) -> str:
+    """Seconds as tqdm renders a duration: ``00:00``, ``01:14``, ``1:02:03``.
+
+    Same units and same shape as the ``[00:40<00:00, 1.14s/it]`` MLB's
+    statcast bar prints, so the no-tqdm fallback is not a different dialect
+    of the same information. Over an hour gains the hour field, as tqdm does.
+    """
+    total = max(0, int(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
 class StageProgress:
-    """A logger-rendered progress bar with no third-party dependency.
+    """MLB-statcast-style progress bar: tqdm when importable, else a counter.
 
-    Deliberately not tqdm: NFL's runtime dependency set is what the Kaggle
-    bootstrap installs, and adding a package to observe a run is a change to
-    the production environment, which this work is not allowed to make. MLB
-    installs tqdm but never imports it, so there is no bar to be structurally
-    identical to — this renders through the same ``logger`` the rest of the
-    run uses, so it appears in the same captured log a reader already reads.
-
-    Display only. The bar holds counters; it never touches the data.
+    Same surface as before (``advance`` / ``close`` / ``enabled``) so the
+    call sites in this module, ``weather.py`` and ``master_pipeline`` are
+    unchanged, but the rendering is now MLB's rather than bespoke.
     """
 
+    #: Bar geometry, kept only for the no-tqdm fallback. tqdm's own width
+    #: applies whenever the library is importable.
     WIDTH = 24
-    # A 105-fold stage must not write 101 log lines. Emit at most every 5%
-    # (~21 lines) and on every step of a short stage, so a 5-source bar still
-    # moves once per source.
+    # A 105-fold stage must not write 105 log lines in the fallback path.
     LONG_STAGE = 25
     PCT_STEP = 5
+    #: Longest silence between fallback progress lines. Long enough to stay
+    #: legible in a captured log, short enough that a stalled run is obviously
+    #: stalled rather than merely quiet.
+    HEARTBEAT_SEC = 30.0
 
-    def __init__(self, total: int, label: str, width: int = WIDTH):
+    ENV = "NFL_PROGRESS"
+    OFF_WORDS = {"0", "false", "no", "off"}
+
+    @classmethod
+    def enabled_by_env(cls) -> bool:
+        """Default ON; an explicit ``0``/``off``/``no``/``false`` always wins.
+
+        Same rule as the NBA backend's ``NBA_PROGRESS``: the bar is the
+        feature, and silence should have to be asked for.
+        """
+        raw = os.environ.get(cls.ENV)
+        if raw is None or not raw.strip():
+            return True
+        return raw.strip().lower() not in cls.OFF_WORDS
+
+    def __init__(self, total: int, label: str, width: int = WIDTH,
+                 show_rate: bool = True):
         self.total = max(0, int(total))
         self.label = label
         self.width = max(1, int(width))
+        self.show_rate = show_rate
         # A zero-length stage has no progress to show; stay silent rather than
         # printing a bar that jumps 0 -> 100% the instant it is created.
         self.enabled = self.total > 0
         self.n = 0
         self._step = 1 if self.total <= self.LONG_STAGE else self.PCT_STEP
         self._last_pct = -1
+        self._inner = None
+        self._started = time.monotonic()
+        self._last_beat = self._started
+        # A total of 0 disables tqdm too: a bar with no denominator renders
+        # nothing useful and would print a bare 0it.
+        if self.enabled and self.enabled_by_env():
+            self._inner = self._make_bar()
+
+    def _make_bar(self):
+        """A stock tqdm bar, or ``None`` when the library is unavailable.
+
+        Optional import, imported lazily so a missing dependency is a ``None``
+        return and never an ImportError at pipeline start.
+        """
+        try:
+            from tqdm import tqdm  # type: ignore[import-not-found]
+        except Exception:  # noqa: BLE001 - absence is a supported state
+            return None
+        kwargs: dict = {"position": 0}
+        if not self.show_rate:
+            # Phases and pulls are wildly uneven in cost, so a rate and an ETA
+            # computed off one or two samples read as a measurement and are
+            # nothing of the kind. Default tqdm format minus the rate.
+            kwargs["bar_format"] = "{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}"
+        return tqdm(total=self.total, desc=self.label, leave=True, **kwargs)
 
     def advance(self, n: int = 1) -> "StageProgress":
         """Move the bar forward. Callable, so it can be a bare callback."""
         self.n += n
-        self.render()
+        if not self.enabled:
+            return self
+        if self._inner is not None:
+            self._inner.update(n)
+            return self
+        now = time.monotonic()
+        if now - self._last_beat >= self.HEARTBEAT_SEC or self.n >= self.total:
+            self._last_beat = now
+            logger.info("%s", self._fallback_line(now))
         return self
 
-    def render(self, force: bool = False) -> None:
-        if not self.enabled:
-            return
+    def _fallback_line(self, now: float | None = None) -> str:
+        """One line in MLB's shape, for when tqdm is not importable.
+
+        Deliberately formatted like the line it stands in for --
+        ``  50.0%|#####     | 42/93 [00:12<00:12, 3.5 batch/s]`` -- so a run
+        without tqdm still reads as the same vocabulary as a run with it.
+        """
+        now = time.monotonic() if now is None else now
+        elapsed = max(0.0, now - self._started)
         frac = min(1.0, self.n / self.total)
-        pct = int(frac * 100)
-        # 100% always reports, so a completed stage is never left looking
-        # unfinished; otherwise only redraw once the bar has moved a step.
-        if not force and pct < 100 and pct - self._last_pct < self._step:
-            return
-        self._last_pct = pct
+        # tqdm reports a rate as elapsed/unit, and treats a rate too fast to
+        # measure as "?it/s". Dividing count by elapsed instead reported
+        # "1343285.02 unit/s" for a loop that finished in under a millisecond,
+        # which is a number no operator can read as a rate at all.
+        rate = 0.0
+        if elapsed > 0 and self.n > 0:
+            per_unit = elapsed / self.n
+            rate = 1.0 / per_unit if per_unit > 0 else 0.0
         filled = int(round(frac * self.width))
-        bar = "#" * filled + "-" * (self.width - filled)
-        logger.info("  [%s] %3d%%  %d/%d  %s", bar, pct,
-                    min(self.n, self.total), self.total, self.label)
+        bar = "#" * filled + " " * (self.width - filled)
+        head = f"  {100.0 * frac:5.1f}%|{bar}| {self.n}/{self.total}"
+        if self.show_rate:
+            # Anything faster than a millisecond per unit is a counter, not
+            # work, and reads as "?" exactly as tqdm renders it.
+            rate_s = (f"{elapsed / self.n:.2f}s/unit" if rate >= 1000.0
+                      else (f"{rate:.2f} unit/s" if rate > 0 else "? unit/s"))
+            if self.n < self.total and rate > 0:
+                head += (f" [{_hms(elapsed)}<"
+                         f"{_hms((self.total - self.n) / rate)}, {rate_s}]")
+            else:
+                head += f" [{_hms(elapsed)}<00:00, {rate_s}]"
+        return f"{head}: {self.label}"
 
     def close(self) -> None:
-        """Finish the bar, and say so loudly if the stage stopped short."""
+        """Finish the bar, and say so loudly if the stage stopped short.
+
+        The short-stage warning is the one behaviour of the old bar worth
+        keeping verbatim: a stage that ended early usually means an exception
+        escaped a loader, and a completed-looking bar would read as success.
+        """
         if not self.enabled:
             return
+        if self._inner is not None:
+            self._inner.close()
         if self.n < self.total:
-            # A short stage is usually an exception escaping a loader, and a
-            # full-width bar here would read as success.
-            logger.warning("  [%s] %3d%%  stopped short: %d/%d  %s",
-                           "#" * self.width,
-                           int(100 * self.n / self.total), self.n, self.total,
-                           self.label)
-        elif self._last_pct < 100:
-            # advance() already draws 100% on the final step; re-drawing here
-            # would print the same line twice.
-            self.render(force=True)
+            logger.warning(
+                "  stopped short: %d/%d  %s", self.n, self.total, self.label)
+        elif self._inner is None and self._last_pct < 100:
+            logger.info("%s", self._fallback_line())
 
 
 def population_unit_counts(core_seasons: list[int]) -> dict[str, int]:

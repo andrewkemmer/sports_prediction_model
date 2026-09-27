@@ -575,8 +575,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 10. Final full-history refit ──────────────────────────────────────
     _banner("PHASE 10", "final full-history refit")
+    _fit_bar = ingestion.StageProgress(
+        2, "final full-history refit")
     final_models, _ = ml_mod.fit_final_models(game_df)
+    _fit_bar.advance()
     final_reg = dist_mod.fit_final(game_df)
+    _fit_bar.advance()
+    _fit_bar.close()
+    logger.info("final refit: %d members + run-line regressors on %d games",
+                len(final_models), len(game_df))
 
     # ── 11. Current-slate serving ─────────────────────────────────────────
     _banner("PHASE 11", "current-slate serving")
@@ -775,8 +782,8 @@ def main(argv: list[str] | None = None) -> int:
     joblib.dump(bundle, config.MODEL_BUNDLE)
     artifacts.append(str(config.MODEL_BUNDLE.name))
 
-    # ── 14. Monitoring ───────────────────────────────────────────────────
-    _banner("PHASE 14", "monitoring")
+    # ── 13. Monitoring ───────────────────────────────────────────────────
+    _banner("PHASE 13", "monitoring")
     recent = game_df.tail(60)
     feature_weights = monitoring.feature_importance_weights(
         final_models, weights, feature_frame=game_df)
@@ -792,9 +799,30 @@ def main(argv: list[str] | None = None) -> int:
                                   rb, baseline, config_meta, fold_info,
                                   metrics=cal_m, platt=platt)
     artifacts.append(p.name)
+    # Say what the monitoring phase actually found. A banner and a filename are
+    # not a result: a drifted or starved feature is exactly what an operator
+    # reads this log for, and silence reads as "nothing to report". Reuse the
+    # thresholds and the row keys monitoring itself computed, rather than
+    # re-deciding them here.
+    _drifted = [d for d in drift if isinstance(d, dict) and d.get("status") != "OK"]
+    _starved = [c for c in cov_rows
+                if isinstance(c, dict) and c.get("status") in ("STARVED",
+                                                               "LOW_COVERAGE")]
+    logger.info("monitoring: %d features scored, %d drift (ALERT/WARN), "
+                "%d coverage (STARVED/LOW); rolling brier %.4f vs %.4f baseline",
+                len(drift), len(_drifted), len(_starved), rb, baseline)
+    for _d in _drifted[:5]:
+        logger.warning("  drift   %-34s %-5s psi=%.3f", _d.get("feature", "?"),
+                       _d.get("status", "?"), float(_d.get("psi", 0) or 0))
+    for _c in _starved[:5]:
+        logger.warning("  coverage %-32s %-13s %.1f%%", _c.get("feature", "?"),
+                       _c.get("status", "?"),
+                       float(_c.get("pct_nonnull", 0) or 0))
+    if _drifted or _starved:
+        logger.warning("  full tables: %s, %s", run_drift_name, run_cov_name)
 
-    # ── 13. Schema validation (gates) ─────────────────────────────────────
-    _banner("PHASE 13", "schema validation")
+    # ── 14. Schema validation (gates) ─────────────────────────────────────
+    _banner("PHASE 14", "schema validation")
     gates = _validate_outputs(out_dir, date_c, oof_ml, slate, fold_info)
     for name, ok in gates.items():
         logger.info("gate %-28s %s", name, "PASS" if ok else "FAIL")
@@ -806,6 +834,15 @@ def main(argv: list[str] | None = None) -> int:
     # MLB parity 10-day blanket window). Files staged by THIS run are "seen"
     # and never touched; the anchor is the run's end date (NFL_END_DATE when
     # set, else today ET) — identical anchor semantics to MLB's Phase 6.
+    # Name what was written. A count alone cannot answer "did the slate JSON
+    # land?", which is the question this phase exists to answer, and a writer
+    # that silently skipped an artifact still produced the right count.
+    logger.info("artifacts written: %d", len(artifacts))
+    for _a in artifacts:
+        logger.info("  -> %s", _a)
+    _missing = [a for a in artifacts if not (out_dir / a).exists()]
+    if _missing:
+        logger.error("artifacts listed but absent on disk: %s", _missing)
     _prune_old_artifacts(out_dir, date_c, seen=set(artifacts),
                          anchor_iso=end_date)
 
