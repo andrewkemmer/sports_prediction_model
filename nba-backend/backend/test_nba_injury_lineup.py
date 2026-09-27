@@ -715,8 +715,23 @@ class TestPositionTsBuildSurvivesAColdCache:
     def test_a_missing_injury_archive_is_reported_not_assumed_healthy(
             self, monkeypatch, tmp_path, caplog):
         import master_pipeline as mp
+        import lineup_projection as proj
         self._positions(monkeypatch)
         facts, games = self._facts()
+        # The build falls back to the DELIVERY copy of the archive when the
+        # machine cache is empty - the path a cloud run actually takes. The
+        # loader is stubbed to answer None for the delivery root so the
+        # warning path itself is what gets exercised; the published-archive
+        # path has its own test in TestDesignationShardUnion.
+        real_loader = proj.load_designations
+
+        def _scoped_loader(root):
+            base = str(root)
+            if "data_delivery" in base.replace("\\", "/"):
+                return None
+            return real_loader(root)
+
+        monkeypatch.setattr(proj, "load_designations", _scoped_loader)
         with caplog.at_level("WARNING"):
             mp._build_position_ts_features(facts, games, cache_dir=tmp_path)
         assert "UNFILTERED" in caplog.text

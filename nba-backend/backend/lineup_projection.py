@@ -172,7 +172,24 @@ def load_designations(root) -> "pd.DataFrame | None":
     """
     if root is None:
         return None
-    shards = sorted(Path(root).expanduser().glob("nba_designations_*.parquet"))
+    root = Path(root).expanduser()
+    # The consolidated archive first, when this root holds one: the pipeline
+    # publishes the shard union as ``nba_designations.parquet`` (the same way
+    # MLB ships ``il_stints.parquet``), and it is a superset of what the
+    # shards in this directory hold by construction. Preferring it keeps one
+    # read where several would do and keeps the published copy authoritative.
+    consolidated = root / "nba_designations.parquet"
+    if consolidated.exists():
+        try:
+            frame = pd.read_parquet(consolidated)
+            if len(frame):
+                logger.info("PIT designations: %d record(s) from the "
+                            "published archive", len(frame))
+                return frame
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("published designation archive unreadable (%s); "
+                           "falling back to shards", exc)
+    shards = sorted(root.glob("nba_designations_*.parquet"))
     if not shards:
         return None
     frames = []
