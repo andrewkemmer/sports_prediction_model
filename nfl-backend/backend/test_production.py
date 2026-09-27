@@ -457,6 +457,12 @@ _weather_src = inspect.getsource(weather_mod)
 check("weather archive phase reports progress (it used to be silent)",
       "PIT weather archive: %d window(s)" in _weather_src
       and 'StageProgress(total_batches, "PIT weather archive batches")' in _weather_src)
+# A log format applied to a date raises TypeError INSIDE logging: the handler
+# prints "--- Logging error ---" with a traceback and the line is lost. The
+# run log carried exactly that. %s renders a date and cannot fail.
+check("no log call formats a date with %d (that raised a logging error)",
+      'fetching %d..%d observed' not in _weather_src
+      and 'fetching %s..%s observed' in _weather_src)
 check("weather progress counts batches, not a guessed denominator",
       "total_batches = len(windows) * batches_per_window" in _weather_src)
 check("weather reuses the tested bar, so 384 batches do not print 384 lines",
@@ -1550,22 +1556,59 @@ check("an empty or reversed date window yields no chunks",
       and list(ingest_mod.chunk_date_range("2026-01-01", "2026-01-01"))
       == [(pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-01"))])
 try:
+    # MLB statcast parity: the bar is a stock ``tqdm`` when the library is
+    # importable, which is what puts ``100%|#####| 36/36 [00:00<00:00,
+    # 1.14s/it]`` into a captured log. Assert the properties that make that
+    # output possible rather than the glyphs, so a stock-defaults change is
+    # caught and a cosmetic one is not.
     _bar = ingest_mod.StageProgress(4, "smoke")
+    check("the bar is a stock tqdm when the library is importable",
+          type(_bar._inner).__name__ == "tqdm", type(_bar._inner).__name__)
+    # disable must stay False. tqdm's own tty suppression only fires when
+    # disable is None, and its default is False, so a stock bar draws into a
+    # captured stream exactly as MLB's does. A gate here would be the one
+    # reason these bars vanish where MLB's survive.
+    check("the bar is NOT gated on a tty (it draws into a captured log)",
+          _bar._inner is None or _bar._inner.disable is False,
+          f"disable={getattr(_bar._inner, 'disable', 'n/a')}")
+    check("the bar is pinned to position 0 (no stacked ESC[A in a capture)",
+          _bar._inner is None or _bar._inner.pos == 0)
+    check("the bar leaves its completed line on screen",
+          _bar._inner is None or _bar._inner.leave is True)
+    check("the bar uses no custom bar_format (MLB's stock rendering)",
+          _bar._inner is None or "{bar}" in (_bar._inner.bar_format or "{bar}"))
+
+    for _ in range(4):
+        _bar.advance()
+    _check_n = _bar.n
+    _bar.close()
+    check("the bar counts every advance exactly once",
+          _check_n == 4, f"n={_check_n}")
+
+    # The no-tqdm fallback must speak the same dialect, since that is the line
+    # a backend without the dependency prints instead. Force it by making the
+    # bar factory decline, which is exactly the state a missing tqdm creates.
     _seen: list[str] = []
     _h = logging.Handler()
     _h.emit = lambda rec: _seen.append(rec.getMessage())
-    ingest_mod.logger.addHandler(_h)
-    try:
-        for _ in range(4):
-            _bar.advance()
-        _bar.close()
-    finally:
-        ingest_mod.logger.removeHandler(_h)
-    check("progress bar renders a full-width bar and reaches 100%",
-          any("100%" in m and "4/4" in m and "#" * 24 in m for m in _seen))
-    check("progress bar advances monotonically and never exceeds total",
-          [m for m in _seen if "%" in m]
-          and all(int(m.split("%")[0].split("]")[-1]) <= 100 for m in _seen))
+    with mock.patch.object(ingest_mod.StageProgress, "_make_bar",
+                           return_value=None):
+        _fb = ingest_mod.StageProgress(4, "smoke")
+        ingest_mod.logger.addHandler(_h)
+        try:
+            for _ in range(4):
+                _fb.advance()
+            _fb.close()
+        finally:
+            ingest_mod.logger.removeHandler(_h)
+    check("without tqdm the bar still reports its work (never silence)",
+          bool(_seen) and "4/4" in _seen[-1], str(_seen[-1:]))
+    check("the fallback reaches 100% and uses MLB's bar glyphs",
+          any("100.0%" in m and "|" in m for m in _seen), str(_seen[-1:]))
+    check("the fallback never reports a nonsense sub-millisecond rate",
+          all("000000" not in m and "99999" not in m for m in _seen),
+          str(_seen[-1:]))
+
     _short = ingest_mod.StageProgress(4, "short")
     _warn: list[logging.LogRecord] = []
     _h2 = logging.Handler()
@@ -1584,8 +1627,24 @@ try:
     _zero.close()
     check("a zero-length stage renders nothing (no 0->100% jump)",
           not _zero.enabled)
+    # NFL_PROGRESS=0 must switch the bar off without changing the counting.
+    with mock.patch.dict(os.environ, {"NFL_PROGRESS": "0"}):
+        _off = ingest_mod.StageProgress(4, "off")
+        for _ in range(4):
+            _off.advance()
+        _off.close()
+    check("NFL_PROGRESS=0 disables the bar but never the counter",
+          _off._inner is None and _off.n == 4 and _off.enabled)
+    with mock.patch.dict(os.environ, {}, clear=True):
+        check("the bar is on by default (silence must be asked for)",
+              ingest_mod.StageProgress.enabled_by_env())
+    # An unevenly-costed stage must not publish a rate off one or two samples.
+    _norate = ingest_mod.StageProgress(3, "phases", show_rate=False)
+    check("an uneven stage drops the rate and ETA (no bogus ETA from 1 sample)",
+          _norate.show_rate is False)
 except Exception as exc:  # noqa: BLE001
-    check("progress bar renders a full-width bar and reaches 100%", False, str(exc))
+    check("the bar is a stock tqdm when the library is importable",
+          False, str(exc))
 
 # No functional impact: the hook is opt-in and defaults to a no-op, and the
 # feature builder is untouched by the chunk plan.
@@ -1647,8 +1706,34 @@ def _imports_tqdm(mod) -> bool:
     return False
 
 
-check("the bar adds no third-party dependency (no tqdm import)",
-      not _imports_tqdm(ingest_mod) and not _imports_tqdm(mp_mod))
+# The bar is now MLB's ``tqdm`` (statcast draws its pull with it), so the old
+# "no tqdm import" guardrail is deliberately inverted. What must hold instead
+# is that tqdm stays OPTIONAL: a backend without it must still run and still
+# report, never fail at import. That is the property worth pinning.
+check("tqdm is an OPTIONAL import (a missing dependency never breaks the run)",
+      _imports_tqdm(ingest_mod)
+      and "except Exception" in inspect.getsource(ingest_mod.StageProgress._make_bar),
+      "tqdm must be imported inside a guarded _make_bar")
+_with_bar_disabled = None
+try:
+    import builtins as _bi
+    _real_import = _bi.__import__
+
+    def _no_tqdm(name, *a, **k):
+        if name == "tqdm":
+            raise ImportError("tqdm unavailable (simulated)")
+        return _real_import(name, *a, **k)
+
+    with mock.patch.dict(_bi.__dict__, {"__import__": _no_tqdm}):
+        _with_bar_disabled = ingest_mod.StageProgress(3, "no-tqdm")
+        for _ in range(3):
+            _with_bar_disabled.advance()
+        _with_bar_disabled.close()
+    check("the pipeline still runs and still counts without tqdm installed",
+          _with_bar_disabled._inner is None and _with_bar_disabled.n == 3)
+except Exception as exc:  # noqa: BLE001
+    check("the pipeline still runs and still counts without tqdm installed",
+          False, str(exc))
 
 # 10f. Chart reproduction from the persisted history columns.
 try:

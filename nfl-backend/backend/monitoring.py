@@ -125,13 +125,27 @@ def feature_drift(full_df: pd.DataFrame, recent_df: pd.DataFrame,
         if f not in full_df.columns:
             continue
         psi = _psi(recent_df[f].to_numpy(float), full_df[f].to_numpy(float))
-        mean_cur = (float(np.nanmean(recent_df[f])) if len(recent_df) else np.nan)
-        mean_base = float(np.nanmean(full_df[f]))
+        # A feature that is entirely NaN in this window has no mean, and
+        # np.nanmean of an empty slice emits "RuntimeWarning: Mean of empty
+        # slice" once per such feature. That is not an anomaly worth a
+        # traceback in the run log -- the coverage table already reports
+        # STARVED for it -- so the empty case is handled explicitly.
+        _cur_vals = recent_df[f].dropna().to_numpy(float)
+        _base_vals = full_df[f].dropna().to_numpy(float)
+        mean_cur = float(_cur_vals.mean()) if _cur_vals.size else np.nan
+        mean_base = float(_base_vals.mean()) if _base_vals.size else np.nan
         mean_shift = mean_cur - mean_base
-        se_cur = (float(np.nanstd(recent_df[f]) / np.sqrt(len(recent_df)))
-                  if len(recent_df) > 1 else np.nan)
-        se_base = (float(np.nanstd(full_df[f]) / np.sqrt(len(full_df)))
-                   if len(full_df) > 1 else np.nan)
+        # Same rule for the standard error: a window holding a single
+        # observation has no sample variance, and np.nanstd of one value emits
+        # "Degrees of freedom <= 0 for slice". A NaN SE is the honest answer and
+        # is what the shift_se guard below already expects.
+        def _se(vals: np.ndarray) -> float:
+            if vals.size < 2:
+                return np.nan
+            return float(vals.std(ddof=1) / np.sqrt(vals.size))
+
+        se_cur = _se(_cur_vals)
+        se_base = _se(_base_vals)
         shift_se = float(np.hypot(se_cur, se_base)) if np.isfinite(se_cur) \
             and np.isfinite(se_base) else np.nan
         rows.append({

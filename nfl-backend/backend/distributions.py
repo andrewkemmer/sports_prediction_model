@@ -359,8 +359,19 @@ def _apply_platt(p: np.ndarray, cal: dict | None) -> np.ndarray:
         return np.asarray(p, float)
     p = np.clip(np.asarray(p, float), 1e-7, 1 - 1e-7)
     z = np.log(p / (1.0 - p))
-    return np.clip(1.0 / (1.0 + np.exp(-(cal["a"] * z + cal["b"]))),
-                   1e-7, 1 - 1e-7)
+    # Numerically stable logistic.  The naive 1/(1+exp(-x)) form overflows exp
+    # for x < -709, which a confident slate probability reaches routinely, and
+    # the RuntimeWarning it prints is a symptom of an avoidable loss of
+    # precision, not a number that is merely large.  Branching on the sign of
+    # x keeps the exponent non-positive on both sides, so exp never overflows
+    # and the result is identical to the naive form in the safe range.
+    x = cal["a"] * z + cal["b"]
+    out = np.empty_like(x, dtype=float)
+    pos = x >= 0
+    out[pos] = 1.0 / (1.0 + np.exp(-x[pos]))
+    ex = np.exp(x[~pos])
+    out[~pos] = ex / (1.0 + ex)
+    return np.clip(out, 1e-7, 1 - 1e-7)
 
 
 def _prequential_line(raw: np.ndarray, y: np.ndarray,
