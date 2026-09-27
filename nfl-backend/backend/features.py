@@ -1762,7 +1762,9 @@ def build_game_features(games: pd.DataFrame,
                               ("ewm_net_pts_home", "ewm_net_pts"),
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
-                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days")):
+                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("pace_plays_min_home", "pace_plays_min"),
+                              ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 
@@ -1849,7 +1851,9 @@ def build_slate_features(schedule: pd.DataFrame,
                               ("ewm_net_pts_home", "ewm_net_pts"),
                               ("ewm_net_pts_away", "ewm_net_pts"),
                               ("ewm_ypp_home", "ewm_ypp"), ("ewm_ypp_away", "ewm_ypp"),
-                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days")):
+                              ("rest_days_home", "rest_days"), ("rest_days_away", "rest_days"),
+                              ("pace_plays_min_home", "pace_plays_min"),
+                              ("pace_plays_min_away", "pace_plays_min")):
         home_v, away_v = _per_side(ladder, gids, lad_col)
         df[side_col] = home_v if side_col.endswith("home") else away_v
 

@@ -171,6 +171,11 @@ MONEYLINE_FEATURE_COLS = [
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
+    # 2026-09-27: raw magnitude for pace. The diff only ever answers "who is
+    # faster"; the levels answer "how fast is this game likely to be" (both
+    # teams slow -> low-scoring total, regardless of the gap). Same trailing
+    # level the diff reads, tree-only routing like every other side level.
+    "pace_plays_min_home", "pace_plays_min_away",
     # MLB lineup-wOBA structural analogue: position quality for the projected
     # offensive lineup. Diffs route to every model family; home/away levels are
     # tree-only through RAW_PER_SIDE_COLS.
@@ -435,6 +440,7 @@ RAW_PER_SIDE_COLS = frozenset({
     "ewm_net_pts_home", "ewm_net_pts_away",
     "ewm_ypp_home", "ewm_ypp_away",
     "rest_days_home", "rest_days_away",
+    "pace_plays_min_home", "pace_plays_min_away",
 } | {f"{family}_{m}_{w}_{s}"
      for family, specs in CANDIDATE_FAMILIES.items()
      for spec in specs.values()

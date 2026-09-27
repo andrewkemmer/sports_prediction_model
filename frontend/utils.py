@@ -2973,6 +2973,8 @@ NFL_FEATURE_DESCRIPTIONS = {
     "ewm_net_pts_diff": "Home−away net points/game, exponentially weighted (recent form)",
     "ewm_ypp_diff": "Home−away yards/play, exponentially weighted (recent form)",
     "pace_plays_min_diff": "Home−away plays per minute (pace of play)",
+    "pace_plays_min_home": "Home team's trailing plays per minute (pace level)",
+    "pace_plays_min_away": "Away team's trailing plays per minute (pace level)",
     "rest_short_diff": "Short-rest edge: home on <7 days rest − away flag",
     "div_game": "1 for division matchups (familiarity/rivalry factor)",
     "travel_miles_diff": "Home−away stadium distance in miles (travel fatigue)",

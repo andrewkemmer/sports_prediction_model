@@ -352,7 +352,7 @@ check("all four hourly weather features are in the active contract",
       _weather_features <= set(config.MONEYLINE_FEATURE_COLS))
 check("active moneyline contract includes the 12 EPA lineup features",
       set(config.EPA_QUALITY_FEATURE_COLS) <= set(config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 46)
+      and len(config.MONEYLINE_FEATURE_COLS) == 48)
 
 _weather_games = _pit_games.copy()
 _weather_games["temp"] = 111.0
@@ -2057,7 +2057,7 @@ check("the 12 EPA lineup columns are in the served production contract",
               and c in manifest.FEATURE_MANIFEST
               and c not in manifest.CANDIDATE_MANIFEST
               for c in _expected_epa_features)
-      and len(config.MONEYLINE_FEATURE_COLS) == 46)
+      and len(config.MONEYLINE_FEATURE_COLS) == 48)
 check("EPA lineup routing matches MLB: sides tree-only, diff shared",
       all(f"{base}_{side}" in config.RAW_PER_SIDE_COLS
           for base in config.EPA_QUALITY_BASES for side in ("home", "away"))
@@ -2119,7 +2119,41 @@ check("the served contract now carries an explicit defensive quantity",
       # Before this promotion the contract held NO defensive column at all:
       # defensive quality arrived only via the opponent's Elo/win%/net-points.
       any(c.startswith("pbp_def_epa_play_") for c in config.MONEYLINE_FEATURE_COLS)
-      and len(config.MONEYLINE_FEATURE_COLS) == 46)
+      and len(config.MONEYLINE_FEATURE_COLS) == 48)
+
+# Raw pace magnitude (2026-09-27): the diff answers "who is faster" but the
+# game-level magnitude — both teams slow → low-scoring total, whatever the
+# gap — needs the levels. Same trailing level the diff reads, tree-only
+# routing like every other side level, and documented in the manifest.
+try:
+    _pace_src = inspect.getsource(feat_mod)
+except Exception:
+    _pace_src = ""
+check("raw pace levels ride the served contract beside the diff",
+      {"pace_plays_min_diff", "pace_plays_min_home",
+       "pace_plays_min_away"} <= set(config.MONEYLINE_FEATURE_COLS)
+      and all(c not in config.RFE_CANDIDATE_COLS
+              for c in ("pace_plays_min_home", "pace_plays_min_away"))
+      and all(c in manifest.FEATURE_MANIFEST
+              for c in ("pace_plays_min_home", "pace_plays_min_away")))
+check("pace levels route tree-only, diff shared (the contract's own rule)",
+      {"pace_plays_min_home", "pace_plays_min_away"}
+      <= set(config.RAW_PER_SIDE_COLS)
+      and "pace_plays_min_diff" not in config.RAW_PER_SIDE_COLS)
+check("both builders emit the pace sides from the same ladder level",
+      "(\"pace_plays_min_home\", \"pace_plays_min\")" in _pace_src
+      and "(\"pace_plays_min_away\", \"pace_plays_min\")" in _pace_src
+      and inspect.getsource(feat_mod.build_game_features).count(
+          "pace_plays_min_home") == 1
+      and inspect.getsource(feat_mod.build_slate_features).count(
+          "pace_plays_min_home") == 1,
+      "one _per_side read, mirrored in build_game_features and "
+      "build_slate_features so serving can never drift from training")
+check("pace levels are real ladder columns, not synthesized in a view",
+      "srt[\"pace_plays_min\"]" in _pace_src
+      and all(v not in _pace_src.split("def tree_view")[1][:400]
+              for v in ("pace_plays_min_home", "pace_plays_min_away")),
+      "tree_view stays a pure projection of the master list")
 
 _injury_status_cases = [
     ("Out", 0.0), ("IR", 0.0), ("Doubtful", 0.0),
@@ -2684,6 +2718,111 @@ try:
 except Exception as exc:  # noqa: BLE001
     import traceback
     check("structural-parity remediation section runs", False,
+          f"{type(exc).__name__}: {exc}")
+    traceback.print_exc()
+
+
+# ---- Consumption smoke: the pace levels reach BOTH models, and the run ----
+# ---- line inherits them dynamically (the MLB structure).           ----
+# Contract membership and view routing were checked above; those are static.
+# What a contract edit can still get wrong is CONSUMPTION: a member fitted on
+# stale columns, or a run line that quietly kept its own feature list. Fit the
+# real member classes on a synthetic decided history with usable pace (pbp
+# rows only need game_id/posteam/yards_gained/game_seconds_remaining —
+# elapsed_min = (3600 - last gsr)/60) and assert the fitted feature names.
+try:
+    _sm_rng = np.random.default_rng(2026)
+    _sm_games = []
+    _sm_pbp_rows = []
+    _sm_start = pd.Timestamp("2023-09-07")
+    for _i in range(220):
+        _wk = _i // 16 + 1
+        _day = _sm_start + pd.Timedelta(days=int(_i * 7 / 16))
+        _gid = f"SM_{2023}_{_wk:02d}_{_i:03d}"
+        _hs, _as = int(_sm_rng.integers(0, 45)), int(_sm_rng.integers(0, 45))
+        _sm_games.append({
+            "game_id": _gid, "season": 2023, "week": _wk,
+            "gameday": _day, "gametime": "13:00",
+            "home_team": f"H{_i % 32:02d}", "away_team": f"A{_i % 32:02d}",
+            "home_score": _hs, "away_score": _as,
+            "stadium": "Synth Field", "roof": "outdoor",
+            "div_game": int(_i % 4 == 0)})
+        for _side, _team in (("home", f"H{_i % 32:02d}"),
+                             ("away", f"A{_i % 32:02d}")):
+            for _p in range(75):
+                _sm_pbp_rows.append({
+                    "game_id": _gid, "posteam": _team,
+                    "yards_gained": float(_sm_rng.integers(-2, 15)),
+                    "game_seconds_remaining": 3600.0 - _p * 0.8})
+    _sm_g = pd.DataFrame(_sm_games)
+    _sm_pbp = pd.DataFrame(_sm_pbp_rows)
+    _sm_feats = feat_mod.build_game_features(_sm_g, pbp=_sm_pbp)
+    _sm_feats = _sm_feats.sort_values("gameday").reset_index(drop=True)
+
+    _P = ("pace_plays_min_home", "pace_plays_min_away")
+    # PIT shape: the trailing primitive is rolling(min_periods=1).shift(1), so
+    # each team's FIRST appearance on a side carries exactly one prior-free
+    # NaN and every later row is finite. Assert that shape (not a coverage
+    # threshold): one NaN per distinct team on the side, and each NaN is that
+    # team's first row on that side.
+    def _pace_nan_shape(frame: pd.DataFrame, col: str, team_col: str) -> bool:
+        _nan = frame[frame[col].isna()]
+        _first = frame.drop_duplicates(team_col)[["game_id", team_col]]
+        _merged = _nan[["game_id", team_col]].merge(
+            _first, on=["game_id", team_col], how="left", indicator=True)
+        return (len(_nan) == frame[team_col].nunique()
+                and bool((_merged["_merge"] == "both").all()))
+    check("pace levels carry exactly one prior-free NaN per team-side",
+          _pace_nan_shape(_sm_feats, "pace_plays_min_home", "home_team")
+          and _pace_nan_shape(_sm_feats, "pace_plays_min_away", "away_team"),
+          str({c: round(float(_sm_feats[c].notna().mean()), 3) for c in _P}))
+
+    _sm_models, _ = ml_mod.fit_final_models(_sm_feats)
+    _tree_names = {n: list(getattr(m["model"], "feature_names_in_", []))
+                   for n, m in _sm_models.items()}
+    _linear = set(getattr(config, "LINEAR_MEMBERS", ()) ) or {"elasticnet", "mlp"}
+    check("every moneyline TREE member consumes both pace levels (linear never)",
+          all(set(_P) <= set(v) for n, v in _tree_names.items()
+              if n not in _linear)
+          and all(not (set(_P) & set(v)) for n, v in _tree_names.items()
+                  if n in _linear),
+          str({n: ("tree+pace" if set(_P) <= set(v) else
+                   "linear-no-pace" if not (set(_P) & set(v)) else "MISROUTED")
+               for n, v in _tree_names.items()}))
+
+    _sm_reg = dist_mod.ScoreRegressor().fit(_sm_feats)
+    _reg_names = list(getattr(_sm_reg.away_model, "feature_names_in_", []))
+    _act = list(config.active_moneyline_feature_cols())
+    check("the run-line regressor consumes both pace levels",
+          set(_P) <= set(_reg_names),
+          f"reg width={len(_reg_names)} contract={len(_act)}")
+    check("the run line's fitted matrix is the ACTIVE contract + team-ID pair",
+          _reg_names == _act + list(config.TREE_CATEGORICAL_COLS),
+          "the run line owns no feature list of its own")
+
+    # Dynamic inheritance (the MLB structure): shrink the ACTIVE contract by
+    # the two pace levels, refit, and the run line follows without any code
+    # change — then reset and confirm it follows back.
+    _shrunk = [c for c in _act if c not in _P]
+    config.set_feature_subset(_shrunk)
+    try:
+        _sm_reg2 = dist_mod.ScoreRegressor().fit(_sm_feats)
+        _reg2 = list(getattr(_sm_reg2.away_model, "feature_names_in_", []))
+        check("shrinking the contract drops the pace levels from the run line",
+              _reg2 == _shrunk + list(config.TREE_CATEGORICAL_COLS)
+              and not (set(_P) & set(_reg2)))
+        _ml2 = ml_mod.fit_final_models(_sm_feats)[0]
+        check("the moneyline tree members follow the same shrink",
+              all(not (set(_P) & set(getattr(m["model"], "feature_names_in_", [])))
+                  for m in _ml2.values()))
+    finally:
+        config.reset_feature_subset()
+    _sm_reg3 = dist_mod.ScoreRegressor().fit(_sm_feats)
+    check("resetting the contract restores the pace levels in the run line",
+          set(_P) <= set(getattr(_sm_reg3.away_model, "feature_names_in_", [])))
+except Exception as exc:  # noqa: BLE001
+    import traceback
+    check("pace consumption smoke runs", False,
           f"{type(exc).__name__}: {exc}")
     traceback.print_exc()
 
